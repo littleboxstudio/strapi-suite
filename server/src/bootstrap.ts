@@ -50,7 +50,7 @@ const bootstrap = async ({ strapi }: { strapi: Core.Strapi }) => {
           module: "slug",
           property: 'showDefaultLanguage',
           type: 'boolean',
-          value: 'true',
+          value: 'false',
         },
         {
           module: "template",

@@ -8,7 +8,7 @@ import UpdateSetting from '../core/usecases/updateSetting';
 import { useSettings } from '../contexts/settings';
 
 const SlugSettingsModal = ({ open, close }: any) => {
-  const [module, setModule] = useState(config.uuid.modules.menu);
+  const [module, setModule] = useState(config.uuid.modules.slug);
   const [hidden, setHidden] = useState(true);
   const [checked, setChecked] = useState(true);
   const { formatMessage } = useIntl();
