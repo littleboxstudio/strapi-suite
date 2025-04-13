@@ -67,12 +67,13 @@ const SlugModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
       ctx.status = 400;
       return;
     };
+    const locale = ctx.query.locale as string;
     const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
     const slug = (<string>ctx.query.slug).replace(/^\/|\/$/g, '');
     const pages = await strapi.db.query(config.uuid.modules.slug).findMany({
       where: {
+        locale,
         state: "published",
-        locale: ctx.query.locale,
         slug: slug.split("/")
       }
     });
@@ -88,7 +89,7 @@ const SlugModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
     if (properties && properties.includes('attributes')) {
       const attributes = await strapi.db.query(config.uuid.modules.attribute).findOne({
         where: {
-          locale: ctx.query.locale,
+          locale,
           contentId: page.contentId,
           contentModel: page.contentModel,
           state: "published"
@@ -112,9 +113,10 @@ const SlugModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
       }
     }
     const document = await strapi.documents(page.contentModel).findOne({
-      documentId: page.contentId,
+      locale,
       populate: '*',
-      status: 'published'
+      status: 'published',
+      documentId: page.contentId,
     });
     for(const localization of document.localizations) { 
       localization.slug = await getSlugByDocumentId({
