@@ -1,0 +1,42 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_template_items",
+  "info": {
+    "singularName": "ltb-st-module-template-item",
+    "pluralName": "ltb-st-module-template-items",
+    "displayName": "Littlebox Strapi Suite - Template",
+    "description": "Model for managing Littlebox Strapi Suite Template"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "uid": {
+      "type": "string",
+      "private": false
+    },
+    "name": {
+      "type": "string",
+      "private": false
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  },
+  "indexes": [
+    {
+      "name": "unique_uid",
+      "columns": ["uid"],
+      "type": "unique"
+    }
+  ]
+}

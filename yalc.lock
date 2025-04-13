@@ -1,0 +1,9 @@
+{
+  "version": "v1",
+  "packages": {
+    "@littlebox/strapi-suite": {
+      "signature": "64493ee5b7af94153612fdb90491a343",
+      "file": true
+    }
+  }
+}

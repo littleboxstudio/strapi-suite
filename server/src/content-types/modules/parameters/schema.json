@@ -1,0 +1,46 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_parameter_items",
+  "info": {
+    "singularName": "ltb-st-module-parameter-item",
+    "pluralName": "ltb-st-module-parameter-items",
+    "displayName": "Littlebox Strapi Suite - Parameter",
+    "description": "Model for managing Littlebox Strapi Suite Parameter"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "uid": {
+      "type": "string",
+      "private": false
+    },
+    "value": {
+      "type": "string",
+      "private": false
+    },
+    "private": {
+      "type": "boolean",
+      "private": false
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  },
+  "indexes": [
+    {
+      "name": "unique_uid",
+      "columns": ["uid"],
+      "type": "unique"
+    }
+  ]
+}
