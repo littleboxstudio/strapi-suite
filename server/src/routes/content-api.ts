@@ -25,5 +25,14 @@ export default [
       policies: [],
       auth: false,
     },
+  },
+  {
+    method: 'GET',
+    path: '/modules/parameters',
+    handler: 'ParameterModuleController.getParameters',
+    config: {
+      policies: [],
+      auth: false,
+    },
   }
 ];
