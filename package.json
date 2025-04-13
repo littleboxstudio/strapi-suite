@@ -1,6 +1,17 @@
 {
   "version": "1.0.28",
-  "keywords": [],
+  "keywords": [
+    "strapi",
+    "strapi plugin",
+    "custom fields",
+    "uid",
+    "translations",
+    "slugs",
+    "menus",
+    "parameters",
+    "page attributes",
+    "sitemap"
+  ],
   "type": "commonjs",
   "exports": {
     "./package.json": "./package.json",
@@ -76,8 +87,26 @@
     "displayName": "Littlebox Strapi Suite",
     "description": "Frontend integration made easy. Use the Littlebox Strapi Suite plugin to enhance the admin panel with powerful tools that simplify content management and frontend integration."
   },
+  "repository": {
+    "url": "git+https://github.com/littleboxstudio/strapi-suite.git",
+    "type": "git",
+    "directory": "."
+  },
+  "homepage": "https://github.com/littleboxstudio/strapi-suite",
+  "readme": "https://github.com/littleboxstudio/strapi-suite#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "name": "@littlebox/strapi-suite",
   "description": "Frontend integration made easy. Use the Littlebox Strapi Suite plugin to enhance the admin panel with powerful tools that simplify content management and frontend integration.",
   "license": "MIT",
-  "author": "Littlebox <dontworry@littlebox.pt>"
+  "author": {
+    "name": "Littlebox",
+    "email": "dontworry@littlebox.pt",
+    "url": "https://github.com/littleboxstudio"
+  },
+  "engines": {
+    "node": ">=18.0.0 <=20.x.x",
+    "npm": ">=6.0.0"
+  }
 }

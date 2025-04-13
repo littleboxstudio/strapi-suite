@@ -1,7 +1,7 @@
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID, LtbConfigs } from '../../config';
 
-interface TranslationItem {
+export interface TranslationItem {
   id: number;
   uid: string;
   translations: Record<string, string>;

@@ -27,14 +27,14 @@ const HomePage = () => {
           variant="tertiary"
           style={{ marginRight: '10px' }}
           endIcon={<ExternalLink />}
-          onClick={() => window.open('https://littlebox.pt/strapi/docs', '_blank')}
+          onClick={() => window.open('https://strapi.littlebox.pt', '_blank')}
         >
           {formatMessage({ id: getTranslation('app.documentation') })}
         </Button>
         <Button
           variant="tertiary"
           endIcon={<ExternalLink />}
-          onClick={() => window.open('https://littlebox.pt/strapi', '_blank')}
+          onClick={() => window.open('https://littlebox.pt', '_blank')}
         >
           {formatMessage({ id: getTranslation('app.website-cta') })}
         </Button>
