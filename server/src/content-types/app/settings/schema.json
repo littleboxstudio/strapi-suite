@@ -1,0 +1,50 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_app_setting",
+  "info": {
+    "singularName": "ltb-st-app-setting",
+    "pluralName": "ltb-st-app-settings",
+    "displayName": "Littlebox Strapi Suite - Settings",
+    "description": "Model for managing Littlebox Strapi Suite plugins settings"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "module": {
+      "type": "string",
+      "private": false
+    },
+    "property": {
+      "type": "string",
+      "private": false
+    },
+    "type": {
+      "type": "string",
+      "private": false
+    },
+    "value": {
+      "type": "string",
+      "private": false
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  },
+  "indexes": [
+    {
+      "name": "unique_module_property",
+      "columns": ["module", "property"],
+      "type": "unique"
+    }
+  ]
+}

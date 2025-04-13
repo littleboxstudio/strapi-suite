@@ -1,0 +1,70 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_menu_children_items",
+  "info": {
+    "singularName": "ltb-st-module-menu-children-item",
+    "pluralName": "ltb-st-module-menu-children-items",
+    "displayName": "Littlebox Strapi Suite - Menu Children",
+    "description": "Model for managing Littlebox Strapi Suite Menu Children"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "menuId": {
+      "type": "string",
+      "private": false
+    },
+    "parentId": {
+      "type": "string",
+      "private": false
+    },
+    "title": {
+      "type": "string",
+      "private": false
+    },
+    "url": {
+      "type": "string",
+      "private": false
+    },
+    "contentId": {
+      "type": "string",
+      "private": false
+    },
+    "contentModel": {
+      "type": "string",
+      "private": false
+    },
+    "target": {
+      "type": "string",
+      "private": false
+    },
+    "order": {
+      "type": "integer",
+      "default": 0,
+      "private": false
+    },
+    "metadata": {
+      "type": "json",
+      "private": false
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  },
+  "indexes": [
+    {
+      "name": "menu_id",
+      "columns": ["menu_id"]
+    }
+  ]
+}

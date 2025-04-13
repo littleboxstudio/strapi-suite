@@ -1,0 +1,74 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_attribute_items",
+  "info": {
+    "singularName": "ltb-st-module-attribute-item",
+    "pluralName": "ltb-st-module-attribute-items",
+    "displayName": "Littlebox Strapi Suite - Attribute",
+    "description": "Model for managing Littlebox Strapi Suite Attribute"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "state": {
+      "type": "string",
+      "private": false
+    },
+    "contentId": {
+      "type": "string",
+      "private": false
+    },
+    "contentModel": {
+      "type": "string",
+      "private": false
+    },
+    "parentContentId": {
+      "type": "string",
+      "private": false
+    },
+    "parentContentModel": {
+      "type": "string",
+      "private": false
+    },
+    "templateId": {
+      "type": "string",
+      "private": false
+    },
+    "locale": {
+      "type": "string",
+      "private": false
+    },
+    "priority": {
+      "type": "string",
+      "private": false
+    },
+    "frequency": {
+      "type": "string",
+      "private": false
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  },
+  "indexes": [
+    {
+      "name": "unique_state_content_model_locale",
+      "columns": ["state", "content_id", "content_model", "locale"],
+      "type": "unique"
+    },
+    {
+      "name": "unique_template_id",
+      "columns": ["template_id"]
+    }
+  ]
+}

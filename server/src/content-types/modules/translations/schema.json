@@ -1,0 +1,54 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_translation_items",
+  "info": {
+    "singularName": "ltb-st-module-translation-item",
+    "pluralName": "ltb-st-module-translation-items",
+    "displayName": "Littlebox Strapi Suite - Translation",
+    "description": "Model for managing Littlebox Strapi Suite Translation"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "uid": {
+      "type": "string",
+      "private": false
+    },
+    "translation": {
+      "type": "string",
+      "private": false
+    },
+    "locale": {
+      "type": "string",
+      "private": false
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": true
+    }
+  },
+  "indexes": [
+    {
+      "name": "unique_uid_locale",
+      "columns": ["uid", "locale"],
+      "type": "unique"
+    },
+    {
+      "name": "index_uid",
+      "columns": ["uid"]
+    },
+    {
+      "name": "index_translation",
+      "columns": ["translation"]
+    }
+  ]
+}
