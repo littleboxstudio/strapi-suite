@@ -22,6 +22,12 @@ const SlugModuleController = ({ strapi }: { strapi: Core.Strapi }) => ({
       ? await service.getPage()
       : await service.getPages(); 
   },
+  async getHomePage() {
+    return await strapi
+      .plugin(PLUGIN_ID)
+      .service('SlugModuleService')
+      .getHomePage();
+  },
 });
 
 export default SlugModuleController;

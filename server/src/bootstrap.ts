@@ -12,8 +12,9 @@ import {
 } from './lifecycles';
 
 const bootstrap = async ({ strapi }: { strapi: Core.Strapi }) => {
+  const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
+  
   try {
-    const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`)
     await strapi.db.query(config.uuid.app.setting).createMany({
       data: [
         {
@@ -61,9 +62,27 @@ const bootstrap = async ({ strapi }: { strapi: Core.Strapi }) => {
       ],
     });
   } catch (e) { }
+  
+  try {
+    await strapi.db.query(config.uuid.app.setting).createMany({
+      data: [
+        {
+          module: "slug",
+          property: 'homepageContentId',
+          type: 'string',
+          value: null,
+        },
+        {
+          module: "slug",
+          property: 'homepageContentModel',
+          type: 'string',
+          value: null,
+        }
+      ],
+    });
+  } catch (e) { }
 
   try {
-    const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`)
     await strapi.db.query(config.uuid.modules.template).createMany({
       data: [
         {

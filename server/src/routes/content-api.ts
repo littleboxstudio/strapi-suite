@@ -13,6 +13,16 @@ export default [
   },
   {
     method: 'GET',
+    path: '/modules/pages/home',
+    handler: 'SlugModuleController.getHomePage',
+    config: {
+      middlewares: [`plugin::${PLUGIN_ID}.check-module-is-active`],
+      policies: ['check-api-token'],
+      auth: false,
+    },
+  },
+  {
+    method: 'GET',
     path: '/modules/menus',
     handler: 'MenuModuleController.getMenus',
     config: {

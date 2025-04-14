@@ -41,11 +41,13 @@ const SlugSettingsPage = () => {
   const [filteredRecords, setFilteredRecords] = useState<OutputFetchSlugs[]>([]);
   const [i18nLocales, setI18nLocales] = useState<OutputFetchLocales[]>([]);
   const [currentI18nLocale, setCurrentI18nLocale] = useState<OutputFetchLocales>();
+  const [defaultLocale, setDefaultLocale] = useState<OutputFetchLocales>();
   const [fetchInProgress, setFetchInProgress] = useState(true);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [selectedRecords, setSelectedRecords] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [currentHomePage, setCurrentHomePage] = useState();
   const { formatMessage } = useIntl();
   const settings = useSettings();
 
@@ -69,7 +71,9 @@ const SlugSettingsPage = () => {
   async function fetchLocales() {
     const fetchLocales = new FetchLocales();
     const fetchLocalesOutput = await fetchLocales.execute();
+    const defaultLocale = fetchLocalesOutput.find((locale) => locale.isDefault);
     setI18nLocales(fetchLocalesOutput);
+    setDefaultLocale(defaultLocale);
   }
 
   async function fetchRecords() {
@@ -120,6 +124,11 @@ const SlugSettingsPage = () => {
     return parent?.contentTitle;
   }
 
+  function getCurrentHomePage() {
+    const currentHomePage = settings.provide('slug').homepageContentId;
+    setCurrentHomePage(currentHomePage);
+  }
+
   useEffect(() => {
     const timer = setTimeout(() => {
       if (records.length > 0) {
@@ -142,6 +151,10 @@ const SlugSettingsPage = () => {
       fetchRecords();
     }
   }, [currentI18nLocale]);
+
+  useEffect(() => {
+    getCurrentHomePage();
+  }, [settings]);
 
   useEffect(() => {
     fetchLocales();
@@ -310,7 +323,25 @@ const SlugSettingsPage = () => {
                     <Typography textColor="neutral800">{entry.slug}</Typography>
                   </Td>
                   <Td>
-                    <Typography textColor="neutral800">{entry.contentTitle}</Typography>
+                    <Box style={{ display: 'flex', alignItems: 'center' }}>
+                      {entry.contentId === currentHomePage && (
+                        <Box
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            backgroundColor: '#7b79ff',
+                            color: '#fff',
+                            borderRadius: '4px',
+                            padding: '3px 8px',
+                            marginRight: '10px',
+                          }}
+                        >
+                          <Typography variant="sigma">Homepage</Typography>
+                        </Box>
+                      )}
+                      <Typography textColor="neutral800">{entry.contentTitle}</Typography>
+                    </Box>
                   </Td>
                   <Td>
                     <Typography textColor="neutral800">
@@ -421,7 +452,11 @@ const SlugSettingsPage = () => {
           }),
         }}
       />
-      <SlugSettingsModal open={showSettingsModal} close={() => setShowSettingsModal(false)} />
+      <SlugSettingsModal
+        defaultLocale={defaultLocale as OutputFetchLocales}
+        open={showSettingsModal}
+        close={() => setShowSettingsModal(false)}
+      />
     </Main>
   );
 };

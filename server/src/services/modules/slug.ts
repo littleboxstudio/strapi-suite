@@ -161,20 +161,28 @@ const SlugModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
     const properties: any = ctx.query.properties;
     const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
     const defaultLocale = await strapi.plugin('i18n').service('locales').getDefaultLocale();
-    const setting = await strapi.db.query(config.uuid.app.setting).findOne({
+    const settings = await strapi.db.query(config.uuid.app.setting).findMany({
       where: {
         module: 'slug',
-        property: 'showDefaultLanguage'
+        property: ['showDefaultLanguage', 'homepageContentId', 'homepageContentModel']
       } 
     });
-    const showDefaultLanguage = setting.value === "true";
+    const showDefaultLanguage = settings.find(setting => setting.property === 'showDefaultLanguage').value === "true";
+    const homepageContentId = settings.find(setting => setting.property === 'homepageContentId').value;
+    const homepageContentModel = settings.find(setting => setting.property === 'homepageContentModel').value;
     const pages = await strapi.db.query(config.uuid.modules.slug).findMany({
       where: {
         state: "published"
       }
     });
     pages.forEach(page => {
-      page.fullSlug = buildFullSlug({ pages, page, defaultLocale, showDefaultLanguage });
+      if (homepageContentId === page.contentId && defaultLocale === page.locale) {
+        page.fullSlug = "";
+      } else if (homepageContentId === page.contentId && defaultLocale !== page.locale) {
+        page.fullSlug = page.locale;
+      } else { 
+        page.fullSlug = buildFullSlug({ pages, page, defaultLocale, showDefaultLanguage });
+      }
     });
     if (properties && properties.includes('attributes')) { 
       for (const page of pages) {
@@ -212,7 +220,75 @@ const SlugModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
       ...(page.attributes ? { attributes: page.attributes } : {})
     }));
     return mappedPages;
-  }
+  },
+
+  async getHomePage() {
+    const ctx = strapi.requestContext.get();
+    const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
+    const defaultLocale = await strapi.plugin('i18n').service('locales').getDefaultLocale();
+    const settings = await strapi.db.query(config.uuid.app.setting).findMany({
+      where: {
+        module: 'slug',
+        property: ['homepageContentId', 'homepageContentModel']
+      } 
+    });
+    const homepageContentId = settings.find(setting => setting.property === 'homepageContentId').value;
+    const homepageContentModel = settings.find(setting => setting.property === 'homepageContentModel').value;
+    const page = await strapi.db.query(config.uuid.modules.slug).findOne({
+      where: {
+        state: "published",
+        contentId: homepageContentId,
+        contentModel: homepageContentModel
+      }
+    });
+    if (!page) {
+      ctx.status = 404;
+      return;
+    }
+    const properties: any = ctx.query.properties;
+    if (properties && properties.includes('attributes')) {
+      const attributes = await strapi.db.query(config.uuid.modules.attribute).findOne({
+        where: {
+          locale: page.locale,
+          contentId: page.contentId,
+          contentModel: page.contentModel,
+          state: "published"
+        }
+      });
+      const template = attributes && attributes.templateId
+        ? await strapi.db.query(config.uuid.modules.template).findOne({
+          where: {
+            documentId: attributes.templateId
+          }
+        })
+        : null;
+      page.attributes = {
+        template: template?.uid || 'default',
+        priority: attributes?.priority || '0.5',
+        frequency: attributes?.frequency || 'weekly',
+        ...(attributes?.parentContentId
+          ? { parent: { id: attributes.parentContentId, model: attributes.parentContentModel }}
+          : {}
+        )
+      }
+    }
+    const document = await strapi.documents(page.contentModel).findOne({
+      locale: page.locale,
+      populate: '*',
+      status: 'published',
+      documentId: page.contentId,
+    });
+    for (const localization of document.localizations) { 
+      localization.slug = defaultLocale === localization.locale ? "" : localization.locale;
+    }
+    delete document.createdBy;
+    delete document.updatedBy;
+    document.slug = defaultLocale === page.locale ? "" : page.locale;
+    return {
+      document,
+      ...(page.attributes ? { attributes: page.attributes } : {})
+    }
+  },
 });
 
 export default SlugModuleService;

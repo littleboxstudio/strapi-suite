@@ -1,36 +1,91 @@
 import { useEffect, useState } from 'react';
-import { Dialog, IconButton, Flex, Typography, Box, Toggle } from '@strapi/design-system';
+import {
+  Dialog,
+  IconButton,
+  Flex,
+  Typography,
+  Box,
+  Toggle,
+  Loader,
+  Button,
+  SingleSelect,
+  SingleSelectOption,
+} from '@strapi/design-system';
 import { Cross } from '@strapi/icons';
 import { useIntl } from 'react-intl';
+import styled from 'styled-components';
+import { Output as OutputFetchLocales } from '../core/usecases/fetchLocales';
+import FetchSlugs, { Output as OutputFetchSlugs } from '../core/usecases/fetchSlugs';
 import { getTranslation } from '../core/utils/getTranslation';
 import config from '../core/config';
 import UpdateSetting from '../core/usecases/updateSetting';
 import { useSettings } from '../contexts/settings';
 
-const SlugSettingsModal = ({ open, close }: any) => {
+interface Props {
+  defaultLocale: OutputFetchLocales;
+  open: boolean;
+  close: () => void;
+}
+
+const BoxInput = styled(Box)`
+  & > div {
+    width: 100%;
+  }
+`;
+
+const SlugSettingsModal = ({ open, close, defaultLocale }: Props) => {
   const [module, setModule] = useState(config.uuid.modules.slug);
   const [hidden, setHidden] = useState(true);
-  const [checked, setChecked] = useState(true);
+  const [showDefaultLanguage, setShowDefaultLanguage] = useState(true);
+  const [selectedContent, setSelectedContent] = useState<OutputFetchSlugs>();
+  const [pages, setPages] = useState<OutputFetchSlugs[]>([]);
+  const [saveInProgress, setSaveInProgress] = useState(false);
   const { formatMessage } = useIntl();
   const settings = useSettings();
 
-  async function handleChange(event: any) {
-    setChecked(event.target.checked);
+  function updateSetting(property: string, value: any) {
     const updateSetting = new UpdateSetting();
-    await updateSetting.execute({
-      property: 'showDefaultLanguage',
-      module: module,
-      value: event.target.checked,
-    });
+    updateSetting.execute({ property, module, value });
   }
+
+  function handleChangeSelectedContent(value: any) {
+    const page = pages.find((page) => page.id == value);
+    setSelectedContent(page);
+  }
+
+  function save() {
+    updateSetting('showDefaultLanguage', showDefaultLanguage);
+    updateSetting('homepageContentId', selectedContent?.contentId);
+    updateSetting('homepageContentModel', selectedContent?.contentModel);
+    close();
+  }
+
+  async function fetchSlugs() {
+    const fetchSlugs = new FetchSlugs();
+    const outputFetchSlugs = await fetchSlugs.execute({ locale: defaultLocale.code });
+    setPages(outputFetchSlugs);
+  }
+
+  useEffect(() => {
+    if (defaultLocale) {
+      fetchSlugs();
+    }
+  }, [defaultLocale]);
 
   useEffect(() => {
     setHidden(!open);
   }, [open]);
 
   useEffect(() => {
-    setChecked(settings.provide('slug').showDefaultLanguage);
-  });
+    const currentShowDefaultLanguage = settings.provide('slug').showDefaultLanguage;
+    setShowDefaultLanguage(currentShowDefaultLanguage);
+  }, []);
+
+  useEffect(() => {
+    const currentHomePage = settings.provide('slug').homepageContentId;
+    const page = pages.find((page) => page.contentId == currentHomePage);
+    setSelectedContent(page);
+  }, [pages]);
 
   return (
     <>
@@ -62,7 +117,7 @@ const SlugSettingsModal = ({ open, close }: any) => {
                     })}
                   </Typography>
                 </span>
-                <span style={{ paddingBottom: '15px', color: '#a5a5ba', display: 'flex' }}>
+                <span style={{ paddingBottom: '5px', color: '#a5a5ba', display: 'flex' }}>
                   <Typography variant="pi">
                     {formatMessage({
                       id: getTranslation(
@@ -72,9 +127,53 @@ const SlugSettingsModal = ({ open, close }: any) => {
                     })}
                   </Typography>
                 </span>
-                <Toggle onLabel="True" offLabel="False" checked={checked} onChange={handleChange} />
+                <Toggle
+                  onLabel="True"
+                  offLabel="False"
+                  checked={showDefaultLanguage}
+                  onChange={(e: any) => setShowDefaultLanguage(e.target.checked)}
+                />
+                <span style={{ paddingBottom: '5px', paddingTop: '24px' }}>
+                  <Typography variant="sigma">
+                    {formatMessage({
+                      id: getTranslation(`module.${module}.modal.settings.input.homepage.title`),
+                      defaultMessage: 'Home page',
+                    })}
+                  </Typography>
+                </span>
+                <span style={{ paddingBottom: '5px', color: '#a5a5ba', display: 'flex' }}>
+                  <Typography variant="pi">
+                    {formatMessage({
+                      id: getTranslation(
+                        `module.${module}.modal.settings.input.homepage.description`
+                      ),
+                      defaultMessage: 'The content that will be rendered as the homepage',
+                    })}
+                  </Typography>
+                </span>
+                <BoxInput style={{ flex: 1, display: 'flex', width: '100%', marginRight: '10px' }}>
+                  <SingleSelect
+                    onChange={(value: number) => handleChangeSelectedContent(value)}
+                    value={selectedContent?.id}
+                  >
+                    {pages.map((page: OutputFetchSlugs, index: number) => (
+                      <SingleSelectOption key={index} value={page.id}>
+                        {page.contentTitle}
+                      </SingleSelectOption>
+                    ))}
+                  </SingleSelect>
+                </BoxInput>
               </Box>
             </Dialog.Body>
+            <Dialog.Footer style={{ justifyContent: 'end' }}>
+              {saveInProgress && <Loader small />}
+              <Button style={{ marginRight: '5px' }} onClick={save} disabled={saveInProgress}>
+                {formatMessage({
+                  id: getTranslation(`module.${module}.modal.settings.button.save`),
+                  defaultMessage: 'Save',
+                })}
+              </Button>
+            </Dialog.Footer>
           </Dialog.Content>
         </Dialog.Root>
       )}
