@@ -4,7 +4,7 @@ export default [
     path: '/modules/pages',
     handler: 'SlugModuleController.getPages',
     config: {
-      policies: [],
+      policies: ['check-api-token'],
       auth: false,
     },
   },
@@ -13,7 +13,7 @@ export default [
     path: '/modules/menus',
     handler: 'MenuModuleController.getMenus',
     config: {
-      policies: [],
+      policies: ['check-api-token'],
       auth: false,
     },
   },
@@ -22,7 +22,7 @@ export default [
     path: '/modules/translations',
     handler: 'TranslationModuleController.getTranslations',
     config: {
-      policies: [],
+      policies: ['check-api-token'],
       auth: false,
     },
   },
@@ -31,7 +31,7 @@ export default [
     path: '/modules/parameters',
     handler: 'ParameterModuleController.getParameters',
     config: {
-      policies: [],
+      policies: ['check-api-token'],
       auth: false,
     },
   }
