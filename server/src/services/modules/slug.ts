@@ -2,18 +2,36 @@ import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID, LtbConfigs } from '../../config';
 import { getSlugByDocumentId } from '../../utils/getSlugByDocumentId';
 
-function findItem(items, contentId, contentModel) {
-  return items.find(item => 
-    item.contentId === contentId && item.contentModel === contentModel
+function findItem(params: { pages, contentId, contentModel, locale }) {
+  return params.pages.find(page => 
+    page.contentId === params.contentId
+    && page.contentModel === params.contentModel
+    && page.locale === params.locale
   );
 }
 
-function buildFullSlug(items, item) {
-  if (!item.parentContentId || !item.parentContentModel) return item.slug;
-  const parent = findItem(items, item.parentContentId, item.parentContentModel);
-  if (!parent) return item.slug; 
-  const parentFullSlug = parent.fullSlug || buildFullSlug(items, parent);
-  return `${parentFullSlug}/${item.slug}`;
+function buildFullSlug(params: { pages, page, defaultLocale, showDefaultLanguage }) {
+  if (!params.page.parentContentId || !params.page.parentContentModel) { 
+    return (params.showDefaultLanguage || (!params.showDefaultLanguage && params.defaultLocale !== params.page.locale))
+      ? `${params.page.locale.toLowerCase()}/${params.page.slug}`
+      : params.page.slug
+  };
+  const parent = findItem({
+    pages: params.pages,
+    contentId: params.page.parentContentId,
+    contentModel: params.page.parentContentModel,
+    locale: params.page.locale
+  });
+  if (!parent) { 
+    return params.page.slug
+  }; 
+  const parentFullSlug = parent.fullSlug || buildFullSlug({
+    pages: params.pages,
+    page: parent,
+    defaultLocale: params.defaultLocale, 
+    showDefaultLanguage: params.showDefaultLanguage
+  });
+  return `${parentFullSlug}/${params.page.slug}`;
 }
 
 const SlugModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
@@ -63,22 +81,24 @@ const SlugModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
 
   async getPage() {
     const ctx = strapi.requestContext.get();
-    if (!ctx.query.locale) {
-      ctx.status = 400;
-      return;
-    };
-    const locale = ctx.query.locale as string;
     const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
     const slug = (<string>ctx.query.slug).replace(/^\/|\/$/g, '');
+    const defaultLocale = await strapi.plugin('i18n').service('locales').getDefaultLocale();
+    const setting = await strapi.db.query(config.uuid.app.setting).findOne({
+      where: {
+        module: 'slug',
+        property: 'showDefaultLanguage'
+      } 
+    });
+    const showDefaultLanguage = setting.value === "true";
     const pages = await strapi.db.query(config.uuid.modules.slug).findMany({
       where: {
-        locale,
         state: "published",
         slug: slug.split("/")
       }
     });
-    pages.forEach(item => {
-      item.fullSlug = buildFullSlug(pages, item);
+    pages.forEach(page => {
+      page.fullSlug = buildFullSlug({ pages, page, defaultLocale, showDefaultLanguage });
     });
     const page = pages.find(page => page.fullSlug === slug);
     if (!page) {
@@ -89,7 +109,7 @@ const SlugModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
     if (properties && properties.includes('attributes')) {
       const attributes = await strapi.db.query(config.uuid.modules.attribute).findOne({
         where: {
-          locale,
+          locale: page.locale,
           contentId: page.contentId,
           contentModel: page.contentModel,
           state: "published"
@@ -113,7 +133,7 @@ const SlugModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
       }
     }
     const document = await strapi.documents(page.contentModel).findOne({
-      locale,
+      locale: page.locale,
       populate: '*',
       status: 'published',
       documentId: page.contentId,
@@ -122,6 +142,8 @@ const SlugModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
       localization.slug = await getSlugByDocumentId({
         contentId: localization.documentId,
         locale: localization.locale,
+        defaultLocale,
+        showDefaultLanguage,
         strapi
       });
     }
@@ -138,13 +160,21 @@ const SlugModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
     const ctx = strapi.requestContext.get();
     const properties: any = ctx.query.properties;
     const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
+    const defaultLocale = await strapi.plugin('i18n').service('locales').getDefaultLocale();
+    const setting = await strapi.db.query(config.uuid.app.setting).findOne({
+      where: {
+        module: 'slug',
+        property: 'showDefaultLanguage'
+      } 
+    });
+    const showDefaultLanguage = setting.value === "true";
     const pages = await strapi.db.query(config.uuid.modules.slug).findMany({
       where: {
         state: "published"
       }
     });
-    pages.forEach(item => {
-      item.fullSlug = buildFullSlug(pages, item);
+    pages.forEach(page => {
+      page.fullSlug = buildFullSlug({ pages, page, defaultLocale, showDefaultLanguage });
     });
     if (properties && properties.includes('attributes')) { 
       for (const page of pages) {
@@ -178,6 +208,7 @@ const SlugModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
       id: page.contentId,
       model: page.contentModel,
       slug: page.fullSlug,
+      locale: page.locale,
       ...(page.attributes ? { attributes: page.attributes } : {})
     }));
     return mappedPages;
