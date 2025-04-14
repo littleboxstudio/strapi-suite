@@ -199,6 +199,14 @@ const MenuModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
       return;
     }
     const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
+    const defaultLocale = await strapi.plugin('i18n').service('locales').getDefaultLocale();
+    const setting = await strapi.db.query(config.uuid.app.setting).findOne({
+      where: {
+        module: 'slug',
+        property: 'showDefaultLanguage'
+      } 
+    });
+    const showDefaultLanguage = setting.value === "true";
     const documents = await strapi.db.query(config.uuid.modules.menu.main).findMany({
       where: {
         locale: ctx.query.locale,
@@ -225,8 +233,10 @@ const MenuModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
           });
           if (content) { 
             child.url = await getSlugByDocumentId({
-              locale,
               contentId: child.contentId,
+              defaultLocale,
+              showDefaultLanguage,
+              locale,
               strapi
             });
           }
