@@ -200,6 +200,11 @@ GET /api/littlebox-strapi-suite/modules/pages?slug=<SLUG>
 ```
 **Note**: The default language won't show up in the URL slug if the `SHOW LANGUAGE SLUG` setting is turned off in the slug module settings (see screenshot above).
 
+Using the slug module settings (as shown in the screenshot above), you can choose which content will be set as the homepage. Then, just call the API to get the data:
+```
+GET /api/littlebox-strapi-suite/modules/pages/home?properties=attributes
+```
+
 &nbsp;
 &nbsp;
 &nbsp;
