@@ -1,5 +1,8 @@
 import { UID } from "@strapi/strapi";
 export const PLUGIN_ID = 'littlebox-strapi-suite';
+
+export const SLUG_LANGUAGE_STRATEGY = "language";
+export const SLUG_CONTENT_STRATEGY = "content";
 export interface LtbConfigs { 
   pluginId: string;
   uuid: {

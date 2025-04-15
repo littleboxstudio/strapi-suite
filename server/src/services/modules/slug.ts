@@ -1,5 +1,5 @@
 import type { Core } from '@strapi/strapi';
-import { PLUGIN_ID, LtbConfigs } from '../../config';
+import { PLUGIN_ID, LtbConfigs, SLUG_LANGUAGE_STRATEGY } from '../../config';
 import { getSlugByDocumentId } from '../../utils/getSlugByDocumentId';
 
 function findItem(params: { pages, contentId, contentModel, locale }) {
@@ -83,24 +83,42 @@ const SlugModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
     const ctx = strapi.requestContext.get();
     const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
     const slug = (<string>ctx.query.slug).replace(/^\/|\/$/g, '');
+    const locales = await strapi.plugin('i18n').service('locales').find();
+    const mappedLocales = locales.map(locale => locale.code.toLowerCase());
     const defaultLocale = await strapi.plugin('i18n').service('locales').getDefaultLocale();
-    const setting = await strapi.db.query(config.uuid.app.setting).findOne({
+    const settings = await strapi.db.query(config.uuid.app.setting).findMany({
       where: {
         module: 'slug',
-        property: 'showDefaultLanguage'
+        property: ['showDefaultLanguage', 'homepageContentId', 'homepageContentModel', 'homepageSlugStrategy']
       } 
     });
-    const showDefaultLanguage = setting.value === "true";
-    const pages = await strapi.db.query(config.uuid.modules.slug).findMany({
-      where: {
-        state: "published",
-        slug: slug.split("/")
-      }
-    });
-    pages.forEach(page => {
-      page.fullSlug = buildFullSlug({ pages, page, defaultLocale, showDefaultLanguage });
-    });
-    const page = pages.find(page => page.fullSlug === slug);
+    const showDefaultLanguage = settings.find(setting => setting.property === 'showDefaultLanguage').value === "true";
+    const homepageContentId = settings.find(setting => setting.property === 'homepageContentId').value;
+    const homepageSlugStrategy = settings.find(setting => setting.property === 'homepageSlugStrategy').value;
+    const homepageContentModel = settings.find(setting => setting.property === 'homepageContentModel').value;
+    let page;
+    if (homepageSlugStrategy === SLUG_LANGUAGE_STRATEGY && mappedLocales.includes(slug)) {
+      page = await strapi.db.query(config.uuid.modules.slug).findOne({
+        where: {
+          state: "published",
+          contentId: homepageContentId,
+          contentModel: homepageContentModel,
+          locale: slug
+        }
+      });
+      page.fullSlug = slug;
+    } else { 
+      const pages = await strapi.db.query(config.uuid.modules.slug).findMany({
+        where: {
+          state: "published",
+          slug: slug.split("/")
+        }
+      });
+      pages.forEach(page => {
+        page.fullSlug = buildFullSlug({ pages, page, defaultLocale, showDefaultLanguage });
+      });
+      page = pages.find(page => page.fullSlug === slug);
+    }
     if (!page) {
       ctx.status = 404;
       return;
@@ -138,14 +156,18 @@ const SlugModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
       status: 'published',
       documentId: page.contentId,
     });
-    for(const localization of document.localizations) { 
-      localization.slug = await getSlugByDocumentId({
-        contentId: localization.documentId,
-        locale: localization.locale,
-        defaultLocale,
-        showDefaultLanguage,
-        strapi
-      });
+    for (const localization of document.localizations) { 
+      if (homepageSlugStrategy === SLUG_LANGUAGE_STRATEGY && localization.documentId === homepageContentId) {
+        localization.slug = localization.locale === defaultLocale ? "" : localization.locale.toLowerCase();
+      } else { 
+        localization.slug = await getSlugByDocumentId({
+          contentId: localization.documentId,
+          locale: localization.locale,
+          defaultLocale,
+          showDefaultLanguage,
+          strapi
+        });
+      }
     }
     delete document.createdBy;
     delete document.updatedBy;
@@ -164,22 +186,32 @@ const SlugModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
     const settings = await strapi.db.query(config.uuid.app.setting).findMany({
       where: {
         module: 'slug',
-        property: ['showDefaultLanguage', 'homepageContentId', 'homepageContentModel']
+        property: ['showDefaultLanguage', 'homepageContentId', 'homepageContentModel', 'homepageSlugStrategy']
       } 
     });
     const showDefaultLanguage = settings.find(setting => setting.property === 'showDefaultLanguage').value === "true";
     const homepageContentId = settings.find(setting => setting.property === 'homepageContentId').value;
     const homepageContentModel = settings.find(setting => setting.property === 'homepageContentModel').value;
+    const homepageSlugStrategy = settings.find(setting => setting.property === 'homepageSlugStrategy').value;
     const pages = await strapi.db.query(config.uuid.modules.slug).findMany({
       where: {
         state: "published"
       }
     });
     pages.forEach(page => {
-      if (homepageContentId === page.contentId && defaultLocale === page.locale) {
+      if (
+        homepageContentId === page.contentId
+        && homepageContentModel === page.contentModel
+        && defaultLocale === page.locale
+      ) {
         page.fullSlug = "";
-      } else if (homepageContentId === page.contentId && defaultLocale !== page.locale) {
-        page.fullSlug = page.locale;
+      } else if (
+        homepageContentId === page.contentId
+        && homepageContentModel === page.contentModel
+        && defaultLocale !== page.locale
+        && homepageSlugStrategy === SLUG_LANGUAGE_STRATEGY
+      ) {
+        page.fullSlug = page.locale.toLowerCase();
       } else { 
         page.fullSlug = buildFullSlug({ pages, page, defaultLocale, showDefaultLanguage });
       }
@@ -213,13 +245,39 @@ const SlugModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
       }
     }
     const mappedPages = pages.map(page => ({
-      id: page.contentId,
-      model: page.contentModel,
-      slug: page.fullSlug,
-      locale: page.locale,
-      ...(page.attributes ? { attributes: page.attributes } : {})
+      ...page,
+      ...(page.attributes ? { attributes: page.attributes } : {}),
+      localizations: []
     }));
-    return mappedPages;
+    const rootItems = mappedPages.filter(item => item.locale === defaultLocale);
+    const mappedItems: any[] = rootItems.map(rootItem => {
+      const relatedItems = mappedPages.filter(item => 
+        item.contentId === rootItem.contentId && 
+        item.contentModel === rootItem.contentModel && 
+        item.locale !== defaultLocale
+      );
+      return {
+        id: rootItem.id,
+        documentId: rootItem.contentId,
+        slug: rootItem.fullSlug, 
+        locale: rootItem.locale,
+        createdAt: rootItem.updatedAt,
+        updatedAt: rootItem.updatedAt,
+        publishedAt: rootItem.updatedAt,
+        ...(rootItem.attributes ? { attributes: rootItem.attributes } : {}),
+        localizations: relatedItems.map(item => ({
+          id: item.id,
+          documentId: item.contentId,
+          slug: item.fullSlug, 
+          locale: item.locale,
+          createdAt: item.updatedAt,
+          updatedAt: item.updatedAt,
+          publishedAt: item.updatedAt,
+          ...(item.attributes ? { attributes: item.attributes } : {}),
+        }))
+      };
+    });
+    return mappedItems;
   },
 
   async getHomePage() {
@@ -229,16 +287,19 @@ const SlugModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
     const settings = await strapi.db.query(config.uuid.app.setting).findMany({
       where: {
         module: 'slug',
-        property: ['homepageContentId', 'homepageContentModel']
+        property: ['showDefaultLanguage', 'homepageContentId', 'homepageContentModel', 'homepageSlugStrategy']
       } 
     });
+    const showDefaultLanguage = settings.find(setting => setting.property === 'showDefaultLanguage').value === "true";
     const homepageContentId = settings.find(setting => setting.property === 'homepageContentId').value;
     const homepageContentModel = settings.find(setting => setting.property === 'homepageContentModel').value;
+    const homepageSlugStrategy = settings.find(setting => setting.property === 'homepageSlugStrategy').value;
     const page = await strapi.db.query(config.uuid.modules.slug).findOne({
       where: {
         state: "published",
         contentId: homepageContentId,
-        contentModel: homepageContentModel
+        contentModel: homepageContentModel,
+        locale: defaultLocale
       }
     });
     if (!page) {
@@ -279,11 +340,21 @@ const SlugModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
       documentId: page.contentId,
     });
     for (const localization of document.localizations) { 
-      localization.slug = defaultLocale === localization.locale ? "" : localization.locale;
+      if (homepageSlugStrategy === SLUG_LANGUAGE_STRATEGY) {
+        localization.slug = localization.locale === defaultLocale ? "" : localization.locale.toLowerCase();
+      } else { 
+        localization.slug = await getSlugByDocumentId({
+          contentId: localization.documentId,
+          locale: localization.locale,
+          defaultLocale,
+          showDefaultLanguage,
+          strapi
+        });
+      }
     }
     delete document.createdBy;
     delete document.updatedBy;
-    document.slug = defaultLocale === page.locale ? "" : page.locale;
+    document.slug = "";
     return {
       document,
       ...(page.attributes ? { attributes: page.attributes } : {})

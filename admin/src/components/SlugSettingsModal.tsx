@@ -8,6 +8,7 @@ import {
   Toggle,
   Loader,
   Button,
+  Card,
   SingleSelect,
   SingleSelectOption,
 } from '@strapi/design-system';
@@ -17,7 +18,7 @@ import styled from 'styled-components';
 import { Output as OutputFetchLocales } from '../core/usecases/fetchLocales';
 import FetchSlugs, { Output as OutputFetchSlugs } from '../core/usecases/fetchSlugs';
 import { getTranslation } from '../core/utils/getTranslation';
-import config from '../core/config';
+import config, { SLUG_LANGUAGE_STRATEGY, SLUG_CONTENT_STRATEGY } from '../core/config';
 import UpdateSetting from '../core/usecases/updateSetting';
 import { useSettings } from '../contexts/settings';
 
@@ -38,6 +39,7 @@ const SlugSettingsModal = ({ open, close, defaultLocale }: Props) => {
   const [hidden, setHidden] = useState(true);
   const [showDefaultLanguage, setShowDefaultLanguage] = useState(true);
   const [selectedContent, setSelectedContent] = useState<OutputFetchSlugs>();
+  const [selectedStrategy, setSelectedStrategy] = useState(SLUG_LANGUAGE_STRATEGY);
   const [pages, setPages] = useState<OutputFetchSlugs[]>([]);
   const [saveInProgress, setSaveInProgress] = useState(false);
   const { formatMessage } = useIntl();
@@ -57,6 +59,7 @@ const SlugSettingsModal = ({ open, close, defaultLocale }: Props) => {
     updateSetting('showDefaultLanguage', showDefaultLanguage);
     updateSetting('homepageContentId', selectedContent?.contentId);
     updateSetting('homepageContentModel', selectedContent?.contentModel);
+    updateSetting('homepageSlugStrategy', selectedStrategy);
     close();
   }
 
@@ -78,7 +81,9 @@ const SlugSettingsModal = ({ open, close, defaultLocale }: Props) => {
 
   useEffect(() => {
     const currentShowDefaultLanguage = settings.provide('slug').showDefaultLanguage;
+    const currentHomepageSlugStrategy = settings.provide('slug').homepageSlugStrategy;
     setShowDefaultLanguage(currentShowDefaultLanguage);
+    setSelectedStrategy(currentHomepageSlugStrategy);
   }, []);
 
   useEffect(() => {
@@ -107,51 +112,49 @@ const SlugSettingsModal = ({ open, close, defaultLocale }: Props) => {
             </Dialog.Header>
             <Dialog.Body>
               <Box style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
-                <span style={{ paddingBottom: '5px' }}>
-                  <Typography variant="sigma">
-                    {formatMessage({
-                      id: getTranslation(
-                        `module.${module}.modal.settings.input.default-language.title`
-                      ),
-                      defaultMessage: 'Show language slug',
-                    })}
-                  </Typography>
-                </span>
-                <span style={{ paddingBottom: '5px', color: '#a5a5ba', display: 'flex' }}>
-                  <Typography variant="pi">
-                    {formatMessage({
-                      id: getTranslation(
-                        `module.${module}.modal.settings.input.default-language.description`
-                      ),
-                      defaultMessage: 'Show language slug for default language in site url',
-                    })}
-                  </Typography>
-                </span>
+                <Typography variant="sigma" style={{ paddingBottom: '5px' }}>
+                  {formatMessage({
+                    id: getTranslation(
+                      `module.${module}.modal.settings.input.default-language.title`
+                    ),
+                    defaultMessage: 'Show language slug',
+                  })}
+                </Typography>
+                <Typography
+                  variant="pi"
+                  style={{ paddingBottom: '5px', color: '#a5a5ba', display: 'flex' }}
+                >
+                  {formatMessage({
+                    id: getTranslation(
+                      `module.${module}.modal.settings.input.default-language.description`
+                    ),
+                    defaultMessage: 'Show language slug for default language in site url',
+                  })}
+                </Typography>
                 <Toggle
                   onLabel="True"
                   offLabel="False"
                   checked={showDefaultLanguage}
                   onChange={(e: any) => setShowDefaultLanguage(e.target.checked)}
                 />
-                <span style={{ paddingBottom: '5px', paddingTop: '24px' }}>
-                  <Typography variant="sigma">
-                    {formatMessage({
-                      id: getTranslation(`module.${module}.modal.settings.input.homepage.title`),
-                      defaultMessage: 'Home page',
-                    })}
-                  </Typography>
-                </span>
-                <span style={{ paddingBottom: '5px', color: '#a5a5ba', display: 'flex' }}>
-                  <Typography variant="pi">
-                    {formatMessage({
-                      id: getTranslation(
-                        `module.${module}.modal.settings.input.homepage.description`
-                      ),
-                      defaultMessage: 'The content that will be rendered as the homepage',
-                    })}
-                  </Typography>
-                </span>
-                <BoxInput style={{ flex: 1, display: 'flex', width: '100%', marginRight: '10px' }}>
+                <Typography variant="sigma" style={{ paddingBottom: '5px', paddingTop: '24px' }}>
+                  {formatMessage({
+                    id: getTranslation(`module.${module}.modal.settings.input.homepage.title`),
+                    defaultMessage: 'Home page',
+                  })}
+                </Typography>
+                <Typography
+                  variant="pi"
+                  style={{ paddingBottom: '5px', color: '#a5a5ba', display: 'flex' }}
+                >
+                  {formatMessage({
+                    id: getTranslation(
+                      `module.${module}.modal.settings.input.homepage.description`
+                    ),
+                    defaultMessage: 'The content that will be rendered as the homepage',
+                  })}
+                </Typography>
+                <BoxInput style={{ flex: 1, display: 'flex', width: '100%' }}>
                   <SingleSelect
                     onChange={(value: number) => handleChangeSelectedContent(value)}
                     value={selectedContent?.id}
@@ -163,6 +166,71 @@ const SlugSettingsModal = ({ open, close, defaultLocale }: Props) => {
                     ))}
                   </SingleSelect>
                 </BoxInput>
+                <Typography variant="sigma" style={{ paddingBottom: '5px', paddingTop: '24px' }}>
+                  {formatMessage({
+                    id: getTranslation(
+                      `module.${module}.modal.settings.input.homepage-strategy.title`
+                    ),
+                    defaultMessage: 'Home page slug strategy',
+                  })}
+                </Typography>
+                <BoxInput style={{ flex: 1, display: 'flex', width: '100%' }}>
+                  <SingleSelect
+                    onChange={(value: string) => setSelectedStrategy(value)}
+                    value={selectedStrategy}
+                  >
+                    <SingleSelectOption value={SLUG_LANGUAGE_STRATEGY}>Language</SingleSelectOption>
+                    <SingleSelectOption value={SLUG_CONTENT_STRATEGY}>Content</SingleSelectOption>
+                  </SingleSelect>
+                </BoxInput>
+                <Card
+                  shadow={false}
+                  style={{
+                    marginTop: '10px',
+                    padding: '10px',
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="24"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      fill="#7b79ff"
+                      d="M12 0C5.383 0 0 5.383 0 12s5.383 12 12 12 12-5.383 12-12S18.617 0 12 0Zm1.154 18.456h-2.308V16.15h2.308v2.307Zm-.23-3.687h-1.847l-.346-9.23h2.538l-.346 9.23Z"
+                    ></path>
+                  </svg>
+                  {selectedStrategy === SLUG_LANGUAGE_STRATEGY && (
+                    <Typography
+                      variant="pi"
+                      style={{ color: '#a5a5ba', display: 'flex', marginLeft: '10px' }}
+                    >
+                      {formatMessage({
+                        id: getTranslation(
+                          `module.${module}.modal.settings.input.homepage-strategy.description.language`
+                        ),
+                        defaultMessage:
+                          'Use the language slug and ignore the content slug set as the homepage',
+                      })}
+                    </Typography>
+                  )}
+                  {selectedStrategy === SLUG_CONTENT_STRATEGY && (
+                    <Typography
+                      variant="pi"
+                      style={{ color: '#a5a5ba', display: 'flex', marginLeft: '10px' }}
+                    >
+                      {formatMessage({
+                        id: getTranslation(
+                          `module.${module}.modal.settings.input.homepage-strategy.description.content`
+                        ),
+                        defaultMessage: 'Use the slug of the content set as the homepage',
+                      })}
+                    </Typography>
+                  )}
+                </Card>
               </Box>
             </Dialog.Body>
             <Dialog.Footer style={{ justifyContent: 'end' }}>

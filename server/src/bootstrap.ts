@@ -77,6 +77,12 @@ const bootstrap = async ({ strapi }: { strapi: Core.Strapi }) => {
           property: 'homepageContentModel',
           type: 'string',
           value: null,
+        },
+        {
+          module: "slug",
+          property: 'homepageSlugStrategy',
+          type: 'string',
+          value: 'language',
         }
       ],
     });
