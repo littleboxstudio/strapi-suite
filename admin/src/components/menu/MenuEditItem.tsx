@@ -71,8 +71,6 @@ function MenuEditItem(props: {
   }
 
   function dispatchOnChangeEvent(form: Form) {
-    console.log('dispatchOnChangeEvent:');
-    console.log(form);
     if (
       !form ||
       (form && isEmpty(form.title)) ||
