@@ -204,6 +204,48 @@ Using the slug module settings (as shown in the screenshot above), you can choos
 ```
 GET /api/littlebox-strapi-suite/modules/pages/home?properties=attributes
 ```
+The return will be the content in the default language and the respective localizations:
+```
+{
+    "document": {
+        "id": 53,
+        "documentId": "un6hqh6smm657hwf0n06xm72",
+        "title": "Home PT",
+        "slug": "",
+        "createdAt": "2025-04-14T19:38:34.673Z",
+        "updatedAt": "2025-04-14T22:19:21.242Z",
+        "publishedAt": "2025-04-14T22:19:21.270Z",
+        "locale": "pt",
+        "localizations": [
+            {
+                "id": 59,
+                "documentId": "un6hqh6smm657hwf0n06xm72",
+                "title": "Home EN",
+                "slug": "en",
+                "createdAt": "2025-04-14T22:19:29.371Z",
+                "updatedAt": "2025-04-14T23:45:50.177Z",
+                "publishedAt": "2025-04-14T23:45:50.210Z",
+                "locale": "en"
+            },
+            {
+                "id": 61,
+                "documentId": "un6hqh6smm657hwf0n06xm72",
+                "title": "Home EU",
+                "slug": "en-eu",
+                "createdAt": "2025-04-15T10:49:50.490Z",
+                "updatedAt": "2025-04-15T10:49:51.244Z",
+                "publishedAt": "2025-04-15T10:49:51.263Z",
+                "locale": "en-EU"
+            }
+        ]
+    },
+    "attributes": {
+        "template": "default",
+        "priority": "0.5",
+        "frequency": "weekly"
+    }
+}
+```
 
 &nbsp;
 &nbsp;
@@ -271,56 +313,130 @@ GET /api/littlebox-strapi-suite/modules/pages?properties=attributes
 ```
 [
     {
-        "id": "wnzxub0s3ghckznjdkshgcw7",
-        "model": "api::page.page",
-        "slug": "news",
-        "locale": "en",
+        "id": 69,
+        "documentId": "un6hqh6smm657hwf0n06xm72",
+        "slug": "",
+        "locale": "pt",
+        "updatedAt": "2025-04-14T22:19:21.283Z",
         "attributes": {
             "template": "default",
-            "priority": "1.0",
+            "priority": "0.5",
             "frequency": "weekly"
-        }
+        },
+        "localizations": [
+            {
+                "id": 74,
+                "documentId": "un6hqh6smm657hwf0n06xm72",
+                "slug": "en",
+                "locale": "en",
+                "updatedAt": "2025-04-14T23:45:50.237Z",
+                "attributes": {
+                    "template": "default",
+                    "priority": "0.5",
+                    "frequency": "weekly"
+                }
+            },
+            {
+                "id": 76,
+                "documentId": "un6hqh6smm657hwf0n06xm72",
+                "slug": "en-eu",
+                "locale": "en-EU",
+                "updatedAt": "2025-04-15T10:49:51.275Z",
+                "attributes": {
+                    "template": "default",
+                    "priority": "0.5",
+                    "frequency": "weekly"
+                }
+            }
+        ]
     },
     {
-        "id": "wnzxub0s3ghckznjdkshgcw7",
-        "model": "api::page.page",
+        "id": 59,
+        "documentId": "wgobkq9xr8bxtdwz4bcjx69y",
+        "slug": "noticias/littlebox-suite-ajudou-me-a-construir-sites-mais-rapido",
+        "locale": "pt",
+        "updatedAt": "2025-04-13T23:58:16.975Z",
+        "attributes": {
+            "template": "default",
+            "priority": "0.5",
+            "frequency": "weekly",
+            "parent": {
+                "id": "p49dnxpwf5lcvd56dym1895d",
+                "model": "api::page.page"
+            }
+        },
+        "localizations": [
+            {
+                "id": 54,
+                "documentId": "wgobkq9xr8bxtdwz4bcjx69y",
+                "slug": "en/news/littlebox-suite-helped-me-build-websites-faster",
+                "locale": "en",
+                "updatedAt": "2025-04-13T23:11:36.047Z",
+                "attributes": {
+                    "template": "default",
+                    "priority": "0.5",
+                    "frequency": "weekly",
+                    "parent": {
+                        "id": "p49dnxpwf5lcvd56dym1895d",
+                        "model": "api::page.page"
+                    }
+                }
+            },
+            {
+                "id": 65,
+                "documentId": "wgobkq9xr8bxtdwz4bcjx69y",
+                "slug": "en-eu/news/littlebox-suite-helped-me-build-websites-faster",
+                "locale": "en-EU",
+                "updatedAt": "2025-04-14T01:15:31.193Z",
+                "attributes": {
+                    "template": "default",
+                    "priority": "0.9",
+                    "frequency": "weekly",
+                    "parent": {
+                        "id": "p49dnxpwf5lcvd56dym1895d",
+                        "model": "api::page.page"
+                    }
+                }
+            }
+        ]
+    },
+    {
+        "id": 68,
+        "documentId": "p49dnxpwf5lcvd56dym1895d",
         "slug": "noticias",
         "locale": "pt",
+        "updatedAt": "2025-04-14T20:10:06.388Z",
         "attributes": {
             "template": "default",
-            "priority": "1.0",
+            "priority": "0.5",
             "frequency": "weekly"
-        }
-    },
-    {
-        "id": "i111r5p3pa73r6tm71b7lh86",
-        "model": "api::page.page",
-        "slug": "news/littlebox-suite-helped-me-build-websites-faster",
-        "locale": "en",
-        "attributes": {
-            "template": "default",
-            "priority": "1.0",
-            "frequency": "yearly",
-            "parent": {
-                "id": "wnzxub0s3ghckznjdkshgcw7",
-                "model": "api::page.page"
+        },
+        "localizations": [
+            {
+                "id": 52,
+                "documentId": "p49dnxpwf5lcvd56dym1895d",
+                "slug": "en/news",
+                "locale": "en",
+                "updatedAt": "2025-04-13T23:11:21.477Z",
+                "attributes": {
+                    "template": "default",
+                    "priority": "0.5",
+                    "frequency": "weekly"
+                }
+            },
+            {
+                "id": 63,
+                "documentId": "p49dnxpwf5lcvd56dym1895d",
+                "slug": "en-eu/news",
+                "locale": "en-EU",
+                "updatedAt": "2025-04-14T01:15:01.792Z",
+                "attributes": {
+                    "template": "default",
+                    "priority": "0.9",
+                    "frequency": "daily"
+                }
             }
-        }
-    },
-    {
-        "id": "i111r5p3pa73r6tm71b7lh86",
-        "model": "api::page.page",
-        "slug": "pt/noticias/littlebox-suite-ajudou-me-a-construir-sites-mais-rapido",
-        "locale": "pt",
-        "attributes": {
-            "template": "default",
-            "priority": "1.0",
-            "frequency": "yearly",
-            "parent": {
-                "id": "wnzxub0s3ghckznjdkshgcw7",
-                "model": "api::page.page"
-            }
-        }
+        ]
     }
 ]
 ```
