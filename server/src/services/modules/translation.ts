@@ -10,13 +10,13 @@ export interface TranslationItem {
 function groupByUid(items: any[]): TranslationItem[] {
   const groupedMap = items.reduce<Record<string, TranslationItem>>((acc, item) => {
     if (acc[item.uid]) {
-      acc[item.uid].translations[item.locale] = item.translation;
+      acc[item.uid].translations[item.locale.toLowerCase()] = item.translation;
     } else {
       acc[item.uid] = {
         id: item.id,
         uid: item.uid,
         translations: {
-          [item.locale]: item.translation,
+          [item.locale.toLowerCase()]: item.translation,
         },
       };
     }
