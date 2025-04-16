@@ -54,19 +54,6 @@ const bootstrap = async ({ strapi }: { strapi: Core.Strapi }) => {
           value: 'false',
         },
         {
-          module: "template",
-          property: 'active',
-          type: 'boolean',
-          value: 'true',
-        },
-      ],
-    });
-  } catch (e) { }
-  
-  try {
-    await strapi.db.query(config.uuid.app.setting).createMany({
-      data: [
-        {
           module: "slug",
           property: 'homepageContentId',
           type: 'string',
@@ -83,7 +70,19 @@ const bootstrap = async ({ strapi }: { strapi: Core.Strapi }) => {
           property: 'homepageSlugStrategy',
           type: 'string',
           value: 'language',
-        }
+        },
+        {
+          module: "template",
+          property: 'active',
+          type: 'boolean',
+          value: 'true',
+        },
+        {
+          module: "locale",
+          property: 'active',
+          type: 'boolean',
+          value: 'true',
+        },
       ],
     });
   } catch (e) { }

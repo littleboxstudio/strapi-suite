@@ -50,5 +50,15 @@ export default [
       policies: ['check-api-token'],
       auth: false,
     },
+  },
+  {
+    method: 'GET',
+    path: '/modules/locales',
+    handler: 'LocalesModuleController.getLocales',
+    config: {
+      middlewares: [`plugin::${PLUGIN_ID}.check-module-is-active`],
+      policies: ['check-api-token'],
+      auth: false,
+    },
   }
 ];

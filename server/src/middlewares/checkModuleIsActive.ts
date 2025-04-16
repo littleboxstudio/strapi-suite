@@ -2,6 +2,7 @@ import { LtbConfigs, PLUGIN_ID } from '../config';
 
 function getModuleName(url: string) { 
   if (url.includes("/pages")) return 'slug';
+  if (url.includes("/locales")) return 'locale';
   if (url.includes("/parameters")) return 'parameter';
   if (url.includes("/translations")) return 'translation';
   if (url.includes("/menus")) return 'menu';

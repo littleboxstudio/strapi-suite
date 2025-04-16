@@ -5,6 +5,7 @@ import TemplateModuleController from './modules/template';
 import MenuModuleController from './modules/menu';
 import ParameterModuleController from './modules/parameter';
 import TranslationModuleController from './modules/translation';
+import LocalesModuleController from './modules/locales';
 
 export default {
   SettingAppController,
@@ -13,5 +14,6 @@ export default {
   TemplateModuleController,
   MenuModuleController,
   ParameterModuleController,
-  TranslationModuleController
+  TranslationModuleController,
+  LocalesModuleController
 };
