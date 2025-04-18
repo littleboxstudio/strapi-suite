@@ -6,7 +6,6 @@ function handleAttributes(attributes) {
   Object.keys(attributes).forEach((key) => {
     switch (attributes[key]['type']) { 
       case 'component':
-        if (query[key] = key === 'seo') return { populate: "*" };
         const componentData = strapi.components[attributes[key]['component']];
         query[key] = { populate: handleAttributes(componentData.attributes) }
         break;
