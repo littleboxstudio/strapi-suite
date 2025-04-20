@@ -30,8 +30,8 @@ const TranslationModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
     const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
     const documents = await strapi.db.query(config.uuid.modules.translation).findMany({
       orderBy: {
-        translation: 'asc'
-      }
+        translation: 'asc',
+      },
     });
     return documents || [];
   },
@@ -41,11 +41,11 @@ const TranslationModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
     const body = ctx.request.body;
     const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
     await strapi.db.query(config.uuid.modules.translation).createMany({
-      data: body
+      data: body,
     });
     ctx.status = 201;
     return;
-  }, 
+  },
 
   async adminBulkDelete() {
     const ctx = strapi.requestContext.get();
@@ -54,24 +54,24 @@ const TranslationModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
     const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
     await strapi.db.query(config.uuid.modules.translation).deleteMany({
       where: {
-        uid: body.uids
-      }
+        uid: body.uids,
+      },
     });
     ctx.status = 204;
     return;
   },
 
-  async adminEdit() { 
+  async adminEdit() {
     const ctx = strapi.requestContext.get();
     const body = ctx.request.body;
     const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
     await strapi.db.query(config.uuid.modules.translation).deleteMany({
       where: {
-        uid: ctx.params.uid
-      }
+        uid: ctx.params.uid,
+      },
     });
     await strapi.db.query(config.uuid.modules.translation).createMany({
-      data: body
+      data: body,
     });
     ctx.status = 204;
     return;
@@ -82,8 +82,8 @@ const TranslationModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
     const documents = await strapi.db.query(config.uuid.modules.translation).findMany({
       select: ['id', 'uid', 'translation', 'locale'],
       orderBy: {
-        translation: 'asc'
-      }
+        translation: 'asc',
+      },
     });
     return documents ? groupByUid(documents) : [];
   },

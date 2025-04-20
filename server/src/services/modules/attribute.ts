@@ -1,30 +1,37 @@
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID, LtbConfigs } from '../../config';
 
-async function fetchAdditionalData(params: { strapi: any, record: any, locale: string, config: LtbConfigs }) { 
+async function fetchAdditionalData(params: {
+  strapi: any;
+  record: any;
+  locale: string;
+  config: LtbConfigs;
+}) {
   const content = await params.strapi.documents(params.record.contentModel).findOne({
     status: 'published',
     documentId: params.record.contentId,
-    locale: params.locale
+    locale: params.locale,
   });
-  if (content) { 
-    params.record.contentTitle = content.title || `${content.documentId} | ${params.record.contentModel}`;
+  if (content) {
+    params.record.contentTitle =
+      content.title || `${content.documentId} | ${params.record.contentModel}`;
   }
   if (params.record.parentContentModel) {
     const parent = await params.strapi.documents(params.record.parentContentModel).findOne({
       status: 'published',
       documentId: params.record.parentContentId,
-      locale: params.locale
+      locale: params.locale,
     });
-    if (parent) { 
-      params.record.parentContentTitle = parent.title || `${parent.documentId} | ${params.record.parentContentModel}`;
+    if (parent) {
+      params.record.parentContentTitle =
+        parent.title || `${parent.documentId} | ${params.record.parentContentModel}`;
     }
   }
   if (params.record.templateId) {
     const template = await params.strapi.documents(params.config.uuid.modules.template).findOne({
       documentId: params.record.templateId,
     });
-    if (template) { 
+    if (template) {
       params.record.templateTitle = template.name;
     }
   }
@@ -39,11 +46,11 @@ const AttributeModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
     const records = await strapi.db.query(config.uuid.modules.attribute).findMany({
       where: {
         locale: ctx.query.locale,
-        state: "published"
+        state: 'published',
       },
       orderBy: {
-        id: 'desc'
-      }
+        id: 'desc',
+      },
     });
     const publishedResults = [];
     for (const record of records) {
@@ -63,8 +70,8 @@ const AttributeModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
       filters: {
         contentId: ctx.params.contentId,
         locale: ctx.query.locale,
-        state: ctx.query.state
-      }
+        state: ctx.query.state,
+      },
     });
     if (record) {
       await fetchAdditionalData({ strapi, record, locale, config });
@@ -85,18 +92,18 @@ const AttributeModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
       },
       data: {
         parentContentModel: null,
-        parentContentId: null
-      }
+        parentContentId: null,
+      },
     });
     await strapi.db.query(config.uuid.modules.attribute).deleteMany({
       where: {
         contentId: body.contentIds,
         locale: ctx.query.locale,
-      }
+      },
     });
     ctx.status = 204;
     return;
-  }
+  },
 });
 
 export default AttributeModuleService;

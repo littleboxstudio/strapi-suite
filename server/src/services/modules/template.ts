@@ -15,12 +15,12 @@ const TemplateModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
     await strapi.db.query(config.uuid.modules.template).create({
       data: {
         uid: body.uid,
-        name: body.name
-      }
+        name: body.name,
+      },
     });
     ctx.status = 201;
     return;
-  }, 
+  },
 
   async adminBulkDelete() {
     const ctx = strapi.requestContext.get();
@@ -29,29 +29,29 @@ const TemplateModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
     const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
     await strapi.db.query(config.uuid.modules.attribute).updateMany({
       where: {
-        templateId: body.documentIds
+        templateId: body.documentIds,
       },
       data: {
-        templateId: null
-      }
+        templateId: null,
+      },
     });
     await strapi.db.query(config.uuid.modules.template).deleteMany({
       where: {
-        documentId: body.documentIds
-      }
+        documentId: body.documentIds,
+      },
     });
     ctx.status = 204;
     return;
   },
 
-  async adminEdit() { 
+  async adminEdit() {
     const ctx = strapi.requestContext.get();
     const body = ctx.request.body;
     const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
     const document = await strapi.db.query(config.uuid.modules.template).findOne({
       where: {
-        documentId: ctx.params.documentId
-      }
+        documentId: ctx.params.documentId,
+      },
     });
     if (document) {
       await strapi.db.query(config.uuid.modules.template).update({
@@ -60,13 +60,13 @@ const TemplateModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
         },
         data: {
           uid: body.uid,
-          name: body.name
-        }
+          name: body.name,
+        },
       });
     }
     ctx.status = 204;
     return;
-  }
+  },
 });
 
 export default TemplateModuleService;

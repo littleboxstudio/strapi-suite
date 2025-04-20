@@ -4,12 +4,12 @@ import { arrayToTree } from '../../utils/arrayToTree';
 import { getSlugByDocumentId } from '../../utils/getSlugByDocumentId';
 
 async function createMenus(params: {
-  strapi: any,
-  documentId: any,
-  uid: string,
-  items: any,
-  parentId?: string
-}) { 
+  strapi: any;
+  documentId: any;
+  uid: string;
+  items: any;
+  parentId?: string;
+}) {
   for (const item of params.items) {
     const document = await params.strapi.db.query(params.uid).create({
       data: {
@@ -21,16 +21,16 @@ async function createMenus(params: {
         parentId: params.parentId || null,
         contentId: item.contentId || null,
         contentModel: item.contentModel || null,
-        metadata: item.metadata || {}
-      }
+        metadata: item.metadata || {},
+      },
     });
-    if (document && item.children) { 
+    if (document && item.children) {
       await createMenus({
         documentId: params.documentId,
         strapi: params.strapi,
         uid: params.uid,
         items: item.children,
-        parentId: document.id
+        parentId: document.id,
       });
     }
   }
@@ -46,8 +46,8 @@ const MenuModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
         locale: ctx.query.locale,
       },
       orderBy: {
-        id: 'desc'
-      }
+        id: 'desc',
+      },
     });
     return documents || [];
   },
@@ -57,8 +57,8 @@ const MenuModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
     const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
     const document = await strapi.db.query(config.uuid.modules.menu.main).findOne({
       where: {
-        documentId: ctx.params.documentId
-      }
+        documentId: ctx.params.documentId,
+      },
     });
     if (document) {
       const children = await strapi.db.query(config.uuid.modules.menu.children).findMany({
@@ -66,8 +66,8 @@ const MenuModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
           menuId: ctx.params.documentId,
         },
         orderBy: {
-          id: 'asc'
-        }
+          id: 'asc',
+        },
       });
       document.children = children || [];
     }
@@ -82,12 +82,12 @@ const MenuModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
       data: {
         uid: body.uid,
         title: body.title,
-        locale: body.locale
-      }
+        locale: body.locale,
+      },
     });
     ctx.status = 201;
     return;
-  }, 
+  },
 
   async adminBulkDelete() {
     const ctx = strapi.requestContext.get();
@@ -96,26 +96,26 @@ const MenuModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
     const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
     await strapi.db.query(config.uuid.modules.menu.main).deleteMany({
       where: {
-        documentId: body.documentIds
-      }
+        documentId: body.documentIds,
+      },
     });
     await strapi.db.query(config.uuid.modules.menu.children).deleteMany({
       where: {
-        menuId: body.documentIds
-      }
+        menuId: body.documentIds,
+      },
     });
     ctx.status = 204;
     return;
   },
 
-  async adminEdit() { 
+  async adminEdit() {
     const ctx = strapi.requestContext.get();
     const body = ctx.request.body;
     const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
     const document = await strapi.db.query(config.uuid.modules.menu.main).findOne({
       where: {
-        documentId: ctx.params.documentId
-      }
+        documentId: ctx.params.documentId,
+      },
     });
     if (document) {
       await strapi.db.query(config.uuid.modules.menu.main).update({
@@ -124,20 +124,20 @@ const MenuModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
         },
         data: {
           uid: body.uid || document.uid,
-          title: body.title || document.title
-        }
+          title: body.title || document.title,
+        },
       });
       await strapi.db.query(config.uuid.modules.menu.children).deleteMany({
         where: {
-          menuId: ctx.params.documentId
-        }
+          menuId: ctx.params.documentId,
+        },
       });
       if (body.children) {
         await createMenus({
           strapi,
           documentId: ctx.params.documentId,
           uid: config.uuid.modules.menu.children,
-          items: body.children
+          items: body.children,
         });
       }
     }
@@ -145,45 +145,43 @@ const MenuModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
     return;
   },
 
-  async adminDuplicate() { 
+  async adminDuplicate() {
     const ctx = strapi.requestContext.get();
     const body = ctx.request.body;
     const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
     const currentDocument = await strapi.db.query(config.uuid.modules.menu.main).findOne({
       where: {
-        documentId: body.documentId
-      }
+        documentId: body.documentId,
+      },
     });
-    if (currentDocument) { 
+    if (currentDocument) {
       const documentExist = await strapi.db.query(config.uuid.modules.menu.main).findOne({
         where: {
           uid: currentDocument.uid,
-          locale: body.locale
+          locale: body.locale,
         },
       });
-      const uid = documentExist
-        ? `${currentDocument.uid}-${Date.now()}`
-        : currentDocument.uid;
+      const uid = documentExist ? `${currentDocument.uid}-${Date.now()}` : currentDocument.uid;
       const duplicatedDocument = await strapi.db.query(config.uuid.modules.menu.main).create({
         data: {
           uid,
           title: currentDocument.title,
-          locale: body.locale
-        }
+          locale: body.locale,
+        },
       });
-      if (duplicatedDocument) { 
+      if (duplicatedDocument) {
         const currentChildren = await strapi.db.query(config.uuid.modules.menu.children).findMany({
           where: {
             menuId: body.documentId,
           },
         });
-        if (currentChildren && currentChildren.length > 0) { 
+        if (currentChildren && currentChildren.length > 0) {
           const items = arrayToTree(currentChildren);
           await createMenus({
             strapi,
             documentId: duplicatedDocument.documentId,
             uid: config.uuid.modules.menu.children,
-            items
+            items,
           });
         }
       }
@@ -194,7 +192,7 @@ const MenuModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
 
   async getMenus() {
     const ctx = strapi.requestContext.get();
-    if (!ctx.query.locale) { 
+    if (!ctx.query.locale) {
       ctx.status = 400;
       return;
     }
@@ -203,41 +201,41 @@ const MenuModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
     const setting = await strapi.db.query(config.uuid.app.setting).findOne({
       where: {
         module: 'slug',
-        property: 'showDefaultLanguage'
-      } 
+        property: 'showDefaultLanguage',
+      },
     });
-    const showDefaultLanguage = setting.value === "true";
+    const showDefaultLanguage = setting.value === 'true';
     const documents = await strapi.db.query(config.uuid.modules.menu.main).findMany({
       where: {
         locale: ctx.query.locale,
-      }
+      },
     });
-    for (const document of documents) { 
+    for (const document of documents) {
       const children = await strapi.db.query(config.uuid.modules.menu.children).findMany({
         where: {
           menuId: document.documentId,
         },
         orderBy: {
-          order: 'asc'
-        }
+          order: 'asc',
+        },
       });
       for (const child of children) {
-        if (child.contentId) { 
+        if (child.contentId) {
           const locale = ctx.query.locale as string;
           const content = await strapi.db.query(config.uuid.modules.slug).findOne({
             where: {
               locale,
               contentId: child.contentId,
-              contentModel: child.contentModel
-            }
+              contentModel: child.contentModel,
+            },
           });
-          if (content) { 
+          if (content) {
             child.url = await getSlugByDocumentId({
               contentId: child.contentId,
               defaultLocale,
               showDefaultLanguage,
               locale,
-              strapi
+              strapi,
             });
           }
         }
@@ -245,9 +243,7 @@ const MenuModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
         delete child.contentId;
         delete child.contentModel;
       }
-      document.children = children && children.length > 0
-        ? arrayToTree(children)
-        : [];
+      document.children = children && children.length > 0 ? arrayToTree(children) : [];
     }
     return documents || [];
   },

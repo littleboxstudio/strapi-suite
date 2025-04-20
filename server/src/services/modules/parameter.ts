@@ -6,8 +6,8 @@ const ParameterModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
     const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
     const documents = await strapi.db.query(config.uuid.modules.parameter).findMany({
       orderBy: {
-        id: 'desc'
-      }
+        id: 'desc',
+      },
     });
     return documents || [];
   },
@@ -21,11 +21,11 @@ const ParameterModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
         uid: body.uid,
         value: body.value,
         private: body.private,
-      }
+      },
     });
     ctx.status = 201;
     return;
-  }, 
+  },
 
   async adminBulkDelete() {
     const ctx = strapi.requestContext.get();
@@ -34,21 +34,21 @@ const ParameterModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
     const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
     await strapi.db.query(config.uuid.modules.parameter).deleteMany({
       where: {
-        documentId: body.documentIds
-      }
+        documentId: body.documentIds,
+      },
     });
     ctx.status = 204;
     return;
   },
 
-  async adminEdit() { 
+  async adminEdit() {
     const ctx = strapi.requestContext.get();
     const body = ctx.request.body;
     const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
     const document = await strapi.db.query(config.uuid.modules.parameter).findOne({
       where: {
-        documentId: ctx.params.documentId
-      }
+        documentId: ctx.params.documentId,
+      },
     });
     if (document) {
       await strapi.db.query(config.uuid.modules.parameter).update({
@@ -58,8 +58,8 @@ const ParameterModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
         data: {
           uid: body.uid,
           value: body.value,
-          private: body.private
-        }
+          private: body.private,
+        },
       });
     }
     ctx.status = 204;
@@ -74,8 +74,8 @@ const ParameterModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
         private: false,
       },
       orderBy: {
-        id: 'desc'
-      }
+        id: 'desc',
+      },
     });
     return documents || [];
   },
