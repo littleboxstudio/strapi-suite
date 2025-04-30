@@ -203,6 +203,7 @@ GET /api/littlebox-strapi-suite/modules/pages?slug=<SLUG>
 Using the slug module settings (as shown in the screenshot above), you can choose which content will be set as the homepage. Then, just call the API to get the data:
 ```
 GET /api/littlebox-strapi-suite/modules/pages/home?properties=attributes
+GET /api/littlebox-strapi-suite/modules/pages/home?properties=attributes,content
 ```
 The return will be the content in the default language and the respective localizations:
 ```
