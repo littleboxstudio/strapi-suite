@@ -4,6 +4,7 @@ import { getSlugByDocumentId } from '../../utils/getSlugByDocumentId';
 import { buildFullSlug } from '../../utils/buildFullSlug';
 import { buildBreadcrumbs } from '../../utils/buildBreadcrumbs';
 import { populateQueryFromContentType } from '../../utils/populateQueryFromContentType';
+import { findDocumentIdsAndFetchSlugs } from '../../utils/findDocumentIdsAndFetchSlugs';
 
 const SlugModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
   async adminGetAll() {
@@ -139,6 +140,12 @@ const SlugModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
       populate: query,
       status: 'published',
       documentId: page.contentId,
+    });
+    await findDocumentIdsAndFetchSlugs({
+      document, 
+      defaultLocale,
+      showDefaultLanguage,
+      strapi
     });
     for (const localization of document.localizations) {
       if (
@@ -355,12 +362,20 @@ const SlugModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
           : {}),
       };
     }
-    const query = populateQueryFromContentType(strapi, page.contentModel);
+    const query = properties && properties.includes('content')
+      ? populateQueryFromContentType(strapi, page.contentModel)
+      : { localizations: { populate: '*' } };
     const document = await strapi.documents(page.contentModel).findOne({
       locale: page.locale,
       populate: query,
       status: 'published',
       documentId: page.contentId,
+    });
+    await findDocumentIdsAndFetchSlugs({
+      document, 
+      defaultLocale,
+      showDefaultLanguage,
+      strapi
     });
     for (const localization of document.localizations) {
       if (homepageSlugStrategy === SLUG_LANGUAGE_STRATEGY) {

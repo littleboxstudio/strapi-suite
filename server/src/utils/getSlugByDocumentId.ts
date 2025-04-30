@@ -16,6 +16,7 @@ async function getSlugByDocumentId(params: {
       state: 'published',
     },
   });
+  if (!document) return null;
   if (document.parentContentId) {
     const parentSlug = await getSlugByDocumentId({
       contentId: document.parentContentId,
