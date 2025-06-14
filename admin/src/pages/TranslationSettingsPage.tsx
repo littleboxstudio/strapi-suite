@@ -179,6 +179,10 @@ const TranslationSettingsPage = () => {
       fetchRecords();
     };
     fetch();
+    const elemento = document.getElementById('main-content');
+    if (elemento && elemento.parentElement) {
+      elemento.parentElement.style.overflowX = 'hidden';
+    }
   }, []);
 
   return (
