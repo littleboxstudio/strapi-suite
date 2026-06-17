@@ -27,6 +27,17 @@ const HomePage = () => {
           variant="tertiary"
           style={{ marginRight: '10px' }}
           endIcon={<ExternalLink />}
+          onClick={() =>
+            window.open('https://www.npmjs.com/package/@littlebox/strapi-suite', '_blank')
+          }
+        >
+          1.0.47
+        </Button>
+        <Button
+          size="S"
+          variant="tertiary"
+          style={{ marginRight: '10px' }}
+          endIcon={<ExternalLink />}
           onClick={() => window.open('https://strapi-suite.littlebox.pt', '_blank')}
         >
           {formatMessage({ id: getTranslation('app.documentation') })}
