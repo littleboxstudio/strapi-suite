@@ -4,8 +4,8 @@ export default async (policyContext, config, { strapi }) => {
     return false;
   }
   const apiTokenService = strapi.services['admin::api-token'];
-  const accessKey = await apiTokenService.hash(bearerToken);
-  const storedToken = await apiTokenService.getBy({accessKey: accessKey});
+  const accessKey = apiTokenService.hash(bearerToken);
+  const storedToken = await apiTokenService.getByAccessKey(accessKey);
   if (!storedToken) {
     return false;
   }
