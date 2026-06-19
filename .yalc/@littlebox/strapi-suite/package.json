@@ -1,6 +1,17 @@
 {
-  "version": "1.0.28",
-  "keywords": [],
+  "version": "1.0.49",
+  "keywords": [
+    "strapi",
+    "strapi plugin",
+    "custom fields",
+    "uid",
+    "translations",
+    "slugs",
+    "menus",
+    "parameters",
+    "page attributes",
+    "sitemap"
+  ],
   "type": "commonjs",
   "exports": {
     "./package.json": "./package.json",
@@ -48,7 +59,7 @@
   },
   "peerDependencies": {
     "@strapi/sdk-plugin": "^5.3.2",
-    "@strapi/strapi": "^5.10.3",
+    "@strapi/strapi": "^5.48.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.29.0",
@@ -60,9 +71,27 @@
     "displayName": "Littlebox Strapi Suite",
     "description": "Frontend integration made easy. Use the Littlebox Strapi Suite plugin to enhance the admin panel with powerful tools that simplify content management and frontend integration."
   },
+  "repository": {
+    "url": "git+https://github.com/littleboxstudio/strapi-suite.git",
+    "type": "git",
+    "directory": "."
+  },
+  "homepage": "https://github.com/littleboxstudio/strapi-suite",
+  "readme": "https://github.com/littleboxstudio/strapi-suite#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "name": "@littlebox/strapi-suite",
   "description": "Frontend integration made easy. Use the Littlebox Strapi Suite plugin to enhance the admin panel with powerful tools that simplify content management and frontend integration.",
   "license": "MIT",
-  "author": "Littlebox <dontworry@littlebox.pt>",
-  "yalcSig": "64493ee5b7af94153612fdb90491a343"
+  "author": {
+    "name": "Littlebox",
+    "email": "dontworry@littlebox.pt",
+    "url": "https://github.com/littleboxstudio"
+  },
+  "engines": {
+    "node": ">=18.0.0 <=22.x.x",
+    "npm": ">=6.0.0"
+  },
+  "yalcSig": "3ed55719137db06bb785d12ea2d0f359"
 }

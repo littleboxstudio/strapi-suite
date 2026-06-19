@@ -31,7 +31,7 @@ const HomePage = () => {
             window.open('https://www.npmjs.com/package/@littlebox/strapi-suite', '_blank')
           }
         >
-          v1.0.49
+          v1.0.50
         </Button>
         <Button
           size="S"
