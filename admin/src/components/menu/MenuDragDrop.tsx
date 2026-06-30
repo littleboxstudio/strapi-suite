@@ -64,6 +64,14 @@ function MenuDragDrop(props: {
     return !!uidExist;
   }
 
+  function reindexOrder(items: Item[]): Item[] {
+    return items.map((item, index) => ({
+      ...item,
+      order: index + 1,
+      children: item.children && item.children.length > 0 ? reindexOrder(item.children) : [],
+    }));
+  }
+
   async function handlerForm() {
     const uidExist = checkUidExist(formUid);
     if (!uidExist && isNotEmpty(formTitle) && isNotEmpty(formUid) && itemsAreValid) {
@@ -71,7 +79,7 @@ function MenuDragDrop(props: {
       props.onSaveEvent({
         uid: formUid,
         title: formTitle,
-        children: items,
+        children: reindexOrder(items),
       });
     } else {
       props.onSaveEvent(null);
