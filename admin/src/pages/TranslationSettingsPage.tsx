@@ -24,7 +24,7 @@ import {
   Card,
   Tooltip,
 } from '@strapi/design-system';
-import { Pencil, Trash, Plus, Duplicate } from '@strapi/icons';
+import { Pencil, Trash, Plus, Duplicate, BulletList, Sparkle } from '@strapi/icons';
 import { EmptyDocuments } from '@strapi/icons/symbols';
 import styled from 'styled-components';
 import config from '../core/config';
@@ -39,6 +39,8 @@ import { useSettings } from '../contexts/settings';
 import HeaderLayout from '../components/HeaderLayout';
 import ConfirmModal from '../components/ConfirmModal';
 import TranslationHandleDataModal from '../components/TranslationHandleDataModal';
+import TranslationSettingsModal from '../components/TranslationSettingsModal';
+import TranslationAiModal from '../components/TranslationAiModal';
 
 interface TranslationItem {
   id: number;
@@ -67,6 +69,8 @@ const TranslationSettingsPage = () => {
   const [selectedRecords, setSelectedRecords] = useState<string[]>([]);
   const [selectedRecord, setSelectedRecord] = useState<TranslationItem | undefined>();
   const [showHandleDataModal, setShowHandleDataModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showAiModal, setShowAiModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const { formatMessage } = useIntl();
   const settings = useSettings();
@@ -210,6 +214,29 @@ const TranslationSettingsPage = () => {
           }}
         >
           {formatMessage({ id: getTranslation('app.create-new-entry') })}
+        </Button>
+        {settings.provide(module).aiEnabled && (
+          <Button
+            variant="secondary"
+            size="S"
+            style={{ marginRight: '10px' }}
+            startIcon={<Sparkle />}
+            onClick={() => setShowAiModal(true)}
+          >
+            {formatMessage({
+              id: getTranslation(`module.${module}.button.translate-with-ai`),
+              defaultMessage: 'Translate with AI',
+            })}
+          </Button>
+        )}
+        <Button
+          variant="secondary"
+          size="S"
+          style={{ marginRight: '10px' }}
+          startIcon={<BulletList />}
+          onClick={() => setShowSettingsModal(true)}
+        >
+          {formatMessage({ id: getTranslation('app.settings') })}
         </Button>
         {!settings.provide(module).active && (
           <Button variant="danger" size="S" onClick={() => toggleState(true)}>
@@ -476,6 +503,17 @@ const TranslationSettingsPage = () => {
             id: getTranslation(`app.modal.confirm.button.cancel`),
             defaultMessage: 'Cancel',
           }),
+        }}
+      />
+      <TranslationSettingsModal open={showSettingsModal} close={() => setShowSettingsModal(false)} />
+      <TranslationAiModal
+        open={showAiModal}
+        locales={i18nLocales}
+        close={(refresh: boolean) => {
+          setShowAiModal(false);
+          if (refresh) {
+            fetchRecords();
+          }
         }}
       />
       <TranslationHandleDataModal

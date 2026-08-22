@@ -7,6 +7,7 @@ export default interface TranslationGateway {
   delete(uids: string[]): Promise<void>;
   create(params: { uid: string; translation: string; locale: string }[]): Promise<void>;
   edit(uids: string, params: { uid: string; translation: string; locale: string }[]): Promise<void>;
+  aiTranslate(params: AiTranslateInput): Promise<AiTranslateOutput>;
 }
 
 export class TranslationGatewayHttp implements TranslationGateway {
@@ -34,6 +35,26 @@ export class TranslationGatewayHttp implements TranslationGateway {
   async edit(uid: string, params: { uid: string; translation: string; locale: string }[]): Promise<void> { 
     return this.httpClient.put(`/${config.pluginId}/admin/translations/${uid}`, params);
   }
+
+  async aiTranslate(params: AiTranslateInput): Promise<AiTranslateOutput> {
+    return this.httpClient.post(
+      `/${config.pluginId}/admin/translations/actions/ai-translate`,
+      params
+    );
+  }
+}
+
+export type AiTranslateInput = {
+  sourceLocale: string;
+  targetLocales: string[];
+  overwrite: boolean;
+}
+
+export type AiTranslateOutput = {
+  translated: number;
+  skipped: number;
+  failed: number;
+  errors: string[];
 }
 
 type FetchOutput = {

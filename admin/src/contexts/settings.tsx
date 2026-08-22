@@ -11,6 +11,7 @@ type SettingsProviderProps = {
 
 type SettingsContextData = {
   provide(module: string): Record<string, any>;
+  refresh(): Promise<void>;
 };
 
 export function SettingsProvider({ children }: SettingsProviderProps) {
@@ -55,6 +56,7 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
     <SettingsContext.Provider
       value={{
         provide,
+        refresh: fetch,
       }}
     >
       {!fetchInProgress && children}
