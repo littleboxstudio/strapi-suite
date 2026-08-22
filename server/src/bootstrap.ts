@@ -14,78 +14,105 @@ import {
 const bootstrap = async ({ strapi }: { strapi: Core.Strapi }) => {
   const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
   
-  try {
-    await strapi.db.query(config.uuid.app.setting).createMany({
-      data: [
-        {
-          module: "menu",
-          property: 'active',
-          type: 'boolean',
-          value: 'true',
+  const defaultSettings = [
+    {
+      module: "menu",
+      property: 'active',
+      type: 'boolean',
+      value: 'true',
+    },
+    {
+      module: "attribute",
+      property: 'active',
+      type: 'boolean',
+      value: 'true',
+    },
+    {
+      module: "parameter",
+      property: 'active',
+      type: 'boolean',
+      value: 'true',
+    },
+    {
+      module: "translation",
+      property: 'active',
+      type: 'boolean',
+      value: 'true',
+    },
+    {
+      module: "translation",
+      property: 'aiEnabled',
+      type: 'boolean',
+      value: 'false',
+    },
+    {
+      module: "translation",
+      property: 'aiApiKey',
+      type: 'string',
+      value: null,
+    },
+    {
+      module: "translation",
+      property: 'aiModel',
+      type: 'string',
+      value: 'gpt-4o',
+    },
+    {
+      module: "slug",
+      property: 'active',
+      type: 'boolean',
+      value: 'true',
+    },
+    {
+      module: "slug",
+      property: 'showDefaultLanguage',
+      type: 'boolean',
+      value: 'false',
+    },
+    {
+      module: "slug",
+      property: 'homepageContentId',
+      type: 'string',
+      value: null,
+    },
+    {
+      module: "slug",
+      property: 'homepageContentModel',
+      type: 'string',
+      value: null,
+    },
+    {
+      module: "slug",
+      property: 'homepageSlugStrategy',
+      type: 'string',
+      value: 'language',
+    },
+    {
+      module: "template",
+      property: 'active',
+      type: 'boolean',
+      value: 'true',
+    },
+    {
+      module: "locale",
+      property: 'active',
+      type: 'boolean',
+      value: 'true',
+    },
+  ];
+
+  for (const setting of defaultSettings) {
+    try {
+      const current = await strapi.db.query(config.uuid.app.setting).findOne({
+        where: {
+          module: setting.module,
+          property: setting.property,
         },
-        {
-          module: "attribute",
-          property: 'active',
-          type: 'boolean',
-          value: 'true',
-        },
-        {
-          module: "parameter",
-          property: 'active',
-          type: 'boolean',
-          value: 'true',
-        },
-        {
-          module: "translation",
-          property: 'active',
-          type: 'boolean',
-          value: 'true',
-        },
-        {
-          module: "slug",
-          property: 'active',
-          type: 'boolean',
-          value: 'true',
-        },
-        {
-          module: "slug",
-          property: 'showDefaultLanguage',
-          type: 'boolean',
-          value: 'false',
-        },
-        {
-          module: "slug",
-          property: 'homepageContentId',
-          type: 'string',
-          value: null,
-        },
-        {
-          module: "slug",
-          property: 'homepageContentModel',
-          type: 'string',
-          value: null,
-        },
-        {
-          module: "slug",
-          property: 'homepageSlugStrategy',
-          type: 'string',
-          value: 'language',
-        },
-        {
-          module: "template",
-          property: 'active',
-          type: 'boolean',
-          value: 'true',
-        },
-        {
-          module: "locale",
-          property: 'active',
-          type: 'boolean',
-          value: 'true',
-        },
-      ],
-    });
-  } catch (e) { }
+      });
+      if (current) continue;
+      await strapi.db.query(config.uuid.app.setting).create({ data: setting });
+    } catch (e) { }
+  }
 
   try {
     await strapi.db.query(config.uuid.modules.template).createMany({
