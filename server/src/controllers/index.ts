@@ -6,6 +6,7 @@ import MenuModuleController from './modules/menu';
 import ParameterModuleController from './modules/parameter';
 import TranslationModuleController from './modules/translation';
 import LocalesModuleController from './modules/locales';
+import AiTranslationModuleController from './modules/ai-translation';
 
 export default {
   SettingAppController,
@@ -15,5 +16,6 @@ export default {
   MenuModuleController,
   ParameterModuleController,
   TranslationModuleController,
-  LocalesModuleController
+  LocalesModuleController,
+  AiTranslationModuleController
 };

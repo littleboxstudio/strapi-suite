@@ -161,6 +161,14 @@ export default [
   },
   {
     method: 'POST',
+    path: '/admin/ai/strings',
+    handler: 'AiTranslationModuleController.adminTranslateStrings',
+    config: {
+      policies: ['admin::isAuthenticatedAdmin'],
+    },
+  },
+  {
+    method: 'POST',
     path: '/admin/translations/actions/ai-translate',
     handler: 'TranslationModuleController.adminAiTranslate',
     config: {

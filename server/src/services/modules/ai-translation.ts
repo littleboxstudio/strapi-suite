@@ -15,9 +15,20 @@ export interface Locale {
   name: string;
 }
 
+export interface Credentials {
+  apiKey: string;
+  model: string;
+}
+
 export interface TranslationEntry {
   uid: string;
   translations: Record<string, string>;
+}
+
+export interface TranslateStringsResult {
+  translations: Record<string, string>;
+  failed: number;
+  errors: string[];
 }
 
 function groupByUid(items: any[]): TranslationEntry[] {
@@ -53,7 +64,7 @@ export function buildSystemPrompt(source: Locale, target: Locale): string {
     `2. Do not use hyphens or dashes of any kind (-, –, —) as a stylistic device to join clauses, ideas or appositions. Rewrite the sentence instead, splitting it or using the connectors that are natural in ${target.name}. Hyphens are acceptable only when they are a mandatory part of the correct spelling of a word in ${target.name}.`,
     `3. Match the register and the tone of the source. Informal stays informal, formal stays formal, and the form of address must be the one standard for user interfaces in ${target.name}.`,
     `4. Stay close to the length of the source. Interface copy has to fit inside buttons and labels, so be concise and never add words the source does not have.`,
-    `5. Preserve exactly, without translating: placeholders such as {name}, {{name}}, %s, %d, :param and $variable; HTML tags and entities; URLs; email addresses; numbers; and brand or product names.`,
+    `5. Preserve exactly, without translating: placeholders such as {name}, {{name}}, %s, %d, :param and $variable; HTML tags and entities; markdown syntax; URLs; email addresses; numbers; and brand or product names.`,
     `6. Preserve the capitalisation style of the source (sentence case, Title Case, ALL CAPS) adapted to what is correct in ${target.name}, and keep the leading and trailing punctuation, the ellipses and the question or exclamation marks.`,
     `7. Use the spelling, the vocabulary and the conventions of the ${target.name} variant identified by the code ${target.code}.`,
     `8. Never explain, comment or add anything, and never leave any part of the text in the source language.`,
@@ -113,6 +124,55 @@ const AiTranslationModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
     return locales.map((locale: any) => ({ code: locale.code, name: locale.name }));
   },
 
+  async getCredentials(): Promise<Credentials | null> {
+    const settingService = strapi.plugin(PLUGIN_ID).service('SettingAppService');
+    const aiEnabled = await settingService.getRawValue(AI_TRANSLATION_MODULE, 'aiEnabled');
+    if (aiEnabled !== 'true') return null;
+    const apiKey = await settingService.getRawValue(AI_TRANSLATION_MODULE, 'aiApiKey');
+    if (!isFilled(apiKey)) return null;
+    const storedModel = await settingService.getRawValue(AI_TRANSLATION_MODULE, 'aiModel');
+    return {
+      apiKey,
+      model: isFilled(storedModel) ? storedModel : AI_TRANSLATION_DEFAULT_MODEL,
+    };
+  },
+
+  async translateStrings(
+    credentials: Credentials,
+    source: Locale,
+    target: Locale,
+    strings: Record<string, string>
+  ): Promise<TranslateStringsResult> {
+    const translations: Record<string, string> = {};
+    const errors: string[] = [];
+    let failed = 0;
+    const systemPrompt = buildSystemPrompt(source, target);
+    const keys = Object.keys(strings).filter((key) => isFilled(strings[key]));
+    for (const batch of chunk(keys, AI_TRANSLATION_BATCH_SIZE)) {
+      const payload = batch.reduce<Record<string, string>>((acc, key) => {
+        acc[key] = strings[key];
+        return acc;
+      }, {});
+      let result: Record<string, string>;
+      try {
+        result = await requestOpenAi(credentials.apiKey, credentials.model, systemPrompt, payload);
+      } catch (e: any) {
+        failed += batch.length;
+        errors.push(`${target.code}: ${e.message}`);
+        strapi.log.error(`[${PLUGIN_ID}] AI translation failed for ${target.code}: ${e.message}`);
+        continue;
+      }
+      for (const key of batch) {
+        if (isFilled(result[key])) {
+          translations[key] = result[key];
+        } else {
+          failed += 1;
+        }
+      }
+    }
+    return { translations, failed, errors };
+  },
+
   async adminTranslate() {
     const ctx = strapi.requestContext.get();
     const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
@@ -122,17 +182,10 @@ const AiTranslationModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
       overwrite?: boolean;
     };
 
-    const settingService = strapi.plugin(PLUGIN_ID).service('SettingAppService');
-    const aiEnabled = await settingService.getRawValue(AI_TRANSLATION_MODULE, 'aiEnabled');
-    if (aiEnabled !== 'true') {
-      return ctx.badRequest('AI translations are disabled for the translation module');
+    const credentials = await this.getCredentials();
+    if (!credentials) {
+      return ctx.badRequest('AI translations are disabled or the OpenAI API key is not set');
     }
-    const apiKey = await settingService.getRawValue(AI_TRANSLATION_MODULE, 'aiApiKey');
-    if (!isFilled(apiKey)) {
-      return ctx.badRequest('The OpenAI API key is not set');
-    }
-    const storedModel = await settingService.getRawValue(AI_TRANSLATION_MODULE, 'aiModel');
-    const model = isFilled(storedModel) ? storedModel : AI_TRANSLATION_DEFAULT_MODEL;
 
     if (!isFilled(sourceLocale)) {
       return ctx.badRequest('A source locale is required');
@@ -176,47 +229,59 @@ const AiTranslationModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
       skipped += entries.length - pending.length;
       if (pending.length === 0) continue;
 
-      const systemPrompt = buildSystemPrompt(source, target);
-      for (const batch of chunk(pending, AI_TRANSLATION_BATCH_SIZE)) {
-        const payload = batch.reduce<Record<string, string>>((acc, entry) => {
-          acc[entry.uid] = entry.translations[source.code];
-          return acc;
-        }, {});
-        let result: Record<string, string>;
-        try {
-          result = await requestOpenAi(apiKey, model, systemPrompt, payload);
-        } catch (e: any) {
-          failed += batch.length;
-          errors.push(`${target.code}: ${e.message}`);
-          strapi.log.error(`[${PLUGIN_ID}] AI translation failed for ${target.code}: ${e.message}`);
-          continue;
+      const strings = pending.reduce<Record<string, string>>((acc, entry) => {
+        acc[entry.uid] = entry.translations[source.code];
+        return acc;
+      }, {});
+      const result = await this.translateStrings(credentials, source, target, strings);
+      failed += result.failed;
+      errors.push(...result.errors);
+
+      for (const [uid, translation] of Object.entries(result.translations)) {
+        const existing = await query.findOne({ where: { uid, locale: target.code } });
+        if (existing) {
+          await query.update({ where: { id: existing.id }, data: { translation } });
+        } else {
+          await query.create({ data: { uid, translation, locale: target.code } });
         }
-        for (const entry of batch) {
-          const translation = result[entry.uid];
-          if (!isFilled(translation)) {
-            failed += 1;
-            continue;
-          }
-          const existing = await query.findOne({
-            where: { uid: entry.uid, locale: target.code },
-          });
-          if (existing) {
-            await query.update({
-              where: { id: existing.id },
-              data: { translation },
-            });
-          } else {
-            await query.create({
-              data: { uid: entry.uid, translation, locale: target.code },
-            });
-          }
-          entry.translations[target.code] = translation;
-          translated += 1;
-        }
+        const entry = entries.find((item) => item.uid === uid);
+        if (entry) entry.translations[target.code] = translation;
+        translated += 1;
       }
     }
 
     return { translated, skipped, failed, errors };
+  },
+
+  async adminTranslateStrings() {
+    const ctx = strapi.requestContext.get();
+    const { sourceLocale, targetLocale, strings } = ctx.request.body as {
+      sourceLocale?: string;
+      targetLocale?: string;
+      strings?: Record<string, string>;
+    };
+
+    const credentials = await this.getCredentials();
+    if (!credentials) {
+      return ctx.badRequest('AI translations are disabled or the OpenAI API key is not set');
+    }
+    if (!isFilled(sourceLocale) || !isFilled(targetLocale)) {
+      return ctx.badRequest('A source locale and a target locale are required');
+    }
+    if (sourceLocale === targetLocale) {
+      return ctx.badRequest('The source locale and the target locale must be different');
+    }
+    if (!strings || Object.keys(strings).length === 0) {
+      return { translations: {}, failed: 0, errors: [] };
+    }
+
+    const locales = await this.getLocales();
+    const source = locales.find((locale: Locale) => locale.code === sourceLocale);
+    const target = locales.find((locale: Locale) => locale.code === targetLocale);
+    if (!source) return ctx.badRequest(`The locale ${sourceLocale} is not configured in Strapi`);
+    if (!target) return ctx.badRequest(`The locale ${targetLocale} is not configured in Strapi`);
+
+    return await this.translateStrings(credentials, source, target, strings);
   },
 });
 
