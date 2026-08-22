@@ -13,8 +13,11 @@ import { TemplateGatewayHttp } from './core/gateways/templateGateway';
 import { MenuGatewayHttp } from './core/gateways/menuGateway';
 import { ParameterGatewayHttp } from './core/gateways/parameterGateway';
 import { TranslationGatewayHttp } from './core/gateways/translationGateway';
+import { DocumentGatewayHttp } from './core/gateways/documentGateway';
+import { AiGatewayHttp } from './core/gateways/aiGateway';
 import Mediator from './core/mediator/mediator';
 import PageAttributesBox from './components/PageAttributesBox';
+import DocumentTranslateBox from './components/DocumentTranslateBox';
 
 export default {
   async register(app: any) {
@@ -117,6 +120,11 @@ export default {
     Registry.getInstance().provide("menuGateway", new MenuGatewayHttp());
     Registry.getInstance().provide("parameterGateway", new ParameterGatewayHttp());
     Registry.getInstance().provide("translationGateway", new TranslationGatewayHttp());
-    app.getPlugin('content-manager').apis.addEditViewSidePanel([PageAttributesBox]);
+    Registry.getInstance().provide("documentGateway", new DocumentGatewayHttp());
+    Registry.getInstance().provide("aiGateway", new AiGatewayHttp());
+    app.getPlugin('content-manager').apis.addEditViewSidePanel([
+      PageAttributesBox,
+      DocumentTranslateBox,
+    ]);
   }
 };
