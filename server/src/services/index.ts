@@ -5,6 +5,7 @@ import TemplateModuleService from './modules/template';
 import MenuModuleService from './modules/menu';
 import ParameterModuleService from './modules/parameter';
 import TranslationModuleService from './modules/translation';
+import AiTranslationModuleService from './modules/ai-translation';
 
 export default {
   SettingAppService,
@@ -13,5 +14,6 @@ export default {
   TemplateModuleService,
   MenuModuleService,
   ParameterModuleService,
-  TranslationModuleService
+  TranslationModuleService,
+  AiTranslationModuleService
 };

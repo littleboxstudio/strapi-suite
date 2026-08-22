@@ -3,6 +3,11 @@ export const PLUGIN_ID = 'littlebox-strapi-suite';
 
 export const SLUG_LANGUAGE_STRATEGY = "language";
 export const SLUG_CONTENT_STRATEGY = "content";
+
+export const AI_TRANSLATION_MODULE = "translation";
+export const AI_TRANSLATION_DEFAULT_MODEL = "gpt-4o";
+export const AI_TRANSLATION_BATCH_SIZE = 40;
+export const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
 export interface LtbConfigs { 
   pluginId: string;
   uuid: {

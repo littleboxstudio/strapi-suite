@@ -161,6 +161,14 @@ export default [
   },
   {
     method: 'POST',
+    path: '/admin/translations/actions/ai-translate',
+    handler: 'TranslationModuleController.adminAiTranslate',
+    config: {
+      policies: ['admin::isAuthenticatedAdmin'],
+    },
+  },
+  {
+    method: 'POST',
     path: '/admin/translations/actions/delete',
     handler: 'TranslationModuleController.adminBulkDelete',
     config: {

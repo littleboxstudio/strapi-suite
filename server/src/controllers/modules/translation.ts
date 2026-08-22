@@ -26,6 +26,12 @@ const TranslationModuleController = ({ strapi }: { strapi: Core.Strapi }) => ({
       .service('TranslationModuleService')
       .adminBulkDelete();
   },
+  async adminAiTranslate() {
+    return await strapi
+      .plugin(PLUGIN_ID)
+      .service('AiTranslationModuleService')
+      .adminTranslate();
+  },
   async getTranslations() {
     return await strapi
       .plugin(PLUGIN_ID)
