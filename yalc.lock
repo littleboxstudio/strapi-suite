@@ -2,7 +2,7 @@
   "version": "v1",
   "packages": {
     "@littlebox/strapi-suite": {
-      "signature": "fce33f7af0822ade81e76b39d5ef6d08",
+      "signature": "2fe37f40b5d203e427f1ac68adf67988",
       "file": true
     }
   }
