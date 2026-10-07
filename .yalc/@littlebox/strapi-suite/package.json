@@ -1,5 +1,5 @@
 {
-  "version": "1.0.53",
+  "version": "1.0.54",
   "keywords": [
     "strapi",
     "strapi plugin",
@@ -94,5 +94,5 @@
     "node": ">=18.0.0 <=22.x.x",
     "npm": ">=6.0.0"
   },
-  "yalcSig": "bd9c7ef9ae9ce6947bc78b0213690cea"
+  "yalcSig": "2fe37f40b5d203e427f1ac68adf67988"
 }
