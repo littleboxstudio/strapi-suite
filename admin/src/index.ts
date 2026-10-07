@@ -18,6 +18,12 @@ import { AiGatewayHttp } from './core/gateways/aiGateway';
 import Mediator from './core/mediator/mediator';
 import PageAttributesBox from './components/PageAttributesBox';
 import DocumentTranslateBox from './components/DocumentTranslateBox';
+import { registerTabsInContentTypeBuilder } from './ctb/registerTabsInContentTypeBuilder';
+import { startTabBadges } from './ctb/tabBadges';
+import { mutateEditViewLayout } from './editView/mutateEditViewLayout';
+import TabsBar from './editView/TabsBar';
+import TabSection from './editView/TabSection';
+import { TABS_BAR_FIELD_TYPE, TABS_SECTION_FIELD_TYPE } from './core/utils/tabs';
 
 export default {
   async register(app: any) {
@@ -88,6 +94,15 @@ export default {
       }
     });
 
+    app.addFields([
+      { type: TABS_BAR_FIELD_TYPE, Component: TabsBar },
+      { type: TABS_SECTION_FIELD_TYPE, Component: TabSection },
+    ]);
+
+    // Started in `register`: only the full app instance exposes the redux store (bootstrap
+    // receives a reduced API), and the store is read lazily once the admin renders.
+    startTabBadges(app);
+
     app.registerPlugin({
       id: config.pluginId,
       initializer: Initializer,
@@ -126,5 +141,9 @@ export default {
       PageAttributesBox,
       DocumentTranslateBox,
     ]);
+    registerTabsInContentTypeBuilder(app);
+    app.registerHook('Admin/CM/pages/EditView/mutate-edit-view-layout', (args: any) =>
+      mutateEditViewLayout(args)
+    );
   }
 };

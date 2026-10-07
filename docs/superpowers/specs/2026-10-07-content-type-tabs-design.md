@@ -95,24 +95,22 @@ Arquivos: `admin/src/ctb/`. O registro é feito em `admin/src/index.ts` (`regist
 
 Arquivos: `admin/src/editView/`.
 
-### 2.1 Filtro do layout
+### 2.1 Layout com seções
 
 - `app.registerHook('Admin/CM/pages/EditView/mutate-edit-view-layout', mutateLayout)`.
-- A função pura `filterLayoutByTab(layout, tabs, attributes, activeKey)` faz o seguinte:
-  - se o content type não tem tabs, devolve o layout inalterado;
-  - tab ativa = `query.ltbTab` quando ela corresponde a uma tab existente; caso contrário, a primeira tab;
-  - mantém os campos sem tab e os da tab ativa;
-  - remove painéis e linhas vazios.
-- O Content Manager recalcula o hook quando `query` muda (dependência confirmada no `useMemo` do CM 5.10.3), então trocar de tab é só atualizar `?ltbTab=` na URL.
-- Os valores dos campos ocultos continuam no estado do formulário e são salvos normalmente.
+- O layout mantém **todos** os campos, organizados assim: painéis com os campos sem tab, o painel da barra de tabs e, para cada tab (na ordem cadastrada), um painel marcador seguido dos painéis com os campos da tab. Dynamic zones continuam em painéis próprios.
+- Se o content type não tem tabs, ou se a URL não é da edit view, o layout passa intacto. Configure the view, History e Preview usam o mesmo hook e precisam do layout original.
+- **Por que não filtrar no hook (revisão no Strapi 5.56):**
+  - o Content Manager só recalcula o hook quando a query da URL muda, e o hook do i18n, que roda antes, descarta a `query`;
+  - mudar a query dispara o aviso de alterações não salvas do formulário e recarrega o documento.
 
-### 2.2 Barra de tabs
+### 2.2 Barra de tabs e troca de tab
 
-- A barra entra no próprio layout como um painel entre os campos sem tab e os campos da tab ativa. O campo desse painel é de um tipo registrado com `app.addFields({ type: 'ltb-tabs-bar', Component: TabsBar })`, que o `InputRenderer` do Content Manager renderiza dentro do contexto do formulário.
-- Esse campo usa o `name` de um campo real (o primeiro campo sem tab ou, se não houver, o primeiro campo do layout), porque o `InputRenderer` checa as permissões (RBAC) pelo nome. Um campo com nome inexistente apareceria como "sem permissão".
-- O hook só atua nas URLs da edit view. Configure the view, History e Preview usam o mesmo hook e precisam receber o layout intacto, senão a configuração salva perderia os campos.
-- A barra usa os componentes de Tabs do `@strapi/design-system` e, ao trocar de tab, atualiza `?ltbTab=` mantendo os outros parâmetros (ex.: `plugins[i18n][locale]`).
-- Essa abordagem substitui o React portal previsto antes: usa só APIs públicas do Strapi (`registerHook` e `addFields`) e não depende do HTML da página. A validação manual no Strapi 5.56 (backend-base) confirma o funcionamento.
+- A barra (`ltb-tabs-bar`) e os marcadores de seção (`ltb-tab-section`) são tipos de campo registrados com `app.addFields`, renderizados pelo `InputRenderer` dentro do contexto do formulário.
+- Esses campos usam o nome de um campo real, porque o `InputRenderer` checa as permissões (RBAC) pelo nome. Preferência: o primeiro campo que não é componente, entre os campos sem tab; se só houver componentes, um caminho folha (ex.: `seo.metaTitle`), já que as permissões listam só as folhas dos componentes.
+- A tab ativa fica num store em memória, compartilhado entre a barra e os marcadores, e é espelhada no hash da URL (`#ltbTab=<chave>`) via `history.replaceState`. O hash não aciona o aviso de alterações não salvas nem recarrega o documento, e mantém a tab ao recarregar a página.
+- Cada marcador esconde o próprio painel e mostra ou esconde os painéis seguintes até o próximo marcador. Isso depende de os painéis serem filhos diretos de uma mesma coluna (estrutura do `FormLayout` do Content Manager). Um `MutationObserver` reaplica quando a lista de painéis muda.
+- Se essa estrutura não for encontrada (ex.: mudança numa versão futura do Strapi), nada é escondido e todos os campos aparecem agrupados por seção.
 
 ### 2.3 Erros de validação
 

@@ -199,5 +199,20 @@
   "littlebox-strapi-suite.modal.handler.input.uid.error.duplicated": "The UID already exists",
   "littlebox-strapi-suite.modal.handler.input.name": "Name",
   "littlebox-strapi-suite.modal.input.name": "Name",
-  "littlebox-strapi-suite.modal.handler.button": "Save"
+  "littlebox-strapi-suite.modal.handler.button": "Save",
+  "littlebox-strapi-suite.tabs.ctb.content-type.label": "Tabs",
+  "littlebox-strapi-suite.tabs.ctb.content-type.description": "Organize the fields of this content type in tabs. Fields in a tab are returned by the REST API inside a property named after the tab.",
+  "littlebox-strapi-suite.tabs.ctb.field.label": "Tab",
+  "littlebox-strapi-suite.tabs.ctb.field.description": "Tab where this field is shown. Fields without a tab are always visible.",
+  "littlebox-strapi-suite.tabs.ctb.field.none": "None (always visible)",
+  "littlebox-strapi-suite.tabs.ctb.add": "Add tab",
+  "littlebox-strapi-suite.tabs.ctb.remove": "Remove tab",
+  "littlebox-strapi-suite.tabs.ctb.reorder": "Drag to reorder",
+  "littlebox-strapi-suite.tabs.ctb.name.placeholder": "Tab name",
+  "littlebox-strapi-suite.tabs.ctb.empty": "No tabs yet.",
+  "littlebox-strapi-suite.tabs.ctb.error.name.required": "Every tab needs a name",
+  "littlebox-strapi-suite.tabs.ctb.error.key.empty": "Tab names must contain letters or numbers",
+  "littlebox-strapi-suite.tabs.ctb.error.key.duplicated": "Two tabs generate the same API key",
+  "littlebox-strapi-suite.tabs.edit-view.label": "Content tabs",
+  "littlebox-strapi-suite.tabs.edit-view.errors": "{count, plural, one {# error} other {# errors}}"
 }
