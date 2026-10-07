@@ -1,9 +1,12 @@
 import { describe, it, expect } from 'vitest';
+import merge from 'lodash/merge';
 import {
   toTabKey,
   generateTabId,
   validateTabs,
   cleanContentTypeSchema,
+  padTabs,
+  readTabs,
   resolveActiveTab,
   groupLayoutByTabs,
   findAnchorName,
@@ -88,6 +91,34 @@ describe('cleanContentTypeSchema', () => {
     ]);
   });
 
+  it('descarta as tabs removidas (null) e libera os campos delas', () => {
+    const schema = {
+      pluginOptions: { [KEY]: { tabs: [tabs[1], null] } },
+      attributes: [
+        { name: 'a', type: 'string', pluginOptions: { [KEY]: { tab: 't1' } } },
+        { name: 'b', type: 'string', pluginOptions: { [KEY]: { tab: 't2' } } },
+      ],
+    };
+    expect(cleanContentTypeSchema(schema)).toEqual({
+      pluginOptions: { [KEY]: { tabs: [tabs[1]] } },
+      attributes: [
+        { name: 'a', type: 'string', pluginOptions: {} },
+        { name: 'b', type: 'string', pluginOptions: { [KEY]: { tab: 't2' } } },
+      ],
+    });
+  });
+
+  it('remove a configuração quando todas as tabs foram removidas', () => {
+    const schema = {
+      pluginOptions: { [KEY]: { tabs: [null, null] } },
+      attributes: [{ name: 'a', type: 'string', pluginOptions: { [KEY]: { tab: 't1' } } }],
+    };
+    expect(cleanContentTypeSchema(schema)).toEqual({
+      pluginOptions: {},
+      attributes: [{ name: 'a', type: 'string', pluginOptions: {} }],
+    });
+  });
+
   it('remove a configuração do content type quando não há tabs (attributes em objeto)', () => {
     const schema = {
       pluginOptions: { [KEY]: { tabs: [] }, i18n: { localized: true } },
@@ -97,6 +128,20 @@ describe('cleanContentTypeSchema', () => {
       pluginOptions: { i18n: { localized: true } },
       attributes: { a: { type: 'string', pluginOptions: {} } },
     });
+  });
+});
+
+describe('padTabs', () => {
+  it('completa com null até o tamanho anterior para sobrescrever tabs removidas', () => {
+    expect(padTabs([tabs[1]], tabs)).toEqual([tabs[1], null]);
+    expect(padTabs([], [tabs[0], null])).toEqual([null, null]);
+    expect(padTabs(tabs, undefined)).toEqual(tabs);
+  });
+
+  it('remove a tab mesmo quando o builder aplica o valor com lodash merge', () => {
+    const state = { pluginOptions: { [KEY]: { tabs: structuredClone(tabs) } } };
+    merge(state, { pluginOptions: { [KEY]: { tabs: padTabs([tabs[1]], tabs) } } });
+    expect(readTabs(state.pluginOptions)).toEqual([tabs[1]]);
   });
 });
 

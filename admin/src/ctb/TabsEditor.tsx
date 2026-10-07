@@ -27,7 +27,7 @@ import {
 import { Drag, Plus, Trash } from '@strapi/icons';
 import { useIntl } from 'react-intl';
 import { getTranslation } from '../core/utils/getTranslation';
-import { LtbTab, generateTabId, readTabs, TABS_PLUGIN_KEY } from '../core/utils/tabs';
+import { LtbTab, generateTabId, padTabs, readTabs, TABS_PLUGIN_KEY } from '../core/utils/tabs';
 
 type IntlMessage = { id: string; defaultMessage: string; values?: Record<string, string | number> };
 
@@ -37,7 +37,7 @@ type TabsEditorProps = {
   error?: string;
   intlLabel: IntlMessage;
   description?: IntlMessage;
-  onChange: (event: { target: { name: string; value: LtbTab[] } }) => void;
+  onChange: (event: { target: { name: string; value: (LtbTab | null)[] } }) => void;
 };
 
 const TabRow = ({
@@ -106,7 +106,7 @@ const TabsEditor = ({ name, value, error, intlLabel, description, onChange }: Ta
   const tabs = readTabs({ [TABS_PLUGIN_KEY]: { tabs: value } });
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
-  const change = (next: LtbTab[]) => onChange({ target: { name, value: next } });
+  const change = (next: LtbTab[]) => onChange({ target: { name, value: padTabs(next, value) } });
 
   const handleDragEnd = ({ active, over }: DragEndEvent) => {
     if (!over || active.id === over.id) return;

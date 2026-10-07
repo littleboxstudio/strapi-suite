@@ -33,6 +33,18 @@ export function readTabs(pluginOptions: unknown): LtbTab[] {
   return tabs.filter((tab) => tab && typeof tab.id === 'string' && typeof tab.name === 'string');
 }
 
+/**
+ * Tabs value to store in the form. The content type builder applies the modal values to its state
+ * with lodash `merge`, which merges arrays by index, so a shorter array would keep the removed
+ * tabs. Padding with `null` up to the previous length overwrites them; `readTabs` ignores nulls
+ * and `cleanContentTypeSchema` drops them on save.
+ */
+export function padTabs(next: LtbTab[], previous: unknown): (LtbTab | null)[] {
+  const previousLength = Array.isArray(previous) ? previous.length : 0;
+  const padding = Math.max(previousLength - next.length, 0);
+  return [...next, ...Array<null>(padding).fill(null)];
+}
+
 export function readAttributeTabId(attribute: unknown): string | null {
   const id = (attribute as any)?.pluginOptions?.[TABS_PLUGIN_KEY]?.tab;
   return typeof id === 'string' && id !== '' ? id : null;
@@ -98,9 +110,18 @@ export function cleanContentTypeSchema<T>(schema: T): T {
   let changed = false;
   const next: any = { ...current };
 
-  if (current.pluginOptions && TABS_PLUGIN_KEY in current.pluginOptions && tabs.length === 0) {
-    next.pluginOptions = omitPluginKey(current.pluginOptions);
-    changed = true;
+  if (current.pluginOptions && TABS_PLUGIN_KEY in current.pluginOptions) {
+    const storedTabs = current.pluginOptions[TABS_PLUGIN_KEY]?.tabs;
+    if (tabs.length === 0) {
+      next.pluginOptions = omitPluginKey(current.pluginOptions);
+      changed = true;
+    } else if (!Array.isArray(storedTabs) || storedTabs.length !== tabs.length) {
+      next.pluginOptions = {
+        ...current.pluginOptions,
+        [TABS_PLUGIN_KEY]: { ...current.pluginOptions[TABS_PLUGIN_KEY], tabs },
+      };
+      changed = true;
+    }
   }
 
   const clean = (attribute: any) => {
