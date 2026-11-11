@@ -34,7 +34,9 @@ export type OrderHistoryType =
   | 'INVOICE_ISSUED'
   | 'INVOICE_FAILED'
   | 'INVOICE_UNCERTAIN'
-  | 'CREDIT_NOTE_ISSUED';
+  | 'CREDIT_NOTE_ISSUED'
+  | 'PROMOTIONS_APPLIED'
+  | 'PROMOTIONS_RELEASED';
 
 export type OrderHistoryEntry = {
   orderId: number;

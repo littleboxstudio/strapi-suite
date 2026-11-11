@@ -41,6 +41,11 @@ describe('registerEcommercePermissions', () => {
     );
   });
 
+  it('exposes the promotions action uids', () => {
+    expect(ECOMMERCE_PERMISSIONS.promotionsRead).toBe('plugin::littlebox-strapi-suite.ecommerce.promotions.read');
+    expect(ECOMMERCE_PERMISSIONS.promotionsManage).toBe('plugin::littlebox-strapi-suite.ecommerce.promotions.manage');
+  });
+
   it('registers read and manage actions', async () => {
     const registerMany = vi.fn().mockResolvedValue(undefined);
     const strapi = {
@@ -51,7 +56,7 @@ describe('registerEcommercePermissions', () => {
 
     expect(registerMany).toHaveBeenCalledTimes(1);
     const actions = registerMany.mock.calls[0][0];
-    expect(actions).toHaveLength(11);
+    expect(actions).toHaveLength(13);
     expect(actions).toEqual([
       expect.objectContaining({
         section: 'plugins',
@@ -121,6 +126,8 @@ describe('registerEcommercePermissions', () => {
         uid: 'ecommerce.invoicing.manage',
         displayName: 'Issue invoices and credit notes',
       }),
+      expect.objectContaining({ uid: 'ecommerce.promotions.read', displayName: 'Read promotions' }),
+      expect.objectContaining({ uid: 'ecommerce.promotions.manage', displayName: 'Manage promotions' }),
     ]);
   });
 });

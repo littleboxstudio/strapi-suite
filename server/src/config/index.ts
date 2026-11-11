@@ -54,6 +54,9 @@ export interface LtbConfigs {
         orderReturn: UID.ContentType;
         invoice: UID.ContentType;
         invoiceAllocation: UID.ContentType;
+        promotion: UID.ContentType;
+        promotionRedemption: UID.ContentType;
+        promotionCustomerUsage: UID.ContentType;
       },
     },
     customFields: {
@@ -107,6 +110,9 @@ export default {
           orderReturn: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-order-return`,
           invoice: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-invoice`,
           invoiceAllocation: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-invoice-allocation`,
+          promotion: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-promotion`,
+          promotionRedemption: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-promotion-redemption`,
+          promotionCustomerUsage: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-promotion-customer-usage`,
         },
       },
       customFields: {

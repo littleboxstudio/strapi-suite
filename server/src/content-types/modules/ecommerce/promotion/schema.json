@@ -1,0 +1,112 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_promotions",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-promotion",
+    "pluralName": "ltb-st-module-ecommerce-promotions",
+    "displayName": "Littlebox Strapi Suite - E-commerce Promotion",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Promotion"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "name": {
+      "type": "string",
+      "required": true
+    },
+    "description": {
+      "type": "text"
+    },
+    "code": {
+      "type": "string",
+      "unique": true
+    },
+    "method": {
+      "type": "enumeration",
+      "enum": [
+        "AUTOMATIC",
+        "CODE"
+      ],
+      "required": true
+    },
+    "active": {
+      "type": "boolean",
+      "default": false
+    },
+    "startsAt": {
+      "type": "datetime",
+      "required": true
+    },
+    "endsAt": {
+      "type": "datetime"
+    },
+    "priority": {
+      "type": "integer",
+      "default": 0
+    },
+    "displayName": {
+      "type": "json"
+    },
+    "eligibility": {
+      "type": "json"
+    },
+    "conditions": {
+      "type": "json"
+    },
+    "benefits": {
+      "type": "json"
+    },
+    "stacking": {
+      "type": "json"
+    },
+    "usageLimit": {
+      "type": "integer"
+    },
+    "perCustomerLimit": {
+      "type": "integer"
+    },
+    "perOrderLimit": {
+      "type": "integer"
+    },
+    "redemptions": {
+      "type": "integer",
+      "default": 0
+    },
+    "version": {
+      "type": "integer",
+      "default": 1
+    },
+    "actor": {
+      "type": "string"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_promotion_code_unique",
+      "columns": [
+        "code"
+      ],
+      "type": "unique"
+    },
+    {
+      "name": "ecommerce_promotion_method_active_idx",
+      "columns": [
+        "method",
+        "active"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_promotion_customer_usages",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-promotion-customer-usage",
+    "pluralName": "ltb-st-module-ecommerce-promotion-customer-usages",
+    "displayName": "Littlebox Strapi Suite - E-commerce Promotion Customer Usage",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Promotion Customer Usage"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "promotion": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-promotion"
+    },
+    "emailNormalized": {
+      "type": "string"
+    },
+    "uses": {
+      "type": "integer",
+      "default": 0
+    },
+    "uniqueKey": {
+      "type": "string",
+      "required": true,
+      "unique": true
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_promo_usage_key_unique",
+      "columns": [
+        "unique_key"
+      ],
+      "type": "unique"
+    }
+  ]
+}

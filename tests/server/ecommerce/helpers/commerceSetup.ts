@@ -40,6 +40,9 @@ export const UIDS = {
   orderReturn: `${P}order-return`,
   invoice: `${P}invoice`,
   invoiceAllocation: `${P}invoice-allocation`,
+  promotion: `${P}promotion`,
+  promotionRedemption: `${P}promotion-redemption`,
+  promotionCustomerUsage: `${P}promotion-customer-usage`,
 };
 
 const RELATIONS: FakeRelations = {
@@ -89,6 +92,12 @@ const RELATIONS: FakeRelations = {
     payment: [UIDS.payment, 'payment', 'manyToOne'],
     order: [UIDS.order, 'order', 'manyToOne'],
   },
+  [UIDS.promotionRedemption]: {
+    promotion: [UIDS.promotion, 'promotion', 'manyToOne'],
+    order: [UIDS.order, 'order', 'manyToOne'],
+    customer: [UIDS.customer, 'customer', 'manyToOne'],
+  },
+  [UIDS.promotionCustomerUsage]: { promotion: [UIDS.promotion, 'promotion', 'manyToOne'] },
   [UIDS.notification]: { order: [UIDS.order, 'order', 'manyToOne'] },
   [UIDS.storeCreditMovement]: {
     storeCredit: [UIDS.storeCredit, 'storeCredit', 'manyToOne'],
@@ -116,6 +125,9 @@ export function setupCommerce(opts: { stripeActive?: boolean; resendActive?: boo
       UIDS.orderReturn,
       UIDS.invoice,
       UIDS.invoiceAllocation,
+      UIDS.promotion,
+      UIDS.promotionRedemption,
+      UIDS.promotionCustomerUsage,
     ],
   });
   const services: Record<string, any> = {};
@@ -151,6 +163,7 @@ export function setupCommerce(opts: { stripeActive?: boolean; resendActive?: boo
   services.EcommerceSettingsService = {
     getStoreSettings: async () => ({
       shippingCountries: ['PT'],
+      timezone: 'Europe/Lisbon',
       storefrontUrl: 'https://shop.example/',
       paymentSuccessPath: '/checkout/success',
       paymentCancelPath: '/checkout/cancel',
