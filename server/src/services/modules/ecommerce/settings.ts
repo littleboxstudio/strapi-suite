@@ -3,6 +3,7 @@ import { isValidEmailFormat } from './domain/email';
 import { PLUGIN_ID, LtbConfigs } from '../../../config';
 import {
   ConnectionResult,
+  LookupResult,
   ProviderCategory,
   ProviderDefinition,
   ProviderField,
@@ -765,6 +766,18 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
       const def = requireDefinition(id);
       if (!def.testConnection) return { ok: false, code: 'NOT_IMPLEMENTED' };
       return def.testConnection(buildRuntime(def, await findRow(id)));
+    },
+
+    /**
+     * Options for the `lookup` fields, read from the provider with the saved credentials.
+     * `companyId` (a positive integer, else ignored) selects the company-specific lists.
+     */
+    async integrationLookups(id: string, companyId?: unknown): Promise<LookupResult> {
+      const def = requireDefinition(id);
+      if (!def.lookups) return { lists: {}, failed: [] };
+      const n = Number(companyId);
+      const company = Number.isInteger(n) && n > 0 ? n : null;
+      return def.lookups(buildRuntime(def, await findRow(id)), { companyId: company });
     },
 
     /** Server-side only: returns decrypted secrets. Never send the result to a client. */

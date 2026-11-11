@@ -401,6 +401,12 @@ Implementar o capítulo de Configurações tal como está, com:
 - Mascaramento conforme 2.9 e cifragem conforme 2.10.
 - **Moloni:** implementado a partir da documentação pública da API, **sem testes reais** até haver
   credenciais. Fica marcado como "não verificado".
+  Configuração em 2 passos: (1) Developer ID, Client Secret, utilizador e palavra-passe, guardados
+  e verificados com `companies/getAll`; (2) empresa, série, métodos de pagamento, categoria,
+  unidade e motivo de isenção escolhidos de listas lidas da API do Moloni
+  (`GET /integrations/:id/lookups`). Uma lista que falhe passa a campo de ID manual; os motivos de
+  isenção usam a lista de códigos da AT se o Moloni não a devolver. Mudar de empresa limpa os
+  campos que dependem dela **[Decisão, 2026-11-11]**.
 - **CTT Expresso:** só a **estrutura**. O plugin regista-se no contrato comum, tem o formulário de
   credenciais e o teste de ligação, mas os métodos de API ficam por implementar (erro claro
   `NOT_IMPLEMENTED`) até o dono do produto fornecer a documentação e as credenciais **[Decisão]**.

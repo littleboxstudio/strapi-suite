@@ -187,6 +187,10 @@ const IntegrationsSection = ({ category, readOnly, zones }: Props) => {
           initialErrors={configuring?.errors}
           zones={zones}
           onClose={() => setConfiguring(null)}
+          onChanged={(saved) => {
+            refresh(saved);
+            setTests((s) => ({ ...s, [saved.id]: { status: 'idle' } }));
+          }}
           onSaved={(saved) => {
             setConfiguring(null);
             refresh(saved);

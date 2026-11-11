@@ -101,6 +101,8 @@ const EcommerceSettingsController = ({ strapi }: { strapi: Core.Strapi }) => {
       return respond(ctx, () => settings().setActive(ctx.params.id, active, userId(ctx)));
     },
     testIntegration: (ctx: any) => respond(ctx, () => settings().testConnection(ctx.params.id)),
+    integrationLookups: (ctx: any) =>
+      respond(ctx, () => settings().integrationLookups(ctx.params.id, ctx.query?.companyId)),
 
     listShippingMethods: (ctx: any) => respond(ctx, () => settings().listManualMethods()),
     createShippingMethod: async (ctx: any) => {

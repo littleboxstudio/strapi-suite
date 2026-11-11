@@ -59,6 +59,19 @@ export type ProviderField = {
   label: string;
   /** Admin i18n key of a plain-text "how to find this value" explanation (paragraphs split by blank lines). */
   help?: string;
+  /** `credentials`: step 1 of a two-step configure form; the other fields form step 2. */
+  group?: 'credentials';
+  /** Name of the lookup list (`GET /integrations/:id/lookups`) offered as options for this field. */
+  lookup?: string;
+};
+
+export type LookupOption = { value: string; label: string };
+
+/** Lists read from the provider with the saved credentials, keyed by lookup name. */
+export type LookupResult = {
+  lists: Record<string, LookupOption[]>;
+  /** Lists the provider could not return: those fields fall back to a plain input. */
+  failed: string[];
 };
 
 export type IntegrationView = {

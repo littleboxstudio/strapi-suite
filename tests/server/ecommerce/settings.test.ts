@@ -342,6 +342,29 @@ describe('EcommerceSettingsService — integrations', () => {
     expect(testConnection).toHaveBeenCalledWith({ config: {}, secrets: { token: 'tok-secret-value' } });
     expect(await service.testConnection('manual')).toEqual({ ok: false, code: 'NOT_IMPLEMENTED' });
   });
+
+  it('integrationLookups runs the definition with the decrypted runtime and a valid company id', async () => {
+    const lookups = vi.fn(async () => ({ lists: { companies: [{ value: '7', label: 'Loja' }] }, failed: [] }));
+    registerProvider({
+      ...fakeBilling(false),
+      id: 'probe',
+      fields: [{ key: 'token', type: 'secret', required: true, label: 'x' }],
+      lookups,
+    });
+    const { service } = makeStrapi();
+    await service.updateIntegration('probe', { secrets: { token: 'tok-secret-value' } }, '1');
+    const out = await service.integrationLookups('probe', '7');
+    expect(out.lists.companies).toEqual([{ value: '7', label: 'Loja' }]);
+    expect(lookups).toHaveBeenLastCalledWith(
+      { config: {}, secrets: { token: 'tok-secret-value' } },
+      { companyId: 7 }
+    );
+    await service.integrationLookups('probe', 'abc');
+    expect(lookups).toHaveBeenLastCalledWith(expect.anything(), { companyId: null });
+    await service.integrationLookups('probe', '-3');
+    expect(lookups).toHaveBeenLastCalledWith(expect.anything(), { companyId: null });
+    expect(await service.integrationLookups('manual')).toEqual({ lists: {}, failed: [] });
+  });
 });
 
 describe('EcommerceSettingsService — Stripe return paths', () => {

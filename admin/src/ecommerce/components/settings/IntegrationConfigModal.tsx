@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import styled from 'styled-components';
 import { useNotification } from '@strapi/strapi/admin';
@@ -8,6 +8,7 @@ import {
   Field,
   Flex,
   IconButton,
+  Loader,
   Modal,
   MultiSelect,
   MultiSelectOption,
@@ -20,18 +21,24 @@ import {
 import { Information } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import UpdateIntegration from '../../usecases/settings/updateIntegration';
+import FetchIntegrationLookups from '../../usecases/settings/fetchIntegrationLookups';
 import { extractFieldErrors } from '../../utils/productForm';
 import { extractErrorCode } from '../../utils/settingsForm';
 import {
   buildIntegrationPayload,
+  credentialsSaved,
+  hasCredentialsStep,
   integrationErrorMap,
   integrationFormFromView,
   isIntegerText,
+  lookupFieldOptions,
+  missingCredentials,
+  stepFields,
   type IntegrationFormValues,
   validateIntegrationForm,
   showsAsRequired,
 } from '../../utils/integrationForm';
-import type { IntegrationView, ProviderField, ShippingZone } from '../../settingsTypes';
+import type { IntegrationView, LookupResult, ProviderField, ShippingZone } from '../../settingsTypes';
 import { FieldHelpModal } from './FieldHelpModal';
 
 /** All fields in two columns (one on narrow screens). */
@@ -46,6 +53,17 @@ const FieldGrid = styled.div`
   }
 `;
 
+/** The field whose value selects the company-specific lookup lists. */
+const COMPANY_FIELD = 'companyId';
+
+type Step = 'credentials' | 'details';
+
+type LookupState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'ok'; result: LookupResult; companyId: string }
+  | { status: 'error'; code: string | null };
+
 /** Mount it only while open: the form is initialised once, from the props. */
 type Props = {
   integration: IntegrationView;
@@ -55,6 +73,8 @@ type Props = {
   zones?: ShippingZone[];
   onClose: () => void;
   onSaved: (integration: IntegrationView) => void;
+  /** Two-step providers: the credentials were saved and the modal stays open on step 2. */
+  onChanged?: (integration: IntegrationView) => void;
 };
 
 const IntegrationConfigModal = ({
@@ -63,6 +83,7 @@ const IntegrationConfigModal = ({
   zones = [],
   onClose,
   onSaved,
+  onChanged,
 }: Props) => {
   const { formatMessage } = useIntl();
   const { toggleNotification } = useNotification();
@@ -78,6 +99,47 @@ const IntegrationConfigModal = ({
   const [clearedSecrets, setClearedSecrets] = useState<string[]>([]);
   /** The field whose "how to find this" help is open. */
   const [helpField, setHelpField] = useState<ProviderField | null>(null);
+  /** The integration as last saved: step 1 saves the credentials without closing the modal. */
+  const [current, setCurrent] = useState<IntegrationView>(integration);
+
+  const twoStep = hasCredentialsStep(integration.fields);
+  const [step, setStep] = useState<Step>(() =>
+    twoStep && !credentialsSaved(integration) ? 'credentials' : 'details'
+  );
+  const [lookups, setLookups] = useState<LookupState>({ status: 'idle' });
+  /** Why step 1 could not continue: an i18n key (the provider refused the credentials, ...). */
+  const [credentialsError, setCredentialsError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  const lookupRequest = useRef(0);
+
+  const hasCompanyField = integration.fields.some((f) => f.key === COMPANY_FIELD);
+  const companyValue =
+    hasCompanyField && typeof values[COMPANY_FIELD] === 'string' ? (values[COMPANY_FIELD] as string) : '';
+
+  /** Reads the lookup lists for the given company (or only the companies). */
+  const loadLookups = async (companyId: string): Promise<LookupState> => {
+    const request = ++lookupRequest.current;
+    setLookups({ status: 'loading' });
+    let next: LookupState;
+    try {
+      const result = await new FetchIntegrationLookups().execute(integration.id, companyId || undefined);
+      next = { status: 'ok', result, companyId };
+    } catch (err) {
+      next = { status: 'error', code: extractErrorCode(err) };
+    }
+    // A newer request (another company picked) wins.
+    if (request === lookupRequest.current) setLookups(next);
+    return next;
+  };
+
+  // Step 2: (re)load the lists when it opens and whenever another company is picked.
+  useEffect(() => {
+    if (!twoStep || step !== 'details') return;
+    if (lookups.status === 'ok' && lookups.companyId === companyValue) return;
+    if (lookups.status === 'loading') return;
+    loadLookups(companyValue);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [twoStep, step, companyValue]);
 
   const name = t(
     `ecommerce.settings.providers.${integration.id}.name`,
@@ -85,9 +147,74 @@ const IntegrationConfigModal = ({
     integration.name
   );
   const hasSecrets = integration.fields.some((f) => f.type === 'secret');
+  const visibleFields = twoStep ? stepFields(integration.fields, step) : integration.fields;
+
+  /** Step 1 → 2: saves the credentials, then checks them by reading the companies. */
+  const continueToDetails = async () => {
+    if (checking) return;
+    setCredentialsError(null);
+    const missing = missingCredentials(current, values);
+    if (missing.length) {
+      setErrors(Object.fromEntries(missing.map((key) => [key, 'required'])));
+      return;
+    }
+    setChecking(true);
+    try {
+      const credentialFields = stepFields(integration.fields, 'credentials');
+      let saved: IntegrationView;
+      try {
+        saved = await new UpdateIntegration().execute(
+          integration.id,
+          buildIntegrationPayload(credentialFields, values)
+        );
+      } catch (err) {
+        const fieldErrors = extractFieldErrors(err);
+        const code = extractErrorCode(err);
+        if (fieldErrors) setErrors(integrationErrorMap(fieldErrors));
+        setCredentialsError(code ? `ecommerce.settings.errors.${code}` : 'ecommerce.settings.saveError');
+        return;
+      }
+      setCurrent(saved);
+      onChanged?.(saved);
+      // Saved secrets now show as masks; the typed values are no longer needed.
+      setValues((v) => {
+        const next = { ...v };
+        credentialFields.filter((f) => f.type === 'secret').forEach((f) => (next[f.key] = ''));
+        return next;
+      });
+      const result = await loadLookups(companyValue);
+      if (result.status === 'ok') setStep('details');
+      else {
+        const code = result.status === 'error' ? result.code : null;
+        setCredentialsError(`ecommerce.settings.integrations.lookup.errors.${code ?? 'unknown'}`);
+      }
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  /** Lookup options for a field; null when the field falls back to a plain input. */
+  const lookupState = (field: ProviderField) => {
+    if (!twoStep || !field.lookup) return null;
+    if (lookups.status === 'idle' || lookups.status === 'loading') return { kind: 'loading' as const };
+    if (lookups.status === 'error') return null;
+    if (lookups.result.failed.includes(field.lookup)) return null;
+    const list = lookups.result.lists[field.lookup];
+    if (!list) return field.key === COMPANY_FIELD ? null : { kind: 'needsCompany' as const };
+    return { kind: 'list' as const, list };
+  };
 
   const setValue = (key: string, value: string | boolean | string[]) => {
-    setValues((v) => ({ ...v, [key]: value }));
+    setValues((v) => {
+      const next = { ...v, [key]: value };
+      // Ids of series, methods, ... belong to one company: picking another one clears them.
+      if (twoStep && key === COMPANY_FIELD && v[key] !== value) {
+        integration.fields
+          .filter((f) => f.lookup && f.key !== COMPANY_FIELD)
+          .forEach((f) => (next[f.key] = ''));
+      }
+      return next;
+    });
     setErrors((current) => {
       if (!(key in current)) return current;
       const { [key]: _removed, ...rest } = current;
@@ -115,7 +242,12 @@ const IntegrationConfigModal = ({
       const fieldErrors = extractFieldErrors(err);
       const code = extractErrorCode(err);
       if (fieldErrors) {
-        setErrors(integrationErrorMap(fieldErrors));
+        const map = integrationErrorMap(fieldErrors);
+        setErrors(map);
+        // An error on a credential is only visible on step 1.
+        if (twoStep && stepFields(integration.fields, 'credentials').some((f) => f.key in map)) {
+          setStep('credentials');
+        }
         toggleNotification({ type: 'warning', message: t('ecommerce.settings.errors.fix') });
       } else if (code) {
         toggleNotification({ type: 'danger', message: t(`ecommerce.settings.errors.${code}`) });
@@ -130,6 +262,50 @@ const IntegrationConfigModal = ({
   const fieldInput = (field: ProviderField) => {
     const value = values[field.key];
     const hasError = !!errors[field.key];
+
+    const lookup = lookupState(field);
+    if (lookup) {
+      const text = typeof value === 'string' ? value : '';
+      if (lookup.kind !== 'list') {
+        return (
+          <SingleSelect
+            disabled
+            value=""
+            placeholder={t(
+              lookup.kind === 'loading'
+                ? 'ecommerce.settings.integrations.lookup.loading'
+                : 'ecommerce.settings.integrations.lookup.chooseCompany'
+            )}
+            onChange={() => undefined}
+          >
+            {[]}
+          </SingleSelect>
+        );
+      }
+      const options = lookupFieldOptions(lookup.list, text, (id) =>
+        t('ecommerce.settings.integrations.lookup.unknown', { value: id, name })
+      );
+      return (
+        <SingleSelect
+          value={text}
+          hasError={hasError}
+          placeholder={t(
+            field.required
+              ? 'ecommerce.settings.integrations.selectPlaceholder'
+              : 'ecommerce.settings.integrations.lookup.automatic',
+            { name }
+          )}
+          onChange={(next: string | number) => setValue(field.key, String(next))}
+          onClear={field.required ? undefined : () => setValue(field.key, '')}
+        >
+          {options.map((option) => (
+            <SingleSelectOption key={option.value} value={option.value}>
+              {option.label}
+            </SingleSelectOption>
+          ))}
+        </SingleSelect>
+      );
+    }
 
     switch (field.type) {
       case 'boolean':
@@ -160,7 +336,7 @@ const IntegrationConfigModal = ({
         );
       case 'secret': {
         const cleared = clearedSecrets.includes(field.key);
-        const clearable = !field.required && !!integration.secrets[field.key];
+        const clearable = !field.required && !!current.secrets[field.key];
         return (
           <Flex gap={2} alignItems="center">
             <Box flex="1">
@@ -168,7 +344,7 @@ const IntegrationConfigModal = ({
                 type="password"
                 autoComplete="new-password"
                 value={typeof value === 'string' ? value : ''}
-                placeholder={cleared ? '' : (integration.secrets[field.key] ?? '')}
+                placeholder={cleared ? '' : (current.secrets[field.key] ?? '')}
                 hasError={hasError}
                 onChange={(e: any) => {
                   setValue(field.key, e.target.value);
@@ -248,10 +424,10 @@ const IntegrationConfigModal = ({
     if (clearedSecrets.includes(field.key)) {
       return t('ecommerce.settings.integrations.secret.clearHint');
     }
-    if (integration.secretsStatus === 'unreadable') {
+    if (current.secretsStatus === 'unreadable') {
       return t('ecommerce.settings.integrations.secret.unreadableHint');
     }
-    return integration.secrets[field.key]
+    return current.secrets[field.key]
       ? t('ecommerce.settings.integrations.secret.keepHint')
       : undefined;
   };
@@ -271,8 +447,58 @@ const IntegrationConfigModal = ({
                 </Typography>
               </Box>
             )}
+            {twoStep && step === 'credentials' && (
+              <Typography variant="omega" textColor="neutral600">
+                {t('ecommerce.settings.integrations.steps.credentials', { name })}
+              </Typography>
+            )}
+            {twoStep && step === 'credentials' && credentialsError && (
+              <Box background="danger100" borderColor="danger200" hasRadius padding={4} role="alert">
+                <Typography textColor="danger700">
+                  {t(credentialsError, { name }, t('ecommerce.settings.integrations.lookup.errors.unknown', { name }))}
+                </Typography>
+              </Box>
+            )}
+            {twoStep && step === 'details' && (
+              <Flex
+                justifyContent="space-between"
+                alignItems="center"
+                gap={4}
+                background="neutral100"
+                hasRadius
+                padding={4}
+              >
+                <Flex gap={2} alignItems="center">
+                  {lookups.status === 'loading' && <Loader small />}
+                  <Typography variant="omega">
+                    {t('ecommerce.settings.integrations.steps.details', {
+                      name,
+                      user: String(current.config.username ?? ''),
+                    })}
+                  </Typography>
+                </Flex>
+                <Button variant="tertiary" onClick={() => setStep('credentials')}>
+                  {t('ecommerce.settings.integrations.steps.editCredentials')}
+                </Button>
+              </Flex>
+            )}
+            {twoStep && step === 'details' && lookups.status === 'error' && (
+              <Box background="warning100" borderColor="warning200" hasRadius padding={4} role="alert">
+                <Typography textColor="neutral800">
+                  {t(`ecommerce.settings.integrations.lookup.errors.${lookups.code ?? 'unknown'}`, { name }, t('ecommerce.settings.integrations.lookup.errors.unknown', { name }))}{' '}
+                  {t('ecommerce.settings.integrations.lookup.manual')}
+                </Typography>
+              </Box>
+            )}
+            {twoStep && step === 'details' && lookups.status === 'ok' && lookups.result.failed.length > 0 && (
+              <Box background="warning100" borderColor="warning200" hasRadius padding={4} role="note">
+                <Typography textColor="neutral800">
+                  {t('ecommerce.settings.integrations.lookup.someFailed', { name })}
+                </Typography>
+              </Box>
+            )}
             <FieldGrid>
-              {integration.fields.map((field) => (
+              {visibleFields.map((field) => (
                 <Field.Root
                   key={field.key}
                   name={field.key}
@@ -314,9 +540,15 @@ const IntegrationConfigModal = ({
           <Button variant="tertiary" onClick={onClose}>
             {t('ecommerce.settings.cancel')}
           </Button>
-          <Button onClick={save} loading={saving}>
-            {t('ecommerce.settings.save')}
-          </Button>
+          {twoStep && step === 'credentials' ? (
+            <Button onClick={continueToDetails} loading={checking}>
+              {t('ecommerce.settings.integrations.steps.continue')}
+            </Button>
+          ) : (
+            <Button onClick={save} loading={saving}>
+              {t('ecommerce.settings.save')}
+            </Button>
+          )}
         </Modal.Footer>
       </Modal.Content>
       {helpField?.help && (

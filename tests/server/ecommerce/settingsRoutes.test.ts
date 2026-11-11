@@ -19,6 +19,7 @@ const expected: [string, string, string, string][] = [
   ['PUT', `${B}/integrations/:id`, 'updateIntegration', P.settingsManage],
   ['POST', `${B}/integrations/:id/activate`, 'setIntegrationActive', P.settingsManage],
   ['POST', `${B}/integrations/:id/test`, 'testIntegration', P.settingsManage],
+  ['GET', `${B}/integrations/:id/lookups`, 'integrationLookups', P.settingsManage],
   ['GET', `${B}/shipping-methods`, 'listShippingMethods', P.settingsRead],
   ['POST', `${B}/shipping-methods`, 'createShippingMethod', P.settingsManage],
   ['PUT', `${B}/shipping-methods/:id`, 'updateShippingMethod', P.settingsManage],

@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import type { ProviderRuntime } from '../../registry';
 import { str, timedFetch } from '../../http';
 import { EcommerceBillingError } from '../../../errors';
@@ -11,7 +12,10 @@ const RENEW_MARGIN_MS = 60000;
 type Token = { accessToken: string; refreshToken: string | null; expiresAt: number };
 type Raw = { status: number; body: unknown };
 
-/** Module cache keyed by `clientId:username`; tokens live in memory only. */
+/**
+ * Module cache keyed by `clientId:username` plus a hash of the secrets, so new credentials never
+ * reuse a token granted to the old ones; tokens live in memory only.
+ */
 let tokens = new Map<string, Token>();
 let grants = new Map<string, Promise<Token>>();
 
@@ -63,7 +67,8 @@ const isInvalidToken = (res: Raw) => {
 };
 
 export function createMoloniClient(rt: ProviderRuntime) {
-  function credentials() {
+  /** `requireCompany: false` for calls made before a company is chosen (`companies/getAll`). */
+  function credentials(requireCompany = true) {
     const values = {
       clientId: str(rt, 'clientId'),
       clientSecret: str(rt, 'clientSecret'),
@@ -72,7 +77,9 @@ export function createMoloniClient(rt: ProviderRuntime) {
       companyId: str(rt, 'companyId'),
     };
     const missing = Object.entries(values)
-      .filter(([k, v]) => (k === 'companyId' ? !(Number.isInteger(Number(v)) && Number(v) > 0) : !v))
+      .filter(([k, v]) =>
+        k === 'companyId' ? requireCompany && !(Number.isInteger(Number(v)) && Number(v) > 0) : !v
+      )
       .map(([k]) => k);
     if (missing.length) throw new EcommerceBillingError('BILLING_CONFIG_MISSING', `Missing fields: ${missing.join(', ')}`);
     return { ...values, companyId: Number(values.companyId) };
@@ -101,7 +108,8 @@ export function createMoloniClient(rt: ProviderRuntime) {
    * rejected). A grant already in flight is shared even when forced: it yields a new token anyway.
    */
   async function token(c: Credentials, force: boolean): Promise<Token> {
-    const key = `${c.clientId}:${c.username}`;
+    const fingerprint = createHash('sha256').update(`${c.clientSecret}\u0000${c.password}`).digest('hex');
+    const key = `${c.clientId}:${c.username}:${fingerprint}`;
     const cached = tokens.get(key);
     if (!force && cached && Date.now() < cached.expiresAt - RENEW_MARGIN_MS) return cached;
     const inflight = grants.get(key);
@@ -155,10 +163,16 @@ export function createMoloniClient(rt: ProviderRuntime) {
       return credentials().companyId;
     },
 
-    async call<T>(path: string, body: Record<string, unknown> = {}, opts: { write?: boolean } = {}): Promise<T> {
+    /** `company: false` leaves out `company_id` (and does not require it), e.g. `companies/getAll`. */
+    async call<T>(
+      path: string,
+      body: Record<string, unknown> = {},
+      opts: { write?: boolean; company?: boolean } = {}
+    ): Promise<T> {
       const write = opts.write === true;
-      const c = credentials();
-      const payload = JSON.stringify({ ...body, company_id: c.companyId });
+      const withCompany = opts.company !== false;
+      const c = credentials(withCompany);
+      const payload = JSON.stringify(withCompany ? { ...body, company_id: c.companyId } : body);
       for (let attempt = 0; ; attempt++) {
         const t = await token(c, attempt > 0);
         const res = await moloniSend(

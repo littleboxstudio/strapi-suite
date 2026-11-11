@@ -38,6 +38,7 @@ export default [
   route('PUT', '/integrations/:id', 'updateIntegration', manage),
   route('POST', '/integrations/:id/activate', 'setIntegrationActive', manage),
   route('POST', '/integrations/:id/test', 'testIntegration', manage),
+  route('GET', '/integrations/:id/lookups', 'integrationLookups', manage),
   route('GET', '/shipping-methods', 'listShippingMethods', read),
   route('POST', '/shipping-methods', 'createShippingMethod', manage),
   route('PUT', '/shipping-methods/:id', 'updateShippingMethod', manage),
