@@ -24,6 +24,14 @@ import {
   type PaymentStatus,
   type ShipmentLike,
 } from './domain/orders';
+import {
+  simulateModification,
+  type CatalogVariant as ModificationCatalogVariant,
+  type ExistingLine,
+  type ModificationCurrent,
+  type ModificationResult,
+  type ShippingModification,
+} from './domain/orderModification';
 import type { ShippingOption, ShippingQuoteRequest } from './shipping';
 import type { StockMoveInput } from './stock';
 import type { OrderHistoryEntry } from './orderHistory';
@@ -137,9 +145,48 @@ type CatalogVariant = {
   name: string;
   option: string | null;
   imageUrl: string | null;
+  stock: number;
+  /** The variant and its product are both active. */
+  active: boolean;
 };
 
 type MergedLine = { index: number; variantId: number; quantity: number };
+
+/**
+ * What the admin sends to preview or apply a modification. `RECALCULATE` carries no amount:
+ * the service quotes it. `MANUAL` may rename the stored method.
+ */
+export type OrderModificationInput = {
+  lines: { orderLineId?: number; variantId: number; quantity: number }[];
+  shipping:
+    { mode: 'KEEP' } | { mode: 'RECALCULATE' } | { mode: 'MANUAL'; amount: number; name?: string };
+  addresses?: { shipping?: Address; billing?: Address };
+};
+
+export type OrderModificationOutcome = Pick<ModificationResult, 'outcome' | 'difference'>;
+
+type NormalizedModification = {
+  lines: { orderLineId?: number; variantId: number; quantity: number }[];
+  shipping: OrderModificationInput['shipping'];
+  addresses: { shipping?: Address; billing?: Address };
+};
+
+const SHIPPING_MODES = ['KEEP', 'RECALCULATE', 'MANUAL'] as const;
+const OPERATION_ID_MIN = 8;
+const OPERATION_ID_MAX = 64;
+
+/** Key-sorted JSON, so two equal addresses compare equal whatever their key order. */
+const canonical = (v: unknown): string =>
+  JSON.stringify(
+    v && typeof v === 'object'
+      ? Object.fromEntries(Object.entries(v as object).sort(([a], [b]) => a.localeCompare(b)))
+      : (v ?? null)
+  );
+
+const operationConflict = () =>
+  new EcommerceValidationError('Invalid modification', [
+    { path: 'operationId', code: 'OPERATION_ID_CONFLICT' },
+  ]);
 
 const ADDRESS_REQUIRED = [
   'firstName',
@@ -224,7 +271,11 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       : null;
   };
 
-  /** Active variants of active products, with texts in `locale` (falling back to the default locale). */
+  /**
+   * The requested variants with texts in `locale` (falling back to the default locale) and
+   * `active` = variant and product both active. Inactive ones are included so callers can tell
+   * "unavailable" from "unknown" and still read their stock.
+   */
   const loadCatalog = async (
     variantIds: number[],
     locale: string
@@ -246,10 +297,9 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
 
     const out = new Map<number, CatalogVariant>();
     for (const p of products) {
-      if (!p.active) continue;
       const productImage = [...(p.images ?? [])].sort(byPosition)[0];
       for (const v of p.variants ?? []) {
-        if (!variantIds.includes(v.id) || !v.active) continue;
+        if (!variantIds.includes(v.id)) continue;
         // The variant's own picture is the most precise; otherwise the product's first image.
         const image = [...(v.images ?? [])].sort(byPosition)[0] ?? productImage;
         out.set(v.id, {
@@ -265,6 +315,8 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
           name: pick(p.translations, 'name') ?? '',
           option: pick(v.translations, 'option'),
           imageUrl: image?.url ?? null,
+          stock: num(v.stock),
+          active: !!p.active && !!v.active,
         });
       }
     }
@@ -388,7 +440,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     );
     const lineErrors: ValidationIssue[] = [];
     for (const l of v.lines) {
-      if (!catalog.has(l.variantId))
+      if (!catalog.get(l.variantId)?.active)
         lineErrors.push({ path: `lines.${l.index}.variantId`, code: 'VARIANT_UNAVAILABLE' });
     }
     if (lineErrors.length) throw new EcommerceValidationError('Invalid order', lineErrors);
@@ -912,7 +964,519 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
   const archive = (orderId: number, actor: string) =>
     transition(orderId, actor, 'ARCHIVE', 'ARCHIVED');
 
-  return { create, list, get, recalculate, computeOrderState, assertAction, cancel, archive };
+  // -------------------------------------------------------------------------
+  // Modification (design 4.8)
+  // -------------------------------------------------------------------------
+
+  const normalizeModification = async (
+    input: OrderModificationInput
+  ): Promise<NormalizedModification> => {
+    const errors: ValidationIssue[] = [];
+    const rawLines: any[] | null = Array.isArray(input?.lines) ? input.lines : null;
+    if (!rawLines) errors.push({ path: 'lines', code: 'required' });
+    // Quantities and line ids are validated by the simulation, with per-line paths.
+    const lines = (rawLines ?? []).map((l) => ({
+      ...(l?.orderLineId !== undefined && l?.orderLineId !== null
+        ? { orderLineId: Number(l.orderLineId) }
+        : {}),
+      variantId: Number(l?.variantId),
+      quantity: l?.quantity,
+    }));
+
+    const raw = (input?.shipping ?? {}) as Record<string, unknown>;
+    const mode = raw.mode as (typeof SHIPPING_MODES)[number];
+    let shippingInput: OrderModificationInput['shipping'] = { mode: 'KEEP' };
+    if (!SHIPPING_MODES.includes(mode)) {
+      errors.push({ path: 'shipping.mode', code: 'required' });
+    } else if (mode === 'MANUAL') {
+      const name = clean(raw.name);
+      shippingInput = { mode, amount: raw.amount as number, ...(name ? { name } : {}) };
+    } else {
+      shippingInput = { mode };
+    }
+
+    const addresses: NormalizedModification['addresses'] = {};
+    const a = input?.addresses;
+    if (a?.shipping) {
+      const store = await service('EcommerceSettingsService').getStoreSettings();
+      addresses.shipping = normalizeAddress(
+        a.shipping,
+        'addresses.shipping',
+        errors,
+        store?.shippingCountries ?? []
+      );
+    }
+    if (a?.billing) addresses.billing = normalizeAddress(a.billing, 'addresses.billing', errors);
+
+    if (errors.length) throw new EcommerceValidationError('Invalid modification', errors);
+    return { lines, shipping: shippingInput, addresses };
+  };
+
+  /** The order (MODIFY must be available) and the catalog of every variant involved. */
+  const loadModificationContext = async (orderId: number, n: NormalizedModification) => {
+    const state = await computeOrderState(orderId);
+    assertAction(state, 'MODIFY');
+    const ids = new Set<number>(state.lines.map((l) => l.variantId));
+    for (const l of n.lines) {
+      if (Number.isSafeInteger(l.variantId) && l.variantId > 0) ids.add(l.variantId);
+    }
+    const catalog = ids.size
+      ? await loadCatalog([...ids], state.order.locale)
+      : new Map<number, CatalogVariant>();
+    return { state, catalog };
+  };
+
+  type ModificationContext = Awaited<ReturnType<typeof loadModificationContext>>;
+
+  const toModificationCurrent = (state: OrderState): ModificationCurrent => ({
+    lines: state.lines.map((l): ExistingLine => ({
+      id: l.id,
+      variantId: l.variantId,
+      sku: l.sku,
+      name: l.name,
+      option: l.option ?? '',
+      tax: l.tax,
+      shipped: l.shipped,
+      isGift: l.isGift,
+      unitPrice: l.unitPrice,
+      unitDiscount: l.unitDiscount,
+      quantity: l.quantity,
+      returnedQuantity: l.returnedQuantity,
+    })),
+    orderDiscount: num(state.order.orderDiscount),
+    shippingOriginal: num(state.order.shippingOriginal),
+    shippingDiscount: num(state.order.shippingDiscount),
+    payments: state.payments.map(toPaymentLike),
+    // Refunds arrive in plan 4.
+    refunds: [],
+  });
+
+  const toModificationCatalog = (catalog: Map<number, CatalogVariant>) => {
+    const out = new Map<number, ModificationCatalogVariant>();
+    for (const [id, c] of catalog) {
+      out.set(id, {
+        variantId: c.variantId,
+        sku: c.sku,
+        name: c.name,
+        option: c.option ?? '',
+        unitPrice: c.price,
+        tax: c.tax,
+        imageUrl: c.imageUrl,
+        stock: c.stock,
+        active: c.active,
+      });
+    }
+    return out;
+  };
+
+  const runSimulation = (
+    ctx: ModificationContext,
+    n: NormalizedModification,
+    shippingInput: ShippingModification
+  ): ModificationResult =>
+    simulateModification(
+      toModificationCurrent(ctx.state),
+      { lines: n.lines, shipping: shippingInput, addresses: n.addresses },
+      toModificationCatalog(ctx.catalog)
+    );
+
+  /**
+   * The shipping input for the simulation. `RECALCULATE` quotes the order's method for the
+   * units still to ship after the modification, at the (new) shipping address.
+   */
+  const resolveShipping = async (
+    ctx: ModificationContext,
+    n: NormalizedModification
+  ): Promise<{ input: ShippingModification; option: ShippingOption | null }> => {
+    if (n.shipping.mode === 'KEEP') return { input: { mode: 'KEEP' }, option: null };
+    if (n.shipping.mode === 'MANUAL') {
+      return { input: { mode: 'MANUAL', amount: n.shipping.amount }, option: null };
+    }
+
+    const { state, catalog } = ctx;
+    const draft = runSimulation(ctx, n, { mode: 'KEEP' });
+    const shippedById = new Map(state.lines.map((l) => [l.id, l.shipped]));
+    const items: ShippingQuoteRequest['items'] = [];
+    for (const c of draft.lineChanges) {
+      const shipped = c.orderLineId !== undefined ? (shippedById.get(c.orderLineId) ?? 0) : 0;
+      const quantity = c.newQuantity - shipped;
+      if (quantity <= 0) continue;
+      const v = catalog.get(c.variantId);
+      items.push({
+        variantId: c.variantId,
+        quantity,
+        weight: v?.weight ?? 0,
+        width: v?.width ?? 0,
+        height: v?.height ?? 0,
+        depth: v?.depth ?? 0,
+      });
+    }
+    const destination: Address | null = n.addresses.shipping ?? state.order.shippingAddress;
+    const method = (state.order.shippingMethod ?? {}) as Record<string, unknown>;
+    const option = await shipping().findOption(
+      {
+        country: destination?.country ?? '',
+        postalCode: destination?.postalCode,
+        items,
+        subtotal: draft.after.subtotal,
+        locale: state.order.locale,
+      },
+      String(method.providerId ?? ''),
+      String(method.serviceId ?? '')
+    );
+    if (!option) {
+      throw new EcommerceValidationError('Invalid modification', [
+        { path: 'shipping', code: 'SHIPPING_QUOTE_FAILED' },
+      ]);
+    }
+    return {
+      input: { mode: 'RECALCULATE', quote: num(option.price), previousShipmentsCost: 0 },
+      option,
+    };
+  };
+
+  const previewModification = async (
+    rawOrderId: number | string,
+    input: OrderModificationInput
+  ): Promise<ModificationResult> => {
+    const orderId = Number(rawOrderId);
+    const n = await normalizeModification(input);
+    const ctx = await loadModificationContext(orderId, n);
+    const { input: shippingInput } = await resolveShipping(ctx, n);
+    return runSimulation(ctx, n, shippingInput);
+  };
+
+  /** The outcome of an earlier application of `operationId` on this order, if any. */
+  const findAppliedModification = async (
+    orderId: number,
+    operationId: string
+  ): Promise<OrderModificationOutcome | null> => {
+    const q = strapi.db.query(uids().orderHistory);
+    const row = await q.findOne({
+      where: { type: 'ORDER_MODIFIED', operationId, order: { id: orderId } },
+    });
+    if (row) {
+      return {
+        outcome: row.newValue?.outcome ?? 'NONE',
+        difference: num(row.newValue?.difference),
+      };
+    }
+    // The stock keys embed the operationId: reusing one from another order is a client bug.
+    if (await q.findOne({ where: { type: 'ORDER_MODIFIED', operationId } })) {
+      throw operationConflict();
+    }
+    return null;
+  };
+
+  const applyModification = async (
+    rawOrderId: number | string,
+    input: OrderModificationInput,
+    actor: string,
+    rawOperationId: string
+  ): Promise<{ order: OrderView } & OrderModificationOutcome> => {
+    const orderId = Number(rawOrderId);
+    const operationId = typeof rawOperationId === 'string' ? rawOperationId.trim() : '';
+    if (operationId.length < OPERATION_ID_MIN || operationId.length > OPERATION_ID_MAX) {
+      throw new EcommerceValidationError('Invalid modification', [
+        { path: 'operationId', code: 'required' },
+      ]);
+    }
+
+    // A replay returns the current order before any precondition: the first request may
+    // already have changed what is available.
+    const replay = async () => {
+      const applied = await findAppliedModification(orderId, operationId);
+      return applied ? { order: await get(orderId), ...applied } : null;
+    };
+    const earlier = await replay();
+    if (earlier) return earlier;
+
+    const n = await normalizeModification(input);
+    // The carrier quote may be a remote call: it is taken before the transaction.
+    const { input: shippingInput, option } = await resolveShipping(
+      await loadModificationContext(orderId, n),
+      n
+    );
+
+    const collector = events().collector();
+    let outcome: OrderModificationOutcome;
+    try {
+      outcome = await strapi.db.transaction(async () => {
+        if (await findAppliedModification(orderId, operationId)) throw operationConflict();
+        const ctx = await loadModificationContext(orderId, n);
+        const result = runSimulation(ctx, n, shippingInput);
+        if (result.errors.length) {
+          throw new EcommerceValidationError('Invalid modification', result.errors);
+        }
+        await writeModification(ctx, n, result, option, actor, operationId);
+        await recalculate(orderId, { actor, operationId });
+        collector.emit({
+          type: 'ORDER_MODIFIED',
+          orderId,
+          payload: { outcome: result.outcome, difference: result.difference },
+        });
+        return { outcome: result.outcome, difference: result.difference };
+      });
+    } catch (err) {
+      // A concurrent request with the same operationId committed first: that is the answer.
+      const isConflict =
+        err instanceof EcommerceValidationError &&
+        (err as any).errors?.some?.((e: ValidationIssue) => e.code === 'OPERATION_ID_CONFLICT');
+      if (isConflict || isUniqueViolation(err)) {
+        const winner = await replay();
+        if (winner) return winner;
+      }
+      throw err;
+    }
+    await collector.flush();
+    return { order: await get(orderId), ...outcome };
+  };
+
+  /** Persists a validated simulation: lines, stock, addresses, shipping, totals and history. */
+  const writeModification = async (
+    ctx: ModificationContext,
+    n: NormalizedModification,
+    result: ModificationResult,
+    option: ShippingOption | null,
+    actor: string,
+    operationId: string
+  ): Promise<void> => {
+    const u = uids();
+    const { state, catalog } = ctx;
+    const order = state.order;
+    const orderId = order.id as number;
+    const record = (entry: Omit<OrderHistoryEntry, 'orderId' | 'actor' | 'operationId'>) =>
+      history().record({ ...entry, orderId, actor, operationId });
+
+    // --- Lines ---------------------------------------------------------------
+    const byId = new Map(state.lines.map((l) => [l.id, l]));
+    let position = Math.max(-1, ...(order.lines ?? []).map((l: any) => num(l.position))) + 1;
+    for (const change of result.lineChanges) {
+      if (change.kind === 'UNCHANGED') continue;
+      if (change.kind === 'ADDED') {
+        const c = catalog.get(change.variantId)!;
+        const created = await strapi.db.query(u.orderLine).create({
+          data: {
+            order: orderId,
+            variant: c.variantId,
+            variantId: c.variantId,
+            productId: c.productId,
+            sku: c.sku,
+            name: c.name,
+            option: c.option,
+            imageUrl: c.imageUrl,
+            unitPrice: c.price,
+            unitDiscount: 0,
+            quantity: change.newQuantity,
+            returnedQuantity: 0,
+            tax: c.tax,
+            isGift: false,
+            promotionRefs: [],
+            position: position++,
+          },
+        });
+        await record({
+          type: 'LINE_ADDED',
+          description: `Added ${change.newQuantity} × ${c.sku}`,
+          previousValue: null,
+          newValue: {
+            orderLineId: created.id,
+            variantId: c.variantId,
+            sku: c.sku,
+            name: c.name,
+            option: c.option,
+            unitPrice: c.price,
+            quantity: change.newQuantity,
+          },
+        });
+        continue;
+      }
+
+      const line = byId.get(change.orderLineId!)!;
+      const ref = {
+        orderLineId: line.id,
+        variantId: line.variantId,
+        sku: line.sku,
+        name: line.name,
+        option: line.option,
+      };
+      // A line with nothing shipped or returned leaves no trace on the order; otherwise it
+      // stays with quantity 0 (the simulation rejects going below the shipped units).
+      if (change.newQuantity === 0 && line.shipped === 0 && line.returnedQuantity === 0) {
+        await strapi.db.query(u.orderLine).delete({ where: { id: line.id } });
+      } else {
+        await strapi.db.query(u.orderLine).update({
+          where: { id: line.id },
+          data: { quantity: change.newQuantity },
+        });
+      }
+      if (change.kind === 'REMOVED') {
+        await record({
+          type: 'LINE_REMOVED',
+          description: `Removed ${change.previousQuantity} × ${line.sku}`,
+          previousValue: { ...ref, quantity: change.previousQuantity },
+          newValue: null,
+        });
+      } else {
+        await record({
+          type: 'LINE_QUANTITY_CHANGED',
+          description: `Quantity of ${line.sku} changed from ${change.previousQuantity} to ${change.newQuantity}`,
+          previousValue: { ...ref, quantity: change.previousQuantity },
+          newValue: { ...ref, quantity: change.newQuantity },
+        });
+      }
+    }
+
+    // --- Stock ---------------------------------------------------------------
+    for (const m of result.stockMovements) {
+      const { applied } = await stock().move({
+        variantId: m.variantId,
+        quantity: m.quantity,
+        type: m.quantity < 0 ? 'ORDER_DEDUCT' : 'ORDER_RESTOCK',
+        operationKey: `modify:${operationId}:${m.variantId}`,
+        orderId,
+        reason: `Order #${order.reference} modified`,
+        actor,
+      });
+      // The key already exists: this operationId was used elsewhere. Roll everything back.
+      if (!applied) throw operationConflict();
+    }
+
+    // --- Addresses -----------------------------------------------------------
+    const data: Record<string, unknown> = {};
+    for (const [kind, field] of [
+      ['shipping', 'shippingAddress'],
+      ['billing', 'billingAddress'],
+    ] as const) {
+      const next = n.addresses[kind];
+      const previous = order[field] ?? null;
+      if (!next || canonical(next) === canonical(previous)) continue;
+      data[field] = next;
+      await record({
+        type: 'ADDRESS_CHANGED',
+        description: `${kind === 'shipping' ? 'Shipping' : 'Billing'} address changed`,
+        previousValue: { [field]: previous },
+        newValue: { [field]: next },
+      });
+    }
+
+    // --- Shipping ------------------------------------------------------------
+    const s = result.shipping;
+    if (s.mode !== 'KEEP') {
+      const previousMethod = (order.shippingMethod ?? null) as Record<string, unknown> | null;
+      let method: Record<string, unknown>;
+      if (s.mode === 'RECALCULATE' && option) {
+        method = {
+          providerId: option.providerId,
+          serviceId: option.serviceId,
+          name: option.name,
+          price: num(option.price),
+          tax: num(option.tax),
+          ...(option.estimatedDays !== undefined ? { estimatedDays: option.estimatedDays } : {}),
+        };
+        data.shippingTax = num(option.tax);
+      } else {
+        // MANUAL keeps the carrier ids; only the price (and optionally the name) change.
+        const name = n.shipping.mode === 'MANUAL' ? n.shipping.name : undefined;
+        method = {
+          ...(previousMethod ?? {}),
+          price: s.shippingOriginal,
+          ...(name ? { name } : {}),
+        };
+      }
+      data.shippingMethod = method;
+      await record({
+        type: 'SHIPPING_CHANGED',
+        description: `Shipping ${s.mode === 'MANUAL' ? 'set manually' : 'recalculated'}: ${s.previousCharged} → ${s.newCharged} cents`,
+        previousValue: {
+          charged: s.previousCharged,
+          shippingOriginal: num(order.shippingOriginal),
+          shippingDiscount: num(order.shippingDiscount),
+          shippingMethod: previousMethod,
+        },
+        newValue: {
+          mode: s.mode,
+          previousCharged: s.previousCharged,
+          newCharged: s.newCharged,
+          ...(s.quote !== undefined ? { quote: s.quote } : {}),
+          ...(s.previousShipmentsCost !== undefined
+            ? { previousShipmentsCost: s.previousShipmentsCost }
+            : {}),
+          shippingMethod: method,
+        },
+      });
+    }
+
+    // --- Totals --------------------------------------------------------------
+    const storedLines: any[] = await strapi.db.query(u.orderLine).findMany({
+      where: { order: orderId },
+    });
+    const previousDiscount = num(order.orderDiscount);
+    const totals = computeTotals(
+      storedLines.map((l) => ({
+        unitPrice: num(l.unitPrice),
+        unitDiscount: num(l.unitDiscount),
+        quantity: num(l.quantity),
+        returnedQuantity: num(l.returnedQuantity),
+      })),
+      {
+        orderDiscount: previousDiscount,
+        shippingOriginal: s.shippingOriginal,
+        shippingDiscount: s.shippingDiscount,
+      }
+    );
+    if (totals.orderDiscount !== previousDiscount) {
+      await record({
+        type: 'ORDER_DISCOUNT_CHANGED',
+        description: `Order discount capped at the new subtotal: ${previousDiscount} → ${totals.orderDiscount} cents`,
+        previousValue: { orderDiscount: previousDiscount },
+        newValue: { orderDiscount: totals.orderDiscount },
+      });
+    }
+
+    // Conditional on OPEN: a concurrent cancel or archive that committed first leaves 0 rows,
+    // and throwing rolls this modification back.
+    const { count } = await strapi.db.query(u.order).updateMany({
+      where: { id: orderId, orderStatus: 'OPEN' },
+      data: {
+        ...data,
+        itemsOriginal: totals.itemsOriginal,
+        productDiscount: totals.productDiscount,
+        subtotal: totals.subtotal,
+        orderDiscount: totals.orderDiscount,
+        shippingOriginal: s.shippingOriginal,
+        shippingDiscount: s.shippingDiscount,
+        shippingTotal: totals.shippingTotal,
+        total: totals.total,
+      },
+    });
+    assertAction(state, 'MODIFY', count > 0);
+
+    await record({
+      type: 'ORDER_MODIFIED',
+      description: `Order modified: total ${result.before.total} → ${totals.total} cents (${result.outcome})`,
+      previousValue: { totals: result.before },
+      newValue: {
+        operationId,
+        outcome: result.outcome,
+        difference: result.difference,
+        totals: result.after,
+      },
+    });
+  };
+
+  return {
+    create,
+    list,
+    get,
+    recalculate,
+    computeOrderState,
+    assertAction,
+    cancel,
+    archive,
+    previewModification,
+    applyModification,
+  };
 };
 
 export default EcommerceOrderService;
