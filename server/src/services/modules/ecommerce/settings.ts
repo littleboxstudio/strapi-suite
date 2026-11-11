@@ -235,8 +235,9 @@ function normalizeRates(input: unknown, zoneIds: Set<number>, errors: Validation
   }
   for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
     const path = `rates.${key}`;
+    // A blank value removes the zone's price, even for a zone that no longer exists.
+    if (value === null || value === '') continue;
     if (!/^[1-9]\d*$/.test(key) || !zoneIds.has(Number(key))) errors.push({ path, code: 'invalid_zone' });
-    else if (value === null || value === '') continue;
     else if (typeof value !== 'number' || !Number.isInteger(value)) errors.push({ path, code: 'invalid_number' });
     else if (value < 0 || value > MAX_MONEY_CENTS) errors.push({ path, code: 'out_of_range' });
     else rates[key] = value;
@@ -353,8 +354,9 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
     const config: Record<string, unknown> = {};
     for (const field of def.fields) {
       if (field.type === 'secret') continue;
+      // A blank value counts as missing, like on save, so it falls back to the default.
       const value = stored?.[field.key];
-      if (value !== undefined && value !== null) config[field.key] = value;
+      if (!isBlank(value)) config[field.key] = value;
       else if (field.default !== undefined) config[field.key] = field.default;
     }
     return config;
@@ -675,8 +677,9 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
         await images.removeFiles([logo]);
         throw err;
       }
-      await auditStoreUpdate(['logo'], userId);
+      // The new logo is saved: remove the old file before the (best-effort) audit.
       if (previous) await images.removeFiles([previous]);
+      await auditStoreUpdate(['logo'], userId);
       return getStoreSettings();
     },
 
@@ -684,8 +687,8 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
       const previous = (await getStoreSettings()).logo;
       if (!previous) return getStoreSettings();
       await writeStoreValues({ logo: null });
-      await auditStoreUpdate(['logo'], userId);
       await strapi.plugin(PLUGIN_ID).service('EcommerceImageService').removeFiles([previous]);
+      await auditStoreUpdate(['logo'], userId);
       return getStoreSettings();
     },
 
@@ -765,10 +768,15 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
       const existing = await q.findOne({ where: { id } });
       if (!existing) throw new EcommerceNotFoundError('Shipping method not found');
       const { id: _id, ...current } = toManualMethod(existing);
+      // Stored prices of zones deleted meanwhile are dropped, so they cannot block the update.
+      const zones = await zoneIds();
+      const storedRates = Object.fromEntries(
+        Object.entries(current.rates).filter(([k]) => zones.has(Number(k)))
+      );
       const { values, errors } = normalizeManualMethod(
-        { ...current, ...(input ?? {}) },
+        { ...current, rates: storedRates, ...(input ?? {}) },
         await getDefaultLocale(),
-        await zoneIds()
+        zones
       );
       if (errors.length) throw new EcommerceValidationError('Invalid settings', errors);
       const updated = await q.update({ where: { id }, data: values });

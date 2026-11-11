@@ -4,9 +4,10 @@ import type { StoreSettings } from '../settings';
 export const LOGO_BOX = { width: 480, height: 96 } as const;
 export const LOGO_DISPLAY = { width: 240, height: 48 } as const;
 
-const originOf = (url: string): string | null => {
+/** Host name, lower case; the scheme and port are ignored (a TLS proxy may change them). */
+const hostOf = (url: string): string | null => {
   try {
-    return new URL(url).origin;
+    return new URL(url).hostname.toLowerCase() || null;
   } catch {
     return null;
   }
@@ -16,7 +17,7 @@ const trimEnd = (s: string) => s.replace(/\/+$/, '');
 
 /**
  * Resolves an asset URL to one that is safe to put in an e-mail: absolute URLs stay as they are,
- * except those on the backoffice origin (rewritten onto the storefront, or dropped without one);
+ * except those on the backoffice host (rewritten onto the storefront, or dropped without one);
  * root-relative paths are served by the storefront. Anything else is dropped.
  */
 export function publicAssetUrl(
@@ -26,7 +27,7 @@ export function publicAssetUrl(
 ): string {
   if (typeof url !== 'string' || url === '') return '';
   const storefront = storefrontUrl ? trimEnd(storefrontUrl) : '';
-  const backoffice = backofficeUrl ? originOf(backofficeUrl) : null;
+  const backoffice = backofficeUrl ? hostOf(backofficeUrl) : null;
 
   const absolute = url.startsWith('//') ? `https:${url}` : url;
   if (/^https?:\/\//i.test(absolute)) {
@@ -36,7 +37,7 @@ export function publicAssetUrl(
     } catch {
       return '';
     }
-    if (backoffice && parsed.origin === backoffice) {
+    if (backoffice && parsed.hostname.toLowerCase() === backoffice) {
       return storefront ? `${storefront}${parsed.pathname}${parsed.search}` : '';
     }
     return absolute;

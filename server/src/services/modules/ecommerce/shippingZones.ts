@@ -115,7 +115,16 @@ const EcommerceShippingZoneService = ({ strapi }: { strapi: Core.Strapi }) => {
           ...(values.position !== undefined ? { position: values.position } : {}),
         },
       });
-      await audit({ area: AREA, action: 'shipping_zone.update', targetId: String(id), userId: auditUser(userId) });
+      const changedFields = (['name', 'countries', 'position'] as const).filter(
+        (k) => values[k] !== undefined && JSON.stringify(values[k]) !== JSON.stringify(current[k])
+      );
+      await audit({
+        area: AREA,
+        action: 'shipping_zone.update',
+        targetId: String(id),
+        userId: auditUser(userId),
+        details: { changedFields },
+      });
       return toZone(updated);
     },
 

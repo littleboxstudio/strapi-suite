@@ -621,6 +621,20 @@ describe('EcommerceOrderService.create', () => {
     expect(evaluate.mock.calls.every((c: any[]) => c[0].emailVerified === undefined)).toBe(true);
   });
 
+  it('a quote with a destination outside the markets fails with invalid_country', async () => {
+    const { service, settings } = setup();
+    settings.countries = ['PT'];
+    expect(
+      await codes(
+        service.quote({
+          lines: input().lines,
+          locale: 'en',
+          shipping: { country: 'ES', providerId: 'manual', serviceId: '1' },
+        } as any)
+      )
+    ).toEqual([{ path: 'shipping.country', code: 'invalid_country' }]);
+  });
+
   it('quote lines carry the catalog VAT rate as a number', async () => {
     const { service } = setup();
     const q = await service.quote({ lines: input().lines, locale: 'en' });

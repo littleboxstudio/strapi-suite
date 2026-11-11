@@ -137,6 +137,8 @@ const EcommerceImageService = ({ strapi }: { strapi: Core.Strapi }) => {
         getStream: () => Readable.from(buffer),
       };
       await provider().upload(file);
+      // A provider that sets no URL would leave e-mails without the logo, silently.
+      if (typeof file.url !== 'string' || file.url === '') throw new Error('UPLOAD_FAILED');
       const providerName: string =
         (strapi.config.get('plugin::upload') as any)?.provider || 'local';
       return {

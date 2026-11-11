@@ -369,6 +369,27 @@ describe('EcommerceSettingsService — Stripe return paths', () => {
     expect((await service.getRuntime('stripe'))!.config.paymentSuccessPath).toBe('/checkout/success');
   });
 
+  it('a blank path on an active integration falls back to the default, like null', async () => {
+    const { service } = makeStrapi();
+    await service.updateIntegration('stripe', { secrets: { secretKey: STRIPE_KEY } }, '1');
+    await service.setActive('stripe', true, '1');
+    await service.updateIntegration('stripe', { config: { paymentSuccessPath: '/obrigado' } }, '1');
+    await service.updateIntegration('stripe', { config: { paymentSuccessPath: '  ' } }, '1');
+    expect((await service.getRuntime('stripe'))!.config.paymentSuccessPath).toBe('/checkout/success');
+    await service.updateIntegration('stripe', { config: { paymentCancelPath: null } }, '1');
+    expect((await service.getRuntime('stripe'))!.config.paymentCancelPath).toBe('/checkout/cancel');
+  });
+
+  it('rejects a path with a query or a fragment', async () => {
+    const { service } = makeStrapi();
+    for (const path of ['/thanks?x=1', '/thanks#a']) {
+      const err: any = await service
+        .updateIntegration('stripe', { config: { paymentSuccessPath: path } }, '1')
+        .catch((e) => e);
+      expect(err.errors).toContainEqual({ path: 'config.paymentSuccessPath', code: 'invalid_path' });
+    }
+  });
+
   it('activation fails with a stored invalid path', async () => {
     const { service, tables } = makeStrapi();
     await service.updateIntegration('stripe', { secrets: { secretKey: STRIPE_KEY } }, '1');
@@ -417,6 +438,18 @@ describe('EcommerceSettingsService — carrier zones', () => {
     expect(err.errors).toEqual([{ path: 'config.zones', code: 'required' }]);
     await service.updateIntegration('ctt-expresso', { config: { zones: [1] } });
     expect((await service.setActive('ctt-expresso', true)).active).toBe(true);
+  });
+
+  it('zones are required like any other field: saving without them only fails while active', async () => {
+    const { service } = await withZones();
+    const saved = await service.updateIntegration('ctt-expresso', { ...CTT, config: { ...CTT.config, zones: [] } });
+    expect(saved.config.zones).toEqual([]);
+    await service.updateIntegration('ctt-expresso', { config: { zones: [1] } });
+    await service.setActive('ctt-expresso', true);
+    const err: any = await service.updateIntegration('ctt-expresso', { config: { zones: [] } }).catch((e) => e);
+    expect(err).toBeInstanceOf(EcommerceValidationError);
+    expect(err.errors).toEqual([{ path: 'config.zones', code: 'required' }]);
+    expect((await service.getRuntime('ctt-expresso'))!.config.zones).toEqual([1]);
   });
 });
 
@@ -637,6 +670,17 @@ describe('EcommerceSettingsService — manual shipping methods', () => {
     expect((await service.updateManualMethod(m.id, { rates: { '1': 100, '2': '' } as any })).rates).toEqual({ '1': 100 });
   });
 
+  it('a stored price of a zone deleted meanwhile does not block later updates', async () => {
+    const { service, tables } = await withZones();
+    const m = await service.createManualMethod(method({ rates: { '2': 300 } }));
+    tables[UIDS.manualShippingMethod][0].rates = { '2': 300, '9': 500 };
+    expect((await service.updateManualMethod(m.id, { tax: 6 })).rates).toEqual({ '2': 300 });
+    tables[UIDS.manualShippingMethod][0].rates = { '2': 300, '9': 500 };
+    expect((await service.updateManualMethod(m.id, { rates: { '9': null, '2': 300 } as any })).rates).toEqual({
+      '2': 300,
+    });
+  });
+
   it('validates name in the default locale and tax', async () => {
     const { service, tables } = makeStrapi();
     const err: any = await service.createManualMethod(method({ name: { pt: 'Só PT' }, tax: 101 })).catch((e) => e);
@@ -698,6 +742,17 @@ describe('EcommerceSettingsService — store logo', () => {
     ).rejects.toThrow('INVALID_IMAGE');
     expect((await service.getStoreSettings()).logo).toEqual(first.logo);
     expect(provider.delete).not.toHaveBeenCalled();
+  });
+
+  it('deletes the new file and keeps the previous logo when the setting cannot be written', async () => {
+    const { service, provider, transaction } = makeStrapi();
+    const first = await service.uploadStoreLogo(await pngFile(), '1');
+    transaction.mockRejectedValueOnce(new Error('db down'));
+    await expect(service.uploadStoreLogo(await pngFile(), '1')).rejects.toThrow('db down');
+    const uploaded = provider.upload.mock.calls.at(-1)![0];
+    expect(provider.delete).toHaveBeenCalledTimes(1);
+    expect(provider.delete).toHaveBeenCalledWith(expect.objectContaining({ hash: uploaded.hash }));
+    expect((await service.getStoreSettings()).logo).toEqual(first.logo);
   });
 
   it('removes the logo and its file; no logo means nothing to do', async () => {

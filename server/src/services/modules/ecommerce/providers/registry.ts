@@ -71,8 +71,8 @@ export type ProviderInputIssue = {
   code: 'required' | 'invalid_option' | 'invalid_number' | 'invalid_email' | 'invalid_path' | 'invalid_zone';
 };
 
-/** A storefront path: starts with a single `/`, no spaces or backslashes. */
-export const PATH_RE = /^\/(?!\/)[^\s\\]*$/;
+/** A storefront path: starts with a single `/`; no spaces, backslashes, query or fragment. */
+export const PATH_RE = /^\/(?!\/)[^\s\\?#]*$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const isEmpty = (v: unknown) => v === undefined || v === null || (typeof v === 'string' && v.trim() === '');

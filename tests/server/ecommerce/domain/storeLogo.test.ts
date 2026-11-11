@@ -25,6 +25,12 @@ describe('publicAssetUrl', () => {
     );
     expect(publicAssetUrl('http://localhost:1337/uploads/l.png', null, 'http://localhost:1337')).toBe('');
   });
+  it('matches the backoffice by host name, whatever the scheme or port', () => {
+    expect(publicAssetUrl('http://CMS.example.com/uploads/l.png', 'https://shop.example', 'https://cms.example.com')).toBe(
+      'https://shop.example/uploads/l.png'
+    );
+    expect(publicAssetUrl('https://cms.example.com:8443/uploads/l.png', null, 'https://cms.example.com')).toBe('');
+  });
   it('treats protocol-relative URLs as https', () => {
     expect(publicAssetUrl('//cdn.example.com/l.png', null)).toBe('https://cdn.example.com/l.png');
   });
