@@ -25,6 +25,7 @@ const SPECIFIC: Record<string, string[]> = {
     'order.subtotal',
     'order.shipping',
     'order.discount',
+    'order.promotions',
     'order.total',
     'order.paymentStatus',
     'payment.link',
@@ -100,6 +101,26 @@ describe('email variable catalog', () => {
     const def = getVariableCatalog('FULL_SHIPMENT').find((v) => v.path === 'shipment.allTracking');
     expect(def).toMatchObject({ kind: 'list', itemFields: ['carrier', 'trackingCode', 'trackingUrl'] });
     expect(getVariableCatalog('PARTIAL_SHIPMENT').some((v) => v.path === 'shipment.allTracking')).toBe(false);
+  });
+
+  it('declares order.promotions on ORDER_CONFIRMATION only, with name and amount', () => {
+    const def = getVariableCatalog('ORDER_CONFIRMATION').find((v) => v.path === 'order.promotions');
+    expect(def).toMatchObject({ kind: 'list', itemFields: ['name', 'amount'] });
+    for (const type of EMAIL_TEMPLATE_TYPES.filter((t) => t !== 'ORDER_CONFIRMATION')) {
+      expect(getVariableCatalog(type).some((v) => v.path === 'order.promotions')).toBe(false);
+    }
+  });
+
+  it('renders the promotions block with no backoffice or plugin URLs', async () => {
+    const { DEFAULT_TEMPLATES } = await import(
+      '../../../../server/src/services/modules/ecommerce/email/defaults'
+    );
+    const html = renderTemplate(
+      DEFAULT_TEMPLATES.ORDER_CONFIRMATION.html,
+      getSampleData('ORDER_CONFIRMATION')
+    );
+    expect(html).toContain('Summer Sale');
+    expect(html).not.toMatch(/\/admin|\/api\/|littlebox-strapi-suite/);
   });
 
   it('declares list item fields', () => {

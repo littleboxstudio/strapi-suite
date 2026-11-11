@@ -28,6 +28,7 @@ export type VariableDef = {
 };
 
 const ORDER_ITEM_FIELDS = ['name', 'option', 'sku', 'quantity', 'unitPrice', 'total'];
+const PROMOTION_FIELDS = ['name', 'amount'];
 const SHIPMENT_ITEM_FIELDS = ['name', 'option', 'sku', 'quantity'];
 const TRACKING_ITEM_FIELDS = ['carrier', 'trackingCode', 'trackingUrl'];
 
@@ -85,6 +86,11 @@ const SPECIFIC: Record<EmailTemplateType, VariableDef[]> = {
     value('order.subtotal', 'Order subtotal'),
     value('order.shipping', 'Shipping cost'),
     value('order.discount', 'Discount'),
+    list(
+      'order.promotions',
+      'Promotions applied (customer-visible name and discount amount)',
+      PROMOTION_FIELDS
+    ),
     value('order.total', 'Order total'),
     value('order.paymentStatus', 'Payment status'),
     value('payment.link', 'Payment link'),
@@ -159,6 +165,10 @@ const SAMPLE_VALUES: Record<string, unknown> = {
   'order.subtotal': '34,90 €',
   'order.shipping': '4,90 €',
   'order.discount': '5,00 €',
+  'order.promotions': [
+    { name: 'Summer Sale', amount: '3,00 €' },
+    { name: 'Free Tote Bag', amount: '2,00 €' },
+  ],
   'order.total': '34,80 €',
   'order.paymentStatus': 'Pending',
   'order.cancelledAt': '12/11/2026',

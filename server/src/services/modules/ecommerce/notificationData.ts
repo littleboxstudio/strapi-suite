@@ -6,6 +6,7 @@
 import type { EmailTemplateType } from './email/catalog';
 import type { DomainEvent, DomainEventType } from './events';
 import type { OrderView } from './orders';
+import { displayNameFor } from './domain/promotions/definition';
 import type { StoreSettings } from './settings';
 
 export type NotificationTemplateType = Extract<
@@ -86,6 +87,8 @@ export type NotificationExtra = {
   customer?: { firstName?: string | null; lastName?: string | null; email?: string | null } | null;
   /** Locale used when there is no order. */
   locale?: string;
+  /** The store's default locale (display-name fallback for promotions); absent → the order locale. */
+  defaultLocale?: string;
   /** The shipment row (SHIPMENT_CREATED). */
   shipment?: ShipmentRow | null;
   /** The ACTIVE shipments of the order (for `shipment.allTracking`). */
@@ -277,6 +280,10 @@ export function buildTemplateData(
         subtotal: money(order?.totals.subtotal),
         shipping: money(order?.totals.shippingTotal),
         discount: moneyOrEmpty(order?.totals.orderDiscount, locale),
+        promotions: (order?.promotions ?? []).map((a) => ({
+          name: displayNameFor(a, locale, extra.defaultLocale || locale),
+          amount: money(a.amount),
+        })),
         total: money(order?.totals.total),
         paymentStatus: order ? label(locale, `payment.${order.paymentStatus}`) : '',
       });

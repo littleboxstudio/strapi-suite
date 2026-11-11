@@ -206,6 +206,7 @@ const EcommerceNotificationService = ({ strapi }: { strapi: Core.Strapi }) => {
         extra.locale = await defaultLocale();
       }
     }
+    if (type === 'ORDER_CONFIRMATION') extra.defaultLocale = await defaultLocale();
     const store = await settings().getStoreSettings();
     const payload = buildTemplateData(type, { order, store, event, extra });
     const recipient = order ? order.customer?.email : (extra.customer?.email ?? creditEmail);
