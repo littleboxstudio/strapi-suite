@@ -26,6 +26,8 @@ export type OrderHistoryType =
   | 'SHIPMENT_CREATED'
   | 'SHIPMENT_FAILED'
   | 'SHIPMENT_CANCELLED'
+  /** Cancelled at the carrier, but the shipment changed here meanwhile and stays as it was. */
+  | 'SHIPMENT_CARRIER_CANCELLED'
   | 'SHIPMENT_DELIVERED'
   | 'SHIPMENT_TRACKING_UPDATED'
   | 'RETURN_REGISTERED'

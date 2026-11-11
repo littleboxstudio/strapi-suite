@@ -497,7 +497,7 @@ describe('EcommerceShipmentService.cancel', () => {
     expect(await codesOf(ships.cancel(s.id, {}, 'user:1'))).toEqual(['SHIPMENT_STATE_CHANGED']);
     expect(shipmentRows(c)[0]).toMatchObject({ status: 'ACTIVE', error: 'CARRIER_CANCELLED' });
     const entries = c.tables[UIDS.orderHistory].filter(
-      (h) => h.order === id && h.type === 'SHIPMENT_CANCELLED'
+      (h) => h.order === id && h.type === 'SHIPMENT_CARRIER_CANCELLED'
     );
     expect(entries).toHaveLength(1);
     expect(entries[0].newValue).toMatchObject({
@@ -569,6 +569,33 @@ describe('EcommerceShipmentService carrier edge cases (fix round 1)', () => {
     expect(shipmentRows(c)).toEqual([
       expect.objectContaining({ status: 'FAILED', error: 'CARRIER_REQUEST_FAILED' }),
     ]);
+  });
+
+  it('R1: a retry whose request cannot be built keeps the shipment PENDING/UNCERTAIN', async () => {
+    const { c, ships, adapter } = setup();
+    const { id, lineId } = await paidOrder(c, 2, 'acme');
+    adapter.createShipment.mockRejectedValueOnce(
+      new EcommerceCarrierError('TIMEOUT', 'TIMEOUT', true)
+    );
+    const s = await ships.create(id, carrier(lineId, 2, 'k'), 'user:1');
+    const realQuery = c.strapi.db.query;
+    c.strapi.db.query = (uid: string) => {
+      const q = realQuery(uid);
+      if (uid !== UIDS.variant) return q;
+      return {
+        ...q,
+        findMany: async () => {
+          throw new Error('db down');
+        },
+      };
+    };
+    expect(await codesOf(ships.retry(s.id, 'user:1'))).toEqual(['CARRIER_REQUEST_FAILED']);
+    c.strapi.db.query = realQuery;
+    expect(adapter.createShipment).toHaveBeenCalledTimes(1);
+    expect(shipmentRows(c)[0]).toMatchObject({ status: 'PENDING', error: 'UNCERTAIN' });
+    expect(
+      c.tables[UIDS.orderHistory].filter((h) => h.order === id && h.type === 'SHIPMENT_FAILED')
+    ).toHaveLength(0);
   });
 
   it('M5: tx2 finding the row FAILED keeps the returned externalId and raises SHIPMENT_STATE_CHANGED', async () => {

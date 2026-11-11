@@ -752,6 +752,7 @@
   "littlebox-strapi-suite.ecommerce.orders.history.type.SHIPPING_CHANGED": "Shipping changed",
   "littlebox-strapi-suite.ecommerce.orders.history.type.ORDER_DISCOUNT_CHANGED": "Order discount changed",
   "littlebox-strapi-suite.ecommerce.orders.history.type.ORDER_MODIFIED": "Order modified",
+  "littlebox-strapi-suite.ecommerce.orders.history.type.SHIPMENT_CARRIER_CANCELLED": "Shipment cancelled at the carrier only",
   "littlebox-strapi-suite.ecommerce.orders.history.type.PAYMENT_CREATED": "Payment registered",
   "littlebox-strapi-suite.ecommerce.orders.history.type.PAYMENT_COMPLETED": "Payment completed",
   "littlebox-strapi-suite.ecommerce.orders.history.type.PAYMENT_INSTRUCTIONS_SENT": "Payment instructions sent",
