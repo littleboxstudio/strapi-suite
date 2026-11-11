@@ -351,7 +351,7 @@
   "littlebox-strapi-suite.ecommerce.image.detail.deleteError": "The image could not be deleted. Try again.",
   "littlebox-strapi-suite.ecommerce.settings.title": "Settings",
   "littlebox-strapi-suite.ecommerce.settings.sections.general": "General",
-  "littlebox-strapi-suite.ecommerce.settings.sections.storefront": "Storefront",
+  "littlebox-strapi-suite.ecommerce.settings.sections.storefront": "API",
   "littlebox-strapi-suite.ecommerce.settings.sections.payments": "Payments",
   "littlebox-strapi-suite.ecommerce.settings.sections.billing": "Billing",
   "littlebox-strapi-suite.ecommerce.settings.sections.shipping": "Shipping",
