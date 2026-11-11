@@ -45,6 +45,7 @@ import {
   createOrderConflict,
   emptyOrderForm,
   giftChoicesFromQuote,
+  pruneGiftChoices,
   giftSelectors,
   toOrderErrorMap,
   validateOrderForm,
@@ -112,6 +113,7 @@ const OrderCreatePage = () => {
   const [loadingAddresses, setLoadingAddresses] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   // Promotions: the server's quote of the cart (codes, gifts, discounts and totals).
+  const [defaultLocale, setDefaultLocale] = useState<string | null>(null);
   const [giftChoices, setGiftChoices] = useState<Record<number, number>>({});
   const [priced, setPriced] = useState<{ signature: string; quote: OrderQuote } | null>(null);
   const [pricing, setPricing] = useState(0);
@@ -126,6 +128,7 @@ const OrderCreatePage = () => {
       .then((data) => {
         if (cancelled) return;
         setLocales(data.locales);
+        setDefaultLocale(data.defaultLocale);
         setForm((f) => (f.locale ? f : { ...f, locale: data.defaultLocale }));
       })
       .catch(() => {
@@ -186,30 +189,32 @@ const OrderCreatePage = () => {
     quoteInput.lines.length > 0 &&
     quoteInput.lines.every((l) => Number.isSafeInteger(l.quantity) && l.quantity >= 1);
 
-  /** Prices the cart as it is now; null when it failed or the cart changed meanwhile. */
-  const runPriceQuote = async (): Promise<OrderQuote | null> => {
-    if (!canPrice) return null;
+  /**
+   * Prices the cart as it is now. `quote` is null when it failed (`error`, `cause`) or the cart
+   * changed meanwhile.
+   */
+  const runPriceQuote = async (): Promise<{ quote: OrderQuote | null; error: string | null; cause?: unknown }> => {
+    if (!canPrice) return { quote: null, error: t('ecommerce.orders.quote.error') };
     const signature = priceSignature;
     setPricing((n) => n + 1);
     try {
       const result = await new QuoteOrder().execute(quoteInput);
-      if (signature !== priceSignatureRef.current) return null;
+      if (signature !== priceSignatureRef.current) return { quote: null, error: null };
       setPriced({ signature, quote: result });
       setPricingError(null);
-      return result;
+      // Choices of promotions that no longer offer a gift choice are dropped.
+      setGiftChoices((choices) => pruneGiftChoices(choices, result));
+      return { quote: result, error: null };
     } catch (err) {
-      if (signature === priceSignatureRef.current) {
-        const code = apiErrorCode(err);
-        setPricingError(
-          code
-            ? formatMessage({
-                id: getTranslation(`ecommerce.orders.errors.${code}`),
-                defaultMessage: t('ecommerce.orders.quote.error'),
-              })
-            : t('ecommerce.orders.quote.error')
-        );
-      }
-      return null;
+      const code = apiErrorCode(err);
+      const message = code
+        ? formatMessage({
+            id: getTranslation(`ecommerce.orders.errors.${code}`),
+            defaultMessage: t('ecommerce.orders.quote.error'),
+          })
+        : t('ecommerce.orders.quote.error');
+      if (signature === priceSignatureRef.current) setPricingError(message);
+      return { quote: null, error: message, cause: err };
     } finally {
       setPricing((n) => n - 1);
     }
@@ -373,11 +378,24 @@ const OrderCreatePage = () => {
     }
     setSubmitting(true);
     try {
-      // The order is created with the totals the admin saw: a different server total → 409.
-      const quote = freshQuote ?? (await runPriceQuote());
-      const decision = quote
-        ? { expectedTotal: quote.totals.total, giftChoices: giftChoicesFromQuote(quote) }
-        : undefined;
+      // The order is created only with the totals the admin saw: a different server total → 409.
+      let quote = freshQuote;
+      if (!quote) {
+        const priced = await runPriceQuote();
+        if (!priced.quote) {
+          // Never create without a confirmed total: show why the cart could not be priced.
+          const fieldErrors = extractFieldErrors(priced.cause);
+          if (fieldErrors?.length) showErrors(fieldErrors);
+          else
+            toggleNotification({
+              type: 'danger',
+              message: priced.error ?? t('ecommerce.orders.quote.error'),
+            });
+          return;
+        }
+        quote = priced.quote;
+      }
+      const decision = { expectedTotal: quote.totals.total, giftChoices: giftChoicesFromQuote(quote) };
       const created = await new CreateOrder().execute(buildCreateOrderInput(form, idempotencyKey, decision));
       toggleNotification({
         type: 'success',
@@ -387,8 +405,10 @@ const OrderCreatePage = () => {
     } catch (err) {
       const conflict = createOrderConflict(err);
       if (conflict) {
-        // A promotion or the total changed: price again and let the admin confirm.
-        const requoted = await runPriceQuote();
+        // A promotion or the total changed: drop the old quote (its total must never be sent
+        // again), price again and let the admin confirm.
+        setPriced(null);
+        const { quote: requoted } = await runPriceQuote();
         toggleNotification({
           type: 'warning',
           message:
@@ -614,6 +634,7 @@ const OrderCreatePage = () => {
             loading={pricing > 0}
             error={canPrice ? pricingError : null}
             locale={form.locale}
+            defaultLocale={defaultLocale}
             variantLabel={variantLabel}
             onGiftChoice={(promotionId, variantId) =>
               setGiftChoices((choices) => ({ ...choices, [promotionId]: variantId }))

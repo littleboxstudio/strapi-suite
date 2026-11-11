@@ -273,6 +273,7 @@ const OrderDetailPage = () => {
             <PromotionsSection
               title={t('ecommerce.orders.detail.sections.promotions')}
               promotions={order.promotions ?? []}
+              promotionCodes={order.promotionCodes}
               locales={{ locale: order.locale, defaultLocale }}
             />
           </Flex>

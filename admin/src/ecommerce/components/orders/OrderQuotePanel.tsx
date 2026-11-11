@@ -16,7 +16,7 @@ import {
 import { Cross } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { formatCents } from '../../utils/money';
-import { promotionDisplayName } from '../../utils/orderDetail';
+import { codeStatusBadgeVariant, promotionDisplayName } from '../../utils/orderDetail';
 import { giftSelectors, type PromotionCodeError } from '../../utils/orderForm';
 import { MAX_PROMOTION_CODES, type OrderQuote } from '../../orderTypes';
 import OrderSection from './OrderSection';
@@ -31,22 +31,15 @@ type Props = {
   loading: boolean;
   /** Translated reason the last quote failed. */
   error: string | null;
-  /** The order's locale: promotion display names. */
+  /** The order's locale, then the store default: promotion display names. */
   locale: string;
+  defaultLocale?: string | null;
   /** Labels of gift variants (`#<id>` when unknown). */
   variantLabel: (variantId: number) => string;
   onGiftChoice: (promotionId: number, variantId: number) => void;
   disabled?: boolean;
   /** Shown in the totals card while there is no quote (the local preview). */
   fallbackTotals: ReactNode;
-};
-
-const STATUS_VARIANT: Record<string, 'success' | 'secondary' | 'danger' | 'warning'> = {
-  APPLIED: 'success',
-  AWAITING_SHIPPING: 'secondary',
-  CONFLICT: 'warning',
-  NO_BENEFIT: 'warning',
-  CONDITIONS_NOT_MET: 'warning',
 };
 
 /**
@@ -61,6 +54,7 @@ const OrderQuotePanel = ({
   loading,
   error,
   locale,
+  defaultLocale,
   variantLabel,
   onGiftChoice,
   disabled,
@@ -82,8 +76,9 @@ const OrderQuotePanel = ({
   };
 
   const statusOf = (code: string) => quote?.codes.find((c) => c.code === code)?.status ?? null;
+  // Same chain as the order page: order locale → default locale → neutral label.
   const promotionName = (p: OrderQuote['promotions'][number]) =>
-    promotionDisplayName(p, locale) ?? p.name;
+    promotionDisplayName(p, locale, defaultLocale) ?? t('ecommerce.orders.promotions.fallbackName');
   const selectors = quote ? giftSelectors(quote) : [];
   const gifts = quote ? quote.lines.filter((l) => l.isGift) : [];
 
@@ -168,7 +163,7 @@ const OrderQuotePanel = ({
                       {code}
                     </Tag>
                     {status && (
-                      <Badge size="S" variant={STATUS_VARIANT[status] ?? 'danger'}>
+                      <Badge size="S" variant={codeStatusBadgeVariant(status)}>
                         {t(`ecommerce.orders.promotions.codeStatus.${status}`)}
                       </Badge>
                     )}

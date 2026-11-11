@@ -292,6 +292,7 @@ describe('orders with promotions: create', () => {
     expect(typeof stored.promotions.evaluatedAt).toBe('string');
 
     const view = await c.orders.get(order.id);
+    expect(view.promotionCodes).toEqual([{ code: 'VERAO20', status: 'APPLIED', promotionId: id }]);
     const applied = view.history.filter((h: any) => h.type === 'PROMOTIONS_APPLIED');
     expect(applied).toHaveLength(1);
     expect(applied[0].newValue).toEqual({
@@ -549,7 +550,20 @@ describe('orders with promotions: create', () => {
     linesOf(order.id)[0].promotionRefs = [];
     const view = await c.orders.get(order.id);
     expect(view.promotions).toEqual([]);
+    expect(view.promotionCodes).toEqual([]);
     expect(view.lines[0].promotionIds).toEqual([]);
+  });
+
+  it('get() keeps only well-formed stored code entries', async () => {
+    const order = await create();
+    orderRow(order.id).promotions = {
+      applied: [],
+      codes: [{ code: 'OK1', status: 'NOT_FOUND', promotionId: null }, null, { status: 'APPLIED' }, 'X'],
+      exhaustive: true,
+    };
+    expect((await c.orders.get(order.id)).promotionCodes).toEqual([
+      { code: 'OK1', status: 'NOT_FOUND', promotionId: null },
+    ]);
   });
 });
 
@@ -609,6 +623,10 @@ describe('orders with promotions: review fixes', () => {
     ]);
     expect(orderRow(order.id).promotions.applied).toEqual([]);
     expect(c.tables[UIDS.promotionRedemption]).toEqual([]);
+    // The admin view lists the entered code with its status, though it did not apply.
+    expect((await c.orders.get(order.id)).promotionCodes).toEqual([
+      { code: 'COAT', status: 'NO_BENEFIT', promotionId: id },
+    ]);
   });
 
   it('CUSTOMER_LIMIT_REACHED code → 409 PROMOTION_UNAVAILABLE', async () => {

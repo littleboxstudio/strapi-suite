@@ -736,7 +736,6 @@
   "littlebox-strapi-suite.ecommerce.orders.detail.sections.shipments": "Shipments and deliveries",
   "littlebox-strapi-suite.ecommerce.orders.detail.sections.refunds": "Refunds and credits",
   "littlebox-strapi-suite.ecommerce.orders.detail.sections.promotions": "Promotions and discounts",
-  "littlebox-strapi-suite.ecommerce.orders.detail.sections.empty": "Nothing here yet",
   "littlebox-strapi-suite.ecommerce.orders.detail.history.title": "History",
   "littlebox-strapi-suite.ecommerce.orders.detail.history.empty": "No history yet.",
   "littlebox-strapi-suite.ecommerce.orders.detail.history.operation": "Operation {id}",
@@ -1722,5 +1721,8 @@
   "littlebox-strapi-suite.ecommerce.orders.modify.warnings.SHIPPING_PROMOTION_DROPPED": "{name}: the shipping promotion no longer applies; the original discount is kept in the history",
   "littlebox-strapi-suite.ecommerce.orders.modify.orderDiscount.label": "Order discount",
   "littlebox-strapi-suite.ecommerce.orders.modify.orderDiscount.hint": "Optional. Leave empty to keep the current discount ({amount}); it never exceeds the new subtotal.",
-  "littlebox-strapi-suite.ecommerce.orders.modify.summary.orderDiscount": "Order discount"
+  "littlebox-strapi-suite.ecommerce.orders.modify.summary.orderDiscount": "Order discount",
+  "littlebox-strapi-suite.ecommerce.orders.quote.codeErrors.too_long": "Codes have at most 40 characters.",
+  "littlebox-strapi-suite.ecommerce.orders.quote.codeErrors.invalid_format": "Use 3 to 40 letters, digits, \"-\" or \"_\".",
+  "littlebox-strapi-suite.ecommerce.orders.promotions.enteredCodes": "Codes entered that did not apply"
 }

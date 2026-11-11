@@ -8,6 +8,7 @@ import type {
   OrderActionKey,
   OrderHistoryItem,
   OrderPromotion,
+  OrderPromotionCode,
   OrderStatus,
   OrderTotals,
   PaymentStatus,
@@ -291,6 +292,19 @@ export function linePromotionNames(
     if (!p) return [];
     return [promotionDisplayName(p, locales.locale, locales.defaultLocale) ?? p.name];
   });
+}
+
+/** Badge colour of a code status (applied, waiting, refused). */
+export function codeStatusBadgeVariant(status: string): 'success' | 'secondary' | 'warning' | 'danger' {
+  if (status === 'APPLIED') return 'success';
+  if (status === 'AWAITING_SHIPPING') return 'secondary';
+  if (status === 'CONFLICT' || status === 'NO_BENEFIT' || status === 'CONDITIONS_NOT_MET') return 'warning';
+  return 'danger';
+}
+
+/** Entered codes that did not apply (the applied ones show in the promotion rows). */
+export function unappliedPromotionCodes(codes: OrderPromotionCode[] | undefined): OrderPromotionCode[] {
+  return (Array.isArray(codes) ? codes : []).filter((c) => c && c.status !== 'APPLIED');
 }
 
 /** True when the server refused an action the order no longer allows (`ACTION_NOT_AVAILABLE`). */

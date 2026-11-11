@@ -247,7 +247,11 @@ export function normalizePromotionCodes(codes: string[]): string[] {
   return out;
 }
 
-export type PromotionCodeError = 'required' | 'duplicate' | 'too_many';
+export type PromotionCodeError = 'required' | 'duplicate' | 'too_many' | 'too_long' | 'invalid_format';
+
+/** Server limits: at most 40 characters (`too_long`), and promotion codes match this pattern. */
+export const MAX_PROMOTION_CODE_LENGTH = 40;
+const PROMOTION_CODE_RE = /^[A-Z0-9_-]{3,40}$/;
 
 /** Adds one typed code to the tags; the list is unchanged when the code is refused. */
 export function addPromotionCode(
@@ -258,6 +262,8 @@ export function addPromotionCode(
   if (!code) return { codes, error: 'required' };
   if (codes.includes(code)) return { codes, error: 'duplicate' };
   if (codes.length >= MAX_PROMOTION_CODES) return { codes, error: 'too_many' };
+  if (code.length > MAX_PROMOTION_CODE_LENGTH) return { codes, error: 'too_long' };
+  if (!PROMOTION_CODE_RE.test(code)) return { codes, error: 'invalid_format' };
   return { codes: [...codes, code], error: null };
 }
 
@@ -327,4 +333,19 @@ export function createOrderConflict(err: unknown): CreateOrderConflict | null {
     ...(Array.isArray(details?.errors) ? details.errors.map((e: any) => e?.code) : []),
   ];
   return CREATE_CONFLICTS.find((c) => codes.includes(c)) ?? null;
+}
+
+/** The gift choices of promotions that still offer a choice in `quote`; the same object when nothing is dropped. */
+export function pruneGiftChoices(
+  choices: Record<number, number>,
+  quote: OrderQuote
+): Record<number, number> {
+  const ids = new Set(giftSelectors(quote).map((s) => s.promotionId));
+  const keys = Object.keys(choices).map(Number);
+  if (keys.every((k) => ids.has(k))) return choices;
+  const out: Record<number, number> = {};
+  keys.forEach((k) => {
+    if (ids.has(k)) out[k] = choices[k];
+  });
+  return out;
 }
