@@ -17,7 +17,14 @@ const resend: ProviderDefinition = {
   async testConnection(rt) {
     const key = str(rt, 'apiKey');
     if (!key) return missingFields(['apiKey']);
-    return bearerCheck('https://api.resend.com/domains', key, [401, 403]);
+    // A sending-only key cannot list domains: Resend answers 401 `restricted_api_key`, yet the key is valid.
+    return bearerCheck('https://api.resend.com/domains', key, [401, 403], async (res) => {
+      if (res.status !== 401) return null;
+      const body: any = await res.json().catch(() => null);
+      return body?.name === 'restricted_api_key'
+        ? { ok: true, message: 'Key valid (sending access only)' }
+        : null;
+    });
   },
 };
 

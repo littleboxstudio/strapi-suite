@@ -29,6 +29,10 @@ describe('stripe testConnection', () => {
     expect(r.code).toBe('INVALID_CREDENTIALS');
     expect(JSON.stringify(r)).not.toContain('SECRET123');
   });
+  it('ok with "Restricted key" on 403', async () => {
+    stubFetch(async () => res(403));
+    expect(await run('stripe', {}, secrets)).toEqual({ ok: true, message: 'Restricted key' });
+  });
   it('UNREACHABLE on network error without leaking the secret', async () => {
     stubFetch(async () => { throw new Error('boom Bearer sk_live_SECRET123'); });
     const r = await run('stripe', {}, secrets);
@@ -58,6 +62,18 @@ describe('resend testConnection', () => {
   it('UNREACHABLE on network error', async () => {
     stubFetch(async () => { throw new TypeError('fetch failed'); });
     expect((await run('resend', {}, secrets)).code).toBe('UNREACHABLE');
+  });
+  it('ok for a sending-only key (401 restricted_api_key)', async () => {
+    stubFetch(async () =>
+      res(401, { statusCode: 401, name: 'restricted_api_key', message: 'This API key is restricted to only send emails' })
+    );
+    expect(await run('resend', {}, secrets)).toEqual({ ok: true, message: 'Key valid (sending access only)' });
+  });
+  it('INVALID_CREDENTIALS on 401 with another error name or an unreadable body', async () => {
+    stubFetch(async () => res(401, { statusCode: 401, name: 'validation_error' }));
+    expect((await run('resend', {}, secrets)).code).toBe('INVALID_CREDENTIALS');
+    stubFetch(async () => ({ status: 401, ok: false, json: async () => { throw new SyntaxError('x'); } }) as any);
+    expect((await run('resend', {}, secrets)).code).toBe('INVALID_CREDENTIALS');
   });
 });
 
