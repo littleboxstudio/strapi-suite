@@ -43,7 +43,15 @@ type Props = {
   onImagesChange: (variantId: number, images: ImageRecord[]) => void;
 };
 
-type TextField = 'sku' | 'stock' | 'price' | 'weight' | 'width' | 'height' | 'depth';
+type TextField =
+  | 'sku'
+  | 'stock'
+  | 'stockAdjustment'
+  | 'price'
+  | 'weight'
+  | 'width'
+  | 'height'
+  | 'depth';
 
 const VariantModal = ({
   variant,
@@ -163,9 +171,25 @@ const VariantModal = ({
               <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
                 {textField('sku', { required: true })}
               </Grid.Item>
-              <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
-                {textField('stock', { required: true })}
-              </Grid.Item>
+              {draft.id === undefined ? (
+                <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
+                  {textField('stock', { required: true })}
+                </Grid.Item>
+              ) : (
+                <>
+                  <Grid.Item col={3} s={6} direction="column" alignItems="stretch">
+                    <Field.Root name="currentStock">
+                      <Field.Label>{t('ecommerce.product.variant.currentStock')}</Field.Label>
+                      <TextInput value={draft.stock} disabled />
+                    </Field.Root>
+                  </Grid.Item>
+                  <Grid.Item col={3} s={6} direction="column" alignItems="stretch">
+                    {textField('stockAdjustment', {
+                      hint: t('ecommerce.product.variant.stockAdjustment.hint'),
+                    })}
+                  </Grid.Item>
+                </>
+              )}
               <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
                 {textField('price', {
                   required: true,

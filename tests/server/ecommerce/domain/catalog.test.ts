@@ -105,6 +105,20 @@ describe('validateProductInput', () => {
       code: 'invalid_number',
     });
   });
+  it('accepts any integer stock, including negative', () => {
+    expect(validateProductInput(product({ variants: [variant({ stock: -2 })] }), 'en')).toEqual([]);
+  });
+  it('validates stockAdjustment as an integer when present', () => {
+    expect(
+      validateProductInput(product({ variants: [variant({ stockAdjustment: -3 })] }), 'en')
+    ).toEqual([]);
+    expect(
+      validateProductInput(product({ variants: [variant({ stockAdjustment: 1.5 })] }), 'en')
+    ).toContainEqual({ path: 'variants.0.stockAdjustment', code: 'invalid_number' });
+    expect(
+      validateProductInput(product({ variants: [variant({ stockAdjustment: '2' })] }), 'en')
+    ).toContainEqual({ path: 'variants.0.stockAdjustment', code: 'invalid_number' });
+  });
   it('requires variant option in default locale', () => {
     expect(
       validateProductInput(product({ variants: [variant({ translations: {} })] }), 'en')

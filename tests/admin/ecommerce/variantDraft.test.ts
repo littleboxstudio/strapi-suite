@@ -32,6 +32,7 @@ describe('variant drafts', () => {
       active: true,
       sku: '',
       stock: '0',
+      stockAdjustment: '',
       price: '',
       taxChoice: '23',
       taxOther: '',
@@ -115,5 +116,43 @@ describe('variant drafts', () => {
   it('requires a price', () => {
     const draft = { ...emptyVariantDraft(LOCALES, 'k'), sku: 'A', options: { en: 'M', pt: '' } };
     expect(draftToVariant(draft, 'en').errors).toEqual({ price: 'required' });
+  });
+
+  describe('stock', () => {
+    const named = { sku: 'A', price: '1', options: { en: 'M', pt: '' } };
+
+    it('accepts a negative initial stock for a new variant', () => {
+      const draft = { ...emptyVariantDraft(LOCALES, 'k'), ...named, stock: '-2' };
+      expect(draftToVariant(draft, 'en').variant).toMatchObject({ stock: -2 });
+      expect(draftToVariant(draft, 'en').variant).not.toHaveProperty('stockAdjustment');
+    });
+
+    it('keeps the stock of an existing variant and sends a signed adjustment', () => {
+      const draft = { ...variantToDraft(saved, LOCALES, 'en'), stockAdjustment: ' -3 ' };
+      expect(draftToVariant(draft, 'en').variant).toMatchObject({ stock: 5, stockAdjustment: -3 });
+      const plus = { ...draft, stockAdjustment: '+5' };
+      expect(draftToVariant(plus, 'en').variant).toMatchObject({ stock: 5, stockAdjustment: 5 });
+    });
+
+    it('omits a blank or zero adjustment', () => {
+      for (const stockAdjustment of ['', '0', ' ']) {
+        const draft = { ...variantToDraft(saved, LOCALES, 'en'), stockAdjustment };
+        expect(draftToVariant(draft, 'en').variant).not.toHaveProperty('stockAdjustment');
+      }
+    });
+
+    it('rejects a non-integer adjustment', () => {
+      for (const stockAdjustment of ['1.5', 'abc', '--1']) {
+        const draft = { ...variantToDraft(saved, LOCALES, 'en'), stockAdjustment };
+        expect(draftToVariant(draft, 'en').errors).toEqual({ stockAdjustment: 'invalid_number' });
+      }
+    });
+
+    it('reopens a variant with its pending adjustment', () => {
+      expect(variantToDraft({ ...saved, stockAdjustment: 4 }, LOCALES, 'en').stockAdjustment).toBe(
+        '4'
+      );
+      expect(variantToDraft(saved, LOCALES, 'en').stockAdjustment).toBe('');
+    });
   });
 });

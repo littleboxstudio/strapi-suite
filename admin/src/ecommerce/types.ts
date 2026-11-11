@@ -5,7 +5,10 @@ export type VariantInput = {
   sku: string;
   price: number;
   tax: number;
+  /** Initial stock of a new variant; the server ignores it for existing ones. */
   stock: number;
+  /** Signed manual adjustment for an existing variant (absent = none). */
+  stockAdjustment?: number;
   weight: number;
   width: number;
   height: number;

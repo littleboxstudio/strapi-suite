@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID, LtbConfigs } from '../../../config';
 import {
@@ -11,6 +12,7 @@ import {
   validateProductInput,
 } from './domain/catalog';
 import type { ImageRecord, StoredImage } from './images';
+import type { StockMoveInput } from './stock';
 import { EcommerceNotFoundError, EcommerceValidationError } from './errors';
 
 const PAGE_SIZE = 50 as const;
@@ -55,6 +57,9 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
   const locales = () => strapi.plugin('i18n').service('locales');
   const images = (): { removeFiles(records: StoredImage[]): Promise<void> } =>
     strapi.plugin(PLUGIN_ID).service('EcommerceImageService');
+  const stock = (): {
+    move(input: StockMoveInput, opts?: { trx?: any }): Promise<{ applied: boolean }>;
+  } => strapi.plugin(PLUGIN_ID).service('EcommerceStockService');
 
   const getDefaultLocale = async (): Promise<string> => locales().getDefaultLocale();
 
@@ -63,7 +68,11 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
     return all.map((l: any) => ({ code: l.code, name: l.name }));
   };
 
-  const save = async (productId: number | null, input: ProductInput): Promise<number> => {
+  const save = async (
+    productId: number | null,
+    input: ProductInput,
+    actor: string
+  ): Promise<number> => {
     const u = uids();
     const defaultLocale = await getDefaultLocale();
 
@@ -100,7 +109,7 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
     // Image files of removed variants are deleted only after the transaction commits.
     const removedImages: StoredImage[] = [];
 
-    const savedId: number = await strapi.db.transaction(async () => {
+    const savedId: number = await strapi.db.transaction(async ({ trx }: { trx: any }) => {
       let id = productId;
       if (id === null) {
         const created = await strapi.db
@@ -157,11 +166,11 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
 
       for (let i = 0; i < variants.length; i += 1) {
         const v = variants[i];
+        // Stock is never written directly: it changes only through ledger movements.
         const data = {
           sku: skus[i],
           price: v.price,
           tax: v.tax,
-          stock: v.stock,
           weight: v.weight,
           width: v.width,
           height: v.height,
@@ -174,9 +183,34 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
         if (v.id && currentIds.has(v.id)) {
           variantId = v.id;
           await strapi.db.query(u.variant).update({ where: { id: variantId }, data });
+          if (v.stockAdjustment) {
+            await stock().move(
+              {
+                variantId,
+                quantity: v.stockAdjustment,
+                type: 'MANUAL_ADJUST',
+                operationKey: `adjust:${variantId}:${randomUUID()}`,
+                actor,
+              },
+              { trx }
+            );
+          }
         } else {
-          const created = await strapi.db.query(u.variant).create({ data });
+          const created = await strapi.db.query(u.variant).create({ data: { ...data, stock: 0 } });
           variantId = created.id;
+          if (v.stock) {
+            await stock().move(
+              {
+                variantId,
+                quantity: v.stock,
+                type: 'MANUAL_ADJUST',
+                operationKey: `initial:${variantId}`,
+                reason: 'initial stock',
+                actor,
+              },
+              { trx }
+            );
+          }
         }
         keptIds.add(variantId);
 
@@ -334,12 +368,13 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
       };
     },
 
-    async create(input: ProductInput): Promise<{ id: number }> {
-      return { id: await save(null, input) };
+    async create(input: ProductInput, actor = 'system'): Promise<{ id: number }> {
+      return { id: await save(null, input, actor) };
     },
 
-    async update(id: number, input: ProductInput): Promise<void> {
-      await save(id, input);
+    /** `actor` is recorded on stock movements (e.g. `user:<id>`). */
+    async update(id: number, input: ProductInput, actor = 'system'): Promise<void> {
+      await save(id, input, actor);
     },
   };
 };

@@ -4,8 +4,8 @@ import { vi } from 'vitest';
 
 const CONTENT_TYPES_DIR = join(__dirname, '../../../../server/src/content-types/modules/ecommerce');
 
-/** uid -> names of `type: 'json'` attributes, read from the plugin's ecommerce schemas. */
-function loadJsonAttributes(): Record<string, string[]> {
+/** uid -> names of attributes matching `pick`, read from the plugin's ecommerce schemas. */
+function loadAttributes(pick: (a: any) => boolean): Record<string, string[]> {
   const out: Record<string, string[]> = {};
   for (const dir of readdirSync(CONTENT_TYPES_DIR)) {
     let schema: any;
@@ -17,13 +17,27 @@ function loadJsonAttributes(): Record<string, string[]> {
     out[`plugin::littlebox-strapi-suite.${schema.info.singularName}`] = Object.entries(
       schema.attributes ?? {}
     )
-      .filter(([, a]: [string, any]) => a.type === 'json')
+      .filter(([, a]: [string, any]) => pick(a))
       .map(([name]) => name);
   }
   return out;
 }
 
-const JSON_ATTRIBUTES = loadJsonAttributes();
+const JSON_ATTRIBUTES = loadAttributes((a) => a.type === 'json');
+const UNIQUE_ATTRIBUTES = loadAttributes((a) => a.unique === true);
+
+/** Mirrors a database unique index: inserting a duplicate value fails. */
+function assertUnique(uid: string, rows: any[], data: any, selfId?: number): void {
+  for (const attr of UNIQUE_ATTRIBUTES[uid] ?? []) {
+    const v = data?.[attr];
+    if (v === null || v === undefined) continue;
+    if (rows.some((r) => r.id !== selfId && r[attr] === v)) {
+      throw Object.assign(new Error(`UNIQUE constraint failed: ${uid}.${attr}`), {
+        code: 'SQLITE_CONSTRAINT_UNIQUE',
+      });
+    }
+  }
+}
 
 /**
  * MariaDB/MySQL json columns carry CHECK(json_valid(col)) and Strapi passes strings through
@@ -44,8 +58,18 @@ export type FakeRelations = Record<string, Record<string, [string, string]>>;
 /**
  * In-memory stand-in for the Strapi Query Engine (`strapi.db`), covering the subset the
  * e-commerce services use. `transaction` restores every table when the callback throws.
+ * `metadata.get(uid).tableName` is the uid itself, so `connection(tableName)` (a tiny knex-like
+ * builder: `.where({ id }).increment(col, n).transacting(trx)`) reaches the same rows.
  */
-export function createFakeDb(uids: string[], relations: FakeRelations = {}) {
+export function createFakeDb(
+  uids: string[],
+  relations: FakeRelations = {},
+  options: { enforceUnique?: string[] } = {}
+) {
+  const enforced = new Set(options.enforceUnique ?? []);
+  const checkUnique = (uid: string, data: any, selfId?: number) => {
+    if (enforced.has(uid)) assertUnique(uid, tables[uid], data, selfId);
+  };
   const tables: Record<string, any[]> = Object.fromEntries(uids.map((u) => [u, []]));
   const seq: Record<string, number> = {};
   const isOp = (o: any) =>
@@ -110,6 +134,7 @@ export function createFakeDb(uids: string[], relations: FakeRelations = {}) {
     count: async (p: any = {}) => tables[uid].filter((r) => match(uid, r, p.where)).length,
     create: async ({ data }: any) => {
       assertJsonColumns(uid, data);
+      checkUnique(uid, data);
       seq[uid] = (seq[uid] ?? 0) + 1;
       const row = { id: seq[uid], ...data };
       tables[uid].push(row);
@@ -119,6 +144,7 @@ export function createFakeDb(uids: string[], relations: FakeRelations = {}) {
       assertJsonColumns(uid, data);
       const r = tables[uid].find((x) => match(uid, x, where));
       if (!r) return null;
+      checkUnique(uid, data, r.id);
       Object.assign(r, data);
       return { ...r };
     },
@@ -137,10 +163,55 @@ export function createFakeDb(uids: string[], relations: FakeRelations = {}) {
     },
   });
 
-  const transaction = vi.fn(async (cb: () => Promise<any>) => {
+  /** The trx handed to transaction callbacks; `connection` calls record what they ran with. */
+  const trx = { fakeTrx: true };
+  const increments: { table: string; where: any; column: string; amount: number; trx: any }[] = [];
+
+  const connection = (table: string) => {
+    if (!tables[table]) throw new Error(`unknown table ${table}`);
+    const state: { where: any; column?: string; amount?: number; trx?: any } = { where: {} };
+    const run = () => {
+      if (state.column === undefined) throw new Error('only increment is supported');
+      const rows = tables[table].filter((r) => match(table, r, state.where));
+      rows.forEach((r) => {
+        r[state.column as string] = (r[state.column as string] ?? 0) + (state.amount as number);
+      });
+      increments.push({
+        table,
+        where: state.where,
+        column: state.column,
+        amount: state.amount as number,
+        trx: state.trx,
+      });
+      return rows.length;
+    };
+    const builder: any = {
+      where(w: any) {
+        state.where = { ...state.where, ...w };
+        return builder;
+      },
+      increment(column: string, amount: number) {
+        state.column = column;
+        state.amount = amount;
+        return builder;
+      },
+      transacting(t: any) {
+        state.trx = t;
+        return builder;
+      },
+      then(resolve: any, reject: any) {
+        return Promise.resolve().then(run).then(resolve, reject);
+      },
+    };
+    return builder;
+  };
+
+  const metadata = { get: (uid: string) => ({ tableName: uid }) };
+
+  const transaction = vi.fn(async (cb: (ctx: { trx: any }) => Promise<any>) => {
     const snapshot = JSON.stringify(tables);
     try {
-      return await cb();
+      return await cb({ trx });
     } catch (e) {
       const restored = JSON.parse(snapshot);
       for (const k of Object.keys(tables)) tables[k] = restored[k];
@@ -148,5 +219,5 @@ export function createFakeDb(uids: string[], relations: FakeRelations = {}) {
     }
   });
 
-  return { tables, query, transaction };
+  return { tables, query, transaction, connection, metadata, trx, increments };
 }

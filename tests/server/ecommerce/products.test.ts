@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { EcommerceValidationError, EcommerceNotFoundError } from '../../../server/src/services/modules/ecommerce/errors';
 import EcommerceProductService from '../../../server/src/services/modules/ecommerce/products';
+import EcommerceStockService from '../../../server/src/services/modules/ecommerce/stock';
 import { createFakeDb, type FakeRelations } from './helpers/fakeDb';
 
 const P = 'plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-';
@@ -10,6 +11,7 @@ const UIDS = {
   variant: `${P}variant`,
   variantTranslation: `${P}variant-translation`,
   image: `${P}image`,
+  stockMovement: `${P}stock-movement`,
 };
 
 // relation name -> [target uid, foreign key on target]
@@ -26,12 +28,17 @@ const RELATIONS: FakeRelations = {
 };
 
 function makeStrapi() {
-  const { tables, query, transaction } = createFakeDb(Object.values(UIDS), RELATIONS);
+  const { tables, query, transaction, connection, metadata } = createFakeDb(
+    Object.values(UIDS),
+    RELATIONS,
+    { enforceUnique: [UIDS.stockMovement] }
+  );
 
   const imageService = { remove: vi.fn(), removeFiles: vi.fn(async () => undefined) };
+  let stockService: any;
 
   const strapi: any = {
-    db: { query, transaction },
+    db: { query, transaction, connection, metadata },
     config: { get: () => ({ uuid: { modules: { ecommerce: UIDS } } }) },
     plugin: (id: string) =>
       id === 'i18n'
@@ -44,8 +51,12 @@ function makeStrapi() {
               ],
             }),
           }
-        : { service: () => imageService },
+        : {
+            service: (name: string) =>
+              name === 'EcommerceStockService' ? stockService : imageService,
+          },
   };
+  stockService = EcommerceStockService({ strapi });
   return { service: EcommerceProductService({ strapi }), tables, imageService, transaction };
 }
 
@@ -170,9 +181,9 @@ describe('EcommerceProductService', () => {
     const [a, b] = (await service.get(id)).variants;
     tables[UIDS.image].push({ id: 10, variant: b.id, position: 1, url: '/b1' });
     const original = transaction.getMockImplementation()!;
-    transaction.mockImplementationOnce((cb: () => Promise<any>) =>
-      original(async () => {
-        await cb();
+    transaction.mockImplementationOnce((cb: (ctx: { trx: any }) => Promise<any>) =>
+      original(async (ctx) => {
+        await cb(ctx);
         throw new Error('commit failed');
       })
     );
@@ -288,5 +299,66 @@ describe('EcommerceProductService', () => {
         { path: 'translations.en.description', code: 'required' },
       ])
     );
+  });
+
+  describe('stock', () => {
+    it('saves a product with a variant at negative stock', async () => {
+      const { service, tables } = makeStrapi();
+      await expect(service.create(input('Camisa', [variant('A', { stock: -2 })]))).resolves.toEqual({
+        id: expect.any(Number),
+      });
+      expect(tables[UIDS.variant][0].stock).toBe(-2);
+    });
+
+    it('records the initial stock of a new variant as a MANUAL_ADJUST', async () => {
+      const { service, tables } = makeStrapi();
+      await service.create(input('Camisa', [variant('A', { stock: 4 }), variant('B', { stock: 0 })]));
+      const [a, b] = tables[UIDS.variant];
+      expect(a.stock).toBe(4);
+      expect(b.stock).toBe(0);
+      expect(tables[UIDS.stockMovement]).toEqual([
+        expect.objectContaining({
+          variantId: a.id,
+          type: 'MANUAL_ADJUST',
+          quantity: 4,
+          operationKey: `initial:${a.id}`,
+          reason: 'initial stock',
+          actor: 'system',
+        }),
+      ]);
+    });
+
+    it('stockAdjustment +5 on an existing variant creates a MANUAL_ADJUST and adds 5', async () => {
+      const { service, tables } = makeStrapi();
+      const { id } = await service.create(input('Camisa', [variant('A', { stock: 3 })]));
+      const [v] = (await service.get(id)).variants;
+      await service.update(id, input('Camisa', [{ ...v, stockAdjustment: 5 }]), 'user:7');
+      expect(tables[UIDS.variant][0].stock).toBe(8);
+      const adjust = tables[UIDS.stockMovement].filter((m) => m.actor === 'user:7');
+      expect(adjust).toHaveLength(1);
+      expect(adjust[0]).toMatchObject({ variantId: v.id, type: 'MANUAL_ADJUST', quantity: 5 });
+      expect(adjust[0].operationKey).toMatch(new RegExp(`^adjust:${v.id}:[0-9a-f-]{36}$`));
+    });
+
+    it('update ignores a different stock on an existing variant', async () => {
+      const { service, tables } = makeStrapi();
+      const { id } = await service.create(input('Camisa', [variant('A', { stock: 3 })]));
+      const [v] = (await service.get(id)).variants;
+      tables[UIDS.variant][0].stock = 1; // an order took two units meanwhile
+      await service.update(id, input('Camisa', [{ ...v, stock: 50, stockAdjustment: 0 }]));
+      expect(tables[UIDS.variant][0].stock).toBe(1);
+      expect(tables[UIDS.stockMovement]).toHaveLength(1); // only the initial stock
+    });
+
+    it('rejects a non-integer stockAdjustment', async () => {
+      const { service } = makeStrapi();
+      const { id } = await service.create(input('Camisa', [variant('A')]));
+      const [v] = (await service.get(id)).variants;
+      const err: any = await service
+        .update(id, input('Camisa', [{ ...v, stockAdjustment: 0.5 }]))
+        .catch((e) => e);
+      expect(err).toBeInstanceOf(EcommerceValidationError);
+      expect(err.errors).toEqual([{ path: 'variants.0.stockAdjustment', code: 'invalid_number' }]);
+    });
   });
 });

@@ -125,6 +125,11 @@ describe('buildProductInput', () => {
     });
     expect('key' in input.variants[0]).toBe(false);
   });
+
+  it('sends a pending stock adjustment of an existing variant', () => {
+    const input = buildProductInput(form({ variants: [variant({ id: 9, stockAdjustment: -4 })] }));
+    expect(input.variants[0]).toMatchObject({ id: 9, stock: 3, stockAdjustment: -4 });
+  });
 });
 
 describe('isBlankHtml', () => {
