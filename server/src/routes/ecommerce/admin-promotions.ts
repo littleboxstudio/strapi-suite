@@ -22,6 +22,8 @@ export default [
   route('POST', '', 'create', manage),
   // Static paths come before '/:id' so they are never read as a promotion id.
   route('GET', '/catalog-search', 'catalogSearch', manage),
+  // Locales and store time zone for the editor, readable with promotions.read alone.
+  route('GET', '/context', 'context', read),
   route('GET', '/:id', 'get', read),
   route('PUT', '/:id', 'update', manage),
   route('DELETE', '/:id', 'remove', manage),

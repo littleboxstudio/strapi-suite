@@ -6,6 +6,7 @@ import type { Paginated, StoreCredit } from '../orderTypes';
 import type {
   Promotion,
   PromotionCatalogResult,
+  PromotionEditorContext,
   PromotionListItem,
   PromotionListParams,
   PromotionRedemption,
@@ -18,6 +19,7 @@ export default interface EcommercePromotionsGateway {
   // read: promotions.read
   fetchPromotions(params: PromotionListParams): Promise<Paginated<PromotionListItem>>;
   fetchPromotion(id: number): Promise<Promotion>;
+  fetchEditorContext(): Promise<PromotionEditorContext>;
   fetchRedemptions(id: number, page?: number): Promise<Paginated<PromotionRedemption>>;
   // write: promotions.manage
   createPromotion(input: PromotionSaveInput): Promise<Promotion>;
@@ -45,6 +47,10 @@ export class EcommercePromotionsGatewayHttp implements EcommercePromotionsGatewa
 
   async fetchPromotion(id: number): Promise<Promotion> {
     return this.httpClient.get(`${this.promotions}/${id}`);
+  }
+
+  async fetchEditorContext(): Promise<PromotionEditorContext> {
+    return this.httpClient.get(`${this.promotions}/context`);
   }
 
   async fetchRedemptions(id: number, page?: number): Promise<Paginated<PromotionRedemption>> {

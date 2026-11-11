@@ -8,6 +8,7 @@ const expected: [string, string, string, string][] = [
   ['GET', B, 'list', P.promotionsRead],
   ['POST', B, 'create', P.promotionsManage],
   ['GET', `${B}/catalog-search`, 'catalogSearch', P.promotionsManage],
+  ['GET', `${B}/context`, 'context', P.promotionsRead],
   ['GET', `${B}/:id`, 'get', P.promotionsRead],
   ['PUT', `${B}/:id`, 'update', P.promotionsManage],
   ['DELETE', `${B}/:id`, 'remove', P.promotionsManage],
@@ -30,9 +31,10 @@ describe('ecommerce promotion routes', () => {
       expect(p.config.actions).toHaveLength(1);
     }
   });
-  it('registers catalog-search before /:id', () => {
+  it('registers catalog-search and context before /:id', () => {
     const idx = (m: string, p: string) => promotionRoutes.findIndex((r) => r.method === m && r.path === p);
     expect(idx('GET', `${B}/catalog-search`)).toBeLessThan(idx('GET', `${B}/:id`));
+    expect(idx('GET', `${B}/context`)).toBeLessThan(idx('GET', `${B}/:id`));
   });
   it('are included in the admin routes', () => expect(adminRoutes).toEqual(expect.arrayContaining(promotionRoutes)));
 });
