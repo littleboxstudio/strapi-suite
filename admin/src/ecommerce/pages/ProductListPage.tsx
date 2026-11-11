@@ -183,7 +183,7 @@ const ProductListPage = () => {
 
       {items.length > 0 && (
         <>
-          <Table colCount={6} rowCount={items.length}>
+          <Table colCount={7} rowCount={items.length}>
             <Thead>
               <Tr>
                 <Th>
@@ -200,6 +200,9 @@ const ProductListPage = () => {
                 </Th>
                 <Th>
                   <Typography variant="sigma">{t('ecommerce.products.table.stock')}</Typography>
+                </Th>
+                <Th>
+                  <Typography variant="sigma">{t('ecommerce.products.table.status')}</Typography>
                 </Th>
                 <Th>
                   <VisuallyHidden>{t('ecommerce.products.table.actions')}</VisuallyHidden>
@@ -244,6 +247,15 @@ const ProductListPage = () => {
                         </Badge>
                       )}
                     </Flex>
+                  </Td>
+                  <Td>
+                    {item.active ? (
+                      <Badge backgroundColor="success100" textColor="success700">
+                        {t('ecommerce.products.status.active')}
+                      </Badge>
+                    ) : (
+                      <Badge>{t('ecommerce.products.status.inactive')}</Badge>
+                    )}
                   </Td>
                   <Td>
                     <Flex justifyContent="flex-end">
