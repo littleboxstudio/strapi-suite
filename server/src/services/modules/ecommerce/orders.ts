@@ -1082,12 +1082,17 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
 
   /**
    * The shipping input for the simulation. `RECALCULATE` quotes the order's method for the
-   * units still to ship after the modification, at the (new) shipping address.
+   * units still to ship after the modification, at the (new) shipping address. When the lines
+   * themselves are invalid no quote is requested: `invalidDraft` carries those errors instead.
    */
   const resolveShipping = async (
     ctx: ModificationContext,
     n: NormalizedModification
-  ): Promise<{ input: ShippingModification; option: ShippingOption | null }> => {
+  ): Promise<{
+    input: ShippingModification;
+    option: ShippingOption | null;
+    invalidDraft?: ModificationResult;
+  }> => {
     if (n.shipping.mode === 'KEEP') return { input: { mode: 'KEEP' }, option: null };
     if (n.shipping.mode === 'MANUAL') {
       return { input: { mode: 'MANUAL', amount: n.shipping.amount }, option: null };
@@ -1095,6 +1100,13 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
 
     const { state, catalog } = ctx;
     const draft = runSimulation(ctx, n, { mode: 'KEEP' });
+    if (draft.errors.length) {
+      return {
+        input: { mode: 'KEEP' },
+        option: null,
+        invalidDraft: { ...draft, shipping: { ...draft.shipping, mode: 'RECALCULATE' } },
+      };
+    }
     const shippedById = new Map(state.lines.map((l) => [l.id, l.shipped]));
     const items: ShippingQuoteRequest['items'] = [];
     for (const c of draft.lineChanges) {
@@ -1142,9 +1154,12 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     const orderId = Number(rawOrderId);
     const n = await normalizeModification(input);
     const ctx = await loadModificationContext(orderId, n);
-    const { input: shippingInput } = await resolveShipping(ctx, n);
-    return runSimulation(ctx, n, shippingInput);
+    const { input: shippingInput, invalidDraft } = await resolveShipping(ctx, n);
+    return invalidDraft ?? runSimulation(ctx, n, shippingInput);
   };
+
+  /** The ORDER_MODIFIED history row's unique key: one application per operationId. */
+  const modificationKey = (operationId: string) => `modify:${operationId}`;
 
   /** The outcome of an earlier application of `operationId` on this order, if any. */
   const findAppliedModification = async (
@@ -1152,9 +1167,8 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     operationId: string
   ): Promise<OrderModificationOutcome | null> => {
     const q = strapi.db.query(uids().orderHistory);
-    const row = await q.findOne({
-      where: { type: 'ORDER_MODIFIED', operationId, order: { id: orderId } },
-    });
+    const uniqueKey = modificationKey(operationId);
+    const row = await q.findOne({ where: { uniqueKey, order: { id: orderId } } });
     if (row) {
       return {
         outcome: row.newValue?.outcome ?? 'NONE',
@@ -1162,7 +1176,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       };
     }
     // The stock keys embed the operationId: reusing one from another order is a client bug.
-    if (await q.findOne({ where: { type: 'ORDER_MODIFIED', operationId } })) {
+    if (await q.findOne({ where: { uniqueKey } })) {
       throw operationConflict();
     }
     return null;
@@ -1192,11 +1206,16 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     if (earlier) return earlier;
 
     const n = await normalizeModification(input);
-    // The carrier quote may be a remote call: it is taken before the transaction.
-    const { input: shippingInput, option } = await resolveShipping(
-      await loadModificationContext(orderId, n),
-      n
-    );
+    // The carrier quote may be a remote call: it is taken before the transaction and used
+    // as-is inside it. A quote gone stale meanwhile is accepted (design 9.2: no locking).
+    const {
+      input: shippingInput,
+      option,
+      invalidDraft,
+    } = await resolveShipping(await loadModificationContext(orderId, n), n);
+    if (invalidDraft) {
+      throw new EcommerceValidationError('Invalid modification', invalidDraft.errors);
+    }
 
     const collector = events().collector();
     let outcome: OrderModificationOutcome;
@@ -1218,7 +1237,8 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         return { outcome: result.outcome, difference: result.difference };
       });
     } catch (err) {
-      // A concurrent request with the same operationId committed first: that is the answer.
+      // A concurrent request with the same operationId committed first (the unique key of its
+      // ORDER_MODIFIED row or of a stock move was taken): that is the answer.
       const isConflict =
         err instanceof EcommerceValidationError &&
         (err as any).errors?.some?.((e: ValidationIssue) => e.code === 'OPERATION_ID_CONFLICT');
@@ -1454,6 +1474,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
 
     await record({
       type: 'ORDER_MODIFIED',
+      uniqueKey: modificationKey(operationId),
       description: `Order modified: total ${result.before.total} → ${totals.total} cents (${result.outcome})`,
       previousValue: { totals: result.before },
       newValue: {

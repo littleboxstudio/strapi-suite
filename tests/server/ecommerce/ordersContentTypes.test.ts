@@ -17,7 +17,8 @@ const names: Record<string, string[]> = {
   payment: ['order', 'method', 'status', 'amount', 'currency', 'reference', 'externalId', 'idempotencyKey',
     'coverage', 'completedAt', 'actor', 'metadata'],
   'stock-movement': ['variant', 'variantId', 'order', 'type', 'quantity', 'operationKey', 'reason', 'actor'],
-  'order-history': ['order', 'type', 'description', 'previousValue', 'newValue', 'actor', 'operationId'],
+  'order-history': ['order', 'type', 'description', 'previousValue', 'newValue', 'actor', 'operationId',
+    'uniqueKey'],
 };
 
 describe('ecommerce orders content-types', () => {
@@ -98,6 +99,7 @@ describe('ecommerce orders content-types', () => {
 
     const h = get('order-history').attributes;
     expect(h.type).toMatchObject({ type: 'string', required: true });
+    expect(h.uniqueKey).toMatchObject({ type: 'string', unique: true });
   });
 
   it('payment status enums of the order', () => {
