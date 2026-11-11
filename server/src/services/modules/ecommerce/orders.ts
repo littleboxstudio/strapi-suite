@@ -1486,9 +1486,117 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     });
   };
 
+  /**
+   * Shipping options for a draft order. The caller sends only variant ids and quantities;
+   * weight and dimensions come from the catalog.
+   */
+  const quoteForLines = async (input: {
+    country: string;
+    postalCode?: string;
+    lines: { variantId: number; quantity: number }[];
+    locale: string;
+  }) => {
+    const errors: ValidationIssue[] = [];
+    const rawLines: any[] = Array.isArray(input?.lines) ? input.lines : [];
+    if (!rawLines.length) errors.push({ path: 'lines', code: 'required' });
+    const country = clean(input?.country);
+    if (!country) errors.push({ path: 'country', code: 'required' });
+    const merged = new Map<number, number>();
+    rawLines.forEach((l, i) => {
+      const variantId = Number(l?.variantId);
+      const quantity = Number(l?.quantity);
+      if (!Number.isInteger(variantId) || variantId < 1) {
+        errors.push({ path: `lines.${i}.variantId`, code: 'invalid' });
+      } else if (!Number.isInteger(quantity) || quantity < 1) {
+        errors.push({ path: `lines.${i}.quantity`, code: 'invalid' });
+      } else {
+        merged.set(variantId, (merged.get(variantId) ?? 0) + quantity);
+      }
+    });
+    if (errors.length) throw new EcommerceValidationError('Invalid shipping quote', errors);
+
+    const locale = clean(input?.locale) || (await getDefaultLocale());
+    const catalog = await loadCatalog([...merged.keys()], locale);
+    const items: ShippingQuoteRequest['items'] = [];
+    let subtotal = 0;
+    for (const [variantId, quantity] of merged) {
+      const c = catalog.get(variantId);
+      if (!c) {
+        throw new EcommerceValidationError('Invalid shipping quote', [
+          { path: 'lines', code: 'variant_not_found' },
+        ]);
+      }
+      items.push({
+        variantId,
+        quantity,
+        weight: c.weight,
+        width: c.width,
+        height: c.height,
+        depth: c.depth,
+      });
+      subtotal += c.price * quantity;
+    }
+    const request: ShippingQuoteRequest = {
+      country,
+      ...(clean(input?.postalCode) ? { postalCode: clean(input.postalCode) } : {}),
+      items,
+      subtotal,
+      locale,
+    };
+    return service('EcommerceShippingService').quote(request);
+  };
+
+  /** Active variants of active products matching `q` by product name or SKU (at most 20). */
+  const searchVariants = async (q: string, locale?: string) => {
+    const term = clean(q);
+    if (!term) return [];
+    const loc = clean(locale) || (await getDefaultLocale());
+    const termLower = term.toLowerCase();
+    const products: any[] = await strapi.db.query(uids().product).findMany({
+      where: {
+        active: true,
+        $or: [
+          { translations: { name: { $containsi: term } } },
+          { variants: { sku: { $containsi: term } } },
+        ],
+      },
+      populate: { translations: true, variants: true },
+      orderBy: { id: 'asc' },
+      limit: 20,
+    });
+    const ids: number[] = [];
+    for (const p of products) {
+      const nameMatch = (p.translations ?? []).some((t: any) =>
+        String(t.name ?? '').toLowerCase().includes(termLower)
+      );
+      for (const v of p.variants ?? []) {
+        if (!v.active) continue;
+        if (nameMatch || String(v.sku ?? '').toLowerCase().includes(termLower)) ids.push(v.id);
+      }
+    }
+    if (!ids.length) return [];
+    const catalog = await loadCatalog(ids.slice(0, 20), loc);
+    return ids
+      .slice(0, 20)
+      .map((id) => catalog.get(id))
+      .filter((c): c is CatalogVariant => !!c && c.active)
+      .map((c) => ({
+        variantId: c.variantId,
+        productId: c.productId,
+        name: c.name,
+        option: c.option,
+        sku: c.sku,
+        price: c.price,
+        stock: c.stock,
+        imageUrl: c.imageUrl,
+      }));
+  };
+
   return {
     create,
     list,
+    quoteForLines,
+    searchVariants,
     get,
     recalculate,
     computeOrderState,

@@ -9,6 +9,8 @@ import LocalesModuleController from './modules/locales';
 import AiTranslationModuleController from './modules/ai-translation';
 import EcommerceProductController from './modules/ecommerce/products';
 import EcommerceSettingsController from './modules/ecommerce/settings';
+import EcommerceCustomerController from './modules/ecommerce/customers';
+import EcommerceOrderController from './modules/ecommerce/orders';
 
 export default {
   SettingAppController,
@@ -22,4 +24,6 @@ export default {
   AiTranslationModuleController,
   EcommerceProductController,
   EcommerceSettingsController,
+  EcommerceCustomerController,
+  EcommerceOrderController,
 };
