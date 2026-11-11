@@ -683,6 +683,9 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
     const order = await strapi.db.query(uids().order).findOne({ where: { id: orderId } });
     if (!order) throw new EcommerceNotFoundError('Order not found');
     const call = await callCreateShipment(row, order, carrier);
+    // Nothing reached the carrier this time, but the first attempt may have: the shipment stays
+    // PENDING/UNCERTAIN (never FAILED, which `cancel` would close without asking the carrier).
+    if ('contacted' in call && !call.contacted) throw call.error;
     return completeCarrierShipment(row.id, orderId, call, actor);
   };
 
@@ -761,7 +764,7 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
         });
         await history().record({
           orderId,
-          type: 'SHIPMENT_CANCELLED',
+          type: 'SHIPMENT_CARRIER_CANCELLED',
           description: `Shipment #${row.id} was cancelled at the carrier but not here (${refusedWith})`,
           previousValue: { status: row.status },
           newValue: { status: row.status, carrierCancelled: true, refusedWith, reason },

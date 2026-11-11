@@ -536,6 +536,7 @@
   "littlebox-strapi-suite.ecommerce.orders.history.type.SHIPPING_CHANGED": "Portes alterados",
   "littlebox-strapi-suite.ecommerce.orders.history.type.ORDER_DISCOUNT_CHANGED": "Desconto da encomenda alterado",
   "littlebox-strapi-suite.ecommerce.orders.history.type.ORDER_MODIFIED": "Encomenda modificada",
+  "littlebox-strapi-suite.ecommerce.orders.history.type.SHIPMENT_CARRIER_CANCELLED": "Expedição cancelada só na transportadora",
   "littlebox-strapi-suite.ecommerce.orders.history.type.PAYMENT_CREATED": "Pagamento registado",
   "littlebox-strapi-suite.ecommerce.orders.history.type.PAYMENT_COMPLETED": "Pagamento liquidado",
   "littlebox-strapi-suite.ecommerce.orders.history.type.PAYMENT_INSTRUCTIONS_SENT": "Instruções de pagamento enviadas",
