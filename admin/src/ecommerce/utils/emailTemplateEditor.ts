@@ -42,3 +42,12 @@ export function listExample(variable: VariableDef): string {
     : variableTag('this');
   return `{{#each ${variable.path}}}\n  ${fields}\n{{/each}}`;
 }
+
+type RouteLocation = { pathname: string; search: string };
+
+/** In-app navigation away from an editor with unsaved changes must be confirmed. */
+export const shouldBlockNavigation = (
+  dirty: boolean,
+  current: RouteLocation,
+  next: RouteLocation
+): boolean => dirty && (current.pathname !== next.pathname || current.search !== next.search);
