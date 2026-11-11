@@ -42,7 +42,7 @@ const HistoryTimeline = ({ history }: { history: OrderHistoryItem[] }) => {
                   {formatDate(entry.createdAt, { dateStyle: 'medium', timeStyle: 'medium' })} · {text.actor}
                 </Typography>
               </Flex>
-              <Typography textColor="neutral700">{text.description}</Typography>
+              <Typography textColor="neutral700">{text.detail ?? text.description}</Typography>
               {text.change && (
                 <Typography variant="pi" textColor="neutral700">
                   {t('ecommerce.orders.detail.history.change', text.change)}

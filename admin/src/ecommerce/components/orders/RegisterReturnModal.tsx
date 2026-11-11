@@ -33,7 +33,7 @@ import {
   validateReturnForm,
   type ReturnForm,
 } from '../../utils/returnForm';
-import type { FormErrors } from '../../utils/shipmentForm';
+import { mapServerFieldErrors, type FormErrors } from '../../utils/shipmentForm';
 import type { RefundInitial } from '../../utils/refundForm';
 import type { Order, ReturnRegistered } from '../../orderTypes';
 
@@ -48,6 +48,8 @@ type Props = {
 };
 
 const COLUMNS = ['product', 'shipped', 'returned', 'returnable', 'quantity', 'restock'] as const;
+/** Server paths of the return body → form paths. */
+const RETURN_PATHS: Record<string, string> = { lines: 'lines', reason: 'reason', notes: 'notes' };
 
 /**
  * Registers a return of shipped units (design 4.11), each line restocked or not. It never refunds:
@@ -107,14 +109,8 @@ const RegisterReturnModal = ({ order, canRefund, onClose, onRefundNow }: Props) 
       toggleNotification({ type: 'success', message: t('ecommerce.orders.returns.success') });
       setResult(registered);
     } catch (err) {
-      const map: FormErrors = {};
-      (extractFieldErrors(err) ?? []).forEach((e) => {
-        const m = /^lines\.(\d+)\./.exec(e.path);
-        let key = 'form';
-        if (m) key = input.lines[Number(m[1])] ? `lines.${input.lines[Number(m[1])].orderLineId}` : 'lines';
-        else if (e.path === 'lines' || e.path === 'reason' || e.path === 'notes') key = e.path;
-        if (!map[key]) map[key] = e.code;
-      });
+      const { errors: map, other } = mapServerFieldErrors(extractFieldErrors(err) ?? [], input.lines, RETURN_PATHS);
+      if (other && Object.keys(map).length) map.form = other;
       setErrors(map);
       if (!Object.keys(map).length) {
         toggleNotification({ type: 'danger', message: t(apiErrorMessageId(err, 'ecommerce.orders.returns.error')) });

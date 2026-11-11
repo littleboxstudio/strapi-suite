@@ -1287,5 +1287,14 @@
   "littlebox-strapi-suite.ecommerce.orders.errors.invalid_restock": "Choose whether the units go back to stock.",
   "littlebox-strapi-suite.ecommerce.orders.errors.invalid_shipped_at": "This shipment has no valid shipping date.",
   "littlebox-strapi-suite.ecommerce.orders.errors.before_shipment": "The date cannot be before the shipment.",
-  "littlebox-strapi-suite.ecommerce.orders.errors.in_future": "The date cannot be in the future."
+  "littlebox-strapi-suite.ecommerce.orders.errors.in_future": "The date cannot be in the future.",
+  "littlebox-strapi-suite.ecommerce.orders.history.type.RETURN_REGISTERED": "Return registered",
+  "littlebox-strapi-suite.ecommerce.orders.history.return": "{units, plural, one {# unit} other {# units}} returned · approved value {amount}",
+  "littlebox-strapi-suite.ecommerce.orders.detail.sections.returns": "Returns",
+  "littlebox-strapi-suite.ecommerce.orders.returns.list.empty": "No returns.",
+  "littlebox-strapi-suite.ecommerce.orders.returns.list.columns.date": "Return",
+  "littlebox-strapi-suite.ecommerce.orders.returns.list.columns.items": "Items",
+  "littlebox-strapi-suite.ecommerce.orders.returns.list.columns.reason": "Reason and notes",
+  "littlebox-strapi-suite.ecommerce.orders.returns.list.columns.value": "Approved value",
+  "littlebox-strapi-suite.ecommerce.orders.shipments.stuckHint": "No answer was recorded for this carrier shipment: it may or may not exist at the carrier. \"Retry\" asks again with the same reference, so it is never created twice."
 }

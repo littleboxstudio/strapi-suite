@@ -31,6 +31,12 @@ export const CREATE_SHIPMENT_TIMEOUT_MS = 30000;
 export const CARRIER_CALL_TIMEOUT_MS = 15000;
 /** Our own backstop on top of the timeout handed to the adapter. */
 const BACKSTOP_GRACE_MS = 5000;
+/**
+ * A carrier shipment still PENDING without an outcome after this long was abandoned between its two
+ * transactions (the process died): it is treated as UNCERTAIN, so `retry` can settle it. Well above
+ * the create timeout and its backstop, so a request still in flight is never retried.
+ */
+export const STUCK_PENDING_SHIPMENT_MS = 2 * 60 * 1000;
 
 const MAX_CARRIER_NAME = 120;
 const MAX_URL = 2000;
@@ -123,6 +129,18 @@ const notAvailable = () => invalid('action', 'ACTION_NOT_AVAILABLE');
 /** A carrier error code safe to store and return; anything else is CARRIER_REQUEST_FAILED. */
 const carrierCode = (err: unknown): EcommerceCarrierError['code'] =>
   err instanceof EcommerceCarrierError ? err.code : 'CARRIER_REQUEST_FAILED';
+
+/**
+ * PENDING/UNCERTAIN, or PENDING with no outcome recorded for longer than
+ * `STUCK_PENDING_SHIPMENT_MS` (abandoned between the two transactions).
+ */
+const isRetryable = (row: any, now: number): boolean => {
+  if (row?.status !== 'PENDING') return false;
+  if (row.error === 'UNCERTAIN') return true;
+  if (row.error) return false;
+  const created = Date.parse(row.createdAt ?? '');
+  return Number.isFinite(created) && now - created > STUCK_PENDING_SHIPMENT_MS;
+};
 
 /**
  * Only an `EcommerceCarrierError` without `uncertain` proves the carrier did nothing. Any other
@@ -684,7 +702,7 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
    */
   const retry = async (shipmentId: number | string, actor: string): Promise<ShipmentView> => {
     const row = await loadRow(Number(shipmentId));
-    if (row.status !== 'PENDING' || row.error !== 'UNCERTAIN') throw notAvailable();
+    if (!isRetryable(row, Date.now())) throw notAvailable();
     const orderId = idOf(row.order) as number;
     const carrier = await carrierWith(row.providerId, 'createShipment');
     const order = await strapi.db.query(uids().order).findOne({ where: { id: orderId } });

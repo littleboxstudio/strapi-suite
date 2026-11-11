@@ -33,6 +33,7 @@ import RefundModal from '../../components/orders/RefundModal';
 import RefundsTable from '../../components/orders/RefundsTable';
 import NotificationsSection from '../../components/orders/NotificationsSection';
 import ShipmentsSection from '../../components/orders/ShipmentsSection';
+import ReturnsSection from '../../components/orders/ReturnsSection';
 import ShipOrderModal from '../../components/orders/ShipOrderModal';
 import RegisterReturnModal from '../../components/orders/RegisterReturnModal';
 
@@ -216,6 +217,7 @@ const OrderDetailPage = () => {
               canManage={canManage}
               onChanged={load}
             />
+            <ReturnsSection title={t('ecommerce.orders.detail.sections.returns')} returns={order.returns} />
             <OrderSection title={t('ecommerce.orders.detail.sections.refunds')}>
               <RefundsTable
                 orderId={order.id}

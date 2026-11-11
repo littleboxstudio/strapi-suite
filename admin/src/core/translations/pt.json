@@ -1071,5 +1071,14 @@
   "littlebox-strapi-suite.ecommerce.orders.errors.invalid_restock": "Indique se as unidades voltam ao stock.",
   "littlebox-strapi-suite.ecommerce.orders.errors.invalid_shipped_at": "Esta expedição não tem uma data de envio válida.",
   "littlebox-strapi-suite.ecommerce.orders.errors.before_shipment": "A data não pode ser anterior à expedição.",
-  "littlebox-strapi-suite.ecommerce.orders.errors.in_future": "A data não pode ser no futuro."
+  "littlebox-strapi-suite.ecommerce.orders.errors.in_future": "A data não pode ser no futuro.",
+  "littlebox-strapi-suite.ecommerce.orders.history.type.RETURN_REGISTERED": "Devolução registada",
+  "littlebox-strapi-suite.ecommerce.orders.history.return": "{units, plural, one {# unidade devolvida} other {# unidades devolvidas}} · valor aprovado {amount}",
+  "littlebox-strapi-suite.ecommerce.orders.detail.sections.returns": "Devoluções",
+  "littlebox-strapi-suite.ecommerce.orders.returns.list.empty": "Sem devoluções.",
+  "littlebox-strapi-suite.ecommerce.orders.returns.list.columns.date": "Devolução",
+  "littlebox-strapi-suite.ecommerce.orders.returns.list.columns.items": "Artigos",
+  "littlebox-strapi-suite.ecommerce.orders.returns.list.columns.reason": "Motivo e notas",
+  "littlebox-strapi-suite.ecommerce.orders.returns.list.columns.value": "Valor aprovado",
+  "littlebox-strapi-suite.ecommerce.orders.shipments.stuckHint": "Não ficou registada resposta para esta expedição: pode ou não existir na transportadora. \"Tentar de novo\" volta a pedir com a mesma referência, por isso nunca é criada duas vezes."
 }

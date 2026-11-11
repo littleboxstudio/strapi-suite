@@ -229,6 +229,32 @@ describe('historyEntryText', () => {
     ).toEqual({ before: '€10.00', after: '€4.00' });
   });
 
+  it('formats a registered return: units and approved value, total before → after', () => {
+    const text = historyEntryText(
+      entry({
+        type: 'RETURN_REGISTERED',
+        description: 'Return #3 registered: 900 cents',
+        previousValue: { orderDiscount: 200, total: 5500 },
+        newValue: {
+          returnId: 3,
+          lines: [
+            { orderLineId: 1, quantity: 2, restock: true, value: 1000 },
+            { orderLineId: 2, quantity: 1, restock: false, value: 500 },
+          ],
+          refundableValue: 1400,
+          total: 4100,
+        },
+      }),
+      t,
+      money
+    );
+    expect(text.title).toBe('ecommerce.orders.history.type.RETURN_REGISTERED');
+    expect(text.detail).toBe('ecommerce.orders.history.return{"units":3,"amount":"€14.00"}');
+    expect(text.change).toEqual({ before: '€55.00', after: '€41.00' });
+    expect(historyEntryText(entry({ type: 'RETURN_REGISTERED', newValue: { lines: 'x' } }), t, money).detail).toBeNull();
+    expect(historyEntryText(entry({ type: 'ORDER_CREATED' }), t, money).detail).toBeNull();
+  });
+
   it('has no change for malformed or other values', () => {
     expect(
       historyEntryText(entry({ type: 'ORDER_STATUS_CHANGED', previousValue: 'x', newValue: null }), t, money).change
@@ -256,6 +282,7 @@ describe('historyEntryText', () => {
       'STOCK_MOVED',
       'ORDER_CANCELLED',
       'ORDER_ARCHIVED',
+      'RETURN_REGISTERED',
     ].forEach((type) => {
       const key = `littlebox-strapi-suite.ecommerce.orders.history.type.${type}`;
       expect(en[key], key).toBeTruthy();

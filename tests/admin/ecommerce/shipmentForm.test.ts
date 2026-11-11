@@ -7,8 +7,12 @@ import {
   deliveredAtInputToIso,
   emptyShipForm,
   isHttpUrl,
+  isStuckPendingShipment,
   isUncertainShipment,
+  mapServerFieldErrors,
+  resolveDeliveredAt,
   shipmentActions,
+  STUCK_PENDING_SHIPMENT_MS,
   validateShipForm,
   validateTrackingForm,
   type ShipForm,
@@ -170,6 +174,44 @@ describe('validateTrackingForm', () => {
   });
 });
 
+describe('resolveDeliveredAt', () => {
+  const now = new Date(2026, 10, 11, 9, 5, 42, 300);
+  it('sends the real current time when the default (truncated to the minute) was left untouched', () => {
+    const def = defaultDeliveredAtInput(now);
+    // Shipped at 09:05:10 and delivered in the same minute: the minute-truncated default would be
+    // before the shipment, the real time is not.
+    expect(resolveDeliveredAt(def, def, now)).toBe(now.toISOString());
+    expect(Date.parse(resolveDeliveredAt(def, def, now)!)).toBeGreaterThan(new Date(2026, 10, 11, 9, 5, 10).getTime());
+  });
+
+  it('uses the value the admin typed, null when invalid', () => {
+    const def = defaultDeliveredAtInput(now);
+    expect(resolveDeliveredAt('2026-11-10T18:30', def, now)).toBe(new Date(2026, 10, 10, 18, 30).toISOString());
+    expect(resolveDeliveredAt('nope', def, now)).toBeNull();
+  });
+});
+
+describe('mapServerFieldErrors', () => {
+  it('maps lines.<index>.* to lines.<orderLineId>, known fields to form paths, the rest to other', () => {
+    const sent = [{ orderLineId: 7 }, { orderLineId: 9 }];
+    expect(
+      mapServerFieldErrors(
+        [
+          { path: 'lines.1.quantity', code: 'QUANTITY_EXCEEDS_PENDING' },
+          { path: 'lines.5.quantity', code: 'invalid_quantity' },
+          { path: 'method.trackingUrl', code: 'invalid_url' },
+          { path: 'action', code: 'ACTION_NOT_AVAILABLE' },
+        ],
+        sent,
+        { 'method.trackingUrl': 'trackingUrl', lines: 'lines' }
+      )
+    ).toEqual({
+      errors: { 'lines.9': 'QUANTITY_EXCEEDS_PENDING', lines: 'invalid_quantity', trackingUrl: 'invalid_url' },
+      other: 'ACTION_NOT_AVAILABLE',
+    });
+  });
+});
+
 describe('delivery date input', () => {
   it('defaults to the local current minute and converts back to ISO', () => {
     const now = new Date(2026, 10, 11, 9, 5, 30);
@@ -201,10 +243,25 @@ describe('shipmentActions', () => {
     expect(shipmentActions(shipment({ deliveryStatus: 'DELIVERED' }), ctx)).toEqual(['TRACKING']);
   });
 
-  it('uncertain pending: retry and cancel (the server explains a refusal)', () => {
+  it('uncertain pending: retry only (the server refuses to cancel it)', () => {
     const s = shipment({ status: 'PENDING', providerId: 'ctt', error: 'UNCERTAIN', deliveryStatus: null });
     expect(isUncertainShipment(s)).toBe(true);
-    expect(shipmentActions(s, ctx)).toEqual(['RETRY', 'CANCEL']);
+    expect(shipmentActions(s, ctx)).toEqual(['RETRY']);
+  });
+
+  it('pending without outcome: nothing while recent, retry once stale (process died mid-create)', () => {
+    const now = Date.parse('2026-11-11T10:00:00.000Z');
+    const recent = shipment({ status: 'PENDING', providerId: 'ctt', error: null, createdAt: '2026-11-11T09:59:30.000Z' });
+    const stale = shipment({ status: 'PENDING', providerId: 'ctt', error: null, createdAt: '2026-11-11T09:57:00.000Z' });
+    expect(isStuckPendingShipment(recent, now)).toBe(false);
+    expect(shipmentActions(recent, { ...ctx, now })).toEqual([]);
+    expect(isStuckPendingShipment(stale, now)).toBe(true);
+    expect(shipmentActions(stale, { ...ctx, now })).toEqual(['RETRY']);
+    expect(STUCK_PENDING_SHIPMENT_MS).toBe(120_000);
+  });
+
+  it('failed: cancel only', () => {
+    expect(shipmentActions(shipment({ status: 'FAILED', error: 'CARRIER_REQUEST_FAILED' }), ctx)).toEqual(['CANCEL']);
   });
 
   it('cancelled or archived: nothing to do; without orders.manage only the label', () => {

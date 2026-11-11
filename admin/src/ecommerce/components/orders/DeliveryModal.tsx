@@ -6,7 +6,7 @@ import { getTranslation } from '../../../core/utils/getTranslation';
 import ConfirmDelivery from '../../usecases/orders/confirmDelivery';
 import { apiErrorMessageId } from '../../utils/orderDetail';
 import { extractFieldErrors } from '../../utils/productForm';
-import { defaultDeliveredAtInput, deliveredAtInputToIso } from '../../utils/shipmentForm';
+import { defaultDeliveredAtInput, resolveDeliveredAt } from '../../utils/shipmentForm';
 import type { ShipmentView } from '../../orderTypes';
 
 type Props = {
@@ -24,7 +24,9 @@ const DeliveryModal = ({ shipment, onClose, onDelivered }: Props) => {
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) => formatMessage({ id: getTranslation(id) }, values);
 
-  const [deliveredAt, setDeliveredAt] = useState(() => defaultDeliveredAtInput());
+  // The default is "now" to the minute; left untouched, the real current time is sent.
+  const [defaultValue] = useState(() => defaultDeliveredAtInput());
+  const [deliveredAt, setDeliveredAt] = useState(defaultValue);
   const [notifyCustomer, setNotifyCustomer] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -33,7 +35,7 @@ const DeliveryModal = ({ shipment, onClose, onDelivered }: Props) => {
 
   const submit = async () => {
     if (saving) return;
-    const iso = deliveredAtInputToIso(deliveredAt);
+    const iso = resolveDeliveredAt(deliveredAt, defaultValue);
     if (!iso) {
       setError(dateText('invalid_date'));
       return;

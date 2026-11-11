@@ -64,6 +64,8 @@ export type HistoryText = {
   actor: string;
   /** Compact before → after, when the entry has one. */
   change: { before: string; after: string } | null;
+  /** Translated summary of the entry's values, when the type has one (e.g. a return). */
+  detail: string | null;
 };
 
 const STATUS_CHANGES: Record<string, { key: string; badge: (s: string) => StatusBadge }> = {
@@ -117,6 +119,13 @@ function historyChange(
     return { before: money(before), after: money(after) };
   }
 
+  if (type === 'RETURN_REGISTERED') {
+    const before = field(prev, 'total');
+    const after = field(next, 'total');
+    if (!isNumber(before) || !isNumber(after)) return null;
+    return { before: money(before), after: money(after) };
+  }
+
   if (type === 'ORDER_DISCOUNT_CHANGED') {
     const before = field(prev, 'orderDiscount');
     const after = field(next, 'orderDiscount');
@@ -125,6 +134,16 @@ function historyChange(
   }
 
   return null;
+}
+
+/** "3 units returned · approved €14.00" for a registered return; null for other types. */
+function historyDetail(entry: OrderHistoryItem, t: Translate, money: (cents: number) => string): string | null {
+  if (entry.type !== 'RETURN_REGISTERED') return null;
+  const lines = field(entry.newValue, 'lines');
+  const amount = field(entry.newValue, 'refundableValue');
+  if (!Array.isArray(lines) || !isNumber(amount)) return null;
+  const units = lines.reduce((sum, l) => sum + (isNumber(field(l, 'quantity')) ? (field(l, 'quantity') as number) : 0), 0);
+  return t('ecommerce.orders.history.return', { units, amount: money(amount) });
 }
 
 /** Display text of one history entry (requirement 6.2). */
@@ -138,6 +157,7 @@ export function historyEntryText(
     description: entry.description,
     actor: actorLabel(entry.actor, t),
     change: historyChange(entry, t, money),
+    detail: historyDetail(entry, t, money),
   };
 }
 
