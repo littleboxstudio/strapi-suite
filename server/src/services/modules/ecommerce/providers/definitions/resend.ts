@@ -11,7 +11,7 @@ const resend: ProviderDefinition = {
   verified: true,
   fields: [
     { key: 'apiKey', type: 'secret', required: true, label: `${L}.apiKey` },
-    { key: 'fromEmail', type: 'string', required: true, label: `${L}.fromEmail` },
+    { key: 'fromEmail', type: 'string', format: 'email', required: true, label: `${L}.fromEmail` },
     { key: 'fromName', type: 'string', required: false, label: `${L}.fromName` },
   ],
   async testConnection(rt) {

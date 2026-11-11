@@ -69,6 +69,19 @@ describe('validateProviderInput', () => {
     expect(validateProviderInput(stripe(), { secrets: { secretKey: '' } }, () => false)).toHaveLength(1);
   });
 
+  it('validates email-format string fields (resend fromEmail)', () => {
+    const resend = getProviderDefinition('resend')!;
+    expect(resend.fields.find((f) => f.key === 'fromEmail')).toMatchObject({ type: 'string', format: 'email' });
+    const secrets = { apiKey: 're_x' };
+    expect(validateProviderInput(resend, { config: { fromEmail: 'shop@acme.example' }, secrets }, () => false)).toEqual([]);
+    expect(validateProviderInput(resend, { config: { fromEmail: ' shop@acme.example ' }, secrets }, () => false)).toEqual([]);
+    for (const bad of ['shop', 'shop@acme', 'a b@acme.example', 42]) {
+      expect(validateProviderInput(resend, { config: { fromEmail: bad }, secrets }, () => false)).toEqual([
+        { path: 'config.fromEmail', code: 'invalid_email' },
+      ]);
+    }
+  });
+
   it('requires plain fields and validates numbers and options', () => {
     const base = { clientId: 'a', username: 'u', companyId: 1 };
     const secrets = { clientSecret: 's', password: 'p' };
