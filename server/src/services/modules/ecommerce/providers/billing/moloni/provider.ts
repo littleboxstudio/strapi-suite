@@ -11,6 +11,7 @@ import { createMoloniClient } from './client';
 
 const LOOKUP_TTL_MS = 60 * 60 * 1000;
 const PDF_TIMEOUT_MS = 15000;
+const PDF_MAX_BYTES = 10 * 1024 * 1024;
 /** Portuguese "Consumidor Final": used when the customer has no NIF (a NIF is never invented). */
 const CONSUMER_VAT = '999999990';
 const DEFAULT_SHIPPING_REFERENCE = 'PORTES';
@@ -69,8 +70,12 @@ function context(rt: ProviderRuntime) {
     return id;
   }
 
+  /** Prefers the Portuguese VAT tax with this rate (`fiscal_zone` PT, `saft_type` IVA), else the first match. */
   async function taxId(rate: number): Promise<number> {
-    const tax = (await list('taxes/getAll')).find((t) => Number(t?.value) === rate);
+    const matches = (await list('taxes/getAll')).filter((t) => Number(t?.value) === rate);
+    const isPt = (t: any) => String(t?.fiscal_zone ?? '').toUpperCase() === 'PT';
+    const isVat = (t: any) => ['1', 'IVA'].includes(String(t?.saft_type ?? '').toUpperCase());
+    const tax = matches.find((t) => isPt(t) && isVat(t)) ?? matches[0];
     if (!tax) throw new EcommerceBillingError('BILLING_TAX_NOT_FOUND', `No Moloni tax with rate ${rate}%.`);
     return Number(tax.tax_id);
   }
@@ -179,6 +184,40 @@ async function readDocument(ctx: Ctx, externalId: string, fallback: { documentTy
   return toIssued(doc, externalId, fallback);
 }
 
+/** Only https links on moloni.pt or one of its subdomains are downloaded. */
+function isMoloniUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase();
+    return u.protocol === 'https:' && (host === 'moloni.pt' || host.endsWith('.moloni.pt'));
+  } catch {
+    return false;
+  }
+}
+
+/** Reads the body up to `max` bytes; `bytes` is null when it is larger (the stream is cancelled). */
+async function readCapped(res: Response, max: number): Promise<{ status: number; bytes: Buffer | null }> {
+  if (Number(res.headers.get('content-length')) > max) {
+    await res.body?.cancel().catch(() => undefined);
+    return { status: res.status, bytes: null };
+  }
+  if (!res.body) return { status: res.status, bytes: Buffer.alloc(0) };
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) {
+      await reader.cancel().catch(() => undefined);
+      return { status: res.status, bytes: null };
+    }
+    chunks.push(value);
+  }
+  return { status: res.status, bytes: Buffer.concat(chunks) };
+}
+
 const today = () => new Date().toISOString().slice(0, 10);
 
 export const moloniProvider: BillingProvider = {
@@ -192,6 +231,11 @@ export const moloniProvider: BillingProvider = {
     const documentType = isCredit ? 'NC' : str(rt, 'documentType') === 'FT' ? 'FT' : 'FR';
 
     // Everything that can be refused locally is checked before the first write.
+    // FR must be fully paid, and the FT receipt settles the whole document.
+    if (!isCredit && (documentType === 'FR' || draft.payments.length)) {
+      const paid = draft.payments.reduce((sum, p) => sum + p.amount, 0);
+      if (paid !== draft.total) throw requestFailed('The payments do not add up to the document total.');
+    }
     const exemptionReason = str(rt, 'exemptionReason');
     if (draft.lines.some((l) => l.tax === 0) && !exemptionReason) {
       throw new EcommerceBillingError('BILLING_EXEMPTION_REASON_MISSING', 'A 0% line needs an exemption reason.');
@@ -236,7 +280,7 @@ export const moloniProvider: BillingProvider = {
       document_set_id: documentSetId,
       customer_id: customer,
       our_reference: draft.ourReference,
-      notes: `Order ${draft.orderReference}`,
+      notes: isCredit && draft.reason?.trim() ? `Order ${draft.orderReference} — ${draft.reason.trim()}` : `Order ${draft.orderReference}`,
       products,
       status: 1,
     };
@@ -297,14 +341,10 @@ export const moloniProvider: BillingProvider = {
     const link = await ctx.client.call<any>('documents/getPDFLink', { document_id: documentId(externalId) });
     let url = typeof link?.url === 'string' ? link.url : '';
     if (url.startsWith('//')) url = `https:${url}`;
-    if (!url.startsWith('https://')) throw requestFailed('Moloni did not return a PDF link.');
-    const res = await timedFetch(
-      url,
-      { method: 'GET' },
-      async (r) => ({ status: r.status, bytes: Buffer.from(await r.arrayBuffer()) }),
-      PDF_TIMEOUT_MS
-    );
+    if (!isMoloniUrl(url)) throw requestFailed('Moloni did not return a PDF link.');
+    const res = await timedFetch(url, { method: 'GET' }, (r) => readCapped(r, PDF_MAX_BYTES), PDF_TIMEOUT_MS);
     if (!res) throw new EcommerceBillingError('BILLING_UNREACHABLE', 'Could not download the Moloni PDF.');
+    if (!res.bytes) throw requestFailed('The Moloni PDF is too large.');
     if (res.status < 200 || res.status >= 300 || res.bytes.subarray(0, 4).toString('latin1') !== '%PDF') {
       throw requestFailed('Moloni did not return a PDF.');
     }

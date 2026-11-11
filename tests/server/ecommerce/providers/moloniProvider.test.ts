@@ -282,6 +282,7 @@ describe('moloniProvider.issue (FR, default)', () => {
         draft({
           lines: [{ orderLineId: 1, kind: 'ITEM', sku: 'BOOK', name: 'Book', quantity: 1, total: 1000, tax: 0, partial: false }],
           total: 1000,
+          payments: [{ method: 'STRIPE', amount: 1000, date: '2026-11-10' }],
         }),
         rt()
       )
@@ -320,6 +321,7 @@ describe('moloniProvider.issue (FR, default)', () => {
         draft({
           lines: [{ orderLineId: 1, kind: 'ITEM', sku: 'X', name: 'X', quantity: 1, total: 1130, tax: 13, partial: false }],
           total: 1130,
+          payments: [{ method: 'STRIPE', amount: 1130, date: '2026-11-10' }],
         }),
         rt()
       )
@@ -332,6 +334,62 @@ describe('moloniProvider.issue (FR, default)', () => {
     moloniFake(happyRoutes({ 'documentSets/getAll': () => [] }));
     const err: any = await fail(moloniProvider.issue(draft(), rt()));
     expect(err.code).toBe('BILLING_CONFIG_MISSING');
+  });
+
+  it('FR payments not adding up to the total -> BILLING_REQUEST_FAILED, nothing inserted', async () => {
+    const m = moloniFake(happyRoutes());
+    const err: any = await fail(
+      moloniProvider.issue(draft({ payments: [{ method: 'STRIPE', amount: 3000, date: '2026-11-10' }] }), rt())
+    );
+    expect(err).toBeInstanceOf(EcommerceBillingError);
+    expect(err.code).toBe('BILLING_REQUEST_FAILED');
+    expect(err.uncertain).toBe(false);
+    expect(writes(m.paths())).toEqual([]);
+    expect(m.of('customers/getByVat')).toHaveLength(0);
+  });
+
+  it('FT receipt payments not adding up to the total -> BILLING_REQUEST_FAILED, nothing inserted', async () => {
+    const m = moloniFake(happyRoutes());
+    const err: any = await fail(
+      moloniProvider.issue(
+        draft({
+          payments: [
+            { method: 'STRIPE', amount: 3000, date: '2026-11-10' },
+            { method: 'MANUAL', amount: 100, date: '2026-11-10' },
+          ],
+        }),
+        rt({ documentType: 'FT' })
+      )
+    );
+    expect(err.code).toBe('BILLING_REQUEST_FAILED');
+    expect(writes(m.paths())).toEqual([]);
+  });
+
+  it('prefers the Portuguese VAT tax when several share the rate', async () => {
+    const m = moloniFake(
+      happyRoutes({
+        'taxes/getAll': () => [
+          { tax_id: 13, value: 23, fiscal_zone: 'ES', saft_type: 1 },
+          { tax_id: 14, value: 23, fiscal_zone: 'PT', saft_type: 3 },
+          { tax_id: 11, value: 23, fiscal_zone: 'PT', saft_type: 1 },
+        ],
+      })
+    );
+    await moloniProvider.issue(draft(), rt());
+    expect(m.of('invoiceReceipts/insert')[0].body.products[0].taxes).toEqual([{ tax_id: 11 }]);
+  });
+
+  it('falls back to the first tax with the rate', async () => {
+    const m = moloniFake(
+      happyRoutes({
+        'taxes/getAll': () => [
+          { tax_id: 13, value: 23, fiscal_zone: 'ES' },
+          { tax_id: 14, value: 23, fiscal_zone: 'FR' },
+        ],
+      })
+    );
+    await moloniProvider.issue(draft(), rt());
+    expect(m.of('invoiceReceipts/insert')[0].body.products[0].taxes).toEqual([{ tax_id: 13 }]);
   });
 
   it('a returned total different from the draft adds TOTAL_MISMATCH:<diff>', async () => {
@@ -451,7 +509,7 @@ describe('moloniProvider.issue (CREDIT_NOTE)', () => {
     expect(b).toMatchObject({
       status: 1,
       our_reference: 'LB-INV-9',
-      notes: 'Order #1001',
+      notes: 'Order #1001 — Return',
       associated_documents: [{ associated_id: 777, value: 12.3 }],
     });
     expect(b.products).toEqual([{ product_id: 200, name: 'Mug', qty: 1, price: 10, taxes: [{ tax_id: 11 }] }]);
@@ -512,6 +570,41 @@ describe('moloniProvider.getPdf', () => {
     expect(err).toBeInstanceOf(EcommerceBillingError);
     expect(err.code).toBe('BILLING_REQUEST_FAILED');
     expect(err.message).not.toContain('h=abc');
+  });
+
+  it('a link outside moloni.pt -> BILLING_REQUEST_FAILED, never fetched', async () => {
+    const m = moloniFake({
+      'documents/getPDFLink': () => ({ url: 'https://evil.example/moloni.pt/x.pdf' }),
+      'https://evil.example/moloni.pt/x.pdf': () => new Response(pdf, { status: 200 }),
+    });
+    const err: any = await fail(moloniProvider.getPdf('777', rt()));
+    expect(err.code).toBe('BILLING_REQUEST_FAILED');
+    expect(m.calls.some((c) => c.path === 'moloni.pt/x.pdf')).toBe(false);
+  });
+
+  it('a lookalike host (notmoloni.pt) is refused', async () => {
+    moloniFake({ 'documents/getPDFLink': () => ({ url: 'https://notmoloni.pt/x.pdf' }) });
+    const err: any = await fail(moloniProvider.getPdf('777', rt()));
+    expect(err.code).toBe('BILLING_REQUEST_FAILED');
+  });
+
+  it('moloni.pt itself is accepted', async () => {
+    moloniFake({
+      'documents/getPDFLink': () => ({ url: 'https://moloni.pt/x.pdf' }),
+      'https://moloni.pt/x.pdf': () => new Response(pdf, { status: 200 }),
+    });
+    expect((await moloniProvider.getPdf('777', rt())).toString()).toBe('%PDF-1.4 hello');
+  });
+
+  it('a PDF over 10 MB -> BILLING_REQUEST_FAILED', async () => {
+    const big = Buffer.alloc(10 * 1024 * 1024 + 1, 0x20);
+    big.write('%PDF');
+    moloniFake({
+      'documents/getPDFLink': () => ({ url: 'https://www.moloni.pt/dl?h=big' }),
+      'https://www.moloni.pt/dl?h=big': () => new Response(big, { status: 200 }),
+    });
+    const err: any = await fail(moloniProvider.getPdf('777', rt()));
+    expect(err.code).toBe('BILLING_REQUEST_FAILED');
   });
 
   it('download failure -> BILLING_UNREACHABLE', async () => {
