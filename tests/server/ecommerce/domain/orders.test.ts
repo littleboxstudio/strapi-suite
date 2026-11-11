@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   computeTotals,
+  orderDiscountShareForReturn,
   financialSummary,
   derivePaymentStatus,
   shippedQuantities,
@@ -417,17 +418,17 @@ describe('fix round 1', () => {
 
   const order = { orderDiscount: 1300, shippingOriginal: 0, shippingDiscount: 0 };
 
-  it('returns pro-rate the order discount (return 1 of 2)', () => {
+  it('returns do not pro-rate the stored order discount; it is only clamped (return 1 of 2)', () => {
     const t = computeTotals(
       [{ unitPrice: 5000, unitDiscount: 1000, quantity: 2, returnedQuantity: 1 }],
       order,
     );
     expect(t.subtotal).toBe(4000);
-    expect(t.orderDiscount).toBe(650);
-    expect(t.total).toBe(3350);
+    expect(t.orderDiscount).toBe(1300);
+    expect(t.total).toBe(2700);
   });
 
-  it('returns pro-rate the order discount (return both)', () => {
+  it('returning everything clamps the order discount to 0', () => {
     const t = computeTotals(
       [{ unitPrice: 5000, unitDiscount: 1000, quantity: 2, returnedQuantity: 2 }],
       order,
@@ -435,15 +436,6 @@ describe('fix round 1', () => {
     expect(t.subtotal).toBe(0);
     expect(t.orderDiscount).toBe(0);
     expect(t.total).toBe(0);
-  });
-
-  it('pro-rating rounds half-up to integer cents', () => {
-    // 1001 × 4000 / 8000 = 500.5 → 501
-    const t = computeTotals(
-      [{ unitPrice: 5000, unitDiscount: 1000, quantity: 2, returnedQuantity: 1 }],
-      { ...order, orderDiscount: 1001 },
-    );
-    expect(t.orderDiscount).toBe(501);
   });
 
   it('all lines returned across several lines → orderDiscount 0', () => {
@@ -467,5 +459,43 @@ describe('fix round 1', () => {
     expect(s.due).toBe(7000);
     expect(s.due).toBeGreaterThan(s.total);
     expect(derivePaymentStatus(s)).toBe('REFUNDED');
+  });
+});
+
+describe('orderDiscountShareForReturn', () => {
+  const twoUnits = (returnedQuantity: number) => [
+    { id: 1, unitPrice: 5000, unitDiscount: 1000, quantity: 2, returnedQuantity },
+  ];
+
+  it('returning 1 of 2 units → share 650 of 1300', () => {
+    expect(orderDiscountShareForReturn(twoUnits(0), 1300, [{ orderLineId: 1, quantity: 1 }])).toBe(650);
+  });
+
+  it('a second return of the last unit, with the discount now 650 → share 650', () => {
+    expect(orderDiscountShareForReturn(twoUnits(1), 650, [{ orderLineId: 1, quantity: 1 }])).toBe(650);
+  });
+
+  it('rounds half-up to integer cents', () => {
+    // 1001 × 4000 / 8000 = 500.5 → 501
+    expect(orderDiscountShareForReturn(twoUnits(0), 1001, [{ orderLineId: 1, quantity: 1 }])).toBe(501);
+  });
+
+  it('is 0 when the subtotal is 0 or nothing is returned', () => {
+    expect(orderDiscountShareForReturn(twoUnits(2), 1300, [{ orderLineId: 1, quantity: 1 }])).toBe(0);
+    expect(orderDiscountShareForReturn(twoUnits(0), 1300, [])).toBe(0);
+  });
+
+  it('is capped at the order discount and ignores unknown lines', () => {
+    const lines = [
+      { id: 1, unitPrice: 3000, unitDiscount: 0, quantity: 1, returnedQuantity: 0 },
+      { id: 2, unitPrice: 1000, unitDiscount: 0, quantity: 1, returnedQuantity: 0 },
+    ];
+    expect(
+      orderDiscountShareForReturn(lines, 500, [
+        { orderLineId: 1, quantity: 5 },
+        { orderLineId: 99, quantity: 1 },
+      ]),
+    ).toBe(500);
+    expect(orderDiscountShareForReturn(lines, 1000, [{ orderLineId: 2, quantity: 1 }])).toBe(250);
   });
 });

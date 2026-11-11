@@ -468,6 +468,7 @@ describe('simulateModification', () => {
     expect(capped.after.total).toBe(0);
     expect(capped.discountWarnings).toEqual([{ code: 'ORDER_DISCOUNT_CAPPED' }]);
   });
+
   it('unknown orderLineId or the same line referenced twice → INVALID_QUANTITY', () => {
     const current = {
       lines: [existing({ id: 1, variantId: 101, quantity: 2 })],
@@ -494,5 +495,72 @@ describe('simulateModification', () => {
       { path: 'lines.2.quantity', code: 'INVALID_QUANTITY' },
     ]);
     expect(r.lineChanges).toHaveLength(1);
+  });
+  it('no ORDER_DISCOUNT_CAPPED when a line has returns but the discount still fits', () => {
+    const current = {
+      lines: [existing({ id: 1, unitPrice: 5000, unitDiscount: 1000, quantity: 2, returnedQuantity: 1, shipped: 2 })],
+      orderDiscount: 650,
+      shippingOriginal: 0,
+      shippingDiscount: 0,
+      payments: [],
+      refunds: [],
+    };
+    const r = simulateModification(
+      current,
+      { lines: [{ orderLineId: 1, variantId: 101, quantity: 2 }], shipping: keep },
+      catalogOf(),
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.after.orderDiscount).toBe(650);
+    expect(r.discountWarnings).toEqual([]);
+  });
+
+  it('order discount keeps its euro value with returns when a line is added (difference = new line)', () => {
+    const current = {
+      lines: [existing({ id: 1, unitPrice: 5000, unitDiscount: 1000, quantity: 2, returnedQuantity: 1, shipped: 2 })],
+      orderDiscount: 650,
+      shippingOriginal: 0,
+      shippingDiscount: 0,
+      payments: [],
+      refunds: [],
+    };
+    const r = simulateModification(
+      current,
+      {
+        lines: [
+          { orderLineId: 1, variantId: 101, quantity: 2 },
+          { variantId: 201, quantity: 1 },
+        ],
+        shipping: keep,
+      },
+      catalogOf(variant({ variantId: 201, unitPrice: 5000 })),
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.before.orderDiscount).toBe(650);
+    expect(r.after.orderDiscount).toBe(650);
+    expect(r.difference).toBe(5000);
+  });
+
+  it('RECALCULATE validates quote and previousShipmentsCost → INVALID_AMOUNT', () => {
+    const current = {
+      lines: [existing({ id: 1 })],
+      orderDiscount: 0,
+      shippingOriginal: 1000,
+      shippingDiscount: 0,
+      payments: [],
+      refunds: [],
+    };
+    const lines = [{ orderLineId: 1, variantId: 101, quantity: 1 }];
+    const r = simulateModification(
+      current,
+      { lines, shipping: { mode: 'RECALCULATE', quote: -1, previousShipmentsCost: 1.5 } },
+      catalogOf(),
+    );
+    expect(r.errors).toEqual([
+      { path: 'shipping.quote', code: 'INVALID_AMOUNT' },
+      { path: 'shipping.previousShipmentsCost', code: 'INVALID_AMOUNT' },
+    ]);
+    expect(r.shipping.newCharged).toBe(1000);
+    expect(r.after.shippingTotal).toBe(1000);
   });
 });
