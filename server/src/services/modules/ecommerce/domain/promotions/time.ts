@@ -67,9 +67,26 @@ export function zonedWallTimeToUtc(wall: string, timeZone: string): string | nul
   }
 }
 
-export function utcToZonedWallTime(iso: string, timeZone: string): string {
+export const isValidTimeZone = (timeZone: unknown): boolean => {
+  if (typeof timeZone !== 'string' || !timeZone) return false;
+  try {
+    formatterFor(timeZone).format(0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** Never throws: an unparseable instant or unknown zone yields null. */
+export function utcToZonedWallTime(iso: string, timeZone: string): string | null {
   const ms = new Date(iso).getTime();
-  const w = new Date(wallAsUtcMs(ms, timeZone));
+  if (Number.isNaN(ms)) return null;
+  let w: Date;
+  try {
+    w = new Date(wallAsUtcMs(ms, timeZone));
+  } catch {
+    return null;
+  }
   return `${pad(w.getUTCFullYear(), 4)}-${pad(w.getUTCMonth() + 1)}-${pad(w.getUTCDate())}T${pad(
     w.getUTCHours()
   )}:${pad(w.getUTCMinutes())}`;

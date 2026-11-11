@@ -60,6 +60,21 @@ describe('candidateBlock', () => {
   });
 });
 
+describe('hardening', () => {
+  it('checks the customer limit before e-mail eligibility', () => {
+    const c = base({
+      customerUses: 1,
+      perCustomerLimit: 1,
+      eligibility: { mode: 'EMAILS', emails: ['x@b.pt'] },
+    });
+    expect(candidateBlock(c, { now, email: 'a@b.pt' })).toBe('CUSTOMER_LIMIT_REACHED');
+  });
+  it('treats unparseable stored dates as INACTIVE', () => {
+    expect(promotionStatus({ active: true, startsAt: 'garbage', endsAt: null }, now)).toBe('INACTIVE');
+    expect(promotionStatus({ active: true, startsAt: '2026-01-01T00:00:00.000Z', endsAt: 'garbage' }, now)).toBe('INACTIVE');
+  });
+});
+
 describe('helpers', () => {
   it('percentOf rounds half up', () => {
     expect(percentOf(1999, 10)).toBe(200);

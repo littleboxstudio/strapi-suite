@@ -8,8 +8,11 @@ export function promotionStatus(
 ): PromotionStatus {
   if (!p.active) return 'INACTIVE';
   const t = now.getTime();
-  if (t < new Date(p.startsAt).getTime()) return 'SCHEDULED';
-  if (p.endsAt && t >= new Date(p.endsAt).getTime()) return 'EXPIRED';
+  const start = new Date(p.startsAt).getTime();
+  const end = p.endsAt ? new Date(p.endsAt).getTime() : null;
+  if (Number.isNaN(start) || (end !== null && Number.isNaN(end))) return 'INACTIVE';
+  if (t < start) return 'SCHEDULED';
+  if (end !== null && t >= end) return 'EXPIRED';
   return 'ACTIVE';
 }
 
@@ -29,11 +32,11 @@ export function candidateBlock(
   const status = promotionStatus(c, ctx.now);
   if (status !== 'ACTIVE') return status;
   if (c.usageLimit !== null && c.redemptions >= c.usageLimit) return 'USAGE_LIMIT_REACHED';
-  if (c.eligibility.mode === 'EMAILS') {
-    if (!ctx.email || !c.eligibility.emails.includes(ctx.email)) return 'EMAIL_NOT_ELIGIBLE';
-  }
   if (ctx.email && c.perCustomerLimit !== null && c.customerUses >= c.perCustomerLimit) {
     return 'CUSTOMER_LIMIT_REACHED';
+  }
+  if (c.eligibility.mode === 'EMAILS') {
+    if (!ctx.email || !c.eligibility.emails.includes(ctx.email)) return 'EMAIL_NOT_ELIGIBLE';
   }
   return null;
 }
