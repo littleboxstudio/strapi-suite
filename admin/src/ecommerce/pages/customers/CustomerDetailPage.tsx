@@ -31,6 +31,8 @@ import {
 } from '../../utils/customerForm';
 import { useCustomerPermissions } from '../../hooks/useCustomerPermissions';
 import { useOrderPermissions } from '../../hooks/useOrderPermissions';
+import { usePaymentPermissions } from '../../hooks/usePaymentPermissions';
+import CustomerStoreCredits from '../../components/customers/CustomerStoreCredits';
 import type { FieldError } from '../../orderTypes';
 import CustomerOrdersSection from './CustomerOrdersSection';
 
@@ -53,9 +55,12 @@ const CustomerDetailPage = () => {
 
   const { canManage } = useCustomerPermissions();
   const { canManage: canManageOrders } = useOrderPermissions();
+  const { canRefund } = usePaymentPermissions();
 
   const [form, setForm] = useState<CustomerForm | null>(null);
   const [title, setTitle] = useState('');
+  // The saved e-mail: store credits are valid for it.
+  const [email, setEmail] = useState('');
   const [errors, setErrors] = useState<CustomerErrorMap>({});
   const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -74,6 +79,7 @@ const CustomerDetailPage = () => {
         if (cancelled) return;
         setForm(customerFormFromCustomer(customer));
         setTitle(customerName(customer));
+        setEmail(customer.email);
       })
       .catch(() => {
         if (!cancelled) setLoadError(true);
@@ -142,6 +148,7 @@ const CustomerDetailPage = () => {
       const saved = await new UpdateCustomer().execute(customerId, buildCustomerInput(form));
       setForm(customerFormFromCustomer(saved));
       setTitle(customerName(saved));
+      setEmail(saved.email);
       setErrors({});
       toggleNotification({ type: 'success', message: t('ecommerce.customers.saved') });
     } catch (err) {
@@ -192,6 +199,8 @@ const CustomerDetailPage = () => {
           </Grid.Root>
         </Flex>
       </Box>
+
+      <CustomerStoreCredits key={`credits-${customerId}`} customerId={customerId} email={email} canManage={canRefund} />
 
       <CustomerOrdersSection key={customerId} customerId={customerId} canCreateOrder={canManageOrders} />
     </Flex>

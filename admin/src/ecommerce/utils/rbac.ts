@@ -17,3 +17,5 @@ export const CUSTOMERS_READ_ACTION = 'plugin::littlebox-strapi-suite.ecommerce.c
 export const CUSTOMERS_MANAGE_ACTION = 'plugin::littlebox-strapi-suite.ecommerce.customers.manage';
 export const ORDERS_READ_ACTION = 'plugin::littlebox-strapi-suite.ecommerce.orders.read';
 export const ORDERS_MANAGE_ACTION = 'plugin::littlebox-strapi-suite.ecommerce.orders.manage';
+export const REFUNDS_MANAGE_ACTION = 'plugin::littlebox-strapi-suite.ecommerce.refunds.manage';
+export const PAYMENTS_MANAGE_ACTION = 'plugin::littlebox-strapi-suite.ecommerce.payments.manage';

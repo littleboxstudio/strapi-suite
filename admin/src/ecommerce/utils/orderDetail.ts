@@ -24,15 +24,6 @@ export function pendingLabel(pending: number): Message | null {
   return pending > 0 ? { id: 'ecommerce.orders.detail.lines.pending', values: { count: pending } } : null;
 }
 
-/** Actions this screen has a button for, in toolbar order. The others arrive with plan 4. */
-export const TOOLBAR_ACTIONS = ['MODIFY', 'ADD_PAYMENT', 'CANCEL', 'ARCHIVE'] as const;
-export type ToolbarAction = (typeof TOOLBAR_ACTIONS)[number];
-
-export function toolbarActions(available: OrderActionKey[]): ToolbarAction[] {
-  const set = new Set<string>(available);
-  return TOOLBAR_ACTIONS.filter((a) => set.has(a));
-}
-
 /** `user:<id>` → "Admin #<id>"; `system`, `storefront` and `webhook:<provider>` translated. */
 export function actorLabel(actor: string | null, t: Translate): string {
   if (!actor) return t('ecommerce.orders.history.actor.unknown');
@@ -197,4 +188,99 @@ export function financialSummaryRows(totals: OrderTotals, summary: FinancialSumm
 export function isActionUnavailable(err: unknown): boolean {
   const errors = (err as any)?.response?.data?.error?.details?.errors;
   return Array.isArray(errors) && errors.some((e) => e?.code === 'ACTION_NOT_AVAILABLE');
+}
+
+/** Toolbar actions in display order, with the permission each one needs. */
+const ACTION_PERMISSION: { action: OrderActionKey; needs: 'canManage' | 'canPay' | 'canRefund' }[] = [
+  { action: 'MODIFY', needs: 'canManage' },
+  { action: 'ADD_PAYMENT', needs: 'canManage' },
+  { action: 'SEND_PAYMENT_INSTRUCTIONS', needs: 'canPay' },
+  { action: 'REFUND', needs: 'canRefund' },
+  { action: 'CANCEL', needs: 'canManage' },
+  { action: 'ARCHIVE', needs: 'canManage' },
+];
+
+export type OrderActionPermissions = { canManage: boolean; canPay: boolean; canRefund: boolean };
+/** Actions this screen has a button for. Shipping, returns and invoices arrive with later plans. */
+export type ToolbarAction = 'MODIFY' | 'ADD_PAYMENT' | 'SEND_PAYMENT_INSTRUCTIONS' | 'REFUND' | 'CANCEL' | 'ARCHIVE';
+
+/**
+ * The toolbar buttons: actions the order allows and the admin may run (`orders.manage`,
+ * `payments.manage` for instructions, `refunds.manage` for refunds).
+ */
+export function allowedToolbarActions(
+  available: OrderActionKey[],
+  perms: OrderActionPermissions
+): ToolbarAction[] {
+  const set = new Set<string>(available);
+  return ACTION_PERMISSION.filter((a) => set.has(a.action) && perms[a.needs]).map(
+    (a) => a.action as ToolbarAction
+  );
+}
+
+/**
+ * Error codes of the payment, refund, store credit and notification endpoints that have a
+ * message under `ecommerce.orders.errors.<code>`.
+ */
+export const API_ERROR_CODES = [
+  'ACTION_NOT_AVAILABLE',
+  'NOTHING_DUE',
+  'PAYMENT_PENDING',
+  'STOREFRONT_URL_MISSING',
+  'STRIPE_NOT_CONFIGURED',
+  'STRIPE_REQUEST_FAILED',
+  'STRIPE_UNREACHABLE',
+  'STRIPE_SESSION_MISMATCH',
+  'IDEMPOTENCY_KEY_CONFLICT',
+  'STORE_CREDIT_CONFLICT',
+  'STORE_CREDIT_NOT_FOUND',
+  'STORE_CREDIT_EMAIL_MISMATCH',
+  'STORE_CREDIT_EMPTY',
+  'STORE_CREDIT_EXPIRED',
+  'STORE_CREDIT_INSUFFICIENT',
+  'STORE_CREDIT_VOID',
+  'REFUND_NOT_RESUMABLE',
+  'REFUND_NOT_MARKABLE',
+  'EMAIL_NOT_CONFIGURED',
+  'EMAIL_SEND_FAILED',
+  'ENCRYPTION_KEY_MISSING',
+  'SECRET_UNREADABLE',
+  'exceeds_refundable',
+  'exceeds_payment',
+  'exceeds_stripe_refundable',
+  'incompatible_payment',
+  'invalid_payment',
+  'stripe_unavailable',
+  'customer_not_found',
+  'invalid_method',
+  'invalid_amount',
+  'invalid_date',
+  'too_long',
+  'reserved',
+  'required',
+  'invalid',
+] as const;
+
+/**
+ * The error code of a failed admin request: `error.details.code` (400/409 answers of the
+ * plan-4 endpoints), else the first `error.details.errors[].code`; null when there is none.
+ */
+export function apiErrorCode(err: unknown): string | null {
+  const error = (err as any)?.response?.data?.error;
+  const code = error?.details?.code;
+  if (typeof code === 'string' && code) return code;
+  const errors = error?.details?.errors;
+  if (Array.isArray(errors)) {
+    const first = errors.find((e) => typeof e?.code === 'string');
+    if (first) return first.code;
+  }
+  return null;
+}
+
+/** Translation id (without the plugin prefix) for a failed request: its code's message, or `fallback`. */
+export function apiErrorMessageId(err: unknown, fallback: string): string {
+  const code = apiErrorCode(err);
+  return code && (API_ERROR_CODES as readonly string[]).includes(code)
+    ? `ecommerce.orders.errors.${code}`
+    : fallback;
 }

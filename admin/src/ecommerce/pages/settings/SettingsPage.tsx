@@ -8,6 +8,7 @@ import { useSettingsPermissions } from './useSettingsPermissions';
 import { GeneralSettings } from './GeneralSettings';
 import { IntegrationsSection } from './IntegrationsSection';
 import { EmailTemplatesSection } from './EmailTemplatesSection';
+import StripeWebhookInfo from '../../components/settings/StripeWebhookInfo';
 
 export const SETTINGS_SECTIONS = [
   'general',
@@ -78,6 +79,7 @@ const SettingsPage = () => {
           )}
           {section === 'general' && <GeneralSettings readOnly={!canUpdate} />}
           {category && <IntegrationsSection key={category} category={category} readOnly={!canUpdate} />}
+          {section === 'payments' && <StripeWebhookInfo />}
           {section === 'email-templates' && <EmailTemplatesSection />}
         </>
       )}

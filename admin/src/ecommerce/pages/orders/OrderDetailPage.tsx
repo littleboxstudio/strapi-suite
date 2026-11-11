@@ -11,6 +11,7 @@ import FetchOrder from '../../usecases/orders/fetchOrder';
 import CancelOrder from '../../usecases/orders/cancelOrder';
 import ArchiveOrder from '../../usecases/orders/archiveOrder';
 import { useOrderPermissions } from '../../hooks/useOrderPermissions';
+import { usePaymentPermissions } from '../../hooks/usePaymentPermissions';
 import { isActionUnavailable, type ToolbarAction } from '../../utils/orderDetail';
 import type { ModificationApplied, Order } from '../../orderTypes';
 import OrderHeader from '../../components/orders/OrderHeader';
@@ -26,6 +27,10 @@ import HistoryTimeline from '../../components/orders/HistoryTimeline';
 import SectionPlaceholder from '../../components/orders/SectionPlaceholder';
 import ModifyOrderModal from '../../components/orders/ModifyOrderModal';
 import SupplementaryPaymentModal from '../../components/orders/SupplementaryPaymentModal';
+import PaymentInstructionsModal from '../../components/orders/PaymentInstructionsModal';
+import RefundModal from '../../components/orders/RefundModal';
+import RefundsTable from '../../components/orders/RefundsTable';
+import NotificationsSection from '../../components/orders/NotificationsSection';
 
 /** Order management screen (requirements 3–8). The fetched order is the single source of truth. */
 const OrderDetailPage = () => {
@@ -39,6 +44,8 @@ const OrderDetailPage = () => {
     formatMessage({ id: getTranslation(id) }, values);
 
   const { canManage } = useOrderPermissions();
+  const { canPay, canRefund } = usePaymentPermissions();
+  const permissions = { canManage, canPay, canRefund };
 
   const [order, setOrder] = useState<Order | null>(null);
   const [loadError, setLoadError] = useState(false);
@@ -46,6 +53,8 @@ const OrderDetailPage = () => {
   // Remounts the confirm dialogs on each opening (they can close themselves on Escape).
   const [modalKey, setModalKey] = useState(0);
   const [busy, setBusy] = useState(false);
+  // Bumped on every order (re)load: refunds and notifications refetch with it.
+  const [version, setVersion] = useState(0);
   // Opened after a modification leaves an amount due (requirement 16.7).
   const [supplementary, setSupplementary] = useState(false);
   const hasOrderRef = useRef(false);
@@ -59,6 +68,7 @@ const OrderDetailPage = () => {
       if (request === requestRef.current) {
         hasOrderRef.current = true;
         setOrder(fetched);
+        setVersion((v) => v + 1);
         setLoadError(false);
       }
     } catch {
@@ -108,11 +118,16 @@ const OrderDetailPage = () => {
       requestRef.current += 1;
       hasOrderRef.current = true;
       setOrder(result.order);
+      setVersion((v) => v + 1);
       setLoadError(false);
     } else {
       await load();
     }
-    if (result.outcome === 'DUE') setSupplementary(true);
+    if (result.outcome === 'DUE') {
+      // Sending instructions needs payments.manage; without it the amount due stays on the order.
+      if (canPay) setSupplementary(true);
+      else toggleNotification({ type: 'info', message: t('ecommerce.orders.modify.due') });
+    }
     else if (result.outcome === 'REFUNDABLE') {
       toggleNotification({ type: 'info', message: t('ecommerce.orders.modify.refundable') });
     }
@@ -167,7 +182,7 @@ const OrderDetailPage = () => {
       <OrderHeader
         order={order}
         back={backButton}
-        canManage={canManage}
+        permissions={permissions}
         busy={busy}
         onAction={(action) => {
           setModalKey((k) => k + 1);
@@ -187,7 +202,15 @@ const OrderDetailPage = () => {
             </OrderSection>
             <SectionPlaceholder title={t('ecommerce.orders.detail.sections.invoices')} />
             <SectionPlaceholder title={t('ecommerce.orders.detail.sections.shipments')} />
-            <SectionPlaceholder title={t('ecommerce.orders.detail.sections.refunds')} />
+            <OrderSection title={t('ecommerce.orders.detail.sections.refunds')}>
+              <RefundsTable
+                orderId={order.id}
+                summaries={order.refunds}
+                refreshKey={version}
+                canRefund={canRefund}
+                onChanged={load}
+              />
+            </OrderSection>
             <SectionPlaceholder title={t('ecommerce.orders.detail.sections.promotions')} />
           </Flex>
         </Grid.Item>
@@ -203,6 +226,8 @@ const OrderDetailPage = () => {
         </Grid.Item>
       </Grid.Root>
 
+      <NotificationsSection orderId={order.id} refreshKey={version} canResend={canManage} />
+
       <OrderSection title={t('ecommerce.orders.detail.history.title')}>
         <HistoryTimeline history={order.history} />
       </OrderSection>
@@ -210,14 +235,33 @@ const OrderDetailPage = () => {
       {canManage && modal === 'MODIFY' && (
         <ModifyOrderModal order={order} onClose={closeModal} onApplied={afterModification} />
       )}
-      {supplementary && (
+      {canPay && supplementary && (
         <SupplementaryPaymentModal
+          orderId={order.id}
           reference={order.reference}
+          locale={order.locale}
           total={order.totals.total}
           paid={order.summary.paid}
           due={order.summary.due}
           onClose={() => setSupplementary(false)}
+          onSent={() => {
+            setSupplementary(false);
+            load();
+          }}
         />
+      )}
+      {canPay && modal === 'SEND_PAYMENT_INSTRUCTIONS' && (
+        <PaymentInstructionsModal
+          orderId={order.id}
+          reference={order.reference}
+          locale={order.locale}
+          due={order.summary.due}
+          onClose={closeModal}
+          onSent={afterChange}
+        />
+      )}
+      {canRefund && modal === 'REFUND' && (
+        <RefundModal orderId={order.id} reference={order.reference} onClose={closeModal} onRefunded={afterChange} />
       )}
       {canManage && modal === 'ADD_PAYMENT' && (
         <AddPaymentModal orderId={order.id} due={order.summary.due} onClose={closeModal} onAdded={afterChange} />

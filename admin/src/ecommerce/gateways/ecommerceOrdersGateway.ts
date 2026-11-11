@@ -13,6 +13,8 @@ import type {
   CustomerListParams,
   CustomerOrderListItem,
   CustomerOrderListParams,
+  CreateRefundInput,
+  IssueStoreCreditInput,
   ManualPaymentInput,
   ModificationApplied,
   ModificationPreview,
@@ -21,8 +23,16 @@ import type {
   OrderListParams,
   OrderLocales,
   OrderModificationInput,
+  NotificationView,
   Paginated,
+  PaymentInstructionsInput,
+  PaymentInstructionsResult,
+  PaymentLink,
   PaymentView,
+  RefundPreview,
+  RefundView,
+  StoreCredit,
+  StoreCreditPaymentInput,
   ShippingQuote,
   ShippingQuoteInput,
   VariantSearchResult,
@@ -52,6 +62,30 @@ export default interface EcommerceOrdersGateway {
   archiveOrder(id: number): Promise<Order>;
   previewModification(id: number, input: OrderModificationInput): Promise<ModificationPreview>;
   applyModification(id: number, input: ApplyModificationInput): Promise<ModificationApplied>;
+
+  // Payment links and instructions (payments.manage), store credit payment (orders.manage)
+  createPaymentLink(orderId: number): Promise<PaymentLink>;
+  sendPaymentInstructions(
+    orderId: number,
+    input: PaymentInstructionsInput
+  ): Promise<PaymentInstructionsResult>;
+  addStoreCreditPayment(orderId: number, input: StoreCreditPaymentInput): Promise<PaymentView>;
+
+  // Refunds (read: orders.read; write: refunds.manage)
+  fetchRefundPreview(orderId: number): Promise<RefundPreview>;
+  fetchRefunds(orderId: number): Promise<RefundView[]>;
+  createRefund(orderId: number, input: CreateRefundInput): Promise<RefundView[]>;
+  resumeRefund(refundId: number): Promise<RefundView>;
+  markRefundFailed(refundId: number, note?: string): Promise<RefundView>;
+
+  // Notifications (read: orders.read; resend: orders.manage)
+  fetchOrderNotifications(orderId: number): Promise<NotificationView[]>;
+  resendNotification(notificationId: number): Promise<NotificationView>;
+
+  // Store credit (read: customers.read; write: refunds.manage)
+  fetchCustomerStoreCredits(customerId: number): Promise<StoreCredit[]>;
+  issueStoreCredit(input: IssueStoreCreditInput): Promise<StoreCredit>;
+  voidStoreCredit(id: number): Promise<StoreCredit>;
 }
 
 export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
@@ -63,6 +97,7 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
 
   private customers = `/${config.pluginId}/admin/ecommerce/customers`;
   private orders = `/${config.pluginId}/admin/ecommerce/orders`;
+  private base = `/${config.pluginId}/admin/ecommerce`;
 
   async fetchCustomers(params: CustomerListParams): Promise<Paginated<CustomerListItem>> {
     return this.httpClient.get(`${this.customers}${objectToQueryString(params)}`);
@@ -129,5 +164,60 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
 
   async applyModification(id: number, input: ApplyModificationInput): Promise<ModificationApplied> {
     return this.httpClient.post(`${this.orders}/${id}/modification`, input);
+  }
+
+  async createPaymentLink(orderId: number): Promise<PaymentLink> {
+    return this.httpClient.post(`${this.orders}/${orderId}/payment-link`, {});
+  }
+
+  async sendPaymentInstructions(
+    orderId: number,
+    input: PaymentInstructionsInput
+  ): Promise<PaymentInstructionsResult> {
+    return this.httpClient.post(`${this.orders}/${orderId}/payment-instructions`, input);
+  }
+
+  async addStoreCreditPayment(orderId: number, input: StoreCreditPaymentInput): Promise<PaymentView> {
+    return this.httpClient.post(`${this.orders}/${orderId}/store-credit-payment`, input);
+  }
+
+  async fetchRefundPreview(orderId: number): Promise<RefundPreview> {
+    return this.httpClient.get(`${this.orders}/${orderId}/refunds/preview`);
+  }
+
+  async fetchRefunds(orderId: number): Promise<RefundView[]> {
+    return this.httpClient.get(`${this.orders}/${orderId}/refunds`);
+  }
+
+  async createRefund(orderId: number, input: CreateRefundInput): Promise<RefundView[]> {
+    return this.httpClient.post(`${this.orders}/${orderId}/refunds`, input);
+  }
+
+  async resumeRefund(refundId: number): Promise<RefundView> {
+    return this.httpClient.post(`${this.base}/refunds/${refundId}/resume`, {});
+  }
+
+  async markRefundFailed(refundId: number, note?: string): Promise<RefundView> {
+    return this.httpClient.post(`${this.base}/refunds/${refundId}/mark-failed`, note ? { note } : {});
+  }
+
+  async fetchOrderNotifications(orderId: number): Promise<NotificationView[]> {
+    return this.httpClient.get(`${this.orders}/${orderId}/notifications`);
+  }
+
+  async resendNotification(notificationId: number): Promise<NotificationView> {
+    return this.httpClient.post(`${this.base}/notifications/${notificationId}/resend`, {});
+  }
+
+  async fetchCustomerStoreCredits(customerId: number): Promise<StoreCredit[]> {
+    return this.httpClient.get(`${this.customers}/${customerId}/store-credits`);
+  }
+
+  async issueStoreCredit(input: IssueStoreCreditInput): Promise<StoreCredit> {
+    return this.httpClient.post(`${this.base}/store-credits`, input);
+  }
+
+  async voidStoreCredit(id: number): Promise<StoreCredit> {
+    return this.httpClient.post(`${this.base}/store-credits/${id}/void`, {});
   }
 }

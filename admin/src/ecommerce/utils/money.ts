@@ -20,3 +20,12 @@ export function parseMoneyToCents(input: string): number | null {
   const cents = Number(intPart) * 100 + Number(decPart.padEnd(2, '0') || 0);
   return Number.isSafeInteger(cents) ? cents : null;
 }
+
+/** Decimal amount in the admin's locale, without currency or grouping (e.g. "17,50"): form defaults. */
+export function formatAmountInput(cents: number, locale: string): string {
+  return new Intl.NumberFormat(locale, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+    useGrouping: false,
+  }).format(Math.max(0, cents) / 100);
+}
