@@ -2,8 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { buildLogoForm, logoFileError } from '../../../admin/src/ecommerce/utils/storeLogo';
 
 describe('logoFileError', () => {
-  it('rejects files over 15 MB', () => {
-    expect(logoFileError({ size: 15 * 1024 * 1024 + 1, type: 'image/png' })).toBe('too_large');
+  it('accepts up to 400 KB and rejects anything larger', () => {
+    expect(logoFileError({ size: 400 * 1024, type: 'image/png' })).toBeNull();
+    expect(logoFileError({ size: 400 * 1024 + 1, type: 'image/png' })).toBe('too_large');
   });
   it('rejects non-image types', () => {
     expect(logoFileError({ size: 10, type: 'application/pdf' })).toBe('invalid_type');

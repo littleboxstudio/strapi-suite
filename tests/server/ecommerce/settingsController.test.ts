@@ -38,11 +38,11 @@ describe('EcommerceSettingsController — store logo', () => {
     expect(ctx2.badRequest).toHaveBeenCalledWith('A file is required');
   });
 
-  it('rejects files over 15 MB', async () => {
+  it('rejects logos over 400 KB', async () => {
     const c = mocked({ EcommerceSettingsService: {} });
-    const ctx = mkCtx({ request: { body: {}, files: { file: { size: 16 * 1024 * 1024, filepath: '/x' } } } });
+    const ctx = mkCtx({ request: { body: {}, files: { file: { size: 400 * 1024 + 1, filepath: '/x' } } } });
     await c.uploadStoreLogo(ctx);
-    expect(ctx.badRequest).toHaveBeenCalledWith('The image exceeds 15 MB');
+    expect(ctx.badRequest).toHaveBeenCalledWith('The logo exceeds 400 KB');
   });
 
   it('maps INVALID_IMAGE to 400 with details.code', async () => {
