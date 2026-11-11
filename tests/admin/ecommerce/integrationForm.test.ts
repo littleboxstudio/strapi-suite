@@ -4,6 +4,7 @@ import {
   integrationErrorMap,
   integrationFormFromView,
   isIntegerText,
+  validateIntegrationForm,
 } from '../../../admin/src/ecommerce/utils/integrationForm';
 import {
   draftToManualMethodInput,
@@ -192,5 +193,21 @@ describe('manual method draft', () => {
         { path: 'name.pt', code: 'required' },
       ])
     ).toEqual({ countries: 'invalid_country', 'name.pt': 'required' });
+  });
+});
+
+describe('validateIntegrationForm', () => {
+  const fields: ProviderField[] = [
+    { key: 'paymentSuccessPath', type: 'string', format: 'path', required: true, label: 'x' },
+    { key: 'name', type: 'string', required: false, label: 'y' },
+  ];
+  it('flags an invalid path', () => {
+    expect(validateIntegrationForm(fields, { paymentSuccessPath: '//x', name: 'a b' })).toEqual({
+      paymentSuccessPath: 'invalid_path',
+    });
+  });
+  it('accepts a valid or blank path', () => {
+    expect(validateIntegrationForm(fields, { paymentSuccessPath: '/ok', name: '' })).toEqual({});
+    expect(validateIntegrationForm(fields, { paymentSuccessPath: '  ', name: '' })).toEqual({});
   });
 });

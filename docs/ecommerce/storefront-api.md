@@ -137,7 +137,7 @@ to Strapi.
    order (the order still exists; the customer has its payment link and success page).
 5. **Payment**: `POST /orders/:publicId/payment` returns a Stripe Checkout URL (the amount always
    comes from the order); redirect the browser there.
-6. **Success page**: Stripe returns to `<storefrontUrl><paymentSuccessPath>?order=<publicId>`.
+6. **Success page**: Stripe returns to `<storefrontUrl><success path>?order=<publicId>` (the success and cancel paths are set in Settings → Payments → Stripe; defaults `/checkout/success` and `/checkout/cancel`).
    **The success page does not prove payment**: read
    `GET /orders/:publicId/status` (`paymentResult`: `PAID`, `PROCESSING` for e.g. Multibanco
    awaiting confirmation, `UNPAID`, `CANCELLED`).

@@ -189,15 +189,13 @@ export function setupCommerce(
       shippingCountries: ['PT'],
       timezone: 'Europe/Lisbon',
       storefrontUrl: 'https://shop.example/',
-      paymentSuccessPath: '/checkout/success',
-      paymentCancelPath: '/checkout/cancel',
       checkoutSessionTtlHours: opts.checkoutSessionTtlHours ?? 168,
     }),
     getActiveProviders: async () => [],
     getRuntime: async (id: string) =>
       id === 'stripe'
         ? {
-            config: {},
+            config: { paymentSuccessPath: '/checkout/success', paymentCancelPath: '/checkout/cancel' },
             secrets: { secretKey: 'sk_test_x', webhookSecret: 'whsec_test_123' },
             active: opts.stripeActive ?? true,
           }

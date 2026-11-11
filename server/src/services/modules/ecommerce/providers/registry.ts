@@ -13,7 +13,7 @@ export type ProviderField = {
   default?: unknown;
   options?: string[];
   /** Extra validation for `string` fields. */
-  format?: 'email';
+  format?: 'email' | 'path';
   /** Admin i18n key */
   label: string;
 };
@@ -67,9 +67,11 @@ export function __resetRegistryForTests(): void {
 
 export type ProviderInputIssue = {
   path: string;
-  code: 'required' | 'invalid_option' | 'invalid_number' | 'invalid_email';
+  code: 'required' | 'invalid_option' | 'invalid_number' | 'invalid_email' | 'invalid_path';
 };
 
+/** A storefront path: starts with a single `/`, no spaces or backslashes. */
+export const PATH_RE = /^\/(?!\/)[^\s\\]*$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const isEmpty = (v: unknown) => v === undefined || v === null || (typeof v === 'string' && v.trim() === '');
@@ -107,6 +109,8 @@ export function validateProviderInput(
       if (!Number.isInteger(n)) issues.push({ path, code: 'invalid_number' });
     } else if (field.type === 'string' && field.format === 'email') {
       if (typeof value !== 'string' || !EMAIL_RE.test(value.trim())) issues.push({ path, code: 'invalid_email' });
+    } else if (field.type === 'string' && field.format === 'path') {
+      if (typeof value !== 'string' || !PATH_RE.test(value.trim())) issues.push({ path, code: 'invalid_path' });
     } else if (field.type === 'select') {
       if (typeof value !== 'string' || !(field.options ?? []).includes(value)) {
         issues.push({ path, code: 'invalid_option' });

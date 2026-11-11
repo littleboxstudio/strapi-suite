@@ -23,6 +23,7 @@ import {
   integrationFormFromView,
   isIntegerText,
   type IntegrationFormValues,
+  validateIntegrationForm,
 } from '../../utils/integrationForm';
 import type { IntegrationView, ProviderField } from '../../settingsTypes';
 
@@ -67,6 +68,12 @@ const IntegrationConfigModal = ({ integration, initialErrors = {}, onClose, onSa
 
   const save = async () => {
     if (saving) return;
+    const local = validateIntegrationForm(integration.fields, values);
+    if (Object.keys(local).length) {
+      setErrors(local);
+      toggleNotification({ type: 'warning', message: t('ecommerce.settings.errors.fix') });
+      return;
+    }
     setSaving(true);
     try {
       const saved = await new UpdateIntegration().execute(
