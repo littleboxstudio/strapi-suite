@@ -35,7 +35,7 @@ import type { ProductListItem } from '../types';
 const SEARCH_DEBOUNCE_MS = 300;
 const THUMBNAIL_SIZE = 36;
 
-type Pagination = { page: number; pageCount: number };
+type PageInfo = { page: number; pageCount: number };
 
 /** Page numbers to render, with `null` standing for a gap (dots). */
 function pageWindow(page: number, pageCount: number): (number | null)[] {
@@ -56,7 +56,7 @@ const ProductListPage = () => {
   const t = (id: string) => formatMessage({ id: getTranslation(id) });
 
   const [items, setItems] = useState<ProductListItem[]>([]);
-  const [pagination, setPagination] = useState<Pagination>({ page: 1, pageCount: 1 });
+  const [pagination, setPagination] = useState<PageInfo>({ page: 1, pageCount: 1 });
   const [page, setPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
   const [search, setSearch] = useState('');
