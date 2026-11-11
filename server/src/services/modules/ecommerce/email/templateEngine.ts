@@ -138,8 +138,10 @@ const ESCAPES: Record<string, string> = {
   '>': '&gt;',
   '"': '&quot;',
   "'": '&#39;',
+  '`': '&#96;',
+  '=': '&#61;',
 };
-const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ESCAPES[char]);
+const escapeHtml = (value: string) => value.replace(/[&<>"'`=]/g, (char) => ESCAPES[char]);
 
 type Scope = { item: unknown; index: number };
 
@@ -266,6 +268,10 @@ const UNSAFE_PATTERNS: { re: RegExp; detail: string }[] = [
   { re: /(?:^|[\s"'/;])on[a-z]+\s*=/i, detail: 'Event handler attributes (on*=) are not allowed' },
 ];
 
+// Escaping cannot protect an unquoted attribute value (a space starts a new attribute). HTML only:
+// subjects are plain text, where "Total = {{…}}" is harmless.
+const UNQUOTED_ATTRIBUTE = /=\s*\{\{/;
+
 /** Decodes numeric/named entities often used to obfuscate URL schemes, then strips whitespace/control chars. */
 function normaliseForSchemes(html: string): string {
   return html
@@ -280,13 +286,16 @@ function normaliseForSchemes(html: string): string {
     .replace(/[\u0000- \u007f]+/g, '');
 }
 
-function unsafeHtmlIssues(html: string): TemplateIssue[] {
+function unsafeHtmlIssues(html: string, isHtml: boolean): TemplateIssue[] {
   const issues: TemplateIssue[] = UNSAFE_PATTERNS.filter(({ re }) => re.test(html)).map(
     ({ detail }) => ({
       code: 'UNSAFE_HTML' as const,
       detail,
     })
   );
+  if (isHtml && UNQUOTED_ATTRIBUTE.test(html)) {
+    issues.push({ code: 'UNSAFE_HTML', detail: 'Variables in attributes must be quoted (attr="{{…}}")' });
+  }
   const normalised = normaliseForSchemes(html);
   for (const scheme of ['javascript:', 'vbscript:']) {
     if (normalised.toLowerCase().includes(scheme)) {
@@ -357,6 +366,7 @@ function variableIssues(
   return issues;
 }
 
+/** `allowBlocks` is true for the HTML body and false for the plain-text subject. */
 function validatePart(
   label: string,
   source: string,
@@ -366,7 +376,7 @@ function validatePart(
   const { nodes, errors } = parse(source);
   const issues: TemplateIssue[] = [
     ...errors.map((detail) => ({ code: 'SYNTAX' as const, detail })),
-    ...unsafeHtmlIssues(source),
+    ...unsafeHtmlIssues(source, allowBlocks),
     ...variableIssues(nodes, catalog, allowBlocks),
   ];
   return issues.map((issue) => ({ ...issue, detail: `${label}: ${issue.detail}` }));
