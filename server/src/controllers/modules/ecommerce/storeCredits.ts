@@ -2,6 +2,7 @@ import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID } from '../../../config';
 import { handleDomainError as handleSharedDomainError } from './errors';
 import {
+  MAX_KEY,
   MAX_LONG,
   asObject,
   cents,
@@ -57,7 +58,7 @@ const EcommerceStoreCreditController = ({ strapi }: { strapi: Core.Strapi }) => 
         ctx,
         async () => {
           const b = asObject(ctx.request?.body);
-          const key = requiredString(MSG, 'idempotencyKey', b.idempotencyKey);
+          const key = requiredString(MSG, 'idempotencyKey', b.idempotencyKey, MAX_KEY);
           return credits().issue({
             customerId: positiveInt(MSG, 'customerId', b.customerId),
             amount: cents(MSG, 'amount', b.amount),

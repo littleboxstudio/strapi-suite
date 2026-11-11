@@ -248,11 +248,9 @@ const EcommerceStripePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
 
   const getOrCreatePaymentLink = async (
     rawOrderId: number | string,
-    opts: { purpose: StripeLinkPurpose; actor: string }
+    opts: { purpose?: StripeLinkPurpose; actor: string }
   ): Promise<PaymentLink> => {
     const orderId = Number(rawOrderId);
-    const purpose: StripeLinkPurpose =
-      opts?.purpose === 'SUPPLEMENTARY' ? 'SUPPLEMENTARY' : 'CHECKOUT';
     const actor = opts?.actor ?? 'system';
     const client = await stripeClient();
     const store = await settings().getStoreSettings();
@@ -261,6 +259,12 @@ const EcommerceStripePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
     for (let pass = 0; pass < MAX_PASSES; pass += 1) {
       const state = await orders().computeOrderState(orderId);
       const due = assertLinkable(state, store);
+      // Not given: SUPPLEMENTARY once a payment has been completed, else CHECKOUT.
+      const purpose: StripeLinkPurpose =
+        (opts?.purpose ?? (state.payments.some((p) => p.status === 'COMPLETED') ? 'SUPPLEMENTARY' : 'CHECKOUT')) ===
+        'SUPPLEMENTARY'
+          ? 'SUPPLEMENTARY'
+          : 'CHECKOUT';
 
       // A completed-but-unpaid session (e.g. Multibanco reference) may still be paid: a second
       // link could charge the customer twice. If Stripe says it is paid by now, settle it.

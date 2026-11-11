@@ -72,7 +72,8 @@ export type RefundView = {
     reference: string | null;
     externalId: string | null;
   } | null;
-  storeCredit: { id: number; code: string } | null;
+  /** The id only: the code is read through the store credit endpoints (customers permission). */
+  storeCredit: { id: number } | null;
 };
 
 export type RefundPreview = {
@@ -134,11 +135,12 @@ export const toRefundView = (r: any): RefundView => {
           method: p.method,
           status: p.status,
           amount: num(p.amount),
-          reference: p.reference ?? null,
+          // A STORE_CREDIT payment keeps the voucher code as its reference: never shown here.
+          reference: p.method === 'STORE_CREDIT' ? null : (p.reference ?? null),
           externalId: p.externalId ?? null,
         }
       : null,
-    storeCredit: sc ? { id: sc.id, code: sc.code } : null,
+    storeCredit: sc ? { id: sc.id } : null,
   };
 };
 
@@ -491,7 +493,8 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
     collector.emit({
       type: 'REFUND_FAILED',
       orderId,
-      payload: eventPayload({ ...first, status: 'FAILED' }),
+      // Notifications ignore this source: the admin decides what the customer is told.
+      payload: eventPayload({ ...first, status: 'FAILED' }, { source: 'ADMIN_MARKED' }),
     });
     await collector.flush();
     return toRefundView(await rowById(id));

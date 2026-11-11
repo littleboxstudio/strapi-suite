@@ -1,7 +1,7 @@
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID } from '../../../config';
 import { handleDomainError as handleSharedDomainError } from './errors';
-import { asObject, fail, optionalString, requiredString } from './validation';
+import { MAX_KEY, asObject, fail, optionalString, requiredString } from './validation';
 
 const EcommerceOrderController = ({ strapi }: { strapi: Core.Strapi }) => {
   const orders = (): any => strapi.plugin(PLUGIN_ID).service('EcommerceOrderService');
@@ -104,12 +104,8 @@ const EcommerceOrderController = ({ strapi }: { strapi: Core.Strapi }) => {
     /** Gets or creates the Stripe payment link for what is due. Never settles anything. */
     createPaymentLink: (ctx: any) =>
       withId(ctx, async (id) => {
-        const state = await orders().computeOrderState(id);
-        const supplementary = state.payments.some((p: any) => p.status === 'COMPLETED');
-        const link = await stripePayments().getOrCreatePaymentLink(id, {
-          purpose: supplementary ? 'SUPPLEMENTARY' : 'CHECKOUT',
-          actor: actorOf(ctx),
-        });
+        // The service decides CHECKOUT or SUPPLEMENTARY.
+        const link = await stripePayments().getOrCreatePaymentLink(id, { actor: actorOf(ctx) });
         const { url, expiresAt, amount, reused } = link;
         return { url, expiresAt, amount, reused };
       }, undefined, true),
@@ -141,7 +137,7 @@ const EcommerceOrderController = ({ strapi }: { strapi: Core.Strapi }) => {
             id,
             {
               code: requiredString(msg, 'code', b.code, 64),
-              idempotencyKey: requiredString(msg, 'idempotencyKey', b.idempotencyKey),
+              idempotencyKey: requiredString(msg, 'idempotencyKey', b.idempotencyKey, MAX_KEY),
             },
             actorOf(ctx)
           );

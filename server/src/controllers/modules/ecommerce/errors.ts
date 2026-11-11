@@ -6,13 +6,13 @@ import {
   EcommerceValidationError,
 } from '../../../services/modules/ecommerce/errors';
 
+/** Validation codes that mean "the request clashes with current state": HTTP 409. */
+const CONFLICT_CODES = ['IDEMPOTENCY_KEY_CONFLICT', 'STORE_CREDIT_CONFLICT'];
+
 /**
  * Maps e-commerce domain errors to HTTP responses; rethrows anything else.
  * Messages never include secrets or provider responses.
  */
-/** Validation codes that mean "the request clashes with current state": HTTP 409. */
-const CONFLICT_CODES = ['IDEMPOTENCY_KEY_CONFLICT', 'STORE_CREDIT_CONFLICT'];
-
 export const handleDomainError = (
   ctx: any,
   err: unknown,

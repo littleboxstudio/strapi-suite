@@ -2,6 +2,7 @@ import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID } from '../../../config';
 import { handleDomainError as handleSharedDomainError } from './errors';
 import {
+  MAX_KEY,
   MAX_LONG,
   asObject,
   cents,
@@ -44,7 +45,7 @@ const EcommerceRefundController = ({ strapi }: { strapi: Core.Strapi }) => {
           const input = {
             method: requiredString(MSG, 'method', b.method, 40),
             amount: cents(MSG, 'amount', b.amount),
-            reason: requiredString(MSG, 'reason', b.reason, 100),
+            reason: requiredString(MSG, 'reason', b.reason),
             description: optionalString(MSG, 'description', b.description, MAX_LONG),
             reference: optionalString(MSG, 'reference', b.reference),
             expiresAt: optionalString(MSG, 'expiresAt', b.expiresAt, 64),
@@ -53,7 +54,7 @@ const EcommerceRefundController = ({ strapi }: { strapi: Core.Strapi }) => {
               b.paymentId === undefined || b.paymentId === null
                 ? undefined
                 : positiveInt(MSG, 'paymentId', b.paymentId),
-            idempotencyKey: requiredString(MSG, 'idempotencyKey', b.idempotencyKey),
+            idempotencyKey: requiredString(MSG, 'idempotencyKey', b.idempotencyKey, MAX_KEY),
           };
           return refunds().create(id, input, actorOf(ctx));
         },

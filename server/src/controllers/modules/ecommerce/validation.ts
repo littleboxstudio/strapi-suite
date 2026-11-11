@@ -4,6 +4,11 @@ import { MAX_MONEY_CENTS } from '../../../services/modules/ecommerce/domain/orde
 /** Request-body checks shared by the e-commerce admin controllers. They throw validation errors. */
 export const MAX_SHORT = 255;
 export const MAX_LONG = 5000;
+/**
+ * Client idempotency keys: the services add prefixes/suffixes (`admin-issue:`, `refund:…:<paymentId>`),
+ * and the columns and Stripe's Idempotency-Key are 255 characters, so the client part stops at 200.
+ */
+export const MAX_KEY = 200;
 
 export const fail = (message: string, path: string, code: string): never => {
   throw new EcommerceValidationError(message, [{ path, code }]);

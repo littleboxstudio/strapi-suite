@@ -50,6 +50,24 @@ describe('EcommerceRefundController', () => {
     expect(create).not.toHaveBeenCalled();
   });
 
+  it('caps client idempotency keys at 200 (derived keys stay within 255) and reason at 255', async () => {
+    const create = vi.fn().mockResolvedValue([]);
+    const c = createRefunds({ strapi: strapiWith({ EcommerceRefundService: { create } }) });
+    const long = body({ ...valid, idempotencyKey: 'x'.repeat(201) });
+    await c.create(long);
+    expect(long.badRequest).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ code: 'too_long' }));
+    const longReason = body({ ...valid, reason: 'x'.repeat(256) });
+    await c.create(longReason);
+    expect(longReason.badRequest).toHaveBeenCalled();
+    const ok = body({ ...valid, idempotencyKey: 'x'.repeat(200), reason: 'x'.repeat(255) });
+    await c.create(ok);
+    expect(create).toHaveBeenCalledTimes(1);
+    // longest derived keys: refund `${key}:${paymentId}` sent as `refund:${key}:${paymentId}`;
+    // store credit `admin-issue:${key}`
+    expect(`refund:${'x'.repeat(200)}:${Number.MAX_SAFE_INTEGER}`.length).toBeLessThanOrEqual(255);
+    expect(`admin-issue:${'x'.repeat(200)}`.length).toBeLessThanOrEqual(255);
+  });
+
   it('create passes the input and the actor, status 201', async () => {
     const create = vi.fn().mockResolvedValue([{ id: 1 }]);
     const c = createRefunds({ strapi: strapiWith({ EcommerceRefundService: { create } }) });
@@ -92,6 +110,23 @@ describe('EcommerceRefundController', () => {
     const bad = mkCtx({ params: { id: 'x' } });
     await c.preview(bad);
     expect(bad.badRequest).toHaveBeenCalledWith('Invalid id');
+  });
+});
+
+describe('EcommerceStoreCreditController key length', () => {
+  it('issue and store-credit-payment reject keys above 200', async () => {
+    const issue = vi.fn();
+    const credits = createCredits({ strapi: strapiWith({ EcommerceStoreCreditService: { issue } }) });
+    const a = body({ customerId: 1, amount: 100, idempotencyKey: 'x'.repeat(201) });
+    await credits.issue(a);
+    expect(a.badRequest).toHaveBeenCalled();
+    expect(issue).not.toHaveBeenCalled();
+    const add = vi.fn();
+    const orders = createOrders({ strapi: strapiWith({ EcommercePaymentService: { addStoreCreditPayment: add } }) });
+    const b = body({ code: 'AAAA-BBBB-CCCC', idempotencyKey: 'x'.repeat(201) });
+    await orders.addStoreCreditPayment(b);
+    expect(b.badRequest).toHaveBeenCalled();
+    expect(add).not.toHaveBeenCalled();
   });
 });
 
@@ -171,15 +206,23 @@ describe('EcommerceNotificationController', () => {
 });
 
 describe('order payment endpoints', () => {
-  it('payment-link picks the purpose, strips the session id and maps payment errors to 400 code', async () => {
+  it('POST /orders/:id/payments answers an idempotency key clash with 409', async () => {
+    const addManualPayment = vi
+      .fn()
+      .mockRejectedValue(new EcommerceValidationError('x', [{ path: 'idempotencyKey', code: 'IDEMPOTENCY_KEY_CONFLICT' }]));
+    const c = createOrders({ strapi: strapiWith({ EcommercePaymentService: { addManualPayment } }) });
+    const ctx = body({ amount: 100, idempotencyKey: 'k' });
+    await c.addPayment(ctx);
+    expect(ctx.status).toBe(409);
+    expect(ctx.body.error.details.code).toBe('IDEMPOTENCY_KEY_CONFLICT');
+  });
+
+  it('payment-link leaves the purpose to the service, strips the session id and maps payment errors to 400 code', async () => {
     const getOrCreatePaymentLink = vi
       .fn()
       .mockResolvedValueOnce({ url: 'https://s', expiresAt: 'e', amount: 100, reused: false, sessionId: 'cs_1' })
       .mockRejectedValueOnce(new EcommercePaymentError('NOTHING_DUE'));
-    const computeOrderState = vi
-      .fn()
-      .mockResolvedValueOnce({ payments: [] })
-      .mockResolvedValueOnce({ payments: [{ status: 'COMPLETED' }] });
+    const computeOrderState = vi.fn();
     const c = createOrders({
       strapi: strapiWith({
         EcommerceOrderService: { computeOrderState },
@@ -188,11 +231,11 @@ describe('order payment endpoints', () => {
     });
     const a = mkCtx();
     await c.createPaymentLink(a);
-    expect(getOrCreatePaymentLink).toHaveBeenCalledWith(5, { purpose: 'CHECKOUT', actor: 'user:7' });
+    expect(getOrCreatePaymentLink).toHaveBeenCalledWith(5, { actor: 'user:7' });
+    expect(computeOrderState).not.toHaveBeenCalled();
     expect(a.body).toEqual({ url: 'https://s', expiresAt: 'e', amount: 100, reused: false });
     const b = mkCtx();
     await c.createPaymentLink(b);
-    expect(getOrCreatePaymentLink).toHaveBeenLastCalledWith(5, { purpose: 'SUPPLEMENTARY', actor: 'user:7' });
     expect(b.badRequest).toHaveBeenCalledWith(expect.any(String), { code: 'NOTHING_DUE' });
   });
 
