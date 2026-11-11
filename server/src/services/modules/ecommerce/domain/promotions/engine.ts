@@ -4,7 +4,7 @@
  * the result does not depend on the order of the candidates. Money is integer cents.
  */
 import { normalizeEmail } from '../email';
-import { candidateBlock, type BlockReason } from './availability';
+import { candidateBlock, requiresVerifiedEmail, type BlockReason } from './availability';
 import {
   applyCombination,
   type CombinationContext,
@@ -89,6 +89,8 @@ export type EvaluationInput = {
   /** Customer lines (no gifts). */
   lines: EvaluationLine[];
   email: string | null;
+  /** Absent = trusted (admin); `false` = storefront without a verified e-mail. */
+  emailVerified?: boolean;
   shipping: number | null;
   codes: string[];
   candidates: PromotionCandidate[];
@@ -195,9 +197,19 @@ export const evaluatePromotions = (input: EvaluationInput): PromotionEvaluation 
   const isolated = new Map<number, number>();
   const pool: PromotionCandidate[] = [];
   for (const c of considered) {
-    const block = candidateBlock({ ...c, eligibility: { mode: 'ALL' } }, { now: input.now, email });
+    // Unverified e-mail: the per-customer limit is not evaluated (email: null) and, if nothing
+    // else blocks, the answer is the same for every e-mail (no list membership is revealed).
+    const unverified = input.emailVerified === false && requiresVerifiedEmail(c);
+    const block = candidateBlock(
+      { ...c, eligibility: { mode: 'ALL' } },
+      { now: input.now, email: unverified ? null : email }
+    );
     if (block) {
       reasons.set(c.id, block);
+      continue;
+    }
+    if (unverified) {
+      reasons.set(c.id, 'EMAIL_NOT_VERIFIED');
       continue;
     }
     if (!eligibilityMet(c.eligibility, email)) {

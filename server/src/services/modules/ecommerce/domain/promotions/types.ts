@@ -88,6 +88,8 @@ export type PromotionDefinition = {
   benefits: Benefit[];
   stacking: Stacking;
   perOrderLimit: number | null;
+  /** Checkout must have a verified e-mail (always the case when restricted by e-mail or per customer). */
+  requireVerifiedEmail: boolean;
   version: number;
 };
 

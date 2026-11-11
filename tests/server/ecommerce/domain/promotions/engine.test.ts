@@ -42,6 +42,7 @@ const promo = (
   endsAt: null,
   usageLimit: null,
   perCustomerLimit: null,
+  requireVerifiedEmail: false,
   redemptions: 0,
   customerUses: 0,
   ...extra,
@@ -69,6 +70,7 @@ const evaluate = (
   evaluatePromotions({
     lines,
     email: opts.email ?? null,
+    emailVerified: opts.emailVerified,
     shipping: opts.shipping === undefined ? null : opts.shipping,
     codes: opts.codes ?? [],
     candidates,
@@ -805,5 +807,53 @@ describe('applied promotion shape', () => {
     expect(r.eligible).toEqual([4]);
     expect(r.total).toBe(4000 - 400 - 300 + 600 - 300);
     checkMoney(r);
+  });
+});
+
+describe('verified e-mail (requirement 1.8)', () => {
+  const lines = [line(1, 1000, 1)];
+  const benefit: Benefit[] = [{ type: 'ORDER_PERCENT', percent: 10 }];
+
+  it('per-customer limit is never evaluated with an unverified e-mail', () => {
+    const once = coded(1, 'ONCE', benefit, { perCustomerLimit: 1 });
+    const bought = { ...once, customerUses: 1 };
+    for (const c of [once, bought]) {
+      const r = evaluate([c], lines, { codes: ['ONCE'], email: 'ana@x.pt', emailVerified: false });
+      expect(r.codes[0].status).toBe('EMAIL_NOT_VERIFIED');
+    }
+    const verified = evaluate([bought], lines, { codes: ['ONCE'], email: 'ana@x.pt', emailVerified: true });
+    expect(verified.codes[0].status).toBe('CUSTOMER_LIMIT_REACHED');
+  });
+
+  it('an e-mail list gives the same answer for listed and unlisted e-mails when unverified', () => {
+    const only = coded(1, 'VIP', benefit, { eligibility: { mode: 'EMAILS', emails: ['ana@x.pt'] } });
+    for (const email of ['ana@x.pt', 'bruno@x.pt']) {
+      const r = evaluate([only], lines, { codes: ['VIP'], email, emailVerified: false });
+      expect(r.codes[0].status).toBe('EMAIL_NOT_VERIFIED');
+    }
+    const verified = evaluate([only], lines, { codes: ['VIP'], email: 'bruno@x.pt', emailVerified: true });
+    expect(verified.codes[0].status).toBe('EMAIL_NOT_ELIGIBLE');
+    const trusted = evaluate([only], lines, { codes: ['VIP'], email: 'ana@x.pt' });
+    expect(trusted.codes[0].status).toBe('APPLIED');
+  });
+
+  it('the flag alone requires a verified e-mail', () => {
+    const c = coded(1, 'FLAG', benefit, { requireVerifiedEmail: true });
+    expect(evaluate([c], lines, { codes: ['FLAG'], emailVerified: false }).codes[0].status).toBe(
+      'EMAIL_NOT_VERIFIED'
+    );
+    expect(evaluate([c], lines, { codes: ['FLAG'], emailVerified: true }).codes[0].status).toBe('APPLIED');
+  });
+
+  it('exhausted promotions keep USAGE_LIMIT_REACHED; unrestricted automatic ones still apply', () => {
+    const spent = coded(1, 'SPENT', benefit, {
+      perCustomerLimit: 1,
+      usageLimit: 1,
+      redemptions: 1,
+    });
+    const r = evaluate([spent], lines, { codes: ['SPENT'], email: 'ana@x.pt', emailVerified: false });
+    expect(r.codes[0].status).toBe('USAGE_LIMIT_REACHED');
+    const auto = promo(2, benefit);
+    expect(appliedIds(evaluate([auto], lines, { emailVerified: false }))).toEqual([2]);
   });
 });

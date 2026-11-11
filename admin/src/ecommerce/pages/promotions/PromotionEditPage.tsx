@@ -505,6 +505,8 @@ const PromotionEditPage = () => {
         <EligibilityFields
           mode={form.eligibilityMode}
           emails={form.emails}
+          requireVerifiedEmail={form.requireVerifiedEmail}
+          hasCustomerLimit={form.perCustomerLimit.trim() !== ''}
           errors={errors}
           disabled={disabled}
           onChange={(patch) => update(patch, ['eligibility'])}

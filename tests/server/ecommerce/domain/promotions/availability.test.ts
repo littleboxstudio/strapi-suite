@@ -5,6 +5,7 @@ import {
   percentOf,
   displayNameFor,
   targetMatches,
+  requiresVerifiedEmail,
   type PromotionCandidate,
 } from '../../../../../server/src/services/modules/ecommerce/domain/promotions';
 
@@ -27,6 +28,7 @@ const base = (over: Partial<PromotionCandidate> = {}): PromotionCandidate => ({
   endsAt: null,
   usageLimit: null,
   perCustomerLimit: null,
+  requireVerifiedEmail: false,
   redemptions: 0,
   customerUses: 0,
   ...over,
@@ -92,5 +94,24 @@ describe('helpers', () => {
     expect(targetMatches(t, { productId: 1, variantId: 2 })).toBe(true);
     expect(targetMatches(t, { productId: 2, variantId: 9 })).toBe(true);
     expect(targetMatches(t, { productId: 2, variantId: 3 })).toBe(false);
+  });
+});
+
+describe('requiresVerifiedEmail', () => {
+  const deep = {
+    type: 'GROUP',
+    operator: 'AND',
+    children: [
+      { type: 'GROUP', operator: 'OR', children: [{ type: 'EMAIL', operator: 'contains', value: '@empresa.pt' }] },
+    ],
+  } as any;
+  it('is true for the flag, an e-mail list, a nested EMAIL condition and a per-customer limit', () => {
+    expect(requiresVerifiedEmail(base({ requireVerifiedEmail: true }))).toBe(true);
+    expect(requiresVerifiedEmail(base({ eligibility: { mode: 'EMAILS', emails: ['a@x.pt'] } }))).toBe(true);
+    expect(requiresVerifiedEmail(base({ conditions: { type: 'GROUP', operator: 'AND', children: [deep] } }))).toBe(true);
+    expect(requiresVerifiedEmail(base({ perCustomerLimit: 1 }))).toBe(true);
+  });
+  it('is false otherwise', () => {
+    expect(requiresVerifiedEmail(base())).toBe(false);
   });
 });

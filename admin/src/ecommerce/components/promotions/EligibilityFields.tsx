@@ -1,18 +1,33 @@
 import { useIntl } from 'react-intl';
-import { Field, Flex, Radio, Textarea } from '@strapi/design-system';
+import { Checkbox, Field, Flex, Radio, Textarea } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { emailList, type PromotionErrors } from '../../utils/promotionForm';
 
 type Props = {
   mode: 'ALL' | 'EMAILS';
   emails: string;
-  onChange: (patch: { eligibilityMode?: 'ALL' | 'EMAILS'; emails?: string }) => void;
+  requireVerifiedEmail: boolean;
+  /** A per-customer limit is set: verification is then always required. */
+  hasCustomerLimit: boolean;
+  onChange: (patch: {
+    eligibilityMode?: 'ALL' | 'EMAILS';
+    emails?: string;
+    requireVerifiedEmail?: boolean;
+  }) => void;
   errors: PromotionErrors;
   disabled?: boolean;
 };
 
 /** All customers, or a list of e-mails (one per line; `eligibility.emails.<i>` points at a line). */
-const EligibilityFields = ({ mode, emails, onChange, errors, disabled }: Props) => {
+const EligibilityFields = ({
+  mode,
+  emails,
+  requireVerifiedEmail,
+  hasCustomerLimit,
+  onChange,
+  errors,
+  disabled,
+}: Props) => {
   const { formatMessage } = useIntl();
   const t = (id: string, values?: Record<string, any>) => formatMessage({ id: getTranslation(id) }, values);
   const p = 'ecommerce.promotions.form';
@@ -26,6 +41,8 @@ const EligibilityFields = ({ mode, emails, onChange, errors, disabled }: Props) 
     const email = emailList(emails)[Number(lineError.split('.')[2])];
     error = email !== undefined ? t(`${p}.emails.invalidLine`, { email }) : t(`${p}.errors.${errors[lineError]}`);
   }
+
+  const forced = mode === 'EMAILS' || hasCustomerLimit;
 
   return (
     <Flex direction="column" alignItems="stretch" gap={4}>
@@ -50,6 +67,16 @@ const EligibilityFields = ({ mode, emails, onChange, errors, disabled }: Props) 
           <Field.Hint />
         </Field.Root>
       )}
+      <Field.Root name="requireVerifiedEmail" hint={t(`${p}.requireVerifiedEmail.hint`)}>
+        <Checkbox
+          checked={forced || requireVerifiedEmail}
+          disabled={disabled || forced}
+          onCheckedChange={(value: boolean | 'indeterminate') => onChange({ requireVerifiedEmail: value === true })}
+        >
+          {t(`${p}.requireVerifiedEmail`)}
+        </Checkbox>
+        <Field.Hint />
+      </Field.Root>
     </Flex>
   );
 };
