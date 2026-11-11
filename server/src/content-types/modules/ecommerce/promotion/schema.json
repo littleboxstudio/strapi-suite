@@ -84,10 +84,6 @@
     },
     "actor": {
       "type": "string"
-    },
-    "requireVerifiedEmail": {
-      "type": "boolean",
-      "default": false
     }
   },
   "pluginOptions": {

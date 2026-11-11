@@ -14,7 +14,7 @@ beforeEach(() => {
 describe('EcommerceEventBus', () => {
   it('does not call handlers before flush', async () => {
     const b = bus();
-    const h = vi.fn(async () => {});
+    const h = vi.fn(async (_e: any) => {});
     b.subscribe('ORDER_CREATED', h);
     const c = b.collector();
     c.emit({ type: 'ORDER_CREATED', orderId: 1, payload: {} });

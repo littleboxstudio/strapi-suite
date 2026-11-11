@@ -1696,7 +1696,7 @@
   "littlebox-strapi-suite.ecommerce.orders.promotions.codeStatus.CUSTOMER_LIMIT_REACHED": "Limit per customer reached",
   "littlebox-strapi-suite.ecommerce.orders.promotions.codeStatus.EMAIL_NOT_ELIGIBLE": "Not available for this e-mail",
   "littlebox-strapi-suite.ecommerce.promotions.form.requireVerifiedEmail": "Require a verified e-mail at checkout",
-  "littlebox-strapi-suite.ecommerce.promotions.form.requireVerifiedEmail.hint": "Always on for promotions restricted to e-mails or with a per-customer limit. Recommended for high-value or single-use promotions.",
+  "littlebox-strapi-suite.ecommerce.promotions.form.requireVerifiedEmail.hint": "Always on for promotions restricted to e-mails, with an e-mail condition or with a per-customer limit. Recommended for high-value or single-use promotions.",
   "littlebox-strapi-suite.ecommerce.orders.promotions.codeStatus.EMAIL_NOT_VERIFIED": "Requires a verified e-mail",
   "littlebox-strapi-suite.ecommerce.orders.promotions.codeStatus.CONDITIONS_NOT_MET": "Conditions not met",
   "littlebox-strapi-suite.ecommerce.orders.promotions.codeStatus.CONFLICT": "Cannot be combined with the other promotions",

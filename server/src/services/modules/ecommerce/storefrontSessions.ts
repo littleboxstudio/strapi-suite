@@ -161,8 +161,12 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
    * (the order keeps its relation) but are marked EXPIRED and scrubbed. Orders are only read
    * through the relation, never changed (requirement 2.13). Writes are conditional on ACTIVE,
    * so a concurrent purge or resolve is harmless. Returns the rows actually changed.
+   *
+   * With `deleteOrphans: false` (resolve inside the purge grace) a session without orders is
+   * only scrubbed and left ACTIVE for the purge: an order being created in a transaction that
+   * has not committed yet is invisible here, and deleting the row would orphan it.
    */
-  const retire = async (ids: number[]): Promise<number> => {
+  const retire = async (ids: number[], { deleteOrphans = true } = {}): Promise<number> => {
     if (ids.length === 0) return 0;
     const orders: { checkoutSession?: { id: number } | null }[] = await strapi.db
       .query(uids().order)
@@ -177,7 +181,14 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
     const keep = ids.filter((id) => withOrders.has(id));
     const remove = ids.filter((id) => !withOrders.has(id));
     let count = 0;
-    if (remove.length > 0) {
+    if (remove.length > 0 && !deleteOrphans) {
+      count += changed(
+        await sessionsQuery().updateMany({
+          where: { id: { $in: remove }, status: 'ACTIVE' },
+          data: scrubbed(),
+        })
+      );
+    } else if (remove.length > 0) {
       count += changed(
         await sessionsQuery().deleteMany({ where: { id: { $in: remove }, status: 'ACTIVE' } })
       );
@@ -196,7 +207,9 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
   /**
    * Looks the session up by the SHA-256 of the token (never the raw token). Malformed,
    * unknown, non-ACTIVE and expired tokens all give `null`; an expired ACTIVE row is retired
-   * on the spot (deleted, or scrubbed and EXPIRED when it has orders).
+   * on the spot (deleted, or scrubbed and EXPIRED when it has orders). Within `PURGE_GRACE_MS`
+   * of the expiry it is never deleted, only scrubbed (EXPIRED when it has orders); the purge
+   * deletes it after the grace, as for a session nobody resolves.
    */
   const resolve = async (token: unknown): Promise<CheckoutSession | null> => {
     if (!isWellFormedSessionToken(token)) return null;
@@ -205,7 +218,7 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
     const now = Date.now();
     const expiresAt = time(row.expiresAt);
     if (!(expiresAt > now)) {
-      await retire([row.id]);
+      await retire([row.id], { deleteOrphans: now - expiresAt > PURGE_GRACE_MS });
       return null;
     }
     const lastUsed = time(row.lastUsedAt);

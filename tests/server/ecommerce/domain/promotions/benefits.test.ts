@@ -36,6 +36,7 @@ const promo = (
   perCustomerLimit: null,
   redemptions: 0,
   customerUses: 0,
+  requireVerifiedEmail: false,
   ...extra,
 });
 

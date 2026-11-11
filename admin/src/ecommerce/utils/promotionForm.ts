@@ -1069,6 +1069,16 @@ export function describePromotion(form: PromotionForm, money: Money, t: Translat
   return lines;
 }
 
-/** The "verified e-mail" box is forced on (and disabled) for an e-mail list or a per-customer limit. */
-export const verifiedEmailForced = (form: Pick<PromotionForm, 'eligibilityMode' | 'perCustomerLimit'>): boolean =>
-  form.eligibilityMode === 'EMAILS' || form.perCustomerLimit.trim() !== '';
+const hasEmailCondition = (node: TreeNode): boolean =>
+  node.type === 'GROUP' ? node.children.some(hasEmailCondition) : node.type === 'EMAIL';
+
+/**
+ * The "verified e-mail" box is forced on (and disabled) for an e-mail list, an EMAIL condition at
+ * any depth or a per-customer limit: the same rule as the server's `requiresVerifiedEmail`.
+ */
+export const verifiedEmailForced = (
+  form: Pick<PromotionForm, 'eligibilityMode' | 'perCustomerLimit' | 'conditions'>
+): boolean =>
+  form.eligibilityMode === 'EMAILS' ||
+  form.perCustomerLimit.trim() !== '' ||
+  hasEmailCondition(form.conditions);

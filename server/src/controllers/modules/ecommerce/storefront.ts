@@ -120,19 +120,20 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
   const body = (ctx: any) => asObject(ctx.request?.body);
   const ipOf = (ctx: any) => clientIpFrom(headerOf(ctx, CLIENT_IP_HEADER));
 
-  /** Hits every key of the rule; true (and a 429 sent) when any of them is over its limit. */
+  /**
+   * True (and a 429 sent) when any key of the rule is over its limit; the keys are counted only
+   * when all of them allow the request (check-then-hit). The per-e-mail key counts only with a
+   * valid session, so a caller without one cannot spend a customer's e-mail budget.
+   */
   const limited = (
     ctx: any,
     rule: RateRuleName,
     dims: { sessionId: number | null; email?: unknown }
   ): boolean => {
-    let retryAfter = 0;
-    const email = typeof dims.email === 'string' ? dims.email : null;
-    for (const k of rateKeys(rule, { sessionId: dims.sessionId, ip: ipOf(ctx), email })) {
-      const r = limiter.hit(k.key, k.rule);
-      if (!r.allowed) retryAfter = Math.max(retryAfter, r.retryAfterSec);
-    }
-    if (retryAfter === 0) return false;
+    const email = dims.sessionId !== null && typeof dims.email === 'string' ? dims.email : null;
+    const r = limiter.hitAll(rateKeys(rule, { sessionId: dims.sessionId, ip: ipOf(ctx), email }));
+    if (r.allowed) return false;
+    const retryAfter = r.retryAfterSec;
     // The rule name only: keys carry the session id, the IP or the e-mail hash.
     warn(`RATE_LIMITED ${rule}`);
     sendTooManyRequests(ctx, 'RATE_LIMITED', retryAfter);

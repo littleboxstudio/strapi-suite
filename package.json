@@ -40,6 +40,7 @@
     "verify": "strapi-plugin verify",
     "test:ts:front": "run -T tsc -p admin/tsconfig.json",
     "test:ts:back": "run -T tsc -p server/tsconfig.json",
+    "test:ts:tests": "tsc -p tests/tsconfig.json",
     "test": "vitest run"
   },
   "dependencies": {

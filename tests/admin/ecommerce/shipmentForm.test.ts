@@ -73,7 +73,7 @@ describe('defaultShipLines', () => {
 describe('emptyShipForm', () => {
   it('prefills the carrier from the order method and the cost from the remaining shipping', () => {
     const f = emptyShipForm(
-      { lines, shippingMethod: { providerId: 'manual', name: 'Standard' }, shipping: { remainingCost: 450, deliveryStatus: 'NONE' } },
+      { lines, shippingMethod: { providerId: 'manual', name: 'Standard' }, shipping: { remainingCost: 450, deliveryStatus: 'NONE' } } as any,
       'pt-PT'
     );
     expect(f).toMatchObject({ mode: 'MANUAL', carrierName: 'Standard', shippingCost: '4,50', notifyCustomer: true });

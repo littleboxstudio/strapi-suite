@@ -40,7 +40,7 @@ const line = (id: number, unitPrice: number, quantity: number, over: Partial<Lin
   ...over,
 });
 
-const order = (lines: Line[], over: Partial<CoverageOrderState> = {}) => ({
+const order = (lines: Line[], over: Partial<Omit<CoverageOrderState, 'lines'>> = {}) => ({
   lines,
   orderDiscount: 0,
   shippingTotal: 0,

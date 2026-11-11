@@ -26,8 +26,6 @@ import {
 import { formatCents } from '../../../admin/src/ecommerce/utils/money';
 import type { Promotion } from '../../../admin/src/ecommerce/promotionTypes';
 
-const en = require('../../../admin/src/core/translations/en.json');
-const pt = require('../../../admin/src/core/translations/pt.json');
 
 const PREFIX = 'littlebox-strapi-suite.';
 const translator =
@@ -480,6 +478,15 @@ describe('verifiedEmailForced', () => {
     expect(verifiedEmailForced(baseForm({ eligibilityMode: 'EMAILS' }))).toBe(true);
     expect(verifiedEmailForced(baseForm({ perCustomerLimit: '2' }))).toBe(true);
     expect(verifiedEmailForced(baseForm({ perCustomerLimit: ' ' }))).toBe(false);
+  });
+
+  it('is forced by an EMAIL condition at any depth (mirrors the server requiresVerifiedEmail)', () => {
+    const form = baseForm();
+    let tree = addCondition(form.conditions, []);
+    expect(verifiedEmailForced({ ...form, conditions: tree })).toBe(false);
+    tree = addGroup(tree, [])!;
+    tree = addCondition(tree, [1], 'EMAIL');
+    expect(verifiedEmailForced({ ...form, conditions: tree })).toBe(true);
   });
 });
 

@@ -43,6 +43,7 @@ import {
   describeBenefit,
   emptyBenefit,
   emptyPromotionForm,
+  verifiedEmailForced,
   errorMapFromIssues,
   MAX_BENEFITS,
   promotionFormFromView,
@@ -506,7 +507,7 @@ const PromotionEditPage = () => {
           mode={form.eligibilityMode}
           emails={form.emails}
           requireVerifiedEmail={form.requireVerifiedEmail}
-          hasCustomerLimit={form.perCustomerLimit.trim() !== ''}
+          verifiedEmailForced={verifiedEmailForced(form)}
           errors={errors}
           disabled={disabled}
           onChange={(patch) => update(patch, ['eligibility'])}

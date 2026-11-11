@@ -42,6 +42,12 @@ export type RateLimitResult = { allowed: boolean; retryAfterSec: number };
 
 export type RateLimiter = {
   hit(key: string, rule: RateRule): RateLimitResult;
+  /**
+   * Check-then-hit over several keys of one request: when any key is over its limit nothing is
+   * counted (the result carries the longest wait); otherwise every key is hit. So a request
+   * refused by one dimension never spends the budget of the others.
+   */
+  hitAll(keys: { key: string; rule: RateRule }[]): RateLimitResult;
   size(): number;
 };
 
@@ -84,22 +90,38 @@ export const createRateLimiter = (
     evictOldest(otherKeys, Math.max(windows.size - maxKeys + 1, batch));
   };
 
+  const hit = (key: string, rule: RateRule): RateLimitResult => {
+    const t = now();
+    let w = windows.get(key);
+    if (!w) {
+      makeRoom(t);
+      w = { count: 0, resetAt: t + rule.windowMs };
+      windows.set(key, w);
+    } else if (w.resetAt <= t) {
+      w.count = 0;
+      w.resetAt = t + rule.windowMs;
+    }
+    if (w.count >= rule.limit) {
+      return { allowed: false, retryAfterSec: Math.max(1, Math.ceil((w.resetAt - t) / 1000)) };
+    }
+    w.count += 1;
+    return { allowed: true, retryAfterSec: 0 };
+  };
+
+  /** Seconds until `key` accepts a hit again, without counting (0 when it would be allowed). */
+  const waitFor = (key: string, rule: RateRule, t: number): number => {
+    const w = windows.get(key);
+    if (!w || w.resetAt <= t || w.count < rule.limit) return 0;
+    return Math.max(1, Math.ceil((w.resetAt - t) / 1000));
+  };
+
   return {
-    hit(key, rule) {
+    hit,
+    hitAll(keys) {
       const t = now();
-      let w = windows.get(key);
-      if (!w) {
-        makeRoom(t);
-        w = { count: 0, resetAt: t + rule.windowMs };
-        windows.set(key, w);
-      } else if (w.resetAt <= t) {
-        w.count = 0;
-        w.resetAt = t + rule.windowMs;
-      }
-      if (w.count >= rule.limit) {
-        return { allowed: false, retryAfterSec: Math.max(1, Math.ceil((w.resetAt - t) / 1000)) };
-      }
-      w.count += 1;
+      const retryAfterSec = keys.reduce((max, k) => Math.max(max, waitFor(k.key, k.rule, t)), 0);
+      if (retryAfterSec > 0) return { allowed: false, retryAfterSec };
+      for (const k of keys) hit(k.key, k.rule);
       return { allowed: true, retryAfterSec: 0 };
     },
     size: () => windows.size,

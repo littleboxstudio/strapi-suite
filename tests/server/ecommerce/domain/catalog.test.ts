@@ -116,7 +116,7 @@ describe('validateProductInput', () => {
       validateProductInput(product({ variants: [variant({ stockAdjustment: 1.5 })] }), 'en')
     ).toContainEqual({ path: 'variants.0.stockAdjustment', code: 'invalid_number' });
     expect(
-      validateProductInput(product({ variants: [variant({ stockAdjustment: '2' })] }), 'en')
+      validateProductInput(product({ variants: [variant({ stockAdjustment: '2' as any })] }), 'en')
     ).toContainEqual({ path: 'variants.0.stockAdjustment', code: 'invalid_number' });
   });
   it('requires variant option in default locale', () => {

@@ -66,8 +66,9 @@ Never in `localStorage` or anything script-readable.
 `Origin` header.
 
 A missing, malformed, unknown or expired session gives `401 SESSION_INVALID` (they are never
-distinguished). Open a new session and rebuild the cart. Expired sessions are deleted (or
-emptied, when they have orders) opportunistically; nothing ever cancels an order.
+distinguished). Open a new session and rebuild the cart. An expired session is emptied when it
+is next used, and deleted (or kept, marked expired, when it has orders) opportunistically after
+a 1-hour grace; nothing ever cancels an order.
 
 ## 5. Routes
 
@@ -155,7 +156,9 @@ credit's e-mail, and both routes are rate limited. A credit of another e-mail an
 ## 7. Rate limits
 
 Fixed windows, per rule and dimension; a request counts in every dimension it has (session,
-client IP when the header is valid, e-mail for the verification routes).
+client IP when the header is valid, e-mail for the verification routes, only with a valid
+session). A request is counted only when every dimension allows it: one refused by any limit
+spends nothing in the others.
 
 | Rule | Per session | Per client IP | Per e-mail |
 |---|---|---|---|

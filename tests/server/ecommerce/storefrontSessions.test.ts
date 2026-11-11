@@ -220,11 +220,49 @@ describe('EcommerceStorefrontSessionService', () => {
       });
     });
 
-    it('returns null for an expired token without orders and deletes the row', async () => {
+    it('returns null for an expired token without orders and deletes the row past the grace', async () => {
       const c = setupCommerce({ checkoutSessionTtlHours: 1 });
       const { token } = await svc(c).open(null);
+      vi.setSystemTime(new Date(NOW.getTime() + 2 * HOUR + 1));
+      expect(await svc(c).resolve(token)).toBeNull();
+      expect(sessions(c)).toHaveLength(0);
+    });
+
+    it('F4: inside the 1 h grace an expired session without orders is only scrubbed, never deleted', async () => {
+      const c = setupCommerce({ checkoutSessionTtlHours: 1 });
+      const { token } = await svc(c).open(null);
+      const id = sessions(c)[0].id;
+      await svc(c).saveCart(id, { ...emptyCart(), email: 'a@b.pt' });
+      sessions(c)[0].verifiedEmail = 'a@b.pt';
+      // At the expiry instant (an order may be committing for this session right now).
       vi.setSystemTime(new Date(NOW.getTime() + HOUR));
       expect(await svc(c).resolve(token)).toBeNull();
+      expect(sessions(c)).toHaveLength(1);
+      expect(sessions(c)[0]).toMatchObject({
+        id,
+        status: 'ACTIVE',
+        cart: EMPTY_CART,
+        verifiedEmail: null,
+      });
+      // Not taken by the purge inside the grace either.
+      vi.setSystemTime(new Date(NOW.getTime() + 2 * HOUR - 1));
+      expect(await svc(c).purgeExpired()).toBe(0);
+      // The order committed meanwhile: past the grace the purge keeps the row, EXPIRED.
+      const orderId = await createOrder(c);
+      c.tables[UIDS.order].find((o) => o.id === orderId).checkoutSession = id;
+      vi.setSystemTime(new Date(NOW.getTime() + 2 * HOUR + 1));
+      expect(await svc(c).purgeExpired()).toBe(1);
+      expect(sessions(c)[0]).toMatchObject({ id, status: 'EXPIRED' });
+    });
+
+    it('F4: without an order, the purge deletes it once the grace has passed', async () => {
+      const c = setupCommerce({ checkoutSessionTtlHours: 1 });
+      const { token } = await svc(c).open(null);
+      vi.setSystemTime(new Date(NOW.getTime() + HOUR + 30 * 60_000));
+      expect(await svc(c).resolve(token)).toBeNull();
+      expect(sessions(c)).toHaveLength(1);
+      vi.setSystemTime(new Date(NOW.getTime() + 2 * HOUR + 1));
+      expect(await svc(c).purgeExpired()).toBe(1);
       expect(sessions(c)).toHaveLength(0);
     });
 
