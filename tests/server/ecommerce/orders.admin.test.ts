@@ -58,6 +58,26 @@ describe('EcommerceOrderService.quoteForLines', () => {
       service.quoteForLines({ country: 'PT', lines: [{ variantId: 99, quantity: 1 }], locale: 'en' })
     ).rejects.toBeInstanceOf(EcommerceValidationError);
   });
+  it('rejects inactive and unknown variants as VARIANT_UNAVAILABLE at the line', async () => {
+    const { service, quote } = setup();
+    const err: any = await service
+      .quoteForLines({
+        country: 'PT',
+        lines: [
+          { variantId: 10, quantity: 1 },
+          { variantId: 11, quantity: 1 },
+          { variantId: 99, quantity: 1 },
+        ],
+        locale: 'en',
+      })
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(EcommerceValidationError);
+    expect(err.errors).toEqual([
+      { path: 'lines.1.variantId', code: 'VARIANT_UNAVAILABLE' },
+      { path: 'lines.2.variantId', code: 'VARIANT_UNAVAILABLE' },
+    ]);
+    expect(quote).not.toHaveBeenCalled();
+  });
 });
 
 describe('EcommerceOrderService.searchVariants', () => {

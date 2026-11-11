@@ -1502,6 +1502,8 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     const country = clean(input?.country);
     if (!country) errors.push({ path: 'country', code: 'required' });
     const merged = new Map<number, number>();
+    /** First line index of each variant, for error paths. */
+    const firstIndex = new Map<number, number>();
     rawLines.forEach((l, i) => {
       const variantId = Number(l?.variantId);
       const quantity = Number(l?.quantity);
@@ -1511,6 +1513,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         errors.push({ path: `lines.${i}.quantity`, code: 'invalid' });
       } else {
         merged.set(variantId, (merged.get(variantId) ?? 0) + quantity);
+        if (!firstIndex.has(variantId)) firstIndex.set(variantId, i);
       }
     });
     if (errors.length) throw new EcommerceValidationError('Invalid shipping quote', errors);
@@ -1519,12 +1522,15 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     const catalog = await loadCatalog([...merged.keys()], locale);
     const items: ShippingQuoteRequest['items'] = [];
     let subtotal = 0;
+    const unavailable: ValidationIssue[] = [];
     for (const [variantId, quantity] of merged) {
       const c = catalog.get(variantId);
-      if (!c) {
-        throw new EcommerceValidationError('Invalid shipping quote', [
-          { path: 'lines', code: 'variant_not_found' },
-        ]);
+      if (!c || !c.active) {
+        unavailable.push({
+          path: `lines.${firstIndex.get(variantId)}.variantId`,
+          code: 'VARIANT_UNAVAILABLE',
+        });
+        continue;
       }
       items.push({
         variantId,
@@ -1535,6 +1541,9 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         depth: c.depth,
       });
       subtotal += c.price * quantity;
+    }
+    if (unavailable.length) {
+      throw new EcommerceValidationError('Invalid shipping quote', unavailable);
     }
     const request: ShippingQuoteRequest = {
       country,
