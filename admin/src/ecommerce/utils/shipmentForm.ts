@@ -158,21 +158,72 @@ export function deliveredAtInputToIso(value: string): string | null {
   return date.toISOString();
 }
 
+/**
+ * The value to send for a delivery date: the real current time when the admin left the default
+ * untouched (the input is truncated to the minute, which the server would refuse as earlier than a
+ * shipment of the same minute); otherwise the typed value, or null when it is not valid.
+ */
+export function resolveDeliveredAt(value: string, defaultValue: string, now = new Date()): string | null {
+  if (value === defaultValue) return now.toISOString();
+  return deliveredAtInputToIso(value);
+}
+
+/** Mirrors the server: a PENDING shipment with no outcome after this long was abandoned. */
+export const STUCK_PENDING_SHIPMENT_MS = 2 * 60 * 1000;
+
 /** A carrier shipment whose creation outcome is unknown: only "Retry" can settle it. */
 export function isUncertainShipment(s: Pick<ShipmentView, 'status' | 'error'>): boolean {
   return s.status === 'PENDING' && s.error === 'UNCERTAIN';
+}
+
+/**
+ * A PENDING shipment with no outcome recorded for longer than `STUCK_PENDING_SHIPMENT_MS` (the
+ * server stopped between its two steps): the server treats it as uncertain and accepts "Retry".
+ */
+export function isStuckPendingShipment(
+  s: Pick<ShipmentView, 'status' | 'error' | 'createdAt'>,
+  now = Date.now()
+): boolean {
+  if (s.status !== 'PENDING' || s.error) return false;
+  const created = Date.parse(s.createdAt ?? '');
+  return Number.isFinite(created) && now - created > STUCK_PENDING_SHIPMENT_MS;
+}
+
+/**
+ * Server field errors of a line-based request mapped to form paths: `lines.<index>.…` →
+ * `lines.<orderLineId>` of the line sent at that index (or `lines`), a path listed in `fields` →
+ * its form path. The first unmapped code is returned as `other`.
+ */
+export function mapServerFieldErrors(
+  list: { path: string; code: string }[],
+  sentLines: { orderLineId: number }[],
+  fields: Record<string, string>
+): { errors: FormErrors; other: string | null } {
+  const errors: FormErrors = {};
+  let other: string | null = null;
+  for (const e of list) {
+    const m = /^lines\.(\d+)(\.|$)/.exec(e.path);
+    const sent = m ? sentLines[Number(m[1])] : undefined;
+    const key = m ? (sent ? `lines.${sent.orderLineId}` : 'lines') : fields[e.path];
+    if (key) {
+      if (!errors[key]) errors[key] = e.code;
+    } else if (!other) {
+      other = e.code;
+    }
+  }
+  return { errors, other };
 }
 
 export type ShipmentAction = 'DELIVER' | 'TRACKING' | 'REFRESH' | 'LABEL' | 'RETRY' | 'CANCEL';
 
 /**
  * The buttons of one shipment, in display order. Mutations need `orders.manage` and an order that
- * is not archived; the label only needs to be readable. The server has the final word (e.g. a
- * PENDING shipment without carrier id is refused with SHIPMENT_UNCERTAIN).
+ * is not archived; the label only needs to be readable. PENDING shipments only offer "Retry"
+ * (uncertain, or stuck past `STUCK_PENDING_SHIPMENT_MS`).
  */
 export function shipmentActions(
   s: ShipmentView,
-  ctx: { orderStatus: OrderStatus; canManage: boolean }
+  ctx: { orderStatus: OrderStatus; canManage: boolean; now?: number }
 ): ShipmentAction[] {
   const manage = ctx.canManage && ctx.orderStatus !== 'ARCHIVED';
   const active = s.status === 'ACTIVE';
@@ -183,7 +234,9 @@ export function shipmentActions(
   if (manage && active) out.push('TRACKING');
   if (manage && active && carrier && !delivered) out.push('REFRESH');
   if (active && s.labelAvailable) out.push('LABEL');
-  if (manage && isUncertainShipment(s)) out.push('RETRY');
-  if (manage && s.status !== 'CANCELLED' && !(active && delivered)) out.push('CANCEL');
+  if (manage && (isUncertainShipment(s) || isStuckPendingShipment(s, ctx.now))) out.push('RETRY');
+  // A PENDING shipment may exist at the carrier: the server refuses to cancel it (SHIPMENT_UNCERTAIN).
+  const cancellable = s.status === 'FAILED' || (active && !delivered);
+  if (manage && cancellable) out.push('CANCEL');
   return out;
 }

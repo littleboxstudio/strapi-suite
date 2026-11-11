@@ -29,6 +29,7 @@ import { apiErrorMessageId } from '../../utils/orderDetail';
 import {
   MAX_CANCEL_REASON,
   isHttpUrl,
+  isStuckPendingShipment,
   isUncertainShipment,
   shipmentActions,
   type ShipmentAction,
@@ -190,6 +191,7 @@ const ShipmentsSection = ({ title, orderStatus, deliveryStatus, shipments, canMa
 
   const statusNote = (s: ShipmentView) => {
     if (isUncertainShipment(s)) return { tone: 'warning600', text: t('ecommerce.orders.shipments.uncertainHint') };
+    if (isStuckPendingShipment(s)) return { tone: 'warning600', text: t('ecommerce.orders.shipments.stuckHint') };
     if (s.status === 'PENDING') return { tone: 'neutral600', text: t('ecommerce.orders.shipments.pendingHint') };
     if (s.status === 'FAILED' && s.error) {
       return {

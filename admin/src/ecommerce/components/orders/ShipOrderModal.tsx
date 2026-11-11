@@ -28,6 +28,7 @@ import {
   buildShipmentInput,
   canShipByCarrier,
   emptyShipForm,
+  mapServerFieldErrors,
   validateShipForm,
   type FormErrors,
   type ShipForm,
@@ -88,22 +89,17 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
     });
   };
 
-  const setQuantity = (orderLineId: number, quantity: string) =>
-    update(
-      { lines: form.lines.map((l) => (l.orderLineId === orderLineId ? { ...l, quantity } : l)) },
-      [`lines.${orderLineId}`, 'lines']
-    );
+  const setQuantity = (orderLineId: number, quantity: string) => {
+    setForm((f) => ({
+      ...f,
+      lines: f.lines.map((l) => (l.orderLineId === orderLineId ? { ...l, quantity } : l)),
+    }));
+    update({}, [`lines.${orderLineId}`, 'lines']);
+  };
 
   /** Field errors of the server mapped back to the form; the rest becomes the form message. */
   const showServerErrors = (err: unknown, sentLines: { orderLineId: number }[]) => {
-    const map: FormErrors = {};
-    let other: string | null = null;
-    (extractFieldErrors(err) ?? []).forEach((e) => {
-      const m = /^lines\.(\d+)\./.exec(e.path);
-      const key = m ? (sentLines[Number(m[1])] ? `lines.${sentLines[Number(m[1])].orderLineId}` : 'lines') : METHOD_PATHS[e.path];
-      if (key && !map[key]) map[key] = e.code;
-      else if (!key && !other) other = e.code;
-    });
+    const { errors: map, other } = mapServerFieldErrors(extractFieldErrors(err) ?? [], sentLines, METHOD_PATHS);
     setErrors(map);
     if (!Object.keys(map).length) {
       setFormError(t(apiErrorMessageId(err, 'ecommerce.orders.ship.error')));

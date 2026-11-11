@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import EcommerceShipmentService, {
   CREATE_SHIPMENT_TIMEOUT_MS,
   CARRIER_CALL_TIMEOUT_MS,
+  STUCK_PENDING_SHIPMENT_MS,
 } from '../../../server/src/services/modules/ecommerce/shipments';
 import { cttExpressoAdapter } from '../../../server/src/services/modules/ecommerce/providers/carriers/cttExpresso';
 import { __resetEventHandlersForTests } from '../../../server/src/services/modules/ecommerce/events';
@@ -357,6 +358,31 @@ describe('EcommerceShipmentService.create (CARRIER)', () => {
     });
     expect(shipEvents(c)).toHaveLength(1);
     expect(orderRow(c, id).fulfillmentStatus).toBe('FULFILLED');
+  });
+
+  it('a PENDING shipment without outcome (process died between the transactions) is retryable once stale', async () => {
+    const { c, ships, adapter } = setup();
+    const { id, lineId } = await paidOrder(c, 2, 'acme');
+    adapter.createShipment.mockRejectedValueOnce(new EcommerceCarrierError('TIMEOUT', 'TIMEOUT', true));
+    const s = await ships.create(id, carrier(lineId, 2, 'k'), 'user:1');
+    const row = shipmentRows(c).find((r) => r.id === s.id);
+    // As if the second transaction never ran: PENDING with no error.
+    row.error = null;
+    row.createdAt = new Date(Date.now() - 30_000).toISOString();
+    expect(await codesOf(ships.retry(s.id, 'user:1'))).toEqual(['ACTION_NOT_AVAILABLE']);
+
+    row.createdAt = new Date(Date.now() - STUCK_PENDING_SHIPMENT_MS - 1000).toISOString();
+    const retried = await ships.retry(s.id, 'user:1');
+    expect(retried).toMatchObject({ id: s.id, status: 'ACTIVE', error: null });
+    expect(adapter.createShipment).toHaveBeenLastCalledWith(
+      expect.objectContaining({ ourReference: `LB-SHP-${s.id}` }),
+      RUNTIME,
+      { timeoutMs: 30000 }
+    );
+  });
+
+  it('the stale threshold is above the create timeout and its backstop', () => {
+    expect(STUCK_PENDING_SHIPMENT_MS).toBeGreaterThanOrEqual(CREATE_SHIPMENT_TIMEOUT_MS + 5000);
   });
 
   it('retry is refused unless PENDING/UNCERTAIN', async () => {
