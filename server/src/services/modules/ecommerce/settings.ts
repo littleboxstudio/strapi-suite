@@ -60,6 +60,8 @@ export type StoreSettings = {
   timezone: string;
   shippingCountries: string[];
   supportEmail: string | null;
+  storefrontApiTokenId: number | null;
+  checkoutSessionTtlHours: number;
 };
 
 export const STORE_SETTINGS_DEFAULTS: StoreSettings = {
@@ -72,6 +74,8 @@ export const STORE_SETTINGS_DEFAULTS: StoreSettings = {
   timezone: 'Europe/Lisbon',
   shippingCountries: ['PT'],
   supportEmail: null,
+  storefrontApiTokenId: null,
+  checkoutSessionTtlHours: 168,
 };
 
 export type ManualMethod = {
@@ -200,6 +204,18 @@ function normalizeStorePatch(patch: Record<string, unknown>): {
     if (isBlank(v)) values.supportEmail = null;
     else if (typeof v !== 'string' || !isEmail(v)) errors.push({ path: 'supportEmail', code: 'invalid_email' });
     else values.supportEmail = v;
+  }
+  if (has('storefrontApiTokenId')) {
+    const v = patch.storefrontApiTokenId;
+    if (v === null || v === undefined) values.storefrontApiTokenId = null;
+    else if (typeof v !== 'number' || !Number.isInteger(v) || v < 1) errors.push({ path: 'storefrontApiTokenId', code: 'invalid_token' });
+    else values.storefrontApiTokenId = v;
+  }
+  if (has('checkoutSessionTtlHours')) {
+    const v = patch.checkoutSessionTtlHours;
+    if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > 720)
+      errors.push({ path: 'checkoutSessionTtlHours', code: 'invalid_number' });
+    else values.checkoutSessionTtlHours = v;
   }
   return { values: values as Partial<StoreSettings>, errors };
 }
@@ -564,6 +580,12 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
     async updateStoreSettings(patch: Partial<StoreSettings>, userId?: string | number): Promise<StoreSettings> {
       const { values, errors } = normalizeStorePatch((patch ?? {}) as Record<string, unknown>);
       if (errors.length) throw new EcommerceValidationError('Invalid settings', errors);
+      if (typeof values.storefrontApiTokenId === 'number') {
+        const token = await strapi.service('admin::api-token').getById(values.storefrontApiTokenId);
+        if (!token) {
+          throw new EcommerceValidationError('Invalid settings', [{ path: 'storefrontApiTokenId', code: 'invalid_token' }]);
+        }
+      }
 
       const q = () => strapi.db.query(uids().storeSetting);
       const current = await getStoreSettings();

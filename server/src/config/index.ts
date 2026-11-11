@@ -59,6 +59,7 @@ export interface LtbConfigs {
         promotion: UID.ContentType;
         promotionRedemption: UID.ContentType;
         promotionCustomerUsage: UID.ContentType;
+        checkoutSession: UID.ContentType;
       },
     },
     customFields: {
@@ -115,6 +116,7 @@ export default {
           promotion: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-promotion`,
           promotionRedemption: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-promotion-redemption`,
           promotionCustomerUsage: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-promotion-customer-usage`,
+          checkoutSession: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-checkout-session`,
         },
       },
       customFields: {

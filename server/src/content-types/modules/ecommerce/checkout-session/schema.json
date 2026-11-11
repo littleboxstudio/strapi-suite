@@ -1,0 +1,69 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_checkout_sessions",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-checkout-session",
+    "pluralName": "ltb-st-module-ecommerce-checkout-sessions",
+    "displayName": "Littlebox Strapi Suite - E-commerce Checkout Session",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Checkout Session"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "tokenHash": {
+      "type": "string",
+      "required": true,
+      "unique": true
+    },
+    "status": {
+      "type": "enumeration",
+      "enum": [
+        "ACTIVE",
+        "EXPIRED"
+      ],
+      "default": "ACTIVE"
+    },
+    "expiresAt": {
+      "type": "datetime",
+      "required": true
+    },
+    "lastUsedAt": {
+      "type": "datetime"
+    },
+    "cart": {
+      "type": "json"
+    },
+    "emailVerification": {
+      "type": "json"
+    },
+    "verificationAttempts": {
+      "type": "integer",
+      "default": 0
+    },
+    "verifiedEmail": {
+      "type": "string"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_checkout_session_token_unique",
+      "columns": [
+        "token_hash"
+      ],
+      "type": "unique"
+    }
+  ]
+}

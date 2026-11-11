@@ -393,6 +393,7 @@
   "littlebox-strapi-suite.ecommerce.settings.errors.invalid_locale": "Choose a valid language.",
   "littlebox-strapi-suite.ecommerce.settings.errors.out_of_range": "This value is out of range.",
   "littlebox-strapi-suite.ecommerce.settings.errors.invalid_number": "Enter a valid number.",
+  "littlebox-strapi-suite.ecommerce.settings.errors.invalid_token": "The selected API token does not exist.",
   "littlebox-strapi-suite.ecommerce.settings.errors.invalid_option": "Choose one of the available options.",
   "littlebox-strapi-suite.ecommerce.settings.errors.ENCRYPTION_KEY_MISSING": "Credentials cannot be saved: the encryption key (LTB_ECOMMERCE_ENCRYPTION_KEY) is not configured.",
   "littlebox-strapi-suite.ecommerce.settings.errors.SECRET_UNREADABLE": "The stored credentials cannot be read with the current encryption key. Enter them again.",
