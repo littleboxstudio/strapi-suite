@@ -52,7 +52,11 @@ export class EcommercePaymentError extends Error {
       /** A Stripe payment (e.g. Multibanco) awaits confirmation: no new link meanwhile. */
       | 'PAYMENT_PENDING'
       /** A Stripe session does not match the stored session or payment (id or amount). */
-      | 'STRIPE_SESSION_MISMATCH',
+      | 'STRIPE_SESSION_MISMATCH'
+      /** Missing/invalid `Stripe-Signature`, or no webhook secret configured. */
+      | 'WEBHOOK_SIGNATURE_INVALID'
+      /** Correctly signed, but not a Stripe event (no `id`/`type`). */
+      | 'WEBHOOK_PAYLOAD_INVALID',
     message: string = code,
     /** Stripe's `error.type` (e.g. `idempotency_error`), never its message. */
     public stripeErrorType?: string

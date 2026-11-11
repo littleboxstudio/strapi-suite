@@ -11,6 +11,7 @@ import EcommerceProductController from './modules/ecommerce/products';
 import EcommerceSettingsController from './modules/ecommerce/settings';
 import EcommerceCustomerController from './modules/ecommerce/customers';
 import EcommerceOrderController from './modules/ecommerce/orders';
+import EcommerceStripeWebhookController from './modules/ecommerce/stripeWebhook';
 
 export default {
   SettingAppController,
@@ -26,4 +27,5 @@ export default {
   EcommerceSettingsController,
   EcommerceCustomerController,
   EcommerceOrderController,
+  EcommerceStripeWebhookController,
 };
