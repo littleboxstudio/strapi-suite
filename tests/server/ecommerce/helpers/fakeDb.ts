@@ -110,12 +110,13 @@ export function createFakeDb(
         // SQL semantics: `<>` never matches NULL.
         if ('$ne' in cond) return value !== null && value !== undefined && value !== cond.$ne;
         if ('$startsWith' in cond) return typeof value === 'string' && value.startsWith(cond.$startsWith);
-        for (const [op, cmp] of RANGE_OPS) {
-          if (op in cond) {
-            // SQL semantics: comparisons with NULL never match. Dates compare by instant.
-            if (value === null || value === undefined) return false;
-            return cmp(comparable(value), comparable(cond[op]));
-          }
+        const ranges = RANGE_OPS.filter(([op]) => op in cond);
+        if (ranges.length > 0) {
+          // SQL semantics: comparisons with NULL never match; every operator applies (AND).
+          // Dates compare by instant.
+          if (value === null || value === undefined) return false;
+          if (Object.keys(cond).length !== ranges.length) throw new Error('unsupported op');
+          return ranges.every(([op, cmp]) => cmp(comparable(value), comparable(cond[op])));
         }
         if ('$containsi' in cond)
           return String(value ?? '')
@@ -204,7 +205,9 @@ export function createFakeDb(
       if (i >= 0) tables[uid].splice(i, 1);
     },
     deleteMany: async ({ where }: any) => {
+      const before = tables[uid].length;
       tables[uid] = tables[uid].filter((x) => !match(uid, x, where));
+      return { count: before - tables[uid].length };
     },
   });
 

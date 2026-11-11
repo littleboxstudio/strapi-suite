@@ -21,10 +21,11 @@ export type StoredCart = {
   locale: string | null;
 };
 
+/** Deeply frozen reference value; use `emptyCart()` for a cart to modify or store. */
 export const EMPTY_CART: StoredCart = Object.freeze({
-  lines: [],
-  promotionCodes: [],
-  giftChoices: {},
+  lines: Object.freeze([]) as unknown as StoredCart['lines'],
+  promotionCodes: Object.freeze([]) as unknown as string[],
+  giftChoices: Object.freeze({}) as Record<string, number>,
   email: null,
   destination: null,
   shippingMethod: null,
@@ -44,12 +45,19 @@ export type OpenedSession = { token: string | null; expiresAt: string; reused: b
 
 /** Hard cap of sessions handled by one purge (it runs inline on `open`). */
 export const PURGE_BATCH_MAX = 100;
+/**
+ * The purge only takes sessions expired for longer than this, so a request that resolved its
+ * session just before expiry (e.g. an order being created) always finishes first.
+ */
+export const PURGE_GRACE_MS = 3_600_000;
 /** `lastUsedAt` is only rewritten when the stored value is older than this. */
 const LAST_USED_RESOLUTION_MS = 60_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const changed = (r: unknown): number =>
+  isRecord(r) && Number.isInteger(r.count) ? (r.count as number) : 0;
 const LOG_PREFIX = '[ecommerce:storefront]';
 
-const emptyCart = (): StoredCart => ({
+export const emptyCart = (): StoredCart => ({
   lines: [],
   promotionCodes: [],
   giftChoices: {},
@@ -104,9 +112,46 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
   const settings = () => strapi.plugin(PLUGIN_ID).service('EcommerceSettingsService');
 
   /**
+   * Retires expired ACTIVE sessions: those without orders are deleted; those with orders stay
+   * (the order keeps its relation) but are marked EXPIRED and scrubbed. Orders are only read
+   * through the relation, never changed (requirement 2.13). Writes are conditional on ACTIVE,
+   * so a concurrent purge or resolve is harmless. Returns the rows actually changed.
+   */
+  const retire = async (ids: number[]): Promise<number> => {
+    if (ids.length === 0) return 0;
+    const orders: { checkoutSession?: { id: number } | null }[] = await strapi.db
+      .query(uids().order)
+      .findMany({
+        where: { checkoutSession: { id: { $in: ids } } },
+        select: ['id'],
+        populate: { checkoutSession: { select: ['id'] } },
+      });
+    const withOrders = new Set(
+      orders.map((o) => o.checkoutSession?.id).filter((id): id is number => typeof id === 'number')
+    );
+    const keep = ids.filter((id) => withOrders.has(id));
+    const remove = ids.filter((id) => !withOrders.has(id));
+    let count = 0;
+    if (remove.length > 0) {
+      count += changed(
+        await sessionsQuery().deleteMany({ where: { id: { $in: remove }, status: 'ACTIVE' } })
+      );
+    }
+    if (keep.length > 0) {
+      count += changed(
+        await sessionsQuery().updateMany({
+          where: { id: { $in: keep }, status: 'ACTIVE' },
+          data: { status: 'EXPIRED', ...scrubbed() },
+        })
+      );
+    }
+    return count;
+  };
+
+  /**
    * Looks the session up by the SHA-256 of the token (never the raw token). Malformed,
-   * unknown, non-ACTIVE and expired tokens all give `null`; an expired ACTIVE row is marked
-   * EXPIRED and scrubbed (conditional update, so a concurrent purge is harmless).
+   * unknown, non-ACTIVE and expired tokens all give `null`; an expired ACTIVE row is retired
+   * on the spot (deleted, or scrubbed and EXPIRED when it has orders).
    */
   const resolve = async (token: unknown): Promise<CheckoutSession | null> => {
     if (!isWellFormedSessionToken(token)) return null;
@@ -115,10 +160,7 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
     const now = Date.now();
     const expiresAt = time(row.expiresAt);
     if (!(expiresAt > now)) {
-      await sessionsQuery().updateMany({
-        where: { id: row.id, status: 'ACTIVE' },
-        data: { status: 'EXPIRED', ...scrubbed() },
-      });
+      await retire([row.id]);
       return null;
     }
     const lastUsed = time(row.lastUsedAt);
@@ -138,46 +180,22 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
   };
 
   /**
-   * Data retention without a cron: up to `limit` (≤ 100) ACTIVE sessions past `expiresAt`.
-   * Those without orders are deleted; those with orders stay (the order keeps its relation)
-   * but are marked EXPIRED and scrubbed. Orders are never read beyond the relation nor changed.
+   * Data retention without a cron: retires up to `limit` (≤ 100) ACTIVE sessions expired for
+   * more than `PURGE_GRACE_MS`. Returns the rows actually changed.
    */
   const purgeExpired = async (limit = PURGE_BATCH_MAX): Promise<number> => {
     const take = Number.isFinite(limit)
       ? Math.max(0, Math.min(PURGE_BATCH_MAX, Math.floor(limit)))
       : 0;
     if (take === 0) return 0;
-    const now = new Date();
+    const cutoff = new Date(Date.now() - PURGE_GRACE_MS);
     const expired: { id: number }[] = await sessionsQuery().findMany({
-      where: { status: 'ACTIVE', expiresAt: { $lt: now } },
+      where: { status: 'ACTIVE', expiresAt: { $lt: cutoff } },
       select: ['id'],
       orderBy: [{ expiresAt: 'asc' }, { id: 'asc' }],
       limit: take,
     });
-    if (expired.length === 0) return 0;
-    const ids = expired.map((s) => s.id);
-    const orders: { checkoutSession?: { id: number } | null }[] = await strapi.db
-      .query(uids().order)
-      .findMany({
-        where: { checkoutSession: { id: { $in: ids } } },
-        select: ['id'],
-        populate: { checkoutSession: { select: ['id'] } },
-      });
-    const withOrders = new Set(
-      orders.map((o) => o.checkoutSession?.id).filter((id): id is number => typeof id === 'number')
-    );
-    const keep = ids.filter((id) => withOrders.has(id));
-    const remove = ids.filter((id) => !withOrders.has(id));
-    if (remove.length > 0) {
-      await sessionsQuery().deleteMany({ where: { id: { $in: remove }, status: 'ACTIVE' } });
-    }
-    if (keep.length > 0) {
-      await sessionsQuery().updateMany({
-        where: { id: { $in: keep }, status: 'ACTIVE' },
-        data: { status: 'EXPIRED', ...scrubbed() },
-      });
-    }
-    return ids.length;
+    return retire(expired.map((s) => s.id));
   };
 
   /**
@@ -213,7 +231,7 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
 
   const saveCart = async (sessionId: number, cart: StoredCart): Promise<void> => {
     await sessionsQuery().update({
-      where: { id: sessionId, status: 'ACTIVE' },
+      where: { id: sessionId, status: 'ACTIVE', expiresAt: { $gt: new Date() } },
       data: { cart: toStoredCart(cart) },
     });
   };
@@ -243,8 +261,9 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
     publicId: unknown
   ): Promise<{ id: number; publicId: string } | null> => {
     if (typeof publicId !== 'string' || !UUID.test(publicId)) return null;
+    // Stored lower-case (randomUUID); case-sensitive collations (Postgres) must match too.
     const order = await strapi.db.query(uids().order).findOne({
-      where: { publicId, checkoutSession: { id: s.id } },
+      where: { publicId: publicId.toLowerCase(), checkoutSession: { id: s.id } },
       select: ['id', 'publicId'],
     });
     if (!order) {
