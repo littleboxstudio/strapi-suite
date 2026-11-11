@@ -10,6 +10,8 @@ import {
   suggestCreditNote,
   validateCreditNoteRequest,
   issueDate,
+  uninvoicedByPayment,
+  creditNoteBudget,
   type InvoiceLine,
   type InvoicedCoverage,
 } from '../../../../server/src/services/modules/ecommerce/domain/invoicing';
@@ -698,5 +700,74 @@ describe('issueDate', () => {
 
   it('falls back to UTC for an invalid time zone', () => {
     expect(issueDate(new Date('2026-07-01T23:30:00Z'), 'Not/AZone')).toBe('2026-07-01');
+  });
+});
+
+describe('uninvoicedByPayment', () => {
+  // A: 5 × 1000, 3 returned (due 2000); B: 5 × 1000; shipping 500.
+  const order = {
+    lines: [line(1, 1000, 5, { returnedQuantity: 3 }), line(2, 1000, 5)],
+    orderDiscount: 0,
+    shippingTotal: 500,
+    shippingTax: 23,
+    status: 'OPEN' as const,
+  };
+  const invoiced = new Map<number, InvoicedCoverage>([
+    [10, { lines: [{ orderLineId: 1, value: 5000 }], shipping: 0 }],
+  ]);
+  const payments = [
+    { id: 10, amount: 5000 },
+    { id: 20, amount: 5500 },
+  ];
+
+  it('counts over-invoiced value still to credit; only invoiced payments are listed', () => {
+    const out = uninvoicedByPayment(order, payments, invoiced, []);
+    expect([...out]).toEqual([[10, 3000]]);
+  });
+
+  it('value already credited counts once, not twice', () => {
+    const cn = [{ orderLineId: 1, kind: 'ITEM' as const, total: 3000 }];
+    expect(uninvoicedByPayment(order, payments, invoiced, cn).get(10)).toBe(3000);
+  });
+
+  it('excluded value at issue counts; a cancelled order loses everything', () => {
+    const partial = new Map([[10, { lines: [{ orderLineId: 2, value: 4000 }], shipping: 0 }]]);
+    expect(uninvoicedByPayment(order, payments, partial, []).get(10)).toBe(1000);
+    expect(
+      uninvoicedByPayment({ ...order, status: 'CANCELLED' }, payments, invoiced, []).get(10)
+    ).toBe(5000);
+  });
+
+  it('shares a line loss among its payments in proportion to their value', () => {
+    const two = new Map<number, InvoicedCoverage>([
+      [10, { lines: [{ orderLineId: 1, value: 3000 }], shipping: 0 }],
+      [20, { lines: [{ orderLineId: 1, value: 2000 }], shipping: 0 }],
+    ]);
+    const out = uninvoicedByPayment(order, [{ id: 10, amount: 3000 }, { id: 20, amount: 2000 }], two, []);
+    expect(out.get(10)).toBe(1800);
+    expect(out.get(20)).toBe(1200);
+  });
+});
+
+describe('creditNoteBudget', () => {
+  const order = {
+    lines: [line(1, 1000, 5, { returnedQuantity: 3 }), line(2, 1000, 5)],
+    orderDiscount: 0,
+    shippingTotal: 500,
+    shippingTax: 23,
+    status: 'OPEN' as const,
+  };
+  it('what stays invoiced plus what is left to invoice never drops below what is kept', () => {
+    // Refund attributed to the invoiced payment: B still fully invoiceable.
+    expect(creditNoteBudget(order, { invoiced: 5000, credited: 0, invoiceable: 5500, kept: 7500 })).toBe(3000);
+    // The refund was already netted from B's invoice: nothing to credit.
+    expect(creditNoteBudget(order, { invoiced: 7500, credited: 0, invoiceable: 0, kept: 7500 })).toBe(0);
+    // A return not yet refunded: the order keeps more than its lines are worth.
+    expect(creditNoteBudget(order, { invoiced: 5000, credited: 0, invoiceable: 5500, kept: 10500 })).toBe(3000);
+  });
+  it('a cancelled order may credit everything still invoiced', () => {
+    expect(
+      creditNoteBudget({ ...order, status: 'CANCELLED' }, { invoiced: 5000, credited: 1000, invoiceable: 0, kept: 10500 })
+    ).toBe(4000);
   });
 });

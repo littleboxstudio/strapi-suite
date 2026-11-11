@@ -641,6 +641,8 @@ export type ShipmentView = {
   /** `UNCERTAIN` on a PENDING shipment the carrier may have created; else a failure code. */
   error: string | null;
   createdAt: string | null;
+  /** "Retry" is available (uncertain, or stuck PENDING), decided by the server clock. */
+  retryable: boolean;
   /** Oldest first. */
   events: ShipmentEvent[];
 };

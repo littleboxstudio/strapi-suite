@@ -168,25 +168,18 @@ export function resolveDeliveredAt(value: string, defaultValue: string, now = ne
   return deliveredAtInputToIso(value);
 }
 
-/** Mirrors the server: a PENDING shipment with no outcome after this long was abandoned. */
-export const STUCK_PENDING_SHIPMENT_MS = 2 * 60 * 1000;
-
 /** A carrier shipment whose creation outcome is unknown: only "Retry" can settle it. */
 export function isUncertainShipment(s: Pick<ShipmentView, 'status' | 'error'>): boolean {
   return s.status === 'PENDING' && s.error === 'UNCERTAIN';
 }
 
 /**
- * A PENDING shipment with no outcome recorded for longer than `STUCK_PENDING_SHIPMENT_MS` (the
- * server stopped between its two steps): the server treats it as uncertain and accepts "Retry".
+ * A PENDING shipment with no outcome recorded that the server reports as stale (it stopped between
+ * its two steps): the server treats it as uncertain and accepts "Retry". The server decides with
+ * its own clock (`retryable`); the browser clock is never compared.
  */
-export function isStuckPendingShipment(
-  s: Pick<ShipmentView, 'status' | 'error' | 'createdAt'>,
-  now = Date.now()
-): boolean {
-  if (s.status !== 'PENDING' || s.error) return false;
-  const created = Date.parse(s.createdAt ?? '');
-  return Number.isFinite(created) && now - created > STUCK_PENDING_SHIPMENT_MS;
+export function isStuckPendingShipment(s: Pick<ShipmentView, 'status' | 'error' | 'retryable'>): boolean {
+  return s.status === 'PENDING' && !s.error && s.retryable === true;
 }
 
 /**
@@ -218,12 +211,12 @@ export type ShipmentAction = 'DELIVER' | 'TRACKING' | 'REFRESH' | 'LABEL' | 'RET
 
 /**
  * The buttons of one shipment, in display order. Mutations need `orders.manage` and an order that
- * is not archived; the label only needs to be readable. PENDING shipments only offer "Retry"
- * (uncertain, or stuck past `STUCK_PENDING_SHIPMENT_MS`).
+ * is not archived; the label only needs to be readable. PENDING shipments only offer "Retry",
+ * when the server reports them `retryable` (uncertain, or stuck).
  */
 export function shipmentActions(
   s: ShipmentView,
-  ctx: { orderStatus: OrderStatus; canManage: boolean; now?: number }
+  ctx: { orderStatus: OrderStatus; canManage: boolean }
 ): ShipmentAction[] {
   const manage = ctx.canManage && ctx.orderStatus !== 'ARCHIVED';
   const active = s.status === 'ACTIVE';
@@ -234,7 +227,7 @@ export function shipmentActions(
   if (manage && active) out.push('TRACKING');
   if (manage && active && carrier && !delivered) out.push('REFRESH');
   if (active && s.labelAvailable) out.push('LABEL');
-  if (manage && (isUncertainShipment(s) || isStuckPendingShipment(s, ctx.now))) out.push('RETRY');
+  if (manage && s.status === 'PENDING' && s.retryable) out.push('RETRY');
   // A PENDING shipment may exist at the carrier: the server refuses to cancel it (SHIPMENT_UNCERTAIN).
   const cancellable = s.status === 'FAILED' || (active && !delivered);
   if (manage && cancellable) out.push('CANCEL');

@@ -68,6 +68,14 @@ describe('EcommerceShippingService', () => {
     expect(options.map((o) => `${o.providerId}:${o.serviceId}`)).toEqual(['ctt:e', 'manual:2', 'manual:1']);
   });
 
+  it('hands the adapter an explicit 8 s timeout', async () => {
+    const s = setup({ carriers: ['ctt'] });
+    const quoter = vi.fn(async () => []);
+    s.registerCarrierQuoter('ctt', quoter);
+    await s.quote(req());
+    expect(quoter).toHaveBeenCalledWith(req(), { config: {}, secrets: {} }, { timeoutMs: 8000 });
+  });
+
   it('findOption returns the option or null', async () => {
     const s = setup({ methods: [method(1, 500, ['PT'])] });
     expect(await s.findOption(req(), 'manual', '1')).toMatchObject({ price: 500 });

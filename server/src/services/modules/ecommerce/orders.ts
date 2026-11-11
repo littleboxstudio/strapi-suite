@@ -39,6 +39,7 @@ import {
   invoiceableByPayment,
   reconcileCoverages,
   toInvoicedCoverage,
+  uninvoicedByPayment,
   type InvoiceOrderState,
   type InvoicedCoverage,
   type ReconciledCoverage,
@@ -187,7 +188,7 @@ export type OrderInvoicing = {
   coverageOrder: InvoiceOrderState;
   /** COMPLETED payments in settlement order (`completedAt`, then id). */
   completedPayments: any[];
-  /** Per payment: refunds COMPLETED/PROCESSING/PENDING (see `refundedByPayment`). */
+  /** Per payment: the held refunds attributed to it (see `refundedByPayment`). */
   refunded: Map<number, number>;
   /** Active allocations (`uniqueKey` not null), sorted by id. */
   allocations: { id: number; invoiceId: number | null; paymentId: number; amount: number; coverage: unknown }[];
@@ -207,39 +208,43 @@ const idOf = (v: any): number | null =>
   v && typeof v === 'object' ? (v.id ?? null) : v == null ? null : Number(v);
 
 /**
- * Σ refunds COMPLETED/PROCESSING/PENDING per COMPLETED payment (any method, store credit
- * included). A refund without a payment (a manual transfer or a new store credit) is attributed to
- * payments without an active invoice first (an invoiced payment's value is fixed), then to the
- * invoiced ones, latest first in each group, up to what each has left, so refunded money is never
- * invoiced.
+ * Held refunds (COMPLETED/PROCESSING/PENDING, any method, store credit included) attributed to the
+ * COMPLETED payments for invoice reconciliation. The money is the order's: every held refund (with
+ * or without a payment) is pooled and attributed, latest payment first in each group, up to what
+ * each payment has left:
+ * 1. to payments with an active allocation, up to the part their invoice does not keep invoiced
+ *    (`uninvoiced`, see `uninvoicedByPayment`: excluded, credited or over-invoiced value);
+ * 2. then to payments without an active allocation;
+ * 3. then to the invoiced ones.
+ * So refunded money is never invoiced, and value a credit note takes off an invoice is never also
+ * taken off a payment not invoiced yet.
  */
 export const refundedByPayment = (
   completed: { id: number; amount: number }[],
   refunds: { status: string; amount: number; paymentId: number | null }[],
-  invoiced: Set<number> = new Set()
+  uninvoiced: Map<number, number> = new Map()
 ): Map<number, number> => {
   const out = new Map<number, number>(completed.map((p) => [p.id, 0]));
-  let unlinked = 0;
+  let pool = 0;
   for (const r of refunds) {
     if (!HELD_REFUND.includes(r.status)) continue;
-    if (r.paymentId !== null && out.has(r.paymentId)) {
-      out.set(r.paymentId, out.get(r.paymentId)! + r.amount);
-    } else if (r.paymentId === null) {
-      unlinked += r.amount;
+    // A refund of a payment that is no longer COMPLETED is not this order's held money here.
+    if (r.paymentId === null || out.has(r.paymentId)) pool += r.amount;
+  }
+  const attribute = (payments: { id: number; amount: number }[], cap: (id: number) => number) => {
+    for (const p of payments) {
+      if (pool <= 0) return;
+      const room = Math.max(0, Math.min(p.amount - out.get(p.id)!, cap(p.id)));
+      const take = Math.min(room, pool);
+      out.set(p.id, out.get(p.id)! + take);
+      pool -= take;
     }
-  }
+  };
   const latestFirst = [...completed].reverse();
-  const order = [
-    ...latestFirst.filter((p) => !invoiced.has(p.id)),
-    ...latestFirst.filter((p) => invoiced.has(p.id)),
-  ];
-  for (const p of order) {
-    if (unlinked <= 0) break;
-    const room = Math.max(0, p.amount - out.get(p.id)!);
-    const take = Math.min(room, unlinked);
-    out.set(p.id, out.get(p.id)! + take);
-    unlinked -= take;
-  }
+  const invoiced = latestFirst.filter((p) => uninvoiced.has(p.id));
+  attribute(invoiced, (id) => uninvoiced.get(id)!);
+  attribute(latestFirst.filter((p) => !uninvoiced.has(p.id)), () => Infinity);
+  attribute(invoiced, () => Infinity);
   return out;
 };
 
@@ -953,13 +958,28 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     const completedPayments = payments
       .filter((p) => p.status === 'COMPLETED')
       .sort((a, b) => time(a.completedAt) - time(b.completedAt) || a.id - b.id);
-    const refunded = refundedByPayment(
-      completedPayments.map((p) => ({ id: p.id, amount: num(p.amount) })),
-      refunds.map((r) => ({ status: r.status, amount: num(r.amount), paymentId: idOf(r.payment) })),
-      new Set(allocations.map((a) => a.paymentId))
-    );
     const invoiced = new Map<number, InvoicedCoverage>(
       allocations.map((a) => [a.paymentId, toInvoicedCoverage(a.coverage)])
+    );
+    const amounts = completedPayments.map((p) => ({ id: p.id, amount: num(p.amount) }));
+    const creditNoteLines = invoices
+      .filter((r) => r.kind === 'CREDIT_NOTE')
+      .flatMap((r) => (Array.isArray(r.lines?.lines) ? r.lines.lines : []))
+      .filter((l: any) => l && typeof l === 'object')
+      .map((l: any) => ({
+        orderLineId: l.orderLineId == null ? null : Number(l.orderLineId),
+        kind: l.kind === 'SHIPPING' ? ('SHIPPING' as const) : ('ITEM' as const),
+        total: num(l.total),
+      }));
+    const refunded = refundedByPayment(
+      amounts,
+      refunds.map((r) => ({ status: r.status, amount: num(r.amount), paymentId: idOf(r.payment) })),
+      uninvoicedByPayment(
+        { ...coverageOrder, status: order.orderStatus },
+        amounts,
+        invoiced,
+        creditNoteLines
+      )
     );
 
     let reconciled = new Map<number, ReconciledCoverage>();
