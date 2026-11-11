@@ -177,6 +177,12 @@ describe('error mapping', () => {
     });
   });
 
+  it('shows a removed variant used by open orders on the variants section', () => {
+    expect(toErrorMap([{ path: 'variants.2', code: 'VARIANT_IN_OPEN_ORDERS' }])).toEqual({
+      variants: 'VARIANT_IN_OPEN_ORDERS',
+    });
+  });
+
   it('scopes errors to a variant', () => {
     const map = toErrorMap(errors);
     expect(scopedErrors(map, 'variants.1')).toEqual({

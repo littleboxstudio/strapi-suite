@@ -169,6 +169,26 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
         variants.map((v) => v.id).filter((id): id is number => !!id && currentIds.has(id))
       );
 
+      // A variant still used by OPEN orders cannot be deleted (cancelling or modifying those
+      // orders needs it): the admin deactivates it instead. Paths index the stored order.
+      const ordered = [...current].sort(
+        (a: any, b: any) => (a.position ?? 0) - (b.position ?? 0) || a.id - b.id
+      );
+      const removedIds = ordered.filter((v) => !keptIds.has(v.id)).map((v) => v.id);
+      if (removedIds.length) {
+        const used: { variantId: number }[] = await strapi.db.query(u.orderLine).findMany({
+          where: { variantId: { $in: removedIds }, order: { orderStatus: 'OPEN' } },
+          select: ['variantId'],
+        });
+        const inUse = new Set(used.map((l) => l.variantId));
+        const blocked: FieldError[] = ordered
+          .map((v, i) =>
+            inUse.has(v.id) ? { path: `variants.${i}`, code: 'VARIANT_IN_OPEN_ORDERS' } : null
+          )
+          .filter((e): e is FieldError => !!e);
+        if (blocked.length) throw new EcommerceValidationError('Invalid product', blocked);
+      }
+
       // Removed variants go first, so a new variant may reuse a removed one's SKU.
       for (const old of current) {
         if (keptIds.has(old.id)) continue;

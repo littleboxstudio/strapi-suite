@@ -1,6 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import EcommerceStockService from '../../../server/src/services/modules/ecommerce/stock';
-import { EcommerceNotFoundError } from '../../../server/src/services/modules/ecommerce/errors';
 import { createFakeDb } from './helpers/fakeDb';
 
 const P = 'plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-';
@@ -19,9 +18,10 @@ function makeStrapi(override: (db: Db) => Partial<Db> = () => ({})) {
       metadata: db.metadata,
     },
     config: { get: () => ({ uuid: { modules: { ecommerce: UIDS } } }) },
+    log: { warn: vi.fn() },
   };
   db.tables[UIDS.variant].push({ id: 1, sku: 'A', stock: 3 }, { id: 2, sku: 'B', stock: 10 });
-  return { service: EcommerceStockService({ strapi }), ...db };
+  return { service: EcommerceStockService({ strapi }), strapi, ...db };
 }
 
 const stockOf = (tables: Record<string, any[]>, id: number) =>
@@ -154,18 +154,51 @@ describe('EcommerceStockService', () => {
     ).toEqual({ applied: false });
   });
 
-  it('throws not-found and records nothing when the variant does not exist', async () => {
-    const { service, tables } = makeStrapi();
-    await expect(
-      service.move({
+  it('records the movement without a variant relation and skips the increment when the variant is gone', async () => {
+    const { service, tables, increments, strapi } = makeStrapi();
+    expect(
+      await service.move({
         variantId: 404,
-        quantity: 1,
-        type: 'MANUAL_ADJUST',
-        operationKey: 'missing',
+        quantity: 2,
+        type: 'CANCEL_RESTOCK',
+        operationKey: 'cancel:7:404',
+        orderId: 7,
         actor: 'system',
       })
-    ).rejects.toBeInstanceOf(EcommerceNotFoundError);
-    expect(tables[UIDS.stockMovement]).toHaveLength(0);
+    ).toEqual({ applied: true });
+    expect(tables[UIDS.stockMovement]).toHaveLength(1);
+    expect(tables[UIDS.stockMovement][0]).toMatchObject({
+      variant: null,
+      variantId: 404,
+      order: 7,
+      type: 'CANCEL_RESTOCK',
+      quantity: 2,
+    });
+    expect(increments).toEqual([]);
+    expect(stockOf(tables, 1)).toBe(3);
+    expect(stockOf(tables, 2)).toBe(10);
+    expect(strapi.log.warn).toHaveBeenCalledTimes(1);
+    expect(String(strapi.log.warn.mock.calls[0][0])).toContain('404');
+  });
+
+  it('does not throw when the increment updates no row (variant deleted concurrently)', async () => {
+    const { service, tables, strapi } = makeStrapi((db) => ({
+      connection: ((table: string) => {
+        const b = db.connection(table);
+        return { ...b, where: () => ({ increment: () => ({ transacting: async () => 0 }) }) };
+      }) as any,
+    }));
+    expect(
+      await service.move({
+        variantId: 1,
+        quantity: 1,
+        type: 'MANUAL_ADJUST',
+        operationKey: 'gone',
+        actor: 'system',
+      })
+    ).toEqual({ applied: true });
+    expect(tables[UIDS.stockMovement]).toHaveLength(1);
+    expect(strapi.log.warn).toHaveBeenCalled();
   });
 
   it('records RETURN_NO_RESTOCK without touching stock', async () => {

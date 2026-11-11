@@ -12,6 +12,8 @@ const UIDS = {
   variantTranslation: `${P}variant-translation`,
   image: `${P}image`,
   stockMovement: `${P}stock-movement`,
+  order: `${P}order`,
+  orderLine: `${P}order-line`,
 };
 
 // relation name -> [target uid, foreign key on target]
@@ -25,6 +27,7 @@ const RELATIONS: FakeRelations = {
     translations: [UIDS.variantTranslation, 'variant'],
     images: [UIDS.image, 'variant'],
   },
+  [UIDS.orderLine]: { order: [UIDS.order, 'order', 'manyToOne'] },
 };
 
 function makeStrapi() {
@@ -382,5 +385,32 @@ describe('EcommerceProductService', () => {
     await service.update(id, input('Camisa', [{ ...b }, variant('A', { stock: 2 })]));
     expect(tables[UIDS.variant].map((v) => v.sku)).toEqual(['B', 'A']);
     expect(tables[UIDS.variant].find((v) => v.sku === 'A').id).not.toBe(a.id);
+  });
+  describe('removing a variant used by orders', () => {
+    const withOrder = async (orderStatus: string) => {
+      const ctx = makeStrapi();
+      const { id } = await ctx.service.create(input('Camisa', [variant('A'), variant('B')]));
+      const [a, b] = (await ctx.service.get(id)).variants;
+      ctx.tables[UIDS.order].push({ id: 50, orderStatus });
+      ctx.tables[UIDS.orderLine].push({ id: 60, order: 50, variantId: b.id, quantity: 1 });
+      return { ...ctx, id, a, b };
+    };
+
+    it('is rejected while an OPEN order uses it, and changes nothing', async () => {
+      const { service, tables, id, a } = await withOrder('OPEN');
+      const err: any = await service
+        .update(id, input('Camisa', [{ ...a, price: 9999 }]))
+        .catch((e) => e);
+      expect(err).toBeInstanceOf(EcommerceValidationError);
+      expect(err.errors).toEqual([{ path: 'variants.1', code: 'VARIANT_IN_OPEN_ORDERS' }]);
+      expect(tables[UIDS.variant].map((v) => v.sku)).toEqual(['A', 'B']);
+      expect(tables[UIDS.variant][0].price).toBe(1000);
+    });
+
+    it.each(['CANCELLED', 'ARCHIVED'])('is allowed when only %s orders use it', async (status) => {
+      const { service, tables, id, a } = await withOrder(status);
+      await service.update(id, input('Camisa', [{ ...a }]));
+      expect(tables[UIDS.variant].map((v) => v.sku)).toEqual(['A']);
+    });
   });
 });

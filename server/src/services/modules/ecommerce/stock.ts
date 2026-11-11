@@ -1,6 +1,5 @@
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID, LtbConfigs } from '../../../config';
-import { EcommerceNotFoundError } from './errors';
 import { isUniqueViolation } from './dbErrors';
 
 export type StockMovementType =
@@ -41,6 +40,12 @@ const EcommerceStockService = ({ strapi }: { strapi: Core.Strapi }) => {
     return config.uuid.modules.ecommerce;
   };
 
+  const warnMissing = (input: StockMoveInput): void => {
+    strapi.log?.warn?.(
+      `[ecommerce] stock movement ${input.operationKey} recorded without stock change: variant ${input.variantId} no longer exists (order ${input.orderId ?? '-'})`
+    );
+  };
+
   const move = async (input: StockMoveInput): Promise<{ applied: boolean }> => {
     const u = uids();
     const movements = () => strapi.db.query(u.stockMovement);
@@ -53,9 +58,15 @@ const EcommerceStockService = ({ strapi }: { strapi: Core.Strapi }) => {
     try {
       // Reuses the caller's transaction when there is one (Strapi nests by context).
       return await strapi.db.transaction(async ({ trx }: { trx: any }) => {
+        // A variant deleted from its product (design: deletion is blocked only while OPEN
+        // orders use it) must not block cancelling or modifying older orders: the movement is
+        // still recorded, by id only, and there is no stock left to change.
+        const variantExists = !!(await strapi.db
+          .query(u.variant)
+          .findOne({ where: { id: input.variantId }, select: ['id'] }));
         await movements().create({
           data: {
-            variant: input.variantId,
+            variant: variantExists ? input.variantId : null,
             variantId: input.variantId,
             order: input.orderId ?? null,
             type: input.type,
@@ -66,15 +77,16 @@ const EcommerceStockService = ({ strapi }: { strapi: Core.Strapi }) => {
           },
         });
 
-        if (input.type !== 'RETURN_NO_RESTOCK' && input.quantity !== 0) {
+        if (variantExists && input.type !== 'RETURN_NO_RESTOCK' && input.quantity !== 0) {
           const { tableName } = strapi.db.metadata.get(u.variant);
           const updated = await strapi.db
             .connection(tableName)
             .where({ id: input.variantId })
             .increment('stock', input.quantity)
             .transacting(trx);
-          // Throwing rolls the movement back with the transaction.
-          if (!updated) throw new EcommerceNotFoundError('Variant not found');
+          if (!updated) warnMissing(input);
+        } else if (!variantExists) {
+          warnMissing(input);
         }
         return { applied: true };
       });
