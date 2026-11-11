@@ -282,6 +282,15 @@ describe('EcommerceSettingsService — integrations', () => {
     expect((await service.getActiveProviders('carrier')).sort()).toEqual(['manual', 'other-carrier']);
   });
 
+  it('records the editor as editorId (never the core-reserved updatedBy)', async () => {
+    const { service, tables } = makeStrapi();
+    await service.updateIntegration('moloni', MOLONI, '7');
+    expect(tables[UIDS.integration][0]).toMatchObject({ editorId: '7' });
+    await service.setActive('moloni', true, '8');
+    expect(tables[UIDS.integration][0]).toMatchObject({ editorId: '8' });
+    expect(tables[UIDS.integration][0]).not.toHaveProperty('updatedBy');
+  });
+
   it('audits changed field names but never secret values', async () => {
     const { service, tables } = makeStrapi();
     await service.updateIntegration('moloni', MOLONI, '7');

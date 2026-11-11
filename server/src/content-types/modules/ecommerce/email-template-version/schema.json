@@ -27,7 +27,7 @@
     "version": {
       "type": "integer"
     },
-    "createdBy": {
+    "authorId": {
       "type": "string"
     }
   },

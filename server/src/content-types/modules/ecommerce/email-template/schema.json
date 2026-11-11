@@ -30,7 +30,7 @@
       "type": "integer",
       "default": 1
     },
-    "updatedBy": {
+    "editorId": {
       "type": "string"
     }
   },

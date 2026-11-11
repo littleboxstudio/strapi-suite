@@ -3,11 +3,11 @@ import contentTypes from '../../../server/src/content-types';
 import config from '../../../server/src/config';
 
 const names: Record<string, string[]> = {
-  'integration': ['providerId', 'category', 'active', 'config', 'secrets', 'updatedBy'],
+  'integration': ['providerId', 'category', 'active', 'config', 'secrets', 'editorId'],
   'store-setting': ['key', 'value'],
   'manual-shipping-method': ['name', 'price', 'tax', 'countries', 'active', 'position'],
-  'email-template': ['type', 'locale', 'subject', 'html', 'version', 'updatedBy'],
-  'email-template-version': ['type', 'locale', 'subject', 'html', 'version', 'createdBy'],
+  'email-template': ['type', 'locale', 'subject', 'html', 'version', 'editorId'],
+  'email-template-version': ['type', 'locale', 'subject', 'html', 'version', 'authorId'],
   'audit-log': ['area', 'action', 'targetId', 'userId', 'details'],
 };
 
@@ -51,6 +51,16 @@ describe('ecommerce settings content-types', () => {
     const s = get('email-template');
     expect(s.indexes).toContainEqual({ name: 'ecommerce_email_tpl_type_locale_unique', columns: ['type', 'locale'], type: 'unique' });
     expect(s.attributes.version.default).toBe(1);
+  });
+
+  it('no ecommerce schema declares attributes reserved by Strapi core', () => {
+    const reserved = ['createdBy', 'updatedBy', 'publishedAt', 'createdAt', 'updatedAt', 'documentId'];
+    const ecommerce = Object.entries(contentTypes as any).filter(([k]) => k.startsWith('ltb-st-module-ecommerce-'));
+    expect(ecommerce.length).toBeGreaterThan(0);
+    for (const [name, ct] of ecommerce as [string, any][]) {
+      const clashes = Object.keys(ct.schema.attributes).filter((a) => reserved.includes(a));
+      expect({ name, clashes }).toEqual({ name, clashes: [] });
+    }
   });
 
   it('registers the UIDs', () => {

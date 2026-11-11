@@ -21,6 +21,7 @@ const UIDS = {
   emailTemplateVersion: `${P}email-template-version`,
   auditLog: `${P}audit-log`,
 };
+const ADMIN_USER = 'admin::user';
 
 const VALID = {
   subject: 'Order {{order.reference}}',
@@ -28,7 +29,7 @@ const VALID = {
 };
 
 function makeStrapi(opts: { runtime?: any; storeName?: string } = {}) {
-  const db = createFakeDb(Object.values(UIDS));
+  const db = createFakeDb([...Object.values(UIDS), ADMIN_USER]);
   const pluginConfig: any = { uuid: { modules: { ecommerce: UIDS } } };
   const settings = {
     getStoreSettings: vi.fn(async () => ({
@@ -265,10 +266,33 @@ describe('EcommerceEmailTemplateService', () => {
     await service.save('CANCELLATION', 'en', { ...VALID, subject: 'B' }, 'bob');
     await service.restoreDefault('CANCELLATION', 'en', 'carol');
     const versions = await service.listVersions('CANCELLATION', 'en');
-    expect(versions.map((v) => [v.version, v.createdBy])).toEqual([
+    expect(versions.map((v) => [v.version, v.authorId])).toEqual([
       [3, 'bob'],
       [2, 'alice'],
       [1, null],
+    ]);
+  });
+
+  it('stores the editor as editorId and resolves author names for versions', async () => {
+    const { service, tables } = makeStrapi();
+    tables[ADMIN_USER].push(
+      { id: 1, firstname: 'Alice', lastname: 'Smith', username: 'alice', email: 'a@x.example' },
+      { id: 2, firstname: null, lastname: null, username: 'bobby', email: 'b@x.example' },
+      { id: 3, firstname: null, lastname: null, username: null, email: 'c@x.example' }
+    );
+    await service.save('CANCELLATION', 'en', VALID, 1);
+    await service.save('CANCELLATION', 'en', { ...VALID, subject: 'B' }, 2);
+    await service.save('CANCELLATION', 'en', { ...VALID, subject: 'C' }, 3);
+    await service.save('CANCELLATION', 'en', { ...VALID, subject: 'D' }, 4);
+    expect(tables[UIDS.emailTemplate][0]).toMatchObject({ editorId: '4' });
+    expect(tables[UIDS.emailTemplate][0]).not.toHaveProperty('updatedBy');
+    expect(tables[UIDS.emailTemplateVersion].every((v: any) => !('createdBy' in v))).toBe(true);
+    const versions = await service.listVersions('CANCELLATION', 'en');
+    expect(versions.map((v) => [v.version, v.authorId, v.authorName])).toEqual([
+      [4, '3', 'c@x.example'],
+      [3, '2', 'bobby'],
+      [2, '1', 'Alice Smith'],
+      [1, null, null],
     ]);
   });
 
@@ -285,7 +309,7 @@ describe('EcommerceEmailTemplateService', () => {
       subject: 'ok',
       html: '{{#if order.reference}}unclosed',
       version: 2,
-      updatedBy: null,
+      editorId: null,
     });
     const renderErr = await service.render('CANCELLATION', 'en', {}).catch((e) => e);
     expect(renderErr).toBeInstanceOf(EcommerceValidationError);

@@ -442,7 +442,7 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
 
       if (!changedFields.length) return toView(def, row, key);
 
-      const data = { config, secrets, updatedBy: userId === undefined ? null : String(userId) };
+      const data = { config, secrets, editorId: userId === undefined ? null : String(userId) };
       if (row) {
         await strapi.db.query(uids().integration).update({ where: { id: row.id }, data });
       } else {
@@ -494,12 +494,12 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
             await q.updateMany({ where: { id: { $in: others.map((o) => o.id) } }, data: { active: false } });
           }
         }
-        const updatedBy = userId === undefined ? null : String(userId);
+        const editorId = userId === undefined ? null : String(userId);
         if (row) {
-          await q.update({ where: { id: row.id }, data: { active, updatedBy } });
+          await q.update({ where: { id: row.id }, data: { active, editorId } });
         } else {
           await q.create({
-            data: { providerId: def.id, category: def.category, active, config: {}, secrets: {}, updatedBy },
+            data: { providerId: def.id, category: def.category, active, config: {}, secrets: {}, editorId },
           });
         }
       });

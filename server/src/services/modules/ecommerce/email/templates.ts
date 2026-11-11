@@ -39,9 +39,22 @@ export type EmailTemplateVersionView = {
   version: number;
   subject: string;
   html: string;
-  createdBy: string | null;
+  /** Admin user id of whoever wrote the snapshotted content (null for the built-in default). */
+  authorId: string | null;
+  authorName: string | null;
   createdAt: string | null;
 };
+
+type AdminUserRow = {
+  id: number | string;
+  firstname?: string | null;
+  lastname?: string | null;
+  username?: string | null;
+  email?: string | null;
+};
+
+const displayName = (u: AdminUserRow): string | null =>
+  [u.firstname, u.lastname].filter(Boolean).join(' ').trim() || u.username || u.email || null;
 
 type TemplateRow = {
   id: number;
@@ -50,7 +63,7 @@ type TemplateRow = {
   subject: string | null;
   html: string | null;
   version: number | null;
-  updatedBy: string | null;
+  editorId: string | null;
 };
 
 type SettingsApi = {
@@ -177,22 +190,38 @@ const EcommerceEmailTemplateService = ({ strapi }: { strapi: Core.Strapi }) => {
       const previous = currentContent(type, row);
       // The snapshot is attributed to whoever wrote that content (null for the built-in default).
       await versions().create({
-        data: { type, locale, ...previous, version, createdBy: row?.updatedBy ?? null },
+        data: { type, locale, ...previous, version, authorId: row?.editorId ?? null },
       });
       if (content === null) {
         if (row) await templates().delete({ where: { id: row.id } });
       } else if (row) {
         await templates().update({
           where: { id: row.id },
-          data: { ...content, version: version + 1, updatedBy: userRef(userId) ?? null },
+          data: { ...content, version: version + 1, editorId: userRef(userId) ?? null },
         });
       } else {
         await templates().create({
-          data: { type, locale, ...content, version: version + 1, updatedBy: userRef(userId) ?? null },
+          data: { type, locale, ...content, version: version + 1, editorId: userRef(userId) ?? null },
         });
       }
       return version + 1;
     });
+
+  /** Resolves admin user ids (stored as strings) to display names; unknown ids are omitted. */
+  const authorNames = async (ids: string[]): Promise<Map<string, string>> => {
+    const unique = [...new Set(ids)];
+    const names = new Map<string, string>();
+    if (!unique.length) return names;
+    const users: AdminUserRow[] = await strapi.db.query('admin::user').findMany({
+      where: { id: { $in: unique.map((id) => (/^\d+$/.test(id) ? Number(id) : id)) } },
+      select: ['id', 'firstname', 'lastname', 'username', 'email'],
+    });
+    for (const u of users) {
+      const name = displayName(u);
+      if (name) names.set(String(u.id), name);
+    }
+    return names;
+  };
 
   const sampleData = async (type: EmailTemplateType): Promise<Record<string, unknown>> => ({
     ...getSampleData(type),
@@ -252,12 +281,14 @@ const EcommerceEmailTemplateService = ({ strapi }: { strapi: Core.Strapi }) => {
         where: { type: t, locale },
         orderBy: [{ version: 'desc' }, { id: 'desc' }],
       });
+      const names = await authorNames(rows.map((r: any) => r.authorId).filter(Boolean));
       return rows.map((r: any) => ({
         id: r.id,
         version: r.version,
         subject: r.subject ?? '',
         html: r.html ?? '',
-        createdBy: r.createdBy ?? null,
+        authorId: r.authorId ?? null,
+        authorName: r.authorId ? (names.get(String(r.authorId)) ?? null) : null,
         createdAt: r.createdAt ?? null,
       }));
     },
