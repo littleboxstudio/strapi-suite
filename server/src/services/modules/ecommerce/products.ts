@@ -3,6 +3,7 @@ import { PLUGIN_ID, LtbConfigs } from '../../../config';
 import {
   FieldError,
   ProductInput,
+  isBlank,
   VariantInput,
   resolveUniqueSlug,
   sanitizeDescription,
@@ -32,8 +33,6 @@ export type ProductDetail = Omit<ProductInput, 'variants'> & {
   images: ImageRecord[];
   variants: (VariantInput & { id: number; images: ImageRecord[] })[];
 };
-
-const isBlank = (v: unknown) => typeof v !== 'string' || v.trim() === '';
 
 const toImage = (r: any): ImageRecord => ({
   id: r.id,
@@ -111,7 +110,13 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
       const ownerId = id as number;
 
       for (const [locale, t] of Object.entries(input.translations ?? {})) {
-        if (isBlank(t?.name)) continue;
+        // Validation guarantees a blank name here means the whole translation was cleared.
+        if (isBlank(t?.name)) {
+          await strapi.db
+            .query(u.productTranslation)
+            .deleteMany({ where: { product: ownerId, locale } });
+          continue;
+        }
         const taken: { slug: string }[] = await strapi.db.query(u.productTranslation).findMany({
           where: { locale, product: { id: { $ne: ownerId } } },
           select: ['slug'],
@@ -173,7 +178,12 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
         keptIds.add(variantId);
 
         for (const [locale, vt] of Object.entries(v.translations ?? {})) {
-          if (isBlank(vt?.option)) continue;
+          if (isBlank(vt?.option)) {
+            await strapi.db
+              .query(u.variantTranslation)
+              .deleteMany({ where: { variant: variantId, locale } });
+            continue;
+          }
           const tData = { locale, option: vt.option.trim(), variant: variantId };
           const existing = await strapi.db
             .query(u.variantTranslation)

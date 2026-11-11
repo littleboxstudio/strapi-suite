@@ -182,7 +182,7 @@ describe('EcommerceProductService', () => {
     const { service } = makeStrapi();
     await service.create(
       input('Camisa', [variant('A')], {
-        translations: { en: { name: 'Shirt', description: '' }, pt: { name: 'Camisola', description: '' } },
+        translations: { en: { name: 'Shirt', description: '<p>x</p>' }, pt: { name: 'Camisola', description: '' } },
       })
     );
     expect((await service.list({ page: 1, search: 'camis' })).results).toHaveLength(1);
@@ -288,6 +288,62 @@ describe('EcommerceProductService', () => {
     await expect(service.get(999)).rejects.toBeInstanceOf(EcommerceNotFoundError);
     await expect(service.update(999, input('Camisa', [variant('A')]))).rejects.toBeInstanceOf(
       EcommerceNotFoundError
+    );
+  });
+
+  it('update deletes non-default translations that were cleared', async () => {
+    const { service, tables } = makeStrapi();
+    const { id } = await service.create(
+      input('Camisa', [variant('A', { translations: { en: { option: 'M' }, pt: { option: 'Médio' } } })], {
+        translations: {
+          en: { name: 'Shirt', description: '<p>x</p>' },
+          pt: { name: 'Camisola', shortDescription: 'Curta', description: '<p>y</p>' },
+        },
+      })
+    );
+    expect(tables[UIDS.productTranslation].map((t) => t.locale)).toEqual(['en', 'pt']);
+    expect(tables[UIDS.variantTranslation].map((t) => t.locale)).toEqual(['en', 'pt']);
+    const { variants } = await service.get(id);
+
+    await service.update(
+      id,
+      input('Camisa', [{ ...variants[0], translations: { en: { option: 'M' }, pt: { option: '  ' } } }], {
+        translations: {
+          en: { name: 'Shirt', description: '<p>x</p>' },
+          pt: { name: '', shortDescription: '', description: '<p><br></p>' },
+        },
+      })
+    );
+    expect(tables[UIDS.productTranslation].map((t) => t.locale)).toEqual(['en']);
+    expect(tables[UIDS.variantTranslation].map((t) => t.locale)).toEqual(['en']);
+  });
+
+  it('rejects a non-default translation with content but no name', async () => {
+    const { service } = makeStrapi();
+    const err: any = await service
+      .create(
+        input('Camisa', [variant('A')], {
+          translations: {
+            en: { name: 'Shirt', description: '<p>x</p>' },
+            pt: { name: '', description: '<p>Camisola</p>' },
+          },
+        })
+      )
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(EcommerceValidationError);
+    expect(err.errors).toEqual([{ path: 'translations.pt.name', code: 'required' }]);
+  });
+
+  it('still requires default-locale name and description', async () => {
+    const { service } = makeStrapi();
+    const err: any = await service
+      .create(input('Camisa', [variant('A')], { translations: { en: { name: ' ', description: '<p></p>' } } }))
+      .catch((e) => e);
+    expect(err.errors).toEqual(
+      expect.arrayContaining([
+        { path: 'translations.en.name', code: 'required' },
+        { path: 'translations.en.description', code: 'required' },
+      ])
     );
   });
 });

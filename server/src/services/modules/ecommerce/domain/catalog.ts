@@ -52,13 +52,37 @@ export function sanitizeDescription(html: string): string {
   });
 }
 
-const isBlank = (v: unknown) => typeof v !== 'string' || v.trim() === '';
+export const isBlank = (v: unknown): boolean => typeof v !== 'string' || v.trim() === '';
+
+/** True when the HTML has no visible text (`<p></p>`, `<p><br></p>`, whitespace, `&nbsp;`). */
+export function isBlankHtml(html: unknown): boolean {
+  if (typeof html !== 'string') return true;
+  const text = sanitizeHtml(html, { allowedTags: [], allowedAttributes: {} });
+  return text.replace(/&nbsp;|&#160;|\u00a0/g, ' ').trim() === '';
+}
+
+/** A non-default product translation with no name and no other content (nothing to store). */
+export function isEmptyProductTranslation(
+  t: { name?: string; shortDescription?: string; description?: string } | undefined
+): boolean {
+  return isBlank(t?.name) && isBlank(t?.shortDescription) && isBlankHtml(t?.description);
+}
 
 export function validateProductInput(input: ProductInput, defaultLocale: string): FieldError[] {
   const errors: FieldError[] = [];
 
-  if (isBlank(input.translations?.[defaultLocale]?.name)) {
+  const main = input.translations?.[defaultLocale];
+  if (isBlank(main?.name)) {
     errors.push({ path: `translations.${defaultLocale}.name`, code: 'required' });
+  }
+  if (isBlankHtml(main?.description)) {
+    errors.push({ path: `translations.${defaultLocale}.description`, code: 'required' });
+  }
+  for (const [locale, t] of Object.entries(input.translations ?? {})) {
+    if (locale === defaultLocale) continue;
+    if (isBlank(t?.name) && !isEmptyProductTranslation(t)) {
+      errors.push({ path: `translations.${locale}.name`, code: 'required' });
+    }
   }
 
   const variants = input.variants ?? [];

@@ -196,8 +196,12 @@ const ProductEditPage = () => {
 
   const showErrors = (map: ErrorMap) => {
     setErrors(map);
-    if (Object.keys(map).some((path) => path.startsWith(`translations.${defaultLocale}.`))) {
+    const paths = Object.keys(map);
+    if (paths.some((path) => path.startsWith(`translations.${defaultLocale}.`))) {
       setActiveLocale(defaultLocale);
+    } else {
+      const locale = paths.find((path) => path.startsWith('translations.'))?.split('.')[1];
+      if (locale) setActiveLocale(locale);
     }
     toggleNotification({ type: 'warning', message: t('ecommerce.product.errors.fix') });
   };
