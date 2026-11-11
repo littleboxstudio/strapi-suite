@@ -97,3 +97,5 @@ Lista de itens adiados nas revisões do plano 1 (Base e Produtos), a considerar 
 - The quote should return the gift option names, so the admin order form does not need `promotions.read` to show them.
 - The customer-facing order view (plan 7) must expose only `displayName` + amounts of the applied promotions (never the internal name, code of other customers, conditions or snapshot).
 - `orders.ts` is ~2650 lines: split `priceCart`/`quote` (promotion pricing) into a sibling module.
+- P6 final: modify modal shows a raised discounted line as discounted price × new qty (e.g. €0) before preview; the preview/server add the extra units at full price — show the split in the editor
+- P6 final: admin OrderLine type lacks `sourceOrderLineId`
