@@ -26,7 +26,7 @@ const EcommerceStripeWebhookController = ({ strapi }: { strapi: Core.Strapi }) =
       const raw = rawBodyOf(ctx);
       if (!raw) {
         strapi.log?.warn('[ecommerce] Stripe webhook received without a raw body capture');
-        return ctx.badRequest('Invalid webhook', { code: 'WEBHOOK_SIGNATURE_INVALID' });
+        return ctx.badRequest('Invalid webhook', { code: 'WEBHOOK_RAW_BODY_MISSING' });
       }
       const header = ctx.get?.('stripe-signature') ?? ctx.request?.headers?.['stripe-signature'];
       const signature = typeof header === 'string' ? header : '';

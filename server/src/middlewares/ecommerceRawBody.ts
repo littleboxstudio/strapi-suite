@@ -50,10 +50,15 @@ const readAll = (stream: NodeJS.ReadableStream, limit: number): Promise<Buffer> 
  * co-body, cookies, ip, logger) behave as with the real request.
  */
 const replayRequest = (original: any, bytes: Buffer): any => {
-  const replay = Readable.from(bytes.length ? [bytes] : []);
+  const replay = Readable.from(bytes.length ? [bytes] : [], { objectMode: false });
   return new Proxy(replay, {
     get(target, prop) {
-      if (prop in target) return Reflect.get(target, prop, target);
+      if (prop in target) {
+        // Bound to the real stream: Node's stream internals (async iteration, finished(), …)
+        // must never see the proxy as `this`.
+        const own = Reflect.get(target, prop, target);
+        return typeof own === 'function' ? own.bind(target) : own;
+      }
       const value = Reflect.get(original, prop, original);
       return typeof value === 'function' ? value.bind(original) : value;
     },

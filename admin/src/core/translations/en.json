@@ -754,6 +754,8 @@
   "littlebox-strapi-suite.ecommerce.orders.history.type.PAYMENT_CREATED": "Payment registered",
   "littlebox-strapi-suite.ecommerce.orders.history.type.PAYMENT_COMPLETED": "Payment completed",
   "littlebox-strapi-suite.ecommerce.orders.history.type.PAYMENT_INSTRUCTIONS_SENT": "Payment instructions sent",
+  "littlebox-strapi-suite.ecommerce.orders.history.type.PAYMENT_FAILED": "Payment failed",
+  "littlebox-strapi-suite.ecommerce.orders.history.type.PAYMENT_CANCELLED": "Payment cancelled",
   "littlebox-strapi-suite.ecommerce.orders.history.type.STOCK_MOVED": "Stock moved",
   "littlebox-strapi-suite.ecommerce.orders.history.type.ORDER_CANCELLED": "Order cancelled",
   "littlebox-strapi-suite.ecommerce.orders.history.type.ORDER_ARCHIVED": "Order archived",

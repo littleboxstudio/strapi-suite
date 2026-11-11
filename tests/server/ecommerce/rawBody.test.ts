@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Readable } from 'node:stream';
-import coBody from 'co-body';
 import { createEcommerceRawBodyMiddleware } from '../../../server/src/middlewares/ecommerceRawBody';
 
 const PATH = '/api/littlebox-strapi-suite/ecommerce/stripe/webhook';
@@ -41,8 +40,10 @@ describe('ecommerceRawBody middleware', () => {
     const originalReq = ctx.req;
     let parsed: any;
     const next = vi.fn(async () => {
-      // What strapi::body (koa-body -> co-body) does next.
-      parsed = await coBody.json(ctx, { limit: '1mb' });
+      // What strapi::body does next: read ctx.req to the end and parse it.
+      const chunks: Buffer[] = [];
+      for await (const chunk of ctx.req) chunks.push(Buffer.from(chunk));
+      parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
     });
 
     await createEcommerceRawBodyMiddleware({ strapi })(ctx, next);

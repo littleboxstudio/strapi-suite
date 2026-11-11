@@ -365,6 +365,13 @@ describe('EcommerceStripeWebhookService.handle', () => {
     expect(r.status).toBe('PROCESSED');
     expect(payment().status).toBe('FAILED');
     expect(s.tables[UIDS.stripeSession][0].status).toBe('EXPIRED');
+    const h = s.tables[UIDS.orderHistory].filter((x) => x.type === 'PAYMENT_FAILED');
+    expect(h).toHaveLength(1);
+    expect(h[0]).toMatchObject({
+      actor: 'webhook:stripe',
+      previousValue: { paymentId: 900, status: 'PENDING' },
+      newValue: { paymentId: 900, status: 'FAILED', sessionId: 'cs_1' },
+    });
   });
 
   it('checkout.session.expired: session EXPIRED, PENDING payment CANCELLED', async () => {
@@ -377,6 +384,35 @@ describe('EcommerceStripeWebhookService.handle', () => {
     expect(r).toEqual({ duplicate: false, status: 'PROCESSED' });
     expect(s.tables[UIDS.stripeSession][0].status).toBe('EXPIRED');
     expect(payment().status).toBe('CANCELLED');
+    const h = s.tables[UIDS.orderHistory].filter((x) => x.type === 'PAYMENT_CANCELLED');
+    expect(h).toHaveLength(1);
+    expect(h[0]).toMatchObject({
+      actor: 'webhook:stripe',
+      previousValue: { paymentId: 900, status: 'PENDING' },
+      newValue: { paymentId: 900, status: 'CANCELLED' },
+    });
+  });
+
+  it('a session/amount mismatch is a terminal failure: 200 FAILED, never retried', async () => {
+    const s = setup();
+    const { payment } = await seedSession(s);
+    const raw = evt('evt_mm', 'checkout.session.completed', session({ amount_total: 1 }));
+
+    expect(await deliver(s, raw)).toEqual({ duplicate: false, status: 'FAILED' });
+    expect(payment().status).toBe('PENDING');
+    expect(s.tables[UIDS.stripeSession][0].status).toBe('OPEN');
+    expect(s.tables[UIDS.webhookEvent]).toHaveLength(1);
+    expect(s.tables[UIDS.webhookEvent][0]).toMatchObject({
+      eventId: 'evt_mm',
+      status: 'FAILED',
+      error: 'Error:STRIPE_SESSION_MISMATCH',
+    });
+    expect(s.log.error).toHaveBeenCalled();
+    expect(s.events.filter((e) => e.type === 'PAYMENT_COMPLETED')).toHaveLength(0);
+
+    // Redelivery: terminal, answered as a duplicate.
+    expect(await deliver(s, raw)).toEqual({ duplicate: true });
+    expect(payment().status).toBe('PENDING');
   });
 
   it('an expired event never cancels a paid payment', async () => {
@@ -546,7 +582,9 @@ describe('EcommerceStripeWebhookController.handle', () => {
     const ctx = mkCtx({ state: {} });
     await ctrl(handle).handle(ctx);
     expect(handle).not.toHaveBeenCalled();
-    expect(ctx.badRequest).toHaveBeenCalled();
+    expect(ctx.badRequest).toHaveBeenCalledWith(expect.any(String), {
+      code: 'WEBHOOK_RAW_BODY_MISSING',
+    });
   });
 
   it('falls back to koa-body includeUnparsed when the middleware did not run', async () => {
@@ -557,6 +595,13 @@ describe('EcommerceStripeWebhookController.handle', () => {
     await ctrl(handle).handle(ctx);
     expect(handle).toHaveBeenCalledWith(Buffer.from('{"id":"evt"}'), 't=1,v1=ab');
     expect(ctx.status).toBe(200);
+  });
+
+  it('200 for a terminal failure (Stripe must stop retrying)', async () => {
+    const ctx = mkCtx();
+    await ctrl(vi.fn().mockResolvedValue({ duplicate: false, status: 'FAILED' })).handle(ctx);
+    expect(ctx.status).toBe(200);
+    expect(ctx.body).toEqual({ received: true, duplicate: false });
   });
 
   it('500 on a processing failure (Stripe retries)', async () => {
