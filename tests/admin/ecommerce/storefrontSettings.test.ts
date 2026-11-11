@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   storefrontBasePath,
+  isTokenMissing,
   tokenWarning,
+  tokenWarnings,
   validateTtlHours,
 } from '../../../admin/src/ecommerce/utils/storefrontSettings';
 import { SETTINGS_SECTIONS } from '../../../admin/src/ecommerce/utils/settingsSections';
@@ -24,6 +26,24 @@ describe('tokenWarning', () => {
   });
   it('has no warning for a custom token without expiry', () => {
     expect(tokenWarning({ type: 'custom', expiresAt: null }, NOW)).toBeNull();
+  });
+});
+
+describe('tokenWarnings', () => {
+  it('lists expiry and access-type warnings together', () => {
+    expect(tokenWarnings({ type: 'full-access', expiresAt: days(3) }, NOW)).toEqual(['EXPIRES_SOON', 'FULL_ACCESS']);
+    expect(tokenWarnings({ type: 'read-only', expiresAt: days(-1) }, NOW)).toEqual(['EXPIRED', 'READ_ONLY']);
+    expect(tokenWarnings({ type: 'custom', expiresAt: null }, NOW)).toEqual([]);
+    expect(tokenWarnings(null, NOW)).toEqual([]);
+  });
+});
+
+describe('isTokenMissing', () => {
+  it('is true only for a saved id that is not in the list', () => {
+    expect(isTokenMissing(null, [])).toBe(false);
+    expect(isTokenMissing(5, [{ id: 5 }])).toBe(false);
+    expect(isTokenMissing(5, [{ id: 6 }])).toBe(true);
+    expect(isTokenMissing(5, [])).toBe(true);
   });
 });
 

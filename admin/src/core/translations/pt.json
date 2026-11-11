@@ -1538,5 +1538,7 @@
   "littlebox-strapi-suite.ecommerce.settings.storefrontApi.info.header.Authorization": "Bearer <o token escolhido acima>",
   "littlebox-strapi-suite.ecommerce.settings.storefrontApi.info.header.X-Checkout-Session": "O token da sessão de checkout (guardado pelo BFF)",
   "littlebox-strapi-suite.ecommerce.settings.storefrontApi.info.header.Idempotency-Key": "Uma chave única por encomenda, para que uma repetição nunca crie uma segunda encomenda",
-  "littlebox-strapi-suite.ecommerce.settings.storefrontApi.info.header.X-Storefront-Client-IP": "O IP do cliente, sempre posto pelo BFF (nunca reencaminhado do browser)"
+  "littlebox-strapi-suite.ecommerce.settings.storefrontApi.info.header.X-Storefront-Client-IP": "O IP do cliente, sempre posto pelo BFF (nunca reencaminhado do browser)",
+  "littlebox-strapi-suite.ecommerce.settings.storefrontApi.warning.MISSING": "O token selecionado já não existe ou não é visível para si. Escolha outro.",
+  "littlebox-strapi-suite.ecommerce.settings.storefrontApi.tokensLoadError": "Não foi possível carregar os API tokens."
 }

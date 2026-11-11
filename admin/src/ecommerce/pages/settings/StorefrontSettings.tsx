@@ -26,7 +26,8 @@ import {
   TTL_MAX_HOURS,
   TTL_MIN_HOURS,
   storefrontBasePath,
-  tokenWarning,
+  isTokenMissing,
+  tokenWarnings,
   validateTtlHours,
 } from '../../utils/storefrontSettings';
 import type { StoreSettings, StorefrontApiToken } from '../../settingsTypes';
@@ -58,6 +59,7 @@ const StorefrontSettings = ({ readOnly }: { readOnly: boolean }) => {
   const [ttlError, setTtlError] = useState<string | null>(null);
   const [tokenError, setTokenError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
+  const [tokensError, setTokensError] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const apply = (loaded: StoreSettings) => {
@@ -79,6 +81,7 @@ const StorefrontSettings = ({ readOnly }: { readOnly: boolean }) => {
         return;
       }
       if (list.status === 'fulfilled') setTokens(list.value);
+      else setTokensError(true);
       apply(store.value);
     })();
     return () => {
@@ -87,7 +90,8 @@ const StorefrontSettings = ({ readOnly }: { readOnly: boolean }) => {
   }, []);
 
   const selected = useMemo(() => tokens.find((tk) => tk.id === tokenId) ?? null, [tokens, tokenId]);
-  const warning = useMemo(() => tokenWarning(selected, new Date()), [selected]);
+  const warnings = useMemo(() => tokenWarnings(selected, new Date()), [selected]);
+  const missing = isTokenMissing(tokenId, tokens) && !tokensError;
 
   if (loadError) {
     return <Typography textColor="danger600">{t('ecommerce.settings.loadError')}</Typography>;
@@ -148,7 +152,9 @@ const StorefrontSettings = ({ readOnly }: { readOnly: boolean }) => {
       <Card title={t('ecommerce.settings.storefrontApi.title')}>
         <Typography textColor="neutral600">{t('ecommerce.settings.storefrontApi.intro')}</Typography>
 
-        {tokens.length === 0 ? (
+        {tokensError ? (
+          <Typography textColor="danger600">{t('ecommerce.settings.storefrontApi.tokensLoadError')}</Typography>
+        ) : tokens.length === 0 ? (
           <Flex
             direction="column"
             alignItems="center"
@@ -192,18 +198,16 @@ const StorefrontSettings = ({ readOnly }: { readOnly: boolean }) => {
           </Field.Root>
         )}
 
-        {warning && (
-          <Box role="status" background="warning100" borderColor="warning200" hasRadius padding={4}>
+        {[...warnings.map((w) => `warning.${w}`), ...(missing ? ['warning.MISSING'] : [])].map((key) => (
+          <Box key={key} role="status" background="warning100" borderColor="warning200" hasRadius padding={4}>
             <Flex gap={3} alignItems="flex-start">
               <Box color="warning600" paddingTop={1}>
                 <WarningCircle aria-hidden fill="currentColor" />
               </Box>
-              <Typography textColor="neutral800">
-                {t(`ecommerce.settings.storefrontApi.warning.${warning}`)}
-              </Typography>
+              <Typography textColor="neutral800">{t(`ecommerce.settings.storefrontApi.${key}`)}</Typography>
             </Flex>
           </Box>
-        )}
+        ))}
 
         <Field.Root
           name="checkoutSessionTtlHours"
