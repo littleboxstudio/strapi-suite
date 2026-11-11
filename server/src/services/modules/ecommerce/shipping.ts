@@ -49,22 +49,35 @@ export function __resetCarrierQuotersForTests(): void {
   for (const [id, adapter] of builtInCarrierAdapters()) adapters.set(id, adapter);
 }
 
-const isValidOption = (o: unknown): o is ShippingOption => {
+const pickOption = (o: unknown, providerId: string): ShippingOption | null => {
   const x = o as Partial<ShippingOption> | null;
-  return (
-    !!x &&
-    typeof x === 'object' &&
-    Number.isInteger(x.price) &&
-    (x.price as number) >= 0 &&
-    (x.price as number) <= MAX_MONEY_CENTS &&
-    typeof x.tax === 'number' &&
-    x.tax >= 0 &&
-    x.tax <= 100 &&
-    typeof x.name === 'string' &&
-    x.name.trim() !== '' &&
-    typeof x.serviceId === 'string' &&
-    x.serviceId.trim() !== ''
-  );
+  if (!x || typeof x !== 'object') return null;
+  const { price, tax, name, serviceId, estimatedDays } = x;
+  const valid =
+    typeof price === 'number' &&
+    Number.isInteger(price) &&
+    price >= 0 &&
+    price <= MAX_MONEY_CENTS &&
+    typeof tax === 'number' &&
+    Number.isFinite(tax) &&
+    tax >= 0 &&
+    tax <= 100 &&
+    typeof name === 'string' &&
+    name.trim() !== '' &&
+    typeof serviceId === 'string' &&
+    serviceId.trim() !== '' &&
+    (estimatedDays === undefined ||
+      (typeof estimatedDays === 'number' && Number.isInteger(estimatedDays) && estimatedDays >= 0));
+  if (!valid) return null;
+  const option: ShippingOption = { providerId, serviceId, name, price, tax };
+  if (estimatedDays !== undefined) option.estimatedDays = estimatedDays;
+  return option;
+};
+
+const failureCode = (error: unknown): string => {
+  const raw = (error as { code?: unknown } | null)?.code;
+  if (raw === 'CARRIER_NOT_CONFIGURED') return 'NOT_CONFIGURED';
+  return typeof raw === 'string' && /^[A-Z_]{1,40}$/.test(raw) ? raw : 'QUOTE_FAILED';
 };
 
 const withTimeout = <T>(work: Promise<T>, ms: number): Promise<T> => {
@@ -117,30 +130,32 @@ const EcommerceShippingService = ({ strapi }: { strapi: Core.Strapi }) => {
 
     const carriers = activeCarriers.filter((id) => id !== 'manual');
     const settled = await Promise.allSettled(
-      carriers.map(async (providerId) => {
-        const adapter = adapters.get(providerId);
-        if (adapter && !adapter.quote) return [];
-        const runtime = await svc.getRuntime(providerId);
-        if (!adapter || !runtime || !runtime.active) throw new EcommerceCarrierError('CARRIER_NOT_CONFIGURED');
-        const result = await withTimeout(
-          Promise.resolve().then(() => adapter.quote!(req, { config: runtime.config, secrets: runtime.secrets })),
+      carriers.map((providerId) =>
+        withTimeout(
+          (async (): Promise<{ options: ShippingOption[]; invalid: boolean }> => {
+            const adapter = adapters.get(providerId);
+            if (adapter && !adapter.quote) return { options: [], invalid: false };
+            const runtime = await svc.getRuntime(providerId);
+            if (!adapter || !runtime || !runtime.active) throw new EcommerceCarrierError('CARRIER_NOT_CONFIGURED');
+            const result = await adapter.quote!(req, { config: runtime.config, secrets: runtime.secrets });
+            if (!Array.isArray(result)) throw new EcommerceCarrierError('INVALID_QUOTE');
+            const valid = result
+              .map((o) => pickOption(o, providerId))
+              .filter((o): o is ShippingOption => o !== null);
+            return { options: valid, invalid: valid.length !== result.length };
+          })(),
           QUOTE_TIMEOUT_MS
-        );
-        if (!Array.isArray(result)) throw new EcommerceCarrierError('INVALID_QUOTE');
-        const valid = result.filter(isValidOption).map((o) => ({ ...o, providerId }));
-        if (valid.length !== result.length) failures.push({ providerId, code: 'INVALID_QUOTE' });
-        return valid;
-      })
+        )
+      )
     );
     settled.forEach((r, i) => {
       const providerId = carriers[i];
       if (r.status === 'fulfilled') {
-        options.push(...r.value);
+        options.push(...r.value.options);
+        if (r.value.invalid) failures.push({ providerId, code: 'INVALID_QUOTE' });
         return;
       }
-      const raw = (r.reason as { code?: unknown } | null)?.code;
-      const code =
-        raw === 'CARRIER_NOT_CONFIGURED' ? 'NOT_CONFIGURED' : typeof raw === 'string' ? raw : 'QUOTE_FAILED';
+      const code = failureCode(r.reason);
       failures.push({ providerId, code });
       strapi.log?.warn?.(`[ecommerce] carrier quote failed for ${providerId}: ${code}`);
     });

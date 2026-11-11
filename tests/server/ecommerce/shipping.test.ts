@@ -107,6 +107,62 @@ describe('EcommerceShippingService', () => {
       expect(r.failures).toEqual([{ providerId: 'ctt', code: 'INVALID_QUOTE' }]);
     });
 
+    it('non-array result gives INVALID_QUOTE', async () => {
+      const s = setup({ carriers: ['ctt'] });
+      s.registerCarrierQuoter('ctt', (async () => ({ nope: true })) as any);
+      expect(await s.quote(req())).toEqual({ options: [], failures: [{ providerId: 'ctt', code: 'INVALID_QUOTE' }] });
+    });
+
+    it('rejects NaN and Infinity prices', async () => {
+      const s = setup({ carriers: ['ctt'] });
+      s.registerCarrierQuoter('ctt', async () => [good({ price: NaN }), good({ serviceId: 'i', price: Infinity }), good({ serviceId: 'ok' })]);
+      const r = await s.quote(req());
+      expect(r.options.map((o) => o.serviceId)).toEqual(['ok']);
+      expect(r.failures).toEqual([{ providerId: 'ctt', code: 'INVALID_QUOTE' }]);
+    });
+
+    it('sanitises adapter error codes', async () => {
+      const s = setup({ carriers: ['ctt', 'dpd'] });
+      s.registerCarrierQuoter('ctt', async () => { throw Object.assign(new Error('x'), { code: 'bad code https://x' }); });
+      s.registerCarrierQuoter('dpd', async () => { throw Object.assign(new Error('x'), { code: 'RATE_LIMITED' }); });
+      expect((await s.quote(req())).failures).toEqual([
+        { providerId: 'ctt', code: 'QUOTE_FAILED' },
+        { providerId: 'dpd', code: 'RATE_LIMITED' },
+      ]);
+    });
+
+    it('getRuntime is bounded by the timeout and failure order follows carrier order', async () => {
+      vi.useFakeTimers();
+      try {
+        const s = setup({
+          carriers: ['a', 'b'],
+          runtime: (id) => (id === 'a' ? new Promise(() => undefined) : { config: {}, secrets: {}, active: true }),
+        });
+        s.registerCarrierQuoter('a', async () => []);
+        s.registerCarrierQuoter('b', async () => { throw Object.assign(new Error('x'), { code: 'UNREACHABLE' }); });
+        const p = s.quote(req());
+        await vi.advanceTimersByTimeAsync(8000);
+        expect((await p).failures).toEqual([
+          { providerId: 'a', code: 'TIMEOUT' },
+          { providerId: 'b', code: 'UNREACHABLE' },
+        ]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('keeps only known fields and validates estimatedDays', async () => {
+      const s = setup({ carriers: ['ctt'] });
+      s.registerCarrierQuoter('ctt', async () => [
+        good({ serviceId: 'a', estimatedDays: 2, extra: 'x' }),
+        good({ serviceId: 'b', estimatedDays: -1 }),
+        good({ serviceId: 'c', estimatedDays: 1.5 }),
+      ]);
+      const r = await s.quote(req());
+      expect(r.options).toEqual([{ providerId: 'ctt', serviceId: 'a', name: 'Exp', price: 300, tax: 23, estimatedDays: 2 }]);
+      expect(r.failures).toEqual([{ providerId: 'ctt', code: 'INVALID_QUOTE' }]);
+    });
+
     it('forces providerId to the real id', async () => {
       const s = setup({ carriers: ['ctt'] });
       s.registerCarrierQuoter('ctt', async () => [good({ providerId: 'other' })]);
