@@ -418,21 +418,93 @@ describe('EcommerceProductService', () => {
       return { ...ctx, id, a, b };
     };
 
-    it('is rejected while an OPEN order uses it, and changes nothing', async () => {
-      const { service, tables, id, a } = await withOrder('OPEN');
-      const err: any = await service
-        .update(id, input('Camisa', [{ ...a, price: 9999 }]))
-        .catch((e) => e);
-      expect(err).toBeInstanceOf(EcommerceValidationError);
-      expect(err.errors).toEqual([{ path: 'variants.1', code: 'VARIANT_IN_OPEN_ORDERS' }]);
-      expect(tables[UIDS.variant].map((v) => v.sku)).toEqual(['A', 'B']);
-      expect(tables[UIDS.variant][0].price).toBe(1000);
-    });
+    it.each(['OPEN', 'CANCELLED', 'ARCHIVED'])(
+      'is rejected when a %s order used it, and changes nothing',
+      async (status) => {
+        const { service, tables, id, a } = await withOrder(status);
+        const err: any = await service
+          .update(id, input('Camisa', [{ ...a, price: 9999 }]))
+          .catch((e) => e);
+        expect(err).toBeInstanceOf(EcommerceValidationError);
+        expect(err.errors).toEqual([{ path: 'variants.1', code: 'VARIANT_IN_ORDERS' }]);
+        expect(tables[UIDS.variant].map((v) => v.sku)).toEqual(['A', 'B']);
+        expect(tables[UIDS.variant][0].price).toBe(1000);
+      }
+    );
 
-    it.each(['CANCELLED', 'ARCHIVED'])('is allowed when only %s orders use it', async (status) => {
-      const { service, tables, id, a } = await withOrder(status);
-      await service.update(id, input('Camisa', [{ ...a }]));
-      expect(tables[UIDS.variant].map((v) => v.sku)).toEqual(['A']);
+    it('a variant never ordered can still be removed', async () => {
+      const { service, tables, id, b } = await withOrder('OPEN');
+      await service.update(id, input('Camisa', [{ ...b }]));
+      expect(tables[UIDS.variant].map((v) => v.sku)).toEqual(['B']);
     });
+  });
+});
+
+describe('EcommerceProductService — deletable and delete', () => {
+  const ordered = async (by: 'variant' | 'product') => {
+    const ctx = makeStrapi();
+    const { id } = await ctx.service.create(input('Camisa', [variant('A'), variant('B')]));
+    const [a, b] = (await ctx.service.get(id)).variants;
+    ctx.tables[UIDS.order].push({ id: 50, orderStatus: 'ARCHIVED' });
+    ctx.tables[UIDS.orderLine].push(
+      by === 'variant'
+        ? { id: 60, order: 50, variantId: b.id, quantity: 1 }
+        : { id: 60, order: 50, productId: id, variantId: b.id, quantity: 1 }
+    );
+    return { ...ctx, id, a, b };
+  };
+
+  it('get reports a never-ordered product and its variants as deletable', async () => {
+    const { service } = makeStrapi();
+    const { id } = await service.create(input('Camisa', [variant('A')]));
+    const detail = await service.get(id);
+    expect(detail.deletable).toBe(true);
+    expect(detail.variants.map((v) => v.deletable)).toEqual([true]);
+  });
+
+  it.each(['variant', 'product'] as const)(
+    'get marks the product and the ordered variant as not deletable (line found by %s)',
+    async (by) => {
+      const { service, id } = await ordered(by);
+      const detail = await service.get(id);
+      expect(detail.deletable).toBe(false);
+      expect(detail.variants.map((v) => v.deletable)).toEqual([true, false]);
+    }
+  );
+
+  it('delete removes the product, variants, translations and image rows, then the files', async () => {
+    const { service, tables, imageService } = makeStrapi();
+    const { id } = await service.create(input('Camisa', [variant('A'), variant('B')]));
+    const [a] = (await service.get(id)).variants;
+    tables[UIDS.image].push({ id: 900, product: id, url: '/p.png' }, { id: 901, variant: a.id, url: '/v.png' });
+    await service.create(input('Other', [variant('Z')]));
+
+    await service.delete(id);
+
+    expect(tables[UIDS.product].map((p) => p.id)).not.toContain(id);
+    expect(tables[UIDS.variant].map((v) => v.sku)).toEqual(['Z']);
+    expect(tables[UIDS.productTranslation].map((t) => t.name)).toEqual(['Other']);
+    expect(tables[UIDS.variantTranslation]).toHaveLength(1);
+    expect(tables[UIDS.image]).toEqual([]);
+    expect(imageService.removeFiles).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ id: 900 }), expect.objectContaining({ id: 901 })])
+    );
+    // Stock movements stay as history.
+    expect(tables[UIDS.stockMovement].length).toBeGreaterThan(0);
+  });
+
+  it('delete refuses an ordered product with PRODUCT_IN_ORDERS and changes nothing', async () => {
+    const { service, tables, imageService, id } = await ordered('variant');
+    const err: any = await service.delete(id).catch((e) => e);
+    expect(err).toBeInstanceOf(EcommerceValidationError);
+    expect(err.errors).toEqual([{ path: 'product', code: 'PRODUCT_IN_ORDERS' }]);
+    expect(tables[UIDS.product].map((p) => p.id)).toContain(id);
+    expect(tables[UIDS.variant]).toHaveLength(2);
+    expect(imageService.removeFiles).not.toHaveBeenCalled();
+  });
+
+  it('delete of an unknown product is a not-found error', async () => {
+    const { service } = makeStrapi();
+    await expect(service.delete(404)).rejects.toBeInstanceOf(EcommerceNotFoundError);
   });
 });

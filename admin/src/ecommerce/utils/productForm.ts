@@ -7,8 +7,11 @@ import type {
   VariantInput,
 } from '../types';
 
-/** A variant as the form keeps it: `key` identifies the row, `images` feed the thumbnail. */
-export type FormVariant = VariantInput & { key: string; images: ImageRecord[] };
+/**
+ * A variant as the form keeps it: `key` identifies the row, `images` feed the thumbnail and
+ * `deletable` is false for a saved variant that is in some order (new variants: absent).
+ */
+export type FormVariant = VariantInput & { key: string; images: ImageRecord[]; deletable?: boolean };
 
 export type ProductTranslation = {
   name: string;
@@ -77,7 +80,9 @@ export function buildProductInput(form: ProductForm): ProductInput {
         { name: t.name, shortDescription: t.shortDescription, description: t.description },
       ])
     ),
-    variants: form.variants.map(({ key: _key, images: _images, ...variant }) => variant),
+    variants: form.variants.map(
+      ({ key: _key, images: _images, deletable: _deletable, ...variant }) => variant
+    ),
   };
 }
 
@@ -111,7 +116,7 @@ export function toErrorMap(errors: FieldError[]): ErrorMap {
   const map: ErrorMap = {};
   errors.forEach(({ path, code }) => {
     // The variant was removed from the form, so the message belongs to the variants section.
-    const key = code === 'VARIANT_IN_OPEN_ORDERS' ? 'variants' : path;
+    const key = code === 'VARIANT_IN_ORDERS' ? 'variants' : path;
     if (!(key in map)) map[key] = code;
   });
   return map;

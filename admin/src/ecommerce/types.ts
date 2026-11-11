@@ -36,7 +36,8 @@ export type FieldError = {
     | 'duplicate_sku'
     | 'invalid_number'
     | 'out_of_range'
-    | 'VARIANT_IN_OPEN_ORDERS';
+    | 'VARIANT_IN_ORDERS'
+    | 'PRODUCT_IN_ORDERS';
 };
 
 export type ImageRecord = {
@@ -65,7 +66,9 @@ export type ProductListItem = {
 export type ProductDetail = Omit<ProductInput, 'variants'> & {
   id: number;
   images: ImageRecord[];
-  variants: (VariantInput & { id: number; images: ImageRecord[] })[];
+  /** False once the product is in any order: it can only be deactivated. */
+  deletable: boolean;
+  variants: (VariantInput & { id: number; images: ImageRecord[]; deletable: boolean })[];
 };
 
 export type EcommerceLocales = {

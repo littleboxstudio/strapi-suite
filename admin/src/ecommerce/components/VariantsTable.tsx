@@ -18,6 +18,7 @@ import {
 } from '@strapi/design-system';
 import { Pencil, Plus, Trash } from '@strapi/icons';
 import ConfirmModal from '../../components/ConfirmModal';
+import { NoticeModal } from './NoticeModal';
 import { getTranslation } from '../../core/utils/getTranslation';
 import EmptyVariants from '../illustrations/EmptyVariants';
 import { formatCents } from '../utils/money';
@@ -56,6 +57,8 @@ const VariantsTable = ({
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
   const [confirmIndex, setConfirmIndex] = useState<number | null>(null);
+  /** A saved variant that is in some order: it can only be deactivated. */
+  const [blockedOpen, setBlockedOpen] = useState(false);
 
   if (variants.length === 0) {
     return (
@@ -185,7 +188,9 @@ const VariantsTable = ({
                     <IconButton
                       label={t('ecommerce.product.variants.remove')}
                       variant="ghost"
-                      onClick={() => setConfirmIndex(index)}
+                      onClick={() =>
+                        v.deletable === false ? setBlockedOpen(true) : setConfirmIndex(index)
+                      }
                       disabled={disabled}
                     >
                       <Trash />
@@ -202,6 +207,13 @@ const VariantsTable = ({
           {t('ecommerce.product.variants.add')}
         </Button>
       </Flex>
+      <NoticeModal
+        open={blockedOpen}
+        title={t('ecommerce.product.variants.removeBlocked.title')}
+        text={t('ecommerce.product.variants.removeBlocked.text')}
+        okLabel={t('ecommerce.product.ok')}
+        onClose={() => setBlockedOpen(false)}
+      />
       <ConfirmModal
         open={confirmIndex !== null}
         title={t('ecommerce.product.variants.removeConfirm.title')}
