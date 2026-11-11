@@ -60,6 +60,7 @@ import type { StockMoveInput } from './stock';
 import type { OrderHistoryEntry } from './orderHistory';
 import type { CustomerInput } from './customers';
 import { normalizeEmail } from './domain/email';
+import { normalizeStoreCreditCode } from './storeCredits';
 import {
   type AppliedPromotion,
   type EvaluationInput,
@@ -107,6 +108,11 @@ export type CreateOrderInput = {
   giftChoices?: Record<number, number>;
   /** Absent = trusted (admin); `false` = storefront without a verified e-mail. */
   emailVerified?: boolean;
+  /**
+   * A store credit of the order's e-mail (≤ 64 characters), applied inside the creation
+   * transaction: any refusal (`STORE_CREDIT_*`) creates nothing.
+   */
+  storeCreditCode?: string;
 };
 
 /** An applied promotion as the order stored it, with the state of its redemption. */
@@ -117,7 +123,17 @@ export type OrderPromotionView = AppliedPromotion & {
 /** A code entered at checkout, as the order stored its evaluation. */
 export type OrderPromotionCodeView = { code: string; status: string; promotionId: number | null };
 
-export type CreateOrderContext = { actor: string; source: OrderSource };
+export type CreateOrderContext = {
+  actor: string;
+  source: OrderSource;
+  /** The storefront checkout session the order comes from (`order.checkoutSession`). */
+  checkoutSessionId?: number;
+};
+
+/** What `create` returns, also on an idempotent replay. */
+export type CreatedOrder = { id: number; reference: number; publicId: string; total: number };
+
+export const MAX_STORE_CREDIT_CODE_LENGTH = 64;
 
 export type OrderLineView = {
   id: number;
@@ -403,6 +419,21 @@ const promotionIdsOf = (refs: unknown): number[] => {
 const describePromotions = (verb: string, list: { name: string; code: string | null }[]) =>
   `Promotions ${verb}: ${list.map((p) => (p.code ? `${p.name} (${p.code})` : p.name)).join(', ')}`;
 
+/** Optional; blank = none. Normalized (trimmed, upper case) as store credits store it. */
+function normalizeStoreCreditCodeInput(raw: unknown, errors: ValidationIssue[]): string | null {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw !== 'string') {
+    errors.push({ path: 'storeCreditCode', code: 'invalid' });
+    return null;
+  }
+  const code = normalizeStoreCreditCode(raw);
+  if (code.length > MAX_STORE_CREDIT_CODE_LENGTH) {
+    errors.push({ path: 'storeCreditCode', code: 'too_long' });
+    return null;
+  }
+  return code || null;
+}
+
 function normalizeExpectedTotal(raw: unknown, errors: ValidationIssue[]): number | null {
   if (raw === undefined || raw === null) return null;
   if (typeof raw !== 'number' || !Number.isSafeInteger(raw) || raw < 0) {
@@ -493,13 +524,31 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       ctx: { lines: EvaluationLine[]; email: string | null }
     ): { promotionId: number; name: string }[];
   } => service('EcommercePromotionService');
+  const paymentService = (): {
+    applyStoreCredit(p: {
+      orderId: number;
+      code: string;
+      idempotencyKey: string;
+      actor: string;
+      operationId: string;
+      collector: { emit(e: any): void };
+    }): Promise<unknown>;
+  } => service('EcommercePaymentService');
   const getDefaultLocale = async (): Promise<string> =>
     strapi.plugin('i18n').service('locales').getDefaultLocale();
 
-  const findByIdempotencyKey = async (key: string) => {
-    const o = await strapi.db.query(uids().order).findOne({ where: { idempotencyKey: key } });
+  const findByIdempotencyKey = async (key: string): Promise<CreatedOrder | null> => {
+    const o = await strapi.db.query(uids().order).findOne({
+      where: { idempotencyKey: key },
+      select: ['id', 'reference', 'publicId', 'total'],
+    });
     return o
-      ? { id: o.id as number, reference: o.reference as number, publicId: o.publicId as string }
+      ? {
+          id: o.id as number,
+          reference: o.reference as number,
+          publicId: o.publicId as string,
+          total: num(o.total),
+        }
       : null;
   };
 
@@ -605,6 +654,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     const lines = normalizeLines(input?.lines, errors);
     const promotionFields = normalizePromotionFields(input, errors);
     const expectedTotal = normalizeExpectedTotal(input?.expectedTotal, errors);
+    const storeCreditCode = normalizeStoreCreditCodeInput(input?.storeCreditCode, errors);
 
     if (errors.length) throw new EcommerceValidationError('Invalid order', errors);
 
@@ -624,6 +674,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       ...promotionFields,
       expectedTotal,
       emailVerified,
+      storeCreditCode,
     };
   };
 
@@ -702,7 +753,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
   });
 
 
-  const create = async (input: CreateOrderInput, ctx: CreateOrderContext) => {
+  const create = async (input: CreateOrderInput, ctx: CreateOrderContext): Promise<CreatedOrder> => {
     // A replay returns the stored order before any validation, catalog or shipping work,
     // so it succeeds even if settings or the catalog changed since.
     const replayKey = clean(input?.idempotencyKey);
@@ -769,8 +820,9 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     const units = v.lines.reduce((s, l) => s + l.quantity, 0);
     const deductions = quantitiesByVariant(evaluation.lines);
 
-    const attempt = async () => {
+    const attempt = async (): Promise<CreatedOrder> => {
       const collector = events().collector();
+      const operationId = randomUUID();
       const result = await strapi.db.transaction(async () => {
         const u = uids();
         const customer = await customers().findOrCreate(v.customer);
@@ -815,6 +867,9 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
             idempotencyKey: v.idempotencyKey,
             cancelledAt: null,
             archivedAt: null,
+            ...(ctx.checkoutSessionId !== undefined
+              ? { checkoutSession: ctx.checkoutSessionId }
+              : {}),
           },
         });
         const orderId = order.id as number;
@@ -902,7 +957,20 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
           orderId,
           payload: { reference, publicId, source: ctx.source, total: totals.total },
         });
-        return { id: orderId, reference, publicId };
+
+        // Last, so history and e-mails read ORDER_CREATED then PAYMENT_COMPLETED. Any refusal
+        // (STORE_CREDIT_*) rolls the whole creation back: no order, stock or reservation.
+        if (v.storeCreditCode) {
+          await paymentService().applyStoreCredit({
+            orderId,
+            code: v.storeCreditCode,
+            idempotencyKey: `${v.idempotencyKey ?? randomUUID()}:store-credit`,
+            actor: ctx.actor,
+            operationId,
+            collector,
+          });
+        }
+        return { id: orderId, reference, publicId, total: totals.total };
       });
       await collector.flush();
       return result;

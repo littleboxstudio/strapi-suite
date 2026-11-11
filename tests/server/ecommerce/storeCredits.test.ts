@@ -385,6 +385,68 @@ describe('EcommercePaymentService.addStoreCreditPayment', () => {
   });
 });
 
+describe('EcommercePaymentService.applyStoreCredit', () => {
+  it("joins the caller's transaction and leaves the events to the caller's collector", async () => {
+    const c = setupCommerce();
+    const orderId = await createOrder(c); // total 4500
+    const issued = await issueFor(c, orderId, 3000);
+    c.events.length = 0;
+    const emitted: any[] = [];
+    const collector = { emit: (e: any) => emitted.push(e) };
+
+    const err = await c.strapi.db
+      .transaction(async () => {
+        const view = await c.payments.applyStoreCredit({
+          orderId,
+          code: issued.code,
+          idempotencyKey: 'outer:store-credit',
+          actor: 'user:1',
+          operationId: 'op-1',
+          collector,
+        });
+        expect(view).toMatchObject({ method: 'STORE_CREDIT', status: 'COMPLETED', amount: 3000 });
+        expect(credit(c, issued.id).balance).toBe(0);
+        throw new Error('caller failed after the payment');
+      })
+      .catch((e: Error) => e);
+
+    expect(err.message).toBe('caller failed after the payment');
+    // The caller's rollback undoes the payment and the consumption.
+    expect(c.tables[UIDS.payment]).toHaveLength(0);
+    expect(credit(c, issued.id).balance).toBe(3000);
+    expect(movements(c).filter((m) => m.type === 'CONSUME')).toHaveLength(0);
+    // Emitted into the caller's collector, never flushed by applyStoreCredit.
+    expect(emitted).toEqual([
+      expect.objectContaining({ type: 'PAYMENT_COMPLETED', orderId, payload: expect.objectContaining({ amount: 3000 }) }),
+    ]);
+    expect(c.events).toHaveLength(0);
+    const ops = c.tables[UIDS.orderHistory].filter((h) => h.operationId === 'op-1');
+    expect(ops).toHaveLength(0);
+  });
+
+  it('records its history with the given operationId', async () => {
+    const c = setupCommerce();
+    const orderId = await createOrder(c);
+    const issued = await issueFor(c, orderId, 1000);
+    const collector = c.services.EcommerceEventBus.collector();
+    await c.strapi.db.transaction(() =>
+      c.payments.applyStoreCredit({
+        orderId,
+        code: issued.code,
+        idempotencyKey: 'k:store-credit',
+        actor: 'user:1',
+        operationId: 'op-2',
+        collector,
+      })
+    );
+    await collector.flush();
+    expect(
+      c.tables[UIDS.orderHistory].filter((h) => h.operationId === 'op-2').map((h) => h.type)
+    ).toEqual(expect.arrayContaining(['PAYMENT_CREATED', 'PAYMENT_COMPLETED']));
+    expect(c.events.filter((e) => e.type === 'PAYMENT_COMPLETED')).toHaveLength(1);
+  });
+});
+
 describe('EcommerceStoreCreditService queries and void', () => {
   it('lists by customer, searches by code or e-mail, gets with movements and voids', async () => {
     const c = setupCommerce();

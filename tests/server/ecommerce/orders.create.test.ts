@@ -17,6 +17,11 @@ import {
   promotionRelations,
   registerPromotionService,
 } from './helpers/promotionFakes';
+import {
+  UIDS as COMMERCE_UIDS,
+  setupCommerce,
+  type Commerce,
+} from './helpers/commerceSetup';
 
 const P = 'plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-';
 const UIDS = {
@@ -731,5 +736,164 @@ describe('EcommerceOrderService.list / get', () => {
   it('get throws not found', async () => {
     const { service } = setup();
     await expect(service.get(42)).rejects.toThrow('Order not found');
+  });
+});
+
+describe('EcommerceOrderService.create with a store credit and a checkout session', () => {
+  const U = COMMERCE_UIDS;
+  const addr = address();
+  /** Variant 13 at 4500 + 500 shipping = 5000. */
+  const commerce = () => {
+    const c = setupCommerce();
+    c.tables[U.variant].push({ id: 13, product: 1, sku: 'SH-XL', price: 4500, tax: 23, stock: 5, active: true });
+    return c;
+  };
+  const orderInput = (extra: any = {}) => ({
+    customer: { firstName: 'Ana', lastName: 'Silva', email: 'Ana@Example.pt' },
+    shippingAddress: addr,
+    billingAddress: addr,
+    locale: 'en',
+    lines: [{ variantId: 13, quantity: 1 }],
+    shipping: { providerId: 'manual', serviceId: '1' },
+    ...extra,
+  });
+  const sf = { actor: 'storefront', source: 'storefront' as const };
+  const creditFor = async (c: Commerce, email: string, amount: number) => {
+    const customer = await c.services.EcommerceCustomerService.findOrCreate({
+      firstName: 'X',
+      lastName: 'Y',
+      email,
+    });
+    return c.storeCredits.issue({ customerId: customer.id, amount, actor: 'user:1', operationKey: `issue:${email}:${amount}` });
+  };
+  const creditRow = (c: Commerce, id: number) => c.tables[U.storeCredit].find((x) => x.id === id);
+  const addAutomaticPromotion = (c: Commerce) => {
+    c.tables[U.promotion].push({
+      id: 1,
+      name: 'Promo',
+      description: null,
+      code: null,
+      method: 'AUTOMATIC',
+      active: true,
+      startsAt: '2020-01-01T00:00:00.000Z',
+      endsAt: null,
+      priority: 0,
+      displayName: {},
+      eligibility: { mode: 'ALL' },
+      conditions: { type: 'GROUP', operator: 'AND', children: [] },
+      benefits: { items: [{ type: 'ORDER_PERCENT', percent: 10 }] },
+      stacking: { exclusive: false, withProduct: true, withOrder: true, withShipping: true },
+      usageLimit: 10,
+      perCustomerLimit: null,
+      perOrderLimit: null,
+      redemptions: 0,
+      version: 1,
+    });
+  };
+  const nothingCreated = (c: Commerce, creditId: number, balance: number) => {
+    expect(c.tables[U.order]).toHaveLength(0);
+    expect(c.tables[U.orderLine]).toHaveLength(0);
+    expect(c.tables[U.stockMovement]).toHaveLength(0);
+    expect(c.tables[U.payment]).toHaveLength(0);
+    expect(c.tables[U.promotionRedemption]).toHaveLength(0);
+    expect(c.tables[U.variant].find((v) => v.id === 13).stock).toBe(5);
+    expect(creditRow(c, creditId).balance).toBe(balance);
+    expect(c.tables[U.storeCreditMovement].filter((m) => m.type === 'CONSUME')).toHaveLength(0);
+    expect(c.events.filter((e) => e.type !== 'STORE_CREDIT_ISSUED')).toHaveLength(0);
+  };
+
+  it('pays part of the order with the credit; ORDER_CREATED comes before PAYMENT_COMPLETED', async () => {
+    const c = commerce();
+    const issued = await creditFor(c, 'ana@example.pt', 3000);
+    c.events.length = 0;
+
+    const res = await c.orders.create(orderInput({ storeCreditCode: issued.code.toLowerCase() }), sf);
+    expect(res).toEqual({ id: expect.any(Number), reference: 1001, publicId: expect.any(String), total: 5000 });
+
+    const order = c.tables[U.order].find((o) => o.id === res.id);
+    expect(order).toMatchObject({ total: 5000, paymentStatus: 'PARTIALLY_PAID', source: 'storefront' });
+    expect(c.tables[U.payment]).toEqual([
+      expect.objectContaining({ order: res.id, method: 'STORE_CREDIT', status: 'COMPLETED', amount: 3000 }),
+    ]);
+    expect(creditRow(c, issued.id).balance).toBe(0);
+    expect(c.events.map((e) => e.type)).toEqual(['ORDER_CREATED', 'PAYMENT_COMPLETED']);
+    const history = c.tables[U.orderHistory]
+      .filter((h) => h.order === res.id)
+      .sort((a, b) => a.id - b.id)
+      .map((h) => h.type);
+    expect(history.indexOf('ORDER_CREATED')).toBe(0);
+    expect(history.indexOf('PAYMENT_COMPLETED')).toBeGreaterThan(0);
+  });
+
+  it('a credit larger than the total pays it all and keeps the rest', async () => {
+    const c = commerce();
+    const issued = await creditFor(c, 'ana@example.pt', 8000);
+    const res = await c.orders.create(orderInput({ storeCreditCode: issued.code }), sf);
+    expect(c.tables[U.payment][0]).toMatchObject({ amount: 5000, status: 'COMPLETED' });
+    expect(creditRow(c, issued.id).balance).toBe(3000);
+    expect(c.tables[U.order].find((o) => o.id === res.id).paymentStatus).toBe('PAID');
+  });
+
+  it("another e-mail's credit refuses the whole order (STORE_CREDIT_EMAIL_MISMATCH)", async () => {
+    const c = commerce();
+    addAutomaticPromotion(c);
+    const issued = await creditFor(c, 'bruno@example.pt', 3000);
+    c.events.length = 0;
+    expect((await codes(c.orders.create(orderInput({ storeCreditCode: issued.code }), sf))).map((e: any) => e.code)).toEqual([
+      'STORE_CREDIT_EMAIL_MISMATCH',
+    ]);
+    nothingCreated(c, issued.id, 3000);
+    expect(c.tables[U.promotion][0].redemptions).toBe(0);
+  });
+
+  it('a balance spent between the quote and the creation → 409 STORE_CREDIT_INSUFFICIENT, nothing created', async () => {
+    const c = commerce();
+    addAutomaticPromotion(c);
+    const issued = await creditFor(c, 'ana@example.pt', 3000);
+    c.events.length = 0;
+    // Another purchase spends the credit after the read: the conditional UPDATE matches no row.
+    const original = c.strapi.db.getConnection;
+    c.strapi.db.getConnection = (table: string) => {
+      if (table === U.storeCredit) creditRow(c, issued.id).balance = 100;
+      return original(table);
+    };
+    expect((await codes(c.orders.create(orderInput({ storeCreditCode: issued.code }), sf))).map((e: any) => e.code)).toEqual([
+      'STORE_CREDIT_INSUFFICIENT',
+    ]);
+    c.strapi.db.getConnection = original;
+    nothingCreated(c, issued.id, 3000);
+    expect(c.tables[U.promotion][0].redemptions).toBe(0);
+  });
+
+  it('a repeated idempotencyKey returns the same order and consumes the credit once', async () => {
+    const c = commerce();
+    const issued = await creditFor(c, 'ana@example.pt', 3000);
+    const a = await c.orders.create(orderInput({ storeCreditCode: issued.code, idempotencyKey: 'k-sc' }), sf);
+    const b = await c.orders.create(orderInput({ storeCreditCode: issued.code, idempotencyKey: 'k-sc' }), sf);
+    expect(b).toEqual(a);
+    expect(a.total).toBe(5000);
+    expect(c.tables[U.order]).toHaveLength(1);
+    expect(c.tables[U.payment]).toHaveLength(1);
+    expect(c.tables[U.payment][0].idempotencyKey).toBe('k-sc:store-credit');
+    expect(c.tables[U.storeCreditMovement].filter((m) => m.type === 'CONSUME')).toHaveLength(1);
+    expect(creditRow(c, issued.id).balance).toBe(0);
+  });
+
+  it('rejects a store credit code that is not a string or longer than 64 characters', async () => {
+    const c = commerce();
+    expect(await codes(c.orders.create(orderInput({ storeCreditCode: 5 }), sf))).toEqual([
+      { path: 'storeCreditCode', code: 'invalid' },
+    ]);
+    expect(await codes(c.orders.create(orderInput({ storeCreditCode: 'A'.repeat(65) }), sf))).toEqual([
+      { path: 'storeCreditCode', code: 'too_long' },
+    ]);
+    expect(c.tables[U.order]).toHaveLength(0);
+  });
+
+  it('links the order to its checkout session', async () => {
+    const c = commerce();
+    const res = await c.orders.create(orderInput(), { ...sf, checkoutSessionId: 7 });
+    expect(c.tables[U.order].find((o) => o.id === res.id).checkoutSession).toBe(7);
+    expect(res.total).toBe(5000);
   });
 });
