@@ -8,6 +8,7 @@ import {
   type ShipmentLike,
   type ShipmentStatus,
 } from './orders';
+import { EcommerceValidationError } from '../errors';
 
 export type { ShipmentStatus };
 
@@ -46,12 +47,16 @@ const validateLineRequest = (
   const issues: ValidationIssue[] = [];
   const seen = new Set<number>();
   request.forEach((r, i) => {
+    if (r === null || typeof r !== 'object') {
+      issues.push({ path: `lines.${i}`, code: 'invalid_line' });
+      return;
+    }
     if (seen.has(r.orderLineId)) {
       issues.push({ path: `lines.${i}.orderLineId`, code: 'duplicate_line' });
       return;
     }
     seen.add(r.orderLineId);
-    const limit = limitOf(r.orderLineId);
+    const limit = Number.isInteger(r.orderLineId) ? limitOf(r.orderLineId) : undefined;
     if (limit === undefined) {
       issues.push({ path: `lines.${i}.orderLineId`, code: 'unknown_line' });
       return;
@@ -113,7 +118,8 @@ export const validateDeliveryDate = (deliveredAt: unknown, shippedAt: string, no
   const at = new Date(deliveredAt).getTime();
   if (Number.isNaN(at)) return [{ path, code: 'invalid_date' }];
   const shipped = new Date(shippedAt).getTime();
-  if (!Number.isNaN(shipped) && at < shipped) return [{ path, code: 'before_shipment' }];
+  if (Number.isNaN(shipped)) return [{ path: 'shippedAt', code: 'invalid_shipped_at' }];
+  if (at < shipped) return [{ path, code: 'before_shipment' }];
   if (at > now.getTime() + FUTURE_TOLERANCE_MS) return [{ path, code: 'in_future' }];
   return [];
 };
@@ -139,7 +145,7 @@ export const validateReturnRequest = (
   const issues = validateLineRequest(request, (id) => returnable.get(id), 'QUANTITY_EXCEEDS_RETURNABLE');
   if (Array.isArray(request)) {
     request.forEach((r, i) => {
-      if (typeof r.restock !== 'boolean') issues.push({ path: `lines.${i}.restock`, code: 'invalid_restock' });
+      if (r !== null && typeof r === 'object' && typeof r.restock !== 'boolean') issues.push({ path: `lines.${i}.restock`, code: 'invalid_restock' });
     });
   }
   return issues;
@@ -152,7 +158,10 @@ export type ReturnComputation = {
   refundableValue: number;
 };
 
-/** `lines` must reflect the order before this return. */
+/**
+ * `lines` must reflect the order before this return. Call after `validateReturnRequest`;
+ * an unknown `orderLineId` throws.
+ */
 export const computeReturn = (
   lines: (LineAmounts & { id: number })[],
   orderDiscount: number,
@@ -161,7 +170,10 @@ export const computeReturn = (
   const byId = new Map(lines.map((l) => [l.id, l]));
   const items = request.map((r) => {
     const l = byId.get(r.orderLineId);
-    const value = l ? (l.unitPrice - l.unitDiscount) * r.quantity : 0;
+    if (!l) {
+      throw new EcommerceValidationError('Unknown order line', [{ path: 'lines', code: 'unknown_line' }]);
+    }
+    const value = (l.unitPrice - l.unitDiscount) * r.quantity;
     return { orderLineId: r.orderLineId, quantity: r.quantity, value };
   });
   const grossValue = items.reduce((sum, i) => sum + i.value, 0);
