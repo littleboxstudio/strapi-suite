@@ -59,6 +59,7 @@ const EcommercePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
     computeOrderState(orderId: number): Promise<OrderState>;
     assertAction(state: OrderState, action: OrderActionKey): void;
     recalculate(orderId: number, opts: { actor?: string; operationId?: string }): Promise<unknown>;
+    lockOrder(orderId: number): Promise<void>;
   } => service('EcommerceOrderService');
   const history = (): { record(entry: OrderHistoryEntry): Promise<void> } =>
     service('EcommerceOrderHistoryService');
@@ -113,6 +114,7 @@ const EcommercePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
     const operationId = randomUUID();
     try {
       const created = await strapi.db.transaction(async () => {
+        await orders().lockOrder(orderId);
         const state = await orders().computeOrderState(orderId);
         orders().assertAction(state, 'ADD_PAYMENT');
 

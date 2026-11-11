@@ -67,13 +67,26 @@ function setup() {
   // Simulates a concurrent transition that committed first: the next conditional order
   // update matches no row.
   let loseOrderUpdates = 0;
+  /** Every write, in order, as `<uid suffix>.<method>` with its arguments. */
+  const writes: { op: string; args: any }[] = [];
+  const logged = (uid: string, q: any) => {
+    const out = { ...q };
+    for (const m of ['create', 'update', 'updateMany', 'delete', 'deleteMany']) {
+      out[m] = async (args: any) => {
+        writes.push({ op: `${uid.slice(P.length)}.${m}`, args });
+        return q[m](args);
+      };
+    }
+    return out;
+  };
   const query = (uid: string) => {
-    const q = db.query(uid);
+    const q = logged(uid, db.query(uid));
     if (uid === UIDS.order) {
       return {
         ...q,
         updateMany: async (p: any) => {
-          if (loseOrderUpdates > 0) {
+          // Only the conditional status updates race; the row lock (by id alone) does not.
+          if (loseOrderUpdates > 0 && p?.where?.orderStatus) {
             loseOrderUpdates--;
             return { count: 0 };
           }
@@ -134,6 +147,7 @@ function setup() {
     payments,
     tables: t,
     bus,
+    writes,
     depth: () => depth,
     missNextPaymentLookup: () => {
       missPaymentLookups = 1;
@@ -652,5 +666,49 @@ describe('EcommerceOrderService.archive', () => {
     expect(tables[UIDS.orderHistory].map((h) => h.type)).toContain('ORDER_ARCHIVED');
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ type: 'ORDER_ARCHIVED', orderId: id });
+  });
+});
+
+describe('order-level writes take a row lock first', () => {
+  const LOCK = (id: number) => ({
+    op: 'order.updateMany',
+    args: { where: { id }, data: { updatedAt: expect.any(Date) } },
+  });
+
+  it('addManualPayment', async () => {
+    const { orders, payments, writes } = setup();
+    const { id } = await createOrder(orders);
+    writes.length = 0;
+    await payments.addManualPayment(id, { amount: 1000, idempotencyKey: 'lock-1' }, 'user:1');
+    expect(writes[0]).toEqual(LOCK(id));
+  });
+
+  it('cancel', async () => {
+    const { orders, writes } = setup();
+    const { id } = await createOrder(orders);
+    writes.length = 0;
+    await orders.cancel(id, 'user:1');
+    expect(writes[0]).toEqual(LOCK(id));
+  });
+
+  it('archive', async () => {
+    const { orders, payments, tables, writes } = setup();
+    const { id } = await createOrder(orders);
+    await payments.addManualPayment(id, { amount: 7000, idempotencyKey: 'k' }, 'user:1');
+    tables[UIDS.order][0].fulfillmentStatus = 'FULFILLED';
+    writes.length = 0;
+    await orders.archive(id, 'user:1');
+    expect(writes[0]).toEqual(LOCK(id));
+  });
+
+  it('applyModification', async () => {
+    const { orders, tables, writes } = setup();
+    const { id } = await createOrder(orders);
+    const lines = tables[UIDS.orderLine]
+      .filter((l) => l.order === id)
+      .map((l) => ({ orderLineId: l.id, variantId: l.variantId, quantity: 1 }));
+    writes.length = 0;
+    await orders.applyModification(id, { lines, shipping: { mode: 'KEEP' } }, 'user:1', 'op-lock-0001');
+    expect(writes[0]).toEqual(LOCK(id));
   });
 });

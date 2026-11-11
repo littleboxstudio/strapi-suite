@@ -857,6 +857,18 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       return { paymentStatus, fulfillmentStatus };
     });
 
+  /**
+   * Serializes order-level writers: a no-op update takes the order row's write lock for the
+   * rest of the caller's transaction, so concurrent payments, modifications, cancels and
+   * archives on the same order run one after the other (portable across SQLite, Postgres and
+   * MySQL/MariaDB, unlike `SELECT ... FOR UPDATE`). Call it first inside the transaction.
+   */
+  const lockOrder = async (orderId: number): Promise<void> => {
+    await strapi.db
+      .query(uids().order)
+      .updateMany({ where: { id: orderId }, data: { updatedAt: new Date() } });
+  };
+
   /** Throws `ACTION_NOT_AVAILABLE` unless `action` is in the order's available actions. */
   const assertAction = (state: OrderState, action: OrderActionKey, allowed = true): void => {
     if (!allowed || !state.actions.includes(action)) {
@@ -876,6 +888,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     const collector = events().collector();
     const operationId = randomUUID();
     await strapi.db.transaction(async () => {
+      await lockOrder(orderId);
       const state = await computeOrderState(orderId);
       const from: OrderStatus = state.order.orderStatus;
       assertAction(state, action, canTransition(from, to));
@@ -1221,6 +1234,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     let outcome: OrderModificationOutcome;
     try {
       outcome = await strapi.db.transaction(async () => {
+        await lockOrder(orderId);
         if (await findAppliedModification(orderId, operationId)) throw operationConflict();
         const ctx = await loadModificationContext(orderId, n);
         const result = runSimulation(ctx, n, shippingInput);
@@ -1614,6 +1628,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     archive,
     previewModification,
     applyModification,
+    lockOrder,
   };
 };
 
