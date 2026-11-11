@@ -9,6 +9,14 @@ import {
 const codes = (issues: { code: string }[]) => issues.map((issue) => issue.code);
 
 describe('renderTemplate', () => {
+  it('does not escape values in plain-text mode', () => {
+    const data = { store: { name: 'A & B' }, customer: { lastName: "O'Brien <x>" } };
+    expect(renderTemplate('{{store.name}} {{customer.lastName}}', data, { escape: false })).toBe(
+      "A & B O'Brien <x>"
+    );
+    expect(renderTemplate('{{store.name}}', data)).toBe('A &amp; B');
+  });
+
   it('HTML-escapes values', () => {
     expect(
       renderTemplate('Olá, {{customer.firstName}}', { customer: { firstName: '<b>João</b>' } })

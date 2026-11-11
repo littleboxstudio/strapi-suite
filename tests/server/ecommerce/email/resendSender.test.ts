@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { sendWithResend } from '../../../../server/src/services/modules/ecommerce/providers/email/resendSender';
+import { formatFrom, sendWithResend } from '../../../../server/src/services/modules/ecommerce/providers/email/resendSender';
 import { EcommerceEmailError } from '../../../../server/src/services/modules/ecommerce/errors';
 
 const API_KEY = 're_live_SuperSecretKey123';
@@ -101,5 +101,20 @@ describe('sendWithResend', () => {
     ).catch((e) => e);
     expect(noFrom.code).toBe('EMAIL_NOT_CONFIGURED');
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('quotes the sender name per RFC 5322 when it contains specials', async () => {
+    expect(formatFrom('Acme Shop', 'a@b.com')).toBe('Acme Shop <a@b.com>');
+    expect(formatFrom('Name, Inc.', 'a@b.com')).toBe('"Name, Inc." <a@b.com>');
+    expect(formatFrom('Say "Hi" \\ Co', 'a@b.com')).toBe('"Say \\"Hi\\" \\\\ Co" <a@b.com>');
+    expect(formatFrom('  ', 'a@b.com')).toBe('a@b.com');
+
+    const fetchMock = stubFetch(200, { id: 'x' });
+    await sendWithResend(rt({ fromEmail: 'shop@example.com', fromName: 'Name, Inc.' }), {
+      to: 'a@b.com',
+      subject: 's',
+      html: 'h',
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body)).from).toBe('"Name, Inc." <shop@example.com>');
   });
 });

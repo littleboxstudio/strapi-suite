@@ -4,6 +4,16 @@ import { EcommerceEmailError } from '../../errors';
 
 const RESEND_URL = 'https://api.resend.com/emails';
 
+/** RFC 5322 display name: quoted (inner quotes/backslashes escaped) when it has specials. */
+export function formatFrom(name: string, email: string): string {
+  const clean = name.replace(/[\r\n]+/g, ' ').trim();
+  if (!clean) return email;
+  const display = /^[A-Za-z0-9!#$%&'*+\-/=?^_`{|}~ ]+$/.test(clean)
+    ? clean
+    : `"${clean.replace(/["\\]/g, (c) => `\\${c}`)}"`;
+  return `${display} <${email}>`;
+}
+
 export type EmailMessage = {
   to: string;
   subject: string;
@@ -28,7 +38,7 @@ export async function sendWithResend(rt: ProviderRuntime, msg: EmailMessage): Pr
   if (msg.idempotencyKey) headers['Idempotency-Key'] = msg.idempotencyKey;
 
   const body: Record<string, unknown> = {
-    from: fromName ? `${fromName} <${fromEmail}>` : fromEmail,
+    from: formatFrom(fromName, fromEmail),
     to: [msg.to],
     subject: msg.subject,
     html: msg.html,

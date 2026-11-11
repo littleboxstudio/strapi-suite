@@ -50,6 +50,7 @@ type TemplateRow = {
   subject: string | null;
   html: string | null;
   version: number | null;
+  updatedBy: string | null;
 };
 
 type SettingsApi = {
@@ -68,14 +69,34 @@ const storeVariables = (s: StoreSettings): Record<string, string> => ({
   supportEmail: s.supportEmail ?? '',
 });
 
+/** Subjects are plain text (not escaped); bodies are HTML (escaped). */
+const renderPart = (part: 'subject' | 'html', source: string, data: Record<string, unknown>): string =>
+  renderTemplate(source, data, { escape: part === 'html' });
+
 /** Renders without throwing: a malformed part renders as an empty string (validation reports it). */
-const safeRender = (source: string, data: Record<string, unknown>): string => {
+const safeRender = (part: 'subject' | 'html', source: string, data: Record<string, unknown>): string => {
   try {
-    return renderTemplate(source, data);
+    return renderPart(part, source, data);
   } catch (err) {
     if (err instanceof TemplateSyntaxError) return '';
     throw err;
   }
+};
+
+/** Renders for sending: a malformed part (e.g. a legacy row) becomes a validation error, never a raw one. */
+const strictRender = (source: TemplateContent, data: Record<string, unknown>): TemplateContent => {
+  const out: TemplateContent = { subject: '', html: '' };
+  const errors: ValidationIssue[] = [];
+  for (const part of ['subject', 'html'] as const) {
+    try {
+      out[part] = renderPart(part, source[part], data);
+    } catch (err) {
+      if (!(err instanceof TemplateSyntaxError)) throw err;
+      errors.push({ path: part, code: 'SYNTAX', detail: err.message });
+    }
+  }
+  if (errors.length) throw new EcommerceValidationError('Invalid template', errors);
+  return out;
 };
 
 const EcommerceEmailTemplateService = ({ strapi }: { strapi: Core.Strapi }) => {
@@ -154,8 +175,9 @@ const EcommerceEmailTemplateService = ({ strapi }: { strapi: Core.Strapi }) => {
       const row = await findCustom(type, locale);
       const version = await currentVersion(type, locale, row);
       const previous = currentContent(type, row);
+      // The snapshot is attributed to whoever wrote that content (null for the built-in default).
       await versions().create({
-        data: { type, locale, ...previous, version, createdBy: userRef(userId) ?? null },
+        data: { type, locale, ...previous, version, createdBy: row?.updatedBy ?? null },
       });
       if (content === null) {
         if (row) await templates().delete({ where: { id: row.id } });
@@ -290,13 +312,17 @@ const EcommerceEmailTemplateService = ({ strapi }: { strapi: Core.Strapi }) => {
       const html = typeof input?.html === 'string' ? input.html : '';
       const data = await sampleData(t);
       return {
-        subject: safeRender(subject, data),
-        html: safeRender(html, data),
+        subject: safeRender('subject', subject, data),
+        html: safeRender('html', html, data),
         issues: validateTemplate(t, subject, html),
       };
     },
 
-    /** Locale customization → default-locale customization → built-in default. `store` always comes from the store settings. */
+    /**
+     * Locale customization → default-locale customization → built-in default. `store` always comes
+     * from the store settings. The subject is plain text; a malformed stored template throws
+     * EcommerceValidationError (code SYNTAX).
+     */
     async render(
       type: EmailTemplateType,
       locale: string,
@@ -307,10 +333,7 @@ const EcommerceEmailTemplateService = ({ strapi }: { strapi: Core.Strapi }) => {
       const row = (await findCustom(t, locale)) ?? (await findCustom(t, defaultLocale));
       const source = currentContent(t, row);
       const full = { ...data, store: storeVariables(await settings().getStoreSettings()) };
-      return {
-        subject: renderTemplate(source.subject, full),
-        html: renderTemplate(source.html, full),
-      };
+      return strictRender(source, full);
     },
 
     async sendTest(

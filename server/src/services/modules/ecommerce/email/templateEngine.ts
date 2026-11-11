@@ -3,7 +3,7 @@
  *
  * Supported tags: `{{path}}`, `{{#each path}}…{{/each}}` (with `{{this}}`, `{{this.x}}`, `{{@index}}`),
  * `{{#if path}}…{{else}}…{{/if}}`. No helpers, no expressions, no code execution.
- * Values are always HTML-escaped. Pure TypeScript: no Strapi imports.
+ * Values are HTML-escaped (plain-text mode, for subjects, opts out). Pure TypeScript: no Strapi imports.
  */
 import { getVariableCatalog, type EmailTemplateType, type VariableDef } from './catalog';
 
@@ -170,14 +170,19 @@ function isTruthy(value: unknown): boolean {
   return value !== null && typeof value === 'object';
 }
 
-function stringify(value: unknown): string {
-  if (typeof value === 'string') return escapeHtml(value);
+function stringify(value: unknown, escape: boolean): string {
+  if (typeof value === 'string') return escape ? escapeHtml(value) : value;
   if (typeof value === 'number') return Number.isFinite(value) ? String(value) : '';
   if (typeof value === 'boolean') return String(value);
   return '';
 }
 
-function renderNodes(nodes: Node[], data: Record<string, unknown>, scopes: Scope[]): string {
+function renderNodes(
+  nodes: Node[],
+  data: Record<string, unknown>,
+  scopes: Scope[],
+  escape: boolean
+): string {
   let out = '';
   for (const node of nodes) {
     switch (node.type) {
@@ -185,7 +190,7 @@ function renderNodes(nodes: Node[], data: Record<string, unknown>, scopes: Scope
         out += node.value;
         break;
       case 'value':
-        out += stringify(resolve(node.path, data, scopes));
+        out += stringify(resolve(node.path, data, scopes), escape);
         break;
       case 'index':
         out += scopes.length ? String(scopes[scopes.length - 1].index) : '';
@@ -194,14 +199,15 @@ function renderNodes(nodes: Node[], data: Record<string, unknown>, scopes: Scope
         out += renderNodes(
           isTruthy(resolve(node.path, data, scopes)) ? node.then : node.else,
           data,
-          scopes
+          scopes,
+          escape
         );
         break;
       case 'each': {
         const items = resolve(node.path, data, scopes);
         if (!Array.isArray(items)) break;
         items.forEach((item, index) => {
-          out += renderNodes(node.children, data, [...scopes, { item, index }]);
+          out += renderNodes(node.children, data, [...scopes, { item, index }], escape);
         });
         break;
       }
@@ -210,11 +216,20 @@ function renderNodes(nodes: Node[], data: Record<string, unknown>, scopes: Scope
   return out;
 }
 
+export type RenderOptions = {
+  /** HTML-escape values (default true). Use false only for plain-text output such as e-mail subjects. */
+  escape?: boolean;
+};
+
 /** Renders a template. Throws TemplateSyntaxError if the template is malformed. */
-export function renderTemplate(source: string, data: Record<string, unknown>): string {
+export function renderTemplate(
+  source: string,
+  data: Record<string, unknown>,
+  options: RenderOptions = {}
+): string {
   const { nodes, errors } = parse(source);
   if (errors.length) throw new TemplateSyntaxError(errors[0]);
-  return renderNodes(nodes, data, []);
+  return renderNodes(nodes, data, [], options.escape !== false);
 }
 
 // ---------------------------------------------------------------------------
