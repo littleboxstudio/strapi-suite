@@ -181,8 +181,16 @@ const SAMPLE_VALUES: Record<string, unknown> = {
   'shipment.trackingCode': 'RR123456789PT',
   'shipment.trackingUrl': 'https://tracking.example.com/RR123456789PT',
   'shipment.allTracking': [
-    { carrier: 'CTT', trackingCode: 'RR123456789PT', trackingUrl: 'https://tracking.example.com/RR123456789PT' },
-    { carrier: 'DPD', trackingCode: '09981234567', trackingUrl: 'https://tracking.example.com/09981234567' },
+    {
+      carrier: 'CTT',
+      trackingCode: 'RR123456789PT',
+      trackingUrl: 'https://tracking.example.com/RR123456789PT',
+    },
+    {
+      carrier: 'DPD',
+      trackingCode: '09981234567',
+      trackingUrl: 'https://tracking.example.com/09981234567',
+    },
   ],
   'delivery.date': '15/11/2026',
   'refund.amount': '9,90 €',
