@@ -7,6 +7,7 @@ import type { EmailTemplateType } from './email/catalog';
 import type { DomainEvent, DomainEventType } from './events';
 import type { OrderView } from './orders';
 import type { StoreSettings } from './settings';
+import { storeLogoVariables } from './domain/storeLogo';
 
 export type NotificationTemplateType = Extract<
   EmailTemplateType,
@@ -124,6 +125,8 @@ export type NotificationDataContext = {
   store: StoreSettings;
   event: DomainEvent;
   extra?: NotificationExtra;
+  /** Strapi's own public URL, never shown in e-mails. */
+  backofficeUrl?: string | null;
 };
 
 const LABELS: Record<'en' | 'pt', Record<string, string>> = {
@@ -236,7 +239,7 @@ export function buildTemplateData(
   const data: Record<string, any> = {
     store: {
       name: str(store.storeName),
-      logoUrl: str(store.logoUrl),
+      ...storeLogoVariables(store, ctx.backofficeUrl),
       brandColor: str(store.brandColor),
       url: str(store.storefrontUrl),
       supportEmail: str(store.supportEmail),

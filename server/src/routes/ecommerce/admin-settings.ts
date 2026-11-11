@@ -28,6 +28,8 @@ export default [
   route('GET', '/locales', 'getLocales', read),
   route('GET', '/store', 'getStore', read),
   route('PUT', '/store', 'updateStore', manage),
+  route('POST', '/store/logo', 'uploadStoreLogo', manage),
+  route('DELETE', '/store/logo', 'removeStoreLogo', manage),
   route('GET', '/stripe-webhook', 'getStripeWebhook', read),
   route('GET', '/storefront/api-tokens', 'listApiTokens', read),
   route('GET', '/integrations', 'listIntegrations', read),

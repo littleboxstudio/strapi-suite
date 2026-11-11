@@ -752,7 +752,7 @@ describe('shipment, delivery and invoice e-mails', () => {
     const store: any = {
       storeName: 'Loja',
       // Admin-configured, accepted as it is (the only URL we do not control).
-      logoUrl: 'https://cdn.example.com/logo.png',
+      logo: { url: 'https://cdn.example.com/logo.png', width: 480, height: 96 },
       brandColor: '#111111',
       storefrontUrl: 'https://shop.example',
       supportEmail: 'help@shop.example',
@@ -787,10 +787,11 @@ describe('shipment, delivery and invoice e-mails', () => {
         extra: { shipment: row(1), shipments: [row(1), row(2)], invoice: { id: 9, number: 'FR 2026/1' } },
       });
       const html = renderTemplate(DEFAULT_TEMPLATES[type as 'FULL_SHIPMENT'].html, data);
-      expect(html, type).not.toMatch(/\/admin|\/api\/|\/uploads|littlebox-strapi-suite/);
+      expect(html, type).not.toMatch(/\/admin|\/api\/|\/uploads|littlebox-strapi-suite|localhost:1337/);
+      expect(html, type).toContain('width="240" height="48"');
       const urls = [...html.matchAll(/\b(?:href|src)="([^"]*)"/g)].map((m) => m[1]);
       for (const u of urls) {
-        let ok = u === store.logoUrl;
+        let ok = u === store.logo.url;
         if (!ok && u.startsWith('mailto:')) ok = true;
         if (!ok) {
           const origin = new URL(u).origin;
@@ -799,7 +800,7 @@ describe('shipment, delivery and invoice e-mails', () => {
         expect(ok, `${type}: ${u}`).toBe(true);
       }
       if (type === 'INVOICE_AVAILABLE') {
-        expect(urls.filter((u) => u !== store.logoUrl && !u.startsWith('mailto:'))).toEqual(['https://shop.example']);
+        expect(urls.filter((u) => u !== store.logo.url && !u.startsWith('mailto:'))).toEqual(['https://shop.example']);
       }
       if (type === 'FULL_SHIPMENT') {
         expect(html).toContain('RR1');

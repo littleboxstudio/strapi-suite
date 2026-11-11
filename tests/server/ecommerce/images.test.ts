@@ -88,4 +88,33 @@ describe('EcommerceImageService', () => {
     expect(del).toHaveBeenLastCalledWith(expect.objectContaining({ hash: 'h2', ext: '.webp' }));
     expect(imageQuery.delete).not.toHaveBeenCalled();
   });
+
+  describe('uploadStoreLogo', () => {
+    it('sends a PNG fitted into 480x96 and creates no image row', async () => {
+      const { service, provider, imageQuery } = build();
+      const buffer = await sharp({ create: { width: 1000, height: 500, channels: 3, background: '#0f0' } }).png().toBuffer();
+      const logo = await service.uploadStoreLogo({ buffer, originalName: 'logo.png' });
+      const file = provider.upload.mock.calls[0][0];
+      expect(file.ext).toBe('.png');
+      expect(file.mime).toBe('image/png');
+      expect(file.hash).toMatch(/^store-logo_[0-9a-f]{10}$/);
+      expect(logo).toMatchObject({ width: 192, height: 96, url: `/uploads/${file.hash}.png` });
+      expect(imageQuery.create).not.toHaveBeenCalled();
+    });
+
+    it('does not enlarge a small JPEG', async () => {
+      const { service } = build();
+      const buffer = await sharp({ create: { width: 100, height: 50, channels: 3, background: '#00f' } }).jpeg().toBuffer();
+      const logo = await service.uploadStoreLogo({ buffer, originalName: 'l.jpg' });
+      expect(logo).toMatchObject({ width: 100, height: 50 });
+    });
+
+    it('rejects a non-image without calling the provider', async () => {
+      const { service, provider } = build();
+      await expect(
+        service.uploadStoreLogo({ buffer: Buffer.from('not an image'), originalName: 'x.txt' })
+      ).rejects.toThrow('INVALID_IMAGE');
+      expect(provider.upload).not.toHaveBeenCalled();
+    });
+  });
 });

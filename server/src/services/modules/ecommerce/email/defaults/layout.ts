@@ -95,7 +95,7 @@ export const layout = (preheader: string, body: string): string =>
       <table role="presentation" class="ltb-container" width="600" border="0" cellpadding="0" cellspacing="0" style="width:600px;max-width:600px">
         <tr>
           <td align="center" class="ltb-pad" style="padding:0 40px 24px">
-            {{#if store.logoUrl}}<img src="{{store.logoUrl}}" alt="{{store.name}}" height="48" style="display:block;height:48px;width:auto;max-width:240px;border:0;outline:none;text-decoration:none">{{else}}<span style="${FONT};font-size:24px;line-height:32px;font-weight:700;color:{{store.brandColor}}">{{store.name}}</span>{{/if}}
+            {{#if store.logoUrl}}<img src="{{store.logoUrl}}" alt="{{store.name}}" width="{{store.logoWidth}}" height="{{store.logoHeight}}" style="display:block;width:{{store.logoWidth}}px;height:{{store.logoHeight}}px;max-width:100%;border:0;outline:none;text-decoration:none">{{else}}<span style="${FONT};font-size:24px;line-height:32px;font-weight:700;color:{{store.brandColor}}">{{store.name}}</span>{{/if}}
           </td>
         </tr>
         <tr>

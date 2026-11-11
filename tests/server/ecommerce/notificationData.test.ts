@@ -16,7 +16,7 @@ const spaces = (s: string) => s.replace(/[  ]/g, ' ');
 
 const store: any = {
   storeName: 'Loja',
-  logoUrl: null,
+  logo: null,
   brandColor: '#111111',
   storefrontUrl: 'https://shop.example',
   paymentSuccessPath: '/s',
@@ -124,6 +124,15 @@ const get = (data: any, path: string) => path.split('.').reduce((o, k) => (o == 
 describe('templateForEvent', () => {
   it('maps every event of this plan to its template', () => {
     for (const [type, e] of Object.entries(EVENT_FOR)) expect(templateForEvent(e)).toBe(type);
+  });
+
+  it('resolves the logo to a public URL and a display size', () => {
+    const withLogo = { ...store, logo: { url: '/uploads/l.png', width: 480, height: 96 } };
+    const data = buildTemplateData('ORDER_CONFIRMATION', { order: makeOrder(), store: withLogo, event: EVENT_FOR.ORDER_CONFIRMATION });
+    expect(data.store).toMatchObject({ logoUrl: 'https://shop.example/uploads/l.png', logoWidth: '240', logoHeight: '48' });
+    const noStorefront = { ...withLogo, storefrontUrl: null };
+    const d2 = buildTemplateData('ORDER_CONFIRMATION', { order: makeOrder(), store: noStorefront, event: EVENT_FOR.ORDER_CONFIRMATION });
+    expect(d2.store.logoUrl).toBe('');
   });
 
   it('sends nothing for store-credit refunds, failures and unrelated events', () => {

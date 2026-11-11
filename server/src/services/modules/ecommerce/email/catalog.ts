@@ -48,6 +48,8 @@ const list = (path: string, description: string, itemFields: string[]): Variable
 const STORE: VariableDef[] = [
   value('store.name', 'Store name'),
   value('store.logoUrl', 'Store logo URL'),
+  value('store.logoWidth', 'Store logo display width (px)'),
+  value('store.logoHeight', 'Store logo display height (px)'),
   value('store.brandColor', 'Store brand colour (hex)'),
   value('store.url', 'Storefront URL'),
   value('store.supportEmail', 'Support e-mail address'),
@@ -152,6 +154,8 @@ const SPECIFIC: Record<EmailTemplateType, VariableDef[]> = {
 const SAMPLE_VALUES: Record<string, unknown> = {
   'store.name': 'Littlebox Store',
   'store.logoUrl': 'https://shop.example.com/logo.png',
+  'store.logoWidth': '160',
+  'store.logoHeight': '48',
   'store.brandColor': '#1F2937',
   'store.url': 'https://shop.example.com',
   'store.supportEmail': 'support@example.com',

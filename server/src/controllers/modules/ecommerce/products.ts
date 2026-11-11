@@ -2,8 +2,8 @@ import fs from 'fs';
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID } from '../../../config';
 import { handleDomainError as handleSharedDomainError } from './errors';
+import { MAX_UPLOAD_BYTES } from '../../../services/modules/ecommerce/domain/imageProcessing';
 
-const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 
 const EcommerceProductController = ({ strapi }: { strapi: Core.Strapi }) => {
   const service = (name: string): any => strapi.plugin(PLUGIN_ID).service(name);
@@ -67,7 +67,7 @@ const EcommerceProductController = ({ strapi }: { strapi: Core.Strapi }) => {
       const file = ctx.request.files?.file;
       const body = ctx.request.body || {};
       if (!file) return ctx.badRequest('A file is required');
-      if (file.size > MAX_IMAGE_BYTES) return ctx.badRequest('The image exceeds 15 MB');
+      if (file.size > MAX_UPLOAD_BYTES) return ctx.badRequest('The image exceeds 15 MB');
 
       const productId = body.productId ? Number(body.productId) : undefined;
       const variantId = body.variantId ? Number(body.variantId) : undefined;

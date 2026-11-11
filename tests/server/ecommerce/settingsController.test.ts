@@ -1,3 +1,6 @@
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   EcommerceEmailError,
@@ -22,6 +25,38 @@ const mkCtx = (extra: any = {}): any => ({
   badRequest: vi.fn(),
   notFound: vi.fn(),
   ...extra,
+});
+
+describe('EcommerceSettingsController — store logo', () => {
+  it('requires a single file', async () => {
+    const c = mocked({ EcommerceSettingsService: {} });
+    const ctx = mkCtx({ request: { body: {}, files: {} } });
+    await c.uploadStoreLogo(ctx);
+    expect(ctx.badRequest).toHaveBeenCalledWith('A file is required');
+    const ctx2 = mkCtx({ request: { body: {}, files: { file: [{}] } } });
+    await c.uploadStoreLogo(ctx2);
+    expect(ctx2.badRequest).toHaveBeenCalledWith('A file is required');
+  });
+
+  it('rejects files over 15 MB', async () => {
+    const c = mocked({ EcommerceSettingsService: {} });
+    const ctx = mkCtx({ request: { body: {}, files: { file: { size: 16 * 1024 * 1024, filepath: '/x' } } } });
+    await c.uploadStoreLogo(ctx);
+    expect(ctx.badRequest).toHaveBeenCalledWith('The image exceeds 15 MB');
+  });
+
+  it('maps INVALID_IMAGE to 400 with details.code', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'logo-'));
+    const filepath = path.join(dir, 'x.png');
+    fs.writeFileSync(filepath, 'x');
+    const c = mocked({
+      EcommerceSettingsService: { uploadStoreLogo: vi.fn().mockRejectedValue(new Error('INVALID_IMAGE')) },
+    });
+    const ctx = mkCtx({ request: { body: {}, files: { file: { size: 1, filepath } } } });
+    await c.uploadStoreLogo(ctx);
+    expect(ctx.badRequest).toHaveBeenCalledWith(expect.any(String), { code: 'INVALID_IMAGE' });
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
 });
 
 describe('EcommerceSettingsController — domain errors', () => {

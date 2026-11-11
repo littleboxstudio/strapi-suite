@@ -17,6 +17,7 @@ import {
   ValidationIssue,
 } from '../errors';
 import type { AuditEntry } from '../audit';
+import { storeLogoVariables } from '../domain/storeLogo';
 import type { StoreSettings } from '../settings';
 import type { ProviderRuntime } from '../providers/registry';
 
@@ -74,9 +75,9 @@ type SettingsApi = {
 const isEmail = (v: unknown) => typeof v === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 
 /** Maps the store settings to the `store.*` template variables. */
-const storeVariables = (s: StoreSettings): Record<string, string> => ({
+const storeVariables = (s: StoreSettings, backofficeUrl?: string | null): Record<string, string> => ({
   name: s.storeName,
-  logoUrl: s.logoUrl ?? '',
+  ...storeLogoVariables(s, backofficeUrl),
   brandColor: s.brandColor,
   url: s.storefrontUrl ?? '',
   supportEmail: s.supportEmail ?? '',
@@ -225,7 +226,7 @@ const EcommerceEmailTemplateService = ({ strapi }: { strapi: Core.Strapi }) => {
 
   const sampleData = async (type: EmailTemplateType): Promise<Record<string, unknown>> => ({
     ...getSampleData(type),
-    store: storeVariables(await settings().getStoreSettings()),
+    store: storeVariables(await settings().getStoreSettings(), strapi.config.get('server.url') as string | undefined),
   });
 
   return {
@@ -363,7 +364,7 @@ const EcommerceEmailTemplateService = ({ strapi }: { strapi: Core.Strapi }) => {
       const defaultLocale = await getDefaultLocale();
       const row = (await findCustom(t, locale)) ?? (await findCustom(t, defaultLocale));
       const source = currentContent(t, row);
-      const full = { ...data, store: storeVariables(await settings().getStoreSettings()) };
+      const full = { ...data, store: storeVariables(await settings().getStoreSettings(), strapi.config.get('server.url') as string | undefined) };
       return strictRender(source, full);
     },
 

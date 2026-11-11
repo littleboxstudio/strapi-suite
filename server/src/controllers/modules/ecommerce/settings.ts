@@ -1,8 +1,10 @@
+import fs from 'fs';
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID } from '../../../config';
 import { STRIPE_WEBHOOK_EVENTS } from '../../../services/modules/ecommerce/stripeWebhooks';
 import { STRIPE_WEBHOOK_SUBPATH } from '../../../middlewares/ecommerceRawBody';
 import { handleDomainError as handleSharedDomainError } from './errors';
+import { MAX_UPLOAD_BYTES } from '../../../services/modules/ecommerce/domain/imageProcessing';
 
 const EcommerceSettingsController = ({ strapi }: { strapi: Core.Strapi }) => {
   const service = (name: string): any => strapi.plugin(PLUGIN_ID).service(name);
@@ -60,6 +62,25 @@ const EcommerceSettingsController = ({ strapi }: { strapi: Core.Strapi }) => {
     getStore: (ctx: any) => respond(ctx, () => settings().getStoreSettings()),
     updateStore: (ctx: any) =>
       respond(ctx, () => settings().updateStoreSettings(body(ctx), userId(ctx))),
+
+    uploadStoreLogo: async (ctx: any) => {
+      const file = ctx.request?.files?.file;
+      if (!file || Array.isArray(file)) return ctx.badRequest('A file is required');
+      if (file.size > MAX_UPLOAD_BYTES) return ctx.badRequest('The image exceeds 15 MB');
+      try {
+        const buffer = await fs.promises.readFile(file.filepath);
+        ctx.body = await settings().uploadStoreLogo(
+          { buffer, originalName: file.originalFilename || 'logo' },
+          userId(ctx)
+        );
+      } catch (err: any) {
+        if (err?.message === 'INVALID_IMAGE') {
+          return ctx.badRequest('Invalid image', { code: 'INVALID_IMAGE' });
+        }
+        return handleDomainError(ctx, err);
+      }
+    },
+    removeStoreLogo: (ctx: any) => respond(ctx, () => settings().removeStoreLogo(userId(ctx))),
 
     listIntegrations: (ctx: any) => respond(ctx, () => settings().listIntegrations()),
     updateIntegration: (ctx: any) =>
