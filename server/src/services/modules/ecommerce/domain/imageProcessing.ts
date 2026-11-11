@@ -79,8 +79,14 @@ export async function processLogo(
 ): Promise<{ buffer: Buffer; width: number; height: number; sizeBytes: number }> {
   try {
     const metadata = await sharp(input).metadata();
-    if (!orientedSize(metadata)) throw invalid();
-    const { data, info } = await sharp(input)
+    const size = orientedSize(metadata);
+    if (!size) throw invalid();
+    // A vector logo is rendered at a density that fits the box, so a small SVG is not tiny.
+    const density =
+      metadata.format === 'svg'
+        ? Math.min(2400, Math.max(72, 72 * Math.min(480 / size.width, 96 / size.height)))
+        : undefined;
+    const { data, info } = await sharp(input, density ? { density } : undefined)
       .rotate()
       .resize(480, 96, { fit: 'inside', withoutEnlargement: true })
       .png({ compressionLevel: 9 })

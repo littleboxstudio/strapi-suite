@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   EcommerceNotFoundError,
   EcommerceValidationError,
@@ -79,6 +79,34 @@ describe('EcommerceShippingZoneService', () => {
       ['settings', 'shipping_zone.update', String(a.id), '4'],
       ['settings', 'shipping_zone.delete', String(a.id), '4'],
     ]);
+  });
+
+  it('the zone update audit lists the changed fields', async () => {
+    const { zones, tables } = makeStrapi();
+    const a = await zones.create({ name: 'Continente', countries: ['PT'] });
+    await zones.update(a.id, { name: 'PT', countries: ['PT'] });
+    expect(tables[UIDS.auditLog].at(-1)).toMatchObject({
+      action: 'shipping_zone.update',
+      details: { changedFields: ['name'] },
+    });
+  });
+
+  it('a failure while removing the references keeps the zone, its rates and the carriers', async () => {
+    const { zones, service, tables } = makeStrapi();
+    const z1 = await zones.create({ name: 'PT', countries: ['PT'] });
+    const m = await service.createManualMethod({ name: { en: 'A' }, rates: { [z1.id]: 500 } });
+    await service.updateIntegration('ctt-expresso', { config: { zones: [z1.id] } });
+    const spy = vi.spyOn(service, 'removeZoneReferences');
+    // Partial cleanup, then a failure: the transaction must undo both.
+    spy.mockImplementationOnce(async () => {
+      tables[UIDS.manualShippingMethod][0].rates = {};
+      throw new Error('db down');
+    });
+    expect((await fail(zones.remove(z1.id))).message).toBe('db down');
+    expect(tables[UIDS.shippingZone].map((z) => z.id)).toEqual([z1.id]);
+    expect((await service.listManualMethods()).find((x) => x.id === m.id)!.rates).toEqual({ [z1.id]: 500 });
+    expect((await service.getRuntime('ctt-expresso'))!.config.zones).toEqual([z1.id]);
+    expect(tables[UIDS.auditLog].some((l) => l.action === 'shipping_zone.delete')).toBe(false);
   });
 
   it('deleting a zone removes its rates and its id from the carriers, and refreshes the runtime cache', async () => {

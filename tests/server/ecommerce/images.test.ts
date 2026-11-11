@@ -109,6 +109,21 @@ describe('EcommerceImageService', () => {
       expect(logo).toMatchObject({ width: 100, height: 50 });
     });
 
+    it('renders a small SVG large enough to fill the box', async () => {
+      const { service } = build();
+      const svg = Buffer.from(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="12"><rect width="24" height="12" fill="#000"/></svg>'
+      );
+      const logo = await service.uploadStoreLogo({ buffer: svg, originalName: 'logo.svg' });
+      expect(logo).toMatchObject({ width: 192, height: 96 });
+    });
+
+    it('fails when the provider sets no URL', async () => {
+      const { service } = build({ upload: vi.fn(async () => undefined) });
+      const buffer = await png();
+      await expect(service.uploadStoreLogo({ buffer, originalName: 'l.png' })).rejects.toThrow('UPLOAD_FAILED');
+    });
+
     it('rejects a non-image without calling the provider', async () => {
       const { service, provider } = build();
       await expect(
