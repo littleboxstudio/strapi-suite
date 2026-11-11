@@ -95,6 +95,7 @@ export function setupCommerce(opts: { stripeActive?: boolean } = {}) {
       query: db.query,
       transaction: db.transaction,
       connection: (table: string) => db.connection(table),
+      getConnection: (table: string) => db.connection(table),
       metadata: db.metadata,
     },
     config: { get: () => ({ uuid: { modules: { ecommerce: UIDS } } }) },

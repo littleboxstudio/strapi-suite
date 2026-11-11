@@ -95,6 +95,7 @@ export function createFakeDb(
       if (isOp(cond)) {
         if ('$in' in cond) return cond.$in.includes(value);
         if ('$ne' in cond) return value !== cond.$ne;
+        if ('$startsWith' in cond) return typeof value === 'string' && value.startsWith(cond.$startsWith);
         if ('$containsi' in cond)
           return String(value ?? '')
             .toLowerCase()

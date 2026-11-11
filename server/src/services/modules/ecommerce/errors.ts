@@ -59,7 +59,9 @@ export class EcommercePaymentError extends Error {
       | 'WEBHOOK_PAYLOAD_INVALID',
     message: string = code,
     /** Stripe's `error.type` (e.g. `idempotency_error`), never its message. */
-    public stripeErrorType?: string
+    public stripeErrorType?: string,
+    /** The HTTP status of Stripe's answer, when Stripe answered. */
+    public httpStatus?: number
   ) {
     super(message);
   }

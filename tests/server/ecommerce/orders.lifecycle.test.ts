@@ -113,7 +113,7 @@ function setup() {
     };
   };
   const strapi: any = {
-    db: { query, transaction, connection: db.connection, metadata: db.metadata },
+    db: { query, transaction, connection: db.connection, getConnection: db.connection, metadata: db.metadata },
     config: { get: () => ({ uuid: { modules: { ecommerce: UIDS } } }) },
     plugin: (id: string) =>
       id === 'i18n'

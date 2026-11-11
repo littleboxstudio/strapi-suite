@@ -96,6 +96,7 @@ function setup(opts: { webhookSecret?: string | null } = {}) {
       query: db.query,
       transaction: db.transaction,
       connection: db.connection,
+      getConnection: db.connection,
       metadata: db.metadata,
     },
     config: { get: () => ({ uuid: { modules: { ecommerce: UIDS } } }) },
@@ -516,6 +517,23 @@ describe('EcommerceStripeWebhookService.handle', () => {
       const r2 = await seedRefund(s2, 'PENDING');
       await deliver(s2, evt('evt_rc', 'refund.updated', { id: 're_1', status: 'canceled' }));
       expect(r2.refund().status).toBe('FAILED');
+    });
+
+    it('a FAILED refund Stripe reports succeeded is COMPLETED; COMPLETED is never downgraded', async () => {
+      const s = setup();
+      const { refund } = await seedRefund(s, 'FAILED');
+      expect(
+        await deliver(s, evt('evt_fs', 'refund.updated', { id: 're_1', status: 'succeeded' }))
+      ).toEqual({ duplicate: false, status: 'PROCESSED' });
+      expect(refund().status).toBe('COMPLETED');
+      const h = s.tables[UIDS.orderHistory].filter((x) => x.type === 'REFUND_COMPLETED');
+      expect(h).toHaveLength(1);
+      expect(h[0].previousValue).toMatchObject({ refundId: 70, status: 'FAILED' });
+      expect(await deliver(s, evt('evt_fl', 'refund.failed', { id: 're_1', status: 'failed' }))).toEqual({
+        duplicate: false,
+        status: 'IGNORED',
+      });
+      expect(refund().status).toBe('COMPLETED');
     });
 
     it('a refund event without a matching refund is IGNORED', async () => {

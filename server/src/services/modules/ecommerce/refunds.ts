@@ -4,7 +4,11 @@ import { PLUGIN_ID, LtbConfigs } from '../../../config';
 import { EcommerceNotFoundError, EcommercePaymentError, EcommerceValidationError } from './errors';
 import { isUniqueViolation } from './dbErrors';
 import { str } from './providers/http';
-import { createStripeClient, type StripeClient } from './providers/payments/stripeClient';
+import {
+  createStripeClient,
+  isDefinitiveStripeRejection,
+  type StripeClient,
+} from './providers/payments/stripeClient';
 import { MAX_MONEY_CENTS, type OrderActionKey } from './domain/orders';
 import {
   allocateStripeRefund,
@@ -18,6 +22,7 @@ import type { ProviderRuntime } from './providers/registry';
 import type {
   IssueStoreCreditInput,
   RestoreStoreCreditInput,
+  RestoreStoreCreditResult,
   StoreCreditView,
 } from './storeCredits';
 
@@ -103,6 +108,9 @@ const errorLabel = (err: unknown): string => {
 const invalid = (path: string, code: string) =>
   new EcommerceValidationError('Invalid refund', [{ path, code }]);
 
+/** Keys the service generates itself: a client key in this namespace is refused. */
+const RESERVED_KEY = /^cancel-credit:/;
+
 export const toRefundView = (r: any): RefundView => {
   const p = r.payment && typeof r.payment === 'object' ? r.payment : null;
   const sc = r.storeCredit && typeof r.storeCredit === 'object' ? r.storeCredit : null;
@@ -187,7 +195,10 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
       input: IssueStoreCreditInput,
       opts?: { collector?: { emit(e: any): void } }
     ): Promise<StoreCreditView>;
-    restore(input: RestoreStoreCreditInput): Promise<{ applied: boolean }>;
+    restore(
+      input: RestoreStoreCreditInput,
+      opts?: { collector?: { emit(e: any): void } }
+    ): Promise<RestoreStoreCreditResult>;
   } => service('EcommerceStoreCreditService');
   const settings = (): {
     getRuntime(id: string): Promise<(ProviderRuntime & { active: boolean }) | null>;
@@ -267,19 +278,26 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
     return (await refundRows({ order: { id: orderId } })).map(toRefundView);
   };
 
-  /** Refunds a key created: `key` itself, or `key:<paymentId>` for Stripe allocations. */
+  /**
+   * Refunds a key created, on any order: `key` itself, or `key:<paymentId>` for the STRIPE
+   * allocation of that payment. Nothing else sharing the prefix matches (`cancel-credit:<id>`,
+   * `key:abc`, …). A key already used on another order is a conflict.
+   */
   const findByKey = async (orderId: number, key: string): Promise<any[]> => {
-    const same = await strapi.db.query(uids().refund).findOne({
-      where: { idempotencyKey: key },
-      populate: { order: { select: ['id'] } },
+    const candidates: any[] = await strapi.db.query(uids().refund).findMany({
+      where: { $or: [{ idempotencyKey: key }, { idempotencyKey: { $startsWith: `${key}:` } }] },
+      populate: { order: { select: ['id'] }, payment: { select: ['id'] } },
     });
-    if (same && idOf(same.order) !== orderId) throw invalid('idempotencyKey', 'IDEMPOTENCY_KEY_CONFLICT');
-    const rows = await refundRows({ order: { id: orderId } });
-    return rows.filter(
+    const created = candidates.filter(
       (r) =>
-        typeof r.idempotencyKey === 'string' &&
-        (r.idempotencyKey === key || r.idempotencyKey.startsWith(`${key}:`))
+        r.idempotencyKey === key ||
+        (r.method === 'STRIPE' && r.idempotencyKey === `${key}:${idOf(r.payment)}`)
     );
+    if (created.some((r) => idOf(r.order) !== orderId)) {
+      throw invalid('idempotencyKey', 'IDEMPOTENCY_KEY_CONFLICT');
+    }
+    if (!created.length) return [];
+    return refundRows({ id: { $in: created.map((r) => r.id) } });
   };
 
   // -------------------------------------------------------------------------
@@ -353,8 +371,10 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
   /**
    * Sends PROCESSING refunds without a Stripe id to Stripe (outside any transaction). The
    * Idempotency-Key derives from the refund's key, so a retry gets the same Stripe refund.
-   * A rejection (HTTP error) fails the refund; an unknown outcome (unreachable) leaves it
-   * PROCESSING and is rethrown after the others: repeating the request resumes it.
+   * Only a definitive rejection (`isDefinitiveStripeRejection`: HTTP 400/402/404 with a Stripe
+   * error) fails the refund. Any other error (409, 429, 5xx, unreachable) has an unknown
+   * outcome: the refund stays PROCESSING and the error is rethrown after the others; `resume`
+   * (or the same key) retries it, and the webhook settles it if Stripe did act.
    */
   const submitToStripe = async (orderId: number, rows: any[], actor: string): Promise<void> => {
     const pending = rows.filter((r) => r.method === 'STRIPE' && r.status === 'PROCESSING' && !r.externalId);
@@ -365,10 +385,13 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
     let unknownOutcome: unknown = null;
     for (const r of pending) {
       const paymentIntentId = r.metadata?.paymentIntentId ?? paymentIntentOf(r.payment);
+      if (!paymentIntentId) {
+        // Never sent: nothing can have left Stripe.
+        strapi.log?.warn(`[ecommerce] Stripe refund ${r.id} (order ${orderId}) has no PaymentIntent`);
+        await applyStripeStatus(r.id, 'failed', null, actor, collector);
+        continue;
+      }
       try {
-        if (!paymentIntentId) {
-          throw new EcommercePaymentError('STRIPE_REQUEST_FAILED', 'No PaymentIntent to refund.');
-        }
         const res = await client.createRefund({
           paymentIntentId,
           amount: num(r.amount),
@@ -381,7 +404,7 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
         });
         await applyStripeStatus(r.id, res.status, res.id, actor, collector);
       } catch (err) {
-        if (err instanceof EcommercePaymentError && err.code === 'STRIPE_REQUEST_FAILED') {
+        if (isDefinitiveStripeRejection(err)) {
           strapi.log?.warn(`[ecommerce] Stripe rejected refund ${r.id} (order ${orderId}): ${errorLabel(err)}`);
           await applyStripeStatus(r.id, 'failed', null, actor, collector);
         } else {
@@ -392,6 +415,120 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
     }
     await collector.flush();
     if (unknownOutcome) throw unknownOutcome;
+  };
+
+  /**
+   * Re-sends a PROCESSING Stripe refund that has no Stripe id yet (its outcome was unknown),
+   * with the Idempotency-Key, amount and payment stored on the row, and applies the answer
+   * like `create`. Anything else is `REFUND_NOT_RESUMABLE` (a refund with a Stripe id is
+   * settled by the webhook).
+   */
+  const resume = async (rawRefundId: number | string, actor: string): Promise<RefundView> => {
+    const id = Number(rawRefundId);
+    const row = await rowById(id);
+    if (!row) throw new EcommerceNotFoundError('Refund not found');
+    if (row.method !== 'STRIPE' || row.status !== 'PROCESSING' || row.externalId) {
+      throw new EcommerceValidationError('Refund cannot be resumed', [
+        { path: 'status', code: 'REFUND_NOT_RESUMABLE' },
+      ]);
+    }
+    const orderId = idOf(row.order);
+    if (orderId === null) throw new EcommerceNotFoundError('Order not found');
+    await submitToStripe(orderId, [row], actor);
+    return toRefundView(await rowById(id));
+  };
+
+  /**
+   * Gives `amount` of a STORE_CREDIT payment back as a COMPLETED STORE_CREDIT refund: onto the
+   * credit it spent or, when that credit is VOID or expired, onto a new credit for the same
+   * e-mail. Records the history and emits `REFUND_COMPLETED`; the caller recalculates.
+   */
+  const refundToCredit = async (p: {
+    orderId: number;
+    payment: any;
+    storeCreditId: number;
+    amount: number;
+    data: { reason: string; description: string | null; actor: string };
+    idempotencyKey: string;
+    /** `null`: the refund's own `refund-restore:<refundId>`. */
+    operationKey: string | null;
+    note: string;
+    operationId: string;
+    collector: { emit(e: any): void };
+  }): Promise<any> => {
+    const u = uids();
+    const { orderId, amount, operationId, collector } = p;
+    const actor = p.data.actor;
+    const row = await strapi.db.query(u.refund).create({
+      data: {
+        order: orderId,
+        payment: p.payment.id,
+        method: 'STORE_CREDIT',
+        kind: 'STORE_CREDIT',
+        status: 'COMPLETED',
+        amount,
+        currency: 'EUR',
+        reason: p.data.reason,
+        description: p.data.description,
+        reference: null,
+        externalId: null,
+        idempotencyKey: p.idempotencyKey,
+        storeCredit: p.storeCreditId,
+        actor,
+        completedAt: new Date().toISOString(),
+        metadata: null,
+      },
+    });
+    const res = await storeCredits().restore(
+      {
+        storeCreditId: p.storeCreditId,
+        amount,
+        refundId: row.id,
+        orderId,
+        operationKey: p.operationKey ?? `refund-restore:${row.id}`,
+        actor,
+      },
+      { collector }
+    );
+    let linked = row;
+    if (res.reissuedFrom) {
+      await strapi.db.query(u.refund).update({ where: { id: row.id }, data: { storeCredit: res.storeCreditId } });
+      linked = { ...row, storeCredit: res.storeCreditId };
+      await history().record({
+        orderId,
+        type: 'STORE_CREDIT_ISSUED',
+        description: `Store credit ${res.code} of ${amount} cents issued: the original credit ${res.reissuedFrom.code} is void or expired${p.note}`,
+        previousValue: { storeCreditId: res.reissuedFrom.id, code: res.reissuedFrom.code },
+        newValue: { ...historyValue(linked), code: res.code },
+        actor,
+        operationId,
+      });
+    } else {
+      await history().record({
+        orderId,
+        type: 'STORE_CREDIT_RESTORED',
+        description: `${amount} cents restored to store credit ${res.code || p.storeCreditId}${p.note}`,
+        previousValue: null,
+        newValue: historyValue(linked),
+        actor,
+        operationId,
+      });
+    }
+    await history().record({
+      orderId,
+      type: 'REFUND_COMPLETED',
+      description: `Store credit refund of ${amount} cents completed${p.note}`,
+      previousValue: null,
+      newValue: historyValue(linked),
+      actor,
+      operationId,
+    });
+    collector.emit({
+      type: 'REFUND_COMPLETED',
+      orderId,
+      payload: eventPayload(linked, res.reissuedFrom ? { code: res.code } : {}),
+    });
+    return linked;
   };
 
   // -------------------------------------------------------------------------
@@ -406,6 +543,7 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
     const orderId = Number(rawOrderId);
     const key = clean(input?.idempotencyKey);
     if (!key) throw invalid('idempotencyKey', 'required');
+    if (RESERVED_KEY.test(key)) throw invalid('idempotencyKey', 'reserved');
 
     const replay = await findByKey(orderId, key);
     if (replay.length) {
@@ -493,6 +631,13 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
 
         const now = new Date().toISOString();
         if (method === 'MANUAL_TRANSFER') {
+          if (source) {
+            // Store credit goes back as store credit, never as money.
+            if (source.method === 'STORE_CREDIT') throw invalid('paymentId', 'incompatible_payment');
+            if (amount > num(source.amount) - heldOn(state.refunds, source.id)) {
+              throw invalid('amount', 'exceeds_payment');
+            }
+          }
           const row = await strapi.db.query(u.refund).create({
             data: {
               ...base,
@@ -528,47 +673,19 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
           if (amount > num(source.amount) - heldOn(state.refunds, source.id)) {
             throw invalid('amount', 'exceeds_payment');
           }
-          const row = await strapi.db.query(u.refund).create({
-            data: {
-              ...base,
-              payment: source.id,
-              kind: 'STORE_CREDIT',
-              status: 'COMPLETED',
-              externalId: null,
-              idempotencyKey: key,
-              storeCredit: storeCreditId,
-              completedAt: now,
-              metadata: null,
-            },
-          });
-          await storeCredits().restore({
+          const row = await refundToCredit({
+            orderId,
+            payment: source,
             storeCreditId,
             amount,
-            refundId: row.id,
-            orderId,
-            operationKey: `refund-restore:${row.id}`,
-            actor,
-          });
-          await history().record({
-            orderId,
-            type: 'STORE_CREDIT_RESTORED',
-            description: `${amount} cents restored to store credit ${source.metadata?.code ?? storeCreditId}`,
-            previousValue: null,
-            newValue: historyValue(row),
-            actor,
+            data: { reason, description, actor },
+            idempotencyKey: key,
+            operationKey: null,
+            note: '',
             operationId,
-          });
-          await history().record({
-            orderId,
-            type: 'REFUND_COMPLETED',
-            description: `Store credit refund of ${amount} cents completed`,
-            previousValue: null,
-            newValue: historyValue(row),
-            actor,
-            operationId,
+            collector,
           });
           await orders().recalculate(orderId, { actor, operationId });
-          collector.emit({ type: 'REFUND_COMPLETED', orderId, payload: eventPayload(row) });
           return [row];
         }
         if (source) throw invalid('paymentId', 'invalid_payment');
@@ -663,7 +780,6 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
     const own = opts.collector ? null : events().collector();
     const collector = opts.collector ?? (own as Collector);
     const operationId = opts.operationId ?? randomUUID();
-    const u = uids();
     const released = await strapi.db.transaction(async () => {
       await orders().lockOrder(orderId);
       const state = await orders().computeOrderState(orderId);
@@ -681,53 +797,18 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
           strapi.log?.warn(`[ecommerce] store credit payment ${p.id} has no credit to restore`);
           continue;
         }
-        const row = await strapi.db.query(u.refund).create({
-          data: {
-            order: orderId,
-            payment: p.id,
-            method: 'STORE_CREDIT',
-            kind: 'STORE_CREDIT',
-            status: 'COMPLETED',
-            amount,
-            currency: 'EUR',
-            reason: 'CANCELLATION',
-            description: null,
-            reference: null,
-            externalId: null,
-            idempotencyKey: key,
-            storeCredit: storeCreditId,
-            actor,
-            completedAt: new Date().toISOString(),
-            metadata: null,
-          },
-        });
-        await storeCredits().restore({
+        const row = await refundToCredit({
+          orderId,
+          payment: p,
           storeCreditId,
           amount,
-          refundId: row.id,
-          orderId,
+          data: { reason: 'CANCELLATION', description: null, actor },
+          idempotencyKey: key,
           operationKey: key,
-          actor,
-        });
-        await history().record({
-          orderId,
-          type: 'STORE_CREDIT_RESTORED',
-          description: `${amount} cents restored to store credit ${p.metadata?.code ?? storeCreditId} (order cancelled)`,
-          previousValue: null,
-          newValue: historyValue(row),
-          actor,
+          note: ' (order cancelled)',
           operationId,
+          collector,
         });
-        await history().record({
-          orderId,
-          type: 'REFUND_COMPLETED',
-          description: `Store credit refund of ${amount} cents completed (order cancelled)`,
-          previousValue: null,
-          newValue: historyValue(row),
-          actor,
-          operationId,
-        });
-        collector.emit({ type: 'REFUND_COMPLETED', orderId, payload: eventPayload(row) });
         available -= amount;
         rows.push(row);
       }
@@ -738,7 +819,7 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
     return released.map(toRefundView);
   };
 
-  return { preview, list, create, releaseStoreCreditOnCancel };
+  return { preview, list, create, resume, releaseStoreCreditOnCancel };
 };
 
 export default EcommerceRefundService;

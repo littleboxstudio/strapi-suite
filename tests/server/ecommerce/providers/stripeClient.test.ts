@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createStripeClient,
   encodeForm,
+  isDefinitiveStripeRejection,
   verifyStripeSignature,
 } from '../../../../server/src/services/modules/ecommerce/providers/payments/stripeClient';
 import { EcommercePaymentError } from '../../../../server/src/services/modules/ecommerce/errors';
@@ -182,5 +183,31 @@ describe('verifyStripeSignature', () => {
   it('rejects garbage headers', () => {
     expect(verifyStripeSignature(body, 'garbage', secret, now)).toBe(false);
     expect(verifyStripeSignature(body, `t=${now},v1=zz`, secret, now)).toBe(false);
+  });
+});
+
+describe('refund failure classification', () => {
+  it('a non-2xx answer carries its HTTP status', async () => {
+    stubFetch(async () => json(409, { error: { type: 'idempotency_error' } }));
+    const err: any = await createStripeClient(rt)
+      .createRefund({ paymentIntentId: 'pi_1', amount: 5, idempotencyKey: 'k', metadata: {} })
+      .catch((e) => e);
+    expect(err).toMatchObject({ code: 'STRIPE_REQUEST_FAILED', httpStatus: 409, stripeErrorType: 'idempotency_error' });
+  });
+
+  it('only 400/402/404 with a Stripe error body (not idempotency_error) are definitive', () => {
+    const e = (status?: number, type?: string) =>
+      new EcommercePaymentError('STRIPE_REQUEST_FAILED', 'x', type, status);
+    expect(isDefinitiveStripeRejection(e(400, 'invalid_request_error'))).toBe(true);
+    expect(isDefinitiveStripeRejection(e(402, 'card_error'))).toBe(true);
+    expect(isDefinitiveStripeRejection(e(404, 'invalid_request_error'))).toBe(true);
+    expect(isDefinitiveStripeRejection(e(400))).toBe(false);
+    expect(isDefinitiveStripeRejection(e(400, 'idempotency_error'))).toBe(false);
+    expect(isDefinitiveStripeRejection(e(409, 'idempotency_error'))).toBe(false);
+    expect(isDefinitiveStripeRejection(e(429, 'rate_limit_error'))).toBe(false);
+    expect(isDefinitiveStripeRejection(e(500, 'api_error'))).toBe(false);
+    expect(isDefinitiveStripeRejection(e(undefined, 'invalid_request_error'))).toBe(false);
+    expect(isDefinitiveStripeRejection(new EcommercePaymentError('STRIPE_UNREACHABLE'))).toBe(false);
+    expect(isDefinitiveStripeRejection(new Error('x'))).toBe(false);
   });
 });
