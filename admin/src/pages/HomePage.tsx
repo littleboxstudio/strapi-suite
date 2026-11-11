@@ -167,6 +167,26 @@ const HomePage = () => {
             {formatMessage({ id: getTranslation('app.configurations') })}
           </Button>
         </Card>
+
+        <Card
+          title={formatMessage({
+            id: getTranslation(`module.${config.uuid.modules.ecommerce}.name`),
+          })}
+          subtitle={formatMessage({
+            id: getTranslation(`module.${config.uuid.modules.ecommerce}.description`),
+          })}
+          badge={formatMessage({ id: getTranslation('app.free') })}
+          active={settings.provide(config.uuid.modules.ecommerce).active}
+        >
+          <Button
+            size="L"
+            variant="tertiary"
+            style={{ marginBottom: '8px' }}
+            onClick={() => navigate(`/plugins/${config.pluginId}/ecommerce/products`)}
+          >
+            {formatMessage({ id: getTranslation('app.manage') })}
+          </Button>
+        </Card>
       </BoxGrid>
     </Main>
   );

@@ -1,6 +1,7 @@
-import { LtbConfigs, PLUGIN_ID } from '../config';
+import { ECOMMERCE_MODULE, LtbConfigs, PLUGIN_ID } from '../config';
 
 function getModuleName(url: string) { 
+  if (url.includes("/ecommerce")) return ECOMMERCE_MODULE;
   if (url.includes("/pages")) return 'slug';
   if (url.includes("/locales")) return 'locale';
   if (url.includes("/parameters")) return 'parameter';

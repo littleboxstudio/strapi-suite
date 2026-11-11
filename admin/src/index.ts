@@ -4,6 +4,7 @@ import Registry from './core/di/registry';
 import { StrapiAdapter } from './core/http/httpClient';
 import { Initializer } from './components/Initializer';
 import { PluginIcon } from './components/PluginIcon';
+import { mergeTranslations } from './core/utils/mergeTranslations';
 import { getTranslation } from './core/utils/getTranslation';
 import { SettingGatewayHttp } from './core/gateways/settingGateway';
 import { LocaleGatewayHttp } from './core/gateways/localeGateway';
@@ -112,13 +113,15 @@ export default {
   },
 
   async registerTrads({ locales }: { locales: string[] }) {
+    const { default: en } = await import('./core/translations/en.json');
     return Promise.all(
       locales.map(async (locale) => {
+        if (locale === 'en') return { data: en, locale };
         try {
           const { default: data } = await import(`./core/translations/${locale}.json`);
-          return { data, locale };
+          return { data: mergeTranslations(en, data), locale };
         } catch {
-          return { data: {}, locale };
+          return { data: en, locale };
         }
       })
     );
