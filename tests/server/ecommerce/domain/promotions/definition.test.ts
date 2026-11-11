@@ -154,3 +154,11 @@ describe('validatePromotionInput', () => {
     expect(r.errors.map((e) => e.code)).toContain('too_deep');
   });
 });
+
+describe('requireVerifiedEmail', () => {
+  it('defaults to false, accepts a boolean and rejects other types', () => {
+    expect(validatePromotionInput(valid(), ctx).value?.requireVerifiedEmail).toBe(false);
+    expect(validatePromotionInput(valid({ requireVerifiedEmail: true }), ctx).value?.requireVerifiedEmail).toBe(true);
+    expect(codes(valid({ requireVerifiedEmail: 'yes' }))).toContain('requireVerifiedEmail:invalid');
+  });
+});

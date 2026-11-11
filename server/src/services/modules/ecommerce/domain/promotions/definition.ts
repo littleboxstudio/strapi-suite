@@ -396,6 +396,12 @@ export function validatePromotionInput(
   const stacking = readStacking(raw.stacking, errors);
 
   const eligibility = readEligibility(raw.eligibility, errors);
+  let requireVerifiedEmail = false;
+  if (raw.requireVerifiedEmail !== undefined) {
+    if (typeof raw.requireVerifiedEmail !== 'boolean') {
+      errors.push({ path: 'requireVerifiedEmail', code: 'invalid' });
+    } else requireVerifiedEmail = raw.requireVerifiedEmail;
+  }
 
   const leaves = { n: 0, tooDeep: false };
   const conditions = readGroup(raw.conditions ?? { type: 'GROUP', operator: 'AND', children: [] }, 'conditions', errors, leaves);
@@ -441,6 +447,7 @@ export function validatePromotionInput(
       usageLimit,
       perCustomerLimit,
       perOrderLimit,
+      requireVerifiedEmail,
       eligibility,
       conditions,
       benefits,

@@ -1,4 +1,4 @@
-import type { PromotionCandidate } from './types';
+import type { Condition, ConditionGroup, PromotionCandidate, PromotionDefinition } from './types';
 
 export type PromotionStatus = 'ACTIVE' | 'SCHEDULED' | 'INACTIVE' | 'EXPIRED';
 
@@ -22,7 +22,26 @@ export type BlockReason =
   | 'EXPIRED'
   | 'USAGE_LIMIT_REACHED'
   | 'CUSTOMER_LIMIT_REACHED'
-  | 'EMAIL_NOT_ELIGIBLE';
+  | 'EMAIL_NOT_ELIGIBLE'
+  | 'EMAIL_NOT_VERIFIED';
+
+const hasEmailCondition = (node: ConditionGroup | Condition): boolean =>
+  node.type === 'GROUP' ? node.children.some(hasEmailCondition) : node.type === 'EMAIL';
+
+/**
+ * Whether the promotion may only apply to a verified e-mail: the flag, an e-mail list, an EMAIL
+ * condition at any depth, or a per-customer limit (which, checked against an unverified e-mail,
+ * would reveal whether that e-mail already bought).
+ */
+export const requiresVerifiedEmail = (
+  p: Pick<PromotionDefinition, 'requireVerifiedEmail' | 'eligibility' | 'conditions'> & {
+    perCustomerLimit: number | null;
+  }
+): boolean =>
+  p.requireVerifiedEmail === true ||
+  p.eligibility.mode === 'EMAILS' ||
+  hasEmailCondition(p.conditions) ||
+  p.perCustomerLimit !== null;
 
 /** Why a candidate cannot apply right now, or null when it is available. `email` is normalised. */
 export function candidateBlock(

@@ -145,6 +145,7 @@ describe('toPromotionInput', () => {
       endsAt: null,
       usageLimit: 100,
       perCustomerLimit: null,
+      requireVerifiedEmail: true,
       status: 'INACTIVE',
       redemptions: 0,
       version: 3,
@@ -450,5 +451,20 @@ describe('fix round 1', () => {
     expect(validatePromotionForm(form, 'Europe/Lisbon')).toMatchObject({ endsAt: 'ends_before_start' });
     expect(validatePromotionForm(form, 'UTC')).toEqual({});
     expect(validatePromotionForm(baseForm({ endsAt: '2026-07-01T11:00' }), 'Europe/Lisbon')).toEqual({});
+  });
+});
+
+describe('requireVerifiedEmail', () => {
+  it('toPromotionInput includes it and the form reads it from the view', () => {
+    expect(toPromotionInput(baseForm()).requireVerifiedEmail).toBe(false);
+    expect(toPromotionInput(baseForm({ requireVerifiedEmail: true })).requireVerifiedEmail).toBe(true);
+    expect(emptyPromotionForm('en', '2026-07-01T10:00').requireVerifiedEmail).toBe(false);
+  });
+  it('has en and pt texts', () => {
+    for (const t of [tEn, tPt]) {
+      expect(t('ecommerce.promotions.form.requireVerifiedEmail')).not.toContain('ecommerce.promotions');
+      expect(t('ecommerce.promotions.form.requireVerifiedEmail.hint')).not.toContain('ecommerce.promotions');
+      expect(t('ecommerce.orders.promotions.codeStatus.EMAIL_NOT_VERIFIED')).not.toContain('ecommerce.orders');
+    }
   });
 });

@@ -623,3 +623,15 @@ describe('unmet', () => {
     expect(c.log.warn).toHaveBeenCalled();
   });
 });
+
+describe('requireVerifiedEmail', () => {
+  it('is stored, returned by get and passed to the engine; legacy rows read as false', async () => {
+    const created: any = await svc.create(input({ requireVerifiedEmail: true }));
+    expect((await svc.get(created.id)).requireVerifiedEmail).toBe(true);
+    const [cand] = await svc.loadCandidates({ codes: ['VERAO20'], email: null });
+    expect(cand.requireVerifiedEmail).toBe(true);
+    const legacy = addPromotion({ method: 'CODE', code: 'OLD' });
+    const out = await svc.loadCandidates({ codes: ['OLD'], email: null });
+    expect(out.find((x) => x.id === legacy)?.requireVerifiedEmail).toBe(false);
+  });
+});

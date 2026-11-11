@@ -99,6 +99,7 @@ export type PromotionDefinition = {
   endsAt: string | null;
   usageLimit: number | null;
   perCustomerLimit: number | null;
+  requireVerifiedEmail: boolean;
 };
 
 export type PromotionLabels = {

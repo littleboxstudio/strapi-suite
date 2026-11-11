@@ -84,6 +84,7 @@ export type PromotionForm = {
   eligibilityMode: 'ALL' | 'EMAILS';
   /** One e-mail per line. */
   emails: string;
+  requireVerifiedEmail: boolean;
   conditions: GroupNode;
   benefits: BenefitForm[];
   usageLimit: string;
@@ -209,6 +210,7 @@ export function emptyPromotionForm(defaultLocale: string, startsAt: string): Pro
     endsAt: '',
     eligibilityMode: 'ALL',
     emails: '',
+    requireVerifiedEmail: false,
     conditions: emptyGroup(),
     benefits: [emptyBenefit()],
     usageLimit: '',
@@ -329,6 +331,7 @@ export function promotionFormFromView(view: Promotion, locale = 'en'): Promotion
     endsAt: view.endsAt ?? '',
     eligibilityMode: view.eligibility?.mode === 'EMAILS' ? 'EMAILS' : 'ALL',
     emails: view.eligibility?.mode === 'EMAILS' ? view.eligibility.emails.join('\n') : '',
+    requireVerifiedEmail: view.requireVerifiedEmail === true,
     conditions,
     benefits: (view.benefits ?? []).map((b) => benefitFormFrom(b, locale)),
     usageLimit: numberToInput(view.usageLimit),
@@ -498,6 +501,7 @@ export function toPromotionInput(form: PromotionForm, locales?: string[]): Promo
     endsAt: form.endsAt.trim() ? form.endsAt : null,
     usageLimit: nullableCount(form.usageLimit),
     perCustomerLimit: nullableCount(form.perCustomerLimit),
+    requireVerifiedEmail: form.requireVerifiedEmail,
   };
 }
 
@@ -523,6 +527,7 @@ export function deactivationInput(view: Promotion, locales?: string[]): Promotio
     endsAt: view.endsAt ?? null,
     usageLimit: view.usageLimit ?? null,
     perCustomerLimit: view.perCustomerLimit ?? null,
+    requireVerifiedEmail: view.requireVerifiedEmail === true,
     version: view.version,
   };
 }
@@ -915,7 +920,7 @@ const SECTION_ORDER: FormSection[] = [
 
 /** Paths a form field displays (everything under `conditions` is shown by the tree editor). */
 const SHOWN_PATH =
-  /^(name|description|priority|displayName\.[^.]+|code|startsAt|endsAt|timeZone|eligibility(\.emails(\.\d+)?)?|conditions(\..*)?|benefits|usageLimit|perCustomerLimit|perOrderLimit)$|^benefits\.\d+(\.(type|percent|amount|per|maxQuantity|maxAmount|target(\..*)?|buy\.target(\..*)?|buy\.quantity|buy\.minAmount|get\.target(\..*)?|get\.variantIds(\..*)?|get\.quantity|reward\.kind|reward\.percent|reward\.amount))?$/;
+  /^(name|description|priority|displayName\.[^.]+|code|startsAt|endsAt|timeZone|eligibility(\.emails(\.\d+)?)?|requireVerifiedEmail|conditions(\..*)?|benefits|usageLimit|perCustomerLimit|perOrderLimit)$|^benefits\.\d+(\.(type|percent|amount|per|maxQuantity|maxAmount|target(\..*)?|buy\.target(\..*)?|buy\.quantity|buy\.minAmount|get\.target(\..*)?|get\.variantIds(\..*)?|get\.quantity|reward\.kind|reward\.percent|reward\.amount))?$/;
 
 function sectionOf(path: string): FormSection {
   const head = path.split('.')[0];

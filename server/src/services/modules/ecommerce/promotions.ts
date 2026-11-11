@@ -140,6 +140,7 @@ const toCandidate = (row: any, customerUses: number): PromotionCandidate => ({
   benefits: benefitsOf(row.benefits),
   stacking: isObj(row.stacking) ? (row.stacking as any) : DEFAULT_STACKING,
   perOrderLimit: intOrNull(row.perOrderLimit),
+  requireVerifiedEmail: row.requireVerifiedEmail === true,
   version: num(row.version) || 1,
   active: !!row.active,
   startsAt: iso(row.startsAt) ?? '',
@@ -193,6 +194,7 @@ const toRowData = (v: PromotionInput) => ({
   usageLimit: v.usageLimit,
   perCustomerLimit: v.perCustomerLimit,
   perOrderLimit: v.perOrderLimit,
+  requireVerifiedEmail: v.requireVerifiedEmail,
 });
 
 /** Comparable form of a row for the audit diff (field names only ever leave this module). */
@@ -215,6 +217,7 @@ const comparable = (row: any): Record<string, string> => {
     usageLimit: c.usageLimit,
     perCustomerLimit: c.perCustomerLimit,
     perOrderLimit: c.perOrderLimit,
+    requireVerifiedEmail: c.requireVerifiedEmail,
   };
   return Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, JSON.stringify(v)]));
 };
@@ -341,6 +344,7 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
       benefits: c.benefits,
       stacking: c.stacking,
       perOrderLimit: c.perOrderLimit,
+      requireVerifiedEmail: c.requireVerifiedEmail,
       active: c.active,
       startsAt: c.startsAt ? (utcToZonedWallTime(c.startsAt, tz) ?? '') : '',
       endsAt: c.endsAt ? utcToZonedWallTime(c.endsAt, tz) : null,
