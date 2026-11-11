@@ -160,6 +160,8 @@ const RefundModal = ({ orderId, reference, onClose, onRefunded }: Props) => {
     { key: 'refunded', amount: p.refunded },
     { key: 'inFlight', amount: p.inFlight },
     { key: 'refundable', amount: p.refundable, strong: true },
+    // Only when it differs: store-credit value never goes back as money.
+    ...(p.moneyRefundable < p.refundable ? [{ key: 'moneyRefundable', amount: p.moneyRefundable }] : []),
   ];
 
   const summaryRow = (label: string, value: string, strong = false) => (
@@ -286,13 +288,26 @@ const RefundModal = ({ orderId, reference, onClose, onRefunded }: Props) => {
             onValueChange={(value: string) => update('method', value as RefundMethod)}
           >
             {REFUND_METHODS.map((method) => (
-              <Radio.Item key={method} value={method} disabled={method === 'STRIPE' && !preview.hasStripe}>
+              <Radio.Item
+                key={method}
+                value={method}
+                disabled={
+                  (method === 'STRIPE' && !preview.hasStripe) ||
+                  (method !== 'STORE_CREDIT' && preview.moneyRefundable <= 0)
+                }
+              >
                 {t(`ecommerce.orders.refund.methods.${method}`)}
               </Radio.Item>
             ))}
           </Radio.Group>
           <Field.Error />
         </Field.Root>
+
+        {preview.moneyRefundable <= 0 && (
+          <Typography variant="pi" textColor="neutral600">
+            {t('ecommerce.orders.refund.moneyOnlyCredit')}
+          </Typography>
+        )}
 
         {form.method === 'MANUAL_TRANSFER' && (
           <Field.Root name="reference" error={errors.reference}>

@@ -162,6 +162,8 @@ export type FinancialSummary = {
   net: number;
   due: number;
   excess: number;
+  /** Refunded beyond the excess (a refund Stripe completed after it was held failed). */
+  overRefunded: number;
 };
 
 export type OrderTotals = {
@@ -430,6 +432,8 @@ export type RefundPreview = {
   refunded: number;
   inFlight: number;
   refundable: number;
+  /** At most `refundable`: what may go back as money (store-credit value never does). */
+  moneyRefundable: number;
   stripeRefundable: number;
   hasStripe: boolean;
 };

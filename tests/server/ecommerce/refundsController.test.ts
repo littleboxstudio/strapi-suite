@@ -12,8 +12,11 @@ import createNotifications from '../../../server/src/controllers/modules/ecommer
 import createOrders from '../../../server/src/controllers/modules/ecommerce/orders';
 import createSettings from '../../../server/src/controllers/modules/ecommerce/settings';
 
-const strapiWith = (services: Record<string, any>) =>
-  ({ plugin: () => ({ service: (n: string) => services[n], controller: () => ({}) }) }) as any;
+const strapiWith = (services: Record<string, any>, config: Record<string, unknown> = {}) =>
+  ({
+    plugin: () => ({ service: (n: string) => services[n], controller: () => ({}) }),
+    config: { get: (key: string, fallback?: unknown) => (key in config ? config[key] : fallback) },
+  }) as any;
 
 const mkCtx = (extra: any = {}): any => ({
   params: { id: '5' },
@@ -110,6 +113,22 @@ describe('EcommerceRefundController', () => {
     const bad = mkCtx({ params: { id: 'x' } });
     await c.preview(bad);
     expect(bad.badRequest).toHaveBeenCalledWith('Invalid id');
+  });
+
+  it('F5: refresh uses the actor and maps REFUND_NOT_REFRESHABLE to 400 with its code', async () => {
+    const refresh = vi.fn().mockResolvedValue({ id: 5, status: 'COMPLETED' });
+    const c = createRefunds({ strapi: strapiWith({ EcommerceRefundService: { refresh } }) });
+    const a = mkCtx();
+    await c.refresh(a);
+    expect(refresh).toHaveBeenCalledWith(5, 'user:7');
+    expect(a.body).toEqual({ id: 5, status: 'COMPLETED' });
+    const rejected = vi
+      .fn()
+      .mockRejectedValue(new EcommerceValidationError('x', [{ path: 'status', code: 'REFUND_NOT_REFRESHABLE' }]));
+    const c2 = createRefunds({ strapi: strapiWith({ EcommerceRefundService: { refresh: rejected } }) });
+    const b = mkCtx();
+    await c2.refresh(b);
+    expect(b.badRequest).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ code: 'REFUND_NOT_REFRESHABLE' }));
   });
 });
 
@@ -284,5 +303,12 @@ describe('stripe webhook info', () => {
       path: '/api/littlebox-strapi-suite/ecommerce/stripe/webhook',
       events: [...STRIPE_WEBHOOK_EVENTS],
     });
+  });
+
+  it('F9: the path follows api.rest.prefix, like the raw-body middleware', () => {
+    const c = createSettings({ strapi: strapiWith({}, { 'api.rest.prefix': '/v2/' }) });
+    const ctx = mkCtx();
+    c.getStripeWebhook(ctx);
+    expect(ctx.body.path).toBe('/v2/littlebox-strapi-suite/ecommerce/stripe/webhook');
   });
 });

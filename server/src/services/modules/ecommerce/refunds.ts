@@ -13,6 +13,7 @@ import {
 import { MAX_MONEY_CENTS, type OrderActionKey } from './domain/orders';
 import {
   allocateStripeRefund,
+  moneyCapacity,
   refundableAmount,
   validateRefundRequest,
   type RefundSource,
@@ -83,6 +84,8 @@ export type RefundPreview = {
   refunded: number;
   inFlight: number;
   refundable: number;
+  /** At most `refundable`: what may go back as money (store-credit value never does). */
+  moneyRefundable: number;
   stripeRefundable: number;
   hasStripe: boolean;
 };
@@ -255,10 +258,22 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
 
   const refundContext = async (state: OrderState) => {
     const refundable = refundableAmount(state.summary, state.inFlightRefunds);
+    const moneyRefundable = Math.min(
+      refundable,
+      moneyCapacity(
+        state.payments.map((p) => ({ method: p.method, status: p.status, amount: num(p.amount) })),
+        state.refunds.map((r) => ({ kind: r.kind, status: r.status, amount: num(r.amount) }))
+      )
+    );
     const capacity = stripeCapacity(state);
     const stripeActive = !!(await stripeClient());
     const hasStripe = stripeActive && capacity > 0;
-    return { refundable, hasStripe, stripeRefundable: hasStripe ? Math.min(refundable, capacity) : 0 };
+    return {
+      refundable,
+      moneyRefundable,
+      hasStripe,
+      stripeRefundable: hasStripe ? Math.min(moneyRefundable, capacity) : 0,
+    };
   };
 
   const preview = async (rawOrderId: number | string): Promise<RefundPreview> => {
@@ -270,6 +285,7 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
       refunded: state.summary.refunded,
       inFlight: state.inFlightRefunds,
       refundable: ctx.refundable,
+      moneyRefundable: ctx.moneyRefundable,
       stripeRefundable: ctx.stripeRefundable,
       hasStripe: ctx.hasStripe,
     };
@@ -308,13 +324,18 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
   // Stripe
   // -------------------------------------------------------------------------
 
-  /** Applies Stripe's answer to a PROCESSING refund (no-op once it left PROCESSING). */
+  /**
+   * Applies Stripe's answer to a PROCESSING refund (no-op once it left PROCESSING). A failure
+   * reported on a Stripe refund object (`externalId` set) is Stripe's own: flagged
+   * `stripeFailed` (final, never promoted back) with its `failure_reason`.
+   */
   const applyStripeStatus = async (
     refundId: number,
     status: string,
     externalId: string | null,
     actor: string,
-    collector: Collector
+    collector: Collector,
+    failureReason: string | null = null
   ): Promise<void> => {
     const u = uids();
     await strapi.db.transaction(async () => {
@@ -336,6 +357,13 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
         data.completedAt = new Date().toISOString();
       } else if (target === 'FAILED') {
         data.status = 'FAILED';
+        if (externalId) {
+          data.metadata = {
+            ...(row.metadata && typeof row.metadata === 'object' ? row.metadata : {}),
+            stripeFailed: true,
+            ...(failureReason && /^[a-z_]{1,64}$/.test(failureReason) ? { failureReason } : {}),
+          };
+        }
       }
       const { count } = await strapi.db
         .query(u.refund)
@@ -439,6 +467,29 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
     const orderId = idOf(row.order);
     if (orderId === null) throw new EcommerceNotFoundError('Order not found');
     await submitToStripe(orderId, [row], actor);
+    return toRefundView(await rowById(id));
+  };
+
+  /**
+   * Reads a PROCESSING Stripe refund that has a Stripe id back from Stripe (`GET /v1/refunds/:id`)
+   * and applies its status like the webhook would: the way out when its events were lost.
+   * Anything else is `REFUND_NOT_REFRESHABLE`.
+   */
+  const refresh = async (rawRefundId: number | string, actor: string): Promise<RefundView> => {
+    const id = Number(rawRefundId);
+    const row = await rowById(id);
+    if (!row) throw new EcommerceNotFoundError('Refund not found');
+    if (row.method !== 'STRIPE' || row.status !== 'PROCESSING' || !row.externalId) {
+      throw new EcommerceValidationError('Refund cannot be refreshed', [
+        { path: 'status', code: 'REFUND_NOT_REFRESHABLE' },
+      ]);
+    }
+    const client = await stripeClient();
+    if (!client) throw new EcommercePaymentError('STRIPE_NOT_CONFIGURED', 'Stripe is not configured.');
+    const remote = await client.retrieveRefund(row.externalId);
+    const collector = events().collector();
+    await applyStripeStatus(id, remote.status, row.externalId, actor, collector, remote.failureReason);
+    await collector.flush();
     return toRefundView(await rowById(id));
   };
 
@@ -638,7 +689,11 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
         const ctx = await refundContext(state);
         const issues = validateRefundRequest(
           { amount: amount as number, method, reason },
-          { refundable: ctx.refundable, stripeAvailable: ctx.stripeRefundable }
+          {
+            refundable: ctx.refundable,
+            stripeAvailable: ctx.stripeRefundable,
+            moneyRefundable: ctx.moneyRefundable,
+          }
         );
         if (issues.length) throw new EcommerceValidationError('Invalid refund', issues);
 
@@ -882,7 +937,7 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
     return released.map(toRefundView);
   };
 
-  return { preview, list, create, resume, markFailed, releaseStoreCreditOnCancel };
+  return { preview, list, create, resume, refresh, markFailed, releaseStoreCreditOnCancel };
 };
 
 export default EcommerceRefundService;

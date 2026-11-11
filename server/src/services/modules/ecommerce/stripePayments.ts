@@ -30,6 +30,8 @@ export type PaymentLink = {
 const SESSION_TTL_SEC = 23 * 3600 + 55 * 60;
 /** A session closer than this to its expiry is replaced instead of reused. */
 const REUSE_MIN_REMAINING_MS = 3600 * 1000;
+/** PaymentIntent statuses of an asynchronous payment that will never be paid. */
+const FAILED_INTENT = ['canceled', 'requires_payment_method'];
 /** Each pass either returns, throws or settles/expires a session; this only bounds races. */
 const MAX_PASSES = 4;
 
@@ -253,6 +255,36 @@ const EcommerceStripePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
     });
   };
 
+  /**
+   * An awaiting (COMPLETE, unpaid) session whose PaymentIntent failed: the session is closed
+   * (EXPIRED) and its PENDING payment FAILED, as `checkout.session.async_payment_failed` does.
+   */
+  const markAsyncFailed = async (orderId: number, row: any, intentStatus: string): Promise<void> => {
+    const u = uids();
+    await strapi.db.transaction(async () => {
+      await orders().lockOrder(orderId);
+      const { count } = await strapi.db
+        .query(u.stripeSession)
+        .updateMany({ where: { id: row.id, status: 'COMPLETE' }, data: { status: 'EXPIRED' } });
+      if (!count) return;
+      const paymentId = idOf(row.payment);
+      if (paymentId === null) return;
+      const { count: moved } = await strapi.db.query(u.payment).updateMany({
+        where: { id: paymentId, status: 'PENDING' },
+        data: { status: 'FAILED' },
+      });
+      if (!moved) return;
+      await history().record({
+        orderId,
+        type: 'PAYMENT_FAILED',
+        description: `Stripe payment failed (PaymentIntent ${intentStatus})`,
+        previousValue: { paymentId, status: 'PENDING' },
+        newValue: { paymentId, status: 'FAILED', sessionId: row.sessionId },
+        actor: 'system',
+      });
+    });
+  };
+
   /** Expires a stale OPEN session at Stripe, or settles it if it was actually paid. */
   const retire = async (client: StripeClient, orderId: number, row: any): Promise<void> => {
     const status = await client.expireCheckoutSession(row.sessionId);
@@ -290,13 +322,27 @@ const EcommerceStripePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
       if (awaiting.length) {
         for (const row of awaiting) {
           const retrieved = await client.retrieveCheckoutSession(row.sessionId);
-          if (retrieved.paymentStatus !== 'paid') {
-            throw new EcommercePaymentError(
-              'PAYMENT_PENDING',
-              'A Stripe payment awaits confirmation.'
-            );
+          if (retrieved.paymentStatus === 'paid') {
+            await completeFromSession(row, retrieved, 'system');
+            continue;
           }
-          await completeFromSession(row, retrieved, 'system');
+          // A `complete` session never expires: the PaymentIntent says whether the asynchronous
+          // payment failed (its `async_payment_failed` event may have been lost) or succeeded.
+          const piId = retrieved.paymentIntentId ?? row.paymentIntentId ?? null;
+          const intent = piId ? await client.retrievePaymentIntent(piId) : null;
+          if (intent && FAILED_INTENT.includes(intent.status)) {
+            await markAsyncFailed(orderId, row, intent.status);
+            continue;
+          }
+          if (intent && intent.status === 'succeeded') {
+            await completeFromSession(
+              row,
+              { ...retrieved, paymentStatus: 'paid', paymentIntentId: intent.id },
+              'system'
+            );
+            continue;
+          }
+          throw new EcommercePaymentError('PAYMENT_PENDING', 'A Stripe payment awaits confirmation.');
         }
         continue; // re-read: the due changed
       }

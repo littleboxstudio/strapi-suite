@@ -160,6 +160,28 @@ describe('retrieve / expire / refund', () => {
   });
 });
 
+describe('retrievePaymentIntent / retrieveRefund', () => {
+  it('GET /v1/payment_intents/:id maps id and status', async () => {
+    const f = stubFetch(async () => json(200, { id: 'pi_1', object: 'payment_intent', status: 'canceled', amount: 10 }));
+    expect(await createStripeClient(rt).retrievePaymentIntent('pi_1')).toEqual({ id: 'pi_1', status: 'canceled' });
+    expect(f.mock.calls[0][0]).toBe('https://api.stripe.com/v1/payment_intents/pi_1');
+    expect(f.mock.calls[0][1].method).toBe('GET');
+  });
+
+  it('GET /v1/refunds/:id maps id, status and failure_reason', async () => {
+    const f = stubFetch(async () =>
+      json(200, { id: 're_1', object: 'refund', status: 'failed', failure_reason: 'lost_or_stolen_card' })
+    );
+    expect(await createStripeClient(rt).retrieveRefund('re_1')).toEqual({
+      id: 're_1',
+      status: 'failed',
+      failureReason: 'lost_or_stolen_card',
+    });
+    expect(f.mock.calls[0][0]).toBe('https://api.stripe.com/v1/refunds/re_1');
+    expect(f.mock.calls[0][1].method).toBe('GET');
+  });
+});
+
 describe('verifyStripeSignature', () => {
   const secret = 'whsec_test';
   const body = Buffer.from('{"id":"evt_1"}');

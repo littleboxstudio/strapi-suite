@@ -154,7 +154,8 @@ export type SummaryRowKey =
   | 'refunded'
   | 'net'
   | 'due'
-  | 'excess';
+  | 'excess'
+  | 'overRefunded';
 
 export type SummaryRow = { key: SummaryRowKey; amount: number; strong?: true };
 
@@ -181,6 +182,7 @@ export function financialSummaryRows(totals: OrderTotals, summary: FinancialSumm
   add('net', summary.net);
   add('due', summary.due, { strong: true });
   add('excess', summary.excess, { hideZero: true });
+  add('overRefunded', summary.overRefunded ?? 0, { hideZero: true });
   return rows;
 }
 

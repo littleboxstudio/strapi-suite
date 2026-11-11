@@ -37,6 +37,15 @@ export type CheckoutSessionParams = {
 
 export type RefundStatus = 'pending' | 'succeeded' | 'failed' | 'canceled' | 'requires_action';
 
+export type PaymentIntentStatus =
+  | 'requires_payment_method'
+  | 'requires_confirmation'
+  | 'requires_action'
+  | 'processing'
+  | 'requires_capture'
+  | 'canceled'
+  | 'succeeded';
+
 export function createStripeClient(rt: ProviderRuntime) {
   async function request(
     method: 'GET' | 'POST',
@@ -161,6 +170,22 @@ export function createStripeClient(rt: ProviderRuntime) {
         )
       );
       return { id: b.id as string, status: b.status as RefundStatus };
+    },
+
+    /** GET /v1/refunds/:id: the refund's current status (and Stripe's `failure_reason`). */
+    async retrieveRefund(id: string) {
+      const b = await ok(request('GET', `/refunds/${encodeURIComponent(id)}`));
+      return {
+        id: b.id as string,
+        status: b.status as RefundStatus,
+        failureReason: typeof b.failure_reason === 'string' ? (b.failure_reason as string) : null,
+      };
+    },
+
+    /** GET /v1/payment_intents/:id: the PaymentIntent's current status. */
+    async retrievePaymentIntent(id: string) {
+      const b = await ok(request('GET', `/payment_intents/${encodeURIComponent(id)}`));
+      return { id: b.id as string, status: b.status as PaymentIntentStatus };
     },
   };
 }

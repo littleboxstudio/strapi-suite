@@ -7,6 +7,7 @@ import {
   emptyRefundForm,
   emptyStoreCreditForm,
   findNewNotification,
+  isRefreshableStripeRefund,
   isStuckStripeRefund,
   storeCreditDisplayStatus,
   validateRefundForm,
@@ -27,6 +28,7 @@ const preview = (over: Partial<RefundPreview> = {}): RefundPreview => ({
   refunded: 1000,
   inFlight: 500,
   refundable: 1500,
+  moneyRefundable: 1500,
   stripeRefundable: 1000,
   hasStripe: true,
   ...over,
@@ -166,6 +168,50 @@ describe('validateRefundForm', () => {
     expect(
       validateRefundForm(form({ method: 'STRIPE', amount: '5' }), preview({ hasStripe: false }), NOW).errors
     ).toEqual([{ path: 'method', code: 'stripe_unavailable' }]);
+  });
+});
+
+describe('F2 money cap', () => {
+  it('defaults to store credit when nothing can go back as money', () => {
+    expect(emptyRefundForm(preview(), 'pt-PT', NOW).method).toBe('MANUAL_TRANSFER');
+    expect(emptyRefundForm(preview({ moneyRefundable: 0 }), 'pt-PT', NOW).method).toBe('STORE_CREDIT');
+  });
+
+  it('money methods are validated against moneyRefundable; store credit against refundable', () => {
+    const p = preview({ moneyRefundable: 500, stripeRefundable: 500 });
+    const manual = validateRefundForm(form({ method: 'MANUAL_TRANSFER', amount: '6,00' }), p, NOW);
+    expect(manual.errors).toEqual([{ path: 'amount', code: 'exceeds_money_refundable' }]);
+    const stripe = validateRefundForm(form({ method: 'STRIPE', amount: '6,00' }), p, NOW);
+    expect(stripe.errors).toEqual([{ path: 'amount', code: 'exceeds_money_refundable' }]);
+    expect(validateRefundForm(form({ method: 'MANUAL_TRANSFER', amount: '5,00' }), p, NOW).errors).toEqual([]);
+    expect(validateRefundForm(form({ method: 'STORE_CREDIT', amount: '15,00' }), p, NOW).errors).toEqual([]);
+  });
+
+  it('has en + pt messages', () => {
+    for (const k of [
+      'ecommerce.orders.errors.exceeds_money_refundable',
+      'ecommerce.orders.refund.summary.moneyRefundable',
+      'ecommerce.orders.refund.moneyOnlyCredit',
+      'ecommerce.orders.refunds.refresh',
+      'ecommerce.orders.refunds.refreshed',
+      'ecommerce.orders.refunds.refreshError',
+      'ecommerce.orders.history.type.REFUND_OVER_REFUNDED',
+      'ecommerce.orders.detail.summary.overRefunded',
+    ]) {
+      expect(en[P + k], k).toBeTruthy();
+      expect(pt[P + k], k).toBeTruthy();
+    }
+  });
+});
+
+describe('isRefreshableStripeRefund (F5)', () => {
+  it('is true only for a PROCESSING Stripe refund with a Stripe id', () => {
+    expect(isRefreshableStripeRefund({ method: 'STRIPE', status: 'PROCESSING', externalId: 're_1' })).toBe(true);
+    expect(isRefreshableStripeRefund({ method: 'STRIPE', status: 'PROCESSING', externalId: null })).toBe(false);
+    expect(isRefreshableStripeRefund({ method: 'STRIPE', status: 'COMPLETED', externalId: 're_1' })).toBe(false);
+    expect(isRefreshableStripeRefund({ method: 'MANUAL_TRANSFER', status: 'PROCESSING', externalId: 're_1' })).toBe(
+      false
+    );
   });
 });
 

@@ -551,21 +551,88 @@ describe('EcommerceStripeWebhookService.handle', () => {
       expect(r2.refund().status).toBe('FAILED');
     });
 
-    it('a FAILED refund Stripe reports succeeded is COMPLETED; COMPLETED is never downgraded', async () => {
+    it('a FAILED refund Stripe reports succeeded is COMPLETED (promotion flagged)', async () => {
       const s = setup();
       const { refund } = await seedRefund(s, 'FAILED');
       expect(
         await deliver(s, evt('evt_fs', 'refund.updated', { id: 're_1', status: 'succeeded' }))
       ).toEqual({ duplicate: false, status: 'PROCESSED' });
       expect(refund().status).toBe('COMPLETED');
+      expect(refund().metadata).toMatchObject({ promotedFromFailed: true });
       const h = s.tables[UIDS.orderHistory].filter((x) => x.type === 'REFUND_COMPLETED');
       expect(h).toHaveLength(1);
       expect(h[0].previousValue).toMatchObject({ refundId: 70, status: 'FAILED' });
-      expect(await deliver(s, evt('evt_fl', 'refund.failed', { id: 're_1', status: 'failed' }))).toEqual({
-        duplicate: false,
-        status: 'IGNORED',
+    });
+
+    it('F4: a promotion that refunds twice is over-refunded: no amount due, history notes it', async () => {
+      const s = setup();
+      const { orderId, refund } = await seedRefund(s, 'FAILED');
+      // Modified down to 3500 after the 4500 payment: 1000 of excess, refunded by transfer
+      // after the Stripe refund was (wrongly) held as failed.
+      const order = () => s.tables[UIDS.order].find((o) => o.id === orderId);
+      order().total = 3500;
+      s.tables[UIDS.refund].push({
+        id: 71, order: orderId, payment: null, method: 'MANUAL_TRANSFER', kind: 'MONEY',
+        status: 'COMPLETED', amount: 1000, currency: 'EUR', externalId: null,
+        idempotencyKey: 'manual', completedAt: new Date().toISOString(), metadata: null,
       });
+      expect(
+        await deliver(s, evt('evt_dbl', 'refund.updated', { id: 're_1', status: 'succeeded' }))
+      ).toEqual({ duplicate: false, status: 'PROCESSED' });
       expect(refund().status).toBe('COMPLETED');
+      const view: any = await s.orders.get(orderId);
+      expect(view.summary).toMatchObject({ refunded: 2000, overRefunded: 1000, due: 0, excess: 0 });
+      expect(view.availableActions).not.toContain('ADD_PAYMENT');
+      expect(view.availableActions).not.toContain('REFUND');
+      const note = s.tables[UIDS.orderHistory].filter((x) => x.type === 'REFUND_OVER_REFUNDED');
+      expect(note).toHaveLength(1);
+      expect(note[0].newValue).toMatchObject({ refundId: 70, overRefunded: 1000 });
+    });
+
+    it('F1: a COMPLETED Stripe refund that Stripe reports failed is reversed (FAILED, recalculated, no e-mail source)', async () => {
+      const s = setup();
+      const { orderId, refund } = await seedRefund(s, 'COMPLETED');
+      await s.orders.recalculate(orderId, {});
+      const order = () => s.tables[UIDS.order].find((o) => o.id === orderId);
+      expect(order().paymentStatus).toBe('PARTIALLY_REFUNDED');
+
+      expect(
+        await deliver(
+          s,
+          evt('evt_rev', 'refund.failed', { id: 're_1', status: 'failed', failure_reason: 'expired_or_canceled_card' })
+        )
+      ).toEqual({ duplicate: false, status: 'PROCESSED' });
+      expect(refund().status).toBe('FAILED');
+      expect(refund().metadata).toMatchObject({ failureReason: 'expired_or_canceled_card', stripeFailed: true });
+      expect(order().paymentStatus).toBe('PAID');
+      const view: any = await s.orders.get(orderId);
+      expect(view.summary.refunded).toBe(0);
+      const h = s.tables[UIDS.orderHistory].filter((x) => x.type === 'REFUND_FAILED');
+      expect(h).toHaveLength(1);
+      expect(h[0].description).toContain('Refund failed at Stripe after completion');
+      expect(h[0].previousValue).toMatchObject({ refundId: 70, status: 'COMPLETED' });
+      const failed = s.events.filter((e) => e.type === 'REFUND_FAILED');
+      expect(failed).toHaveLength(1);
+      expect(failed[0].payload).toMatchObject({ refundId: 70, source: 'STRIPE_REVERSED' });
+
+      // Stripe's failure is final: a late (out-of-order) `succeeded` never re-completes it.
+      expect(
+        await deliver(s, evt('evt_late', 'refund.updated', { id: 're_1', status: 'succeeded' }))
+      ).toEqual({ duplicate: false, status: 'IGNORED' });
+      expect(refund().status).toBe('FAILED');
+    });
+
+    it('F1: refund.updated status=failed on a COMPLETED refund is reversed too; a COMPLETED refund is never "canceled"', async () => {
+      const s = setup();
+      const { refund } = await seedRefund(s, 'COMPLETED');
+      expect(
+        await deliver(s, evt('evt_cx', 'refund.updated', { id: 're_1', status: 'canceled' }))
+      ).toEqual({ duplicate: false, status: 'IGNORED' });
+      expect(refund().status).toBe('COMPLETED');
+      expect(
+        await deliver(s, evt('evt_upd', 'refund.updated', { id: 're_1', status: 'failed' }))
+      ).toEqual({ duplicate: false, status: 'PROCESSED' });
+      expect(refund().status).toBe('FAILED');
     });
 
     it('a refund event without a matching refund is IGNORED', async () => {

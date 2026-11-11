@@ -1,6 +1,7 @@
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID } from '../../../config';
 import { STRIPE_WEBHOOK_EVENTS } from '../../../services/modules/ecommerce/stripeWebhooks';
+import { STRIPE_WEBHOOK_SUBPATH } from '../../../middlewares/ecommerceRawBody';
 import { handleDomainError as handleSharedDomainError } from './errors';
 
 const EcommerceSettingsController = ({ strapi }: { strapi: Core.Strapi }) => {
@@ -37,8 +38,10 @@ const EcommerceSettingsController = ({ strapi }: { strapi: Core.Strapi }) => {
 
     /** What the admin shows to set up the Stripe webhook (no secrets). */
     getStripeWebhook: (ctx: any) => {
+      // Same prefix as the raw-body middleware, so the URL copied into Stripe is the one served.
+      const prefix = String(strapi.config.get('api.rest.prefix', '/api')).replace(/\/+$/, '');
       ctx.body = {
-        path: `/api/${PLUGIN_ID}/ecommerce/stripe/webhook`,
+        path: `${prefix}/${PLUGIN_ID}${STRIPE_WEBHOOK_SUBPATH}`,
         events: [...STRIPE_WEBHOOK_EVENTS],
       };
     },

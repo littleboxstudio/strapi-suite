@@ -5,6 +5,8 @@ const stripe = vi.hoisted(() => ({
   retrieveCheckoutSession: vi.fn(),
   expireCheckoutSession: vi.fn(),
   createRefund: vi.fn(),
+  retrievePaymentIntent: vi.fn(),
+  retrieveRefund: vi.fn(),
 }));
 vi.mock('../../../server/src/services/modules/ecommerce/providers/payments/stripeClient', () => ({
   createStripeClient: () => stripe,
@@ -195,6 +197,7 @@ beforeEach(() => {
   stripe.createCheckoutSession.mockReset();
   stripe.retrieveCheckoutSession.mockReset();
   stripe.expireCheckoutSession.mockReset();
+  stripe.retrievePaymentIntent.mockReset();
   // Same Idempotency-Key -> same session, like Stripe.
   const byKey = new Map<string, any>();
   stripe.createCheckoutSession.mockImplementation(async (p: any) => {
@@ -514,6 +517,7 @@ describe('completeFromSession', () => {
     });
 
     // While that payment awaits confirmation, no second link is created.
+    stripe.retrievePaymentIntent.mockResolvedValueOnce({ id: 'pi_1', status: 'processing' });
     stripe.retrieveCheckoutSession.mockResolvedValueOnce({
       id: 'cs_1',
       status: 'complete',
@@ -525,6 +529,55 @@ describe('completeFromSession', () => {
     await expect(
       stripePayments.getOrCreatePaymentLink(order.id, { purpose: 'CHECKOUT', actor })
     ).rejects.toMatchObject({ code: 'PAYMENT_PENDING' });
+    expect(stripe.createCheckoutSession).toHaveBeenCalledTimes(1);
+    expect(stripe.retrievePaymentIntent).toHaveBeenCalledWith('pi_1');
+  });
+
+  /** An order whose Stripe session completed unpaid (async method), payment still PENDING. */
+  const awaitingOrder = async (s: ReturnType<typeof setup>) => {
+    const order = await createOrder(s.orders);
+    await s.stripePayments.getOrCreatePaymentLink(order.id, { purpose: 'CHECKOUT', actor });
+    const unpaid = {
+      id: 'cs_1',
+      status: 'complete',
+      paymentStatus: 'unpaid',
+      paymentIntentId: 'pi_1',
+      amountTotal: 4500,
+      metadata: {},
+    };
+    await s.stripePayments.completeFromSession(s.tables[UIDS.stripeSession][0], unpaid, 'webhook:stripe');
+    stripe.retrieveCheckoutSession.mockResolvedValueOnce(unpaid);
+    return order;
+  };
+
+  it.each(['canceled', 'requires_payment_method'])(
+    'F3: a lost async_payment_failed (PaymentIntent %s) fails the payment and a new link is created',
+    async (piStatus) => {
+      const s = setup();
+      const order = await awaitingOrder(s);
+      stripe.retrievePaymentIntent.mockResolvedValueOnce({ id: 'pi_1', status: piStatus });
+
+      const link = await s.stripePayments.getOrCreatePaymentLink(order.id, { purpose: 'CHECKOUT', actor });
+
+      expect(link).toMatchObject({ sessionId: 'cs_2', amount: 4500, reused: false });
+      expect(s.tables[UIDS.payment][0].status).toBe('FAILED');
+      expect(s.tables[UIDS.stripeSession][0].status).toBe('EXPIRED');
+      expect(s.tables[UIDS.payment][1]).toMatchObject({ status: 'PENDING', amount: 4500 });
+      const failed = s.tables[UIDS.orderHistory].filter((h) => h.type === 'PAYMENT_FAILED');
+      expect(failed).toHaveLength(1);
+      expect(failed[0].newValue).toMatchObject({ status: 'FAILED', sessionId: 'cs_1' });
+    }
+  );
+
+  it('F3: a PaymentIntent that succeeded completes the payment as the webhook would', async () => {
+    const s = setup();
+    const order = await awaitingOrder(s);
+    stripe.retrievePaymentIntent.mockResolvedValueOnce({ id: 'pi_1', status: 'succeeded' });
+    await expect(
+      s.stripePayments.getOrCreatePaymentLink(order.id, { purpose: 'CHECKOUT', actor })
+    ).rejects.toMatchObject({ code: 'NOTHING_DUE' });
+    expect(s.tables[UIDS.payment][0]).toMatchObject({ status: 'COMPLETED', externalId: 'pi_1' });
+    expect(s.events.filter((e) => e.type === 'PAYMENT_COMPLETED')).toHaveLength(1);
     expect(stripe.createCheckoutSession).toHaveBeenCalledTimes(1);
   });
 });
