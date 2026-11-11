@@ -10,6 +10,8 @@ import {
   __resetRegistryForTests,
   registerProvider,
 } from '../../../server/src/services/modules/ecommerce/providers/registry';
+import EcommerceImageService from '../../../server/src/services/modules/ecommerce/images';
+import sharp from 'sharp';
 import { createFakeDb } from './helpers/fakeDb';
 
 const P = 'plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-';
@@ -33,13 +35,23 @@ function makeStrapi(opts: { encryptionKey?: string | null } = {}) {
     ecommerce: { encryptionKey: opts.encryptionKey === undefined ? 'key-one' : opts.encryptionKey },
   };
   let audit: any;
+  let images: any;
+  const provider = {
+    upload: vi.fn(async (file: any) => {
+      file.url = `/uploads/${file.hash}${file.ext}`;
+    }),
+    delete: vi.fn(async () => undefined),
+  };
   const apiTokenGetById = vi.fn(async (id: number) => (id === 7 ? { id: 7 } : null));
   const strapi: any = {
     db: { query: db.query, transaction: db.transaction },
     service: (name: string) => (name === 'admin::api-token' ? { getById: apiTokenGetById } : undefined),
-    config: { get: () => pluginConfig },
+    config: { get: (k?: string) => (k === 'plugin::upload' ? { provider: 'local' } : pluginConfig) },
+    log: { warn: vi.fn() },
     plugin: (id: string) =>
-      id === 'i18n'
+      id === 'upload'
+        ? { provider }
+        : id === 'i18n'
         ? {
             service: () => ({
               getDefaultLocale: async () => 'en',
@@ -49,11 +61,15 @@ function makeStrapi(opts: { encryptionKey?: string | null } = {}) {
               ],
             }),
           }
-        : { service: (name: string) => (name === 'EcommerceAuditService' ? audit : undefined) },
+        : {
+            service: (name: string) =>
+              name === 'EcommerceAuditService' ? audit : name === 'EcommerceImageService' ? images : undefined,
+          },
   };
   audit = EcommerceAuditService({ strapi });
+  images = EcommerceImageService({ strapi });
   const service = EcommerceSettingsService({ strapi });
-  return { service, strapi, apiTokenGetById, tables: db.tables, pluginConfig, transaction: db.transaction };
+  return { service, strapi, provider, apiTokenGetById, tables: db.tables, pluginConfig, transaction: db.transaction };
 }
 
 const fakeBilling = (exclusive = true) => ({
@@ -388,7 +404,7 @@ describe('EcommerceSettingsService — store settings', () => {
     const { service } = makeStrapi();
     expect(await service.getStoreSettings()).toEqual({
       storeName: '',
-      logoUrl: null,
+      logo: null,
       brandColor: '#4945ff',
       storefrontUrl: null,
       paymentSuccessPath: '/checkout/success',
@@ -443,7 +459,7 @@ describe('EcommerceSettingsService — store settings', () => {
 
   it('stores each value wrapped in a JSON object (MariaDB json_valid) and unwraps it on read', async () => {
     const { service, tables } = makeStrapi();
-    await service.updateStoreSettings({ storeName: 'Loja Teste', logoUrl: null, shippingCountries: ['ES'] }, '1');
+    await service.updateStoreSettings({ storeName: 'Loja Teste', shippingCountries: ['ES'] }, '1');
     const row = tables[UIDS.storeSetting].find((r) => r.key === 'storeName');
     expect(row.value).toEqual({ v: 'Loja Teste' });
     const settings = await service.getStoreSettings();
@@ -473,7 +489,6 @@ describe('EcommerceSettingsService — store settings', () => {
       .updateStoreSettings(
         {
           storeName: ' ',
-          logoUrl: 'ftp://x/logo.png',
           storefrontUrl: '/relative',
           brandColor: '#fff',
           timezone: 'Mars/Olympus',
@@ -487,7 +502,6 @@ describe('EcommerceSettingsService — store settings', () => {
     expect(err.errors).toEqual(
       expect.arrayContaining([
         { path: 'storeName', code: 'required' },
-        { path: 'logoUrl', code: 'invalid_url' },
         { path: 'storefrontUrl', code: 'invalid_url' },
         { path: 'brandColor', code: 'invalid_color' },
         { path: 'timezone', code: 'invalid_timezone' },
@@ -501,9 +515,9 @@ describe('EcommerceSettingsService — store settings', () => {
 
   it('accepts null for optional fields and ignores unknown keys', async () => {
     const { service, tables } = makeStrapi();
-    await service.updateStoreSettings({ logoUrl: 'http://cdn.example.com/l.png', brandColor: '#A1b2C3' }, '1');
-    const res = await service.updateStoreSettings({ logoUrl: null, hacker: 1 } as any, '1');
-    expect(res.logoUrl).toBeNull();
+    await service.updateStoreSettings({ supportEmail: 'a@b.pt', brandColor: '#A1b2C3' }, '1');
+    const res = await service.updateStoreSettings({ supportEmail: null, hacker: 1 } as any, '1');
+    expect(res.supportEmail).toBeNull();
     expect(res.brandColor).toBe('#A1b2C3');
     expect(tables[UIDS.storeSetting].some((r) => r.key === 'hacker')).toBe(false);
   });
@@ -562,5 +576,70 @@ describe('EcommerceSettingsService — manual shipping methods', () => {
       ])
     );
     expect(tables[UIDS.manualShippingMethod]).toHaveLength(0);
+  });
+});
+
+describe('EcommerceSettingsService — store logo', () => {
+  const pngFile = async (w = 300, h = 100) => ({
+    buffer: await sharp({ create: { width: w, height: h, channels: 3, background: '#f00' } }).png().toBuffer(),
+    originalName: 'logo.png',
+  });
+
+  it('stores the logo, then replaces it deleting the previous file after the setting is written', async () => {
+    const { service, provider, tables } = makeStrapi();
+    const first = await service.uploadStoreLogo(await pngFile(), '1');
+    expect(first.logo).toMatchObject({ width: 288, height: 96 });
+    expect(first.logo!.url).toMatch(/^\/uploads\/store-logo_/);
+    expect(provider.delete).not.toHaveBeenCalled();
+    expect(tables[UIDS.auditLog].at(-1)).toMatchObject({ action: 'store.update', details: { changedFields: ['logo'] } });
+
+    const order: string[] = [];
+    const q = tables[UIDS.storeSetting];
+    provider.delete.mockImplementationOnce(async () => {
+      order.push(q.find((r) => r.key === 'logo').value.v.hash === first.logo!.hash ? 'old-still-stored' : 'new-stored');
+    });
+    const second = await service.uploadStoreLogo(await pngFile(200, 50), '1');
+    expect(second.logo!.hash).not.toBe(first.logo!.hash);
+    expect(provider.delete).toHaveBeenCalledWith(expect.objectContaining({ hash: first.logo!.hash }));
+    // the setting already held the new logo when the old file was deleted
+    expect(order).toEqual(['new-stored']);
+  });
+
+  it('does not fail when deleting the previous file fails', async () => {
+    const { service, provider, strapi } = makeStrapi();
+    await service.uploadStoreLogo(await pngFile(), '1');
+    provider.delete.mockRejectedValueOnce(new Error('boom'));
+    const res = await service.uploadStoreLogo(await pngFile(), '1');
+    expect(res.logo).not.toBeNull();
+    expect(strapi.log.warn).toHaveBeenCalled();
+  });
+
+  it('keeps the previous logo when the provider upload fails or the file is not an image', async () => {
+    const { service, provider } = makeStrapi();
+    const first = await service.uploadStoreLogo(await pngFile(), '1');
+    provider.upload.mockRejectedValueOnce(new Error('down'));
+    await expect(service.uploadStoreLogo(await pngFile(), '1')).rejects.toThrow('down');
+    await expect(
+      service.uploadStoreLogo({ buffer: Buffer.from('text'), originalName: 'x.txt' }, '1')
+    ).rejects.toThrow('INVALID_IMAGE');
+    expect((await service.getStoreSettings()).logo).toEqual(first.logo);
+    expect(provider.delete).not.toHaveBeenCalled();
+  });
+
+  it('removes the logo and its file; no logo means nothing to do', async () => {
+    const { service, provider, tables } = makeStrapi();
+    const before = tables[UIDS.auditLog].length;
+    await service.removeStoreLogo('1');
+    expect(tables[UIDS.auditLog].length).toBe(before);
+    const first = await service.uploadStoreLogo(await pngFile(), '1');
+    const res = await service.removeStoreLogo('1');
+    expect(res.logo).toBeNull();
+    expect(provider.delete).toHaveBeenCalledWith(expect.objectContaining({ hash: first.logo!.hash }));
+  });
+
+  it('ignores a logo sent through updateStoreSettings', async () => {
+    const { service } = makeStrapi();
+    await service.updateStoreSettings({ logo: { url: 'https://evil.example/x.png' } } as any, '1');
+    expect((await service.getStoreSettings()).logo).toBeNull();
   });
 });

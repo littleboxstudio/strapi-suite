@@ -10,6 +10,7 @@ export type ImageTransform =
   | { mode: 'resize'; width: number; height: number };
 
 export const MAX_IMAGE_DIMENSION = 6000;
+export const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
 
 const invalid = () => new Error('INVALID_IMAGE');
 
@@ -67,6 +68,24 @@ export async function processImage(
       .webp({ quality: 80 })
       .toBuffer();
     return { buffer, width: t.width, height: t.height, sizeBytes: buffer.length };
+  } catch {
+    throw invalid();
+  }
+}
+
+/** Store logo: auto-oriented, fitted inside 480x96 without enlarging, as PNG (keeps transparency). */
+export async function processLogo(
+  input: Buffer
+): Promise<{ buffer: Buffer; width: number; height: number; sizeBytes: number }> {
+  try {
+    const metadata = await sharp(input).metadata();
+    if (!orientedSize(metadata)) throw invalid();
+    const { data, info } = await sharp(input)
+      .rotate()
+      .resize(480, 96, { fit: 'inside', withoutEnlargement: true })
+      .png({ compressionLevel: 9 })
+      .toBuffer({ resolveWithObject: true });
+    return { buffer: data, width: info.width, height: info.height, sizeBytes: data.length };
   } catch {
     throw invalid();
   }

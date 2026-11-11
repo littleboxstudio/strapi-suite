@@ -6,7 +6,7 @@ import {
 } from '../../../../server/src/services/modules/ecommerce/email/catalog';
 import { renderTemplate } from '../../../../server/src/services/modules/ecommerce/email/templateEngine';
 
-const STORE = ['store.name', 'store.logoUrl', 'store.brandColor', 'store.url', 'store.supportEmail'];
+const STORE = ['store.name', 'store.logoUrl', 'store.logoWidth', 'store.logoHeight', 'store.brandColor', 'store.url', 'store.supportEmail'];
 
 const COMMON = [
   ...STORE,

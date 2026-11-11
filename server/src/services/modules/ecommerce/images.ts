@@ -3,7 +3,7 @@ import { Readable } from 'stream';
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID, LtbConfigs } from '../../../config';
 import { slugify } from './domain/catalog';
-import { processImage, ImageTransform } from './domain/imageProcessing';
+import { processImage, processLogo, ImageTransform } from './domain/imageProcessing';
 
 export type ImageRecord = {
   id: number;
@@ -25,13 +25,28 @@ export type StoredImage = {
   providerMetadata?: unknown;
 };
 
+/** A file in the upload provider that has no image row (e.g. the store logo). */
+export type StoredFile = Omit<StoredImage, 'id'>;
+
+export type StoreLogoFile = {
+  url: string;
+  width: number;
+  height: number;
+  sizeBytes: number;
+  hash: string;
+  ext: '.png';
+  mime: 'image/png';
+  provider: string;
+  providerMetadata: unknown | null;
+};
+
 const EcommerceImageService = ({ strapi }: { strapi: Core.Strapi }) => {
   const imageUid = (): string => {
     const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
     return config.uuid.modules.ecommerce.image;
   };
   const provider = (): any => (strapi.plugin('upload') as any).provider;
-  const deleteFile = (record: StoredImage) =>
+  const deleteFile = (record: StoredFile) =>
     provider().delete({
       hash: record.hash,
       ext: record.ext,
@@ -106,6 +121,37 @@ const EcommerceImageService = ({ strapi }: { strapi: Core.Strapi }) => {
       };
     },
 
+    /** Processes and sends the store logo to the upload provider; no Media Library, no image row. */
+    async uploadStoreLogo(params: { buffer: Buffer; originalName: string }): Promise<StoreLogoFile> {
+      const { buffer, width, height, sizeBytes } = await processLogo(params.buffer);
+      const hash = `store-logo_${crypto.randomBytes(5).toString('hex')}`;
+      const file: any = {
+        name: 'store-logo.png',
+        hash,
+        ext: '.png',
+        mime: 'image/png',
+        size: Math.round((sizeBytes / 1024) * 100) / 100,
+        width,
+        height,
+        buffer,
+        getStream: () => Readable.from(buffer),
+      };
+      await provider().upload(file);
+      const providerName: string =
+        (strapi.config.get('plugin::upload') as any)?.provider || 'local';
+      return {
+        url: file.url,
+        width,
+        height,
+        sizeBytes,
+        hash,
+        ext: '.png',
+        mime: 'image/png',
+        provider: providerName,
+        providerMetadata: file.provider_metadata ?? null,
+      };
+    },
+
     async remove(imageId: number): Promise<void> {
       const record = await strapi.db.query(imageUid()).findOne({ where: { id: imageId } });
       if (!record) return;
@@ -117,7 +163,7 @@ const EcommerceImageService = ({ strapi }: { strapi: Core.Strapi }) => {
      * Deletes provider files of images whose records are already gone. Best effort: a failure
      * is logged and does not stop the remaining deletes (the records are committed by then).
      */
-    async removeFiles(records: StoredImage[]): Promise<void> {
+    async removeFiles(records: StoredFile[]): Promise<void> {
       for (const record of records) {
         try {
           await deleteFile(record);

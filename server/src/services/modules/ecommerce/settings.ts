@@ -26,6 +26,7 @@ import {
   ValidationIssue,
 } from './errors';
 import type { AuditEntry } from './audit';
+import type { StoreLogoFile } from './images';
 
 const AREA = 'settings';
 const RUNTIME_TTL_MS = 60_000;
@@ -50,9 +51,12 @@ export type IntegrationInput = {
   secrets?: Record<string, string | null>;
 };
 
+/** The stored store logo (a file in the upload provider). */
+export type StoreLogo = StoreLogoFile;
+
 export type StoreSettings = {
   storeName: string;
-  logoUrl: string | null;
+  logo: StoreLogo | null;
   brandColor: string;
   storefrontUrl: string | null;
   paymentSuccessPath: string;
@@ -66,7 +70,7 @@ export type StoreSettings = {
 
 export const STORE_SETTINGS_DEFAULTS: StoreSettings = {
   storeName: '',
-  logoUrl: null,
+  logo: null,
   brandColor: '#4945ff',
   storefrontUrl: null,
   paymentSuccessPath: '/checkout/success',
@@ -169,7 +173,7 @@ function normalizeStorePatch(patch: Record<string, unknown>): {
     if (typeof v !== 'string' || v === '') errors.push({ path: 'storeName', code: 'required' });
     else values.storeName = v;
   }
-  for (const key of ['logoUrl', 'storefrontUrl'] as const) {
+  for (const key of ['storefrontUrl'] as const) {
     if (!has(key)) continue;
     const v = str(patch[key]);
     if (isBlank(v)) values[key] = null;
@@ -396,6 +400,32 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
     return settings as StoreSettings;
   };
 
+  /** Writes the changed store values in one transaction; returns the changed keys. */
+  const writeStoreValues = async (values: Record<string, unknown>): Promise<string[]> => {
+    const q = () => strapi.db.query(uids().storeSetting);
+    const current = (await getStoreSettings()) as Record<string, unknown>;
+    const changedFields = Object.keys(values).filter(
+      (k) => JSON.stringify(values[k]) !== JSON.stringify(current[k])
+    );
+    await strapi.db.transaction(async () => {
+      for (const k of changedFields) {
+        const value = wrapStoreValue(values[k]);
+        const existing = await q().findOne({ where: { key: k } });
+        if (existing) await q().update({ where: { id: existing.id }, data: { value } });
+        else await q().create({ data: { key: k, value } });
+      }
+    });
+    return changedFields;
+  };
+
+  const auditStoreUpdate = (changedFields: string[], userId?: string | number) =>
+    audit({
+      area: AREA,
+      action: 'store.update',
+      userId: userId === undefined ? undefined : String(userId),
+      details: { changedFields },
+    });
+
   return {
     async listIntegrations(): Promise<IntegrationView[]> {
       const rows: IntegrationRow[] = await strapi.db.query(uids().integration).findMany({});
@@ -587,28 +617,36 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
         }
       }
 
-      const q = () => strapi.db.query(uids().storeSetting);
-      const current = await getStoreSettings();
-      const changedFields = Object.keys(values).filter(
-        (k) => JSON.stringify((values as any)[k]) !== JSON.stringify((current as any)[k])
-      );
-      await strapi.db.transaction(async () => {
-        for (const k of changedFields) {
-          const value = wrapStoreValue((values as any)[k]);
-          const existing = await q().findOne({ where: { key: k } });
-          if (existing) await q().update({ where: { id: existing.id }, data: { value } });
-          else await q().create({ data: { key: k, value } });
-        }
-      });
+      const changedFields = await writeStoreValues(values as Record<string, unknown>);
+      if (changedFields.length) await auditStoreUpdate(changedFields, userId);
+      return getStoreSettings();
+    },
 
-      if (changedFields.length) {
-        await audit({
-          area: AREA,
-          action: 'store.update',
-          userId: userId === undefined ? undefined : String(userId),
-          details: { changedFields },
-        });
+    /** Processes and uploads a new logo, saves it, then deletes the previous file (best effort). */
+    async uploadStoreLogo(
+      file: { buffer: Buffer; originalName: string },
+      userId?: string | number
+    ): Promise<StoreSettings> {
+      const images = strapi.plugin(PLUGIN_ID).service('EcommerceImageService');
+      const previous = (await getStoreSettings()).logo;
+      const logo: StoreLogo = await images.uploadStoreLogo(file);
+      try {
+        await writeStoreValues({ logo });
+      } catch (err) {
+        await images.removeFiles([logo]);
+        throw err;
       }
+      await auditStoreUpdate(['logo'], userId);
+      if (previous) await images.removeFiles([previous]);
+      return getStoreSettings();
+    },
+
+    async removeStoreLogo(userId?: string | number): Promise<StoreSettings> {
+      const previous = (await getStoreSettings()).logo;
+      if (!previous) return getStoreSettings();
+      await writeStoreValues({ logo: null });
+      await auditStoreUpdate(['logo'], userId);
+      await strapi.plugin(PLUGIN_ID).service('EcommerceImageService').removeFiles([previous]);
       return getStoreSettings();
     },
 
