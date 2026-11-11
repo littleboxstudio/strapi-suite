@@ -51,7 +51,7 @@ function makeStrapi(opts: { encryptionKey?: string | null } = {}) {
   };
   audit = EcommerceAuditService({ strapi });
   const service = EcommerceSettingsService({ strapi });
-  return { service, tables: db.tables, pluginConfig, transaction: db.transaction };
+  return { service, strapi, tables: db.tables, pluginConfig, transaction: db.transaction };
 }
 
 const fakeBilling = (exclusive = true) => ({
@@ -126,6 +126,96 @@ describe('EcommerceSettingsService — integrations', () => {
     expect(stripe.secrets.secretKey).toBeNull();
     const rt = await service.getRuntime('stripe');
     expect(rt!.secrets.secretKey).toBeUndefined();
+  });
+
+  it('never stores a mask-shaped value after key rotation, and cannot activate', async () => {
+    const { service, tables, pluginConfig } = makeStrapi();
+    await service.updateIntegration('moloni', MOLONI, '1');
+    const before = JSON.stringify(tables[UIDS.integration][0].secrets);
+    pluginConfig.ecommerce.encryptionKey = 'key-two';
+    await service.updateIntegration('moloni', { secrets: { clientSecret: '********', password: 'mol********rd-2' } }, '1');
+    expect(JSON.stringify(tables[UIDS.integration][0].secrets)).toBe(before);
+    const err: any = await service.setActive('moloni', true, '1').catch((e) => e);
+    expect(err).toBeInstanceOf(EcommerceValidationError);
+    expect(err.errors).toEqual(
+      expect.arrayContaining([
+        { path: 'secrets.clientSecret', code: 'required' },
+        { path: 'secrets.password', code: 'required' },
+      ])
+    );
+  });
+
+  it('ignores a mask-shaped secret when nothing is stored', async () => {
+    const { service, tables } = makeStrapi();
+    await service.updateIntegration('stripe', { secrets: { secretKey: 'sk_********9876' } }, '1');
+    expect(tables[UIDS.integration]).toHaveLength(0);
+    expect(tables[UIDS.auditLog]).toHaveLength(0);
+    await expect(service.setActive('stripe', true, '1')).rejects.toBeInstanceOf(EcommerceValidationError);
+  });
+
+  it('skips the write and the audit when nothing changed', async () => {
+    const { service, tables } = makeStrapi();
+    await service.updateIntegration('stripe', { config: { publishableKey: 'pk_1' }, secrets: { secretKey: STRIPE_KEY } }, '1');
+    const before = JSON.stringify(tables[UIDS.integration]);
+    const view = await service.updateIntegration(
+      'stripe',
+      { config: { publishableKey: 'pk_1' }, secrets: { secretKey: 'sk_********9876' } },
+      '2'
+    );
+    expect(view.secrets.secretKey).toBe('sk_********9876');
+    expect(JSON.stringify(tables[UIDS.integration])).toBe(before);
+    expect(tables[UIDS.auditLog]).toHaveLength(1);
+  });
+
+  it('rejects saving an active integration with a required field cleared', async () => {
+    const { service } = makeStrapi();
+    await service.updateIntegration('moloni', MOLONI, '1');
+    await service.setActive('moloni', true, '1');
+    const err: any = await service.updateIntegration('moloni', { config: { clientId: '' } }, '1').catch((e) => e);
+    expect(err).toBeInstanceOf(EcommerceValidationError);
+    expect(err.errors).toContainEqual({ path: 'config.clientId', code: 'required' });
+  });
+
+  it('refuses to activate when a stored required secret cannot be decrypted', async () => {
+    const { service, pluginConfig } = makeStrapi();
+    await service.updateIntegration('stripe', { secrets: { secretKey: STRIPE_KEY } }, '1');
+    pluginConfig.ecommerce.encryptionKey = 'key-two';
+    const err: any = await service.setActive('stripe', true, '1').catch((e) => e);
+    expect(err).toBeInstanceOf(EcommerceValidationError);
+    expect(err.errors).toContainEqual({ path: 'secrets.secretKey', code: 'required' });
+  });
+
+  it('getRuntime returns copies that cannot mutate the cache', async () => {
+    const { service } = makeStrapi();
+    await service.updateIntegration('stripe', { config: { publishableKey: 'pk_1' }, secrets: { secretKey: STRIPE_KEY } }, '1');
+    const rt = (await service.getRuntime('stripe'))!;
+    rt.config.publishableKey = 'tampered';
+    rt.secrets.secretKey = 'tampered';
+    const again = (await service.getRuntime('stripe'))!;
+    expect(again.config.publishableKey).toBe('pk_1');
+    expect(again.secrets.secretKey).toBe(STRIPE_KEY);
+  });
+
+  it('a read in flight during invalidation does not repopulate the cache with stale data', async () => {
+    const { service, strapi } = makeStrapi();
+    await service.updateIntegration('stripe', { config: { publishableKey: 'pk_1' } }, '1');
+    // Hold the next integration read until the update below has committed.
+    const realQuery = strapi.db.query;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let held = false;
+    strapi.db.query = (uid: string) => {
+      const q = realQuery(uid);
+      if (uid !== UIDS.integration || held) return q;
+      held = true;
+      return { ...q, findOne: async (p: any) => { const row = await q.findOne(p); await gate; return row; } };
+    };
+    const pending = service.getRuntime('stripe'); // reads pk_1, then waits
+    strapi.db.query = realQuery;
+    await service.updateIntegration('stripe', { config: { publishableKey: 'pk_2' } }, '1');
+    release();
+    expect((await pending)!.config.publishableKey).toBe('pk_1');
+    expect((await service.getRuntime('stripe'))!.config.publishableKey).toBe('pk_2');
   });
 
   it('fails with ENCRYPTION_KEY_MISSING when saving a new secret without a key', async () => {
