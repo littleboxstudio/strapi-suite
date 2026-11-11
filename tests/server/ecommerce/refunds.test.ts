@@ -494,7 +494,9 @@ describe('Stripe refunds', () => {
   it('a Stripe rejection marks the refund FAILED', async () => {
     const c = setupCommerce();
     const orderId = await stripeOrder(c);
-    stripe.createRefund.mockRejectedValueOnce(new EcommercePaymentError('STRIPE_REQUEST_FAILED'));
+    stripe.createRefund.mockRejectedValueOnce(
+      new EcommercePaymentError('STRIPE_REQUEST_FAILED', 'x', 'invalid_request_error', 400)
+    );
     const [r] = await c.refunds.create(
       orderId,
       { method: 'STRIPE', amount: 1000, reason: 'OTHER', idempotencyKey: 'rj' },
@@ -553,5 +555,327 @@ describe('preview and list', () => {
         storeCredit: null,
       }),
     ]);
+  });
+});
+
+describe('fix round 1', () => {
+  const stripeOrder = async (c: Commerce) => {
+    const orderId = await createOrder(c);
+    seedStripePayment(c, orderId, 801, 2000, 'pi_old', '2026-11-01T10:00:00.000Z');
+    seedStripePayment(c, orderId, 802, 2000, 'pi_new', '2026-11-02T10:00:00.000Z');
+    await payManual(c, orderId, 3500); // paid 7500, excess 3000
+    return orderId;
+  };
+  const stripeErr = (status: number, type?: string) =>
+    new EcommercePaymentError('STRIPE_REQUEST_FAILED', 'x', type, status);
+
+  describe('Stripe refund failure classification', () => {
+    it.each([
+      ['409 idempotency_error', stripeErr(409, 'idempotency_error')],
+      ['429 rate limit', stripeErr(429, 'rate_limit_error')],
+      ['500 api_error', stripeErr(500, 'api_error')],
+      ['503 without a body', stripeErr(503)],
+      ['400 without a Stripe error body', stripeErr(400)],
+      ['400 idempotency_error (same key, other request)', stripeErr(400, 'idempotency_error')],
+      ['unreachable', new EcommercePaymentError('STRIPE_UNREACHABLE')],
+    ])('%s is transient: the refund stays PROCESSING and the error surfaces', async (_l, err) => {
+      const c = setupCommerce();
+      const orderId = await stripeOrder(c);
+      stripe.createRefund.mockRejectedValueOnce(err);
+      await expect(
+        c.refunds.create(orderId, { method: 'STRIPE', amount: 1000, reason: 'OTHER', idempotencyKey: 't' }, actor)
+      ).rejects.toBe(err);
+      expect(refundsOf(c)[0]).toMatchObject({ status: 'PROCESSING', externalId: null });
+      expect(c.events.filter((e) => e.type === 'REFUND_FAILED')).toHaveLength(0);
+      expect((await c.refunds.preview(orderId)).inFlight).toBe(1000);
+    });
+
+    it.each([
+      ['400 invalid_request_error', stripeErr(400, 'invalid_request_error')],
+      ['402 card_error', stripeErr(402, 'card_error')],
+      ['404 invalid_request_error', stripeErr(404, 'invalid_request_error')],
+    ])('%s is a definitive rejection: FAILED', async (_l, err) => {
+      const c = setupCommerce();
+      const orderId = await stripeOrder(c);
+      stripe.createRefund.mockRejectedValueOnce(err);
+      const [r] = await c.refunds.create(
+        orderId,
+        { method: 'STRIPE', amount: 1000, reason: 'OTHER', idempotencyKey: 'd' },
+        actor
+      );
+      expect(r.status).toBe('FAILED');
+    });
+
+    it('the double-click path: a 409 on the replay never fails a refund Stripe then completes', async () => {
+      const c = setupCommerce();
+      const orderId = await stripeOrder(c);
+      stripe.createRefund.mockRejectedValueOnce(stripeErr(409, 'idempotency_error'));
+      await expect(
+        c.refunds.create(orderId, { method: 'STRIPE', amount: 1000, reason: 'OTHER', idempotencyKey: 'dc' }, actor)
+      ).rejects.toMatchObject({ code: 'STRIPE_REQUEST_FAILED' });
+      const id = refundsOf(c)[0].id;
+      await deliver(c, 'evt_dc', 'refund.updated', {
+        id: 're_dc',
+        status: 'succeeded',
+        metadata: { refundId: String(id) },
+      });
+      expect(refundsOf(c)[0]).toMatchObject({ status: 'COMPLETED', externalId: 're_dc' });
+      expect((await c.refunds.preview(orderId)).refundable).toBe(2000);
+    });
+  });
+
+  describe('webhook: Stripe is the truth for money that left', () => {
+    it('a FAILED Stripe refund that Stripe reports succeeded becomes COMPLETED, with history', async () => {
+      const c = setupCommerce();
+      const orderId = await stripeOrder(c);
+      stripe.createRefund.mockRejectedValueOnce(stripeErr(400, 'invalid_request_error'));
+      const [r] = await c.refunds.create(
+        orderId,
+        { method: 'STRIPE', amount: 1000, reason: 'OTHER', idempotencyKey: 'ff' },
+        actor
+      );
+      expect(r.status).toBe('FAILED');
+      expect(
+        await deliver(c, 'evt_ff', 'refund.updated', {
+          id: 're_ff',
+          status: 'succeeded',
+          metadata: { refundId: String(r.id) },
+        })
+      ).toEqual({ duplicate: false, status: 'PROCESSED' });
+      expect(refundsOf(c)[0]).toMatchObject({ status: 'COMPLETED', externalId: 're_ff' });
+      const h = c.tables[UIDS.orderHistory].filter((x) => x.type === 'REFUND_COMPLETED');
+      expect(h).toHaveLength(1);
+      expect(h[0].previousValue).toMatchObject({ refundId: r.id, status: 'FAILED' });
+      expect(order(c, orderId).paymentStatus).toBe('PARTIALLY_REFUNDED');
+      expect((await c.refunds.preview(orderId)).refundable).toBe(2000);
+    });
+
+    it('a COMPLETED refund is never downgraded by a later failure event', async () => {
+      const c = setupCommerce();
+      const orderId = await stripeOrder(c);
+      stripe.createRefund.mockResolvedValueOnce({ id: 're_ok', status: 'succeeded' });
+      await c.refunds.create(orderId, { method: 'STRIPE', amount: 1000, reason: 'OTHER', idempotencyKey: 'ok' }, actor);
+      expect(await deliver(c, 'evt_late', 'refund.failed', { id: 're_ok', status: 'failed' })).toEqual({
+        duplicate: false,
+        status: 'IGNORED',
+      });
+      expect(refundsOf(c)[0].status).toBe('COMPLETED');
+    });
+  });
+
+  describe('refunds.resume', () => {
+    it('re-issues a PROCESSING Stripe refund with its stored key and applies the answer', async () => {
+      const c = setupCommerce();
+      const orderId = await stripeOrder(c);
+      stripe.createRefund.mockRejectedValueOnce(new EcommercePaymentError('STRIPE_UNREACHABLE'));
+      await expect(
+        c.refunds.create(orderId, { method: 'STRIPE', amount: 1000, reason: 'OTHER', idempotencyKey: 'rs' }, actor)
+      ).rejects.toMatchObject({ code: 'STRIPE_UNREACHABLE' });
+      const id = refundsOf(c)[0].id;
+
+      // Still unreachable: stays PROCESSING, the error surfaces.
+      stripe.createRefund.mockRejectedValueOnce(stripeErr(503));
+      await expect(c.refunds.resume(id, 'user:2')).rejects.toMatchObject({ code: 'STRIPE_REQUEST_FAILED' });
+      expect(refundsOf(c)[0].status).toBe('PROCESSING');
+
+      stripe.createRefund.mockResolvedValueOnce({ id: 're_rs', status: 'succeeded' });
+      const view = await c.refunds.resume(id, 'user:2');
+      expect(stripe.createRefund).toHaveBeenLastCalledWith({
+        paymentIntentId: 'pi_new',
+        amount: 1000,
+        idempotencyKey: 'refund:rs:802',
+        metadata: expect.objectContaining({ orderId: String(orderId), refundId: String(id), paymentId: '802' }),
+      });
+      expect(view).toMatchObject({ id, status: 'COMPLETED', externalId: 're_rs' });
+      expect(order(c, orderId).paymentStatus).toBe('PARTIALLY_REFUNDED');
+      expect(refundsOf(c)).toHaveLength(1);
+    });
+
+    it('refuses refunds that are not PROCESSING Stripe refunds awaiting Stripe (REFUND_NOT_RESUMABLE)', async () => {
+      const c = setupCommerce();
+      const orderId = await stripeOrder(c);
+      stripe.createRefund.mockResolvedValueOnce({ id: 're_c', status: 'succeeded' });
+      const [done] = await c.refunds.create(
+        orderId,
+        { method: 'STRIPE', amount: 500, reason: 'OTHER', idempotencyKey: 'c1' },
+        actor
+      );
+      stripe.createRefund.mockResolvedValueOnce({ id: 're_p', status: 'pending' });
+      const [pending] = await c.refunds.create(
+        orderId,
+        { method: 'STRIPE', amount: 500, reason: 'OTHER', idempotencyKey: 'c2' },
+        actor
+      );
+      const [manual] = await c.refunds.create(
+        orderId,
+        { method: 'MANUAL_TRANSFER', amount: 500, reason: 'OTHER', idempotencyKey: 'c3' },
+        actor
+      );
+      stripe.createRefund.mockClear();
+      for (const r of [done, pending, manual]) {
+        expect(await codesOf(c.refunds.resume(r.id, actor))).toEqual(['REFUND_NOT_RESUMABLE']);
+      }
+      expect(stripe.createRefund).not.toHaveBeenCalled();
+      await expect(c.refunds.resume(9999, actor)).rejects.toMatchObject({ name: 'EcommerceNotFoundError' });
+    });
+  });
+
+  describe('restore onto an unusable voucher issues a new credit', () => {
+    it.each([
+      ['VOID', (row: any) => (row.status = 'VOID')],
+      ['expired', (row: any) => (row.expiresAt = new Date(Date.now() - 1000).toISOString())],
+    ])('cancel with a %s voucher: a new credit for the same e-mail, the old one untouched', async (_l, spoil) => {
+      const c = setupCommerce();
+      const orderId = await createOrder(c);
+      const { credit, payment } = await issueAndPay(c, orderId, 3000);
+      const row = c.tables[UIDS.storeCredit].find((x) => x.id === credit.id);
+      spoil(row);
+      const before = { status: row.status, balance: row.balance };
+
+      await c.orders.cancel(orderId, actor);
+
+      expect(c.tables[UIDS.storeCredit].find((x) => x.id === credit.id)).toMatchObject(before);
+      const fresh = c.tables[UIDS.storeCredit].find((x) => x.id !== credit.id);
+      expect(fresh).toMatchObject({
+        status: 'ACTIVE',
+        balance: 3000,
+        initialAmount: 3000,
+        emailNormalized: 'ana@example.pt',
+        sourceOrder: orderId,
+      });
+      expect(Date.parse(fresh.expiresAt)).toBeGreaterThan(Date.now());
+      expect(refundsOf(c)).toEqual([
+        expect.objectContaining({ payment: payment.id, status: 'COMPLETED', storeCredit: fresh.id }),
+      ]);
+      expect(c.tables[UIDS.storeCreditMovement].filter((m) => m.type === 'RESTORE')).toHaveLength(0);
+      expect(c.tables[UIDS.storeCreditMovement]).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ storeCredit: fresh.id, type: 'ISSUE', amount: 3000, operationKey: `cancel-credit:${payment.id}` }),
+        ])
+      );
+      const issued = c.tables[UIDS.orderHistory].find((h) => h.type === 'STORE_CREDIT_ISSUED');
+      expect(issued.description).toContain(credit.code);
+      expect(issued.description).toContain(fresh.code);
+      expect(c.events.map((e) => e.type)).toEqual(expect.arrayContaining(['STORE_CREDIT_ISSUED']));
+      // Idempotent: a second release does nothing.
+      await c.refunds.releaseStoreCreditOnCancel(orderId, actor);
+      expect(c.tables[UIDS.storeCredit]).toHaveLength(2);
+    });
+
+    it('a refund onto a VOID original credit also issues a new credit', async () => {
+      const c = setupCommerce();
+      const o = await createOrder(c);
+      const paid = await issueAndPay(c, o, 3000);
+      await payManual(c, o, 2500); // excess 1000
+      await c.storeCredits.void(paid.credit.id, actor);
+      const [r] = await c.refunds.create(
+        o,
+        { method: 'STORE_CREDIT', amount: 1000, reason: 'OTHER', paymentId: paid.payment.id, idempotencyKey: 'v' },
+        actor
+      );
+      const fresh = c.tables[UIDS.storeCredit].find((x) => x.id !== paid.credit.id);
+      expect(fresh).toMatchObject({ balance: 1000, status: 'ACTIVE' });
+      expect(r.storeCredit).toMatchObject({ id: fresh.id });
+      expect(balanceOf(c, paid.credit.id)).toBe(0);
+    });
+  });
+
+  describe('idempotency key matching', () => {
+    it('a key used for a Stripe refund on another order is a conflict', async () => {
+      const c = setupCommerce();
+      const a = await stripeOrder(c);
+      stripe.createRefund.mockResolvedValueOnce({ id: 're_x', status: 'succeeded' });
+      await c.refunds.create(a, { method: 'STRIPE', amount: 500, reason: 'OTHER', idempotencyKey: 'shared' }, actor);
+      const b = await createOrder(c);
+      await payManual(c, b, 6000, 'mb');
+      expect(
+        await codesOf(
+          c.refunds.create(b, { method: 'MANUAL_TRANSFER', amount: 500, reason: 'OTHER', idempotencyKey: 'shared' }, actor)
+        )
+      ).toEqual(['IDEMPOTENCY_KEY_CONFLICT']);
+    });
+
+    it('never matches unrelated keys that share a prefix (cancel-credit:*, key:abc)', async () => {
+      const c = setupCommerce();
+      const orderId = await createOrder(c);
+      await issueAndPay(c, orderId, 3000);
+      await payManual(c, orderId, 3000); // paid 6000
+      await c.orders.cancel(orderId, actor); // cancel-credit:<pid> refund
+      c.tables[UIDS.refund].push({
+        id: 999,
+        order: orderId,
+        payment: null,
+        method: 'MANUAL_TRANSFER',
+        kind: 'MONEY',
+        status: 'CANCELLED',
+        amount: 1,
+        currency: 'EUR',
+        idempotencyKey: 'manual:abc',
+        completedAt: null,
+        metadata: null,
+      });
+      const before = refundsOf(c).length;
+      const [r1] = await c.refunds.create(
+        orderId,
+        { method: 'MANUAL_TRANSFER', amount: 100, reason: 'OTHER', idempotencyKey: 'cancel-credit' },
+        actor
+      );
+      expect(r1).toMatchObject({ amount: 100, method: 'MANUAL_TRANSFER' });
+      const [r2] = await c.refunds.create(
+        orderId,
+        { method: 'MANUAL_TRANSFER', amount: 200, reason: 'OTHER', idempotencyKey: 'manual' },
+        actor
+      );
+      expect(r2).toMatchObject({ amount: 200 });
+      expect(refundsOf(c)).toHaveLength(before + 2);
+    });
+  });
+
+  describe('manual transfer naming a source payment', () => {
+    it('is capped by the payment (paid minus already refunded or in flight)', async () => {
+      const c = setupCommerce();
+      const orderId = await createOrder(c);
+      const small = await payManual(c, orderId, 1000, 'small');
+      await payManual(c, orderId, 5000, 'big'); // excess 1500
+      expect(
+        await codesOf(
+          c.refunds.create(
+            orderId,
+            { method: 'MANUAL_TRANSFER', amount: 1200, reason: 'OTHER', paymentId: small.id, idempotencyKey: 'm1' },
+            actor
+          )
+        )
+      ).toEqual(['exceeds_payment']);
+      await c.refunds.create(
+        orderId,
+        { method: 'MANUAL_TRANSFER', amount: 800, reason: 'OTHER', paymentId: small.id, idempotencyKey: 'm2' },
+        actor
+      );
+      expect(
+        await codesOf(
+          c.refunds.create(
+            orderId,
+            { method: 'MANUAL_TRANSFER', amount: 300, reason: 'OTHER', paymentId: small.id, idempotencyKey: 'm3' },
+            actor
+          )
+        )
+      ).toEqual(['exceeds_payment']);
+    });
+
+    it('rejects a store-credit source payment (incompatible_payment)', async () => {
+      const c = setupCommerce();
+      const orderId = await createOrder(c);
+      const { payment } = await issueAndPay(c, orderId, 3000);
+      await payManual(c, orderId, 2500);
+      expect(
+        await codesOf(
+          c.refunds.create(
+            orderId,
+            { method: 'MANUAL_TRANSFER', amount: 500, reason: 'OTHER', paymentId: payment.id, idempotencyKey: 'mi' },
+            actor
+          )
+        )
+      ).toEqual(['incompatible_payment']);
+    });
   });
 });

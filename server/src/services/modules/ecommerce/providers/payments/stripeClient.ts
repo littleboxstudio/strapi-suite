@@ -71,7 +71,8 @@ export function createStripeClient(rt: ProviderRuntime) {
     new EcommercePaymentError(
       'STRIPE_REQUEST_FAILED',
       `Stripe rejected the request (HTTP ${status}).`,
-      typeof body?.error?.type === 'string' ? body.error.type : undefined
+      typeof body?.error?.type === 'string' ? body.error.type : undefined,
+      status
     );
 
   async function ok(p: Promise<StripeResponse>): Promise<any> {
@@ -162,6 +163,26 @@ export function createStripeClient(rt: ProviderRuntime) {
       return { id: b.id as string, status: b.status as RefundStatus };
     },
   };
+}
+
+/** HTTP statuses whose Stripe error answer means the request was definitively refused. */
+const DEFINITIVE_STATUSES = [400, 402, 404];
+
+/**
+ * True only when Stripe definitively refused a request: HTTP 400/402/404 with a Stripe error
+ * body (`error.type`). Everything else has an unknown outcome and must be treated as possibly
+ * applied: 409 (a request with the same Idempotency-Key is in flight), 429, 5xx, network
+ * errors, and `idempotency_error` (the key was used by another request, which may have run).
+ */
+export function isDefinitiveStripeRejection(err: unknown): boolean {
+  return (
+    err instanceof EcommercePaymentError &&
+    err.code === 'STRIPE_REQUEST_FAILED' &&
+    typeof err.httpStatus === 'number' &&
+    DEFINITIVE_STATUSES.includes(err.httpStatus) &&
+    typeof err.stripeErrorType === 'string' &&
+    err.stripeErrorType !== 'idempotency_error'
+  );
 }
 
 /** Verifies a `Stripe-Signature` header (`t=…,v1=…[,v1=…]`) against the raw request body. */

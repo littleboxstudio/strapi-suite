@@ -76,6 +76,7 @@ function setup() {
       query,
       transaction: db.transaction,
       connection: db.connection,
+      getConnection: db.connection,
       metadata: db.metadata,
     },
     config: { get: () => ({ uuid: { modules: { ecommerce: UIDS } } }) },

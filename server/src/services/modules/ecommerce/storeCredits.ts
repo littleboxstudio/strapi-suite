@@ -8,6 +8,7 @@ import { generateStoreCreditCode, storeCreditUsable } from './domain/storeCredit
 
 const PAGE_SIZE = 50;
 const MAX_CODE_ATTEMPTS = 5;
+const MAX_VOID_ATTEMPTS = 3;
 const DEFAULT_VALIDITY_MONTHS = 12;
 
 type Collector = { emit(e: any): void; flush(): Promise<void> };
@@ -44,6 +45,16 @@ export type RestoreStoreCreditInput = {
   operationKey: string;
   orderId?: number | null;
   actor?: string;
+};
+
+export type RestoreStoreCreditResult = {
+  /** False when the operationKey was already used (nothing changed). */
+  applied: boolean;
+  /** The credit that received the amount: the original, or the one issued to replace it. */
+  storeCreditId: number;
+  code: string;
+  /** Set when the original was VOID or expired and a new credit was issued instead. */
+  reissuedFrom: { id: number; code: string } | null;
 };
 
 export type StoreCreditView = {
@@ -150,7 +161,8 @@ const EcommerceStoreCreditService = ({ strapi }: { strapi: Core.Strapi }) => {
   /** Atomic `balance = balance + delta`, guarded by `balance >= -delta` when decrementing. */
   const changeBalance = async (trx: any, id: number, delta: number): Promise<number> => {
     const { tableName } = strapi.db.metadata.get(uids().storeCredit);
-    const q = strapi.db.connection(tableName).where({ id });
+    // getConnection applies the configured `connection.schema` (PostgreSQL non-default schema).
+    const q = strapi.db.getConnection(tableName).where({ id });
     const affected =
       delta < 0
         ? await q.where('balance', '>=', -delta).decrement('balance', -delta).transacting(trx)
@@ -170,6 +182,68 @@ const EcommerceStoreCreditService = ({ strapi }: { strapi: Core.Strapi }) => {
         if (!isUniqueViolation(err) || attempt >= MAX_CODE_ATTEMPTS) throw err;
       }
     }
+  };
+
+  /**
+   * Creates an ACTIVE credit with its ISSUE movement and emits `STORE_CREDIT_ISSUED`. Joins the
+   * caller's transaction.
+   */
+  const createCredit = async (
+    p: {
+      customerId: number | null;
+      emailNormalized: string;
+      amount: number;
+      expiresAt: string;
+      conditions: string | null;
+      sourceOrderId: number | null;
+      sourceRefundId: number | null;
+      actor: string | null;
+      operationKey: string;
+      replacesStoreCreditId?: number;
+    },
+    collector: { emit(e: any): void }
+  ) => {
+    const u = uids();
+    const row = await createWithUniqueCode({
+      customer: p.customerId,
+      emailNormalized: p.emailNormalized,
+      initialAmount: p.amount,
+      balance: p.amount,
+      currency: 'EUR',
+      expiresAt: p.expiresAt,
+      status: 'ACTIVE',
+      sourceOrder: p.sourceOrderId,
+      sourceRefund: p.sourceRefundId,
+      conditions: clean(p.conditions) || null,
+      actor: p.actor,
+    });
+    await strapi.db.query(u.storeCreditMovement).create({
+      data: {
+        storeCredit: row.id,
+        type: 'ISSUE',
+        amount: p.amount,
+        order: p.sourceOrderId,
+        payment: null,
+        refund: p.sourceRefundId,
+        operationKey: p.operationKey,
+        actor: p.actor,
+      },
+    });
+    collector.emit({
+      type: 'STORE_CREDIT_ISSUED',
+      ...(p.sourceOrderId ? { orderId: p.sourceOrderId } : {}),
+      payload: {
+        storeCreditId: row.id,
+        code: row.code,
+        amount: p.amount,
+        expiresAt: p.expiresAt,
+        conditions: row.conditions ?? null,
+        customerId: p.customerId,
+        refundId: p.sourceRefundId,
+        ...(p.replacesStoreCreditId ? { replacesStoreCreditId: p.replacesStoreCreditId } : {}),
+      },
+    });
+    return row;
   };
 
   /**
@@ -200,47 +274,22 @@ const EcommerceStoreCreditService = ({ strapi }: { strapi: Core.Strapi }) => {
 
     const own = opts.collector ? null : events().collector();
     const collector = opts.collector ?? (own as Collector);
-    const created = await strapi.db.transaction(async () => {
-      const row = await createWithUniqueCode({
-        customer: customer.id,
-        emailNormalized: customer.emailNormalized,
-        initialAmount: input.amount,
-        balance: input.amount,
-        currency: 'EUR',
-        expiresAt,
-        status: 'ACTIVE',
-        sourceOrder: input.sourceOrderId ?? null,
-        sourceRefund: input.sourceRefundId ?? null,
-        conditions: clean(input.conditions) || null,
-        actor: input.actor,
-      });
-      await strapi.db.query(u.storeCreditMovement).create({
-        data: {
-          storeCredit: row.id,
-          type: 'ISSUE',
-          amount: input.amount,
-          order: input.sourceOrderId ?? null,
-          payment: null,
-          refund: input.sourceRefundId ?? null,
-          operationKey,
-          actor: input.actor,
-        },
-      });
-      collector.emit({
-        type: 'STORE_CREDIT_ISSUED',
-        ...(input.sourceOrderId ? { orderId: input.sourceOrderId } : {}),
-        payload: {
-          storeCreditId: row.id,
-          code: row.code,
+    const created = await strapi.db.transaction(() =>
+      createCredit(
+        {
+          customerId: customer.id,
+          emailNormalized: customer.emailNormalized,
           amount: input.amount,
           expiresAt,
-          conditions: row.conditions ?? null,
-          customerId: customer.id,
-          refundId: input.sourceRefundId ?? null,
+          conditions: input.conditions ?? null,
+          sourceOrderId: input.sourceOrderId ?? null,
+          sourceRefundId: input.sourceRefundId ?? null,
+          actor: input.actor,
+          operationKey,
         },
-      });
-      return row;
-    });
+        collector
+      )
+    );
     if (own) await own.flush();
     return toStoreCreditView(created);
   };
@@ -294,19 +343,68 @@ const EcommerceStoreCreditService = ({ strapi }: { strapi: Core.Strapi }) => {
     });
   };
 
-  /** Gives `amount` back to the credit. `applied: false` when the key was already used. */
-  const restore = async (input: RestoreStoreCreditInput): Promise<{ applied: boolean }> => {
+  /**
+   * Gives `amount` back to the credit. A VOID or expired credit is never topped up (the value
+   * would be unusable): a new credit for the same customer e-mail is issued instead, with the
+   * default validity, its ISSUE movement under the same `operationKey` and a
+   * `STORE_CREDIT_ISSUED` event (`replacesStoreCreditId`). `applied: false` when the key was
+   * already used. With `opts.collector` events go to the caller, which flushes after its commit.
+   */
+  const restore = async (
+    input: RestoreStoreCreditInput,
+    opts: { collector?: { emit(e: any): void } } = {}
+  ): Promise<RestoreStoreCreditResult> => {
     const operationKey = clean(input?.operationKey);
     if (!operationKey) throw invalid('operationKey', 'required');
-    if (await movementByKey(operationKey)) return { applied: false };
+    const replayed = (m: any): RestoreStoreCreditResult => ({
+      applied: false,
+      storeCreditId: idOf(m.storeCredit) as number,
+      code: m.storeCredit?.code ?? '',
+      reissuedFrom: null,
+    });
+    const replay = await movementByKey(operationKey);
+    if (replay) return replayed(replay);
     if (!validAmount(input?.amount)) throw invalid('amount', 'invalid_amount');
     const u = uids();
+    const own = opts.collector ? null : events().collector();
+    const collector = opts.collector ?? (own as Collector);
+    let result: RestoreStoreCreditResult;
     try {
-      return await strapi.db.transaction(async ({ trx }: { trx: any }) => {
+      result = await strapi.db.transaction(async ({ trx }: { trx: any }) => {
+        const credit = await strapi.db
+          .query(u.storeCredit)
+          .findOne({ where: { id: input.storeCreditId } });
+        if (!credit) throw new EcommerceNotFoundError('Store credit not found');
+        const expired = !!credit.expiresAt && Date.parse(credit.expiresAt) <= Date.now();
+        if (credit.status !== 'ACTIVE' || expired) {
+          const row = await createCredit(
+            {
+              customerId: idOf(credit.customer),
+              emailNormalized: credit.emailNormalized,
+              amount: input.amount,
+              expiresAt: defaultExpiry(),
+              conditions: credit.conditions ?? null,
+              sourceOrderId: input.orderId ?? null,
+              sourceRefundId: input.refundId ?? null,
+              actor: input.actor ?? null,
+              operationKey,
+              replacesStoreCreditId: credit.id,
+            },
+            collector
+          );
+          return {
+            applied: true,
+            storeCreditId: row.id,
+            code: row.code,
+            reissuedFrom: { id: credit.id, code: credit.code },
+          };
+        }
         // The movement first: a concurrent restore with the same key fails on the index.
+        // (Pre-checked above and serialized by the order lock; on PostgreSQL a violation here
+        // would abort a caller's transaction.)
         await strapi.db.query(u.storeCreditMovement).create({
           data: {
-            storeCredit: input.storeCreditId,
+            storeCredit: credit.id,
             type: 'RESTORE',
             amount: input.amount,
             order: input.orderId ?? null,
@@ -316,15 +414,20 @@ const EcommerceStoreCreditService = ({ strapi }: { strapi: Core.Strapi }) => {
             actor: input.actor ?? null,
           },
         });
-        if ((await changeBalance(trx, input.storeCreditId, input.amount)) === 0) {
+        if ((await changeBalance(trx, credit.id, input.amount)) === 0) {
           throw new EcommerceNotFoundError('Store credit not found');
         }
-        return { applied: true };
+        return { applied: true, storeCreditId: credit.id, code: credit.code, reissuedFrom: null };
       });
     } catch (err) {
-      if (isUniqueViolation(err)) return { applied: false };
+      if (isUniqueViolation(err)) {
+        const winner = await movementByKey(operationKey);
+        if (winner) return replayed(winner);
+      }
       throw err;
     }
+    if (own) await own.flush();
+    return result;
   };
 
   const listForCustomer = async (customerId: number | string): Promise<StoreCreditView[]> => {
@@ -377,31 +480,40 @@ const EcommerceStoreCreditService = ({ strapi }: { strapi: Core.Strapi }) => {
     };
   };
 
-  /** Voids the credit: status VOID, the remaining balance written off by an ADJUST movement. */
+  /**
+   * Voids the credit: status VOID, the remaining balance written off by an ADJUST movement.
+   * The write is conditional on the balance read, so the ADJUST always matches what was
+   * written off; a concurrent change is re-read and retried, then `STORE_CREDIT_CONFLICT`.
+   */
   const voidCredit = async (rawId: number | string, actor: string): Promise<StoreCreditView> => {
     const id = Number(rawId);
     const u = uids();
     await strapi.db.transaction(async () => {
-      const row = await strapi.db.query(u.storeCredit).findOne({ where: { id } });
-      if (!row) throw new EcommerceNotFoundError('Store credit not found');
-      if (row.status === 'VOID') return;
-      const { count } = await strapi.db.query(u.storeCredit).updateMany({
-        where: { id, status: 'ACTIVE' },
-        data: { status: 'VOID', balance: 0 },
-      });
-      if (!count) return;
-      await strapi.db.query(u.storeCreditMovement).create({
-        data: {
-          storeCredit: id,
-          type: 'ADJUST',
-          amount: -num(row.balance),
-          order: null,
-          payment: null,
-          refund: null,
-          operationKey: `void:${id}`,
-          actor,
-        },
-      });
+      for (let attempt = 1; ; attempt += 1) {
+        const row = await strapi.db.query(u.storeCredit).findOne({ where: { id } });
+        if (!row) throw new EcommerceNotFoundError('Store credit not found');
+        if (row.status === 'VOID') return;
+        const { count } = await strapi.db.query(u.storeCredit).updateMany({
+          where: { id, status: 'ACTIVE', balance: row.balance },
+          data: { status: 'VOID', balance: 0 },
+        });
+        if (count) {
+          await strapi.db.query(u.storeCreditMovement).create({
+            data: {
+              storeCredit: id,
+              type: 'ADJUST',
+              amount: -num(row.balance),
+              order: null,
+              payment: null,
+              refund: null,
+              operationKey: `void:${id}`,
+              actor,
+            },
+          });
+          return;
+        }
+        if (attempt >= MAX_VOID_ATTEMPTS) throw invalid('balance', 'STORE_CREDIT_CONFLICT');
+      }
     });
     const row = await strapi.db.query(u.storeCredit).findOne({ where: { id } });
     return toStoreCreditView(row);

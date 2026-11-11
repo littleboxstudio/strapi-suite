@@ -166,8 +166,8 @@ describe('EcommerceStoreCreditService.consume / restore', () => {
     const orderId = await createOrder(c);
     const issued = await issueFor(c, orderId, 2500);
     // Another request spends 2000 between the read and the conditional UPDATE.
-    const original = c.strapi.db.connection;
-    c.strapi.db.connection = (table: string) => {
+    const original = c.strapi.db.getConnection;
+    c.strapi.db.getConnection = (table: string) => {
       if (table === UIDS.storeCredit) credit(c, issued.id).balance = 500;
       return original(table);
     };
@@ -183,7 +183,7 @@ describe('EcommerceStoreCreditService.consume / restore', () => {
         })
       )
     ).toEqual(['STORE_CREDIT_INSUFFICIENT']);
-    c.strapi.db.connection = original;
+    c.strapi.db.getConnection = original;
     // The conditional decrement ran and matched no row (500 < 1000): nothing was overdrawn.
     // (The fake DB's rollback also undoes the simulated concurrent write.)
     expect(c.db.increments.at(-1)).toMatchObject({ table: UIDS.storeCredit, amount: -1000 });
@@ -205,8 +205,8 @@ describe('EcommerceStoreCreditService.consume / restore', () => {
     });
     const r1 = await c.storeCredits.restore({ storeCreditId: issued.id, amount: 2000, refundId: null, operationKey: 'r:1' });
     const r2 = await c.storeCredits.restore({ storeCreditId: issued.id, amount: 2000, refundId: null, operationKey: 'r:1' });
-    expect(r1).toEqual({ applied: true });
-    expect(r2).toEqual({ applied: false });
+    expect(r1).toEqual({ applied: true, storeCreditId: issued.id, code: issued.code, reissuedFrom: null });
+    expect(r2).toMatchObject({ applied: false, storeCreditId: issued.id });
     expect(credit(c, issued.id).balance).toBe(2500);
     expect(movements(c).filter((m) => m.type === 'RESTORE')).toEqual([
       expect.objectContaining({ amount: 2000, operationKey: 'r:1' }),
@@ -288,8 +288,8 @@ describe('EcommercePaymentService.addStoreCreditPayment', () => {
       const c = setupCommerce();
       const orderId = await createOrder(c);
       const issued = await issueFor(c, orderId, 3000);
-      const original = c.strapi.db.connection;
-      c.strapi.db.connection = (table: string) => {
+      const original = c.strapi.db.getConnection;
+      c.strapi.db.getConnection = (table: string) => {
         if (table === UIDS.storeCredit) credit(c, issued.id).balance = 100;
         return original(table);
       };
@@ -298,7 +298,7 @@ describe('EcommercePaymentService.addStoreCreditPayment', () => {
           c.payments.addStoreCreditPayment(orderId, { code: issued.code, idempotencyKey: 'p' }, 'user:1')
         )
       ).toEqual(['STORE_CREDIT_INSUFFICIENT']);
-      c.strapi.db.connection = original;
+      c.strapi.db.getConnection = original;
       expect(c.db.increments.at(-1)).toMatchObject({ table: UIDS.storeCredit, amount: -3000 });
       expect(credit(c, issued.id).balance).toBeGreaterThanOrEqual(0);
       expect(movements(c).filter((m) => m.type === 'CONSUME')).toHaveLength(0);
@@ -373,5 +373,55 @@ describe('EcommerceStoreCreditService queries and void', () => {
         c.storeCredits.consume({ code: a.code, email: 'ana@example.pt', amount: 1, orderId, paymentId: null, operationKey: 'v' })
       )
     ).toEqual(['STORE_CREDIT_VOID']);
+  });
+
+  it('void writes off exactly the balance it read: a concurrent change is re-read and retried', async () => {
+    const c = setupCommerce();
+    const orderId = await createOrder(c);
+    const a = await issueFor(c, orderId, 1000, 'a');
+    // A consumption of 400 commits between void's read and its write, once.
+    const query = c.strapi.db.query;
+    let raced = false;
+    c.strapi.db.query = (uid: string) => {
+      const q = query(uid);
+      if (uid !== UIDS.storeCredit) return q;
+      return {
+        ...q,
+        updateMany: async (p: any) => {
+          if (!raced) {
+            raced = true;
+            credit(c, a.id).balance = 600;
+          }
+          return q.updateMany(p);
+        },
+      };
+    };
+    const voided = await c.storeCredits.void(a.id, 'user:2');
+    c.strapi.db.query = query;
+    expect(voided).toMatchObject({ status: 'VOID', balance: 0 });
+    expect(movements(c).filter((m) => m.type === 'ADJUST')).toEqual([
+      expect.objectContaining({ amount: -600, operationKey: `void:${a.id}` }),
+    ]);
+  });
+
+  it('void gives up with STORE_CREDIT_CONFLICT when the balance keeps changing', async () => {
+    const c = setupCommerce();
+    const orderId = await createOrder(c);
+    const a = await issueFor(c, orderId, 1000, 'a');
+    const query = c.strapi.db.query;
+    c.strapi.db.query = (uid: string) => {
+      const q = query(uid);
+      if (uid !== UIDS.storeCredit) return q;
+      return {
+        ...q,
+        updateMany: async (p: any) => {
+          credit(c, a.id).balance -= 1;
+          return q.updateMany(p);
+        },
+      };
+    };
+    expect(await codesOf(c.storeCredits.void(a.id, 'user:2'))).toEqual(['STORE_CREDIT_CONFLICT']);
+    c.strapi.db.query = query;
+    expect(movements(c).filter((m) => m.type === 'ADJUST')).toHaveLength(0);
   });
 });

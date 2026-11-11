@@ -212,10 +212,12 @@ const EcommerceStripeWebhookService = ({ strapi }: { strapi: Core.Strapi }) => {
     const orderId = idOf(row.order);
     if (orderId === null) return false;
     await orders().lockOrder(orderId);
-    // A Stripe refund can fail after having succeeded (rare): COMPLETED -> FAILED is allowed.
-    const from = target === 'COMPLETED' ? ['PENDING', 'PROCESSING'] : ['PENDING', 'PROCESSING', 'COMPLETED'];
+    // Stripe is the truth for money that left: `succeeded` also completes a refund we marked
+    // FAILED (e.g. an indeterminate answer). A COMPLETED refund is never downgraded.
+    const from = target === 'COMPLETED' ? ['PENDING', 'PROCESSING', 'FAILED'] : ['PENDING', 'PROCESSING'];
     const current = await strapi.db.query(u.refund).findOne({ where: { id: row.id } });
     if (!current || !from.includes(current.status)) return false;
+    if (current.status === 'FAILED' && current.method !== 'STRIPE') return false;
     const { count } = await strapi.db.query(u.refund).updateMany({
       where: { id: row.id, status: current.status },
       data:
@@ -237,9 +239,7 @@ const EcommerceStripeWebhookService = ({ strapi }: { strapi: Core.Strapi }) => {
       actor: ACTOR,
       operationId,
     });
-    if (target === 'COMPLETED' || current.status === 'COMPLETED') {
-      await orders().recalculate(orderId, { actor: ACTOR, operationId });
-    }
+    if (target === 'COMPLETED') await orders().recalculate(orderId, { actor: ACTOR, operationId });
     collector.emit({
       type: target === 'COMPLETED' ? 'REFUND_COMPLETED' : 'REFUND_FAILED',
       orderId,
