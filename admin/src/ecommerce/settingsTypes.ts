@@ -40,8 +40,8 @@ export type IntegrationView = {
 
 export type IntegrationInput = {
   config?: Record<string, unknown>;
-  /** A blank or omitted secret keeps the stored value. */
-  secrets?: Record<string, string>;
+  /** A blank or omitted secret keeps the stored value; null deletes a stored optional secret. */
+  secrets?: Record<string, string | null>;
 };
 
 export type ConnectionResult = {

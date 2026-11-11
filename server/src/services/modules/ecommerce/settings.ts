@@ -45,7 +45,8 @@ export type IntegrationView = {
 
 export type IntegrationInput = {
   config?: Record<string, unknown>;
-  secrets?: Record<string, string>;
+  /** A blank or omitted secret keeps the stored value; null clears a stored optional secret. */
+  secrets?: Record<string, string | null>;
 };
 
 export type StoreSettings = {
@@ -393,11 +394,18 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
       const storedSecrets = row?.secrets ?? {};
       const { values: plainStored } = decryptAll(storedSecrets, key);
 
-      // Secrets: empty values and echoes of the stored mask keep the stored value.
+      // Secrets: empty values and echoes of the stored mask keep the stored value; null clears.
       const newSecrets: Record<string, string> = {};
+      const cleared: string[] = [];
+      const clearIssues: ValidationIssue[] = [];
       for (const field of def.fields) {
         if (field.type !== 'secret') continue;
         const v = input.secrets?.[field.key];
+        if (v === null) {
+          if (field.required) clearIssues.push({ path: `secrets.${field.key}`, code: 'required' });
+          else if (storedSecrets[field.key]) cleared.push(field.key);
+          continue;
+        }
         if (typeof v !== 'string' || v.trim() === '') continue;
         const stored = plainStored[field.key];
         if (stored !== undefined && isMaskedEcho(v, stored)) continue;
@@ -412,6 +420,8 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
         if (field.type === 'secret' || !input.config || !(field.key in input.config)) continue;
         nextConfig[field.key] = input.config[field.key];
       }
+
+      if (clearIssues.length) throw new EcommerceValidationError('Invalid settings', clearIssues);
 
       const issues = validateProviderInput(
         def,
@@ -435,6 +445,10 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
         }
       }
       const secrets: Record<string, EncryptedValue> = { ...storedSecrets };
+      for (const k of cleared) {
+        delete secrets[k];
+        changedFields.push(k);
+      }
       for (const [k, v] of Object.entries(newSecrets)) {
         secrets[k] = encryptSecret(v, key as Buffer);
         changedFields.push(k);

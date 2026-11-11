@@ -117,6 +117,38 @@ describe('EcommerceSettingsService — integrations', () => {
     expect((await service.getRuntime('stripe'))!.secrets.webhookSecret).toBeUndefined();
   });
 
+  it('clears a stored optional secret when null is sent', async () => {
+    const { service, tables } = makeStrapi();
+    await service.updateIntegration('stripe', { secrets: { secretKey: STRIPE_KEY, webhookSecret: 'whsec_value_1234' } }, '1');
+    const view = await service.updateIntegration('stripe', { secrets: { webhookSecret: null } }, '2');
+    expect(view.secrets.webhookSecret).toBeNull();
+    expect(view.secrets.secretKey).toBe('sk_********9876');
+    expect(tables[UIDS.integration][0].secrets).not.toHaveProperty('webhookSecret');
+    const rt = (await service.getRuntime('stripe'))!;
+    expect(rt.secrets.webhookSecret).toBeUndefined();
+    expect(rt.secrets.secretKey).toBe(STRIPE_KEY);
+    const last = tables[UIDS.auditLog].at(-1);
+    expect(last.details.changedFields).toEqual(['webhookSecret']);
+  });
+
+  it('clearing an optional secret that is not stored changes nothing', async () => {
+    const { service, tables } = makeStrapi();
+    await service.updateIntegration('stripe', { secrets: { secretKey: STRIPE_KEY } }, '1');
+    await service.updateIntegration('stripe', { secrets: { webhookSecret: null } }, '1');
+    expect(tables[UIDS.auditLog]).toHaveLength(1);
+  });
+
+  it('refuses to clear a required secret', async () => {
+    const { service } = makeStrapi();
+    await service.updateIntegration('stripe', { secrets: { secretKey: STRIPE_KEY } }, '1');
+    const err: any = await service
+      .updateIntegration('stripe', { secrets: { secretKey: null } }, '1')
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(EcommerceValidationError);
+    expect(err.errors).toEqual([{ path: 'secrets.secretKey', code: 'required' }]);
+    expect((await service.getRuntime('stripe'))!.secrets.secretKey).toBe(STRIPE_KEY);
+  });
+
   it('marks secrets unreadable after the encryption key changes, without throwing', async () => {
     const { service, pluginConfig } = makeStrapi();
     await service.updateIntegration('stripe', { secrets: { secretKey: STRIPE_KEY } }, '1');
