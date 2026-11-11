@@ -4,7 +4,7 @@
  * and the generated summary. Money is typed in euros and sent in cents; percentages are
  * sent as numbers (12.5).
  */
-import { MAX_MONEY_CENTS, parseMoneyToCents } from './money';
+import { formatAmountInput, MAX_MONEY_CENTS, parseMoneyToCents } from './money';
 import type {
   EmailOperator,
   NumberOperator,
@@ -242,21 +242,21 @@ export function wallTimeNow(timeZone: string, now: Date = new Date()): string {
 // View -> form
 // ---------------------------------------------------------------------------
 
-const centsToInput = (cents: number | null | undefined): string =>
-  typeof cents === 'number' && Number.isFinite(cents) ? (cents / 100).toFixed(2) : '';
+const centsToInput = (cents: number | null | undefined, locale: string): string =>
+  typeof cents === 'number' && Number.isFinite(cents) ? formatAmountInput(cents, locale) : '';
 const numberToInput = (n: number | null | undefined): string =>
   typeof n === 'number' && Number.isFinite(n) ? String(n) : '';
 
-function conditionNodeFrom(c: PromotionCondition | PromotionConditionGroup): TreeNode {
+function conditionNodeFrom(c: PromotionCondition | PromotionConditionGroup, locale: string): TreeNode {
   if (c.type === 'GROUP') {
-    return { ...emptyGroup(c.children.map(conditionNodeFrom)), operator: c.operator };
+    return { ...emptyGroup(c.children.map((child) => conditionNodeFrom(child, locale))), operator: c.operator };
   }
   const node = emptyCondition(c.type);
   switch (c.type) {
     case 'SUBTOTAL':
-      return { ...node, operator: c.operator, value: centsToInput(c.value) };
+      return { ...node, operator: c.operator, value: centsToInput(c.value, locale) };
     case 'SUBTOTAL_BETWEEN':
-      return { ...node, min: centsToInput(c.min), max: centsToInput(c.max) };
+      return { ...node, min: centsToInput(c.min, locale), max: centsToInput(c.max, locale) };
     case 'CART_CONTAINS':
       return { ...node, match: c.match, target: copyTarget(c.target) };
     case 'PRODUCT_QUANTITY':
@@ -271,7 +271,7 @@ function conditionNodeFrom(c: PromotionCondition | PromotionConditionGroup): Tre
   }
 }
 
-function benefitFormFrom(b: PromotionBenefit): BenefitForm {
+function benefitFormFrom(b: PromotionBenefit, locale: string): BenefitForm {
   const form = emptyBenefit(b.type);
   switch (b.type) {
     case 'PRODUCT_PERCENT':
@@ -280,7 +280,7 @@ function benefitFormFrom(b: PromotionBenefit): BenefitForm {
       return {
         ...form,
         target: copyTarget(b.target),
-        amount: centsToInput(b.amount),
+        amount: centsToInput(b.amount, locale),
         per: b.per,
         maxQuantity: numberToInput(b.maxQuantity),
       };
@@ -289,31 +289,33 @@ function benefitFormFrom(b: PromotionBenefit): BenefitForm {
         ...form,
         buyTarget: copyTarget(b.buy.target),
         buyQuantity: numberToInput(b.buy.quantity),
-        buyMinAmount: centsToInput(b.buy.minAmount),
+        buyMinAmount: centsToInput(b.buy.minAmount, locale),
         getMode: b.get.mode,
         getTarget: b.get.mode === 'IN_CART' ? copyTarget(b.get.target) : emptyTarget(),
         getVariantIds: b.get.mode === 'GIFT' ? [...b.get.variantIds] : [],
         getQuantity: numberToInput(b.get.quantity),
         rewardKind: b.reward.kind,
         rewardPercent: b.reward.kind === 'PERCENT' ? numberToInput(b.reward.percent) : '',
-        rewardAmount: b.reward.kind === 'FIXED' ? centsToInput(b.reward.amount) : '',
+        rewardAmount: b.reward.kind === 'FIXED' ? centsToInput(b.reward.amount, locale) : '',
       };
     case 'ORDER_PERCENT':
     case 'SHIPPING_PERCENT':
       return { ...form, percent: numberToInput(b.percent) };
     case 'ORDER_FIXED':
     case 'SHIPPING_FIXED':
-      return { ...form, amount: centsToInput(b.amount) };
+      return { ...form, amount: centsToInput(b.amount, locale) };
     case 'SHIPPING_FREE':
-      return { ...form, maxAmount: centsToInput(b.maxAmount) };
+      return { ...form, maxAmount: centsToInput(b.maxAmount, locale) };
     default:
       return form;
   }
 }
 
-export function promotionFormFromView(view: Promotion): PromotionForm {
+/** `locale`: the admin's, for the decimal separator of the loaded amounts (`12,50` in pt). */
+export function promotionFormFromView(view: Promotion, locale = 'en'): PromotionForm {
   const conditions = conditionNodeFrom(
-    view.conditions ?? { type: 'GROUP', operator: 'AND', children: [] }
+    view.conditions ?? { type: 'GROUP', operator: 'AND', children: [] },
+    locale
   ) as GroupNode;
   return {
     name: view.name ?? '',
@@ -328,7 +330,7 @@ export function promotionFormFromView(view: Promotion): PromotionForm {
     eligibilityMode: view.eligibility?.mode === 'EMAILS' ? 'EMAILS' : 'ALL',
     emails: view.eligibility?.mode === 'EMAILS' ? view.eligibility.emails.join('\n') : '',
     conditions,
-    benefits: (view.benefits ?? []).map(benefitFormFrom),
+    benefits: (view.benefits ?? []).map((b) => benefitFormFrom(b, locale)),
     usageLimit: numberToInput(view.usageLimit),
     perCustomerLimit: numberToInput(view.perCustomerLimit),
     perOrderLimit: numberToInput(view.perOrderLimit),
@@ -461,12 +463,22 @@ export function toBenefit(b: BenefitForm): PromotionBenefit {
   }
 }
 
-/** The create/update body (without `version`). Run `validatePromotionForm` first. */
-export function toPromotionInput(form: PromotionForm): PromotionDefinition {
+/** Non-empty names of the configured locales (a removed locale would be `unknown_locale`). */
+function cleanDisplayName(names: Record<string, string>, locales?: string[]): Record<string, string> {
   const displayName: Record<string, string> = {};
-  Object.entries(form.displayName).forEach(([locale, text]) => {
+  Object.entries(names ?? {}).forEach(([locale, text]) => {
+    if (locales && !locales.includes(locale)) return;
     if (typeof text === 'string' && text.trim()) displayName[locale] = text.trim();
   });
+  return displayName;
+}
+
+/**
+ * The create/update body (without `version`). Run `validatePromotionForm` first.
+ * `locales`: the configured locale codes; display names of other locales are dropped.
+ */
+export function toPromotionInput(form: PromotionForm, locales?: string[]): PromotionDefinition {
+  const displayName = cleanDisplayName(form.displayName, locales);
   const code = normalizeCode(form.code);
   return {
     name: form.name.trim(),
@@ -486,6 +498,32 @@ export function toPromotionInput(form: PromotionForm): PromotionDefinition {
     endsAt: form.endsAt.trim() ? form.endsAt : null,
     usageLimit: nullableCount(form.usageLimit),
     perCustomerLimit: nullableCount(form.perCustomerLimit),
+  };
+}
+
+/**
+ * "Deactivate" after PROMOTION_IN_USE: the stored definition (not the form, whose unsaved
+ * edits must not ride along) with `active: false` and the loaded `version`.
+ */
+export function deactivationInput(view: Promotion, locales?: string[]): PromotionDefinition & { version: number } {
+  return {
+    name: view.name,
+    description: view.description ?? null,
+    code: view.code ?? null,
+    method: view.method,
+    displayName: cleanDisplayName(view.displayName, locales),
+    priority: view.priority ?? 0,
+    eligibility: view.eligibility,
+    conditions: view.conditions,
+    benefits: view.benefits,
+    stacking: view.stacking,
+    perOrderLimit: view.perOrderLimit ?? null,
+    active: false,
+    startsAt: view.startsAt,
+    endsAt: view.endsAt ?? null,
+    usageLimit: view.usageLimit ?? null,
+    perCustomerLimit: view.perCustomerLimit ?? null,
+    version: view.version,
   };
 }
 
@@ -614,6 +652,60 @@ function validWallTime(raw: string): boolean {
   );
 }
 
+const HOUR_MS = 3_600_000;
+
+/** The wall clock in `timeZone` at `utcMs`, read back as if it were UTC (ms). */
+function wallAsUtcMs(utcMs: number, timeZone: string): number {
+  const parts: Record<string, number> = {};
+  const f = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  for (const part of f.formatToParts(new Date(utcMs))) {
+    if (part.type !== 'literal') parts[part.type] = Number(part.value);
+  }
+  return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour % 24, parts.minute, parts.second);
+}
+
+/**
+ * UTC ms of a valid wall time in `timeZone`, as the server's `zonedWallTimeToUtc` resolves it:
+ * a time in a spring-forward gap moves forward, an ambiguous one is the first occurrence.
+ * Null when the zone is unknown.
+ */
+export function wallTimeToUtcMs(wall: string, timeZone: string): number | null {
+  const m = WALL_TIME_RE.exec(wall ?? '');
+  if (!m) return null;
+  const [y, mo, d, h, mi] = m.slice(1).map(Number);
+  const naive = Date.UTC(y, mo - 1, d, h, mi);
+  try {
+    const before = wallAsUtcMs(naive - 24 * HOUR_MS, timeZone) - (naive - 24 * HOUR_MS);
+    const after = wallAsUtcMs(naive + 24 * HOUR_MS, timeZone) - (naive + 24 * HOUR_MS);
+    const candidates = [...new Set([before, after])]
+      .map((offset) => naive - offset)
+      .filter((utc) => wallAsUtcMs(utc, timeZone) === naive)
+      .sort((a, b) => a - b);
+    return candidates.length ? candidates[0] : naive - before;
+  } catch {
+    return null;
+  }
+}
+
+/** End after start: in UTC through the store zone when known (DST), else as wall times. */
+function endsAfterStart(startsAt: string, endsAt: string, timeZone?: string): boolean {
+  if (timeZone) {
+    const start = wallTimeToUtcMs(startsAt, timeZone);
+    const end = wallTimeToUtcMs(endsAt, timeZone);
+    if (start !== null && end !== null) return end > start;
+  }
+  return endsAt > startsAt;
+}
+
 function validateTarget(target: ProductTarget, path: string, errors: PromotionErrors) {
   if (targetIsEmpty(target)) errors[path] = 'required';
 }
@@ -727,8 +819,11 @@ function validateBenefit(b: BenefitForm, path: string, errors: PromotionErrors) 
   }
 }
 
-/** Path -> code, with the server's paths and codes, for what can be checked locally. */
-export function validatePromotionForm(form: PromotionForm): PromotionErrors {
+/**
+ * Path -> code, with the server's paths and codes, for what can be checked locally.
+ * `timeZone`: the store's, so that end/start compare like the server (in UTC).
+ */
+export function validatePromotionForm(form: PromotionForm, timeZone?: string): PromotionErrors {
   const errors: PromotionErrors = {};
 
   const name = form.name.trim();
@@ -748,7 +843,7 @@ export function validatePromotionForm(form: PromotionForm): PromotionErrors {
   if (!startsOk) errors.startsAt = 'invalid_date';
   if (form.endsAt.trim()) {
     if (!validWallTime(form.endsAt)) errors.endsAt = 'invalid_date';
-    else if (startsOk && form.endsAt <= form.startsAt) errors.endsAt = 'ends_before_start';
+    else if (startsOk && !endsAfterStart(form.startsAt, form.endsAt, timeZone)) errors.endsAt = 'ends_before_start';
   }
 
   if (form.priority.trim()) {
@@ -795,6 +890,54 @@ export function errorMapFromIssues(issues: { path?: unknown; code?: unknown }[])
   return map;
 }
 
+export type FormSection =
+  | 'general'
+  | 'method'
+  | 'validity'
+  | 'eligibility'
+  | 'conditions'
+  | 'benefits'
+  | 'limits'
+  | 'stacking'
+  | 'other';
+
+const SECTION_ORDER: FormSection[] = [
+  'general',
+  'method',
+  'validity',
+  'eligibility',
+  'conditions',
+  'benefits',
+  'limits',
+  'stacking',
+  'other',
+];
+
+/** Paths a form field displays (everything under `conditions` is shown by the tree editor). */
+const SHOWN_PATH =
+  /^(name|description|priority|displayName\.[^.]+|code|startsAt|endsAt|timeZone|eligibility(\.emails(\.\d+)?)?|conditions(\..*)?|benefits|usageLimit|perCustomerLimit|perOrderLimit)$|^benefits\.\d+(\.(type|percent|amount|per|maxQuantity|maxAmount|target(\..*)?|buy\.target(\..*)?|buy\.quantity|buy\.minAmount|get\.target(\..*)?|get\.variantIds(\..*)?|get\.quantity|reward\.kind|reward\.percent|reward\.amount))?$/;
+
+function sectionOf(path: string): FormSection {
+  const head = path.split('.')[0];
+  if (['name', 'description', 'priority', 'displayName', 'active'].includes(head)) return 'general';
+  if (head === 'method' || head === 'code') return 'method';
+  if (['startsAt', 'endsAt', 'timeZone'].includes(head)) return 'validity';
+  if (head === 'eligibility') return 'eligibility';
+  if (head === 'conditions') return 'conditions';
+  if (head === 'benefits') return 'benefits';
+  if (['usageLimit', 'perCustomerLimit', 'perOrderLimit'].includes(head)) return 'limits';
+  if (head === 'stacking') return 'stacking';
+  return 'other';
+}
+
+/** Errors no field displays (e.g. `stacking.*`, `method`, `version`), with the section to show them in. */
+export function unmappedErrors(errors: PromotionErrors): { section: FormSection; path: string; code: string }[] {
+  return Object.entries(errors)
+    .filter(([path]) => !SHOWN_PATH.test(path))
+    .map(([path, code]) => ({ section: sectionOf(path), path, code }))
+    .sort((a, b) => SECTION_ORDER.indexOf(a.section) - SECTION_ORDER.indexOf(b.section));
+}
+
 /** The first error at `prefix` or under it (`benefits.0.target` covers `.target.variantIds`). */
 export function errorUnder(errors: PromotionErrors, prefix: string): string | undefined {
   if (errors[prefix]) return errors[prefix];
@@ -835,7 +978,9 @@ export function describeBenefit(b: PromotionBenefit, money: Money, t: Translate)
       const buy = p(b.buy.quantity);
       const get =
         b.get.mode === 'GIFT'
-          ? t(`${S}.gifts`, { count: isNum(b.get.quantity) ? b.get.quantity : 0 })
+          ? isNum(b.get.quantity)
+            ? t(`${S}.gifts`, { count: b.get.quantity })
+            : '…'
           : String(p(b.get.quantity));
       const reward = b.reward;
       const main =

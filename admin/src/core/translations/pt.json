@@ -1285,7 +1285,7 @@
   "littlebox-strapi-suite.ecommerce.promotions.form.deleted": "Promoção eliminada",
   "littlebox-strapi-suite.ecommerce.promotions.form.deleteError": "Não foi possível eliminar a promoção.",
   "littlebox-strapi-suite.ecommerce.promotions.form.inUse.title": "Esta promoção já foi utilizada",
-  "littlebox-strapi-suite.ecommerce.promotions.form.inUse.text": "As promoções usadas em encomendas não podem ser eliminadas, para que as encomendas mantenham o histórico. Desative-a: deixa de ser aplicada.",
+  "littlebox-strapi-suite.ecommerce.promotions.form.inUse.text": "As promoções usadas em encomendas não podem ser eliminadas, para que as encomendas mantenham o histórico. Desative-a: deixa de ser aplicada. Só o estado é guardado; as outras alterações por guardar ficam no formulário.",
   "littlebox-strapi-suite.ecommerce.promotions.form.inUse.deactivate": "Desativar",
   "littlebox-strapi-suite.ecommerce.promotions.form.deactivated": "Promoção desativada",
   "littlebox-strapi-suite.ecommerce.promotions.form.conflict.title": "Esta promoção foi alterada",
@@ -1309,7 +1309,7 @@
   "littlebox-strapi-suite.ecommerce.promotions.form.priority.hint": "De −1000 a 1000. A mais alta primeiro quando as combinações empatam.",
   "littlebox-strapi-suite.ecommerce.promotions.form.active": "Ativa",
   "littlebox-strapi-suite.ecommerce.promotions.form.displayName": "Nome visível ao cliente",
-  "littlebox-strapi-suite.ecommerce.promotions.form.displayName.hint": "Recomendado. Sem ele, os e-mails mostram a designação neutra “Promoção”.",
+  "littlebox-strapi-suite.ecommerce.promotions.form.displayName.hint": "Recomendado. Sem ele, os e-mails e os recibos mostram a designação neutra “Promoção”.",
   "littlebox-strapi-suite.ecommerce.promotions.form.displayName.fallback": "Vazio: usa-se o nome em {locale}.",
   "littlebox-strapi-suite.ecommerce.promotions.form.locale": "Idioma",
   "littlebox-strapi-suite.ecommerce.promotions.form.method.AUTOMATIC": "Automática",
@@ -1448,5 +1448,6 @@
   "littlebox-strapi-suite.ecommerce.promotions.form.errors.invalid_percent": "Introduza uma percentagem acima de 0 e até 100, com 2 casas decimais no máximo.",
   "littlebox-strapi-suite.ecommerce.promotions.form.errors.invalid_amount": "Introduza um valor válido.",
   "littlebox-strapi-suite.ecommerce.promotions.form.errors.too_deep": "As condições podem ter até 3 níveis.",
-  "littlebox-strapi-suite.ecommerce.promotions.form.errors.too_many": "Até 50 condições."
+  "littlebox-strapi-suite.ecommerce.promotions.form.errors.too_many": "Até 50 condições.",
+  "littlebox-strapi-suite.ecommerce.promotions.form.errors.unmapped": "{path}: {message}"
 }

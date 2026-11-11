@@ -22,14 +22,17 @@ type Props = {
   /** Most entries that can be chosen (gift variants: 20). */
   max?: number;
   error?: string;
+  /** Disables the controls (e.g. while saving) without hiding them. */
   disabled?: boolean;
+  /** Hides the search and the remove buttons (no promotions.manage). */
+  readOnly?: boolean;
 };
 
 /**
  * Chosen products and variants as removable chips, and a catalogue search (`catalog-search`)
  * whose results can be added as "this variant" or "whole product".
  */
-const TargetPicker = ({ label, target, labels, onChange, onLabels, variantsOnly, max, error, disabled }: Props) => {
+const TargetPicker = ({ label, target, labels, onChange, onLabels, variantsOnly, max, error, disabled, readOnly }: Props) => {
   const { formatMessage, locale } = useIntl();
   const t = (id: string, values?: Record<string, any>) => formatMessage({ id: getTranslation(id) }, values);
 
@@ -113,8 +116,9 @@ const TargetPicker = ({ label, target, labels, onChange, onLabels, variantsOnly,
       <Typography variant="pi" textColor="neutral800">
         {name}
       </Typography>
-      {!disabled && (
+      {!readOnly && (
         <IconButton
+          disabled={disabled}
           size="XS"
           variant="ghost"
           label={t('ecommerce.promotions.form.target.remove', { name })}
@@ -148,12 +152,13 @@ const TargetPicker = ({ label, target, labels, onChange, onLabels, variantsOnly,
           )}
         </Flex>
 
-        {!disabled && !full && (
+        {!readOnly && !full && (
           <TextInput
             aria-label={t('ecommerce.promotions.form.target.search')}
             startAction={<Search />}
             placeholder={t('ecommerce.promotions.form.target.placeholder')}
             value={term}
+            disabled={disabled}
             onChange={(e: any) => setTerm(e.target.value)}
           />
         )}
@@ -173,7 +178,7 @@ const TargetPicker = ({ label, target, labels, onChange, onLabels, variantsOnly,
             {t('ecommerce.promotions.form.target.noResults')}
           </Typography>
         )}
-        {!disabled && results.length > 0 && (
+        {!readOnly && results.length > 0 && (
           <Box borderColor="neutral200" hasRadius style={{ maxHeight: 240, overflowY: 'auto' }}>
             {results.map((r, i) => (
               <Flex
@@ -199,7 +204,7 @@ const TargetPicker = ({ label, target, labels, onChange, onLabels, variantsOnly,
                   <Button
                     size="S"
                     variant="secondary"
-                    disabled={full || target.variantIds.includes(r.variantId)}
+                    disabled={disabled || full || target.variantIds.includes(r.variantId)}
                     onClick={() => addVariant(r)}
                   >
                     {t('ecommerce.promotions.form.target.thisVariant')}
@@ -208,7 +213,7 @@ const TargetPicker = ({ label, target, labels, onChange, onLabels, variantsOnly,
                     <Button
                       size="S"
                       variant="tertiary"
-                      disabled={full || target.productIds.includes(r.productId)}
+                      disabled={disabled || full || target.productIds.includes(r.productId)}
                       onClick={() => addProduct(r)}
                     >
                       {t('ecommerce.promotions.form.target.wholeProduct')}

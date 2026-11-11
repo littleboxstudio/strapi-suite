@@ -3,6 +3,7 @@ import { IntlMessageFormat } from 'intl-messageformat';
 import {
   addCondition,
   addGroup,
+  deactivationInput,
   describeBenefit,
   describePromotion,
   emptyBenefit,
@@ -12,6 +13,7 @@ import {
   removeNode,
   setStacking,
   toPromotionInput,
+  unmappedErrors,
   updateNode,
   validatePromotionForm,
   wallTimeNow,
@@ -353,5 +355,100 @@ describe('wallTimeNow', () => {
     const now = new Date('2026-07-01T09:05:30Z');
     expect(wallTimeNow('Europe/Lisbon', now)).toBe('2026-07-01T10:05');
     expect(wallTimeNow('UTC', now)).toBe('2026-07-01T09:05');
+  });
+});
+
+describe('fix round 1', () => {
+  const view = (over: Partial<Promotion> = {}): Promotion =>
+    ({
+      id: 4,
+      name: 'X',
+      description: null,
+      code: 'X20',
+      method: 'CODE',
+      displayName: { pt: 'Promo', fr: 'Promo FR' },
+      priority: 0,
+      eligibility: { mode: 'ALL' },
+      conditions: { type: 'GROUP', operator: 'AND', children: [] },
+      benefits: [{ type: 'ORDER_FIXED', amount: 1250 }],
+      stacking: { exclusive: false, withProduct: true, withOrder: true, withShipping: true },
+      perOrderLimit: null,
+      active: true,
+      startsAt: '2026-07-01T10:00',
+      endsAt: null,
+      usageLimit: null,
+      perCustomerLimit: null,
+      status: 'ACTIVE',
+      redemptions: 2,
+      version: 7,
+      timezone: 'Europe/Lisbon',
+      createdAt: null,
+      updatedAt: null,
+      labels: { products: {}, variants: {} },
+      ...over,
+    }) as Promotion;
+
+  it('deactivation sends the stored definition with active false and the version, never form edits', () => {
+    const body = deactivationInput(view(), ['en', 'pt']);
+    expect(body).toMatchObject({ name: 'X', code: 'X20', active: false, version: 7 });
+    expect(body.benefits).toEqual([{ type: 'ORDER_FIXED', amount: 1250 }]);
+    expect(body.displayName).toEqual({ pt: 'Promo' });
+    expect(body).not.toHaveProperty('status');
+    expect(body).not.toHaveProperty('labels');
+  });
+
+  it('drops display names of locales that no longer exist', () => {
+    const form = promotionFormFromView(view());
+    expect(toPromotionInput(form, ['en', 'pt']).displayName).toEqual({ pt: 'Promo' });
+    expect(toPromotionInput(form).displayName).toEqual({ pt: 'Promo', fr: 'Promo FR' });
+  });
+
+  it('formats loaded amounts in the admin locale', () => {
+    expect(promotionFormFromView(view(), 'pt-PT').benefits[0].amount).toBe('12,50');
+    expect(promotionFormFromView(view(), 'en').benefits[0].amount).toBe('12.50');
+  });
+
+  it('lists server errors that no field shows, by section', () => {
+    expect(
+      unmappedErrors({
+        name: 'required',
+        'stacking.withOrder': 'invalid',
+        method: 'invalid',
+        version: 'required',
+        'benefits.0.get.mode': 'invalid',
+        'benefits.0.percent': 'invalid_percent',
+        'conditions.children.0.value': 'invalid_value',
+        displayName: 'invalid',
+      })
+    ).toEqual([
+      { section: 'general', path: 'displayName', code: 'invalid' },
+      { section: 'method', path: 'method', code: 'invalid' },
+      { section: 'benefits', path: 'benefits.0.get.mode', code: 'invalid' },
+      { section: 'stacking', path: 'stacking.withOrder', code: 'invalid' },
+      { section: 'other', path: 'version', code: 'required' },
+    ]);
+  });
+
+  it('an incomplete gift benefit reads "…" instead of 0 gifts', () => {
+    const text = describeBenefit(
+      {
+        type: 'BUY_X_GET_Y',
+        buy: { target: { productIds: [1], variantIds: [] }, quantity: 2, minAmount: null },
+        get: { mode: 'GIFT', variantIds: [], quantity: null as any },
+        reward: { kind: 'FREE' },
+      },
+      moneyEn,
+      tEn
+    );
+    expect(text).toBe('Buy 2, get … free');
+  });
+
+  it('compares end and start in UTC in the store time zone (spring-forward gap)', () => {
+    // Lisbon, 2026-03-29: 01:00 -> 02:00. 01:30 does not exist and moves forward (01:30Z);
+    // 02:15 is 01:15Z, so the end is before the start although its wall time is later.
+    const form = baseForm({ startsAt: '2026-03-29T01:30', endsAt: '2026-03-29T02:15' });
+    expect(validatePromotionForm(form, 'Europe/Lisbon')).toMatchObject({ endsAt: 'ends_before_start' });
+    expect(validatePromotionForm(form, 'UTC')).toEqual({});
+    expect(validatePromotionForm(baseForm({ endsAt: '2026-07-01T11:00' }), 'Europe/Lisbon')).toEqual({});
   });
 });

@@ -34,7 +34,10 @@ type Props = {
   errors: PromotionErrors;
   /** Description of the benefit (from `describeBenefit`). */
   summary: string;
+  /** Disables the controls (e.g. while saving) without hiding them. */
   disabled?: boolean;
+  /** Hides the remove button and the catalogue search (no promotions.manage). */
+  readOnly?: boolean;
 };
 
 const PERCENT_TYPES: PromotionBenefitType[] = ['PRODUCT_PERCENT', 'ORDER_PERCENT', 'SHIPPING_PERCENT'];
@@ -45,7 +48,7 @@ const Cell = ({ children, width = 200 }: { children: ReactNode; width?: number }
 );
 
 /** One benefit, with the fields of its type; error paths follow the server (`benefits.<i>.buy.quantity`). */
-const BenefitEditor = ({ benefit, index, onChange, onRemove, labels, onLabels, errors, summary, disabled }: Props) => {
+const BenefitEditor = ({ benefit, index, onChange, onRemove, labels, onLabels, errors, summary, disabled, readOnly }: Props) => {
   const { formatMessage } = useIntl();
   const t = (id: string, values?: Record<string, any>) => formatMessage({ id: getTranslation(id) }, values);
   const p = 'ecommerce.promotions.form.benefits';
@@ -102,8 +105,8 @@ const BenefitEditor = ({ benefit, index, onChange, onRemove, labels, onLabels, e
               <Field.Error />
             </Field.Root>
           </Cell>
-          {!disabled && (
-            <Button variant="danger-light" size="S" startIcon={<Trash />} onClick={onRemove}>
+          {!readOnly && (
+            <Button variant="danger-light" size="S" startIcon={<Trash />} disabled={disabled} onClick={onRemove}>
               {t(`${p}.remove`)}
             </Button>
           )}
@@ -123,6 +126,7 @@ const BenefitEditor = ({ benefit, index, onChange, onRemove, labels, onLabels, e
             onChange={(target) => set({ target })}
             error={targetError(`${base}.target`)}
             disabled={disabled}
+            readOnly={readOnly}
           />
         )}
 
@@ -166,6 +170,7 @@ const BenefitEditor = ({ benefit, index, onChange, onRemove, labels, onLabels, e
                 onChange={(buyTarget) => set({ buyTarget })}
                 error={targetError(`${base}.buy.target`)}
                 disabled={disabled}
+                readOnly={readOnly}
               />
               <Flex gap={3} alignItems="flex-start" wrap="wrap">
                 <Cell>{text('buyQuantity', 'buy.quantity', t(`${p}.quantity`), { required: true })}</Cell>
@@ -194,6 +199,7 @@ const BenefitEditor = ({ benefit, index, onChange, onRemove, labels, onLabels, e
                   onChange={(getTarget) => set({ getTarget })}
                   error={targetError(`${base}.get.target`)}
                   disabled={disabled}
+                  readOnly={readOnly}
                 />
               ) : (
                 <TargetPicker
@@ -208,6 +214,7 @@ const BenefitEditor = ({ benefit, index, onChange, onRemove, labels, onLabels, e
                     errorUnder(errors, `${base}.get.variantIds`) ? t(`${p}.giftVariants.required`) : undefined
                   }
                   disabled={disabled}
+                  readOnly={readOnly}
                 />
               )}
               <Flex gap={3} alignItems="flex-start" wrap="wrap">

@@ -1501,7 +1501,7 @@
   "littlebox-strapi-suite.ecommerce.promotions.form.deleted": "Promotion deleted",
   "littlebox-strapi-suite.ecommerce.promotions.form.deleteError": "Could not delete the promotion.",
   "littlebox-strapi-suite.ecommerce.promotions.form.inUse.title": "This promotion has already been used",
-  "littlebox-strapi-suite.ecommerce.promotions.form.inUse.text": "Promotions used by orders cannot be deleted, so that the orders keep their history. Deactivate it instead: it stops being applied.",
+  "littlebox-strapi-suite.ecommerce.promotions.form.inUse.text": "Promotions used by orders cannot be deleted, so that the orders keep their history. Deactivate it instead: it stops being applied. Only the status is saved; other unsaved changes stay in the form.",
   "littlebox-strapi-suite.ecommerce.promotions.form.inUse.deactivate": "Deactivate",
   "littlebox-strapi-suite.ecommerce.promotions.form.deactivated": "Promotion deactivated",
   "littlebox-strapi-suite.ecommerce.promotions.form.conflict.title": "This promotion was changed",
@@ -1664,5 +1664,6 @@
   "littlebox-strapi-suite.ecommerce.promotions.form.errors.invalid_percent": "Enter a percentage above 0 and up to 100, with at most 2 decimals.",
   "littlebox-strapi-suite.ecommerce.promotions.form.errors.invalid_amount": "Enter a valid amount.",
   "littlebox-strapi-suite.ecommerce.promotions.form.errors.too_deep": "Conditions can be nested up to 3 levels.",
-  "littlebox-strapi-suite.ecommerce.promotions.form.errors.too_many": "Up to 50 conditions."
+  "littlebox-strapi-suite.ecommerce.promotions.form.errors.too_many": "Up to 50 conditions.",
+  "littlebox-strapi-suite.ecommerce.promotions.form.errors.unmapped": "{path}: {message}"
 }
