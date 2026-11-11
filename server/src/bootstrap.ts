@@ -10,6 +10,7 @@ import {
   AfterDeleteSlug,
   AfterUnpublishSlug
 } from './lifecycles';
+import { registerEcommercePermissions } from './services/modules/ecommerce/permissions';
 
 const bootstrap = async ({ strapi }: { strapi: Core.Strapi }) => {
   const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
@@ -119,6 +120,8 @@ const bootstrap = async ({ strapi }: { strapi: Core.Strapi }) => {
       await strapi.db.query(config.uuid.app.setting).create({ data: setting });
     } catch (e) { }
   }
+
+  await registerEcommercePermissions(strapi);
 
   try {
     await strapi.db.query(config.uuid.modules.template).createMany({
