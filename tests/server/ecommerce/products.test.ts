@@ -508,3 +508,21 @@ describe('EcommerceProductService — deletable and delete', () => {
     await expect(service.delete(404)).rejects.toBeInstanceOf(EcommerceNotFoundError);
   });
 });
+
+describe('EcommerceProductService — setActive', () => {
+  it('changes only the active flag', async () => {
+    const { service, tables } = makeStrapi();
+    const { id } = await service.create(input('Camisa', [variant('A')]));
+    expect(await service.setActive(id, false)).toEqual({ active: false });
+    const row = tables[UIDS.product].find((p) => p.id === id);
+    expect(row.active).toBe(false);
+    expect((await service.get(id)).translations.en.name).toBe('Camisa');
+    await service.setActive(id, true);
+    expect(tables[UIDS.product].find((p) => p.id === id).active).toBe(true);
+  });
+
+  it('is a not-found error for an unknown product', async () => {
+    const { service } = makeStrapi();
+    await expect(service.setActive(404, true)).rejects.toBeInstanceOf(EcommerceNotFoundError);
+  });
+});

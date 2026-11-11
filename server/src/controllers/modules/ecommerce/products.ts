@@ -62,6 +62,16 @@ const EcommerceProductController = ({ strapi }: { strapi: Core.Strapi }) => {
       }
     },
 
+    async setActive(ctx: any) {
+      const active = ctx.request.body?.active;
+      if (typeof active !== 'boolean') return ctx.badRequest('active must be a boolean');
+      try {
+        ctx.body = await products().setActive(toId(ctx), active);
+      } catch (err) {
+        return handleDomainError(ctx, err);
+      }
+    },
+
     async delete(ctx: any) {
       try {
         await products().delete(toId(ctx));
