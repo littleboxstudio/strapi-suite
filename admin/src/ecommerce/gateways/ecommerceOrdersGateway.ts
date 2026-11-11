@@ -1,3 +1,4 @@
+import { getFetchClient } from '@strapi/strapi/admin';
 import HttpClient from '../../core/http/httpClient';
 import Registry from '../../core/di/registry';
 import config from '../../core/config';
@@ -14,6 +15,8 @@ import type {
   CustomerOrderListItem,
   CustomerOrderListParams,
   CreateRefundInput,
+  CreateShipmentInput,
+  DeliveryInput,
   IssueStoreCreditInput,
   ManualPaymentInput,
   ModificationApplied,
@@ -31,6 +34,10 @@ import type {
   PaymentView,
   RefundPreview,
   RefundView,
+  RegisterReturnInput,
+  ReturnRegistered,
+  ShipmentView,
+  TrackingInput,
   StoreCredit,
   StoreCreditPaymentInput,
   ShippingQuote,
@@ -87,6 +94,17 @@ export default interface EcommerceOrdersGateway {
   fetchCustomerStoreCredits(customerId: number): Promise<StoreCredit[]>;
   issueStoreCredit(input: IssueStoreCreditInput): Promise<StoreCredit>;
   voidStoreCredit(id: number): Promise<StoreCredit>;
+
+  // Shipments and returns (write: orders.manage; label: orders.read)
+  createShipment(orderId: number, input: CreateShipmentInput): Promise<ShipmentView>;
+  confirmDelivery(shipmentId: number, input: DeliveryInput): Promise<ShipmentView>;
+  updateTracking(shipmentId: number, input: TrackingInput): Promise<ShipmentView>;
+  refreshTracking(shipmentId: number): Promise<ShipmentView>;
+  retryShipment(shipmentId: number): Promise<ShipmentView>;
+  cancelShipment(shipmentId: number, reason?: string): Promise<ShipmentView>;
+  /** The carrier label PDF; an error carries the API body (`response.data`) like the JSON calls. */
+  fetchShipmentLabel(shipmentId: number): Promise<Blob>;
+  registerReturn(orderId: number, input: RegisterReturnInput): Promise<ReturnRegistered>;
 }
 
 export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
@@ -224,5 +242,54 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
 
   async voidStoreCredit(id: number): Promise<StoreCredit> {
     return this.httpClient.post(`${this.base}/store-credits/${id}/void`, {});
+  }
+
+  async createShipment(orderId: number, input: CreateShipmentInput): Promise<ShipmentView> {
+    return this.httpClient.post(`${this.orders}/${orderId}/shipments`, input);
+  }
+
+  async confirmDelivery(shipmentId: number, input: DeliveryInput): Promise<ShipmentView> {
+    return this.httpClient.post(`${this.base}/shipments/${shipmentId}/deliver`, input);
+  }
+
+  async updateTracking(shipmentId: number, input: TrackingInput): Promise<ShipmentView> {
+    return this.httpClient.post(`${this.base}/shipments/${shipmentId}/tracking`, input);
+  }
+
+  async refreshTracking(shipmentId: number): Promise<ShipmentView> {
+    return this.httpClient.post(`${this.base}/shipments/${shipmentId}/refresh-tracking`, {});
+  }
+
+  async retryShipment(shipmentId: number): Promise<ShipmentView> {
+    return this.httpClient.post(`${this.base}/shipments/${shipmentId}/retry`, {});
+  }
+
+  async cancelShipment(shipmentId: number, reason?: string): Promise<ShipmentView> {
+    return this.httpClient.post(`${this.base}/shipments/${shipmentId}/cancel`, reason ? { reason } : {});
+  }
+
+  async fetchShipmentLabel(shipmentId: number): Promise<Blob> {
+    const { get } = getFetchClient();
+    // Error statuses come back as a blob too (401 still throws, so the session can refresh):
+    // their JSON body is read so the caller sees the error code.
+    const res = await get(`/${config.pluginId}/admin/ecommerce/shipments/${shipmentId}/label`, {
+      responseType: 'blob',
+      validateStatus: (status: number) => status !== 401,
+    });
+    const status = res.status ?? 200;
+    if (status >= 400) {
+      let data: unknown = null;
+      try {
+        data = JSON.parse(await res.data.text());
+      } catch {
+        data = null;
+      }
+      throw Object.assign(new Error('Label request failed'), { status, response: { data } });
+    }
+    return res.data;
+  }
+
+  async registerReturn(orderId: number, input: RegisterReturnInput): Promise<ReturnRegistered> {
+    return this.httpClient.post(`${this.orders}/${orderId}/returns`, input);
   }
 }

@@ -121,8 +121,14 @@ export type OrderLine = {
   returnedQuantity: number;
   tax: number;
   isGift: boolean;
+  /** Units in ACTIVE shipments. */
   shipped: number;
+  /** Units in ACTIVE and PENDING shipments: they cannot be shipped again. */
+  reserved: number;
+  /** quantity − reserved */
   pending: number;
+  /** shipped − returnedQuantity */
+  returnable: number;
 };
 
 export type OrderPayment = {
@@ -209,7 +215,11 @@ export type Order = {
   refunds: OrderRefund[];
   notificationsSummary?: { sent: number; failed: number; skipped: number };
   invoices: unknown[];
-  shipments: unknown[];
+  /** Oldest first. */
+  shipments: ShipmentView[];
+  /** Oldest first. */
+  returns: ReturnView[];
+  shipping: OrderShipping;
   promotions: unknown[];
   summary: FinancialSummary;
   availableActions: OrderActionKey[];
@@ -509,3 +519,114 @@ export type IssueStoreCreditInput = {
   /** One per opening of the issue modal. */
   idempotencyKey: string;
 };
+
+// ---------------------------------------------------------------------------
+// Shipments, deliveries and returns (plan 5)
+// ---------------------------------------------------------------------------
+
+export type ShipmentStatus = 'PENDING' | 'ACTIVE' | 'FAILED' | 'CANCELLED';
+export type DeliveryStatus = 'IN_TRANSIT' | 'DELIVERED' | 'EXCEPTION';
+export type OrderDeliveryStatus = 'NONE' | 'IN_TRANSIT' | 'PARTIALLY_DELIVERED' | 'DELIVERED';
+
+export type OrderShipping = {
+  /** Shipping charged not yet attributed to an ACTIVE shipment: the next shipment's default cost. */
+  remainingCost: number;
+  deliveryStatus: OrderDeliveryStatus;
+};
+
+export type ShipmentItem = {
+  orderLineId: number;
+  sku: string;
+  name: string;
+  option: string | null;
+  quantity: number;
+};
+
+export type ShipmentEvent = {
+  type: string;
+  description: string | null;
+  occurredAt: string | null;
+  source: string | null;
+};
+
+export type ShipmentView = {
+  id: number;
+  status: ShipmentStatus;
+  /** `manual` or a carrier id. */
+  providerId: string;
+  serviceId: string | null;
+  carrierName: string;
+  items: ShipmentItem[];
+  trackingCode: string | null;
+  trackingUrl: string | null;
+  shippingCost: number;
+  labelAvailable: boolean;
+  deliveryStatus: DeliveryStatus | null;
+  deliverySource: 'MANUAL' | 'CARRIER' | null;
+  shippedAt: string | null;
+  deliveredAt: string | null;
+  cancelledAt: string | null;
+  /** `UNCERTAIN` on a PENDING shipment the carrier may have created; else a failure code. */
+  error: string | null;
+  createdAt: string | null;
+  /** Oldest first. */
+  events: ShipmentEvent[];
+};
+
+export type CreateShipmentInput = {
+  lines: { orderLineId: number; quantity: number }[];
+  method:
+    | { mode: 'MANUAL'; carrierName: string; trackingCode?: string; trackingUrl?: string }
+    | { mode: 'CARRIER' };
+  /** Integer cents ≥ 0. */
+  shippingCost: number;
+  notifyCustomer: boolean;
+  /** One per opening of the ship modal. */
+  idempotencyKey: string;
+};
+
+export type DeliveryInput = {
+  /** ISO date-time, not before the shipment nor in the future. */
+  deliveredAt: string;
+  notifyCustomer: boolean;
+};
+
+/** `null` clears the field. */
+export type TrackingInput = { trackingCode: string | null; trackingUrl: string | null };
+
+export type ReturnItemView = {
+  orderLineId: number;
+  sku: string;
+  name: string;
+  option: string | null;
+  quantity: number;
+  restock: boolean;
+  value: number;
+};
+
+export type ReturnView = {
+  id: number;
+  items: ReturnItemView[];
+  grossValue: number;
+  /** The order discount share taken back by the return. */
+  discountShare: number;
+  /** grossValue − discountShare: what the return entitles the customer to. */
+  refundableValue: number;
+  reason: string | null;
+  notes: string | null;
+  actor: string | null;
+  createdAt: string | null;
+};
+
+export type RegisterReturnInput = {
+  lines: { orderLineId: number; quantity: number; restock: boolean }[];
+  /** 1–200 characters. */
+  reason: string;
+  /** Up to 2000 characters. */
+  notes?: string;
+  /** One per opening of the return modal. */
+  idempotencyKey: string;
+};
+
+/** `refundable`: what the order can refund now (in-flight refunds counted). */
+export type ReturnRegistered = { return: ReturnView; refundable: number };

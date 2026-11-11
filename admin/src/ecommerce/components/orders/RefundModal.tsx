@@ -29,12 +29,15 @@ import {
   validateRefundForm,
   type RefundDraft,
   type RefundForm,
+  type RefundInitial,
 } from '../../utils/refundForm';
 import type { FieldError, RefundMethod, RefundPreview } from '../../orderTypes';
 
 type Props = {
   orderId: number;
   reference: number;
+  /** Prefill (e.g. reason RETURN and the return's value after a return); capped by the preview. */
+  initial?: RefundInitial;
   onClose: () => void;
   /** After the refund was created (the order changed). */
   onRefunded: () => void;
@@ -49,7 +52,7 @@ const FORM_FIELDS: FormField[] = ['amount', 'reason', 'description', 'method', '
  * Creates a refund (requirement 15.5): amounts from the server preview, the form, then a review
  * step. Mount it only while open: each opening mints a new idempotency key.
  */
-const RefundModal = ({ orderId, reference, onClose, onRefunded }: Props) => {
+const RefundModal = ({ orderId, reference, initial, onClose, onRefunded }: Props) => {
   const { formatMessage, formatDate, locale: uiLocale } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) =>
@@ -71,7 +74,7 @@ const RefundModal = ({ orderId, reference, onClose, onRefunded }: Props) => {
       .then((p) => {
         if (cancelled) return;
         setPreview(p);
-        setForm(emptyRefundForm(p, uiLocale));
+        setForm(emptyRefundForm(p, uiLocale, new Date(), initial));
       })
       .catch(() => {
         if (!cancelled) setLoadError(true);
@@ -79,6 +82,8 @@ const RefundModal = ({ orderId, reference, onClose, onRefunded }: Props) => {
     return () => {
       cancelled = true;
     };
+    // `initial` is read once, when the preview arrives.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId, uiLocale]);
 
   const errorText = (code: string) =>

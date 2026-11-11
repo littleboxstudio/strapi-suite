@@ -12,6 +12,7 @@ import {
   allowedToolbarActions,
   apiErrorCode,
   apiErrorMessageId,
+  modifyBlockedByShipment,
 } from '../../../admin/src/ecommerce/utils/orderDetail';
 import type { FinancialSummary, OrderHistoryItem, OrderTotals } from '../../../admin/src/ecommerce/orderTypes';
 
@@ -37,9 +38,9 @@ const entry = (overrides: Partial<OrderHistoryItem>): OrderHistoryItem => ({
 });
 
 describe('formatShippedProgress', () => {
-  it('renders "ordered / shipped"', () => {
-    expect(formatShippedProgress(10, 0)).toBe('10 / 0');
-    expect(formatShippedProgress(10, 3)).toBe('10 / 3');
+  it('renders "shipped / ordered"', () => {
+    expect(formatShippedProgress(10, 0)).toBe('0 / 10');
+    expect(formatShippedProgress(3, 2)).toBe('2 / 3');
     expect(formatShippedProgress(10, 10)).toBe('10 / 10');
   });
 });
@@ -440,6 +441,40 @@ describe('apiErrorCode / apiErrorMessageId', () => {
     );
   });
 
+  it('covers every code the shipment and return endpoints return', () => {
+    expect(API_ERROR_CODES).toEqual(
+      expect.arrayContaining([
+        'QUANTITY_EXCEEDS_PENDING',
+        'QUANTITY_EXCEEDS_RETURNABLE',
+        'ALREADY_DELIVERED',
+        'SHIPMENT_PENDING',
+        'SHIPMENT_UNCERTAIN',
+        'SHIPMENT_HAS_RETURNS',
+        'ORDER_CHANGED',
+        'SHIPMENT_STATE_CHANGED',
+        'LABEL_NOT_AVAILABLE',
+        'NOT_SUPPORTED',
+        'NOT_IMPLEMENTED',
+        'CARRIER_NOT_CONFIGURED',
+        'CARRIER_REQUEST_FAILED',
+        'CARRIER_UNREACHABLE',
+        'TIMEOUT',
+        'INVALID_QUOTE',
+        'INVALID_AMOUNT',
+        'invalid_url',
+        'invalid_mode',
+        'invalid_line',
+        'duplicate_line',
+        'unknown_line',
+        'invalid_quantity',
+        'invalid_restock',
+        'invalid_shipped_at',
+        'before_shipment',
+        'in_future',
+      ])
+    );
+  });
+
   it.each(API_ERROR_CODES)('%s has an en and a pt message', (code) => {
     const key = `${P}ecommerce.orders.errors.${code}`;
     expect(en[key]).toEqual(expect.any(String));
@@ -456,6 +491,7 @@ describe('allowedToolbarActions', () => {
   const all = ['SHIP', 'MODIFY', 'CANCEL', 'REFUND', 'ADD_PAYMENT', 'SEND_PAYMENT_INSTRUCTIONS', 'ARCHIVE'] as const;
   it('orders the actions and keeps each one behind its permission', () => {
     expect(allowedToolbarActions([...all], { canManage: true, canPay: true, canRefund: true })).toEqual([
+      'SHIP',
       'MODIFY',
       'ADD_PAYMENT',
       'SEND_PAYMENT_INSTRUCTIONS',
@@ -470,5 +506,23 @@ describe('allowedToolbarActions', () => {
       'REFUND',
     ]);
     expect(allowedToolbarActions(['REFUND'], { canManage: true, canPay: true, canRefund: false })).toEqual([]);
+  });
+
+  it('offers SHIP and REGISTER_RETURN only with orders.manage', () => {
+    const available = ['SHIP', 'REFUND', 'REGISTER_RETURN', 'INVOICE_TOTAL'] as const;
+    expect(allowedToolbarActions([...available], { canManage: true, canPay: false, canRefund: true })).toEqual([
+      'SHIP',
+      'REFUND',
+      'REGISTER_RETURN',
+    ]);
+    expect(allowedToolbarActions([...available], { canManage: false, canPay: true, canRefund: false })).toEqual([]);
+  });
+});
+
+describe('modifyBlockedByShipment', () => {
+  it('is true for an open order with a PENDING shipment', () => {
+    expect(modifyBlockedByShipment({ orderStatus: 'OPEN', shipments: [{ status: 'PENDING' }] })).toBe(true);
+    expect(modifyBlockedByShipment({ orderStatus: 'OPEN', shipments: [{ status: 'ACTIVE' }] })).toBe(false);
+    expect(modifyBlockedByShipment({ orderStatus: 'CANCELLED', shipments: [{ status: 'PENDING' }] })).toBe(false);
   });
 });

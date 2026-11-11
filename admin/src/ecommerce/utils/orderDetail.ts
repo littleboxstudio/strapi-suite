@@ -14,9 +14,9 @@ import type {
 export type Message = { id: string; values?: Record<string, string | number> };
 export type Translate = (id: string, values?: Record<string, string | number>) => string;
 
-/** "ordered / shipped", e.g. "10 / 3" (requirement 4.3). */
+/** "shipped / ordered", e.g. "2 / 3" (requirement 4.3, plan 5). */
 export function formatShippedProgress(quantity: number, shipped: number): string {
-  return `${quantity} / ${shipped}`;
+  return `${shipped} / ${quantity}`;
 }
 
 /** "7 units left to ship", or null when nothing is pending. */
@@ -194,17 +194,38 @@ export function isActionUnavailable(err: unknown): boolean {
 
 /** Toolbar actions in display order, with the permission each one needs. */
 const ACTION_PERMISSION: { action: OrderActionKey; needs: 'canManage' | 'canPay' | 'canRefund' }[] = [
+  { action: 'SHIP', needs: 'canManage' },
   { action: 'MODIFY', needs: 'canManage' },
   { action: 'ADD_PAYMENT', needs: 'canManage' },
   { action: 'SEND_PAYMENT_INSTRUCTIONS', needs: 'canPay' },
   { action: 'REFUND', needs: 'canRefund' },
+  { action: 'REGISTER_RETURN', needs: 'canManage' },
   { action: 'CANCEL', needs: 'canManage' },
   { action: 'ARCHIVE', needs: 'canManage' },
 ];
 
 export type OrderActionPermissions = { canManage: boolean; canPay: boolean; canRefund: boolean };
-/** Actions this screen has a button for. Shipping, returns and invoices arrive with later plans. */
-export type ToolbarAction = 'MODIFY' | 'ADD_PAYMENT' | 'SEND_PAYMENT_INSTRUCTIONS' | 'REFUND' | 'CANCEL' | 'ARCHIVE';
+/** Actions this screen has a button for. Invoices arrive with Task 13. */
+export type ToolbarAction =
+  | 'SHIP'
+  | 'MODIFY'
+  | 'ADD_PAYMENT'
+  | 'SEND_PAYMENT_INSTRUCTIONS'
+  | 'REFUND'
+  | 'REGISTER_RETURN'
+  | 'CANCEL'
+  | 'ARCHIVE';
+
+/**
+ * An open order with a shipment still PENDING at the carrier cannot be modified (the server leaves
+ * MODIFY out and refuses it with SHIPMENT_PENDING): the header says why.
+ */
+export function modifyBlockedByShipment(order: {
+  orderStatus: OrderStatus;
+  shipments: { status: string }[];
+}): boolean {
+  return order.orderStatus === 'OPEN' && order.shipments.some((s) => s.status === 'PENDING');
+}
 
 /**
  * The toolbar buttons: actions the order allows and the admin may run (`orders.manage`,
@@ -221,8 +242,8 @@ export function allowedToolbarActions(
 }
 
 /**
- * Error codes of the payment, refund, store credit and notification endpoints that have a
- * message under `ecommerce.orders.errors.<code>`.
+ * Error codes of the payment, refund, store credit, notification, shipment and return endpoints
+ * that have a message under `ecommerce.orders.errors.<code>`.
  */
 export const API_ERROR_CODES = [
   'ACTION_NOT_AVAILABLE',
@@ -261,6 +282,34 @@ export const API_ERROR_CODES = [
   'reserved',
   'required',
   'invalid',
+  // Shipments, deliveries and returns (plan 5)
+  'QUANTITY_EXCEEDS_PENDING',
+  'QUANTITY_EXCEEDS_RETURNABLE',
+  'ALREADY_DELIVERED',
+  'SHIPMENT_PENDING',
+  'SHIPMENT_UNCERTAIN',
+  'SHIPMENT_HAS_RETURNS',
+  'ORDER_CHANGED',
+  'SHIPMENT_STATE_CHANGED',
+  'LABEL_NOT_AVAILABLE',
+  'NOT_SUPPORTED',
+  'NOT_IMPLEMENTED',
+  'CARRIER_NOT_CONFIGURED',
+  'CARRIER_REQUEST_FAILED',
+  'CARRIER_UNREACHABLE',
+  'TIMEOUT',
+  'INVALID_QUOTE',
+  'INVALID_AMOUNT',
+  'invalid_url',
+  'invalid_mode',
+  'invalid_line',
+  'duplicate_line',
+  'unknown_line',
+  'invalid_quantity',
+  'invalid_restock',
+  'invalid_shipped_at',
+  'before_shipment',
+  'in_future',
 ] as const;
 
 /**
