@@ -12,7 +12,7 @@ import CancelOrder from '../../usecases/orders/cancelOrder';
 import ArchiveOrder from '../../usecases/orders/archiveOrder';
 import { useOrderPermissions } from '../../hooks/useOrderPermissions';
 import { isActionUnavailable, type ToolbarAction } from '../../utils/orderDetail';
-import type { Order } from '../../orderTypes';
+import type { ModificationApplied, Order } from '../../orderTypes';
 import OrderHeader from '../../components/orders/OrderHeader';
 import OrderSection from '../../components/orders/OrderSection';
 import OrderLinesTable from '../../components/orders/OrderLinesTable';
@@ -25,6 +25,7 @@ import CancelOrderModal from '../../components/orders/CancelOrderModal';
 import HistoryTimeline from '../../components/orders/HistoryTimeline';
 import SectionPlaceholder from '../../components/orders/SectionPlaceholder';
 import ModifyOrderModal from '../../components/orders/ModifyOrderModal';
+import SupplementaryPaymentModal from '../../components/orders/SupplementaryPaymentModal';
 
 /** Order management screen (requirements 3–8). The fetched order is the single source of truth. */
 const OrderDetailPage = () => {
@@ -45,6 +46,8 @@ const OrderDetailPage = () => {
   // Remounts the confirm dialogs on each opening (they can close themselves on Escape).
   const [modalKey, setModalKey] = useState(0);
   const [busy, setBusy] = useState(false);
+  // Opened after a modification leaves an amount due (requirement 16.7).
+  const [supplementary, setSupplementary] = useState(false);
   const hasOrderRef = useRef(false);
   // Only the latest request may update the page (navigation, quick successive refetches).
   const requestRef = useRef(0);
@@ -75,6 +78,7 @@ const OrderDetailPage = () => {
     setOrder(null);
     setLoadError(false);
     setModal(null);
+    setSupplementary(false);
     if (!Number.isInteger(orderId) || orderId < 1) {
       setLoadError(true);
       return undefined;
@@ -91,6 +95,16 @@ const OrderDetailPage = () => {
   const afterChange = async () => {
     setModal(null);
     await load();
+  };
+
+  /** After a modification: refetch, then ask for the amount due or flag the refundable excess. */
+  const afterModification = async (result: ModificationApplied) => {
+    setModal(null);
+    await load();
+    if (result.outcome === 'DUE') setSupplementary(true);
+    else if (result.outcome === 'REFUNDABLE') {
+      toggleNotification({ type: 'info', message: t('ecommerce.orders.modify.refundable') });
+    }
   };
 
   const runTransition = async (action: 'CANCEL' | 'ARCHIVE') => {
@@ -183,7 +197,16 @@ const OrderDetailPage = () => {
       </OrderSection>
 
       {canManage && modal === 'MODIFY' && (
-        <ModifyOrderModal order={order} onClose={closeModal} onApplied={afterChange} />
+        <ModifyOrderModal order={order} onClose={closeModal} onApplied={afterModification} />
+      )}
+      {supplementary && (
+        <SupplementaryPaymentModal
+          reference={order.reference}
+          total={order.totals.total}
+          paid={order.summary.paid}
+          due={order.summary.due}
+          onClose={() => setSupplementary(false)}
+        />
       )}
       {canManage && modal === 'ADD_PAYMENT' && (
         <AddPaymentModal orderId={order.id} due={order.summary.due} onClose={closeModal} onAdded={afterChange} />

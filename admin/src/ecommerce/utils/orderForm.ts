@@ -159,7 +159,7 @@ export function validateOrderForm(form: OrderForm): FieldError[] {
   return errors;
 }
 
-function toAddress(a: AddressForm, withBillingFields: boolean): Address {
+export function toAddress(a: AddressForm, withBillingFields: boolean): Address {
   const out: Record<string, string> = {};
   ADDRESS_REQUIRED_FIELDS.forEach((f) => {
     out[f] = a[f].trim();
