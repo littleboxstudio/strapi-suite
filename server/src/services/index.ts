@@ -8,6 +8,8 @@ import TranslationModuleService from './modules/translation';
 import AiTranslationModuleService from './modules/ai-translation';
 import EcommerceImageService from './modules/ecommerce/images';
 import EcommerceProductService from './modules/ecommerce/products';
+import EcommerceSettingsService from './modules/ecommerce/settings';
+import EcommerceAuditService from './modules/ecommerce/audit';
 
 export default {
   SettingAppService,
@@ -20,4 +22,6 @@ export default {
   AiTranslationModuleService,
   EcommerceImageService,
   EcommerceProductService,
+  EcommerceSettingsService,
+  EcommerceAuditService,
 };
