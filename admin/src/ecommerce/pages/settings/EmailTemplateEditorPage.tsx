@@ -443,6 +443,7 @@ const EmailTemplateEditorPage = () => {
           type={type}
           locale={locale}
           defaultTo={userEmail}
+          unsaved={dirty}
           onClose={() => setTestOpen(false)}
         />
       )}

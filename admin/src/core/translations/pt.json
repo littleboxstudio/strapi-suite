@@ -339,6 +339,7 @@
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.test.title": "Enviar e-mail de teste",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.test.to": "Destinatário",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.test.hint": "Envia a versão guardada deste modelo, preenchida com dados de exemplo.",
+  "littlebox-strapi-suite.ecommerce.settings.emailTemplates.test.unsavedHint": "Tem alterações por guardar. Será enviada a versão guardada.",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.test.send": "Enviar",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.test.sent": "E-mail de teste enviado.",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.test.failed": "Não foi possível enviar o e-mail de teste.",
