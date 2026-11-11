@@ -97,10 +97,21 @@ const OrderDetailPage = () => {
     await load();
   };
 
-  /** After a modification: refetch, then ask for the amount due or flag the refundable excess. */
+  /**
+   * After a modification: show the order the apply returned (refetch only if it is missing),
+   * then ask for the amount due or flag the refundable excess.
+   */
   const afterModification = async (result: ModificationApplied) => {
     setModal(null);
-    await load();
+    if (result.order) {
+      // Supersedes any refetch still in flight.
+      requestRef.current += 1;
+      hasOrderRef.current = true;
+      setOrder(result.order);
+      setLoadError(false);
+    } else {
+      await load();
+    }
     if (result.outcome === 'DUE') setSupplementary(true);
     else if (result.outcome === 'REFUNDABLE') {
       toggleNotification({ type: 'info', message: t('ecommerce.orders.modify.refundable') });

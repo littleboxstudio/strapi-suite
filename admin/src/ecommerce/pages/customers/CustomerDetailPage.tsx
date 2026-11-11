@@ -193,7 +193,7 @@ const CustomerDetailPage = () => {
         </Flex>
       </Box>
 
-      <CustomerOrdersSection customerId={customerId} canCreateOrder={canManageOrders} />
+      <CustomerOrdersSection key={customerId} customerId={customerId} canCreateOrder={canManageOrders} />
     </Flex>
   );
 };
