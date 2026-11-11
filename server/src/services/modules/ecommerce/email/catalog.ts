@@ -29,6 +29,7 @@ export type VariableDef = {
 
 const ORDER_ITEM_FIELDS = ['name', 'option', 'sku', 'quantity', 'unitPrice', 'total'];
 const SHIPMENT_ITEM_FIELDS = ['name', 'option', 'sku', 'quantity'];
+const TRACKING_ITEM_FIELDS = ['carrier', 'trackingCode', 'trackingUrl'];
 
 const value = (path: string, description: string): VariableDef => ({
   path,
@@ -102,7 +103,14 @@ const SPECIFIC: Record<EmailTemplateType, VariableDef[]> = {
     list('shipment.pendingItems', 'Items still to be shipped', SHIPMENT_ITEM_FIELDS),
     ...SHIPMENT.slice(1),
   ],
-  FULL_SHIPMENT: SHIPMENT,
+  FULL_SHIPMENT: [
+    ...SHIPMENT,
+    list(
+      'shipment.allTracking',
+      'Tracking of every shipment of the order (only when there is more than one)',
+      TRACKING_ITEM_FIELDS
+    ),
+  ],
   DELIVERY_CONFIRMATION: [value('delivery.date', 'Delivery date')],
   CANCELLATION: [
     value('order.cancelledAt', 'Cancellation date'),
@@ -172,6 +180,10 @@ const SAMPLE_VALUES: Record<string, unknown> = {
   'shipment.carrier': 'CTT',
   'shipment.trackingCode': 'RR123456789PT',
   'shipment.trackingUrl': 'https://tracking.example.com/RR123456789PT',
+  'shipment.allTracking': [
+    { carrier: 'CTT', trackingCode: 'RR123456789PT', trackingUrl: 'https://tracking.example.com/RR123456789PT' },
+    { carrier: 'DPD', trackingCode: '09981234567', trackingUrl: 'https://tracking.example.com/09981234567' },
+  ],
   'delivery.date': '15/11/2026',
   'refund.amount': '9,90 €',
   'refund.method': 'Card',

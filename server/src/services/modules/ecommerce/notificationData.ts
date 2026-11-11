@@ -18,6 +18,10 @@ export type NotificationTemplateType = Extract<
   | 'REFUND_STARTED'
   | 'REFUND_COMPLETED'
   | 'STORE_CREDIT_ISSUED'
+  | 'PARTIAL_SHIPMENT'
+  | 'FULL_SHIPMENT'
+  | 'DELIVERY_CONFIRMATION'
+  | 'INVOICE_AVAILABLE'
 >;
 
 export const NOTIFICATION_TEMPLATE_TYPES: NotificationTemplateType[] = [
@@ -29,6 +33,10 @@ export const NOTIFICATION_TEMPLATE_TYPES: NotificationTemplateType[] = [
   'REFUND_STARTED',
   'REFUND_COMPLETED',
   'STORE_CREDIT_ISSUED',
+  'PARTIAL_SHIPMENT',
+  'FULL_SHIPMENT',
+  'DELIVERY_CONFIRMATION',
+  'INVOICE_AVAILABLE',
 ];
 
 /** The template an event sends, or null when it sends none. */
@@ -44,6 +52,12 @@ export function templateForEvent(event: Pick<DomainEvent, 'type' | 'payload'>): 
     // Store-credit refunds are announced by STORE_CREDIT_ISSUED (or not at all).
     REFUND_COMPLETED: () => (p.kind === 'MONEY' ? 'REFUND_COMPLETED' : null),
     STORE_CREDIT_ISSUED: () => 'STORE_CREDIT_ISSUED',
+    SHIPMENT_CREATED: () =>
+      p.notify === false ? null : p.full === true ? 'FULL_SHIPMENT' : 'PARTIAL_SHIPMENT',
+    SHIPMENT_DELIVERED: () =>
+      p.allDelivered === true && p.notify !== false ? 'DELIVERY_CONFIRMATION' : null,
+    // Credit notes are never e-mailed to the customer.
+    INVOICE_ISSUED: () => (p.kind === 'INVOICE' ? 'INVOICE_AVAILABLE' : null),
   };
   return map[event.type]?.() ?? null;
 }
@@ -72,6 +86,35 @@ export type NotificationExtra = {
   customer?: { firstName?: string | null; lastName?: string | null; email?: string | null } | null;
   /** Locale used when there is no order. */
   locale?: string;
+  /** The shipment row (SHIPMENT_CREATED). */
+  shipment?: ShipmentRow | null;
+  /** The ACTIVE shipments of the order (for `shipment.allTracking`). */
+  shipments?: ShipmentRow[];
+  /** The invoice (INVOICE_ISSUED). */
+  invoice?: { id: number; number?: string | null } | null;
+};
+
+export type ShipmentRow = {
+  id?: number;
+  carrierName?: string | null;
+  trackingCode?: string | null;
+  trackingUrl?: string | null;
+  items?: { lines?: unknown } | null;
+};
+
+type ItemRow = { name: string; option: string; sku: string; quantity: number };
+
+const shipmentItems = (row: ShipmentRow | null | undefined): ItemRow[] => {
+  const lines = row?.items?.lines;
+  if (!Array.isArray(lines)) return [];
+  return lines
+    .filter((i) => i && typeof i === 'object')
+    .map((i: any) => ({
+      name: str(i.name),
+      option: str(i.option),
+      sku: str(i.sku),
+      quantity: num(i.quantity),
+    }));
 };
 
 export type NotificationDataContext = {
@@ -291,6 +334,47 @@ export function buildTemplateData(
       };
       break;
     }
+    case 'PARTIAL_SHIPMENT':
+    case 'FULL_SHIPMENT': {
+      const s = extra.shipment ?? {};
+      const lines = order?.lines ?? [];
+      const pending = Array.isArray(p.pending) ? (p.pending as any[]) : [];
+      data.shipment = {
+        items: shipmentItems(extra.shipment),
+        carrier: str(s.carrierName),
+        trackingCode: str(s.trackingCode),
+        trackingUrl: str(s.trackingUrl),
+      };
+      if (type === 'PARTIAL_SHIPMENT') {
+        data.shipment.pendingItems = pending
+          .map((x) => ({ line: lines.find((l) => l.id === num(x?.orderLineId)), quantity: num(x?.quantity) }))
+          .filter(({ line, quantity }) => !!line && quantity > 0)
+          .map(({ line, quantity }) => ({
+            name: str(line!.name),
+            option: str(line!.option),
+            sku: str(line!.sku),
+            quantity,
+          }));
+      } else {
+        const all = extra.shipments ?? [];
+        data.shipment.allTracking =
+          all.length > 1
+            ? all.map((x) => ({
+                carrier: str(x.carrierName),
+                trackingCode: str(x.trackingCode),
+                trackingUrl: str(x.trackingUrl),
+              }))
+            : [];
+      }
+      break;
+    }
+    case 'DELIVERY_CONFIRMATION':
+      data.delivery = { date: date(p.deliveredAt) };
+      break;
+    case 'INVOICE_AVAILABLE':
+      data.invoice = { number: str(extra.invoice?.number) };
+      data.attachment = { kind: 'INVOICE_PDF', invoiceId: num(extra.invoice?.id ?? p.invoiceId) };
+      break;
     case 'STORE_CREDIT_ISSUED': {
       const c = extra.storeCredit ?? {};
       data.credit = {

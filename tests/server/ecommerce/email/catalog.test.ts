@@ -58,6 +58,7 @@ const SPECIFIC: Record<string, string[]> = {
     'shipment.carrier',
     'shipment.trackingCode',
     'shipment.trackingUrl',
+    'shipment.allTracking',
   ],
   DELIVERY_CONFIRMATION: ['delivery.date'],
   CANCELLATION: ['order.cancelledAt', 'order.amountPaid'],
@@ -95,6 +96,12 @@ describe('email variable catalog', () => {
     for (const def of getVariableCatalog(type as never)) expect(def.description).toBeTruthy();
   });
 
+  it('declares the allTracking list on FULL_SHIPMENT only', () => {
+    const def = getVariableCatalog('FULL_SHIPMENT').find((v) => v.path === 'shipment.allTracking');
+    expect(def).toMatchObject({ kind: 'list', itemFields: ['carrier', 'trackingCode', 'trackingUrl'] });
+    expect(getVariableCatalog('PARTIAL_SHIPMENT').some((v) => v.path === 'shipment.allTracking')).toBe(false);
+  });
+
   it('declares list item fields', () => {
     const items = getVariableCatalog('ORDER_CONFIRMATION').find((v) => v.path === 'order.items');
     expect(items).toMatchObject({
@@ -121,8 +128,9 @@ describe('email variable catalog', () => {
         expect(Array.isArray(value), def.path).toBe(true);
         const list = value as Record<string, unknown>[];
         expect(list.length).toBeGreaterThanOrEqual(2);
-        const withOption = list.filter((item) => item.option);
-        expect(withOption.length).toBeGreaterThanOrEqual(1);
+        if (def.itemFields?.includes('option')) {
+          expect(list.filter((item) => item.option).length).toBeGreaterThanOrEqual(1);
+        }
         for (const field of def.itemFields ?? []) {
           if (field === 'option') continue; // option may be absent on simple products
           for (const item of list) expect(item[field], `${def.path}.${field}`).not.toBe(undefined);

@@ -97,6 +97,20 @@ const EVENT_FOR: Record<NotificationTemplateType, DomainEvent> = {
     reference: 'TRF-1',
     description: 'Shirt returned',
   }),
+  PARTIAL_SHIPMENT: event('SHIPMENT_CREATED', {
+    shipmentId: 5,
+    full: false,
+    notify: true,
+    pending: [{ orderLineId: 1, quantity: 1 }],
+  }),
+  FULL_SHIPMENT: event('SHIPMENT_CREATED', { shipmentId: 5, full: true, notify: true, pending: [] }),
+  DELIVERY_CONFIRMATION: event('SHIPMENT_DELIVERED', {
+    shipmentId: 5,
+    deliveredAt: '2026-11-12T23:30:00.000Z',
+    allDelivered: true,
+    notify: true,
+  }),
+  INVOICE_AVAILABLE: event('INVOICE_ISSUED', { invoiceId: 9, kind: 'INVOICE' }),
   STORE_CREDIT_ISSUED: event('STORE_CREDIT_ISSUED', {
     code: 'ABCD-EFGH-JKLM',
     amount: 1500,
@@ -117,6 +131,19 @@ describe('templateForEvent', () => {
     expect(templateForEvent(event('REFUND_FAILED', { kind: 'MONEY' }))).toBeNull();
     expect(templateForEvent(event('ORDER_MODIFIED'))).toBeNull();
     expect(templateForEvent(event('ORDER_ARCHIVED'))).toBeNull();
+  });
+
+  it('shipment, delivery and invoice events', () => {
+    const t = (type: any, payload: any) => templateForEvent(event(type, payload));
+    expect(t('SHIPMENT_CREATED', { full: false })).toBe('PARTIAL_SHIPMENT');
+    expect(t('SHIPMENT_CREATED', { full: true, notify: true })).toBe('FULL_SHIPMENT');
+    expect(t('SHIPMENT_CREATED', { full: true, notify: false })).toBeNull();
+    expect(t('SHIPMENT_DELIVERED', { allDelivered: true })).toBe('DELIVERY_CONFIRMATION');
+    expect(t('SHIPMENT_DELIVERED', { allDelivered: true, notify: false })).toBeNull();
+    expect(t('SHIPMENT_DELIVERED', { allDelivered: false, notify: true })).toBeNull();
+    expect(t('INVOICE_ISSUED', { kind: 'INVOICE' })).toBe('INVOICE_AVAILABLE');
+    expect(t('INVOICE_ISSUED', { kind: 'CREDIT_NOTE' })).toBeNull();
+    expect(t('RETURN_REGISTERED', {})).toBeNull();
   });
 
   it('builds the unique key notif:<eventId>:<type>', () => {
@@ -316,5 +343,106 @@ describe('buildTemplateData', () => {
     });
     expect(data.order.amountPaid).toBe('');
     expect(data.order.cancelledAt).toBe('Nov 12, 2026');
+  });
+});
+
+describe('buildTemplateData: shipments, delivery and invoice', () => {
+  const shipRow = (id: number, over: Record<string, any> = {}) => ({
+    id,
+    carrierName: 'CTT',
+    trackingCode: `RR${id}`,
+    trackingUrl: `https://ctt.pt/RR${id}`,
+    items: { lines: [{ orderLineId: 1, sku: 'SH-M', name: 'Shirt', option: 'M', quantity: 1 }] },
+    ...over,
+  });
+  const order = () =>
+    makeOrder({
+      lines: [
+        { id: 1, sku: 'SH-M', name: 'Shirt', option: 'M', unitPrice: 2000, unitDiscount: 0, quantity: 2, returnedQuantity: 0 },
+      ],
+    });
+
+  it('PARTIAL_SHIPMENT: items from the shipment, pendingItems from the event with order line data', () => {
+    const d = buildTemplateData('PARTIAL_SHIPMENT', {
+      order: order(),
+      store,
+      event: EVENT_FOR.PARTIAL_SHIPMENT,
+      extra: { shipment: shipRow(5) },
+    });
+    expect(d.shipment.items).toEqual([{ name: 'Shirt', option: 'M', sku: 'SH-M', quantity: 1 }]);
+    expect(d.shipment.pendingItems).toEqual([{ name: 'Shirt', option: 'M', sku: 'SH-M', quantity: 1 }]);
+    expect(d.shipment).toMatchObject({ carrier: 'CTT', trackingCode: 'RR5', trackingUrl: 'https://ctt.pt/RR5' });
+  });
+
+  it('null carrier, tracking code and url become empty strings; option null becomes empty', () => {
+    const d = buildTemplateData('FULL_SHIPMENT', {
+      order: order(),
+      store,
+      event: EVENT_FOR.FULL_SHIPMENT,
+      extra: {
+        shipment: shipRow(5, {
+          carrierName: null,
+          trackingCode: null,
+          trackingUrl: null,
+          items: { lines: [{ orderLineId: 1, sku: 'A', name: 'A', option: null, quantity: 2 }] },
+        }),
+      },
+    });
+    expect(d.shipment).toMatchObject({ carrier: '', trackingCode: '', trackingUrl: '' });
+    expect(d.shipment.items[0].option).toBe('');
+  });
+
+  it('FULL_SHIPMENT: allTracking lists every active shipment only when there is more than one', () => {
+    const one = buildTemplateData('FULL_SHIPMENT', {
+      order: order(),
+      store,
+      event: EVENT_FOR.FULL_SHIPMENT,
+      extra: { shipment: shipRow(5), shipments: [shipRow(5)] },
+    });
+    expect(one.shipment.allTracking).toEqual([]);
+    const two = buildTemplateData('FULL_SHIPMENT', {
+      order: order(),
+      store,
+      event: EVENT_FOR.FULL_SHIPMENT,
+      extra: { shipment: shipRow(5), shipments: [shipRow(4), shipRow(5)] },
+    });
+    expect(two.shipment.allTracking).toEqual([
+      { carrier: 'CTT', trackingCode: 'RR4', trackingUrl: 'https://ctt.pt/RR4' },
+      { carrier: 'CTT', trackingCode: 'RR5', trackingUrl: 'https://ctt.pt/RR5' },
+    ]);
+    const partial = buildTemplateData('PARTIAL_SHIPMENT', {
+      order: order(),
+      store,
+      event: EVENT_FOR.PARTIAL_SHIPMENT,
+      extra: { shipment: shipRow(5), shipments: [shipRow(4), shipRow(5)] },
+    });
+    expect(partial.shipment.allTracking).toBeUndefined();
+  });
+
+  it('DELIVERY_CONFIRMATION: delivery.date in the store time zone', () => {
+    const d = buildTemplateData('DELIVERY_CONFIRMATION', {
+      order: order(),
+      store: { ...store, timezone: 'Asia/Tokyo' },
+      event: EVENT_FOR.DELIVERY_CONFIRMATION,
+    });
+    expect(d.delivery.date).toBe('Nov 13, 2026');
+  });
+
+  it('INVOICE_AVAILABLE: invoice.number and the out-of-catalog PDF attachment marker', () => {
+    const d = buildTemplateData('INVOICE_AVAILABLE', {
+      order: order(),
+      store,
+      event: EVENT_FOR.INVOICE_AVAILABLE,
+      extra: { invoice: { id: 9, number: 'FR 2026/1' } },
+    });
+    expect(d.invoice.number).toBe('FR 2026/1');
+    expect(d.attachment).toEqual({ kind: 'INVOICE_PDF', invoiceId: 9 });
+    const other = buildTemplateData('FULL_SHIPMENT', {
+      order: order(),
+      store,
+      event: EVENT_FOR.FULL_SHIPMENT,
+      extra: { shipment: shipRow(5) },
+    });
+    expect(other.attachment).toBeUndefined();
   });
 });
