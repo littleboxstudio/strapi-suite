@@ -1778,7 +1778,7 @@
   "littlebox-strapi-suite.ecommerce.settings.storefrontApi.title": "Storefront API",
   "littlebox-strapi-suite.ecommerce.settings.storefrontApi.intro": "Only your storefront server calls this API. Never put this token in the browser.",
   "littlebox-strapi-suite.ecommerce.settings.storefrontApi.token": "API token of the storefront server",
-  "littlebox-strapi-suite.ecommerce.settings.storefrontApi.token.hint": "The e-commerce module creates and manages this token (type Custom, no permissions, no expiry). Its value is shown only once, when it is generated.",
+  "littlebox-strapi-suite.ecommerce.settings.storefrontApi.token.hint": "The e-commerce module creates and manages this token (type Custom, no permissions, no expiry). Its value is shown here only once, when it is generated.",
   "littlebox-strapi-suite.ecommerce.settings.storefrontApi.token.none": "No token yet: the storefront API is disabled until you generate one.",
   "littlebox-strapi-suite.ecommerce.settings.storefrontApi.warning.FULL_ACCESS": "This token has full access to the Strapi API. Regenerate it to get a token with no permissions, managed by the e-commerce module.",
   "littlebox-strapi-suite.ecommerce.settings.storefrontApi.warning.READ_ONLY": "This is a read-only token, the kind the public site uses for the menus. Regenerate it to get a dedicated token for the storefront server.",
@@ -1810,10 +1810,10 @@
   "littlebox-strapi-suite.ecommerce.settings.storefrontApi.regenerateConfirm.text": "The current token stops working immediately. Update the storefront server (BFF) with the new token right away, or the store stops taking orders.",
   "littlebox-strapi-suite.ecommerce.settings.storefrontApi.key.title": "Storefront API token",
   "littlebox-strapi-suite.ecommerce.settings.storefrontApi.key.label": "Token",
-  "littlebox-strapi-suite.ecommerce.settings.storefrontApi.key.explanation": "Copy it now — it won't be shown again. Put it in the storefront server (BFF) as the Bearer token.",
+  "littlebox-strapi-suite.ecommerce.settings.storefrontApi.key.explanation": "Copy it now — it won't be shown here again. Put it in the storefront server (BFF) as the Bearer token.",
   "littlebox-strapi-suite.ecommerce.settings.storefrontApi.key.copy": "Copy token",
   "littlebox-strapi-suite.ecommerce.settings.storefrontApi.key.copied": "Token copied to the clipboard",
   "littlebox-strapi-suite.ecommerce.settings.storefrontApi.key.copyError": "Could not copy the token.",
   "littlebox-strapi-suite.ecommerce.settings.storefrontApi.key.done": "Done",
-  "littlebox-strapi-suite.ecommerce.settings.storefrontApi.key.previousNotDeleted": "The previous token could not be deleted and may still work. Delete it in Settings → API Tokens."
+  "littlebox-strapi-suite.ecommerce.settings.storefrontApi.key.previousNotDeleted": "The storefront API no longer accepts the previous token, but it could not be deleted: it still exists in Strapi with the permissions it had. Delete it in Settings → API Tokens."
 }

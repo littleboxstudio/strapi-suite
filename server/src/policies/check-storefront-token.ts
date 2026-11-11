@@ -1,6 +1,22 @@
 import { PLUGIN_ID } from '../config';
 
 const BEARER = 'Bearer ';
+const LAST_USED_EVERY_MS = 3_600_000;
+
+/**
+ * Stamps `lastUsedAt` like Strapi's own api-token strategy (which does not run on these
+ * `auth: false` routes): when never set or at least an hour old. Best effort: never throws.
+ */
+export const touchLastUsedAt = async (strapi: any, token: { id: unknown; lastUsedAt?: unknown }): Promise<void> => {
+  try {
+    const last = token.lastUsedAt == null ? NaN : new Date(token.lastUsedAt as string).getTime();
+    const now = new Date();
+    if (!Number.isNaN(last) && now.getTime() - last < LAST_USED_EVERY_MS) return;
+    await strapi.db.query('admin::api-token').update({ where: { id: token.id }, data: { lastUsedAt: now } });
+  } catch {
+    strapi?.log?.warn?.('[ecommerce] Could not update lastUsedAt of the storefront API token.');
+  }
+};
 
 /**
  * Storefront API (BFF) authentication: only the Strapi API token generated in the e-commerce
@@ -29,5 +45,7 @@ export default async (policyContext: any, _config: unknown, { strapi }: { strapi
   if (token.expiresAt !== undefined && token.expiresAt !== null) {
     if (!(new Date(token.expiresAt).getTime() > Date.now())) return false;
   }
+  // Not awaited: the request never waits for (nor fails on) this write.
+  void touchLastUsedAt(strapi, token);
   return true;
 };

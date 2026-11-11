@@ -1562,7 +1562,7 @@
   "littlebox-strapi-suite.ecommerce.settings.storefrontApi.title": "API do storefront",
   "littlebox-strapi-suite.ecommerce.settings.storefrontApi.intro": "Só o servidor do seu storefront chama esta API. Nunca coloque este token no browser.",
   "littlebox-strapi-suite.ecommerce.settings.storefrontApi.token": "API token do servidor do storefront",
-  "littlebox-strapi-suite.ecommerce.settings.storefrontApi.token.hint": "O módulo de e-commerce cria e gere este token (tipo Personalizado, sem permissões, sem expiração). O valor só é mostrado uma vez, quando é gerado.",
+  "littlebox-strapi-suite.ecommerce.settings.storefrontApi.token.hint": "O módulo de e-commerce cria e gere este token (tipo Personalizado, sem permissões, sem expiração). O valor só é mostrado aqui uma vez, quando é gerado.",
   "littlebox-strapi-suite.ecommerce.settings.storefrontApi.token.none": "Ainda não há token: a API do storefront fica desativada até gerar um.",
   "littlebox-strapi-suite.ecommerce.settings.storefrontApi.warning.FULL_ACCESS": "Este token tem acesso total à API do Strapi. Regenere-o para obter um token sem permissões, gerido pelo módulo de e-commerce.",
   "littlebox-strapi-suite.ecommerce.settings.storefrontApi.warning.READ_ONLY": "Este é um token só de leitura, o tipo que o site público usa para os menus. Regenere-o para obter um token dedicado ao servidor do storefront.",
@@ -1594,10 +1594,10 @@
   "littlebox-strapi-suite.ecommerce.settings.storefrontApi.regenerateConfirm.text": "O token atual deixa de funcionar imediatamente. Atualize já o servidor do storefront (BFF) com o novo token, ou a loja deixa de aceitar encomendas.",
   "littlebox-strapi-suite.ecommerce.settings.storefrontApi.key.title": "Token da API do storefront",
   "littlebox-strapi-suite.ecommerce.settings.storefrontApi.key.label": "Token",
-  "littlebox-strapi-suite.ecommerce.settings.storefrontApi.key.explanation": "Copie-o agora — não voltará a ser mostrado. Coloque-o no servidor do storefront (BFF) como Bearer token.",
+  "littlebox-strapi-suite.ecommerce.settings.storefrontApi.key.explanation": "Copie-o agora — não voltará a ser mostrado aqui. Coloque-o no servidor do storefront (BFF) como Bearer token.",
   "littlebox-strapi-suite.ecommerce.settings.storefrontApi.key.copy": "Copiar token",
   "littlebox-strapi-suite.ecommerce.settings.storefrontApi.key.copied": "Token copiado para a área de transferência",
   "littlebox-strapi-suite.ecommerce.settings.storefrontApi.key.copyError": "Não foi possível copiar o token.",
   "littlebox-strapi-suite.ecommerce.settings.storefrontApi.key.done": "Concluído",
-  "littlebox-strapi-suite.ecommerce.settings.storefrontApi.key.previousNotDeleted": "Não foi possível apagar o token anterior, que pode continuar a funcionar. Apague-o em Definições → API Tokens."
+  "littlebox-strapi-suite.ecommerce.settings.storefrontApi.key.previousNotDeleted": "A API do storefront já não aceita o token anterior, mas não foi possível apagá-lo: continua a existir no Strapi com as permissões que tinha. Apague-o em Definições → API Tokens."
 }
