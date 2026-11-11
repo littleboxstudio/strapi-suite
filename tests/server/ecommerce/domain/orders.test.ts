@@ -246,6 +246,15 @@ describe('fulfillment', () => {
     expect(deriveFulfillmentStatus([{ id: 1, quantity: 10 }], shipped)).toBe('UNFULFILLED');
   });
 
+  it('ignores PENDING and FAILED shipments (only ACTIVE counts as shipped)', () => {
+    const shipped = shippedQuantities([
+      ship(4, { status: 'PENDING' }),
+      ship(2, { status: 'FAILED' }),
+      ship(1),
+    ]);
+    expect(shipped.get(1)).toBe(1);
+  });
+
   it('UNFULFILLED without lines', () => {
     expect(deriveFulfillmentStatus([], new Map())).toBe('UNFULFILLED');
   });
