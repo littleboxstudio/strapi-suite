@@ -476,7 +476,7 @@ describe('EcommercePaymentService.addManualPayment', () => {
   it('validates amount and idempotencyKey', async () => {
     const { orders, payments, tables } = setup();
     const { id } = await createOrder(orders);
-    for (const amount of [0, -5, 10.5, Number.NaN, '100' as any]) {
+    for (const amount of [0, -5, 10.5, Number.NaN, '100' as any, 1_000_000_001]) {
       expect(
         await issues(payments.addManualPayment(id, { amount, idempotencyKey: 'k' }, 'user:1'))
       ).toEqual([{ path: 'amount', code: 'invalid_amount' }]);
@@ -485,6 +485,13 @@ describe('EcommercePaymentService.addManualPayment', () => {
       { path: 'idempotencyKey', code: 'required' },
     ]);
     expect(tables[UIDS.payment]).toHaveLength(0);
+  });
+
+  it('accepts an amount of exactly 1_000_000_000 cents (the upper bound)', async () => {
+    const { orders, payments } = setup();
+    const { id } = await createOrder(orders);
+    const p = await payments.addManualPayment(id, { amount: 1_000_000_000, idempotencyKey: 'max' }, 'user:1');
+    expect(p.amount).toBe(1_000_000_000);
   });
 
   it('accepts an amount above the due: the excess becomes refundable', async () => {

@@ -1,4 +1,4 @@
-import { parseMoneyToCents } from './money';
+import { MAX_MONEY_CENTS, parseMoneyToCents } from './money';
 import {
   ADDRESS_REQUIRED_FIELDS,
   addressFormFromAddress,
@@ -210,7 +210,9 @@ export function validateModificationForm(form: ModifyOrderForm): FieldError[] {
   });
   if (form.shippingMode === 'MANUAL') {
     const cents = parseMoneyToCents(form.manualAmount);
-    if (cents === null || cents < 0) errors.push({ path: 'shipping.amount', code: 'INVALID_AMOUNT' });
+    if (cents === null || cents < 0 || cents > MAX_MONEY_CENTS) {
+      errors.push({ path: 'shipping.amount', code: 'INVALID_AMOUNT' });
+    }
   }
   return errors;
 }

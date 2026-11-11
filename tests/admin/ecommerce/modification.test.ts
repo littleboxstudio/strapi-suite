@@ -218,6 +218,10 @@ describe('validateModificationForm', () => {
     form = { ...form, lines: setModifyLineQuantity(form.lines, keyOf(form, 1), 1) };
     form = { ...form, lines: setModifyLineQuantity(form.lines, keyOf(form, 2), 1) };
     expect(validateModificationForm({ ...form, manualAmount: '0' })).toEqual([]);
+    expect(validateModificationForm({ ...form, manualAmount: '10000000' })).toEqual([]);
+    expect(validateModificationForm({ ...form, manualAmount: '10000000.01' })).toEqual([
+      { path: 'shipping.amount', code: 'INVALID_AMOUNT' },
+    ]);
   });
 
   it('flags a removed line that was already shipped', () => {

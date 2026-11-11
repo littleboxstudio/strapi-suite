@@ -713,7 +713,7 @@
   "littlebox-strapi-suite.ecommerce.orders.detail.addPayment.cancel": "Cancel",
   "littlebox-strapi-suite.ecommerce.orders.detail.addPayment.success": "Payment added",
   "littlebox-strapi-suite.ecommerce.orders.detail.addPayment.error": "Could not add the payment.",
-  "littlebox-strapi-suite.ecommerce.orders.detail.addPayment.invalid_amount": "Enter an amount greater than zero.",
+  "littlebox-strapi-suite.ecommerce.orders.detail.addPayment.invalid_amount": "Enter an amount greater than zero and no more than 10,000,000.",
   "littlebox-strapi-suite.ecommerce.orders.detail.cancel.title": "Cancel order",
   "littlebox-strapi-suite.ecommerce.orders.detail.cancel.text": "Cancel order #{reference}? Its stock is put back, but no refund is made automatically: refund any payment separately.",
   "littlebox-strapi-suite.ecommerce.orders.detail.cancel.confirm": "Cancel order",
@@ -883,7 +883,7 @@
   "littlebox-strapi-suite.ecommerce.orders.supplementary.send": "Send",
   "littlebox-strapi-suite.ecommerce.orders.errors.QUANTITY_BELOW_SHIPPED": "The quantity cannot be lower than the units already shipped.",
   "littlebox-strapi-suite.ecommerce.orders.errors.SHIPPING_QUOTE_FAILED": "Could not quote the order's shipping method. Keep the current shipping or set it manually.",
-  "littlebox-strapi-suite.ecommerce.orders.errors.INVALID_AMOUNT": "Enter a valid amount (0 or more).",
+  "littlebox-strapi-suite.ecommerce.orders.errors.INVALID_AMOUNT": "Enter a valid amount (from 0 up to 10,000,000).",
   "littlebox-strapi-suite.ecommerce.orders.errors.LINES_REQUIRED": "Keep at least one product in the order. To remove everything, cancel the order instead.",
   "littlebox-strapi-suite.ecommerce.orders.errors.OPERATION_ID_CONFLICT": "This modification was already applied. Close this window to see the order."
 }
