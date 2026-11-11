@@ -23,6 +23,9 @@ const route = (
 const { settingsRead: read, settingsManage: manage } = ECOMMERCE_PERMISSIONS;
 
 export default [
+  // Same payload as /admin/ecommerce/locales, but readable with the settings permission alone
+  // (hasPermissions with several actions requires all of them).
+  route('GET', '/locales', 'getLocales', read),
   route('GET', '/store', 'getStore', read),
   route('PUT', '/store', 'updateStore', manage),
   route('GET', '/integrations', 'listIntegrations', read),

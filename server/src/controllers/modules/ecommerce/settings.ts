@@ -28,6 +28,12 @@ const EcommerceSettingsController = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   return {
+    /** Reuses the products locales endpoint so both serve the same payload. */
+    getLocales: (ctx: any) => {
+      const products: any = strapi.plugin(PLUGIN_ID).controller('EcommerceProductController');
+      return products.getLocales(ctx);
+    },
+
     getStore: (ctx: any) => respond(ctx, () => settings().getStoreSettings()),
     updateStore: (ctx: any) =>
       respond(ctx, () => settings().updateStoreSettings(body(ctx), userId(ctx))),

@@ -15,8 +15,10 @@ import type {
   StoreSettings,
   TemplateContent,
 } from '../settingsTypes';
+import type { EcommerceLocales } from '../types';
 
 export default interface EcommerceSettingsGateway {
+  fetchLocales(): Promise<EcommerceLocales>;
   fetchStore(): Promise<StoreSettings>;
   updateStore(input: Partial<StoreSettings>): Promise<StoreSettings>;
 
@@ -64,6 +66,10 @@ export class EcommerceSettingsGatewayHttp implements EcommerceSettingsGateway {
 
   private template(type: EmailTemplateType, locale: string): string {
     return `${this.base}/email-templates/${seg(type)}/${seg(locale)}`;
+  }
+
+  async fetchLocales(): Promise<EcommerceLocales> {
+    return this.httpClient.get(`${this.base}/locales`);
   }
 
   async fetchStore(): Promise<StoreSettings> {

@@ -23,7 +23,7 @@ import { getTranslation } from '../../../core/utils/getTranslation';
 import EmptyShipping from '../../illustrations/EmptyShipping';
 import FetchShippingMethods from '../../usecases/settings/fetchShippingMethods';
 import DeleteShippingMethod from '../../usecases/settings/deleteShippingMethod';
-import FetchEcommerceLocales from '../../usecases/fetchEcommerceLocales';
+import FetchSettingsLocales from '../../usecases/settings/fetchSettingsLocales';
 import { formatCents } from '../../utils/money';
 import { ManualMethodModal } from './ManualMethodModal';
 import type { EcommerceLocales } from '../../types';
@@ -53,7 +53,7 @@ const ManualMethodsTable = ({ readOnly }: { readOnly: boolean }) => {
       const [rows, info] = await Promise.allSettled([
         new FetchShippingMethods().execute(),
         // Needs the products read permission; without it the table stays read-only.
-        new FetchEcommerceLocales().execute(),
+        new FetchSettingsLocales().execute(),
       ]);
       if (cancelled) return;
       if (rows.status === 'rejected') {

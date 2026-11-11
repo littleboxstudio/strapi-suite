@@ -6,6 +6,7 @@ import { ECOMMERCE_PERMISSIONS as P } from '../../../server/src/services/modules
 const B = '/admin/ecommerce/settings';
 const T = `${B}/email-templates/:type/:locale`;
 const expected: [string, string, string, string][] = [
+  ['GET', `${B}/locales`, 'getLocales', P.settingsRead],
   ['GET', `${B}/store`, 'getStore', P.settingsRead],
   ['PUT', `${B}/store`, 'updateStore', P.settingsManage],
   ['GET', `${B}/integrations`, 'listIntegrations', P.settingsRead],

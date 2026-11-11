@@ -53,6 +53,26 @@ describe('EcommerceSettingsController — domain errors', () => {
     expect(ctx2.badRequest).toHaveBeenCalledWith(expect.any(String), { code: 'EMAIL_NOT_CONFIGURED' });
   });
 
+  it('getLocales serves the same payload as the products locales endpoint', async () => {
+    const productController = {
+      getLocales: vi.fn(async (ctx: any) => {
+        ctx.body = { defaultLocale: 'en', locales: [{ code: 'en', name: 'English' }], aiAvailable: false };
+      }),
+    };
+    const c = createController({
+      strapi: {
+        plugin: () => ({
+          service: () => undefined,
+          controller: (n: string) => (n === 'EcommerceProductController' ? productController : undefined),
+        }),
+      } as any,
+    });
+    const ctx = mkCtx();
+    await c.getLocales(ctx);
+    expect(productController.getLocales).toHaveBeenCalledWith(ctx);
+    expect(ctx.body).toEqual({ defaultLocale: 'en', locales: [{ code: 'en', name: 'English' }], aiAvailable: false });
+  });
+
   it('rethrows unknown errors', async () => {
     const c = mocked({ EcommerceSettingsService: { getStoreSettings: vi.fn().mockRejectedValue(new Error('boom')) } });
     await expect(c.getStore(mkCtx())).rejects.toThrow('boom');

@@ -20,7 +20,7 @@ import { Pencil } from '@strapi/icons';
 import config from '../../../core/config';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchEmailTemplates from '../../usecases/settings/fetchEmailTemplates';
-import FetchEcommerceLocales from '../../usecases/fetchEcommerceLocales';
+import FetchSettingsLocales from '../../usecases/settings/fetchSettingsLocales';
 import { EMAIL_TEMPLATE_TYPES } from '../../utils/emailTemplateEditor';
 import type { EmailTemplateSummary } from '../../settingsTypes';
 
@@ -41,7 +41,7 @@ const EmailTemplatesSection = () => {
     (async () => {
       const [rows, info] = await Promise.allSettled([
         new FetchEmailTemplates().execute(),
-        new FetchEcommerceLocales().execute(),
+        new FetchSettingsLocales().execute(),
       ]);
       if (cancelled) return;
       if (rows.status === 'rejected') {
