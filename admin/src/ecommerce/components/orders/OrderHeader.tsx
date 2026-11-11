@@ -2,7 +2,11 @@ import type { ReactNode } from 'react';
 import { useIntl } from 'react-intl';
 import { Button, Flex, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
-import { toolbarActions, type ToolbarAction } from '../../utils/orderDetail';
+import {
+  allowedToolbarActions,
+  type OrderActionPermissions,
+  type ToolbarAction,
+} from '../../utils/orderDetail';
 import type { Order } from '../../orderTypes';
 import { FulfillmentStatusBadge, OrderStatusBadge, PaymentStatusBadge } from './StatusBadges';
 
@@ -10,8 +14,8 @@ type Props = {
   order: Order;
   /** Back button, rendered before the title. */
   back: ReactNode;
-  /** Without `orders.manage` the action toolbar is hidden. */
-  canManage: boolean;
+  /** Each action is hidden without its permission (orders, payments or refunds manage). */
+  permissions: OrderActionPermissions;
   busy?: boolean;
   onAction: (action: ToolbarAction) => void;
 };
@@ -19,16 +23,18 @@ type Props = {
 const VARIANTS: Record<ToolbarAction, 'default' | 'secondary' | 'danger-light' | 'tertiary'> = {
   MODIFY: 'secondary',
   ADD_PAYMENT: 'default',
+  SEND_PAYMENT_INSTRUCTIONS: 'secondary',
+  REFUND: 'secondary',
   CANCEL: 'danger-light',
   ARCHIVE: 'tertiary',
 };
 
 /** Reference, the three independent statuses, creation date and the available actions. */
-const OrderHeader = ({ order, back, canManage, busy, onAction }: Props) => {
+const OrderHeader = ({ order, back, permissions, busy, onAction }: Props) => {
   const { formatMessage, formatDate } = useIntl();
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
-  const actions = canManage ? toolbarActions(order.availableActions) : [];
+  const actions = allowedToolbarActions(order.availableActions, permissions);
 
   return (
     <Flex justifyContent="space-between" alignItems="flex-start" gap={4} wrap="wrap">

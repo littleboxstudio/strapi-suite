@@ -313,10 +313,7 @@ describe('translations', () => {
     'ecommerce.orders.modify.warnings.ORDER_DISCOUNT_CAPPED',
     'ecommerce.orders.modify.refundable',
     'ecommerce.orders.supplementary.title',
-    'ecommerce.orders.supplementary.manual',
-    'ecommerce.orders.supplementary.stripe',
     'ecommerce.orders.supplementary.sendLater',
-    'ecommerce.orders.supplementary.unavailable',
     'ecommerce.orders.errors.QUANTITY_BELOW_SHIPPED',
     'ecommerce.orders.errors.SHIPPING_QUOTE_FAILED',
     'ecommerce.orders.errors.INVALID_AMOUNT',
@@ -329,9 +326,6 @@ describe('translations', () => {
   });
 
   it('uses the agreed copy', () => {
-    expect(en['littlebox-strapi-suite.ecommerce.orders.supplementary.unavailable']).toBe(
-      'Available once email/Stripe are configured'
-    );
     expect(en['littlebox-strapi-suite.ecommerce.orders.modify.refundable']).toBe(
       'There is an amount eligible for refund'
     );

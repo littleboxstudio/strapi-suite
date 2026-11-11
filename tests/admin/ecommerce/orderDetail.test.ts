@@ -8,7 +8,6 @@ import {
   isActionUnavailable,
   pendingLabel,
   sortHistoryNewestFirst,
-  toolbarActions,
 } from '../../../admin/src/ecommerce/utils/orderDetail';
 import type { FinancialSummary, OrderHistoryItem, OrderTotals } from '../../../admin/src/ecommerce/orderTypes';
 
@@ -59,19 +58,6 @@ describe('pendingLabel', () => {
     expect(pt[key].replace(/\{count, plural, one \{# unidade\} other \{# unidades\}\}/, '7 unidades')).toBe(
       'Faltam enviar 7 unidades'
     );
-  });
-});
-
-describe('toolbarActions', () => {
-  it('keeps only the actions this screen supports, in toolbar order', () => {
-    expect(
-      toolbarActions(['SHIP', 'ARCHIVE', 'REFUND', 'ADD_PAYMENT', 'CANCEL', 'MODIFY', 'INVOICE_TOTAL'])
-    ).toEqual(['MODIFY', 'ADD_PAYMENT', 'CANCEL', 'ARCHIVE']);
-  });
-
-  it('ignores unknown keys and handles an empty list', () => {
-    expect(toolbarActions(['SEND_PAYMENT_INSTRUCTIONS', 'REGISTER_RETURN'])).toEqual([]);
-    expect(toolbarActions([])).toEqual([]);
   });
 });
 

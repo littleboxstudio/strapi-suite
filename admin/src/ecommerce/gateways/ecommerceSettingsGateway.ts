@@ -13,6 +13,7 @@ import type {
   ManualMethod,
   ManualMethodInput,
   StoreSettings,
+  StripeWebhookInfo,
   TemplateContent,
 } from '../settingsTypes';
 import type { EcommerceLocales } from '../types';
@@ -21,6 +22,7 @@ export default interface EcommerceSettingsGateway {
   fetchLocales(): Promise<EcommerceLocales>;
   fetchStore(): Promise<StoreSettings>;
   updateStore(input: Partial<StoreSettings>): Promise<StoreSettings>;
+  fetchStripeWebhook(): Promise<StripeWebhookInfo>;
 
   fetchIntegrations(): Promise<IntegrationView[]>;
   updateIntegration(id: string, input: IntegrationInput): Promise<IntegrationView>;
@@ -74,6 +76,10 @@ export class EcommerceSettingsGatewayHttp implements EcommerceSettingsGateway {
 
   async fetchStore(): Promise<StoreSettings> {
     return this.httpClient.get(`${this.base}/store`);
+  }
+
+  async fetchStripeWebhook(): Promise<StripeWebhookInfo> {
+    return this.httpClient.get(`${this.base}/stripe-webhook`);
   }
 
   async updateStore(input: Partial<StoreSettings>): Promise<StoreSettings> {

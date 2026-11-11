@@ -203,7 +203,9 @@ export type Order = {
   totals: OrderTotals;
   lines: OrderLine[];
   payments: OrderPayment[];
-  refunds: unknown[];
+  /** Newest first. */
+  refunds: OrderRefund[];
+  notificationsSummary?: { sent: number; failed: number; skipped: number };
   invoices: unknown[];
   shipments: unknown[];
   promotions: unknown[];
@@ -353,3 +355,153 @@ export type ApplyModificationInput = OrderModificationInput & {
 };
 
 export type ModificationApplied = { order: Order; outcome: ModificationOutcome; difference: number };
+
+// ---------------------------------------------------------------------------
+// Payment links and instructions (plan 4)
+// ---------------------------------------------------------------------------
+
+export type PaymentLink = { url: string; expiresAt: string; amount: number; reused: boolean };
+
+export type PaymentInstructionsInput =
+  | { mode: 'MANUAL'; instructions: string; methodLabel?: string }
+  | { mode: 'STRIPE' };
+
+/** STRIPE: the link sent to the customer. MANUAL: empty. */
+export type PaymentInstructionsResult = { url?: string; expiresAt?: string };
+
+export type StoreCreditPaymentInput = {
+  code: string;
+  /** Required: a repeated key returns the payment stored first. */
+  idempotencyKey: string;
+};
+
+// ---------------------------------------------------------------------------
+// Refunds
+// ---------------------------------------------------------------------------
+
+export type RefundMethod = 'MANUAL_TRANSFER' | 'STORE_CREDIT' | 'STRIPE';
+export type RefundStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+
+/** A refund as the order shows it. No Stripe id nor voucher code. */
+export type OrderRefund = {
+  id: number;
+  status: RefundStatus;
+  method: RefundMethod;
+  kind: 'MONEY' | 'STORE_CREDIT';
+  amount: number;
+  reason: string | null;
+  hasStripeRefundId: boolean;
+  /** Only for FAILED refunds: Stripe's `failure_reason`, or `MARKED_FAILED`. */
+  failureReason: string | null;
+  createdAt: string | null;
+  completedAt: string | null;
+};
+
+export type RefundView = {
+  id: number;
+  method: RefundMethod;
+  kind: 'MONEY' | 'STORE_CREDIT';
+  status: RefundStatus;
+  amount: number;
+  currency: string;
+  reason: string | null;
+  description: string | null;
+  /** MANUAL_TRANSFER: the transfer reference. */
+  reference: string | null;
+  /** STRIPE: the Stripe refund id once Stripe answered. */
+  externalId: string | null;
+  actor: string | null;
+  createdAt: string | null;
+  completedAt: string | null;
+  payment: {
+    id: number;
+    method: string;
+    status: string;
+    amount: number;
+    reference: string | null;
+    externalId: string | null;
+  } | null;
+  storeCredit: { id: number } | null;
+};
+
+export type RefundPreview = {
+  orderTotal: number;
+  received: number;
+  refunded: number;
+  inFlight: number;
+  refundable: number;
+  stripeRefundable: number;
+  hasStripe: boolean;
+};
+
+export type CreateRefundInput = {
+  method: RefundMethod;
+  /** Integer cents > 0, at most the refundable amount. */
+  amount: number;
+  reason: string;
+  description?: string;
+  /** MANUAL_TRANSFER. */
+  reference?: string;
+  /** STORE_CREDIT: ISO date-time (defaults to +12 months on the server). */
+  expiresAt?: string;
+  /** STORE_CREDIT. */
+  conditions?: string;
+  /** One per opening of the refund modal. */
+  idempotencyKey: string;
+};
+
+// ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+export type NotificationStatus = 'SENT' | 'FAILED' | 'SKIPPED';
+
+export type NotificationView = {
+  id: number;
+  orderId: number | null;
+  /** E-mail template type (ORDER_CONFIRMATION, PAYMENT_INSTRUCTIONS, …). */
+  type: string;
+  eventId: string | null;
+  recipient: string | null;
+  locale: string | null;
+  status: NotificationStatus | null;
+  providerMessageId: string | null;
+  /** Error code (EMAIL_NOT_CONFIGURED, NO_RECIPIENT, …) or error class. */
+  error: string | null;
+  attempts: number;
+  sentAt: string | null;
+  createdAt: string | null;
+};
+
+// ---------------------------------------------------------------------------
+// Store credit
+// ---------------------------------------------------------------------------
+
+export type StoreCredit = {
+  id: number;
+  /** Full code (`XXXX-XXXX-XXXX`): only the store credit endpoints return it. */
+  code: string;
+  customerId: number | null;
+  email: string | null;
+  initialAmount: number;
+  balance: number;
+  currency: string;
+  expiresAt: string | null;
+  status: 'ACTIVE' | 'VOID';
+  sourceOrderId: number | null;
+  sourceRefundId: number | null;
+  conditions: string | null;
+  actor: string | null;
+  createdAt: string | null;
+};
+
+export type IssueStoreCreditInput = {
+  customerId: number;
+  /** Integer cents > 0. */
+  amount: number;
+  /** ISO date-time; the server defaults to +12 months. */
+  expiresAt?: string;
+  conditions?: string;
+  /** One per opening of the issue modal. */
+  idempotencyKey: string;
+};
