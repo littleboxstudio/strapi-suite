@@ -2,6 +2,13 @@
  * Admin-side shapes of the customers and orders API (server routes admin-customers / admin-orders).
  * Money is always integer cents.
  */
+import type {
+  PromotionBenefit,
+  PromotionConditionGroup,
+  PromotionEligibility,
+  PromotionMethod,
+  PromotionStacking,
+} from './promotionTypes';
 
 export type OrderStatus = 'OPEN' | 'ARCHIVED' | 'CANCELLED';
 export type PaymentStatus = 'PENDING' | 'PARTIALLY_PAID' | 'PAID' | 'PARTIALLY_REFUNDED' | 'REFUNDED';
@@ -121,6 +128,8 @@ export type OrderLine = {
   returnedQuantity: number;
   tax: number;
   isGift: boolean;
+  /** Promotions that discounted this line (ids of `Order.promotions`). */
+  promotionIds: number[];
   /** Units in ACTIVE shipments. */
   shipped: number;
   /** Units in ACTIVE and PENDING shipments: they cannot be shipped again. */
@@ -292,10 +301,133 @@ export type Order = {
   /** Oldest first. */
   returns: ReturnView[];
   shipping: OrderShipping;
-  promotions: unknown[];
+  promotions: OrderPromotion[];
   summary: FinancialSummary;
   availableActions: OrderActionKey[];
   history: OrderHistoryItem[];
+};
+
+// ---------------------------------------------------------------------------
+// Promotions on orders (plan 6)
+// ---------------------------------------------------------------------------
+
+export type DiscountClass = 'PRODUCT_DISCOUNT' | 'ORDER_DISCOUNT' | 'SHIPPING_DISCOUNT';
+
+/** One benefit of an applied promotion: what it gave on the order (`amount`) and its definition. */
+export type AppliedBenefit = {
+  index: number;
+  type: PromotionBenefit['type'];
+  class: DiscountClass;
+  amount: number;
+  params: PromotionBenefit;
+};
+
+/** A promotion as the order (or a quote) recorded it: a snapshot, never re-evaluated. */
+export type AppliedPromotion = {
+  promotionId: number;
+  version: number;
+  /** Internal name (admin only). */
+  name: string;
+  /** Customer-facing name per locale. */
+  displayName: Record<string, string>;
+  code: string | null;
+  method: PromotionMethod;
+  classes: DiscountClass[];
+  amount: number;
+  benefits: AppliedBenefit[];
+  snapshot: {
+    eligibility: PromotionEligibility;
+    conditions: PromotionConditionGroup;
+    stacking: PromotionStacking;
+    priority: number;
+    perOrderLimit: number | null;
+  };
+};
+
+/** An applied promotion with the state of its redemption (RELEASED after a cancellation). */
+export type OrderPromotion = AppliedPromotion & {
+  redemptionStatus: 'RESERVED' | 'RELEASED' | null;
+};
+
+export type PromotionCodeStatus =
+  | 'APPLIED'
+  | 'NOT_FOUND'
+  | 'INACTIVE'
+  | 'SCHEDULED'
+  | 'EXPIRED'
+  | 'USAGE_LIMIT_REACHED'
+  | 'CUSTOMER_LIMIT_REACHED'
+  | 'EMAIL_NOT_ELIGIBLE'
+  | 'CONDITIONS_NOT_MET'
+  | 'CONFLICT'
+  | 'NO_BENEFIT'
+  | 'AWAITING_SHIPPING';
+
+export const PROMOTION_CODE_STATUSES: PromotionCodeStatus[] = [
+  'APPLIED',
+  'NOT_FOUND',
+  'INACTIVE',
+  'SCHEDULED',
+  'EXPIRED',
+  'USAGE_LIMIT_REACHED',
+  'CUSTOMER_LIMIT_REACHED',
+  'EMAIL_NOT_ELIGIBLE',
+  'CONDITIONS_NOT_MET',
+  'CONFLICT',
+  'NO_BENEFIT',
+  'AWAITING_SHIPPING',
+];
+
+/** At most this many codes per order (server `MAX_PROMOTION_CODES`). */
+export const MAX_PROMOTION_CODES = 5;
+
+/** `POST orders/quote`: prices a cart with promotions, writes nothing. */
+export type OrderQuoteInput = {
+  lines: { variantId: number; quantity: number }[];
+  locale: string;
+  email?: string | null;
+  promotionCodes?: string[];
+  /** Per promotion id, the chosen gift variant. */
+  giftChoices?: Record<number, number>;
+  shipping?: { country: string; postalCode?: string; providerId: string; serviceId: string } | null;
+};
+
+export type OrderQuoteLine = {
+  /** Cart line index; null for gift lines. */
+  sourceIndex: number | null;
+  variantId: number;
+  productId: number;
+  unitPrice: number;
+  quantity: number;
+  unitDiscount: number;
+  isGift: boolean;
+  refs: { promotionId: number; benefitIndex: number; amount: number }[];
+  sku: string;
+  name: string;
+  option: string | null;
+  imageUrl: string | null;
+};
+
+export type OrderQuote = {
+  lines: OrderQuoteLine[];
+  promotions: AppliedPromotion[];
+  codes: { code: string; status: PromotionCodeStatus; promotionId: number | null }[];
+  rejected: { promotionId: number; reason: string }[];
+  totals: {
+    itemsOriginal: number;
+    productDiscount: number;
+    subtotal: number;
+    orderDiscount: number;
+    /** Null without a shipping destination and method. */
+    shippingOriginal: number | null;
+    shippingDiscount: number;
+    shippingTotal: number | null;
+    total: number;
+    totalDiscount: number;
+  };
+  shippingOption: ShippingOption | null;
+  /** False when the best combination was searched greedily (too many candidates). */
+  exhaustive: boolean;
 };
 
 export type CreateOrderInput = {
@@ -308,6 +440,12 @@ export type CreateOrderInput = {
   notes?: string;
   /** Required by the server: a repeated key returns the order created first. */
   idempotencyKey: string;
+  /** Normalized, at most MAX_PROMOTION_CODES. */
+  promotionCodes?: string[];
+  /** The total of the last quote: a different total → 409 TOTAL_CHANGED. */
+  expectedTotal?: number;
+  /** Per promotion id, the chosen gift variant. */
+  giftChoices?: Record<number, number>;
 };
 
 export type CreatedOrder = { id: number; reference: number; publicId: string };
@@ -381,7 +519,15 @@ export type OrderModificationInput = {
   lines: { orderLineId?: number; variantId: number; quantity: number }[];
   shipping: ModificationShipping;
   addresses?: { shipping?: Address; billing?: Address };
+  /** Manual order discount (cents). Omitted = keep the stored discount (capped at the subtotal). */
+  orderDiscount?: number;
 };
+
+/** Discount notices of a modification preview: nothing is re-priced, the admin is told. */
+export type DiscountWarning =
+  | { code: 'ORDER_DISCOUNT_CAPPED' }
+  | { code: 'PROMOTION_CONDITION_UNMET'; promotionId: number; name: string }
+  | { code: 'SHIPPING_PROMOTION_DROPPED'; promotionId: number; name: string };
 
 export type ModificationErrorCode =
   | 'QUANTITY_BELOW_SHIPPED'
@@ -428,7 +574,7 @@ export type ModificationPreview = {
     shippingOriginal: number;
     shippingDiscount: number;
   };
-  discountWarnings: { code: 'ORDER_DISCOUNT_CAPPED' }[];
+  discountWarnings: DiscountWarning[];
   outcome: ModificationOutcome;
   difference: number;
 };

@@ -14,17 +14,30 @@ import {
 } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { formatCents } from '../../utils/money';
-import { formatShippedProgress, pendingLabel } from '../../utils/orderDetail';
-import type { OrderLine } from '../../orderTypes';
+import {
+  formatShippedProgress,
+  linePromotionNames,
+  pendingLabel,
+  type PromotionLocales,
+} from '../../utils/orderDetail';
+import type { OrderLine, OrderPromotion } from '../../orderTypes';
 
 const THUMBNAIL_SIZE = 40;
 const COLUMNS = ['product', 'sku', 'unitPrice', 'quantity', 'shipped', 'total'] as const;
 
+type Props = {
+  lines: OrderLine[];
+  /** The order's applied promotions: names of the promotions that discounted each line. */
+  promotions?: OrderPromotion[];
+  locales?: PromotionLocales;
+};
+
 /**
- * The order's lines with the prices recorded on the order (requirements 4.1–4.3): "ordered /
- * shipped", units left to ship, units being shipped (PENDING at the carrier) and returned.
+ * The order's lines with the prices recorded on the order (requirements 4.1–4.3, promotions 3.3
+ * and 3.4): original price struck through, discount per unit, final price, the promotions of the
+ * line, "ordered / shipped", units left to ship, units being shipped and returned.
  */
-const OrderLinesTable = ({ lines }: { lines: OrderLine[] }) => {
+const OrderLinesTable = ({ lines, promotions = [], locales = { locale: '' } }: Props) => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
@@ -58,6 +71,7 @@ const OrderLinesTable = ({ lines }: { lines: OrderLine[] }) => {
         {lines.map((line) => {
           const finalPrice = line.unitPrice - line.unitDiscount;
           const pending = pendingLabel(line.pending);
+          const promotionNames = linePromotionNames(line.promotionIds, promotions, locales);
           return (
             <Tr key={line.id}>
               <Td>
@@ -92,6 +106,11 @@ const OrderLinesTable = ({ lines }: { lines: OrderLine[] }) => {
                       {t('ecommerce.orders.detail.lines.gift')}
                     </Badge>
                   )}
+                  {promotionNames.length > 0 && (
+                    <Typography variant="pi" textColor="success600">
+                      {t('ecommerce.orders.detail.lines.promotions', { names: promotionNames.join(', ') })}
+                    </Typography>
+                  )}
                 </Flex>
               </Td>
               <Td>
@@ -107,6 +126,11 @@ const OrderLinesTable = ({ lines }: { lines: OrderLine[] }) => {
                       aria-label={`${t('ecommerce.orders.detail.lines.originalPrice')}: ${money(line.unitPrice)}`}
                     >
                       {money(line.unitPrice)}
+                    </Typography>
+                  )}
+                  {line.unitDiscount > 0 && !line.isGift && (
+                    <Typography variant="pi" textColor="success600" style={{ whiteSpace: 'nowrap' }}>
+                      {t('ecommerce.orders.detail.lines.unitDiscount', { amount: money(line.unitDiscount) })}
                     </Typography>
                   )}
                   <Typography textColor="neutral800">{money(finalPrice)}</Typography>

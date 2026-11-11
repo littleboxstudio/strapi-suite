@@ -8,13 +8,14 @@ import config from '../../../core/config';
 import ConfirmModal from '../../../components/ConfirmModal';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchOrder from '../../usecases/orders/fetchOrder';
+import FetchOrderLocales from '../../usecases/orders/fetchOrderLocales';
 import CancelOrder from '../../usecases/orders/cancelOrder';
 import ArchiveOrder from '../../usecases/orders/archiveOrder';
 import { useOrderPermissions } from '../../hooks/useOrderPermissions';
 import { usePaymentPermissions } from '../../hooks/usePaymentPermissions';
 import { useInvoicingPermissions } from '../../hooks/useInvoicingPermissions';
 import { hasUninvoicedPayments } from '../../utils/invoiceForm';
-import { apiErrorMessageId, type ToolbarAction } from '../../utils/orderDetail';
+import { apiErrorMessageId, promotionDisplayName, type ToolbarAction } from '../../utils/orderDetail';
 import { initialOrderModalState, orderModalReducer } from '../../utils/orderModals';
 import type { InvoiceScopeInput, ModificationApplied, Order } from '../../orderTypes';
 import OrderHeader from '../../components/orders/OrderHeader';
@@ -27,7 +28,7 @@ import PaymentsTable from '../../components/orders/PaymentsTable';
 import AddPaymentModal from '../../components/orders/AddPaymentModal';
 import CancelOrderModal from '../../components/orders/CancelOrderModal';
 import HistoryTimeline from '../../components/orders/HistoryTimeline';
-import SectionPlaceholder from '../../components/orders/SectionPlaceholder';
+import PromotionsSection from '../../components/orders/PromotionsSection';
 import ModifyOrderModal from '../../components/orders/ModifyOrderModal';
 import SupplementaryPaymentModal from '../../components/orders/SupplementaryPaymentModal';
 import PaymentInstructionsModal from '../../components/orders/PaymentInstructionsModal';
@@ -73,6 +74,29 @@ const OrderDetailPage = () => {
   const hasOrderRef = useRef(false);
   // Only the latest request may update the page (navigation, quick successive refetches).
   const requestRef = useRef(0);
+
+  // The store's default locale: the promotion name when the order's locale has none.
+  const [defaultLocale, setDefaultLocale] = useState<string | null>(null);
+  const needsDefaultLocale =
+    !!order &&
+    defaultLocale === null &&
+    (order.promotions ?? []).some((p) => !promotionDisplayName(p, order.locale));
+  useEffect(() => {
+    if (!needsDefaultLocale) return undefined;
+    let cancelled = false;
+    new FetchOrderLocales()
+      .execute()
+      .then((data) => {
+        if (!cancelled) setDefaultLocale(data.defaultLocale);
+      })
+      .catch(() => {
+        // Without it the neutral "Promotion" label is shown.
+        if (!cancelled) setDefaultLocale('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [needsDefaultLocale]);
 
   const load = useCallback(async (): Promise<void> => {
     const request = ++requestRef.current;
@@ -203,7 +227,11 @@ const OrderDetailPage = () => {
       />
 
       <OrderSection title={t('ecommerce.orders.detail.lines.title')}>
-        <OrderLinesTable lines={order.lines} />
+        <OrderLinesTable
+          lines={order.lines}
+          promotions={order.promotions}
+          locales={{ locale: order.locale, defaultLocale }}
+        />
       </OrderSection>
 
       <Grid.Root gap={6}>
@@ -242,7 +270,11 @@ const OrderDetailPage = () => {
                 onChanged={load}
               />
             </OrderSection>
-            <SectionPlaceholder title={t('ecommerce.orders.detail.sections.promotions')} />
+            <PromotionsSection
+              title={t('ecommerce.orders.detail.sections.promotions')}
+              promotions={order.promotions ?? []}
+              locales={{ locale: order.locale, defaultLocale }}
+            />
           </Flex>
         </Grid.Item>
         <Grid.Item col={4} s={12} direction="column" alignItems="stretch">

@@ -5,7 +5,9 @@ import {
   toAddress,
   type AddressForm,
 } from './orderForm';
+import type { Message } from './orderDetail';
 import type {
+  DiscountWarning,
   FieldError,
   ModificationPreview,
   ModificationShipping,
@@ -51,6 +53,8 @@ export type ModifyOrderForm = {
   shippingMode: ShippingMode;
   /** Decimal amount typed by the admin (MANUAL mode). */
   manualAmount: string;
+  /** Manual order discount in euros; empty keeps the stored discount. */
+  orderDiscount: string;
 };
 
 /** First code per UI key: `line.<key>`, `shippingAddress.<field>`, `shipping`, `form`, … */
@@ -81,6 +85,7 @@ export function modifyFormFromOrder(order: Order): ModifyOrderForm {
     originalBillingAddress: { ...billingAddress },
     shippingMode: 'KEEP',
     manualAmount: '',
+    orderDiscount: '',
   };
 }
 
@@ -172,10 +177,14 @@ export function buildModificationInput(form: ModifyOrderForm): OrderModification
     addresses.billing = toAddress(form.billingAddress, true);
   }
 
+  // Empty keeps the stored discount. An unparsable amount becomes null in JSON: INVALID_AMOUNT.
+  const discount = (form.orderDiscount ?? '').trim();
+
   return {
     lines,
     shipping,
     ...(addresses.shipping || addresses.billing ? { addresses } : {}),
+    ...(discount ? { orderDiscount: parseMoneyToCents(discount) ?? NaN } : {}),
   };
 }
 
@@ -212,6 +221,13 @@ export function validateModificationForm(form: ModifyOrderForm): FieldError[] {
     const cents = parseMoneyToCents(form.manualAmount);
     if (cents === null || cents < 0 || cents > MAX_MONEY_CENTS) {
       errors.push({ path: 'shipping.amount', code: 'INVALID_AMOUNT' });
+    }
+  }
+  const discount = (form.orderDiscount ?? '').trim();
+  if (discount) {
+    const cents = parseMoneyToCents(discount);
+    if (cents === null || cents < 0 || cents > MAX_MONEY_CENTS) {
+      errors.push({ path: 'orderDiscount', code: 'INVALID_AMOUNT' });
     }
   }
   return errors;
@@ -263,6 +279,10 @@ export function toModificationErrorMap(
       put('lines', code);
       return;
     }
+    if (path === 'orderDiscount') {
+      put('orderDiscount', code);
+      return;
+    }
     put('form', code);
   });
   return map;
@@ -281,4 +301,10 @@ export function countLines(lineChanges: ModificationPreview['lineChanges']): {
     out.after.units += c.newQuantity;
   });
   return out;
+}
+
+/** Translation of a discount notice of the preview; promotion notices carry the promotion name. */
+export function discountWarningMessage(w: DiscountWarning): Message {
+  const id = `ecommerce.orders.modify.warnings.${w.code}`;
+  return 'name' in w ? { id, values: { name: w.name } } : { id };
 }

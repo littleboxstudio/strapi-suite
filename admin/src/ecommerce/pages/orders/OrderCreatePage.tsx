@@ -23,25 +23,44 @@ import FetchCustomer from '../../usecases/orders/fetchCustomer';
 import FetchCustomerLastAddresses from '../../usecases/orders/fetchCustomerLastAddresses';
 import QuoteOrderShipping from '../../usecases/orders/quoteOrderShipping';
 import CreateOrder from '../../usecases/orders/createOrder';
+import QuoteOrder from '../../usecases/orders/quoteOrder';
+import FetchPromotion from '../../usecases/promotions/fetchPromotion';
 import AddressFields, { type AddressField } from '../../components/orders/AddressFields';
 import VariantPicker from '../../components/orders/VariantPicker';
 import OrderLinesEditor from '../../components/orders/OrderLinesEditor';
 import TotalsPreview from '../../components/orders/TotalsPreview';
+import OrderQuotePanel from '../../components/orders/OrderQuotePanel';
 import { extractFieldErrors } from '../../utils/productForm';
 import { mintUuid } from '../../utils/variantDraft';
 import { formatCents } from '../../utils/money';
 import { useOrderPermissions } from '../../hooks/useOrderPermissions';
+import { usePromotionPermissions } from '../../hooks/usePromotionPermissions';
+import { apiErrorCode } from '../../utils/orderDetail';
 import {
   addLine,
+  addPromotionCode,
   addressFormFromAddress,
   buildCreateOrderInput,
+  buildQuoteInput,
+  createOrderConflict,
   emptyOrderForm,
+  giftChoicesFromQuote,
+  giftSelectors,
   toOrderErrorMap,
   validateOrderForm,
   type OrderErrorMap,
   type OrderForm,
 } from '../../utils/orderForm';
-import type { FieldError, OrderLocales, ShippingQuote, VariantSearchResult } from '../../orderTypes';
+import type {
+  FieldError,
+  OrderLocales,
+  OrderQuote,
+  ShippingQuote,
+  VariantSearchResult,
+} from '../../orderTypes';
+
+/** Typing pause before the cart is priced again. */
+const QUOTE_DELAY_MS = 400;
 
 const CUSTOMER_FIELDS = [
   { field: 'firstName', required: true, type: 'text' },
@@ -81,6 +100,7 @@ const OrderCreatePage = () => {
   const customerId = Number.isInteger(rawCustomerId) && rawCustomerId > 0 ? rawCustomerId : null;
 
   const { isLoading: permissionsLoading, canManage } = useOrderPermissions();
+  const { canRead: canReadPromotions } = usePromotionPermissions();
 
   // One key per form: a retried submit returns the order created by the first one.
   const [idempotencyKey] = useState(() => mintUuid());
@@ -91,6 +111,13 @@ const OrderCreatePage = () => {
   const [quoting, setQuoting] = useState(false);
   const [loadingAddresses, setLoadingAddresses] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // Promotions: the server's quote of the cart (codes, gifts, discounts and totals).
+  const [giftChoices, setGiftChoices] = useState<Record<number, number>>({});
+  const [priced, setPriced] = useState<{ signature: string; quote: OrderQuote } | null>(null);
+  const [pricing, setPricing] = useState(0);
+  const [pricingError, setPricingError] = useState<string | null>(null);
+  const [giftLabels, setGiftLabels] = useState<Record<number, string>>({});
+  const labelledPromotions = useRef(new Set<number>());
 
   useEffect(() => {
     let cancelled = false;
@@ -149,6 +176,98 @@ const OrderCreatePage = () => {
     setQuote(null);
     setForm((f) => (f.shipping ? { ...f, shipping: null } : f));
   }, [quoteSignature]);
+
+  const quoteInput = useMemo(() => buildQuoteInput(form, giftChoices), [form, giftChoices]);
+  const priceSignature = useMemo(() => JSON.stringify(quoteInput), [quoteInput]);
+  const priceSignatureRef = useRef(priceSignature);
+  priceSignatureRef.current = priceSignature;
+  const canPrice =
+    !!quoteInput.locale &&
+    quoteInput.lines.length > 0 &&
+    quoteInput.lines.every((l) => Number.isSafeInteger(l.quantity) && l.quantity >= 1);
+
+  /** Prices the cart as it is now; null when it failed or the cart changed meanwhile. */
+  const runPriceQuote = async (): Promise<OrderQuote | null> => {
+    if (!canPrice) return null;
+    const signature = priceSignature;
+    setPricing((n) => n + 1);
+    try {
+      const result = await new QuoteOrder().execute(quoteInput);
+      if (signature !== priceSignatureRef.current) return null;
+      setPriced({ signature, quote: result });
+      setPricingError(null);
+      return result;
+    } catch (err) {
+      if (signature === priceSignatureRef.current) {
+        const code = apiErrorCode(err);
+        setPricingError(
+          code
+            ? formatMessage({
+                id: getTranslation(`ecommerce.orders.errors.${code}`),
+                defaultMessage: t('ecommerce.orders.quote.error'),
+              })
+            : t('ecommerce.orders.quote.error')
+        );
+      }
+      return null;
+    } finally {
+      setPricing((n) => n - 1);
+    }
+  };
+
+  useEffect(() => {
+    if (!canPrice) {
+      setPriced(null);
+      setPricingError(null);
+      return undefined;
+    }
+    const timer = setTimeout(() => {
+      runPriceQuote();
+    }, QUOTE_DELAY_MS);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [priceSignature, canPrice]);
+
+  const freshQuote = priced && priced.signature === priceSignature ? priced.quote : null;
+  const shownQuote = canPrice ? (priced?.quote ?? null) : null;
+
+  // Names of the gift variants a promotion lets the admin choose from (needs promotions.read).
+  useEffect(() => {
+    if (!shownQuote || !canReadPromotions) return;
+    giftSelectors(shownQuote).forEach((s) => {
+      if (labelledPromotions.current.has(s.promotionId)) return;
+      labelledPromotions.current.add(s.promotionId);
+      new FetchPromotion()
+        .execute(s.promotionId)
+        .then((p) => {
+          const labels: Record<number, string> = {};
+          Object.entries(p.labels?.variants ?? {}).forEach(([id, v]) => {
+            labels[Number(id)] = v.option ? `${v.name} — ${v.option}` : v.name;
+          });
+          setGiftLabels((current) => ({ ...labels, ...current }));
+        })
+        .catch(() => {
+          // Without the names the selector shows the variant ids.
+        });
+    });
+  }, [shownQuote, canReadPromotions]);
+
+  const variantLabel = (variantId: number) => {
+    const fromQuote = shownQuote?.lines.find((l) => l.variantId === variantId);
+    if (fromQuote) return fromQuote.option ? `${fromQuote.name} — ${fromQuote.option}` : fromQuote.name;
+    const fromCart = form.lines.find((l) => l.variantId === variantId);
+    if (fromCart) return fromCart.option ? `${fromCart.name} — ${fromCart.option}` : fromCart.name;
+    return giftLabels[variantId] ?? `#${variantId}`;
+  };
+
+  const addCode = (raw: string) => {
+    const result = addPromotionCode(form.promotionCodes, raw);
+    if (!result.error) setForm((f) => ({ ...f, promotionCodes: result.codes }));
+    return result.error;
+  };
+
+  const removeCode = (code: string) =>
+    setForm((f) => ({ ...f, promotionCodes: f.promotionCodes.filter((c) => c !== code) }));
 
   const clearErrors = (match: (path: string) => boolean) =>
     setErrors((map) => {
@@ -254,13 +373,31 @@ const OrderCreatePage = () => {
     }
     setSubmitting(true);
     try {
-      const created = await new CreateOrder().execute(buildCreateOrderInput(form, idempotencyKey));
+      // The order is created with the totals the admin saw: a different server total → 409.
+      const quote = freshQuote ?? (await runPriceQuote());
+      const decision = quote
+        ? { expectedTotal: quote.totals.total, giftChoices: giftChoicesFromQuote(quote) }
+        : undefined;
+      const created = await new CreateOrder().execute(buildCreateOrderInput(form, idempotencyKey, decision));
       toggleNotification({
         type: 'success',
         message: t('ecommerce.orders.new.created', { reference: created.reference }),
       });
       navigate(`${basePath}/${created.id}`);
     } catch (err) {
+      const conflict = createOrderConflict(err);
+      if (conflict) {
+        // A promotion or the total changed: price again and let the admin confirm.
+        const requoted = await runPriceQuote();
+        toggleNotification({
+          type: 'warning',
+          message:
+            conflict === 'TOTAL_CHANGED' && requoted
+              ? t('ecommerce.orders.quote.totalChanged', { total: formatCents(requoted.totals.total, uiLocale) })
+              : t(`ecommerce.orders.errors.${conflict}`),
+        });
+        return;
+      }
       const fieldErrors = extractFieldErrors(err);
       if (fieldErrors) showErrors(fieldErrors);
       else toggleNotification({ type: 'danger', message: t('ecommerce.orders.new.error') });
@@ -469,9 +606,21 @@ const OrderCreatePage = () => {
           </Section>
         </Grid.Item>
         <Grid.Item col={5} s={12} direction="column" alignItems="stretch">
-          <Section title={t('ecommerce.orders.totals.title')}>
-            <TotalsPreview lines={form.lines} shippingPrice={selectedOption?.price ?? null} />
-          </Section>
+          <OrderQuotePanel
+            codes={form.promotionCodes}
+            onAddCode={addCode}
+            onRemoveCode={removeCode}
+            quote={shownQuote}
+            loading={pricing > 0}
+            error={canPrice ? pricingError : null}
+            locale={form.locale}
+            variantLabel={variantLabel}
+            onGiftChoice={(promotionId, variantId) =>
+              setGiftChoices((choices) => ({ ...choices, [promotionId]: variantId }))
+            }
+            disabled={disabled}
+            fallbackTotals={<TotalsPreview lines={form.lines} shippingPrice={selectedOption?.price ?? null} />}
+          />
         </Grid.Item>
       </Grid.Root>
     </Flex>

@@ -14,8 +14,18 @@ import {
   apiErrorMessageId,
   modifyBlockedByShipment,
   shouldRenewIdempotencyKey,
+  linePromotionNames,
+  promotionDisplayName,
+  promotionRows,
+  promotionsDiscountTotal,
+  totalDiscount,
 } from '../../../admin/src/ecommerce/utils/orderDetail';
-import type { FinancialSummary, OrderHistoryItem, OrderTotals } from '../../../admin/src/ecommerce/orderTypes';
+import type {
+  FinancialSummary,
+  OrderHistoryItem,
+  OrderPromotion,
+  OrderTotals,
+} from '../../../admin/src/ecommerce/orderTypes';
 
 const en = require('../../../admin/src/core/translations/en.json');
 const pt = require('../../../admin/src/core/translations/pt.json');
@@ -346,6 +356,7 @@ describe('financialSummaryRows', () => {
       { key: 'subtotal', amount: 11700 },
       { key: 'shippingOriginal', amount: 800 },
       { key: 'shippingDiscount', amount: -800 },
+      { key: 'totalDiscount', amount: -4100 },
       { key: 'total', amount: 11700, strong: true },
       { key: 'paid', amount: 10000 },
       { key: 'net', amount: 10000 },
@@ -380,6 +391,7 @@ describe('financialSummaryRows', () => {
       'subtotal',
       'shippingOriginal',
       'shippingDiscount',
+      'totalDiscount',
       'total',
       'paid',
       'pendingPayments',
@@ -610,5 +622,164 @@ describe('shouldRenewIdempotencyKey', () => {
   it('reads the status from the error body when the error has none', () => {
     expect(shouldRenewIdempotencyKey({ response: { data: { error: { status: 400 } } } })).toBe(true);
     expect(shouldRenewIdempotencyKey({ response: { data: { error: { status: 503 } } } })).toBe(false);
+  });
+});
+
+describe('totalDiscount', () => {
+  it('sums the product, order and shipping discounts', () => {
+    expect(
+      totalDiscount({
+        itemsOriginal: 15000,
+        productDiscount: 2000,
+        subtotal: 13000,
+        orderDiscount: 1300,
+        shippingOriginal: 800,
+        shippingDiscount: 800,
+        shippingTotal: 0,
+        total: 11700,
+      })
+    ).toBe(4100);
+  });
+
+  it('has no totalDiscount row without discounts', () => {
+    const rows = financialSummaryRows(
+      {
+        itemsOriginal: 1000,
+        productDiscount: 0,
+        subtotal: 1000,
+        orderDiscount: 0,
+        shippingOriginal: 0,
+        shippingDiscount: 0,
+        shippingTotal: 0,
+        total: 1000,
+      },
+      { orderTotal: 1000, total: 1000, paid: 0, pendingPayments: 0, refunded: 0, net: 0, due: 1000, excess: 0, overRefunded: 0 }
+    );
+    expect(rows.some((r) => r.key === 'totalDiscount')).toBe(false);
+  });
+});
+
+describe('order promotions', () => {
+  const snapshot = {
+    eligibility: { mode: 'ALL' },
+    conditions: { type: 'GROUP', operator: 'AND', children: [] },
+    stacking: { exclusive: false, withProduct: true, withOrder: true, withShipping: true },
+    priority: 0,
+    perOrderLimit: null,
+  };
+  const promo = (over: Partial<OrderPromotion> = {}): OrderPromotion =>
+    ({
+      promotionId: 1,
+      version: 1,
+      name: 'Summer internal',
+      displayName: { pt: 'Verão', en: 'Summer' },
+      code: 'VERAO20',
+      method: 'CODE',
+      classes: ['PRODUCT_DISCOUNT', 'SHIPPING_DISCOUNT'],
+      amount: 2800,
+      benefits: [
+        {
+          index: 0,
+          type: 'PRODUCT_PERCENT',
+          class: 'PRODUCT_DISCOUNT',
+          amount: 2000,
+          params: { type: 'PRODUCT_PERCENT', target: { productIds: [1], variantIds: [] }, percent: 10, maxQuantity: null },
+        },
+        {
+          index: 1,
+          type: 'SHIPPING_FREE',
+          class: 'SHIPPING_DISCOUNT',
+          amount: 800,
+          params: { type: 'SHIPPING_FREE', maxAmount: null },
+        },
+      ],
+      snapshot,
+      redemptionStatus: 'RESERVED',
+      ...over,
+    }) as OrderPromotion;
+
+  it('promotionRows gives one row per benefit with its amount', () => {
+    const rows = promotionRows([promo(), promo({ promotionId: 2, code: null, method: 'AUTOMATIC', amount: 1300, redemptionStatus: 'RELEASED', displayName: {}, benefits: [{ index: 0, type: 'ORDER_FIXED', class: 'ORDER_DISCOUNT', amount: 1300, params: { type: 'ORDER_FIXED', amount: 1300 } }] })], { locale: 'en' });
+    expect(rows).toEqual([
+      expect.objectContaining({ key: '1-0', promotionId: 1, displayName: 'Summer', name: 'Summer internal', code: 'VERAO20', method: 'CODE', discountClass: 'PRODUCT_DISCOUNT', amount: 2000, released: false }),
+      expect.objectContaining({ key: '1-1', promotionId: 1, discountClass: 'SHIPPING_DISCOUNT', amount: 800, benefit: { type: 'SHIPPING_FREE', maxAmount: null } }),
+      expect.objectContaining({ key: '2-0', promotionId: 2, displayName: null, code: null, method: 'AUTOMATIC', discountClass: 'ORDER_DISCOUNT', amount: 1300, released: true }),
+    ]);
+  });
+
+  it('promotionRows reads a legacy or missing list as empty', () => {
+    expect(promotionRows(undefined as unknown as OrderPromotion[], { locale: 'pt' })).toEqual([]);
+    expect(promotionRows([promo({ benefits: undefined as any })], { locale: 'pt' })).toEqual([]);
+  });
+
+  it('promotionDisplayName: order locale, then default locale, then null', () => {
+    expect(promotionDisplayName(promo(), 'pt', 'en')).toBe('Verão');
+    expect(promotionDisplayName(promo({ displayName: { en: 'Summer', pt: '  ' } }), 'pt', 'en')).toBe('Summer');
+    expect(promotionDisplayName(promo({ displayName: { fr: 'Été' } }), 'pt', 'en')).toBeNull();
+    expect(promotionDisplayName(promo({ displayName: { en: 'Summer' } }), 'pt')).toBeNull();
+  });
+
+  it('promotionsDiscountTotal sums the stored amounts', () => {
+    expect(promotionsDiscountTotal([promo(), promo({ promotionId: 2, amount: 1300 })])).toBe(4100);
+    expect(promotionsDiscountTotal([])).toBe(0);
+  });
+
+  it('linePromotionNames maps the line promotion ids to labels, skipping unknown ids', () => {
+    const list = [promo(), promo({ promotionId: 2, displayName: {}, name: 'Internal two' })];
+    expect(linePromotionNames([1, 2, 9], list, { locale: 'en' })).toEqual(['Summer', 'Internal two']);
+    expect(linePromotionNames(undefined as unknown as number[], list, { locale: 'en' })).toEqual([]);
+  });
+
+  it('has en + pt labels for the section, classes, code statuses and history types', () => {
+    [
+      'ecommerce.orders.detail.summary.totalDiscount',
+      'ecommerce.orders.promotions.columns.promotion',
+      'ecommerce.orders.promotions.columns.method',
+      'ecommerce.orders.promotions.columns.type',
+      'ecommerce.orders.promotions.columns.benefit',
+      'ecommerce.orders.promotions.columns.amount',
+      'ecommerce.orders.promotions.released',
+      'ecommerce.orders.promotions.total',
+      'ecommerce.orders.promotions.empty',
+      'ecommerce.orders.promotions.fallbackName',
+      'ecommerce.orders.promotions.classes.PRODUCT_DISCOUNT',
+      'ecommerce.orders.promotions.classes.ORDER_DISCOUNT',
+      'ecommerce.orders.promotions.classes.SHIPPING_DISCOUNT',
+      'ecommerce.orders.detail.lines.unitDiscount',
+      'ecommerce.orders.history.type.PROMOTIONS_APPLIED',
+      'ecommerce.orders.history.type.PROMOTIONS_RELEASED',
+      ...[
+        'APPLIED',
+        'NOT_FOUND',
+        'INACTIVE',
+        'SCHEDULED',
+        'EXPIRED',
+        'USAGE_LIMIT_REACHED',
+        'CUSTOMER_LIMIT_REACHED',
+        'EMAIL_NOT_ELIGIBLE',
+        'CONDITIONS_NOT_MET',
+        'CONFLICT',
+        'NO_BENEFIT',
+        'AWAITING_SHIPPING',
+      ].map((s) => `ecommerce.orders.promotions.codeStatus.${s}`),
+    ].forEach((k) => {
+      expect(en[`${P}${k}`], k).toEqual(expect.any(String));
+      expect(pt[`${P}${k}`], k).toEqual(expect.any(String));
+    });
+    expect(en[`${P}ecommerce.orders.promotions.fallbackName`]).toBe('Promotion');
+    expect(pt[`${P}ecommerce.orders.promotions.fallbackName`]).toBe('Promoção');
+  });
+
+  it('API_ERROR_CODES covers the promotion codes of order create and quote', () => {
+    expect(API_ERROR_CODES).toEqual(
+      expect.arrayContaining([
+        'PROMOTION_UNAVAILABLE',
+        'PROMOTION_CODE_INVALID',
+        'TOTAL_CHANGED',
+        'too_many',
+        'invalid_email',
+        'invalid_country',
+      ])
+    );
   });
 });
