@@ -108,3 +108,6 @@ Lista de itens adiados nas revisões do plano 1 (Base e Produtos), a considerar 
 - Unknown request body keys are ignored silently (e.g. `shipping` instead of `shippingMethod` on /cart/quote) — consider rejecting unknown keys to help BFF developers
 - Storefront token failures (missing, wrong, expired) all answer 403 (a policy can't throw 401 without @strapi/utils) — documented in docs/ecommerce/storefront-api.md
 - A quote that fails validation (e.g. INSUFFICIENT_STOCK) still saves the shopper's cart lines on the session (intended: the cart reflects the selection)
+
+## Plan 8
+- CTT Expresso: o preço vem da cotação da API (ainda um stub `NOT_IMPLEMENTED`); reavaliar a tarifação por zona do CTT (serviços, peso, zonas próprias do CTT) quando chegar a documentação da API.

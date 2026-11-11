@@ -379,6 +379,47 @@ describe('EcommerceSettingsService — Stripe return paths', () => {
   });
 });
 
+describe('EcommerceSettingsService — carrier zones', () => {
+  afterEach(() => __resetRegistryForTests());
+  const CTT = {
+    config: { clientId: 'c', contractNumber: 'n', username: 'u' },
+    secrets: { password: 'ctt-password-1' },
+  };
+  const withZones = async () => {
+    const ctx = makeStrapi();
+    await ctx.service.updateStoreSettings({ markets: ['PT', 'ES'] });
+    await ctx.zones.create({ name: 'PT', countries: ['PT'] });
+    await ctx.zones.create({ name: 'ES', countries: ['ES'] });
+    return ctx;
+  };
+
+  it('stores unique zone ids in the order received', async () => {
+    const { service } = await withZones();
+    const view = await service.updateIntegration('ctt-expresso', { config: { zones: [2, 1, 2] } });
+    expect(view.config.zones).toEqual([2, 1]);
+    expect((await service.getRuntime('ctt-expresso'))!.config.zones).toEqual([2, 1]);
+  });
+
+  it('rejects ids of zones that do not exist, active or not', async () => {
+    const { service } = await withZones();
+    const err: any = await service.updateIntegration('ctt-expresso', { config: { zones: [9] } }).catch((e) => e);
+    expect(err).toBeInstanceOf(EcommerceValidationError);
+    expect(err.errors).toEqual([{ path: 'config.zones', code: 'invalid_zone' }]);
+    const bad: any = await service.updateIntegration('ctt-expresso', { config: { zones: ['1'] } }).catch((e) => e);
+    expect(bad.errors).toEqual([{ path: 'config.zones', code: 'invalid_zone' }]);
+  });
+
+  it('activating CTT requires at least one zone', async () => {
+    const { service } = await withZones();
+    await service.updateIntegration('ctt-expresso', CTT);
+    const err: any = await service.setActive('ctt-expresso', true).catch((e) => e);
+    expect(err).toBeInstanceOf(EcommerceValidationError);
+    expect(err.errors).toEqual([{ path: 'config.zones', code: 'required' }]);
+    await service.updateIntegration('ctt-expresso', { config: { zones: [1] } });
+    expect((await service.setActive('ctt-expresso', true)).active).toBe(true);
+  });
+});
+
 describe('EcommerceSettingsService — store settings', () => {
   it('returns defaults when nothing is stored', async () => {
     const { service } = makeStrapi();
