@@ -91,7 +91,11 @@ describe('reconcileCoverages', () => {
     const before = order([line(1, 2000, 1)]);
     const coverage = computeCoverage(before, [], 2000);
     const after = order([line(2, 2000, 1)]);
-    const r = reconcileCoverages(after, [{ id: 10, amount: 2000, coverage }], new Map());
+    const r = reconcileCoverages(
+      after,
+      [{ id: 10, amount: 2000, refunded: 0, coverage }],
+      new Map()
+    );
     expect(r.get(10)).toEqual({
       paymentId: 10,
       lines: [{ orderLineId: 2, value: 2000 }],
@@ -108,7 +112,7 @@ describe('reconcileCoverages', () => {
     const coverage = computeCoverage(order([line(1, 1000, 3)]), [], 3000);
     const r = reconcileCoverages(
       order([line(1, 1000, 1)]),
-      [{ id: 1, amount: 3000, coverage }],
+      [{ id: 1, amount: 3000, refunded: 0, coverage }],
       new Map()
     );
     expect(r.get(1)).toMatchObject({
@@ -137,8 +141,8 @@ describe('reconcileCoverages', () => {
     const r = reconcileCoverages(
       o,
       [
-        { id: 1, amount: 1500, coverage: c1 },
-        { id: 2, amount: 500, coverage: c2 },
+        { id: 1, amount: 1500, refunded: 0, coverage: c1 },
+        { id: 2, amount: 500, refunded: 0, coverage: c2 },
       ],
       invoiced
     );
@@ -166,10 +170,11 @@ describe('reconcileCoverages', () => {
     const r = reconcileCoverages(
       after,
       [
-        { id: 1, amount: 2000, coverage: computeCoverage(before, [], 2000) },
+        { id: 1, amount: 2000, refunded: 0, coverage: computeCoverage(before, [], 2000) },
         {
           id: 2,
           amount: 1000,
+          refunded: 0,
           coverage: { lines: [{ orderLineId: 1, value: 1000 }], shipping: { value: 0, tax: 23 } },
         },
       ],
@@ -201,7 +206,11 @@ describe('reconcileCoverages', () => {
 
   it('null coverage → the whole payment is reallocated', () => {
     const o = order([line(1, 1000, 1), line(2, 3000, 1)], { shippingTotal: 1000 });
-    const r = reconcileCoverages(o, [{ id: 5, amount: 2500, coverage: null }], new Map());
+    const r = reconcileCoverages(
+      o,
+      [{ id: 5, amount: 2500, refunded: 0, coverage: null }],
+      new Map()
+    );
     const c = r.get(5)!;
     expect(c.value).toBe(2500);
     expect(c.excluded).toBe(0);
@@ -218,8 +227,8 @@ describe('reconcileCoverages', () => {
     const r = reconcileCoverages(
       o,
       [
-        { id: 1, amount: 700, coverage: null },
-        { id: 2, amount: 700, coverage: null },
+        { id: 1, amount: 700, refunded: 0, coverage: null },
+        { id: 2, amount: 700, refunded: 0, coverage: null },
       ],
       new Map()
     );
@@ -232,7 +241,11 @@ describe('reconcileCoverages', () => {
 
   it('respects the order discount share (lineDue)', () => {
     const o = order([line(1, 1000, 1), line(2, 1000, 1)], { orderDiscount: 200 });
-    const r = reconcileCoverages(o, [{ id: 1, amount: 2000, coverage: null }], new Map());
+    const r = reconcileCoverages(
+      o,
+      [{ id: 1, amount: 2000, refunded: 0, coverage: null }],
+      new Map()
+    );
     expect(r.get(1)).toMatchObject({
       lines: [
         { orderLineId: 1, value: 900 },
@@ -257,7 +270,7 @@ describe('reconcileCoverages on net payment amounts', () => {
       after,
       [
         { id: 1, amount: 3000, refunded: 2000, coverage },
-        { id: 2, amount: 2000, coverage: c2 },
+        { id: 2, amount: 2000, refunded: 0, coverage: c2 },
       ],
       new Map()
     );
@@ -294,19 +307,24 @@ describe('reconcileCoverages on net payment amounts', () => {
     const invoiced = new Map<number, InvoicedCoverage>([
       [1, { lines: [{ orderLineId: 1, value: 1000 }], shipping: 0 }],
     ]);
-    const r = reconcileCoverages(o, [{ id: 2, amount: 1000, coverage: null }], invoiced);
+    const r = reconcileCoverages(
+      o,
+      [{ id: 2, amount: 1000, refunded: 0, coverage: null }],
+      invoiced
+    );
     expect([...r.keys()]).toEqual([2]);
     expect(r.get(2)).toMatchObject({ lines: [], value: 0, excluded: 1000 });
   });
 
-  it('negative, NaN or non-integer amounts (or refunds) are a domain error', () => {
+  it('negative, NaN or non-integer amounts, or a missing/invalid refunded, are a domain error', () => {
     const o = order([line(1, 1000, 1)]);
     for (const bad of [
-      { id: 1, amount: -1, coverage: null },
-      { id: 1, amount: NaN, coverage: null },
-      { id: 1, amount: 10.5, coverage: null },
+      { id: 1, amount: -1, refunded: 0, coverage: null },
+      { id: 1, amount: NaN, refunded: 0, coverage: null },
+      { id: 1, amount: 10.5, refunded: 0, coverage: null },
       { id: 1, amount: 100, refunded: -5, coverage: null },
       { id: 1, amount: 100, refunded: NaN, coverage: null },
+      { id: 1, amount: 100, coverage: null } as never,
     ]) {
       expect(() => reconcileCoverages(o, [bad], new Map())).toThrow(EcommerceValidationError);
     }
@@ -318,7 +336,7 @@ describe('buildInvoiceLines', () => {
     const o = order([line(1, 1230, 1, { tax: 23 }), line(2, 1060, 1, { tax: 6 })]);
     const r = reconcileCoverages(
       o,
-      [{ id: 1, amount: 1145, coverage: computeCoverage(o, [], 1145) }],
+      [{ id: 1, amount: 1145, refunded: 0, coverage: computeCoverage(o, [], 1145) }],
       new Map()
     );
     const lines = buildInvoiceLines([r.get(1)!], o, SHIPPING);
@@ -353,7 +371,7 @@ describe('buildInvoiceLines', () => {
     });
     const r = reconcileCoverages(
       o,
-      [{ id: 1, amount: 4450, coverage: computeCoverage(o, [], 4450) }],
+      [{ id: 1, amount: 4450, refunded: 0, coverage: computeCoverage(o, [], 4450) }],
       new Map()
     );
     expect(buildInvoiceLines([r.get(1)!], o, SHIPPING)).toEqual([
