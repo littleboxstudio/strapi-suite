@@ -74,7 +74,7 @@ describe('EcommerceShipmentController', () => {
     expect(create).not.toHaveBeenCalled();
   });
 
-  it.each(['QUANTITY_EXCEEDS_PENDING', 'ALREADY_DELIVERED', 'SHIPMENT_PENDING', 'SHIPMENT_UNCERTAIN', 'SHIPMENT_HAS_RETURNS', 'ORDER_CHANGED', 'SHIPMENT_STATE_CHANGED', 'IDEMPOTENCY_KEY_CONFLICT'])(
+  it.each(['QUANTITY_EXCEEDS_PENDING', 'QUANTITY_EXCEEDS_RETURNABLE', 'ALREADY_DELIVERED', 'SHIPMENT_PENDING', 'SHIPMENT_UNCERTAIN', 'SHIPMENT_HAS_RETURNS', 'ORDER_CHANGED', 'SHIPMENT_STATE_CHANGED', 'IDEMPOTENCY_KEY_CONFLICT'])(
     'maps %s to 409',
     async (code) => {
       const create = vi.fn().mockRejectedValue(new EcommerceValidationError('x', [{ path: 'p', code }]));
@@ -85,6 +85,47 @@ describe('EcommerceShipmentController', () => {
       expect(ctx.body.error.details.code).toBe(code);
     }
   );
+
+  it.each([
+    ['deliver', 'confirmDelivery', 'ALREADY_DELIVERED', { deliveredAt: '2026-01-01' }],
+    ['cancel', 'cancel', 'SHIPMENT_HAS_RETURNS', { reason: 'x' }],
+    ['retry', 'retry', 'SHIPMENT_STATE_CHANGED', {}],
+    ['refreshTracking', 'refreshTracking', 'SHIPMENT_PENDING', {}],
+    ['updateTracking', 'updateTracking', 'SHIPMENT_UNCERTAIN', {}],
+  ])('%s maps %s conflicts (%s) to 409', async (handler, method, code, b) => {
+    const fn = vi.fn().mockRejectedValue(new EcommerceValidationError('x', [{ path: 'p', code }]));
+    const c: any = createShipments({ strapi: strapiWith({ EcommerceShipmentService: { [method]: fn } }) });
+    const ctx = body(b);
+    await c[handler](ctx);
+    expect(ctx.status).toBe(409);
+    expect(ctx.body.error.details.code).toBe(code);
+  });
+
+  it.each(['unknown_line', 'duplicate_line', 'invalid_date', 'before_shipment', 'in_future', 'too_long', 'required'])(
+    'domain field code %s is a 400 carrying the code and errors',
+    async (code) => {
+      const confirmDelivery = vi.fn().mockRejectedValue(new EcommerceValidationError('x', [{ path: 'p', code }]));
+      const c = createShipments({ strapi: strapiWith({ EcommerceShipmentService: { confirmDelivery } }) });
+      const ctx = body({ deliveredAt: '2026-01-01' });
+      await c.deliver(ctx);
+      expect(ctx.badRequest).toHaveBeenCalledWith(expect.any(String), { code, errors: [{ path: 'p', code }] });
+    }
+  );
+
+  it.each(['1e2', '0x10', ' 5', '5 ', '-1', '0', '1.5', '', '9'.repeat(30)])('rejects id %j strictly', async (id) => {
+    const retry = vi.fn();
+    const register = vi.fn();
+    const c = createShipments({ strapi: strapiWith({ EcommerceShipmentService: { retry } }) });
+    const r = createReturns({ strapi: strapiWith({ EcommerceReturnService: { register } }) });
+    const ctx = mkCtx({ params: { id } });
+    await c.retry(ctx);
+    expect(ctx.badRequest).toHaveBeenCalledWith('Invalid id');
+    const ctx2 = body({}, { params: { id } });
+    await r.register(ctx2);
+    expect(ctx2.badRequest).toHaveBeenCalledWith('Invalid id');
+    expect(retry).not.toHaveBeenCalled();
+    expect(register).not.toHaveBeenCalled();
+  });
 
   it.each(['ACTION_NOT_AVAILABLE', 'LABEL_NOT_AVAILABLE', 'NOT_SUPPORTED', 'invalid_url', 'INVALID_AMOUNT'])(
     'maps validation code %s to 400 with the code',
@@ -167,6 +208,26 @@ describe('EcommerceShipmentController', () => {
     expect(Buffer.isBuffer(ctx.body)).toBe(true);
   });
 
+  it.each([
+    ['a\r\nSet-Cookie: x=1.pdf', 'a__Set-Cookie__x_1.pdf'],
+    ['we"ird.pdf', 'we_ird.pdf'],
+    ['../../etc/passwd', '_.._etc_passwd.pdf'],
+    ['fatura é ção.pdf', 'fatura_____o.pdf'],
+    ['', 'document.pdf'],
+    ['.hidden', 'hidden.pdf'],
+    ['noext', 'noext.pdf'],
+    ['UPPER.PDF', 'UPPER.pdf'],
+  ])('sanitises the label filename %j', async (name, expected) => {
+    const getLabel = vi.fn().mockResolvedValue({ filename: name, content: Buffer.from('%PDF') });
+    const c = createShipments({ strapi: strapiWith({ EcommerceShipmentService: { getLabel } }) });
+    const ctx = mkCtx();
+    await c.label(ctx);
+    const header = ctx.headers['Content-Disposition'];
+    expect(header).toMatch(/^attachment; filename="[A-Za-z0-9._-]+\.pdf"$/);
+    expect(header).not.toMatch(/[\r\n]/);
+    expect(header).toBe(`attachment; filename="${expected}"`);
+  });
+
   it('label maps errors', async () => {
     const getLabel = vi.fn().mockRejectedValue(new EcommerceCarrierError('LABEL_UNAVAILABLE' as any));
     const c = createShipments({ strapi: strapiWith({ EcommerceShipmentService: { getLabel } }) });
@@ -179,6 +240,15 @@ describe('EcommerceShipmentController', () => {
 
 describe('EcommerceReturnController', () => {
   const valid = { lines: [{ orderLineId: 1, quantity: 1, restock: true }], reason: 'Damaged', idempotencyKey: 'k' };
+
+  it('register rejects a 201-character idempotencyKey', async () => {
+    const register = vi.fn();
+    const c = createReturns({ strapi: strapiWith({ EcommerceReturnService: { register } }) });
+    const ctx = body({ ...valid, idempotencyKey: 'x'.repeat(201) });
+    await c.register(ctx);
+    expect(ctx.badRequest).toHaveBeenCalled();
+    expect(register).not.toHaveBeenCalled();
+  });
 
   it('register returns 201 with the service result', async () => {
     const register = vi.fn().mockResolvedValue({ return: { id: 1 }, refundable: 100 });
@@ -208,11 +278,12 @@ describe('EcommerceReturnController', () => {
     expect(register).not.toHaveBeenCalled();
   });
 
-  it('register maps a quantity error to 400 with the code', async () => {
+  it('register maps a returnable-quantity error to 409', async () => {
     const register = vi.fn().mockRejectedValue(new EcommerceValidationError('x', [{ path: 'lines.0', code: 'QUANTITY_EXCEEDS_RETURNABLE' }]));
     const c = createReturns({ strapi: strapiWith({ EcommerceReturnService: { register } }) });
     const ctx = body(valid);
     await c.register(ctx);
-    expect(ctx.badRequest).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ code: 'QUANTITY_EXCEEDS_RETURNABLE' }));
+    expect(ctx.status).toBe(409);
+    expect(ctx.body.error.details.code).toBe('QUANTITY_EXCEEDS_RETURNABLE');
   });
 });

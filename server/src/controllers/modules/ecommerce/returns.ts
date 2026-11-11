@@ -1,7 +1,7 @@
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID } from '../../../config';
 import { handleDomainError as handleSharedDomainError } from './errors';
-import { MAX_KEY, asObject, lineQuantities, optionalString, requiredString } from './validation';
+import { MAX_KEY, asObject, toInt, lineQuantities, optionalString, requiredString } from './validation';
 
 const MSG = 'Invalid return';
 
@@ -10,7 +10,7 @@ const EcommerceReturnController = ({ strapi }: { strapi: Core.Strapi }) => {
 
   return {
     register: async (ctx: any) => {
-      const id = Number(ctx.params?.id);
+      const id = toInt(ctx.params?.id);
       if (!Number.isInteger(id) || id < 1) return ctx.badRequest('Invalid id');
       try {
         const b = asObject(ctx.request?.body);

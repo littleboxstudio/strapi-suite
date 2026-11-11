@@ -96,3 +96,9 @@ export const lineQuantities = (message: string, raw: unknown, withRestock: boole
         }
       : {}),
   }));
+
+/** Strict decimal id: digits only and a safe integer, else NaN. */
+export const toInt = (v: unknown): number => {
+  if (typeof v !== 'string' || !/^\d{1,15}$/.test(v)) return NaN;
+  return Number(v);
+};

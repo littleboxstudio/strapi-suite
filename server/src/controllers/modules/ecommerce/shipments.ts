@@ -5,6 +5,7 @@ import { sendPdf } from './pdf';
 import {
   MAX_KEY,
   asObject,
+  toInt,
   fail,
   lineQuantities,
   nonNegativeCents,
@@ -26,7 +27,7 @@ const EcommerceShipmentController = ({ strapi }: { strapi: Core.Strapi }) => {
     fn: (id: number) => Promise<unknown>,
     opts: { status?: number; notFound?: string } = {}
   ) => {
-    const id = Number(ctx.params?.id);
+    const id = toInt(ctx.params?.id);
     if (!Number.isInteger(id) || id < 1) return ctx.badRequest('Invalid id');
     try {
       const result = await fn(id);
@@ -104,7 +105,7 @@ const EcommerceShipmentController = ({ strapi }: { strapi: Core.Strapi }) => {
       }),
 
     label: async (ctx: any) => {
-      const id = Number(ctx.params?.id);
+      const id = toInt(ctx.params?.id);
       if (!Number.isInteger(id) || id < 1) return ctx.badRequest('Invalid id');
       try {
         sendPdf(ctx, await shipments().getLabel(id));
