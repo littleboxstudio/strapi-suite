@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -136,7 +136,7 @@ const ProductListPage = () => {
     <Flex direction="column" alignItems="stretch" gap={4}>
       <Flex justifyContent="space-between" alignItems="center" gap={4}>
         <Box style={{ flex: 1 }}>
-          <SearchForm>
+          <SearchForm onSubmit={(e: FormEvent) => e.preventDefault()}>
             <Searchbar
               name="searchbar"
               value={searchTerm}
@@ -194,7 +194,7 @@ const ProductListPage = () => {
 
       {items.length > 0 && (
         <>
-          <Table colCount={5} rowCount={items.length}>
+          <Table colCount={6} rowCount={items.length}>
             <Thead>
               <Tr>
                 <Th>
