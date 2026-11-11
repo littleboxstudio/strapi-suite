@@ -193,8 +193,11 @@ export const derivePaymentStatus = (
 // Fulfillment
 // ---------------------------------------------------------------------------
 
+export const SHIPMENT_STATUSES = ['PENDING', 'ACTIVE', 'FAILED', 'CANCELLED'] as const;
+export type ShipmentStatus = (typeof SHIPMENT_STATUSES)[number];
+
 export type ShipmentLike = {
-  status: 'ACTIVE' | 'CANCELLED';
+  status: ShipmentStatus;
   items: { orderLineId: number; quantity: number }[];
   delivered: boolean;
 };
@@ -202,7 +205,7 @@ export type ShipmentLike = {
 export const shippedQuantities = (shipments: ShipmentLike[]): Map<number, number> => {
   const shipped = new Map<number, number>();
   for (const s of shipments) {
-    if (s.status === 'CANCELLED') continue;
+    if (s.status !== 'ACTIVE') continue;
     for (const item of s.items) {
       shipped.set(item.orderLineId, (shipped.get(item.orderLineId) ?? 0) + item.quantity);
     }
