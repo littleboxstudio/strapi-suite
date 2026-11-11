@@ -37,3 +37,15 @@ export class EcommerceEmailError extends Error {
     super(message);
   }
 }
+
+/** Payment-provider problem. The message never contains secrets, URLs or provider response bodies. */
+export class EcommercePaymentError extends Error {
+  name = 'EcommercePaymentError';
+
+  constructor(
+    public code: 'STRIPE_NOT_CONFIGURED' | 'STRIPE_REQUEST_FAILED' | 'STRIPE_UNREACHABLE',
+    message: string = code
+  ) {
+    super(message);
+  }
+}
