@@ -9,9 +9,24 @@ import {
   type RetrievedCheckoutSession,
 } from './providers/payments/stripeClient';
 import type { ProviderRuntime } from './providers/registry';
+import type { OrderHistoryEntry } from './orderHistory';
 
 export type WebhookOutcome = 'PROCESSED' | 'IGNORED';
-export type WebhookResult = { duplicate: true } | { duplicate: false; status: WebhookOutcome };
+export type WebhookResult =
+  | { duplicate: true }
+  | { duplicate: false; status: WebhookOutcome | 'FAILED' };
+
+/**
+ * A permanent failure: redelivering the event can never succeed (the signed session does not
+ * match the stored payment). Recorded as FAILED and answered 200 so Stripe stops retrying.
+ */
+const TERMINAL_ERROR = 'Error:STRIPE_SESSION_MISMATCH';
+const isTerminalRow = (row: any): boolean =>
+  row?.status === 'FAILED' &&
+  typeof row.error === 'string' &&
+  row.error.endsWith(':STRIPE_SESSION_MISMATCH');
+const isTerminalError = (err: unknown): boolean =>
+  err instanceof EcommercePaymentError && err.code === 'STRIPE_SESSION_MISMATCH';
 
 const ACTOR = 'webhook:stripe';
 
@@ -67,6 +82,8 @@ const EcommerceStripeWebhookService = ({ strapi }: { strapi: Core.Strapi }) => {
     ): Promise<{ completed: boolean }>;
   } => service('EcommerceStripePaymentService');
   const events = (): { collector(): Collector } => service('EcommerceEventBus');
+  const history = (): { record(entry: OrderHistoryEntry): Promise<void> } =>
+    service('EcommerceOrderHistoryService');
 
   const verify = async (rawBody: Buffer, signature: string): Promise<StripeEvent> => {
     const rt = await settings().getRuntime('stripe');
@@ -138,10 +155,23 @@ const EcommerceStripeWebhookService = ({ strapi }: { strapi: Core.Strapi }) => {
     if (!count) return 'IGNORED';
     const paymentId = idOf(row.payment);
     if (paymentId !== null) {
-      await strapi.db.query(u.payment).updateMany({
+      const { count: moved } = await strapi.db.query(u.payment).updateMany({
         where: { id: paymentId, status: 'PENDING' },
         data: { status: paymentStatus },
       });
+      if (moved) {
+        await history().record({
+          orderId,
+          type: paymentStatus === 'FAILED' ? 'PAYMENT_FAILED' : 'PAYMENT_CANCELLED',
+          description:
+            paymentStatus === 'FAILED'
+              ? 'Stripe payment failed'
+              : 'Stripe payment cancelled (session expired)',
+          previousValue: { paymentId, status: 'PENDING' },
+          newValue: { paymentId, status: paymentStatus, sessionId: row.sessionId },
+          actor: ACTOR,
+        });
+      }
     }
     return 'PROCESSED';
   };
@@ -228,7 +258,7 @@ const EcommerceStripeWebhookService = ({ strapi }: { strapi: Core.Strapi }) => {
   /** Records (or refreshes) a FAILED row after the processing transaction rolled back. */
   const recordFailure = async (event: StripeEvent, err: unknown): Promise<void> => {
     const q = strapi.db.query(uids().webhookEvent);
-    const error = errorLabel(err);
+    const error = isTerminalError(err) ? TERMINAL_ERROR : errorLabel(err);
     try {
       const existing = await q.findOne({ where: { eventId: event.id } });
       if (existing) {
@@ -257,7 +287,10 @@ const EcommerceStripeWebhookService = ({ strapi }: { strapi: Core.Strapi }) => {
     const existing = await strapi.db
       .query(u.webhookEvent)
       .findOne({ where: { eventId: event.id } });
-    if (existing && existing.status !== 'FAILED') return { duplicate: true };
+    // PROCESSED / IGNORED, or a terminal failure: never processed again.
+    if (existing && (existing.status !== 'FAILED' || isTerminalRow(existing))) {
+      return { duplicate: true };
+    }
 
     const collector = events().collector();
     let status: WebhookOutcome | 'DUPLICATE';
@@ -303,6 +336,8 @@ const EcommerceStripeWebhookService = ({ strapi }: { strapi: Core.Strapi }) => {
         `[ecommerce] Stripe webhook ${event.type} (${event.id}) failed: ${errorLabel(err)}`
       );
       await recordFailure(event, err);
+      // Permanent: answered 200 so Stripe stops redelivering; it stays visible as FAILED.
+      if (isTerminalError(err)) return { duplicate: false, status: 'FAILED' };
       throw err;
     }
     if (status === 'DUPLICATE') return { duplicate: true };
