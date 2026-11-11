@@ -41,6 +41,11 @@ export type IssuedDocument = {
 export type BillingProvider = {
   id: string;
   capabilities: { creditNotes: boolean; findByReference: boolean };
+  /**
+   * The longest `issue` may legitimately take (all its sequential calls). A PENDING invoice older
+   * than this may be reconciled; the invoicing service uses 10 min when it is not declared.
+   */
+  maxIssueDurationMs?: number;
   issue(draft: InvoiceDraft, rt: ProviderRuntime): Promise<IssuedDocument>;
   getDocument(externalId: string, rt: ProviderRuntime): Promise<IssuedDocument>;
   getPdf(externalId: string, rt: ProviderRuntime): Promise<Buffer>;

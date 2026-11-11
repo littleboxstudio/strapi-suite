@@ -209,11 +209,14 @@ const idOf = (v: any): number | null =>
 /**
  * Σ refunds COMPLETED/PROCESSING/PENDING per COMPLETED payment (any method, store credit
  * included). A refund without a payment (a manual transfer or a new store credit) is attributed to
- * the latest payments first, up to what each has left, so refunded money is never invoiced.
+ * payments without an active invoice first (an invoiced payment's value is fixed), then to the
+ * invoiced ones, latest first in each group, up to what each has left, so refunded money is never
+ * invoiced.
  */
 export const refundedByPayment = (
   completed: { id: number; amount: number }[],
-  refunds: { status: string; amount: number; paymentId: number | null }[]
+  refunds: { status: string; amount: number; paymentId: number | null }[],
+  invoiced: Set<number> = new Set()
 ): Map<number, number> => {
   const out = new Map<number, number>(completed.map((p) => [p.id, 0]));
   let unlinked = 0;
@@ -225,7 +228,12 @@ export const refundedByPayment = (
       unlinked += r.amount;
     }
   }
-  for (const p of [...completed].reverse()) {
+  const latestFirst = [...completed].reverse();
+  const order = [
+    ...latestFirst.filter((p) => !invoiced.has(p.id)),
+    ...latestFirst.filter((p) => invoiced.has(p.id)),
+  ];
+  for (const p of order) {
     if (unlinked <= 0) break;
     const room = Math.max(0, p.amount - out.get(p.id)!);
     const take = Math.min(room, unlinked);
@@ -947,7 +955,8 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       .sort((a, b) => time(a.completedAt) - time(b.completedAt) || a.id - b.id);
     const refunded = refundedByPayment(
       completedPayments.map((p) => ({ id: p.id, amount: num(p.amount) })),
-      refunds.map((r) => ({ status: r.status, amount: num(r.amount), paymentId: idOf(r.payment) }))
+      refunds.map((r) => ({ status: r.status, amount: num(r.amount), paymentId: idOf(r.payment) })),
+      new Set(allocations.map((a) => a.paymentId))
     );
     const invoiced = new Map<number, InvoicedCoverage>(
       allocations.map((a) => [a.paymentId, toInvoicedCoverage(a.coverage)])
