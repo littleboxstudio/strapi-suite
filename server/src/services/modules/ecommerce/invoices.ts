@@ -58,6 +58,11 @@ export type InvoiceView = {
   warnings: string[];
   issuedAt: string | null;
   createdAt: string | null;
+  /**
+   * Reconcile / mark as failed is allowed: UNCERTAIN, or PENDING for longer than the issuing
+   * provider's maximum issue duration.
+   */
+  reconcilable: boolean;
 };
 
 export type InvoiceScope = { type: 'PAYMENT'; paymentId: number } | { type: 'TOTAL' };
@@ -296,6 +301,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
       warnings: warningsOf(r),
       issuedAt: r.issuedAt ?? null,
       createdAt: r.createdAt ?? null,
+      reconcilable: reconcilable(r),
     }));
   };
 

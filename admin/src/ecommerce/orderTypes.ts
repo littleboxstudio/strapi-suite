@@ -146,6 +146,76 @@ export type OrderPayment = {
   completedAt: string | null;
   actor: string | null;
   createdAt: string;
+  /** Its active invoice, and what is still left to invoice (0 when the order is not OPEN). */
+  invoice?: PaymentInvoiceInfo;
+};
+
+export type InvoiceStatus = 'PENDING' | 'ISSUED' | 'FAILED' | 'UNCERTAIN';
+export type InvoiceKind = 'INVOICE' | 'CREDIT_NOTE';
+
+export type PaymentInvoiceInfo = {
+  invoiceable: number;
+  invoiceId: number | null;
+  status: InvoiceStatus | null;
+};
+
+export type InvoiceLine = {
+  orderLineId: number | null;
+  kind: 'ITEM' | 'SHIPPING';
+  sku: string;
+  name: string;
+  quantity: number;
+  /** Cents, VAT included. */
+  total: number;
+  /** VAT rate (%). */
+  tax: number;
+  /** Only part of the line's value is covered by this document. */
+  partial: boolean;
+};
+
+export type InvoiceView = {
+  id: number;
+  kind: InvoiceKind;
+  documentType: string | null;
+  status: InvoiceStatus;
+  provider: string;
+  number: string | null;
+  series: string | null;
+  total: number;
+  lines: InvoiceLine[];
+  creditedInvoiceId: number | null;
+  /** Total of the ISSUED credit notes on this invoice. */
+  credited: number;
+  paymentIds: number[];
+  error: string | null;
+  /** TOTAL_MISMATCH, RECEIPT_FAILED, ISSUED_AFTER_FAILED, DUPLICATE_INVOICE, … */
+  warnings: string[];
+  issuedAt: string | null;
+  createdAt: string | null;
+  /** The server allows Reconcile / Mark as failed (UNCERTAIN, or PENDING past the provider's limit). */
+  reconcilable: boolean;
+};
+
+export type OrderBilling = { active: boolean; providerId: string | null };
+
+export type InvoiceScopeInput = { scope: 'PAYMENT'; paymentId: number } | { scope: 'TOTAL' };
+
+export type InvoicePreview = { lines: InvoiceLine[]; total: number; paymentIds: number[] };
+
+export type IssueInvoiceInput = InvoiceScopeInput & { idempotencyKey: string };
+
+export type CreditNotePreview = {
+  lines: InvoiceLine[];
+  /** Per line index: what can still be credited. */
+  creditable: number[];
+  /** Per line index: the server's suggestion (returns, then over-invoiced value). */
+  suggested: number[];
+};
+
+export type CreditNoteInput = {
+  lines: { index: number; value: number }[];
+  reason: string;
+  idempotencyKey: string;
 };
 
 export type OrderHistoryItem = {
@@ -214,7 +284,9 @@ export type Order = {
   /** Newest first. */
   refunds: OrderRefund[];
   notificationsSummary?: { sent: number; failed: number; skipped: number };
-  invoices: unknown[];
+  /** Invoices and credit notes, oldest first. */
+  invoices: InvoiceView[];
+  billing: OrderBilling;
   /** Oldest first. */
   shipments: ShipmentView[];
   /** Oldest first. */

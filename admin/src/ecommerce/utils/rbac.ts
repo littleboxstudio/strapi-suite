@@ -19,3 +19,4 @@ export const ORDERS_READ_ACTION = 'plugin::littlebox-strapi-suite.ecommerce.orde
 export const ORDERS_MANAGE_ACTION = 'plugin::littlebox-strapi-suite.ecommerce.orders.manage';
 export const REFUNDS_MANAGE_ACTION = 'plugin::littlebox-strapi-suite.ecommerce.refunds.manage';
 export const PAYMENTS_MANAGE_ACTION = 'plugin::littlebox-strapi-suite.ecommerce.payments.manage';
+export const INVOICING_MANAGE_ACTION = 'plugin::littlebox-strapi-suite.ecommerce.invoicing.manage';

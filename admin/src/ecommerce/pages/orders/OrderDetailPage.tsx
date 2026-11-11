@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useNotification } from '@strapi/strapi/admin';
-import { Flex, Grid, IconButton, Loader, Typography } from '@strapi/design-system';
+import { Box, Flex, Grid, IconButton, Loader, Typography } from '@strapi/design-system';
 import { ArrowLeft } from '@strapi/icons';
 import config from '../../../core/config';
 import ConfirmModal from '../../../components/ConfirmModal';
@@ -12,9 +12,11 @@ import CancelOrder from '../../usecases/orders/cancelOrder';
 import ArchiveOrder from '../../usecases/orders/archiveOrder';
 import { useOrderPermissions } from '../../hooks/useOrderPermissions';
 import { usePaymentPermissions } from '../../hooks/usePaymentPermissions';
+import { useInvoicingPermissions } from '../../hooks/useInvoicingPermissions';
+import { hasUninvoicedPayments } from '../../utils/invoiceForm';
 import { apiErrorMessageId, type ToolbarAction } from '../../utils/orderDetail';
 import type { RefundInitial } from '../../utils/refundForm';
-import type { ModificationApplied, Order } from '../../orderTypes';
+import type { InvoiceScopeInput, ModificationApplied, Order } from '../../orderTypes';
 import OrderHeader from '../../components/orders/OrderHeader';
 import OrderSection from '../../components/orders/OrderSection';
 import OrderLinesTable from '../../components/orders/OrderLinesTable';
@@ -36,6 +38,8 @@ import ShipmentsSection from '../../components/orders/ShipmentsSection';
 import ReturnsSection from '../../components/orders/ReturnsSection';
 import ShipOrderModal from '../../components/orders/ShipOrderModal';
 import RegisterReturnModal from '../../components/orders/RegisterReturnModal';
+import InvoicesSection from '../../components/orders/InvoicesSection';
+import IssueInvoiceModal from '../../components/orders/IssueInvoiceModal';
 
 /** Order management screen (requirements 3–8). The fetched order is the single source of truth. */
 const OrderDetailPage = () => {
@@ -50,6 +54,7 @@ const OrderDetailPage = () => {
 
   const { canManage } = useOrderPermissions();
   const { canPay, canRefund } = usePaymentPermissions();
+  const { canInvoice } = useInvoicingPermissions();
   const permissions = { canManage, canPay, canRefund };
 
   const [order, setOrder] = useState<Order | null>(null);
@@ -64,6 +69,8 @@ const OrderDetailPage = () => {
   const [supplementary, setSupplementary] = useState(false);
   // Prefill of the refund modal when it opens from "Refund now" after a return.
   const [refundInitial, setRefundInitial] = useState<RefundInitial | undefined>(undefined);
+  // The invoice being issued (one payment or the whole order); null when the modal is closed.
+  const [invoiceScope, setInvoiceScope] = useState<InvoiceScopeInput | null>(null);
   const hasOrderRef = useRef(false);
   // Only the latest request may update the page (navigation, quick successive refetches).
   const requestRef = useRef(0);
@@ -96,6 +103,7 @@ const OrderDetailPage = () => {
     setLoadError(false);
     setModal(null);
     setSupplementary(false);
+    setInvoiceScope(null);
     if (!Number.isInteger(orderId) || orderId < 1) {
       setLoadError(true);
       return undefined;
@@ -206,9 +214,20 @@ const OrderDetailPage = () => {
         <Grid.Item col={8} s={12} direction="column" alignItems="stretch">
           <Flex direction="column" alignItems="stretch" gap={6}>
             <OrderSection title={t('ecommerce.orders.detail.payments.title')}>
-              <PaymentsTable payments={order.payments} />
+              <PaymentsTable
+                payments={order.payments}
+                canInvoice={canInvoice}
+                billingActive={order.billing.active}
+                onInvoice={(paymentId) => setInvoiceScope({ scope: 'PAYMENT', paymentId })}
+              />
             </OrderSection>
-            <SectionPlaceholder title={t('ecommerce.orders.detail.sections.invoices')} />
+            <InvoicesSection
+              title={t('ecommerce.orders.detail.sections.invoices')}
+              order={order}
+              canInvoice={canInvoice}
+              onIssue={setInvoiceScope}
+              onChanged={load}
+            />
             <ShipmentsSection
               title={t('ecommerce.orders.detail.sections.shipments')}
               orderStatus={order.orderStatus}
@@ -301,6 +320,17 @@ const OrderDetailPage = () => {
           }}
         />
       )}
+      {canInvoice && invoiceScope && (
+        <IssueInvoiceModal
+          orderId={order.id}
+          scope={invoiceScope}
+          onClose={() => setInvoiceScope(null)}
+          onIssued={() => {
+            setInvoiceScope(null);
+            load();
+          }}
+        />
+      )}
       {canManage && modal === 'ADD_PAYMENT' && (
         <AddPaymentModal orderId={order.id} due={order.summary.due} onClose={closeModal} onAdded={afterChange} />
       )}
@@ -315,7 +345,18 @@ const OrderDetailPage = () => {
         key={`archive-${modalKey}`}
         open={canManage && modal === 'ARCHIVE'}
         title={t('ecommerce.orders.detail.archive.title')}
-        text={t('ecommerce.orders.detail.archive.text', { reference: order.reference })}
+        text={
+          <Flex direction="column" gap={3}>
+            <Typography>{t('ecommerce.orders.detail.archive.text', { reference: order.reference })}</Typography>
+            {hasUninvoicedPayments(order.payments) && (
+              <Box padding={3} background="warning100" hasRadius>
+                <Typography variant="omega" textColor="warning700">
+                  {t('ecommerce.orders.detail.archive.uninvoiced')}
+                </Typography>
+              </Box>
+            )}
+          </Flex>
+        }
         confirm={{ button: t('ecommerce.orders.detail.archive.confirm'), action: () => runTransition('ARCHIVE') }}
         cancel={{ button: t('ecommerce.orders.detail.archive.back'), action: closeModal }}
       />
