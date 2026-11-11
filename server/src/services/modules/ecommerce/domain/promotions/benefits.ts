@@ -11,6 +11,7 @@ import {
   targetMatches,
   type Benefit,
   type EvaluationLine,
+  type ProductTarget,
   type PromotionCandidate,
   type Reward,
 } from './types';
@@ -108,6 +109,81 @@ const rewardPerUnit = (reward: Reward, price: number): number => {
 const byPriceDesc = (a: Unit, b: Unit) => b.price - a.price || a.seq - b.seq;
 const byPriceAsc = (a: Unit, b: Unit) => a.price - b.price || a.seq - b.seq;
 
+/**
+ * IN_CART Buy X Get Y over the free units (no claim, not bought by another Buy X Get Y).
+ * First the maximum number of repetitions R; then, repetition by repetition, the cheapest prize
+ * units and the most expensive buy units that still leave the remaining repetitions feasible.
+ *
+ * With pools buy-only (bo), get-only (go) and in both targets (both), nb buy units and ng prize
+ * units fit iff max(0, nb − bo) + max(0, ng − go) ≤ both.
+ */
+const planInCartRepetitions = (
+  units: Unit[],
+  buyTarget: ProductTarget,
+  buyQty: number,
+  getTarget: ProductTarget,
+  getQty: number,
+  perOrderLimit: number | null
+): { buyUnits: Unit[]; prizeUnits: Unit[] }[] => {
+  const pool = units.filter(
+    (u) =>
+      !u.claim && !u.buyReserved && (targetMatches(buyTarget, u) || targetMatches(getTarget, u))
+  );
+  type Kind = 'bo' | 'go' | 'both';
+  const kind = new Map<Unit, Kind>();
+  const count: Record<Kind, number> = { bo: 0, go: 0, both: 0 };
+  for (const u of pool) {
+    const inBuy = targetMatches(buyTarget, u);
+    const inGet = targetMatches(getTarget, u);
+    const k: Kind = inBuy && inGet ? 'both' : inBuy ? 'bo' : 'go';
+    kind.set(u, k);
+    count[k] += 1;
+  }
+  const fits = (nb: number, ng: number) =>
+    Math.max(0, nb - count.bo) + Math.max(0, ng - count.go) <= count.both;
+
+  let reps = Math.min(
+    Math.floor((count.bo + count.both) / buyQty),
+    Math.floor((count.go + count.both) / getQty),
+    Math.floor((count.bo + count.go + count.both) / (buyQty + getQty))
+  );
+  if (perOrderLimit !== null) reps = Math.min(reps, Math.max(perOrderLimit, 0));
+
+  const taken = new Set<Unit>();
+  /** Takes `u` if nb buy and ng prize units still fit without it. */
+  const take = (u: Unit, nb: number, ng: number): boolean => {
+    const k = kind.get(u) as Kind;
+    count[k] -= 1;
+    if (fits(nb, ng)) {
+      taken.add(u);
+      return true;
+    }
+    count[k] += 1;
+    return false;
+  };
+  const cheapest = pool.filter((u) => kind.get(u) !== 'bo').sort(byPriceAsc);
+  const dearest = pool.filter((u) => kind.get(u) !== 'go').sort(byPriceDesc);
+
+  const plan: { buyUnits: Unit[]; prizeUnits: Unit[] }[] = [];
+  for (let done = 0; done < reps; done += 1) {
+    const left = reps - done;
+    const prizeUnits: Unit[] = [];
+    for (const u of cheapest) {
+      if (prizeUnits.length === getQty) break;
+      if (!taken.has(u) && take(u, buyQty * left, getQty * left - prizeUnits.length - 1))
+        prizeUnits.push(u);
+    }
+    const buyUnits: Unit[] = [];
+    for (const u of dearest) {
+      if (buyUnits.length === buyQty) break;
+      if (!taken.has(u) && take(u, buyQty * left - buyUnits.length - 1, getQty * (left - 1)))
+        buyUnits.push(u);
+    }
+    plan.push({ buyUnits, prizeUnits });
+  }
+  return plan;
+};
+
 type GiftAccumulator = Map<string, PricedLine>;
 
 const applyBuyXGetY = (
@@ -144,71 +220,65 @@ const applyBuyXGetY = (
     if (!gift) return 0;
   }
 
-  let total = 0;
-  let repetitions = 0;
-  while (ob.perOrderLimit === null || repetitions < ob.perOrderLimit) {
-    const available = units.filter((u) => !u.claim && !u.buyReserved);
-    const inGet = (u: Unit) => get.mode === 'IN_CART' && targetMatches(get.target, u);
-    let prizeUnits: Unit[] = [];
-    if (get.mode === 'IN_CART') {
-      // Overlapping targets: keep for the purchase the most expensive shared units it cannot do
-      // without, then take the cheapest remaining prize-target units as the prize.
-      const buyOnly = available.filter((u) => targetMatches(buy.target, u) && !inGet(u)).length;
-      const shared = available
-        .filter((u) => targetMatches(buy.target, u) && inGet(u))
-        .sort(byPriceDesc);
-      const keepForBuy = new Set(shared.slice(0, Math.max(buy.quantity - buyOnly, 0)));
-      prizeUnits = available
-        .filter((u) => inGet(u) && !keepForBuy.has(u))
-        .sort(byPriceAsc)
-        .slice(0, get.quantity);
-      if (prizeUnits.length < get.quantity) break;
-    }
-    const prizes = new Set(prizeUnits);
-    // Buy units: most expensive first, sparing units that could be a later prize.
-    const buyUnits = available
-      .filter((u) => !prizes.has(u) && targetMatches(buy.target, u))
-      .sort((a, b) => Number(inGet(a)) - Number(inGet(b)) || byPriceDesc(a, b))
-      .slice(0, buy.quantity);
-    if (buyUnits.length < buy.quantity) break;
+  const claim = (u: Unit, amount: number) => {
+    u.claim = {
+      promotionId: ob.promotionId,
+      benefitIndex: ob.benefitIndex,
+      order: ob.order,
+      amount,
+    };
+  };
 
-    if (get.mode === 'IN_CART') {
+  let total = 0;
+  if (get.mode === 'IN_CART') {
+    for (const { buyUnits, prizeUnits } of planInCartRepetitions(
+      units,
+      buy.target,
+      buy.quantity,
+      get.target,
+      get.quantity,
+      ob.perOrderLimit
+    )) {
       for (const u of buyUnits) u.buyReserved = true;
       for (const u of prizeUnits) {
         const amount = rewardPerUnit(reward, u.price);
-        u.claim = {
-          promotionId: ob.promotionId,
-          benefitIndex: ob.benefitIndex,
-          order: ob.order,
-          amount,
-        };
+        claim(u, amount);
         total += amount;
       }
-    } else {
-      const g = gift as GiftOption;
-      if (giftLeft(g) < get.quantity) break;
-      for (const u of buyUnits) u.buyReserved = true;
-      giftUsed.set(g.variantId, (giftUsed.get(g.variantId) ?? 0) + get.quantity);
-      const unitDiscount = rewardPerUnit(reward, g.unitPrice);
-      const key = `${ob.order}:${g.variantId}`;
-      let gl = giftLines.get(key);
-      if (!gl) {
-        gl = {
-          sourceIndex: null,
-          variantId: g.variantId,
-          productId: g.productId,
-          unitPrice: g.unitPrice,
-          quantity: 0,
-          unitDiscount,
-          isGift: true,
-          refs: [{ promotionId: ob.promotionId, benefitIndex: ob.benefitIndex, amount: 0 }],
-        };
-        giftLines.set(key, gl);
-      }
-      gl.quantity += get.quantity;
-      gl.refs[0].amount += unitDiscount * get.quantity;
-      total += unitDiscount * get.quantity;
     }
+    return total;
+  }
+
+  const g = gift as GiftOption;
+  let repetitions = 0;
+  while (ob.perOrderLimit === null || repetitions < ob.perOrderLimit) {
+    if (giftLeft(g) < get.quantity) break;
+    const buyUnits = units
+      .filter((u) => !u.claim && !u.buyReserved && targetMatches(buy.target, u))
+      .sort(byPriceDesc)
+      .slice(0, buy.quantity);
+    if (buyUnits.length < buy.quantity) break;
+    for (const u of buyUnits) u.buyReserved = true;
+    giftUsed.set(g.variantId, (giftUsed.get(g.variantId) ?? 0) + get.quantity);
+    const unitDiscount = rewardPerUnit(reward, g.unitPrice);
+    const key = `${ob.order}:${g.variantId}`;
+    let gl = giftLines.get(key);
+    if (!gl) {
+      gl = {
+        sourceIndex: null,
+        variantId: g.variantId,
+        productId: g.productId,
+        unitPrice: g.unitPrice,
+        quantity: 0,
+        unitDiscount,
+        isGift: true,
+        refs: [{ promotionId: ob.promotionId, benefitIndex: ob.benefitIndex, amount: 0 }],
+      };
+      giftLines.set(key, gl);
+    }
+    gl.quantity += get.quantity;
+    gl.refs[0].amount += unitDiscount * get.quantity;
+    total += unitDiscount * get.quantity;
     repetitions += 1;
   }
   return total;
