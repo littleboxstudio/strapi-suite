@@ -214,5 +214,8 @@
   "littlebox-strapi-suite.tabs.ctb.error.key.empty": "Tab names must contain letters or numbers",
   "littlebox-strapi-suite.tabs.ctb.error.key.duplicated": "Two tabs generate the same API key",
   "littlebox-strapi-suite.tabs.edit-view.label": "Content tabs",
-  "littlebox-strapi-suite.tabs.edit-view.errors": "{count, plural, one {# error} other {# errors}}"
+  "littlebox-strapi-suite.tabs.edit-view.errors": "{count, plural, one {# error} other {# errors}}",
+  "littlebox-strapi-suite.module.ecommerce.name": "E-commerce",
+  "littlebox-strapi-suite.module.ecommerce.description": "Manage products, variants and images for your online store.",
+  "littlebox-strapi-suite.app.manage": "Manage"
 }

@@ -14,7 +14,8 @@ export default {
       parameter: 'parameter',
       slug: 'slug',
       translation: 'translation',
-      template: 'template'
+      template: 'template',
+      ecommerce: 'ecommerce'
     }
   }
 }

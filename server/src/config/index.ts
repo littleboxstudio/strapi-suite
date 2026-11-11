@@ -7,6 +7,7 @@ export const SLUG_CONTENT_STRATEGY = "content";
 export const AI_TRANSLATION_MODULE = "translation";
 export const AI_TRANSLATION_DEFAULT_MODEL = "gpt-4o";
 export const AI_TRANSLATION_BATCH_SIZE = 40;
+export const ECOMMERCE_MODULE = "ecommerce";
 export const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
 export interface LtbConfigs { 
   pluginId: string;
@@ -24,6 +25,13 @@ export interface LtbConfigs {
       parameter: UID.ContentType;
       slug: UID.ContentType;
       translation: UID.ContentType;
+      ecommerce: {
+        product: UID.ContentType;
+        productTranslation: UID.ContentType;
+        variant: UID.ContentType;
+        variantTranslation: UID.ContentType;
+        image: UID.ContentType;
+      },
     },
     customFields: {
       slug: string;
@@ -47,6 +55,13 @@ export default {
         parameter: `plugin::${PLUGIN_ID}.ltb-st-module-parameter-item`,
         slug: `plugin::${PLUGIN_ID}.ltb-st-module-slug-item`,
         translation: `plugin::${PLUGIN_ID}.ltb-st-module-translation-item`,
+        ecommerce: {
+          product: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-product`,
+          productTranslation: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-product-translation`,
+          variant: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-variant`,
+          variantTranslation: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-variant-translation`,
+          image: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-image`,
+        },
       },
       customFields: {
         slug: `plugin::${PLUGIN_ID}.ltbslug`

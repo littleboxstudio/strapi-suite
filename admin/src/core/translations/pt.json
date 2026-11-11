@@ -1,0 +1,5 @@
+{
+  "littlebox-strapi-suite.module.ecommerce.name": "E-commerce",
+  "littlebox-strapi-suite.module.ecommerce.description": "Gira produtos, variantes e imagens da sua loja online.",
+  "littlebox-strapi-suite.app.manage": "Gerir"
+}

@@ -99,6 +99,12 @@ const bootstrap = async ({ strapi }: { strapi: Core.Strapi }) => {
       type: 'boolean',
       value: 'true',
     },
+    {
+      module: "ecommerce",
+      property: 'active',
+      type: 'boolean',
+      value: 'false',
+    },
   ];
 
   for (const setting of defaultSettings) {
