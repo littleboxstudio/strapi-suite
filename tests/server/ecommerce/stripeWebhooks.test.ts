@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createHmac } from 'node:crypto';
 
 import EcommerceOrderService from '../../../server/src/services/modules/ecommerce/orders';
+import EcommerceStoreCreditService from '../../../server/src/services/modules/ecommerce/storeCredits';
+import EcommerceRefundService from '../../../server/src/services/modules/ecommerce/refunds';
 import EcommercePaymentService from '../../../server/src/services/modules/ecommerce/payments';
 import EcommerceStripePaymentService from '../../../server/src/services/modules/ecommerce/stripePayments';
 import EcommerceStripeWebhookService from '../../../server/src/services/modules/ecommerce/stripeWebhooks';
@@ -34,6 +36,8 @@ const UIDS = {
   stripeSession: `${P}stripe-session`,
   refund: `${P}refund`,
   webhookEvent: `${P}webhook-event`,
+  storeCredit: `${P}store-credit`,
+  storeCreditMovement: `${P}store-credit-movement`,
 };
 
 const RELATIONS: FakeRelations = {
@@ -61,6 +65,7 @@ const RELATIONS: FakeRelations = {
   [UIDS.refund]: {
     order: [UIDS.order, 'order', 'manyToOne'],
     payment: [UIDS.payment, 'payment', 'manyToOne'],
+    storeCredit: [UIDS.storeCredit, 'storeCredit', 'manyToOne'],
   },
 };
 
@@ -125,6 +130,8 @@ function setup(opts: { webhookSecret?: string | null } = {}) {
   };
   services.EcommerceEventBus = { collector: bus.collector, subscribe: bus.subscribe };
   services.EcommerceOrderService = EcommerceOrderService({ strapi });
+  services.EcommerceStoreCreditService = EcommerceStoreCreditService({ strapi });
+  services.EcommerceRefundService = EcommerceRefundService({ strapi });
   services.EcommercePaymentService = EcommercePaymentService({ strapi });
   services.EcommerceStripePaymentService = EcommerceStripePaymentService({ strapi });
   services.EcommerceStripeWebhookService = EcommerceStripeWebhookService({ strapi });

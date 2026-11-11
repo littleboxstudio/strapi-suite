@@ -23,6 +23,7 @@ const UIDS = {
   payment: `${P}payment`,
   stockMovement: `${P}stock-movement`,
   orderHistory: `${P}order-history`,
+  refund: `${P}refund`,
 };
 
 const RELATIONS: FakeRelations = {

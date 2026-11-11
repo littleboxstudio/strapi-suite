@@ -452,7 +452,31 @@ const EcommerceStripePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
     throw new EcommercePaymentError('STRIPE_REQUEST_FAILED', 'Could not create a payment link.');
   };
 
-  return { getOrCreatePaymentLink, completeFromSession };
+  /**
+   * Retires every OPEN session of the order (used after a cancel commits): expired at Stripe,
+   * the row EXPIRED and its PENDING payment CANCELLED; a session Stripe reports `complete` is
+   * settled from the retrieved session instead. Each session is independent: a failure is
+   * logged and the others are still retired.
+   */
+  const expireOpenSessions = async (rawOrderId: number | string): Promise<void> => {
+    const orderId = Number(rawOrderId);
+    const open = await sessionsOf(orderId, 'OPEN');
+    if (!open.length) return;
+    const client = await stripeClient();
+    for (const row of open) {
+      try {
+        await retire(client, orderId, row);
+      } catch (err) {
+        const label =
+          err instanceof EcommercePaymentError ? `${err.name}:${err.code}` : err instanceof Error ? err.name : typeof err;
+        strapi.log?.error(
+          `[ecommerce] could not expire Stripe session of stripe-session ${row.id} (order ${orderId}): ${label}`
+        );
+      }
+    }
+  };
+
+  return { getOrCreatePaymentLink, completeFromSession, expireOpenSessions };
 };
 
 export default EcommerceStripePaymentService;

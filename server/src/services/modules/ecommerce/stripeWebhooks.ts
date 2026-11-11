@@ -192,10 +192,22 @@ const EcommerceStripeWebhookService = ({ strapi }: { strapi: Core.Strapi }) => {
           ? 'FAILED'
           : null;
     if (!target) return false;
-    const row = await strapi.db.query(u.refund).findOne({
+    let row = await strapi.db.query(u.refund).findOne({
       where: { externalId },
       populate: { order: { select: ['id'] } },
     });
+    if (!row) {
+      // The event may beat the refund service storing the Stripe id: the refund carries our
+      // `refundId` in its (signed) metadata.
+      const refundId = Number(stripeRefund?.metadata?.refundId);
+      if (Number.isSafeInteger(refundId) && refundId > 0) {
+        const candidate = await strapi.db.query(u.refund).findOne({
+          where: { id: refundId },
+          populate: { order: { select: ['id'] } },
+        });
+        if (candidate && candidate.method === 'STRIPE' && !candidate.externalId) row = candidate;
+      }
+    }
     if (!row) return false; // REFUND rows are created by the refund service
     const orderId = idOf(row.order);
     if (orderId === null) return false;
@@ -208,12 +220,25 @@ const EcommerceStripeWebhookService = ({ strapi }: { strapi: Core.Strapi }) => {
       where: { id: row.id, status: current.status },
       data:
         target === 'COMPLETED'
-          ? { status: 'COMPLETED', completedAt: new Date().toISOString() }
-          : { status: 'FAILED' },
+          ? { status: 'COMPLETED', completedAt: new Date().toISOString(), externalId }
+          : { status: 'FAILED', externalId },
     });
     if (!count) return false;
+    const operationId = randomUUID();
+    await history().record({
+      orderId,
+      type: target === 'COMPLETED' ? 'REFUND_COMPLETED' : 'REFUND_FAILED',
+      description:
+        target === 'COMPLETED'
+          ? `Stripe refund of ${num(row.amount)} cents completed`
+          : `Stripe refund of ${num(row.amount)} cents failed`,
+      previousValue: { refundId: row.id, status: current.status },
+      newValue: { refundId: row.id, status: target, externalId },
+      actor: ACTOR,
+      operationId,
+    });
     if (target === 'COMPLETED' || current.status === 'COMPLETED') {
-      await orders().recalculate(orderId, { actor: ACTOR, operationId: randomUUID() });
+      await orders().recalculate(orderId, { actor: ACTOR, operationId });
     }
     collector.emit({
       type: target === 'COMPLETED' ? 'REFUND_COMPLETED' : 'REFUND_FAILED',
