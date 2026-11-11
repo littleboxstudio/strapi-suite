@@ -246,9 +246,11 @@ const ProductListPage = () => {
                     </Flex>
                   </Td>
                   <Td>
-                    <Button variant="tertiary" size="S" onClick={() => goToEdit(item.id)}>
-                      {t('ecommerce.products.edit')}
-                    </Button>
+                    <Flex justifyContent="flex-end">
+                      <Button variant="tertiary" size="S" onClick={() => goToEdit(item.id)}>
+                        {t('ecommerce.products.edit')}
+                      </Button>
+                    </Flex>
                   </Td>
                 </Tr>
               ))}
