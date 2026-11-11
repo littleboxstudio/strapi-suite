@@ -2,7 +2,7 @@
 
 export type StoreSettings = {
   storeName: string;
-  logoUrl: string | null;
+  logo: { url: string; width: number; height: number } | null;
   brandColor: string;
   storefrontUrl: string | null;
   paymentSuccessPath: string;
@@ -14,6 +14,9 @@ export type StoreSettings = {
   storefrontApiTokenId?: number | null;
   checkoutSessionTtlHours?: number;
 };
+
+/** What PUT /store accepts: the logo has its own endpoints. */
+export type StoreSettingsInput = Omit<StoreSettings, 'logo'>;
 
 export type StorefrontApiToken = {
   id: number;
@@ -144,7 +147,8 @@ export type SettingsErrorCode =
   | 'ENCRYPTION_KEY_MISSING'
   | 'SECRET_UNREADABLE'
   | 'EMAIL_NOT_CONFIGURED'
-  | 'EMAIL_SEND_FAILED';
+  | 'EMAIL_SEND_FAILED'
+  | 'INVALID_IMAGE';
 
 /** Where Stripe must send its webhooks: `path` is relative to the Strapi origin. */
 export type StripeWebhookInfo = { path: string; events: string[] };
