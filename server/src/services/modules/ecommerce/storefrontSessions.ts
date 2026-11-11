@@ -307,6 +307,21 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
       { path: 'code', code: 'VERIFICATION_CODE_INVALID' },
     ]);
 
+  /** The session row is gone or no longer ACTIVE (same answer as a failed `resolve`). */
+  const sessionInvalid = () =>
+    new EcommerceValidationError('Invalid session', [{ path: 'session', code: 'SESSION_INVALID' }]);
+
+  /** Parallel confirmations kept winning the compare-and-set: transient, retry later. */
+  const verificationConflict = () =>
+    new EcommerceValidationError('Concurrent verification attempts', [
+      { path: 'code', code: 'VERIFICATION_CONFLICT' },
+    ]);
+
+  const warnSecretMissing = () =>
+    strapi.log.warn(
+      `${LOG_PREFIX} e-mail verification secret missing (LTB_ECOMMERCE_ENCRYPTION_KEY)`
+    );
+
   const codeLocked = () => {
     strapi.log.warn(`${LOG_PREFIX} VERIFICATION_LOCKED`);
     return new EcommerceValidationError('Too many verification attempts', [
@@ -315,10 +330,38 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
   };
 
   /**
+   * After a failed send: puts back what was there before (the previous, still valid code when
+   * the attempts were kept, so a send failure can never lift a lock; `{}` otherwise), but only
+   * while the pending record is still the one this request wrote, so a concurrent request's
+   * code is never wiped. The JSON column cannot be compared portably, hence a re-read plus a
+   * compare-and-set on the scalar attempts column; the remaining window is tiny.
+   */
+  const undoPending = async (
+    sessionId: number,
+    codeHash: string,
+    restore: PendingVerification | Record<string, never> | null
+  ): Promise<void> => {
+    const current = await sessionsQuery().findOne({
+      where: { id: sessionId, status: 'ACTIVE' },
+      select: ['id', 'emailVerification', 'verificationAttempts'],
+    });
+    if (!current || pendingOf(current.emailVerification)?.codeHash !== codeHash) return;
+    await sessionsQuery().updateMany({
+      where: {
+        id: sessionId,
+        status: 'ACTIVE',
+        verificationAttempts: current.verificationAttempts ?? null,
+      },
+      data: { emailVerification: restore ?? {} },
+    });
+  };
+
+  /**
    * Sends a 6-digit code to `email` directly through Resend (never through the notification
    * queue, so the code is never stored). Only its HMAC is kept on the session. A new code for
    * the same e-mail while the previous one is still valid keeps `verificationAttempts`, so
-   * asking for another code never lifts a lock.
+   * asking for another code never lifts a lock: while locked, the request is refused (nothing
+   * written or sent) and the lock lifts at the pending code's original expiry.
    */
   const requestEmailVerification = async (
     s: CheckoutSession,
@@ -332,22 +375,21 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
     }
     const rt = await settings().getRuntime('resend');
     const secret = verificationSecret();
+    if (!secret) warnSecretMissing();
     if (!rt || !rt.active || !secret) {
       throw new EcommerceEmailError('EMAIL_NOT_CONFIGURED', 'Resend is not active.');
     }
     const row = await sessionsQuery().findOne({
       where: { id: s.id, status: 'ACTIVE' },
-      select: ['id', 'emailVerification'],
+      select: ['id', 'emailVerification', 'verificationAttempts'],
     });
-    if (!row) {
-      throw new EcommerceValidationError('Invalid session', [
-        { path: 'session', code: 'SESSION_INVALID' },
-      ]);
-    }
+    if (!row) throw sessionInvalid();
     const now = Date.now();
     const previous = pendingOf(row.emailVerification);
     const keepAttempts =
       previous !== null && previous.emailNormalized === email && time(previous.expiresAt) > now;
+    const attempts = Number.isInteger(row.verificationAttempts) ? row.verificationAttempts : 0;
+    if (keepAttempts && attempts >= VERIFICATION_MAX_ATTEMPTS) throw codeLocked();
 
     const code = generateVerificationCode(randomInt);
     const codeHash = verificationCodeHash(secret, s.id, email, code);
@@ -373,10 +415,7 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
         idempotencyKey: `verify:${s.id}:${codeHash}`,
       });
     } catch (err) {
-      await sessionsQuery().updateMany({
-        where: { id: s.id, status: 'ACTIVE' },
-        data: { emailVerification: {} },
-      });
+      await undoPending(s.id, codeHash, keepAttempts ? previous : {});
       throw err;
     }
     return { expiresAt };
@@ -399,7 +438,8 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
         where: { id: s.id, status: 'ACTIVE' },
         select: ['id', 'emailVerification', 'verificationAttempts'],
       });
-      const pending = row ? pendingOf(row.emailVerification) : null;
+      if (!row) throw sessionInvalid();
+      const pending = pendingOf(row.emailVerification);
       if (
         !pending ||
         pending.emailNormalized !== email ||
@@ -422,19 +462,25 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
       if (counted === 0) continue; // a parallel confirmation counted first: read again
 
       const secret = verificationSecret();
+      if (!secret) warnSecretMissing();
       if (!VERIFICATION_CODE.test(code) || !secret) throw codeInvalid();
       if (
         !verificationCodeMatches(pending.codeHash, verificationCodeHash(secret, s.id, email, code))
       ) {
         throw codeInvalid();
       }
-      await sessionsQuery().updateMany({
-        where: { id: s.id, status: 'ACTIVE' },
-        data: { verifiedEmail: email, emailVerification: {}, verificationAttempts: 0 },
-      });
+      // Conditional on the attempt just counted: a request for another e-mail or after expiry
+      // (both reset the counter) in between makes this write miss.
+      const verified = changed(
+        await sessionsQuery().updateMany({
+          where: { id: s.id, status: 'ACTIVE', verificationAttempts: attempts + 1 },
+          data: { verifiedEmail: email, emailVerification: {}, verificationAttempts: 0 },
+        })
+      );
+      if (verified === 0) throw codeInvalid();
       return { verified: true };
     }
-    throw codeLocked();
+    throw verificationConflict();
   };
 
   return {
