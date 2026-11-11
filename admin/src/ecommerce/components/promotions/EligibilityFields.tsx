@@ -1,7 +1,7 @@
 import { useIntl } from 'react-intl';
 import { Checkbox, Field, Flex, Radio, Textarea } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
-import { emailList, type PromotionErrors } from '../../utils/promotionForm';
+import { emailList, verifiedEmailForced, type PromotionErrors } from '../../utils/promotionForm';
 
 type Props = {
   mode: 'ALL' | 'EMAILS';
@@ -42,7 +42,10 @@ const EligibilityFields = ({
     error = email !== undefined ? t(`${p}.emails.invalidLine`, { email }) : t(`${p}.errors.${errors[lineError]}`);
   }
 
-  const forced = mode === 'EMAILS' || hasCustomerLimit;
+  const forced = verifiedEmailForced({
+    eligibilityMode: mode,
+    perCustomerLimit: hasCustomerLimit ? '1' : '',
+  });
 
   return (
     <Flex direction="column" alignItems="stretch" gap={4}>

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { IntlMessageFormat } from 'intl-messageformat';
 import {
+  verifiedEmailForced,
   addCondition,
   addGroup,
   deactivationInput,
@@ -155,6 +156,8 @@ describe('toPromotionInput', () => {
       labels: { products: {}, variants: { 5: { name: 'Sock', option: 'Red', sku: 'S-R' } } },
     } as Promotion;
     const form = promotionFormFromView(view);
+    expect(form.requireVerifiedEmail).toBe(true);
+    expect(promotionFormFromView({ ...view, requireVerifiedEmail: undefined } as any).requireVerifiedEmail).toBe(false);
     expect(form.benefits[0].amount).toBe('2.50');
     expect(form.labels.variants[5].name).toBe('Sock');
     const { id, status, redemptions, version, timezone, createdAt, updatedAt, labels, ...definition } = view;
@@ -451,6 +454,15 @@ describe('fix round 1', () => {
     expect(validatePromotionForm(form, 'Europe/Lisbon')).toMatchObject({ endsAt: 'ends_before_start' });
     expect(validatePromotionForm(form, 'UTC')).toEqual({});
     expect(validatePromotionForm(baseForm({ endsAt: '2026-07-01T11:00' }), 'Europe/Lisbon')).toEqual({});
+  });
+});
+
+describe('verifiedEmailForced', () => {
+  it('is forced by an e-mail list or a per-customer limit only', () => {
+    expect(verifiedEmailForced(baseForm())).toBe(false);
+    expect(verifiedEmailForced(baseForm({ eligibilityMode: 'EMAILS' }))).toBe(true);
+    expect(verifiedEmailForced(baseForm({ perCustomerLimit: '2' }))).toBe(true);
+    expect(verifiedEmailForced(baseForm({ perCustomerLimit: ' ' }))).toBe(false);
   });
 });
 

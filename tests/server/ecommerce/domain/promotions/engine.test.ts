@@ -857,3 +857,32 @@ describe('verified e-mail (requirement 1.8)', () => {
     expect(appliedIds(evaluate([auto], lines, { emailVerified: false }))).toEqual([2]);
   });
 });
+
+describe('verified e-mail: order of checks and EMAIL conditions', () => {
+  const lines = [line(1, 1000, 1)];
+  const benefit: Benefit[] = [{ type: 'ORDER_PERCENT', percent: 10 }];
+  it('an EMAIL-condition-only promotion needs a verified e-mail', () => {
+    const c = coded(1, 'MAIL', benefit, {
+      conditions: {
+        type: 'GROUP',
+        operator: 'AND',
+        children: [{ type: 'EMAIL', operator: 'contains', value: '@empresa.pt' }],
+      },
+    });
+    for (const email of ['a@empresa.pt', 'b@outro.pt']) {
+      expect(evaluate([c], lines, { codes: ['MAIL'], email, emailVerified: false }).codes[0].status).toBe(
+        'EMAIL_NOT_VERIFIED'
+      );
+    }
+  });
+  it('inactive, scheduled and expired are reported before EMAIL_NOT_VERIFIED', () => {
+    const r = (extra: Partial<PromotionCandidate>) =>
+      evaluate([coded(1, 'X', benefit, { requireVerifiedEmail: true, ...extra })], lines, {
+        codes: ['X'],
+        emailVerified: false,
+      }).codes[0].status;
+    expect(r({ active: false })).toBe('INACTIVE');
+    expect(r({ startsAt: '2027-01-01T00:00:00.000Z' })).toBe('SCHEDULED');
+    expect(r({ endsAt: '2026-02-01T00:00:00.000Z' })).toBe('EXPIRED');
+  });
+});
