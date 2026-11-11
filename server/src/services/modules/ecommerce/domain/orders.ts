@@ -333,17 +333,21 @@ const finiteOr0 = (v: unknown): number => {
 /**
  * Splits the integer `total` across non-negative integer `weights` proportionally, with the
  * largest-remainder method; ties go to the lower index. Σ result === total when Σ weights > 0.
+ * The products `total × weight` can pass 2^53 near MAX_MONEY_CENTS, so they are computed in BigInt.
  */
 export const allocateProportionally = (total: number, weights: number[]): number[] => {
   const sum = weights.reduce((s, w) => s + w, 0);
   if (sum <= 0 || total <= 0) return weights.map(() => 0);
-  const parts = weights.map((w, index) => ({
-    index,
-    base: Math.floor((total * w) / sum),
-    rest: (total * w) % sum,
-  }));
+  const bigSum = BigInt(sum);
+  const bigTotal = BigInt(total);
+  const parts = weights.map((w, index) => {
+    const product = bigTotal * BigInt(w);
+    return { index, base: Number(product / bigSum), rest: product % bigSum };
+  });
   let left = total - parts.reduce((s, p) => s + p.base, 0);
-  const byRest = [...parts].sort((a, b) => b.rest - a.rest || a.index - b.index);
+  const byRest = [...parts].sort((a, b) =>
+    a.rest === b.rest ? a.index - b.index : a.rest < b.rest ? 1 : -1
+  );
   for (const p of byRest) {
     if (left <= 0) break;
     p.base += 1;

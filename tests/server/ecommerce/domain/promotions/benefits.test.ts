@@ -212,6 +212,25 @@ describe('applyCombination: product discounts', () => {
     checkInvariants(r, lines);
   });
 
+  it('SET near MAX_MONEY_CENTS splits exactly', () => {
+    const AB = { productIds: [], variantIds: [1, 2] };
+    const set = (amount: number): Benefit => ({
+      type: 'PRODUCT_FIXED',
+      target: AB,
+      amount,
+      per: 'SET',
+      maxQuantity: null,
+    });
+    const tie = [line(1, 999998999, 1), line(2, 1, 1)];
+    const r = run([promo(1, [set(499999500)])], tie);
+    expect(r.lines.map((l) => l.unitDiscount)).toEqual([499999500, 0]);
+    checkInvariants(r, tie);
+    const big = [line(1, 1_000_000_000, 1), line(2, 7, 1)];
+    const r2 = run([promo(1, [set(999999999)])], big);
+    expect(r2.lines.map((l) => l.unitDiscount)).toEqual([999999992, 7]);
+    checkInvariants(r2, big);
+  });
+
   it('SET never exceeds the price of the units it wins', () => {
     const lines = [line(1, 100, 2)];
     const r = run(
@@ -347,6 +366,55 @@ describe('applyCombination: Buy X Get Y', () => {
       expect(r.benefitAmounts.get(2)).toEqual([0]);
       checkInvariants(r, lines);
     });
+  });
+
+  describe('overlapping buy and get targets', () => {
+    const AB = { productIds: [], variantIds: [1, 2] };
+    const buyAnyGetB: Benefit = {
+      type: 'BUY_X_GET_Y',
+      buy: { target: AB, quantity: 1, minAmount: null },
+      get: { mode: 'IN_CART', target: B, quantity: 1 },
+      reward: { kind: 'FREE' },
+    };
+
+    it('"buy 1 of {A,B}, get 1 B": B 20 € and A 10 € -> B free, A bought', () => {
+      const lines = [line(2, 2000, 1), line(1, 1000, 1)];
+      const r = run([promo(1, [buyAnyGetB])], lines);
+      expect(r.productDiscount).toBe(2000);
+      expect(r.lines.find((l) => l.sourceIndex === 0)!.unitDiscount).toBe(2000);
+      checkInvariants(r, lines);
+    });
+
+    it('repeats over overlapping targets: 2 B at 20 € and 2 A at 30 €', () => {
+      const lines = [line(2, 2000, 2), line(1, 3000, 2)];
+      const r = run([promo(1, [buyAnyGetB])], lines);
+      expect(r.productDiscount).toBe(4000);
+      expect(r.benefitAmounts.get(1)).toEqual([4000]);
+      checkInvariants(r, lines);
+    });
+    it('buy units spare the prize target when they can: 2 B at 30 € and 2 A at 10 €', () => {
+      const lines = [line(2, 3000, 2), line(1, 1000, 2)];
+      const r = run([promo(1, [buyAnyGetB])], lines);
+      expect(r.productDiscount).toBe(6000);
+      expect(r.lines.find((l) => l.sourceIndex === 0)).toMatchObject({
+        quantity: 2,
+        unitDiscount: 3000,
+      });
+      checkInvariants(r, lines);
+    });
+  });
+
+  it('"buy 1 A, get 1 of {A,B}": A 5 € and B 10 € -> A bought, B free', () => {
+    const lines = [line(1, 500, 1), line(2, 1000, 1)];
+    const b: Benefit = {
+      type: 'BUY_X_GET_Y',
+      buy: { target: A, quantity: 1, minAmount: null },
+      get: { mode: 'IN_CART', target: { productIds: [], variantIds: [1, 2] }, quantity: 1 },
+      reward: { kind: 'FREE' },
+    };
+    const r = run([promo(1, [b])], lines);
+    expect(r.productDiscount).toBe(1000);
+    checkInvariants(r, lines);
   });
 
   it('the same units cannot be the prize of two Buy X Get Y', () => {
@@ -595,6 +663,30 @@ describe('applyCombination: exact splits stress', () => {
       lines,
       { shipping: 499 }
     );
+    // Hand-checked: BXGY prizes are the cheapest A units (two 1-cent units at 0, then one 999 at
+    // 330), bought with the three B. SET (1001 / E=4 = 250.25 per unit) beats 12.5% on the three B
+    // and the first free A; the other three A take 12.5% (125). SET splits 1001 over
+    // [999, 1337, 1337, 1337] as [200, 267, 267, 267].
+    expect(shape(r).map((l) => [l.sourceIndex, l.quantity, l.unitDiscount])).toEqual([
+      [0, 3, 125],
+      [0, 1, 200],
+      [0, 1, 330],
+      [1, 3, 267],
+      [2, 2, 0],
+    ]);
+    expect([...r.benefitAmounts]).toEqual([
+      [1, [1001]],
+      [2, [375]],
+      [3, [330, 777]],
+    ]);
+    expect(r).toMatchObject({
+      itemsOriginal: 9008,
+      productDiscount: 1706,
+      subtotal: 7302,
+      orderDiscount: 777,
+      shippingDiscount: 0,
+      total: 7024,
+    });
     checkInvariants(r, lines);
   });
 });
