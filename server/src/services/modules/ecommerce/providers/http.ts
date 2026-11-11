@@ -10,7 +10,8 @@ const TIMEOUT_MS = 10000;
 export async function timedFetch<T>(
   url: string,
   init: RequestInit,
-  read: (res: Response) => Promise<T>
+  read: (res: Response) => Promise<T>,
+  timeoutMs: number = TIMEOUT_MS
 ): Promise<T | null> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -18,7 +19,7 @@ export async function timedFetch<T>(
     timer = setTimeout(() => {
       controller.abort();
       reject(new Error('timeout'));
-    }, TIMEOUT_MS);
+    }, timeoutMs);
   });
   aborted.catch(() => undefined);
   try {
