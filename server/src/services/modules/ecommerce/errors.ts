@@ -1,11 +1,14 @@
 import type { FieldError } from './domain/catalog';
 
+/** A field-level validation problem. `code` is a stable identifier the admin translates. */
+export type ValidationIssue = FieldError | { path: string; code: string };
+
 export class EcommerceValidationError extends Error {
   name = 'EcommerceValidationError';
 
   constructor(
     message: string,
-    public errors: FieldError[]
+    public errors: ValidationIssue[]
   ) {
     super(message);
   }

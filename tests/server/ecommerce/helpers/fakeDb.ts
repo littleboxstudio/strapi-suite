@@ -1,0 +1,111 @@
+import { vi } from 'vitest';
+
+/** relation name -> [target uid, foreign key on target] */
+export type FakeRelations = Record<string, Record<string, [string, string]>>;
+
+/**
+ * In-memory stand-in for the Strapi Query Engine (`strapi.db`), covering the subset the
+ * e-commerce services use. `transaction` restores every table when the callback throws.
+ */
+export function createFakeDb(uids: string[], relations: FakeRelations = {}) {
+  const tables: Record<string, any[]> = Object.fromEntries(uids.map((u) => [u, []]));
+  const seq: Record<string, number> = {};
+  const isOp = (o: any) =>
+    o && typeof o === 'object' && Object.keys(o).some((k) => k.startsWith('$'));
+
+  const match = (uid: string, row: any, where: any = {}): boolean =>
+    Object.entries(where).every(([key, cond]: [string, any]) => {
+      if (key === '$or') return cond.some((w: any) => match(uid, row, w));
+      const rel = relations[uid]?.[key];
+      if (rel) {
+        return tables[rel[0]].some((r) => r[rel[1]] === row.id && match(rel[0], r, cond));
+      }
+      const value = key === 'id' ? row.id : row[key];
+      if (isOp(cond)) {
+        if ('$in' in cond) return cond.$in.includes(value);
+        if ('$ne' in cond) return value !== cond.$ne;
+        if ('$containsi' in cond)
+          return String(value ?? '').toLowerCase().includes(cond.$containsi.toLowerCase());
+        throw new Error('unsupported op');
+      }
+      if (cond && typeof cond === 'object') return match(uid, { id: value }, cond);
+      return value === cond;
+    });
+
+  const populate = (uid: string, row: any, pop: any): any => {
+    if (!pop) return { ...row };
+    const out = { ...row };
+    for (const [key, spec] of Object.entries(pop) as [string, any][]) {
+      const [target, fk] = relations[uid][key];
+      out[key] = tables[target]
+        .filter((r) => r[fk] === row.id)
+        .map((r) => populate(target, r, spec === true ? null : spec.populate));
+    }
+    return out;
+  };
+
+  const sort = (rows: any[], orderBy: any): any[] => {
+    if (!orderBy) return rows;
+    const specs: [string, string][] = (Array.isArray(orderBy) ? orderBy : [orderBy]).flatMap(
+      (o: any) => Object.entries(o) as [string, string][]
+    );
+    return [...rows].sort((a, b) => {
+      for (const [field, dir] of specs) {
+        const av = a[field] ?? 0;
+        const bv = b[field] ?? 0;
+        if (av !== bv) return (av < bv ? -1 : 1) * (dir === 'desc' ? -1 : 1);
+      }
+      return 0;
+    });
+  };
+
+  const query = (uid: string) => ({
+    findMany: async (p: any = {}) => {
+      let rows = sort(tables[uid].filter((r) => match(uid, r, p.where)), p.orderBy);
+      if (p.offset !== undefined) rows = rows.slice(p.offset, p.offset + (p.limit ?? rows.length));
+      return rows.map((r) => populate(uid, r, p.populate));
+    },
+    findOne: async (p: any = {}) => {
+      const r = tables[uid].find((x) => match(uid, x, p.where));
+      return r ? populate(uid, r, p.populate) : null;
+    },
+    count: async (p: any = {}) => tables[uid].filter((r) => match(uid, r, p.where)).length,
+    create: async ({ data }: any) => {
+      seq[uid] = (seq[uid] ?? 0) + 1;
+      const row = { id: seq[uid], ...data };
+      tables[uid].push(row);
+      return { ...row };
+    },
+    update: async ({ where, data }: any) => {
+      const r = tables[uid].find((x) => match(uid, x, where));
+      if (!r) return null;
+      Object.assign(r, data);
+      return { ...r };
+    },
+    updateMany: async ({ where, data }: any) => {
+      const rows = tables[uid].filter((x) => match(uid, x, where));
+      rows.forEach((r) => Object.assign(r, data));
+      return { count: rows.length };
+    },
+    delete: async ({ where }: any) => {
+      const i = tables[uid].findIndex((x) => match(uid, x, where));
+      if (i >= 0) tables[uid].splice(i, 1);
+    },
+    deleteMany: async ({ where }: any) => {
+      tables[uid] = tables[uid].filter((x) => !match(uid, x, where));
+    },
+  });
+
+  const transaction = vi.fn(async (cb: () => Promise<any>) => {
+    const snapshot = JSON.stringify(tables);
+    try {
+      return await cb();
+    } catch (e) {
+      const restored = JSON.parse(snapshot);
+      for (const k of Object.keys(tables)) tables[k] = restored[k];
+      throw e;
+    }
+  });
+
+  return { tables, query, transaction };
+}

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { EcommerceValidationError, EcommerceNotFoundError } from '../../../server/src/services/modules/ecommerce/errors';
 import EcommerceProductService from '../../../server/src/services/modules/ecommerce/products';
+import { createFakeDb, type FakeRelations } from './helpers/fakeDb';
 
 const P = 'plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-';
 const UIDS = {
@@ -12,7 +13,7 @@ const UIDS = {
 };
 
 // relation name -> [target uid, foreign key on target]
-const RELATIONS: Record<string, Record<string, [string, string]>> = {
+const RELATIONS: FakeRelations = {
   [UIDS.product]: {
     translations: [UIDS.productTranslation, 'product'],
     variants: [UIDS.variant, 'product'],
@@ -25,87 +26,9 @@ const RELATIONS: Record<string, Record<string, [string, string]>> = {
 };
 
 function makeStrapi() {
-  const tables: Record<string, any[]> = Object.fromEntries(
-    Object.values(UIDS).map((u) => [u, []])
-  );
-  const seq: Record<string, number> = {};
-  const isOp = (o: any) => o && typeof o === 'object' && Object.keys(o).some((k) => k.startsWith('$'));
-
-  const match = (uid: string, row: any, where: any = {}): boolean =>
-    Object.entries(where).every(([key, cond]: [string, any]) => {
-      if (key === '$or') return cond.some((w: any) => match(uid, row, w));
-      const rel = RELATIONS[uid]?.[key];
-      if (rel) {
-        return tables[rel[0]].some((r) => r[rel[1]] === row.id && match(rel[0], r, cond));
-      }
-      const value = key === 'id' ? row.id : row[key];
-      if (isOp(cond)) {
-        if ('$in' in cond) return cond.$in.includes(value);
-        if ('$ne' in cond) return value !== cond.$ne;
-        if ('$containsi' in cond)
-          return String(value ?? '').toLowerCase().includes(cond.$containsi.toLowerCase());
-        throw new Error('unsupported op');
-      }
-      if (cond && typeof cond === 'object') return match(uid, { id: value }, cond);
-      return value === cond;
-    });
-
-  const populate = (uid: string, row: any, pop: any): any => {
-    if (!pop) return { ...row };
-    const out = { ...row };
-    for (const [key, spec] of Object.entries(pop) as [string, any][]) {
-      const [target, fk] = RELATIONS[uid][key];
-      out[key] = tables[target]
-        .filter((r) => r[fk] === row.id)
-        .map((r) => populate(target, r, spec === true ? null : spec.populate));
-    }
-    return out;
-  };
-
-  const query = (uid: string) => ({
-    findMany: async (p: any = {}) => {
-      let rows = tables[uid].filter((r) => match(uid, r, p.where));
-      if (p.orderBy?.id === 'desc') rows = [...rows].sort((a, b) => b.id - a.id);
-      if (p.offset !== undefined) rows = rows.slice(p.offset, p.offset + (p.limit ?? rows.length));
-      return rows.map((r) => populate(uid, r, p.populate));
-    },
-    findOne: async (p: any = {}) => {
-      const r = tables[uid].find((x) => match(uid, x, p.where));
-      return r ? populate(uid, r, p.populate) : null;
-    },
-    count: async (p: any = {}) => tables[uid].filter((r) => match(uid, r, p.where)).length,
-    create: async ({ data }: any) => {
-      seq[uid] = (seq[uid] ?? 0) + 1;
-      const row = { id: seq[uid], ...data };
-      tables[uid].push(row);
-      return { ...row };
-    },
-    update: async ({ where, data }: any) => {
-      const r = tables[uid].find((x) => match(uid, x, where));
-      Object.assign(r, data);
-      return { ...r };
-    },
-    delete: async ({ where }: any) => {
-      const i = tables[uid].findIndex((x) => match(uid, x, where));
-      if (i >= 0) tables[uid].splice(i, 1);
-    },
-    deleteMany: async ({ where }: any) => {
-      tables[uid] = tables[uid].filter((x) => !match(uid, x, where));
-    },
-  });
+  const { tables, query, transaction } = createFakeDb(Object.values(UIDS), RELATIONS);
 
   const imageService = { remove: vi.fn(), removeFiles: vi.fn(async () => undefined) };
-
-  const transaction = vi.fn(async (cb: () => Promise<any>) => {
-    const snapshot = JSON.stringify(tables);
-    try {
-      return await cb();
-    } catch (e) {
-      const restored = JSON.parse(snapshot);
-      for (const k of Object.keys(tables)) tables[k] = restored[k];
-      throw e;
-    }
-  });
 
   const strapi: any = {
     db: { query, transaction },
