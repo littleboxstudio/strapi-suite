@@ -152,3 +152,66 @@ describe('unmetPromotions', () => {
     expect(res).toEqual([{ promotionId: 3, name: 'P3' }]);
   });
 });
+
+describe('conditions hardening', () => {
+  const bad = (x: unknown) => x as Condition;
+  it('reports a throwing evaluator via onError and fails closed', () => {
+    const calls: [string, unknown][] = [];
+    const broken = bad({ type: 'CART_CONTAINS', match: 'ANY', target: null });
+    const c = { ...ctx([line(1, 1, 100, 1)]), onError: (t: string, e: unknown) => calls.push([t, e]) };
+    expect(conditionsMet(g('AND', [broken]), c)).toBe(false);
+    expect(calls).toHaveLength(1);
+    expect(calls[0][0]).toBe('CART_CONTAINS');
+    expect(conditionsMet(g('OR', [broken, sub]), { ...c, lines: [line(1, 1, 10000, 1)] })).toBe(true);
+  });
+  it('a throwing onError hook does not break evaluation', () => {
+    const broken = bad({ type: 'CART_CONTAINS', match: 'ANY', target: null });
+    const c = {
+      ...ctx([]),
+      onError: () => {
+        throw new Error('hook');
+      },
+    };
+    expect(conditionsMet(g('AND', [broken]), c)).toBe(false);
+  });
+  it('null / malformed children are false', () => {
+    for (const child of [null, undefined, 5, 'x', {}, { type: 7 }]) {
+      expect(conditionsMet(g('AND', [bad(child)]), ctx([]))).toBe(false);
+    }
+    expect(conditionsMet(g('OR', [bad(null), sub]), ctx([line(1, 1, 10000, 1)]))).toBe(true);
+  });
+  it('unknown group operator is false', () => {
+    const t = { type: 'GROUP', operator: 'XOR', children: [sub] } as unknown as ConditionGroup;
+    expect(conditionsMet(t, ctx([line(1, 1, 10000, 1)]))).toBe(false);
+    expect(conditionsMet(g('AND', [t]), ctx([line(1, 1, 10000, 1)]))).toBe(false);
+  });
+  it('empty CART_CONTAINS target and empty EMAIL value are false', () => {
+    const empty = { productIds: [], variantIds: [] };
+    for (const match of ['ANY', 'ALL', 'NONE'] as const) {
+      const t = g('AND', [{ type: 'CART_CONTAINS', match, target: empty }]);
+      expect(conditionsMet(t, ctx([line(1, 1, 1, 1)]))).toBe(false);
+    }
+    for (const operator of ['eq', 'neq', 'contains', 'not_contains'] as const) {
+      const t = g('AND', [{ type: 'EMAIL', operator, value: '' }]);
+      expect(conditionsMet(t, ctx([], 'a@b.pt'))).toBe(false);
+    }
+  });
+  it('eligibility normalises stored e-mails', () => {
+    expect(eligibilityMet({ mode: 'EMAILS', emails: [' A@B.pt '] }, 'a@b.pt')).toBe(true);
+  });
+  it('deep nesting, OR with all false, gt/lt/lte', () => {
+    const deep = g('AND', [g('OR', [g('AND', [g('OR', [contains(A), sub])])])]);
+    expect(conditionsMet(deep, ctx([line(1, 1, 1, 1)]))).toBe(true);
+    expect(conditionsMet(deep, ctx([line(5, 5, 1, 1)]))).toBe(false);
+    expect(conditionsMet(g('OR', [contains(A), contains(B)]), ctx([line(3, 3, 1, 1)]))).toBe(false);
+    const q = (operator: 'gt' | 'lt' | 'lte', value: number) =>
+      g('AND', [{ type: 'TOTAL_QUANTITY', operator, value }]);
+    const c3 = ctx([line(1, 1, 1, 3)]);
+    expect(conditionsMet(q('gt', 2), c3)).toBe(true);
+    expect(conditionsMet(q('gt', 3), c3)).toBe(false);
+    expect(conditionsMet(q('lt', 4), c3)).toBe(true);
+    expect(conditionsMet(q('lt', 3), c3)).toBe(false);
+    expect(conditionsMet(q('lte', 3), c3)).toBe(true);
+    expect(conditionsMet(q('lte', 2), c3)).toBe(false);
+  });
+});
