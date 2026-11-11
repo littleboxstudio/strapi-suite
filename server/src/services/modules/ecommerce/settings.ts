@@ -132,6 +132,9 @@ const isCountry = (v: unknown): boolean => {
   }
 };
 
+/** True for values shaped like a mask (`********`, `sk_********9876`): never accepted as a secret. */
+const isMaskShaped = (v: string) => maskSecret(v) === v || /^.{0,3}\*{8}.{0,4}$/.test(v);
+
 const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 
 function validateCountries(value: unknown, path: string, errors: ValidationIssue[]): void {
@@ -268,7 +271,17 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
     strapi.plugin('i18n').service('locales').getDefaultLocale();
 
   const runtimeCache = new Map<string, { value: ProviderRuntime & { active: boolean }; expiresAt: number }>();
-  const invalidate = () => runtimeCache.clear();
+  // Bumped on every invalidation so a read that started before it cannot repopulate the cache.
+  let cacheGeneration = 0;
+  const invalidate = () => {
+    cacheGeneration += 1;
+    runtimeCache.clear();
+  };
+  const copyRuntime = (rt: ProviderRuntime & { active: boolean }) => ({
+    config: { ...rt.config },
+    secrets: { ...rt.secrets },
+    active: rt.active,
+  });
 
   const requireDefinition = (id: string): ProviderDefinition => {
     const def = getProviderDefinition(id);
@@ -374,6 +387,8 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
         if (typeof v !== 'string' || v.trim() === '') continue;
         const stored = plainStored[field.key];
         if (stored !== undefined && isMaskedEcho(v, stored)) continue;
+        // A mask-shaped value is an echo of a mask we cannot verify (unreadable or absent): keep stored.
+        if (isMaskShaped(v)) continue;
         newSecrets[field.key] = v;
       }
 
@@ -410,6 +425,8 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
         secrets[k] = encryptSecret(v, key as Buffer);
         changedFields.push(k);
       }
+
+      if (!changedFields.length) return toView(def, row, key);
 
       const data = { config, secrets, updatedBy: userId === undefined ? null : String(userId) };
       if (row) {
@@ -496,11 +513,14 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
       const def = getProviderDefinition(id);
       if (!def) return null;
       const cached = runtimeCache.get(id);
-      if (cached && cached.expiresAt > Date.now()) return cached.value;
+      if (cached && cached.expiresAt > Date.now()) return copyRuntime(cached.value);
+      const generation = cacheGeneration;
       const row = await findRow(id);
       const value = { ...buildRuntime(def, row), active: row?.active ?? false };
-      runtimeCache.set(id, { value, expiresAt: Date.now() + RUNTIME_TTL_MS });
-      return value;
+      if (generation === cacheGeneration) {
+        runtimeCache.set(id, { value, expiresAt: Date.now() + RUNTIME_TTL_MS });
+      }
+      return copyRuntime(value);
     },
 
     async getActiveProviders(category: ProviderCategory): Promise<string[]> {
