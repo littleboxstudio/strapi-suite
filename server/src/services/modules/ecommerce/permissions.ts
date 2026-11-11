@@ -6,6 +6,10 @@ export const ECOMMERCE_PERMISSIONS = {
   productsManage: `plugin::${PLUGIN_ID}.ecommerce.products.manage`,
   settingsRead: `plugin::${PLUGIN_ID}.ecommerce.settings.read`,
   settingsManage: `plugin::${PLUGIN_ID}.ecommerce.settings.manage`,
+  ordersRead: `plugin::${PLUGIN_ID}.ecommerce.orders.read`,
+  ordersManage: `plugin::${PLUGIN_ID}.ecommerce.orders.manage`,
+  customersRead: `plugin::${PLUGIN_ID}.ecommerce.customers.read`,
+  customersManage: `plugin::${PLUGIN_ID}.ecommerce.customers.manage`,
 };
 
 const ECOMMERCE_ACTIONS = [
@@ -13,6 +17,10 @@ const ECOMMERCE_ACTIONS = [
   { uid: 'ecommerce.products.manage', displayName: 'Manage products' },
   { uid: 'ecommerce.settings.read', displayName: 'Read settings' },
   { uid: 'ecommerce.settings.manage', displayName: 'Manage settings' },
+  { uid: 'ecommerce.orders.read', displayName: 'Read orders' },
+  { uid: 'ecommerce.orders.manage', displayName: 'Manage orders' },
+  { uid: 'ecommerce.customers.read', displayName: 'Read customers' },
+  { uid: 'ecommerce.customers.manage', displayName: 'Manage customers' },
 ];
 
 export const registerEcommercePermissions = async (strapi: Core.Strapi): Promise<void> => {

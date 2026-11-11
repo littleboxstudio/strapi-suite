@@ -37,6 +37,12 @@ export interface LtbConfigs {
         emailTemplate: UID.ContentType;
         emailTemplateVersion: UID.ContentType;
         auditLog: UID.ContentType;
+        customer: UID.ContentType;
+        order: UID.ContentType;
+        orderLine: UID.ContentType;
+        payment: UID.ContentType;
+        stockMovement: UID.ContentType;
+        orderHistory: UID.ContentType;
       },
     },
     customFields: {
@@ -73,6 +79,12 @@ export default {
           emailTemplate: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-email-template`,
           emailTemplateVersion: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-email-template-version`,
           auditLog: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-audit-log`,
+          customer: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-customer`,
+          order: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-order`,
+          orderLine: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-order-line`,
+          payment: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-payment`,
+          stockMovement: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-stock-movement`,
+          orderHistory: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-order-history`,
         },
       },
       customFields: {

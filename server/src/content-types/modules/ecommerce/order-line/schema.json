@@ -1,0 +1,85 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_order_lines",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-order-line",
+    "pluralName": "ltb-st-module-ecommerce-order-lines",
+    "displayName": "Littlebox Strapi Suite - E-commerce Order Line",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Order Line"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "order": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-order",
+      "inversedBy": "lines"
+    },
+    "variant": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-variant"
+    },
+    "variantId": {
+      "type": "integer"
+    },
+    "productId": {
+      "type": "integer"
+    },
+    "sku": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "option": {
+      "type": "string"
+    },
+    "imageUrl": {
+      "type": "string"
+    },
+    "unitPrice": {
+      "type": "integer"
+    },
+    "unitDiscount": {
+      "type": "integer",
+      "default": 0
+    },
+    "quantity": {
+      "type": "integer",
+      "required": true
+    },
+    "returnedQuantity": {
+      "type": "integer",
+      "default": 0
+    },
+    "tax": {
+      "type": "decimal"
+    },
+    "isGift": {
+      "type": "boolean",
+      "default": false
+    },
+    "promotionRefs": {
+      "type": "json",
+      "default": []
+    },
+    "position": {
+      "type": "integer"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  }
+}

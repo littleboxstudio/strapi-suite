@@ -1,0 +1,60 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_customers",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-customer",
+    "pluralName": "ltb-st-module-ecommerce-customers",
+    "displayName": "Littlebox Strapi Suite - E-commerce Customer",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Customer"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "firstName": {
+      "type": "string",
+      "required": true
+    },
+    "lastName": {
+      "type": "string",
+      "required": true
+    },
+    "email": {
+      "type": "string",
+      "required": true
+    },
+    "emailNormalized": {
+      "type": "string",
+      "required": true
+    },
+    "phone": {
+      "type": "string"
+    },
+    "orders": {
+      "type": "relation",
+      "relation": "oneToMany",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-order",
+      "mappedBy": "customer"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_customer_email_idx",
+      "columns": [
+        "email_normalized"
+      ]
+    }
+  ]
+}

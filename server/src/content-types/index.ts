@@ -17,6 +17,12 @@ import EcommerceManualShippingMethodSchema from './modules/ecommerce/manual-ship
 import EcommerceEmailTemplateSchema from './modules/ecommerce/email-template';
 import EcommerceEmailTemplateVersionSchema from './modules/ecommerce/email-template-version';
 import EcommerceAuditLogSchema from './modules/ecommerce/audit-log';
+import EcommerceCustomerSchema from './modules/ecommerce/customer';
+import EcommerceOrderSchema from './modules/ecommerce/order';
+import EcommerceOrderLineSchema from './modules/ecommerce/order-line';
+import EcommercePaymentSchema from './modules/ecommerce/payment';
+import EcommerceStockMovementSchema from './modules/ecommerce/stock-movement';
+import EcommerceOrderHistorySchema from './modules/ecommerce/order-history';
 
 export default {
   "ltb-st-app-setting": SettingsAppSchema,
@@ -37,5 +43,11 @@ export default {
   "ltb-st-module-ecommerce-manual-shipping-method": EcommerceManualShippingMethodSchema,
   "ltb-st-module-ecommerce-email-template": EcommerceEmailTemplateSchema,
   "ltb-st-module-ecommerce-email-template-version": EcommerceEmailTemplateVersionSchema,
-  "ltb-st-module-ecommerce-audit-log": EcommerceAuditLogSchema
+  "ltb-st-module-ecommerce-audit-log": EcommerceAuditLogSchema,
+  "ltb-st-module-ecommerce-customer": EcommerceCustomerSchema,
+  "ltb-st-module-ecommerce-order": EcommerceOrderSchema,
+  "ltb-st-module-ecommerce-order-line": EcommerceOrderLineSchema,
+  "ltb-st-module-ecommerce-payment": EcommercePaymentSchema,
+  "ltb-st-module-ecommerce-stock-movement": EcommerceStockMovementSchema,
+  "ltb-st-module-ecommerce-order-history": EcommerceOrderHistorySchema
 };
