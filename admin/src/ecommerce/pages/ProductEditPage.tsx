@@ -27,7 +27,7 @@ import { LocaleSwitcher } from '../components/LocaleSwitcher';
 import { DescriptionEditor } from '../components/DescriptionEditor';
 import { VariantsTable } from '../components/VariantsTable';
 import { VariantModal } from '../components/VariantModal';
-import { GallerySlot } from '../components/GallerySlot';
+import { Gallery } from '../components/Gallery';
 import {
   applyTranslations,
   buildProductInput,
@@ -273,6 +273,11 @@ const ProductEditPage = () => {
     setModal(null);
   };
 
+  const setVariantImages = (variantId: number, images: ImageRecord[]) =>
+    setForm((f) =>
+      f ? { ...f, variants: f.variants.map((v) => (v.id === variantId ? { ...v, images } : v)) } : f
+    );
+
   const removeVariant = (index: number) => {
     setForm((f) => (f ? { ...f, variants: f.variants.filter((_, i) => i !== index) } : f));
     // Row indexes shift, so per-variant server errors no longer point at the right rows.
@@ -400,7 +405,7 @@ const ProductEditPage = () => {
 
       <Section title={t('ecommerce.product.gallery')}>
         {productId !== undefined ? (
-          <GallerySlot owner={{ productId }} images={productImages} onChange={setProductImages} />
+          <Gallery owner={{ productId }} images={productImages} onChange={setProductImages} />
         ) : (
           <Typography variant="omega" textColor="neutral600">
             {t('ecommerce.product.gallery.saveFirst')}
@@ -435,6 +440,7 @@ const ProductEditPage = () => {
           serverErrors={modal.index === null ? {} : scopedErrors(errors, `variants.${modal.index}`)}
           onClose={() => setModal(null)}
           onConfirm={confirmVariant}
+          onImagesChange={setVariantImages}
         />
       )}
     </Flex>
