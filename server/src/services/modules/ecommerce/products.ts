@@ -437,6 +437,15 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
       await save(id, input, actor);
     },
 
+    /** Enables or disables a product on its own (the admin header button), without a full save. */
+    async setActive(id: number, active: boolean): Promise<{ active: boolean }> {
+      const u = uids();
+      const found = await strapi.db.query(u.product).findOne({ where: { id } });
+      if (!found) throw new EcommerceNotFoundError('Product not found');
+      await strapi.db.query(u.product).update({ where: { id }, data: { active } });
+      return { active };
+    },
+
     /**
      * Deletes a product that was never ordered, with its variants, translations and images.
      * An ordered product is refused with `PRODUCT_IN_ORDERS` (409): deactivate it instead.

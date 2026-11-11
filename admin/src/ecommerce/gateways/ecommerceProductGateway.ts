@@ -20,6 +20,7 @@ export default interface EcommerceProductGateway {
   createProduct(input: ProductInput): Promise<{ id: number }>;
   updateProduct(id: number, input: ProductInput): Promise<void>;
   deleteProduct(id: number): Promise<void>;
+  setProductActive(id: number, active: boolean): Promise<{ active: boolean }>;
   uploadImage(form: FormData): Promise<ImageRecord>;
   deleteImage(id: number): Promise<void>;
   translate(input: TranslateInput): Promise<TranslateOutput>;
@@ -52,6 +53,10 @@ export class EcommerceProductGatewayHttp implements EcommerceProductGateway {
 
   async updateProduct(id: number, input: ProductInput): Promise<void> {
     await this.httpClient.put(`${this.base}/products/${id}`, input);
+  }
+
+  async setProductActive(id: number, active: boolean): Promise<{ active: boolean }> {
+    return this.httpClient.put(`${this.base}/products/${id}/active`, { active });
   }
 
   async deleteProduct(id: number): Promise<void> {

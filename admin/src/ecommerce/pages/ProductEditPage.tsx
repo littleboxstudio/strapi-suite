@@ -22,6 +22,7 @@ import FetchEcommerceLocales from '../usecases/fetchEcommerceLocales';
 import FetchProduct from '../usecases/fetchProduct';
 import SaveProduct from '../usecases/saveProduct';
 import DeleteProduct from '../usecases/deleteProduct';
+import SetProductActive from '../usecases/setProductActive';
 import ConfirmModal from '../../components/ConfirmModal';
 import { NoticeModal } from '../components/NoticeModal';
 import TranslateProductStrings from '../usecases/translateProductStrings';
@@ -95,6 +96,7 @@ const ProductEditPage = () => {
   const [deletable, setDeletable] = useState(true);
   const [deleteDialog, setDeleteDialog] = useState<'confirm' | 'blocked' | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [toggling, setToggling] = useState(false);
   const newKeyCounter = useRef(0);
 
   const codes = info?.locales.map((l) => l.code) ?? [];
@@ -243,6 +245,32 @@ const ProductEditPage = () => {
     }
   };
 
+  /**
+   * Like the module header: a saved product is enabled/disabled right away (other unsaved edits
+   * stay in the form); a new product only changes the form, stored on its first save.
+   */
+  const toggleActive = async () => {
+    if (!form || toggling) return;
+    const next = !form.active;
+    if (productId === undefined) {
+      setForm((f) => (f ? { ...f, active: next } : f));
+      return;
+    }
+    setToggling(true);
+    try {
+      const { active } = await new SetProductActive().execute(productId, next);
+      setForm((f) => (f ? { ...f, active } : f));
+      toggleNotification({
+        type: 'success',
+        message: t(active ? 'ecommerce.product.enabledNotice' : 'ecommerce.product.disabledNotice'),
+      });
+    } catch {
+      toggleNotification({ type: 'danger', message: t('ecommerce.product.toggleError') });
+    } finally {
+      setToggling(false);
+    }
+  };
+
   const askDelete = () => setDeleteDialog(deletable ? 'confirm' : 'blocked');
 
   const deleteProduct = async () => {
@@ -353,10 +381,12 @@ const ProductEditPage = () => {
               {t('ecommerce.product.delete')}
             </Button>
           )}
-          {/* Same toggle as the module header; the change is stored with Save. */}
+          {/* Same toggle as the module header: applied immediately on a saved product. */}
           <Button
             variant={form.active ? 'default' : 'danger'}
-            onClick={() => setForm((f) => (f ? { ...f, active: !f.active } : f))}
+            onClick={toggleActive}
+            loading={toggling}
+            disabled={saving || deleting}
             aria-pressed={form.active}
           >
             {formatMessage({ id: getTranslation(form.active ? 'app.enabled' : 'app.disabled') })}
