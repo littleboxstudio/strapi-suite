@@ -104,6 +104,18 @@ locale (empty → default); `:publicId` is a UUID. **Unknown fields are ignored*
 discounts, statuses, stock or `emailVerified` sent by the BFF never reach the services. Money is
 integer cents (EUR), VAT included.
 
+Shipping destinations: the store sells to its **markets** (Settings → General) and groups them
+into **shipping zones** (Settings → Shipping); each shipping method has a price per zone.
+
+- A country outside the markets: `POST /cart/quote` with a `shippingMethod` →
+  `400` with `invalid_country` on `shipping.country`; `POST /orders` → `400` with
+  `invalid_country` on `shippingAddress.country`. A `destination` alone (no method yet) is not an
+  error: `shippingOptions` is `[]`.
+- A country in the markets but in no shipping zone, or whose zone no shipping method has a price
+  for: `shippingOptions: []` (the store does not ship there). Not an error; a quote or an order
+  with a method that does not serve that destination fails with `400 SHIPPING_UNAVAILABLE` on
+  `shipping`.
+
 Public answers never carry internal ids of orders, customers or payments (an order is its
 `publicId`), internal promotion names, the code of an automatic promotion, snapshots, stock
 counts, costs, audit or history, nor any backoffice URL.
@@ -114,6 +126,11 @@ counts, costs, audit or history, nor any backoffice URL.
 cloud provider it is absolute. With Strapi's local provider it is a relative `/uploads/...` path:
 **the BFF serves it** (proxy or rewrite to Strapi's `/uploads`), since the browser never talks
 to Strapi.
+
+**Store logo in e-mails.** The store logo (Settings → General) is a PNG kept by the same upload
+provider. E-mails never point at Strapi: with the local provider they use
+`<storefrontUrl>/uploads/...`, so the BFF must serve `/uploads` publicly (as for the product
+images above). Without a storefront URL the e-mails show the store name instead of the logo.
 
 ## 6. Checkout flow
 
@@ -137,7 +154,7 @@ to Strapi.
    order (the order still exists; the customer has its payment link and success page).
 5. **Payment**: `POST /orders/:publicId/payment` returns a Stripe Checkout URL (the amount always
    comes from the order); redirect the browser there.
-6. **Success page**: Stripe returns to `<storefrontUrl><success path>?order=<publicId>` (the success and cancel paths are set in Settings → Payments → Stripe; defaults `/checkout/success` and `/checkout/cancel`).
+6. **Success page**: Stripe returns to `<storefrontUrl><success path>?order=<publicId>` (the success and cancel paths are set in Settings → Payments → Stripe, as plain paths without a query or fragment; defaults `/checkout/success` and `/checkout/cancel`, also used when a path is left blank).
    **The success page does not prove payment**: read
    `GET /orders/:publicId/status` (`paymentResult`: `PAID`, `PROCESSING` for e.g. Multibanco
    awaiting confirmation, `UNPAID`, `CANCELLED`).
