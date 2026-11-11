@@ -20,6 +20,19 @@ export type FulfillmentStatus = (typeof FULFILLMENT_STATUSES)[number];
 export const PAYMENT_RECORD_STATUSES = ['PENDING', 'COMPLETED', 'CANCELLED', 'FAILED'] as const;
 export type PaymentRecordStatus = (typeof PAYMENT_RECORD_STATUSES)[number];
 
+export type Address = {
+  firstName: string;
+  lastName: string;
+  company?: string;
+  nif?: string;
+  line1: string;
+  line2?: string;
+  postalCode: string;
+  city: string;
+  country: string;
+  phone?: string;
+};
+
 // ---------------------------------------------------------------------------
 // Totals
 // ---------------------------------------------------------------------------
