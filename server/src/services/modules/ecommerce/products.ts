@@ -132,18 +132,9 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
             .deleteMany({ where: { product: ownerId, locale } });
           continue;
         }
-        const taken: { slug: string }[] = await strapi.db.query(u.productTranslation).findMany({
-          where: { locale, product: { id: { $ne: ownerId } } },
-          select: ['slug'],
-        });
-        const slug = resolveUniqueSlug(
-          slugify(t.name) || 'product',
-          taken.map((r) => r.slug)
-        );
         const data = {
           locale,
           name: t.name.trim(),
-          slug,
           shortDescription: t.shortDescription ?? '',
           description: sanitizeDescription(t.description ?? ''),
           product: ownerId,
@@ -151,12 +142,28 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
         const existing = await strapi.db
           .query(u.productTranslation)
           .findOne({ where: { product: ownerId, locale } });
-        if (existing) {
+        // The slug is stable: kept while the translation exists, generated only on creation
+        // (or when the stored one is empty).
+        if (existing?.slug) {
           await strapi.db
             .query(u.productTranslation)
             .update({ where: { id: existing.id }, data });
         } else {
-          await strapi.db.query(u.productTranslation).create({ data });
+          const taken: { slug: string }[] = await strapi.db.query(u.productTranslation).findMany({
+            where: { locale, product: { id: { $ne: ownerId } } },
+            select: ['slug'],
+          });
+          const slug = resolveUniqueSlug(
+            slugify(t.name) || 'product',
+            taken.map((r) => r.slug)
+          );
+          if (existing) {
+            await strapi.db
+              .query(u.productTranslation)
+              .update({ where: { id: existing.id }, data: { ...data, slug } });
+          } else {
+            await strapi.db.query(u.productTranslation).create({ data: { ...data, slug } });
+          }
         }
       }
 

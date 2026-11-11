@@ -33,8 +33,10 @@ function makeStrapi(opts: { encryptionKey?: string | null } = {}) {
     ecommerce: { encryptionKey: opts.encryptionKey === undefined ? 'key-one' : opts.encryptionKey },
   };
   let audit: any;
+  const apiTokenGetById = vi.fn(async (id: number) => (id === 7 ? { id: 7 } : null));
   const strapi: any = {
     db: { query: db.query, transaction: db.transaction },
+    service: (name: string) => (name === 'admin::api-token' ? { getById: apiTokenGetById } : undefined),
     config: { get: () => pluginConfig },
     plugin: (id: string) =>
       id === 'i18n'
@@ -51,7 +53,7 @@ function makeStrapi(opts: { encryptionKey?: string | null } = {}) {
   };
   audit = EcommerceAuditService({ strapi });
   const service = EcommerceSettingsService({ strapi });
-  return { service, strapi, tables: db.tables, pluginConfig, transaction: db.transaction };
+  return { service, strapi, apiTokenGetById, tables: db.tables, pluginConfig, transaction: db.transaction };
 }
 
 const fakeBilling = (exclusive = true) => ({
@@ -394,6 +396,29 @@ describe('EcommerceSettingsService — store settings', () => {
       timezone: 'Europe/Lisbon',
       shippingCountries: ['PT'],
       supportEmail: null,
+      storefrontApiTokenId: null,
+      checkoutSessionTtlHours: 168,
+    });
+  });
+
+  it('validates checkoutSessionTtlHours and storefrontApiTokenId', async () => {
+    const { service, apiTokenGetById } = makeStrapi();
+    for (const v of [0, 721, 1.5, '24']) {
+      await expect(service.updateStoreSettings({ checkoutSessionTtlHours: v } as any)).rejects.toMatchObject({
+        errors: [{ path: 'checkoutSessionTtlHours', code: 'invalid_number' }],
+      });
+    }
+    await expect(service.updateStoreSettings({ storefrontApiTokenId: 99 })).rejects.toMatchObject({
+      errors: [{ path: 'storefrontApiTokenId', code: 'invalid_token' }],
+    });
+    expect(apiTokenGetById).toHaveBeenCalledWith(99);
+    await expect(service.updateStoreSettings({ storefrontApiTokenId: 0 })).rejects.toMatchObject({
+      errors: [{ path: 'storefrontApiTokenId', code: 'invalid_token' }],
+    });
+    const res = await service.updateStoreSettings({ storefrontApiTokenId: 7, checkoutSessionTtlHours: 720 });
+    expect(res).toMatchObject({ storefrontApiTokenId: 7, checkoutSessionTtlHours: 720 });
+    expect(await service.updateStoreSettings({ storefrontApiTokenId: null })).toMatchObject({
+      storefrontApiTokenId: null,
     });
   });
 

@@ -9,7 +9,7 @@ const RESERVED = ['createdBy', 'updatedBy', 'createdAt', 'updatedAt', 'published
 const names: Record<string, string[]> = {
   promotion: ['name', 'description', 'code', 'method', 'active', 'startsAt', 'endsAt', 'priority', 'displayName',
     'eligibility', 'conditions', 'benefits', 'stacking', 'usageLimit', 'perCustomerLimit', 'perOrderLimit',
-    'redemptions', 'version', 'actor'],
+    'redemptions', 'version', 'actor', 'requireVerifiedEmail'],
   'promotion-redemption': ['promotion', 'order', 'customer', 'emailNormalized', 'promotionCode', 'amount', 'status',
     'releasedAt', 'uniqueKey', 'actor'],
   'promotion-customer-usage': ['promotion', 'emailNormalized', 'uses', 'uniqueKey'],

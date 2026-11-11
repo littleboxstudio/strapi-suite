@@ -140,6 +140,28 @@ describe('EcommerceProductService', () => {
     expect(tables[UIDS.productTranslation][0].slug).toBe('product');
   });
 
+  it('keeps the slug of an existing translation when the name changes', async () => {
+    const { service, tables } = makeStrapi();
+    const { id } = await service.create(input('Caneca', [variant('A')]));
+    expect(tables[UIDS.productTranslation][0].slug).toBe('caneca');
+    await service.update(id, input('Caneca Azul', [variant('A')]));
+    expect(tables[UIDS.productTranslation]).toHaveLength(1);
+    expect(tables[UIDS.productTranslation][0]).toMatchObject({ name: 'Caneca Azul', slug: 'caneca' });
+  });
+
+  it('generates the slug of a new translation and renews it after delete and recreate', async () => {
+    const { service, tables } = makeStrapi();
+    const { id } = await service.create(input('Caneca', [variant('A')]));
+    const base = input('Caneca', [variant('A')]);
+    await service.update(id, { ...base, translations: { ...base.translations, pt: { name: 'Chávena Grande', description: '' } } });
+    const pt = () => tables[UIDS.productTranslation].find((t) => t.locale === 'pt');
+    expect(pt()!.slug).toBe('chavena-grande');
+    await service.update(id, { ...base, translations: { ...base.translations, pt: { name: '', description: '' } } });
+    expect(pt()).toBeUndefined();
+    await service.update(id, { ...base, translations: { ...base.translations, pt: { name: 'Taça', description: '' } } });
+    expect(pt()!.slug).toBe('taca');
+  });
+
   it('rejects a SKU used by another product and creates nothing', async () => {
     const { service, tables } = makeStrapi();
     await service.create(input('Camisa', [variant('DUP')]));

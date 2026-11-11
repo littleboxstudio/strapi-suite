@@ -45,6 +45,7 @@ export const UIDS = {
   promotion: `${P}promotion`,
   promotionRedemption: `${P}promotion-redemption`,
   promotionCustomerUsage: `${P}promotion-customer-usage`,
+  checkoutSession: `${P}checkout-session`,
   auditLog: `${P}audit-log`,
 };
 
@@ -64,6 +65,7 @@ const RELATIONS: FakeRelations = {
     payments: [UIDS.payment, 'order'],
     history: [UIDS.orderHistory, 'order'],
     customer: [UIDS.customer, 'customer', 'manyToOne'],
+    checkoutSession: [UIDS.checkoutSession, 'checkoutSession', 'manyToOne'],
   },
   [UIDS.payment]: { order: [UIDS.order, 'order', 'manyToOne'] },
   [UIDS.stripeSession]: {
@@ -131,6 +133,7 @@ export function setupCommerce(opts: { stripeActive?: boolean; resendActive?: boo
       UIDS.promotion,
       UIDS.promotionRedemption,
       UIDS.promotionCustomerUsage,
+      UIDS.checkoutSession,
     ],
   });
   const services: Record<string, any> = {};

@@ -145,6 +145,11 @@
       "relation": "oneToMany",
       "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-order-history",
       "mappedBy": "order"
+    },
+    "checkoutSession": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-checkout-session"
     }
   },
   "pluginOptions": {

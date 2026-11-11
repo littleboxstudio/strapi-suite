@@ -37,6 +37,7 @@ import EcommerceWebhookEventSchema from './modules/ecommerce/webhook-event';
 import EcommercePromotionSchema from './modules/ecommerce/promotion';
 import EcommercePromotionRedemptionSchema from './modules/ecommerce/promotion-redemption';
 import EcommercePromotionCustomerUsageSchema from './modules/ecommerce/promotion-customer-usage';
+import EcommerceCheckoutSessionSchema from './modules/ecommerce/checkout-session';
 
 export default {
   "ltb-st-app-setting": SettingsAppSchema,
@@ -77,5 +78,6 @@ export default {
   "ltb-st-module-ecommerce-webhook-event": EcommerceWebhookEventSchema,
   "ltb-st-module-ecommerce-promotion": EcommercePromotionSchema,
   "ltb-st-module-ecommerce-promotion-redemption": EcommercePromotionRedemptionSchema,
-  "ltb-st-module-ecommerce-promotion-customer-usage": EcommercePromotionCustomerUsageSchema
+  "ltb-st-module-ecommerce-promotion-customer-usage": EcommercePromotionCustomerUsageSchema,
+  "ltb-st-module-ecommerce-checkout-session": EcommerceCheckoutSessionSchema
 };
