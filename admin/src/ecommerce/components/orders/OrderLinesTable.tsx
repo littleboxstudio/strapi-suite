@@ -21,8 +21,8 @@ const THUMBNAIL_SIZE = 40;
 const COLUMNS = ['product', 'sku', 'unitPrice', 'quantity', 'shipped', 'total'] as const;
 
 /**
- * The order's lines with the prices recorded on the order (requirements 4.1–4.3): "shipped /
- * ordered", units left to ship, units being shipped (PENDING at the carrier) and returned.
+ * The order's lines with the prices recorded on the order (requirements 4.1–4.3): "ordered /
+ * shipped", units left to ship, units being shipped (PENDING at the carrier) and returned.
  */
 const OrderLinesTable = ({ lines }: { lines: OrderLine[] }) => {
   const { formatMessage, locale: uiLocale } = useIntl();

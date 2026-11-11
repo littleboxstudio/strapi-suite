@@ -14,9 +14,9 @@ import type {
 export type Message = { id: string; values?: Record<string, string | number> };
 export type Translate = (id: string, values?: Record<string, string | number>) => string;
 
-/** "shipped / ordered", e.g. "2 / 3" (requirement 4.3, plan 5). */
+/** "ordered / shipped", e.g. "10 / 3" (requirement 4.3). */
 export function formatShippedProgress(quantity: number, shipped: number): string {
-  return `${shipped} / ${quantity}`;
+  return `${quantity} / ${shipped}`;
 }
 
 /** "7 units left to ship", or null when nothing is pending. */
