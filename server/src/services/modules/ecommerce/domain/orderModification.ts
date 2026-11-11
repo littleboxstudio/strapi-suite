@@ -56,7 +56,8 @@ export type ModificationErrorCode =
   | 'INSUFFICIENT_STOCK'
   | 'VARIANT_UNAVAILABLE'
   | 'INVALID_QUANTITY'
-  | 'INVALID_AMOUNT';
+  | 'INVALID_AMOUNT'
+  | 'LINES_REQUIRED';
 
 export type ModificationTotals = OrderTotals & { paid: number; due: number; excess: number };
 
@@ -196,6 +197,12 @@ export const simulateModification = (
     } else {
       newQuantity.set(line.id, 0);
     }
+  }
+
+  // An order keeps at least one line: emptying it is a cancellation, not a modification.
+  // Line errors (e.g. an unavailable new variant) already say why nothing is left.
+  if (!errors.length && !added.length && [...newQuantity.values()].every((q) => q === 0)) {
+    errors.push({ path: 'lines', code: 'LINES_REQUIRED' });
   }
 
   // --- Stock ---------------------------------------------------------------

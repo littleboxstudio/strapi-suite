@@ -301,6 +301,7 @@ export type ModificationErrorCode =
   | 'VARIANT_UNAVAILABLE'
   | 'INVALID_QUANTITY'
   | 'INVALID_AMOUNT'
+  | 'LINES_REQUIRED'
   | string;
 
 export type ModificationTotals = {
