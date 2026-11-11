@@ -33,8 +33,8 @@
   - as colunas alteradas por knex (`increment`/`decrement` condicionais) têm nomes de **uma só palavra em minúsculas** (`redemptions`, `uses`), para que o nome do atributo seja o da coluna;
   - eventos emitidos dentro da transação com `collector.emit` e entregues com `flush()` depois do commit.
 - **Capacidade (design 9.2, decisão do dono do produto):**
-  - global: `UPDATE … SET redemptions = redemptions + 1 WHERE id = ? AND active = true AND redemptions <= usageLimit − 1`; sem limite, o incremento é incondicional (só `active = true`);
-  - por cliente: contador `promotion-customer-usage` por promoção e e-mail normalizado, com `uses <= perCustomerLimit − 1`; o contador é mantido **mesmo sem limite**, para que um limite acrescentado depois conte as encomendas anteriores;
+  - global: `UPDATE … SET redemptions = redemptions + 1 WHERE id = ? AND active = true AND redemptions <= <L>`, onde `<L> = usageLimit − 1` é **calculado em JS** a partir da linha da promoção lida na própria transação (a `reserve` não confia nos limites da fotografia de `loadCandidates`; o `fakeDb` e as colunas de uma só palavra só suportam constantes, nunca comparação coluna-com-coluna); sem limite, o incremento é incondicional (só `active = true`);
+  - por cliente: contador `promotion-customer-usage` por promoção e e-mail normalizado, com `uses <= <L>` (`<L> = perCustomerLimit − 1`, constante calculada em JS a partir da linha da promoção); o contador é mantido **mesmo sem limite**, para que um limite acrescentado depois conte as encomendas anteriores;
   - 0 linhas afetadas → `EcommerceValidationError` com `{ path: 'promotions.<promotionId>', code: 'PROMOTION_UNAVAILABLE', detail: <código ou ''> }` → HTTP 409; a encomenda não é criada e o stock não é descontado (tudo na mesma transação);
   - o cancelamento liberta (redemption `RESERVED → RELEASED` condicional, depois os decrementos guardados por `>= 1`); repetido, não faz nada;
   - **uma modificação de encomenda não consome nem liberta**; as promoções guardadas nunca são reavaliadas (design 4.8); uma devolução também não liberta.
@@ -43,10 +43,10 @@
 - **Arredondamento:** percentagens com meio para cima ao cêntimo (`percentOf`), sempre **por unidade** nos descontos de produto; descontos "SET" repartidos com `allocateProportionally` (já existe em `domain/orders.ts`).
 - **Base das condições de subtotal:** o valor das linhas do cliente a preço original, sem portes e sem ofertas (evita a dependência circular do requisito 1.10).
 - **Fuso horário:** as datas chegam e saem da API como hora local `YYYY-MM-DDTHH:mm` no `store.timezone` (por defeito `Europe/Lisbon`) e são guardadas em UTC.
-- **Limite técnico da procura** (design 6): configuração do plugin `ecommerce.promotionSearchLimit`, inteiro 1–16, por defeito 12; acima do limite, estratégia gulosa assinalada com `exhaustive: false`.
+- **Limite técnico da procura** (design 6): configuração do plugin `ecommerce.promotionSearchLimit` (lida com `strapi.config.get(plugin)?.ecommerce?.promotionSearchLimit`, sem assumir que existe), inteiro 1–16, por defeito 12; só o tipo `LtbConfigs` ganha `ecommerce?: { promotionSearchLimit?: number }`, sem mais nenhuma alteração de configuração; acima do limite, estratégia gulosa assinalada com `exhaustive: false`.
 - **Histórico:** os valores de histórico das promoções usam a chave `promotionCode` (nunca `code`: `redactHistoryValue` mascara qualquer `code`). Os códigos de promoção não podem ter o formato dos vales (`XXXX-XXXX-XXXX`), que `redactVoucherCodes` mascara.
 - **Permissões:** novas ações `ecommerce.promotions.read` ("Read promotions") e `ecommerce.promotions.manage` ("Manage promotions"). A cotação e a criação de encomendas continuam em `orders.manage`.
-- Commits terminam com `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Branch `feat/ecommerce`.
+- Commits terminam com `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` (os subagentes podem assinar com o seu próprio modelo). Branch `feat/ecommerce`.
 
 ## Review Focus
 
@@ -73,8 +73,8 @@
   - `displayName` (json `{ <locale>: string }`), `eligibility` (json `Eligibility`), `conditions` (json `ConditionGroup`), `benefits` (json `{ items: Benefit[] }`), `stacking` (json `Stacking`)
   - `usageLimit`, `perCustomerLimit`, `perOrderLimit` (integer, nulos = sem limite), `redemptions` (integer, default 0), `version` (integer, default 1), `actor` (string)
   - índice simples `ecommerce_promotion_method_active_idx` (`method`, `active`).
-- `promotion-redemption`: `promotion`, `order`, `customer` (manyToOne), `emailNormalized` (string), `promotionCode` (string), `amount` (integer), `status` enum `RESERVED,RELEASED` (default `RESERVED`), `releasedAt` (datetime), `uniqueKey` (string, required, unique + índice; `<promotionId>:<orderId>`), `actor` (string).
-- `promotion-customer-usage`: `promotion` (manyToOne), `emailNormalized` (string), `uses` (integer, default 0), `uniqueKey` (string, required, unique + índice; `p<promotionId>:<sha256 hex do e-mail normalizado>`, para caber em 255).
+- `promotion-redemption`: `promotion`, `order`, `customer` (manyToOne), `emailNormalized` (string), `promotionCode` (string), `amount` (integer), `status` enum `RESERVED,RELEASED` (default `RESERVED`), `releasedAt` (datetime), `uniqueKey` (string, required, unique + índice `ecommerce_promo_redemption_key_unique`; `<promotionId>:<orderId>`), `actor` (string).
+- `promotion-customer-usage`: `promotion` (manyToOne), `emailNormalized` (string), `uses` (integer, default 0), `uniqueKey` (string, required, unique + índice `ecommerce_promo_usage_key_unique`; `p<promotionId>:<sha256 hex do e-mail normalizado>`, para caber em 255). Todos os nomes de índice ≤ 60 caracteres (`schemaIndexes`).
 - `ECOMMERCE_PERMISSIONS.promotionsRead` / `promotionsManage` (`plugin::littlebox-strapi-suite.ecommerce.promotions.read|manage`).
 - `CONFLICT_CODES` ganha `PROMOTION_UNAVAILABLE`, `STORE_CREDIT_INSUFFICIENT`, `TOTAL_CHANGED`, `PROMOTION_IN_USE`, `PROMOTION_VERSION_CONFLICT`.
 
@@ -93,7 +93,8 @@
 
 **Files:**
 - Create: `server/src/services/modules/ecommerce/domain/promotions/{types,definition,time,availability,index}.ts`
-- Test: `tests/server/ecommerce/domain/promotions/{definition,time,availability}.test.ts`
+- Modify: `server/src/services/modules/ecommerce/domain/email.ts` (novo `isValidEmailFormat`; `settings.ts` pode reutilizá-lo, sem mudar comportamento)
+- Test: `tests/server/ecommerce/domain/promotions/{definition,time,availability}.test.ts`, `tests/server/ecommerce/domain/email.test.ts` (novo)
 
 **Interfaces (`types.ts`):**
 - `type DiscountClass = 'PRODUCT_DISCOUNT' | 'ORDER_DISCOUNT' | 'SHIPPING_DISCOUNT'`
@@ -121,6 +122,7 @@
 - `percentOf(amount: number, percent: number): number` = meio para cima de `amount × percent / 100`, em inteiros (`percent` com até 2 casas → pontos base).
 
 **Interfaces (`definition.ts`, `time.ts`, `availability.ts`):**
+- `isValidEmailFormat(raw: string): boolean` em `domain/email.ts` (função pura; o domínio não importa de ficheiros de serviço como `settings.ts`/`customers.ts`); `validatePromotionInput` usa-a para `eligibility.emails` e para `EMAIL` com operador `eq`/`neq`.
 - `normalizePromotionCode(raw: unknown): string` (`trim` + maiúsculas).
 - `type PromotionInput = Omit<PromotionDefinition, 'id' | 'version'> & { description: string | null; active: boolean; startsAt: string /* UTC ISO */; endsAt: string | null; usageLimit: number | null; perCustomerLimit: number | null }`
 - `validatePromotionInput(raw: unknown, ctx: { locales: string[]; timeZone: string }): { value: PromotionInput | null; errors: ValidationIssue[] }`, com os códigos:
@@ -146,7 +148,8 @@
   - `zonedWallTimeToUtc('2026-07-01T10:00', 'Europe/Lisbon')` → `2026-07-01T09:00:00.000Z`; `'2026-01-15T10:00'` → `10:00Z`; `'2026-03-29T01:30'` → `2026-03-29T01:30:00.000Z`; `'2026-10-25T01:30'` → `2026-10-25T00:30:00.000Z`; `utcToZonedWallTime` inverte os dois primeiros; `'2026-13-01T00:00'` → `null`;
   - `promotionStatus`: desativada e expirada → `INACTIVE`; antes do início → `SCHEDULED`; exatamente em `endsAt` → `EXPIRED`;
   - `candidateBlock`: `redemptions 100 / usageLimit 100` → `USAGE_LIMIT_REACHED`; `customerUses 1 / perCustomerLimit 1` com e-mail → `CUSTOMER_LIMIT_REACHED`, sem e-mail → `null`; `EMAILS` com `null` → `EMAIL_NOT_ELIGIBLE`;
-  - `percentOf(1999, 10)` → 200; `percentOf(1005, 12.5)` → 126; `displayNameFor` cai para o locale por defeito e depois para `name`.
+  - `percentOf(1999, 10)` → 200; `percentOf(1005, 12.5)` → 126; `displayNameFor` cai para o locale por defeito e depois para `name`;
+  - `isValidEmailFormat`: `'cliente@exemplo.pt'` → verdadeiro; `'sem-arroba'`, `'a@b'` e `''` → falso (`domain/email.test.ts`).
 - [ ] **Step 2:** `npx vitest run tests/server/ecommerce/domain/promotions` → FAIL.
 - [ ] **Step 3:** Implementar os quatro ficheiros e o barrel `index.ts`.
 - [ ] **Step 4:** → PASS.
@@ -158,6 +161,7 @@
 
 **Files:**
 - Create: `server/src/services/modules/ecommerce/domain/promotions/conditions.ts`
+- Modify: `domain/promotions/index.ts` (exporta o ficheiro novo)
 - Test: `tests/server/ecommerce/domain/promotions/conditions.test.ts`
 
 **Interfaces:**
@@ -190,6 +194,7 @@
 
 **Files:**
 - Create: `server/src/services/modules/ecommerce/domain/promotions/benefits.ts`
+- Modify: `domain/promotions/index.ts` (exporta o ficheiro novo)
 - Test: `tests/server/ecommerce/domain/promotions/benefits.test.ts`
 
 **Interfaces:**
@@ -197,13 +202,14 @@
 - `type PricedLine = { sourceIndex: number | null /* linha do carrinho; null nas ofertas */; variantId: number; productId: number; unitPrice: number; quantity: number; unitDiscount: number; isGift: boolean; refs: { promotionId: number; benefitIndex: number; amount: number }[] }`
 - `type CombinationResult = { lines: PricedLine[]; benefitAmounts: Map<number, number[]> /* por promoção, por índice de benefício */; itemsOriginal: number; productDiscount: number; subtotal: number; orderDiscount: number; shippingOriginal: number | null; shippingDiscount: number; total: number }`
 - `applyCombination(promotions: PromotionCandidate[], ctx: { lines: EvaluationLine[]; shipping: number | null; gifts: Map<number, GiftOption>; giftChoices: Record<number, number> }): CombinationResult`. As promoções são processadas pela ordem **prioridade desc, id asc, índice do benefício asc**. O algoritmo (não é determinado pelos testes):
-  1. **Unidades:** cada linha do carrinho tem `quantity` unidades livres; um desconto de produto atribuído a uma unidade é um `(promotionId, benefitIndex, amount)`; **uma unidade recebe no máximo um benefício de produto** (requisito 2.7).
+  1. **Unidades:** cada linha do carrinho tem `quantity` unidades livres; um desconto de produto atribuído a uma unidade é um `(promotionId, benefitIndex, amount)`; **uma unidade recebe no máximo um benefício de produto** (requisito 2.7). Uma unidade pode estar ainda **reservada como compra** de um `BUY_X_GET_Y` (sem ter recebido benefício): continua livre para os descontos de produto do passo 3.
   2. **`BUY_X_GET_Y`**, repetição a repetição, até `perOrderLimit` (nulo = até faltarem unidades):
      - se `buy.minAmount` e o valor original das linhas do alvo de compra for menor → 0;
      - reserva `buy.quantity` unidades livres do alvo de compra, **das mais caras para as mais baratas** (empate: ordem das linhas);
      - `IN_CART`: reserva `get.quantity` unidades livres do alvo oferecido (sem as acabadas de reservar), **das mais baratas para as mais caras**, com o prémio por unidade;
      - `GIFT`: variante = `giftChoices[promotionId]` se estiver em `variantIds`, ativa e com stock; senão a primeira de `variantIds` ativa com `available ≥ get.quantity`; o total oferecido nunca passa de `available`;
-     - se faltar alguma unidade, a repetição é desfeita e o benefício para; as unidades de compra ficam reservadas sem desconto (não recebem outro desconto de produto, requisito 2.11).
+     - se faltar alguma unidade, a repetição é desfeita e o benefício para;
+     - **unidades de compra** (requisito 2.12): ficam reservadas só contra outros benefícios `BUY_X_GET_Y` (não servem de compra a outro Compre X Receba Y nem recebem o prémio de outro), mas **podem receber descontos de produto** dos passos 3 (requisito 2.7); a unidade **recebida** (prémio) é que não recebe nenhum outro desconto de produto (requisito 2.11).
      - prémio por unidade: `FREE` = preço; `PERCENT` = `percentOf(preço, p)`; `FIXED` = `min(amount, preço)`.
   3. **Descontos por unidade** (`PRODUCT_PERCENT`, `PRODUCT_FIXED`) sobre as unidades ainda livres: valor por unidade `PERCENT` = `percentOf(preço, p)`, `UNIT` = `min(amount, preço)`, `SET` = `amount / E` (fração exata, só para comparar; `E` = unidades livres do alvo, limitadas por `maxQuantity`). As linhas são percorridas por preço desc; cada unidade fica com o benefício de **maior valor por unidade** que ainda tenha quota (`maxQuantity`); empate pela ordem das promoções acima.
      - `SET` realizado = `min(floor(amount × ganhas / E), Σ preços ganhos)`, repartido pelas unidades ganhas com `allocateProportionally(realizado, preços)`.
@@ -216,7 +222,7 @@
   - 1.17: A 3000 × 2 com `PRODUCT_FIXED` 500 `UNIT` → uma linha com `unitDiscount 500`;
   - 1.18 e 3.3: A 5000 × 2 com 20% → `unitDiscount 1000`, total da linha 8000;
   - "Compre 3, pague 2": A 1000 × 3, `buy A 2`, `get IN_CART A 1 FREE` → linhas `{ quantity 2, unitDiscount 0 }` e `{ quantity 1, unitDiscount 1000 }`, `productDiscount 1000` (sem cêntimos perdidos);
-  - 2.11: 2 A a 1000 e 1 B a 1500, "compre 2 A, receba B" → B com 1500 de desconto; um 10% em A na mesma combinação não desconta as duas unidades de A reservadas;
+  - 2.11/2.12: 2 A a 1000 e 1 B a 1500, "compre 2 A, receba B" → B com 1500 de desconto; um 10% em A na mesma combinação **desconta** as duas unidades de A usadas como compra (`unitDiscount 100` cada, `productDiscount` 1500 + 200 = 1700); um 10% em B não desconta o B recebido; um segundo "compre 2 A, receba 1 A" não reutiliza as mesmas duas unidades de A como compra;
   - 2.7 "mesmo produto": A 10000 com 20% e 30% na mesma combinação → só 3000; o 20% fica com 0;
   - 1.22: Compre 2 A, receba 1 B em `GIFT`, 4 A: `perOrderLimit 1` → 1 oferta; `2` → 2; `null` com `available 1` → 1;
   - `GIFT` com `giftChoices` válido usa a escolha; com escolha sem stock usa a primeira com stock; nenhuma com stock → sem oferta e benefício 0;
@@ -233,6 +239,7 @@
 
 **Files:**
 - Create: `server/src/services/modules/ecommerce/domain/promotions/engine.ts`
+- Modify: `domain/promotions/index.ts` (exporta o ficheiro novo)
 - Test: `tests/server/ecommerce/domain/promotions/engine.test.ts`
 
 **Interfaces:**
@@ -274,7 +281,7 @@
 
 **Files:**
 - Create: `server/src/services/modules/ecommerce/promotions.ts`
-- Modify: `server/src/services/index.ts`, `tests/server/ecommerce/helpers/commerceSetup.ts` (regista o serviço)
+- Modify: `server/src/services/index.ts`, `server/src/config/index.ts` (só o tipo `LtbConfigs`: `ecommerce?: { promotionSearchLimit?: number }`), `tests/server/ecommerce/helpers/commerceSetup.ts` (regista o serviço)
 - Test: `tests/server/ecommerce/promotions.test.ts`
 
 **Interfaces:**
@@ -290,12 +297,12 @@
 - `remove(id, actor)`: com alguma `promotion-redemption` → `PROMOTION_IN_USE` (desativar é a alternativa).
 - `listRedemptions(id, { page? }): Promise<{ results: { id; orderId; orderReference; email; amount; status; createdAt; releasedAt }[]; pagination }>`.
 - `catalogSearch(q, locale?)` = `EcommerceOrderService.searchVariants`.
-- `searchLimit(): number` = `config.ecommerce.promotionSearchLimit` inteiro em [1, 16], senão 12.
-- `loadCandidates({ codes: string[]; email: string | null }): Promise<PromotionCandidate[]>`: automáticas ativas (`active`, `startsAt ≤ agora`, `endsAt` nulo ou futuro) e as `CODE` com `code $in codes` (em qualquer estado, para o motor dar o motivo); `customerUses` a partir de `promotion-customer-usage` pelo `uniqueKey` (0 sem e-mail).
+- `searchLimit(): number` = `strapi.config.get(plugin)?.ecommerce?.promotionSearchLimit` (leitura segura: os fakes de teste devolvem só `{ uuid }`) inteiro em [1, 16], senão 12.
+- `loadCandidates({ codes: string[]; email: string | null }): Promise<PromotionCandidate[]>`: automáticas ativas (`active`, `startsAt ≤ agora`, `endsAt` nulo ou futuro) e as `CODE` com `code $in codes` (em qualquer estado, para o motor dar o motivo); `benefits` é desembrulhado de `{ items }` para `Benefit[]`; `customerUses` a partir de `promotion-customer-usage` pelo `uniqueKey` (0 sem e-mail).
 - `giftOptions(candidates, cartQuantities: Map<number, number>): Promise<Map<number, GiftOption>>` para todos os `GIFT.variantIds` (via `EcommerceStockService.available` e o catálogo).
-- `reserve(applied: AppliedPromotion[], ctx: { orderId: number; customerId: number; email: string; actor: string; operationId?: string }): Promise<void>`: junta-se à transação do chamador com `strapi.db.transaction(async ({ trx }) => …)`, como `storeCredits.consume`; para cada promoção, por ordem de id:
-  1. incremento condicional global (Global Constraints) via `strapi.db.getConnection(tableName)`; 0 linhas → `PROMOTION_UNAVAILABLE`;
-  2. contador por cliente: `findOne` pelo `uniqueKey`, cria-o com `uses: 0` se não existir, incremento condicional; 0 linhas → `PROMOTION_UNAVAILABLE`;
+- `reserve(applied: AppliedPromotion[], ctx: { orderId: number; customerId: number; email: string; actor: string; operationId?: string }): Promise<void>`: junta-se à transação do chamador com `strapi.db.transaction(async ({ trx }) => …)`, como `storeCredits.consume`; `AppliedPromotion` não traz `usageLimit`/`perCustomerLimit`, por isso, para cada promoção, por ordem de id, **`findOne` da linha da promoção** (limites e `active` atuais; ausente → `PROMOTION_UNAVAILABLE`) e:
+  1. incremento condicional global via `strapi.db.getConnection(tableName)` com constantes: `active = true` e, com `usageLimit`, `redemptions <= usageLimit − 1` (calculado em JS); 0 linhas → `PROMOTION_UNAVAILABLE`;
+  2. contador por cliente: `findOne` pelo `uniqueKey`, cria-o com `uses: 0` se não existir, incremento condicional com `uses <= perCustomerLimit − 1` (constante; sem limite, incondicional); 0 linhas → `PROMOTION_UNAVAILABLE`;
   3. cria a `promotion-redemption` `RESERVED` (`uniqueKey <promotionId>:<orderId>`, `promotionCode`, `amount`).
 - `releaseForOrder(orderId, actor, opts: { operationId?: string }): Promise<{ promotionId: number; promotionCode: string | null }[]>`: para cada redemption da encomenda, `updateMany` condicional `RESERVED → RELEASED` (`releasedAt`); só com `count > 0` decrementa `redemptions` e `uses` (guardados por `>= 1`). Repetido → `[]`.
 
@@ -306,7 +313,8 @@
   - `loadCandidates`: automática agendada fora; `CODE` expirada dentro (para o motivo); `customerUses` lido pelo e-mail;
   - `reserve` com `usageLimit 1` e `redemptions 1` → `PROMOTION_UNAVAILABLE` com `path 'promotions.<id>'` e `detail` = código; `perCustomerLimit 1` com uma utilização do mesmo e-mail (outro cliente, mesmo e-mail) → `PROMOTION_UNAVAILABLE`; sem limites → `redemptions` e `uses` sobem 1;
   - **Review Focus 2 (parte):** `releaseForOrder` duas vezes → a segunda devolve `[]` e os contadores voltam a 0, nunca −1;
-  - `searchLimit` com 40 ou `'abc'` → 12; com 8 → 8.
+  - `reserve` ignora os limites da fotografia: com a linha da tabela já em `redemptions 1 / usageLimit 1`, falha mesmo que o `applied` venha de candidatas com `redemptions 0`; com o limite subido para 2 na tabela, passa;
+  - `searchLimit` com 40 ou `'abc'` → 12; com 8 → 8; sem a chave `ecommerce` na configuração (`{ uuid }` apenas) → 12, sem lançar.
 - [ ] Steps 2–5. **Commit** `feat(ecommerce): promotion admin service with strict capacity reserve and release`
 
 ---
@@ -314,10 +322,11 @@
 ### Task 7: Encomendas: cotação, criação com promoções, ofertas, cancelamento e vista
 
 **Files:**
-- Modify: `server/src/services/modules/ecommerce/orders.ts`
-- Test: `tests/server/ecommerce/orders.promotions.test.ts`, `tests/server/ecommerce/orders.create.test.ts` (continua verde)
+- Modify: `server/src/services/modules/ecommerce/orders.ts`; os `strapi` fakes locais dos testes que chamam `create`/`cancel` (`orders.create`, `orders.lifecycle`, `orders.modify`, `ordersController`, `refundsController`, `stripePayments`, `stripeWebhooks`: registam `EcommercePromotionService`, os UIDs e as tabelas de promoção, e `config.get` devolve `{ uuid }` sem `ecommerce`)
+- Test: `tests/server/ecommerce/orders.promotions.test.ts`; `tests/server/ecommerce/orders.create.test.ts` (a asserção da encomenda gravada, linha ~243, passa de `promotions: []` para `promotions: { applied: [], codes: [], exhaustive: true }` em `toMatchObject`; a da vista, linha ~583, mantém-se) e os restantes ficheiros acima (só os setups)
 
 **Interfaces:**
+- `create`, `cancel` e `get` chamam o `EcommercePromotionService` só através de um acessor interno `promotions()` (resolvido a partir dos UIDs partilhados do `commerceSetup`); os setups locais acima registam-no.
 - `CreateOrderInput` ganha `promotionCodes?: string[]` (≤ 5), `expectedTotal?: number`, `giftChoices?: Record<number, number>`.
 - `type OrderQuoteInput = { lines: { variantId: number; quantity: number }[]; locale: string; email?: string | null; promotionCodes?: string[]; giftChoices?: Record<number, number>; shipping?: { country: string; postalCode?: string; providerId: string; serviceId: string } | null }`
 - `type OrderQuote = { lines: (PricedLine & { sku; name; option; imageUrl })[]; promotions: AppliedPromotion[]; codes: PromotionEvaluation['codes']; rejected: PromotionEvaluation['rejected']; totals: { itemsOriginal; productDiscount; subtotal; orderDiscount; shippingOriginal: number | null; shippingDiscount; shippingTotal: number | null; total; totalDiscount }; shippingOption: ShippingOption | null; exhaustive: boolean }`
@@ -335,7 +344,7 @@
   - **stock:** um `ORDER_DEDUCT` por variante com a quantidade somada (linhas + ofertas) e a mesma `operationKey` `order:<id>:create:<variantId>`;
   - `reserve(applied, { orderId, customerId, email: normalizeEmail(customer.email), actor })` e histórico `PROMOTIONS_APPLIED` (`newValue: { promotions: [{ promotionId, promotionCode, amount }] }`, descrição `Promotions applied: <nome> (<código>), …`), só quando há promoções.
 - `cancel`: depois de `releaseStoreCreditOnCancel`, `promotions().releaseForOrder(orderId, actor, { operationId })`; se libertou alguma, histórico `PROMOTIONS_RELEASED` com a mesma forma.
-- `OrderView.promotions: (AppliedPromotion & { redemptionStatus: 'RESERVED' | 'RELEASED' | null })[]` (lido de `order.promotions.applied`; `[]` antigo → vazio); `OrderLineView.promotionIds: number[]` (de `promotionRefs.refs`).
+- `OrderView.promotions: (AppliedPromotion & { redemptionStatus: 'RESERVED' | 'RELEASED' | null })[]` (lido de `order.promotions.applied`; `[]` antigo → vazio; **`get()` só consulta as redemptions quando `applied` não está vazio**); `OrderLineView.promotionIds: number[]` (de `promotionRefs.refs`).
 
 - [ ] **Step 1: Failing tests** (`commerceSetup` com variantes e promoções na tabela):
   - **Review Focus 1:** código com `usageLimit 1`; `loadCandidates` simulado devolve a fotografia antiga (`redemptions 0`) e a tabela já tem `redemptions 1` → 409 `PROMOTION_UNAVAILABLE` com o id e o código; nenhuma `order`, nenhum movimento de stock, `redemptions` continua 1;
@@ -350,7 +359,8 @@
   - "Compre 3, pague 2" cria duas linhas da mesma variante (2 sem desconto e 1 com 100%) e a modificação com `orderLineId` continua a funcionar sobre elas;
   - a oferta entra na cotação dos portes (o quoter simulado recebe a quantidade somada);
   - `quote` sem `shipping` → `shippingOriginal: null` e as promoções só de portes em `rejected` com `AWAITING_SHIPPING`; `quote` não escreve nada;
-  - encomenda sem promoções continua igual à do plano 3 (`promotions.applied` vazio, sem histórico de promoções).
+  - encomenda sem promoções continua igual à do plano 3 (`promotions.applied` vazio, sem histórico de promoções, sem consulta a redemptions em `get`);
+  - os totais gravados (`productDiscount`, `orderDiscount`, `shippingDiscount`, `total`) são iguais a `computeTotals` sobre as linhas criadas (`computeTotals` limita `orderDiscount` ao subtotal; a avaliação nunca o ultrapassa).
 - [ ] Steps 2–5. **Commit** `feat(ecommerce): price orders with promotions, gifts and strict capacity on create and cancel`
 
 ---
@@ -358,22 +368,32 @@
 ### Task 8: Modificações: aviso de condições e ajuste manual do desconto (design 4.8)
 
 **Files:**
-- Modify: `server/src/services/modules/ecommerce/domain/orderModification.ts`, `orders.ts` (`normalizeModification`, `loadModificationContext`, `writeModification`)
+- Modify: `server/src/services/modules/ecommerce/domain/orderModification.ts`, `orders.ts` (`normalizeModification`, `loadModificationContext`, `toModificationCurrent`, `toModificationCatalog`, `writeModification`)
 - Test: `tests/server/ecommerce/domain/orderModification.test.ts`, `tests/server/ecommerce/orders.modify.test.ts` (acrescentar)
 
 **Interfaces:**
 - `OrderModificationInput` e `ModificationInput` ganham `orderDiscount?: number` (inteiro em `[0, MAX_MONEY_CENTS]`, senão `INVALID_AMOUNT` em `orderDiscount`).
-- `ModificationCurrent` ganha `promotions: AppliedPromotion[]` e `email: string`.
-- `ModificationResult.discountWarnings: ({ code: 'ORDER_DISCOUNT_CAPPED' } | { code: 'PROMOTION_CONDITION_UNMET'; promotionId: number; name: string })[]`:
+- `ModificationCurrent` ganha `promotions?: AppliedPromotion[]` e `email?: string` (**opcionais**: os fixtures de `orderModification.test.ts` e o `tsc` não partem; ausentes = vazio / `null`).
+- `ExistingLine` e o `CatalogVariant` da modificação ganham `productId` (para `targetMatches`/`EvaluationLine`); `toModificationCurrent` e `toModificationCatalog` preenchem-no (e `promotions`/`email`).
+- `ModificationResult.discountWarnings: ({ code: 'ORDER_DISCOUNT_CAPPED' } | { code: 'PROMOTION_CONDITION_UNMET'; promotionId: number; name: string } | { code: 'SHIPPING_PROMOTION_DROPPED'; promotionId: number; name: string })[]`:
   - `unmetPromotions(current.promotions, { lines: linhas não-oferta depois da modificação, a preço original; email })`;
   - nenhum desconto é retirado: as linhas mantêm o desconto por unidade, o desconto de encomenda mantém o valor (limitado ao subtotal).
 - Com `orderDiscount` presente, esse valor substitui o guardado antes do limite; o `writeModification` grava o histórico existente `ORDER_DISCOUNT_CHANGED` ("Order discount adjusted manually", valor anterior e novo, actor). Sem `orderDiscount`, nada muda.
+- O aviso `ORDER_DISCOUNT_CAPPED` compara com o valor **pedido** (`input.orderDiscount ?? current.orderDiscount`), não com o guardado: `orderDiscount: 0` manual não gera aviso falso.
+- O histórico `ORDER_DISCOUNT_CHANGED` escreve-se **uma só vez** por modificação: com `orderDiscount` fornecido, a descrição manual ("Order discount adjusted manually"); sem ele, a descrição existente de limite ("Order discount capped at the new subtotal") quando o guardado difere do calculado. Linhas `ADDED` gravam `promotionRefs = { refs: [] }` (nunca `[]`).
+- **`orderLineId` obrigatório com várias linhas da mesma variante** (a Task 7 divide linhas): em `simulateModification`, uma entrada sem `orderLineId` para uma variante que tem mais de uma linha existente não-oferta → `INVALID_QUANTITY` em `lines.<i>.orderLineId` (em vez de resolver para a primeira e zerar as outras); o controller documenta-o. O seletor do admin (`modification.ts`) continua a juntar unidades acrescentadas à primeira linha não-oferta.
+- **Portes (design 4.8):** quando a modificação põe os portes em `RECALCULATE` ou `MANUAL` e uma promoção de portes aplicada deixa por isso de se aplicar (o `shippingDiscount` passa a 0), `discountWarnings` inclui `{ code: 'SHIPPING_PROMOTION_DROPPED'; promotionId: number; name: string }` por promoção de portes afetada; `order.promotions` **não é reescrito** (a fotografia histórica mantém-se, spec 3.8).
 - Nenhuma chamada a `reserve`/`releaseForOrder`.
 
 - [ ] **Step 1: Failing tests:**
   - promoção "10% acima de 100 €" e a encomenda desce para 80 € → aviso `PROMOTION_CONDITION_UNMET` com o id e o nome; o `orderDiscount` mantém-se (limitado ao novo subtotal);
   - `orderDiscount: 0` no `applyModification` → total sobe, histórico `ORDER_DISCOUNT_CHANGED` com o actor;
   - `orderDiscount: -1` → `INVALID_AMOUNT`;
+  - `orderDiscount: 0` com o guardado a 1300 → sem aviso `ORDER_DISCOUNT_CAPPED` e **uma só** entrada `ORDER_DISCOUNT_CHANGED` (descrição manual); sem `orderDiscount` e subtotal que obriga a limitar → aviso `ORDER_DISCOUNT_CAPPED` e uma entrada com a descrição de limite;
+  - linha acrescentada grava `promotionRefs = { refs: [] }`;
+  - `ModificationCurrent` sem `promotions`/`email` (fixtures antigos) continua a funcionar;
+  - `SHIPPING_PROMOTION_DROPPED`: encomenda com promoção de portes grátis aplicada, modificação com portes `RECALCULATE` (e outra com `MANUAL`) → aviso com o id e o nome, `shippingDiscount 0`, e `order.promotions` inalterado;
+  - variante com duas linhas (2 + 1): entrada sem `orderLineId` → `INVALID_QUANTITY`; com `orderLineId` → funciona;
   - a modificação não altera `redemptions` nem a redemption da encomenda.
 - [ ] Steps 2–5. **Commit** `feat(ecommerce): promotion condition warnings and manual order discount on modification`
 
@@ -382,15 +402,16 @@
 ### Task 9: E-mail de confirmação com as promoções aplicadas
 
 **Files:**
-- Modify: `server/src/services/modules/ecommerce/email/catalog.ts` (lista `order.promotions` com `name` e `amount`, só em `ORDER_CONFIRMATION`, com dados de exemplo), `email/defaults/orderConfirmation.ts` (bloco das promoções quando a lista não está vazia), `notificationData.ts`
+- Modify: `server/src/services/modules/ecommerce/email/catalog.ts` (lista `order.promotions` com `name` e `amount`, só em `ORDER_CONFIRMATION`, com dados de exemplo), `email/defaults/orderConfirmation.ts` (bloco das promoções quando a lista não está vazia), `notificationData.ts`, `notifications.ts` (`NotificationExtra.defaultLocale?: string`, novo; o `locale` existente tem outro significado, "locale sem encomenda"; o `prepare` preenche-o com o locale por defeito da loja)
 - Test: `tests/server/ecommerce/notificationData.test.ts`, `tests/server/ecommerce/email/catalog.test.ts` (acrescentar)
 
 **Interfaces:**
-- `buildTemplateData` (`ORDER_CONFIRMATION`): `order.promotions = applied.map(p => ({ name: displayNameFor(p, order.locale, defaultLocale), amount: money(p.amount) }))`; o `defaultLocale` chega pelo `NotificationExtra` (lido pelo `prepare`).
+- `buildTemplateData` (`ORDER_CONFIRMATION`): `order.promotions = applied.map(p => ({ name: displayNameFor(p, order.locale, defaultLocale), amount: money(p.amount) }))`; o `defaultLocale` chega por `NotificationExtra.defaultLocale` (preenchido pelo `prepare` em `notifications.ts`; ausente → `order.locale`).
 - As linhas de oferta aparecem nos `items` com o preço final (0 € quando oferecidas).
 
 - [ ] **Step 1: Failing tests:**
   - encomenda em `pt` com `displayName { pt: 'Verão' }` → `order.promotions[0].name = 'Verão'`; em `en` sem tradução → o locale por defeito e depois `name`;
+  - `prepare` passa o locale por defeito da loja em `extra.defaultLocale`;
   - sem promoções → lista vazia e o template não mostra o bloco;
   - o catálogo de variáveis cobre `order.promotions` e o HTML renderizado não contém `/admin`, `/api/` nem `littlebox-strapi-suite`.
 - [ ] Steps 2–5. **Commit** `feat(ecommerce): applied promotions in the order confirmation e-mail`
@@ -419,6 +440,7 @@
 
 - Validação no controller com `validation.ts`: ids inteiros ≥ 1 (400 `Invalid id`); `search` ≤ 100; `promotionCodes` lista de ≤ 5 strings com ≤ 40 caracteres; `expectedTotal` em `[0, MAX_MONEY_CENTS]`; `giftChoices` objeto com ≤ 10 pares de inteiros ≥ 1. A definição da promoção é validada no serviço.
 - Erros pelo `handleDomainError` (`withCode: true`).
+- O controller de modificação documenta que, numa encomenda com várias linhas da mesma variante (Task 7), cada entrada de uma variante com mais de uma linha tem de trazer `orderLineId` (senão `INVALID_QUANTITY`, Task 8).
 - [ ] **Step 1: Failing tests:**
   - cada rota tem a policy, a ação e o middleware certos; `quote` vem antes de `/:id` em `admin-orders.ts`;
   - corpo de promoção inválido → 400 com `errors`; `PROMOTION_IN_USE` e `PROMOTION_VERSION_CONFLICT` → 409;
@@ -432,7 +454,7 @@
 
 **Files:**
 - Create: `admin/src/ecommerce/promotionTypes.ts`, `admin/src/ecommerce/gateways/ecommercePromotionsGateway.ts`, `admin/src/ecommerce/usecases/promotions/{fetchPromotions,fetchPromotion,savePromotion,deletePromotion,fetchPromotionRedemptions,searchPromotionCatalog,fetchStoreCredits}.ts`, `admin/src/ecommerce/hooks/usePromotionPermissions.ts`, `admin/src/ecommerce/pages/promotions/{PromotionListPage,StoreCreditListPage}.tsx`, `admin/src/ecommerce/components/promotions/PromotionTabs.tsx`, `admin/src/ecommerce/utils/promotionList.ts`
-- Modify: `admin/src/ecommerce/EcommerceApp.tsx` (rotas `promotions`, `promotions/new`, `promotions/:id`, `promotions/store-credits`; sai o `EcommerceComingSoon`), `utils/rbac.ts` (`PROMOTIONS_READ_ACTION`, `PROMOTIONS_MANAGE_ACTION`), `admin/src/core/translations/{en,pt}.json`
+- Modify: `admin/src/ecommerce/EcommerceApp.tsx` (rotas `promotions`, `promotions/new`, `promotions/:id`, `promotions/store-credits`; sai o `EcommerceComingSoon`), `utils/rbac.ts` (`PROMOTIONS_READ_ACTION`, `PROMOTIONS_MANAGE_ACTION`), `admin/src/ecommerce/EcommerceLayout.tsx` (o item `promotions` do `MENU` passa a ser filtrado por `promotions.read`; os outros itens não mudam), `admin/src/core/translations/{en,pt}.json`
 - Test: `tests/admin/ecommerce/promotionList.test.ts`, `tests/admin/ecommerce/rbac.test.ts` (acrescentar)
 
 **Comportamento:**
@@ -442,8 +464,9 @@
   - pesquisa por nome ou código, 50 por página com `ListPagination`.
 - **`PromotionTabs`:** "Promotions" e "Store credit" no topo das duas páginas.
 - **`StoreCreditListPage`** (design 4.7: só consulta e ajustes registados): lista de `/store-credits` (código, e-mail, saldo, validade, estado) com pesquisa; "Void" com confirmação, só com `refunds.manage`; abrir mostra os movimentos (`/store-credits/:id`). Com `customers.read` em falta, o separador não aparece.
+- **Menu (`EcommerceLayout.tsx`):** o item Promoções só aparece com `promotions.read` (design 9.2: o admin esconde o que o utilizador não pode fazer); a função de filtro é pura e testada.
 - **`promotionList.ts`:** `statusTone(status)`, `usageLabel(item)`, `validityLabel(item, locale)`.
-- [ ] **Step 1: Failing tests:** `usageLabel` com e sem limite; `statusTone` dos 4 estados; `validityLabel` sem `endsAt` mostra só o início; `rbacKey(PROMOTIONS_MANAGE_ACTION)` → `canManage`.
+- [ ] **Step 1: Failing tests:** `usageLabel` com e sem limite; `statusTone` dos 4 estados; `validityLabel` sem `endsAt` mostra só o início; `rbacKey(PROMOTIONS_MANAGE_ACTION)` → `canManage`; o filtro do menu esconde `promotions` sem `promotions.read` e mantém os restantes itens.
 - [ ] Implementação, testes, `npm run test:ts:front` e `npm run build`. **Commit** `feat(ecommerce): promotions list and store credit tab`
 
 ---
@@ -485,20 +508,22 @@
 
 **Files:**
 - Create: `admin/src/ecommerce/components/orders/{PromotionsSection,OrderQuotePanel}.tsx`, `admin/src/ecommerce/usecases/orders/quoteOrder.ts`
-- Modify: `orderTypes.ts` (`OrderView.promotions`, `OrderLineView.promotionIds`, `OrderQuote`, `discountWarnings`), `ecommerceOrdersGateway.ts` (`quote`), `OrderDetailPage.tsx` (substitui o `SectionPlaceholder` de promoções), `OrderLinesTable.tsx`, `utils/orderDetail.ts` (`financialSummaryRows` + `totalDiscount`; `API_ERROR_CODES` + `PROMOTION_UNAVAILABLE`, `PROMOTION_CODE_INVALID`, `TOTAL_CHANGED`), `utils/orderForm.ts` (`promotionCodes`, `expectedTotal`, `giftChoices` no `buildCreateOrderInput`), `pages/orders/OrderCreatePage.tsx`, `utils/modification.ts` e `ModifyOrderModal.tsx`/`ModificationSummary.tsx` (campo "Order discount" e avisos), `admin/src/core/translations/{en,pt}.json` (inclui os tipos de histórico `PROMOTIONS_APPLIED`/`PROMOTIONS_RELEASED` e os `CodeStatus`)
-- Test: `tests/admin/ecommerce/orderDetail.test.ts`, `tests/admin/ecommerce/orderForm.test.ts`, `tests/admin/ecommerce/modification.test.ts` (acrescentar)
+- Modify: `orderTypes.ts` (`Order.promotions` deixa de ser `unknown[]`; `OrderLine.promotionIds`, `OrderQuote`, e `discountWarnings` com `PROMOTION_CONDITION_UNMET` e `SHIPPING_PROMOTION_DROPPED`, ambos com `promotionId` e `name`; no admin os tipos chamam-se `Order`/`OrderLine`, não `OrderView`/`OrderLineView`), `ecommerceOrdersGateway.ts` (`quote`), `OrderDetailPage.tsx` (substitui o `SectionPlaceholder` de promoções), `OrderLinesTable.tsx`, `utils/orderDetail.ts` (`financialSummaryRows` + `totalDiscount`; `API_ERROR_CODES` + `PROMOTION_UNAVAILABLE`, `PROMOTION_CODE_INVALID`, `TOTAL_CHANGED`), `utils/orderForm.ts` (`promotionCodes` vem do `OrderForm`; `expectedTotal` e `giftChoices` vêm da cotação e entram como **terceiro argumento**: `buildCreateOrderInput(form, idempotencyKey, quote?: { expectedTotal: number; giftChoices: Record<number, number> })`), `pages/orders/OrderCreatePage.tsx`, `utils/modification.ts` e `ModifyOrderModal.tsx`/`ModificationSummary.tsx` (campo "Order discount" e avisos; o resumo passa o `name` como parâmetro de tradução em `PROMOTION_CONDITION_UNMET` e `SHIPPING_PROMOTION_DROPPED`, que hoje não têm parâmetros), `admin/src/core/translations/{en,pt}.json` (inclui os tipos de histórico `PROMOTIONS_APPLIED`/`PROMOTIONS_RELEASED`, os `CodeStatus` e os avisos `PROMOTION_CONDITION_UNMET` e `SHIPPING_PROMOTION_DROPPED` em `en` + `pt`, ex.: "<name>: the shipping promotion no longer applies; the original discount is kept in the history" / "<name>: a promoção de portes deixou de se aplicar; o desconto original mantém-se no histórico")
+- Test: `tests/admin/ecommerce/orderDetail.test.ts` (**editar** a asserção existente de `financialSummaryRows`, linha ~341, para incluir a linha `totalDiscount` −4100 com os mesmos valores 2000/1300/800), `tests/admin/ecommerce/orderForm.test.ts`, `tests/admin/ecommerce/modification.test.ts` (acrescentar)
 
 **Comportamento:**
 - **`PromotionsSection`** (requisitos 3.2, 3.7 e 3.8): uma linha por benefício de cada promoção aplicada (nome, código, método, tipo Produto/Encomenda/Portes, benefício descrito com `describeBenefit` a partir da fotografia, valor), o estado "Released" quando a redemption foi libertada e o desconto total. Lê só `order.promotions` (nunca recalcula). Vazio → `EmptySection`.
 - **`OrderLinesTable`** (3.3 e 3.4): preço original riscado, "−X € / un.", preço final, e o nome das promoções da linha (`promotionIds`); as ofertas mantêm o badge "Promotional gift".
 - **Resumo financeiro** (3.6): nova linha `totalDiscount` (produto + encomenda + portes), escondida a 0.
 - **`OrderCreatePage` + `OrderQuotePanel`:** campo de códigos (até 5, como etiquetas) e "Apply"; com linhas, morada e método escolhidos, chama `quote` e mostra as promoções, o estado de cada código traduzido, as ofertas (com seletor quando a promoção oferece várias variantes), os descontos e o total. O `create` envia os códigos, as escolhas e `expectedTotal`; um 409 `PROMOTION_UNAVAILABLE`/`TOTAL_CHANGED` mostra a mensagem e repete a cotação. O `TotalsPreview` local fica só enquanto não há cotação.
-- **Modificação:** campo opcional "Order discount" (euros) e os avisos `PROMOTION_CONDITION_UNMET` ("<nome>: the conditions are no longer met; the discount was kept") no resumo.
+- **Modificação:** campo opcional "Order discount" (euros) e, no resumo, os avisos `PROMOTION_CONDITION_UNMET` ("<nome>: the conditions are no longer met; the discount was kept") e `SHIPPING_PROMOTION_DROPPED` (com o `name` como parâmetro).
 - [ ] **Step 1: Failing tests:**
-  - `financialSummaryRows` com desconto de produto 2000, encomenda 1300 e portes 800 → linha `totalDiscount` −4100; sem descontos → sem linha;
+  - `financialSummaryRows` com desconto de produto 2000, encomenda 1300 e portes 800 → linha `totalDiscount` −4100 (o teste existente é atualizado em conformidade); sem descontos → sem linha;
   - `buildCreateOrderInput` inclui `promotionCodes` normalizados (sem repetidos) e `expectedTotal`;
   - `promotionRows(order.promotions)` dá uma linha por benefício com o valor;
-  - o input de modificação inclui `orderDiscount` só quando o campo foi preenchido (euros → cêntimos).
+  - `buildCreateOrderInput(form, key, { expectedTotal, giftChoices })` inclui os dois; sem o terceiro argumento, não os inclui;
+  - o input de modificação inclui `orderDiscount` só quando o campo foi preenchido (euros → cêntimos);
+  - o resumo da modificação traduz `SHIPPING_PROMOTION_DROPPED` com o nome da promoção (`en` + `pt`).
 - [ ] Implementação, testes, os dois `tsc` e `npm run build`. **Commit** `feat(ecommerce): promotions on the order page, manual order creation and modification`
 
 ---
@@ -515,7 +540,7 @@
   6. Promoção "Compre 2, receba 1 em oferta" com uma variante de stock 1 → a cotação inclui a oferta, a encomenda tem a linha "Promotional gift" e o stock da oferta baixa 1; com stock 0 a oferta não aparece.
   7. Editar a promoção de 20% para 50% não altera a encomenda já criada (valores e fotografia mantêm-se).
   8. Modificar uma encomenda abaixo do mínimo de uma promoção mostra o aviso e mantém o desconto; o campo "Order discount" altera-o e regista `ORDER_DISCOUNT_CHANGED`.
-  9. Separador "Store credit" lista os vales; um utilizador sem `promotions.read` não vê o menu Promoções nem as rotas (403).
+  9. Separador "Store credit" lista os vales; um utilizador sem `promotions.read` não vê o menu Promoções (filtro em `EcommerceLayout.tsx`, Task 11) e as rotas respondem 403 (policies, Task 10).
   10. As datas de início e fim gravadas em hora de Lisboa aparecem iguais depois de recarregar.
 - [ ] Acrescentar a `docs/superpowers/plans/ecommerce-followups.md` (secção "Plan 6") os pendentes encontrados e estes, já conhecidos:
   - tratamento fiscal das ofertas: as linhas a 0 € continuam omitidas da fatura (`buildInvoiceLines`); confirmar com o contabilista se devem aparecer com 100% de desconto;
