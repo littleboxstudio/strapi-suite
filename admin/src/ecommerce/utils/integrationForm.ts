@@ -5,8 +5,11 @@ import type {
   SettingsFieldError,
 } from '../settingsTypes';
 
-/** What the configure modal edits: booleans as booleans, everything else as typed text. */
-export type IntegrationFormValues = Record<string, string | boolean>;
+/**
+ * What the configure modal edits: booleans as booleans, zone ids as a list of text ids,
+ * everything else as typed text.
+ */
+export type IntegrationFormValues = Record<string, string | boolean | string[]>;
 
 /** Digits only; the empty string is allowed while typing. */
 export function isIntegerText(text: string): boolean {
@@ -22,6 +25,10 @@ export function integrationFormFromView(view: IntegrationView): IntegrationFormV
       return;
     }
     const stored = view.config[field.key] ?? field.default;
+    if (field.type === 'zones') {
+      values[field.key] = Array.isArray(stored) ? stored.map((id) => String(id)) : [];
+      return;
+    }
     if (field.type === 'boolean') values[field.key] = stored === true;
     else values[field.key] = stored === undefined || stored === null ? '' : String(stored);
   });
@@ -52,6 +59,12 @@ export function buildIntegrationPayload(
       config[field.key] = value === true;
       return;
     }
+    if (field.type === 'zones') {
+      config[field.key] = Array.isArray(value)
+        ? value.filter((id) => /^\d+$/.test(id)).map(Number)
+        : [];
+      return;
+    }
     const text = typeof value === 'string' ? value.trim() : '';
     if (text === '') config[field.key] = null;
     else if (field.type === 'number' && /^\d+$/.test(text)) config[field.key] = Number(text);
@@ -74,13 +87,23 @@ export function integrationErrorMap(errors: SettingsFieldError[]): Record<string
 /** A storefront path: one leading `/`, no spaces or backslashes (same rule as the server). */
 const isStorefrontPath = (text: string) => /^\/(?!\/)[^\s\\]*$/.test(text);
 
-/** Client-side checks keyed by field key, with the server's error codes. Blank values are not errors here. */
+/**
+ * Client-side checks keyed by field key, with the server's error codes. Blank values are left to
+ * the server, except a required `zones` field with no zone.
+ */
 export function validateIntegrationForm(
   fields: ProviderField[],
   values: IntegrationFormValues
 ): Record<string, string> {
   const errors: Record<string, string> = {};
   fields.forEach((field) => {
+    if (field.type === 'zones') {
+      const value = values[field.key];
+      if (field.required && (!Array.isArray(value) || value.length === 0)) {
+        errors[field.key] = 'required';
+      }
+      return;
+    }
     if (field.type !== 'string' || field.format !== 'path') return;
     const value = values[field.key];
     const text = typeof value === 'string' ? value.trim() : '';

@@ -24,13 +24,10 @@ import EmptyShipping from '../../illustrations/EmptyShipping';
 import FetchShippingMethods from '../../usecases/settings/fetchShippingMethods';
 import DeleteShippingMethod from '../../usecases/settings/deleteShippingMethod';
 import FetchSettingsLocales from '../../usecases/settings/fetchSettingsLocales';
-import { formatCents } from '../../utils/money';
+import { ratesSummary } from '../../utils/manualMethodForm';
 import { ManualMethodModal } from './ManualMethodModal';
 import type { EcommerceLocales } from '../../types';
 import type { ManualMethod, ShippingZone } from '../../settingsTypes';
-
-/** Countries listed in a row before collapsing the rest into "+N". */
-const VISIBLE_COUNTRIES = 4;
 
 type Editing = { method: ManualMethod | null };
 
@@ -142,18 +139,15 @@ const ManualMethodsTable = ({ readOnly, embedded = false, zones }: Props) => {
 
     const nameOf = (m: ManualMethod) =>
       (locales && m.name[locales.defaultLocale]) || Object.values(m.name).find((n) => n) || '';
-    const countriesOf = (m: ManualMethod) => {
-      const shown = m.countries.slice(0, VISIBLE_COUNTRIES).join(', ');
-      const rest = m.countries.length - VISIBLE_COUNTRIES;
-      return rest > 0 ? `${shown} +${rest}` : shown;
-    };
+
+    const summaries = new Map(methods.map((m) => [m.id, ratesSummary(m, zones, uiLocale)]));
 
     return (
       <Flex direction="column" alignItems="stretch" gap={3}>
-        <Table colCount={6} rowCount={methods.length + 1}>
+        <Table colCount={5} rowCount={methods.length + 1}>
           <Thead>
             <Tr>
-              {(['name', 'price', 'tax', 'countries', 'active'] as const).map((column) => (
+              {(['name', 'rates', 'tax', 'active'] as const).map((column) => (
                 <Th key={column}>
                   <Typography variant="sigma">
                     {t(`ecommerce.settings.manualMethods.table.${column}`)}
@@ -171,16 +165,17 @@ const ManualMethodsTable = ({ readOnly, embedded = false, zones }: Props) => {
                 <Td>
                   <Typography textColor="neutral800">{nameOf(m)}</Typography>
                 </Td>
-                <Td>
-                  <Typography textColor="neutral800">{formatCents(m.price, uiLocale)}</Typography>
+                <Td style={{ whiteSpace: 'normal' }}>
+                  {summaries.get(m.id) ? (
+                    <Typography textColor="neutral800">{summaries.get(m.id)}</Typography>
+                  ) : (
+                    <Typography textColor="neutral600">
+                      {t('ecommerce.settings.manualMethods.noZones')}
+                    </Typography>
+                  )}
                 </Td>
                 <Td>
                   <Typography textColor="neutral800">{`${m.tax}%`}</Typography>
-                </Td>
-                <Td>
-                  <Typography textColor="neutral800" title={m.countries.join(', ')}>
-                    {countriesOf(m)}
-                  </Typography>
                 </Td>
                 <Td>
                   {m.active ? (
@@ -228,6 +223,7 @@ const ManualMethodsTable = ({ readOnly, embedded = false, zones }: Props) => {
           method={editing.method}
           locales={locales.locales}
           defaultLocale={locales.defaultLocale}
+          zones={zones}
           onClose={() => setEditing(null)}
           onSaved={onSaved}
         />

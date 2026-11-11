@@ -172,6 +172,7 @@ const IntegrationsSection = ({ category, readOnly, zones }: Props) => {
         <IntegrationConfigModal
           integration={configured}
           initialErrors={configuring?.errors}
+          zones={zones}
           onClose={() => setConfiguring(null)}
           onSaved={(saved) => {
             setConfiguring(null);

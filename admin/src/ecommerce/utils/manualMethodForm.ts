@@ -1,28 +1,31 @@
-import type { ManualMethod, ManualMethodInput, SettingsFieldError } from '../settingsTypes';
-import { parseMoneyToCents } from './money';
-import { normalizeCountries } from './settingsForm';
+import type {
+  ManualMethod,
+  ManualMethodInput,
+  SettingsFieldError,
+  ShippingZone,
+} from '../settingsTypes';
+import { formatCents, parseMoneyToCents } from './money';
 import { TAX_OTHER, TAX_PRESETS, centsToText, parseDecimal } from './variantDraft';
 
 /** What the manual method modal edits: numbers kept as typed text until saved. */
 export type ManualMethodDraft = {
   names: Record<string, string>;
-  price: string;
+  /** Price per shipping zone id, as typed; blank = not offered in that zone. */
+  rates: Record<string, string>;
   taxChoice: string;
   taxOther: string;
-  countries: string[];
   active: boolean;
 };
 
-/** Error code per path: `name.<locale>`, `price`, `tax`, `countries`. */
+/** Error code per path: `name.<locale>`, `rates`, `rates.<zoneId>`, `tax`. */
 export type ManualMethodErrors = Record<string, string>;
 
-export function emptyManualMethodDraft(localeCodes: string[]): ManualMethodDraft {
+export function emptyManualMethodDraft(localeCodes: string[], zones: ShippingZone[]): ManualMethodDraft {
   return {
     names: Object.fromEntries(localeCodes.map((code) => [code, ''])),
-    price: '',
+    rates: Object.fromEntries(zones.map((zone) => [String(zone.id), ''])),
     taxChoice: String(TAX_PRESETS[0]),
     taxOther: '',
-    countries: ['PT'],
     active: true,
   };
 }
@@ -30,15 +33,20 @@ export function emptyManualMethodDraft(localeCodes: string[]): ManualMethodDraft
 export function manualMethodToDraft(
   method: ManualMethod,
   localeCodes: string[],
-  uiLocale: string
+  uiLocale: string,
+  zones: ShippingZone[]
 ): ManualMethodDraft {
   const preset = TAX_PRESETS.includes(method.tax);
   return {
     names: Object.fromEntries(localeCodes.map((code) => [code, method.name[code] ?? ''])),
-    price: centsToText(method.price, uiLocale),
+    rates: Object.fromEntries(
+      zones.map((zone) => {
+        const cents = method.rates[String(zone.id)];
+        return [String(zone.id), typeof cents === 'number' ? centsToText(cents, uiLocale) : ''];
+      })
+    ),
     taxChoice: preset ? String(method.tax) : TAX_OTHER,
     taxOther: preset ? '' : String(method.tax),
-    countries: [...method.countries],
     active: method.active,
   };
 }
@@ -56,9 +64,16 @@ export function draftToManualMethodInput(
   });
   if (!name[defaultLocale]) errors[`name.${defaultLocale}`] = 'required';
 
-  const price = parseMoneyToCents(draft.price);
-  if (draft.price.trim() === '') errors.price = 'required';
-  else if (price === null) errors.price = 'invalid_number';
+  const rates: Record<string, number> = {};
+  let typed = 0;
+  Object.entries(draft.rates).forEach(([zoneId, text]) => {
+    if (text.trim() === '') return;
+    typed += 1;
+    const cents = parseMoneyToCents(text);
+    if (cents === null) errors[`rates.${zoneId}`] = 'invalid_number';
+    else rates[zoneId] = cents;
+  });
+  if (typed === 0) errors.rates = 'required';
 
   const taxText = draft.taxChoice === TAX_OTHER ? draft.taxOther : draft.taxChoice;
   const tax = parseDecimal(taxText);
@@ -66,22 +81,27 @@ export function draftToManualMethodInput(
   else if (tax === null) errors.tax = 'invalid_number';
   else if (tax > 100) errors.tax = 'out_of_range';
 
-  const countries = normalizeCountries(draft.countries);
-  if (countries.length === 0) errors.countries = 'required';
-
   if (Object.keys(errors).length) return { errors };
-  return {
-    errors,
-    input: { name, price: price as number, tax: tax as number, countries, active: draft.active },
-  };
+  return { errors, input: { name, rates, tax: tax as number, active: draft.active } };
 }
 
-/** Server errors keyed like the draft errors (`countries.2` → `countries`); first error wins. */
+/** Server errors keyed like the draft errors (`rates.<zoneId>` kept per zone); first error wins. */
 export function manualMethodErrorMap(errors: SettingsFieldError[]): ManualMethodErrors {
   const map: ManualMethodErrors = {};
   errors.forEach(({ path, code }) => {
-    const key = path.startsWith('countries.') ? 'countries' : path;
-    if (!(key in map)) map[key] = code;
+    if (!(path in map)) map[path] = code;
   });
   return map;
+}
+
+/** `"<zone> <price>"` in zone order, joined by " · "; zones without a price are left out. */
+export function ratesSummary(
+  method: Pick<ManualMethod, 'rates'>,
+  zones: Pick<ShippingZone, 'id' | 'name'>[],
+  uiLocale: string
+): string {
+  return zones
+    .filter((zone) => typeof method.rates[String(zone.id)] === 'number')
+    .map((zone) => `${zone.name} ${formatCents(method.rates[String(zone.id)], uiLocale)}`)
+    .join(' · ');
 }
