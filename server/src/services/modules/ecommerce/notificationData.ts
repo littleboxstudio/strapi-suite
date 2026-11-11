@@ -58,6 +58,8 @@ export type NotificationExtra = {
     method?: string | null;
     reference?: string | null;
     description?: string | null;
+    externalId?: string | null;
+    status?: string | null;
   } | null;
   /** The store credit row (STORE_CREDIT_ISSUED). */
   storeCredit?: {
@@ -89,7 +91,9 @@ const LABELS: Record<'en' | 'pt', Record<string, string>> = {
     'method.STRIPE': 'Online payment',
     'method.MANUAL': 'Manual payment',
     'method.STORE_CREDIT': 'Store credit',
-    'method.MANUAL_TRANSFER': 'Bank transfer',
+    'refund.STRIPE': 'Card / original payment method',
+    'refund.MANUAL_TRANSFER': 'Bank transfer',
+    'refund.STORE_CREDIT': 'Store credit',
   },
   pt: {
     'payment.PENDING': 'Pendente',
@@ -100,7 +104,9 @@ const LABELS: Record<'en' | 'pt', Record<string, string>> = {
     'method.STRIPE': 'Pagamento online',
     'method.MANUAL': 'Pagamento manual',
     'method.STORE_CREDIT': 'Vale de crédito',
-    'method.MANUAL_TRANSFER': 'Transferência bancária',
+    'refund.STRIPE': 'Cartão / método de pagamento original',
+    'refund.MANUAL_TRANSFER': 'Transferência bancária',
+    'refund.STORE_CREDIT': 'Vale de crédito',
   },
 };
 
@@ -141,15 +147,23 @@ export const formatMoney = (cents: number, locale: string): string =>
 const moneyOrEmpty = (cents: unknown, locale: string): string =>
   num(cents) === 0 ? '' : formatMoney(num(cents), locale);
 
-export const formatDate = (value: unknown, locale: string, timeZone: string): string => {
+export const formatDate = (
+  value: unknown,
+  locale: string,
+  timeZone: string,
+  opts: { withTime?: boolean } = {}
+): string => {
   if (typeof value !== 'string' && !(value instanceof Date)) return '';
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return '';
   return new Intl.DateTimeFormat(safeLocale(locale), {
     dateStyle: 'medium',
+    ...(opts.withTime ? { timeStyle: 'short' as const } : {}),
     timeZone: safeTimeZone(timeZone),
   }).format(d);
 };
+
+const IN_FLIGHT_REFUND = ['PENDING', 'PROCESSING'];
 
 const str = (v: unknown): string => (v === null || v === undefined ? '' : String(v));
 
@@ -168,6 +182,8 @@ export function buildTemplateData(
   const tz = store.timezone;
   const money = (c: unknown) => formatMoney(num(c), locale);
   const date = (v: unknown) => formatDate(v, locale, tz);
+  /** Payment deadlines show the time too (a Stripe link lasts under 24 h). */
+  const deadline = (v: unknown) => formatDate(v, locale, tz, { withTime: true });
   const snapshot: Record<string, unknown> = order?.customer ?? extra.customer ?? {};
 
   const data: Record<string, any> = {
@@ -224,7 +240,7 @@ export function buildTemplateData(
       data.payment = {
         link: str(p.url),
         amountDue: moneyOrEmpty(order?.summary.due, locale),
-        expiresAt: date(p.expiresAt),
+        expiresAt: deadline(p.expiresAt),
       };
       break;
     }
@@ -239,10 +255,13 @@ export function buildTemplateData(
     case 'SUPPLEMENTARY_PAYMENT':
       data.payment = {
         amountDue: moneyOrEmpty(p.amountDue, locale),
-        method: p.mode === 'STRIPE' ? label(locale, 'method.STRIPE') : '',
+        method:
+          p.mode === 'STRIPE'
+            ? label(locale, 'method.STRIPE')
+            : str(p.methodLabel) || label(locale, 'method.MANUAL'),
         instructions: str(p.instructions),
         link: str(p.url),
-        expiresAt: date(p.expiresAt),
+        expiresAt: deadline(p.expiresAt),
       };
       break;
     case 'CANCELLATION':
@@ -255,13 +274,19 @@ export function buildTemplateData(
     case 'REFUND_COMPLETED': {
       const r = extra.refund ?? {};
       const amount = num(p.amount ?? r.amount);
-      const paid = num(order?.summary.paid);
+      const method = str(p.method ?? r.method);
+      // The order summary counts COMPLETED refunds only: an in-flight one is subtracted here.
+      const inFlight = r.status ? IN_FLIGHT_REFUND.includes(r.status) : type === 'REFUND_STARTED';
+      const heldAfter = num(order?.summary.net) - (inFlight ? amount : 0);
+      const reference =
+        str(p.reference ?? r.reference) ||
+        (method === 'STRIPE' ? str(p.externalId ?? r.externalId) : '');
       data.refund = {
         amount: money(amount),
-        method: label(locale, `method.${str(p.method ?? r.method)}`),
-        reference: str(p.reference ?? r.reference),
-        // Partial: less than the money received for the order.
-        isPartial: amount > 0 && amount < paid ? 'yes' : '',
+        method: label(locale, `refund.${method}`),
+        reference,
+        // Partial: the customer's money is still (partly) held after this refund.
+        isPartial: heldAfter > 0 ? 'yes' : '',
         description: str(p.description ?? r.description),
       };
       break;

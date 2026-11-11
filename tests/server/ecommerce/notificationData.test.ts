@@ -171,7 +171,14 @@ describe('buildTemplateData', () => {
       event: EVENT_FOR.PAYMENT_INSTRUCTIONS,
     });
     expect(data.payment.link).toBe('https://checkout.stripe.com/c/pay/cs_1');
-    expect(data.payment.expiresAt).toBe('Nov 12, 2026');
+    // Date AND time, in the store time zone (Lisbon = UTC in November).
+    expect(spaces(data.payment.expiresAt)).toBe('Nov 12, 2026, 9:55 AM');
+    const tokyo = buildTemplateData('PAYMENT_INSTRUCTIONS', {
+      order: makeOrder(),
+      store: { ...store, timezone: 'Asia/Tokyo' },
+      event: EVENT_FOR.PAYMENT_INSTRUCTIONS,
+    });
+    expect(spaces(tokyo.payment.expiresAt)).toBe('Nov 12, 2026, 6:55 PM');
     expect(data.payment.amountDue).toBe('€45.00');
     const manual = buildTemplateData('SUPPLEMENTARY_PAYMENT', {
       order: makeOrder(),
@@ -180,6 +187,14 @@ describe('buildTemplateData', () => {
     });
     expect(manual.payment.link).toBe('');
     expect(manual.payment.instructions).toBe('IBAN PT50 0000');
+    expect(manual.payment.method).toBe('Manual payment');
+    expect(manual.payment.expiresAt).toBe('');
+    const named = buildTemplateData('PAYMENT_INSTRUCTIONS', {
+      order: makeOrder(),
+      store,
+      event: event('PAYMENT_INSTRUCTIONS_SENT', { mode: 'MANUAL', instructions: 'x', methodLabel: 'MB WAY', amountDue: 100 }),
+    });
+    expect(named.payment.method).toBe('MB WAY');
   });
 
   it('formats dates in the store time zone', () => {
@@ -192,18 +207,62 @@ describe('buildTemplateData', () => {
     expect(buildTemplateData('ORDER_CONFIRMATION', { order, store: broken, event: e }).order.date).toBe('Nov 11, 2026');
   });
 
-  it('refund.isPartial is "yes" below the amount received and "" otherwise', () => {
-    const paid = makeOrder({ summary: { ...makeOrder().summary, paid: 4500 } });
-    const partial = buildTemplateData('REFUND_COMPLETED', { order: paid, store, event: EVENT_FOR.REFUND_COMPLETED });
+  it('refund.isPartial is "yes" only while money is still held after this refund', () => {
+    const sum = makeOrder().summary;
+    // COMPLETED: the summary already includes the refund.
+    const held = makeOrder({ summary: { ...sum, paid: 4500, refunded: 1000, net: 3500 } });
+    const partial = buildTemplateData('REFUND_COMPLETED', { order: held, store, event: EVENT_FOR.REFUND_COMPLETED });
     expect(partial.refund.isPartial).toBe('yes');
     expect(partial.refund.reference).toBe('TRF-1');
     expect(partial.refund.description).toBe('Shirt returned');
+    // The closing refund of two sequential ones, or the credit-restored + money case: nothing held.
+    const closed = makeOrder({ summary: { ...sum, paid: 5000, refunded: 5000, net: 0 } });
     const full = buildTemplateData('REFUND_COMPLETED', {
-      order: paid,
+      order: closed,
       store,
-      event: event('REFUND_COMPLETED', { amount: 4500, method: 'STRIPE', kind: 'MONEY' }),
+      event: event('REFUND_COMPLETED', { amount: 2500, method: 'STRIPE', kind: 'MONEY' }),
     });
     expect(full.refund.isPartial).toBe('');
+    // STARTED (in flight): the summary does not include it yet.
+    const before = makeOrder({ summary: { ...sum, paid: 4500, refunded: 0, net: 4500 } });
+    const startedAll = buildTemplateData('REFUND_STARTED', {
+      order: before,
+      store,
+      event: event('REFUND_STARTED', { amount: 4500, method: 'STRIPE', kind: 'MONEY' }),
+    });
+    expect(startedAll.refund.isPartial).toBe('');
+    const startedSome = buildTemplateData('REFUND_STARTED', {
+      order: before,
+      store,
+      event: event('REFUND_STARTED', { amount: 1000, method: 'STRIPE', kind: 'MONEY' }),
+    });
+    expect(startedSome.refund.isPartial).toBe('yes');
+    // A STARTED event handled after the refund completed: the row status says it is counted.
+    const settled = makeOrder({ summary: { ...sum, paid: 4500, refunded: 4500, net: 0 } });
+    const late = buildTemplateData('REFUND_STARTED', {
+      order: settled,
+      store,
+      event: event('REFUND_STARTED', { amount: 4500, method: 'STRIPE', kind: 'MONEY' }),
+      extra: { refund: { status: 'COMPLETED' } },
+    });
+    expect(late.refund.isPartial).toBe('');
+  });
+
+  it('Stripe refunds use the Stripe refund id as reference and a refund method label', () => {
+    const e = event('REFUND_COMPLETED', { amount: 1000, method: 'STRIPE', kind: 'MONEY', reference: null, externalId: 're_123' });
+    const en = buildTemplateData('REFUND_COMPLETED', { order: makeOrder(), store, event: e });
+    expect(en.refund.reference).toBe('re_123');
+    expect(en.refund.method).toBe('Card / original payment method');
+    const pt = buildTemplateData('REFUND_COMPLETED', { order: makeOrder({ locale: 'pt-PT' }), store, event: e });
+    expect(pt.refund.method).toBe('Cartão / método de pagamento original');
+    const fromRow = buildTemplateData('REFUND_COMPLETED', {
+      order: makeOrder(),
+      store,
+      event: event('REFUND_COMPLETED', { amount: 1000, method: 'STRIPE', kind: 'MONEY' }),
+      extra: { refund: { externalId: 're_row' } },
+    });
+    expect(fromRow.refund.reference).toBe('re_row');
+    expect(buildTemplateData('REFUND_COMPLETED', { order: makeOrder(), store, event: EVENT_FOR.REFUND_COMPLETED }).refund.method).toBe('Bank transfer');
   });
 
   it('falls back to the loaded refund row for fields the event lacks', () => {
