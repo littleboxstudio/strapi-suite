@@ -12,7 +12,6 @@ import {
   Crumb,
   CrumbLink,
 } from '@strapi/design-system';
-import { PriceTag, ShoppingCart, User, Gift, Cog } from '@strapi/icons';
 import config from '../core/config';
 import UpdateSetting from '../core/usecases/updateSetting';
 import { getTranslation } from '../core/utils/getTranslation';
@@ -22,12 +21,13 @@ import EmptyProducts from './illustrations/EmptyProducts';
 import { usePromotionPermissions } from './hooks/usePromotionPermissions';
 import { PROMOTIONS_READ_ACTION, filterMenu } from './utils/rbac';
 
+/** Text-only side menu. */
 const MENU = [
-  { key: 'products', icon: PriceTag },
-  { key: 'orders', icon: ShoppingCart },
-  { key: 'customers', icon: User },
-  { key: 'promotions', icon: Gift },
-  { key: 'settings', icon: Cog },
+  { key: 'products' },
+  { key: 'orders' },
+  { key: 'customers' },
+  { key: 'promotions' },
+  { key: 'settings' },
 ] as const;
 
 type MenuKey = (typeof MENU)[number]['key'];
@@ -116,12 +116,6 @@ const NavItem = styled(Link)<{ $active: boolean }>`
   &:hover {
     background: ${({ theme, $active }) =>
       $active ? theme.colors.primary100 : theme.colors.neutral150};
-  }
-
-  svg {
-    width: 16px;
-    height: 16px;
-    fill: currentColor;
   }
 `;
 
@@ -224,14 +218,13 @@ const EcommerceLayout = ({ children }: { children: ReactNode }) => {
         <Body>
           <SideNav aria-label={formatMessage({ id: getTranslation(`module.${module}.name`) })}>
             <Flex direction="column" alignItems="stretch" gap={1}>
-              {menu.map(({ key, icon: Icon }) => (
+              {menu.map(({ key }) => (
                 <NavItem
                   key={key}
                   to={`${basePath}/${key}`}
                   $active={section === key}
                   aria-current={section === key ? 'page' : undefined}
                 >
-                  <Icon aria-hidden />
                   {formatMessage({ id: getTranslation(`ecommerce.menu.${key}`) })}
                 </NavItem>
               ))}
