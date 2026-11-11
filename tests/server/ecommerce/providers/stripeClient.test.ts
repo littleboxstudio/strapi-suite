@@ -75,6 +75,16 @@ describe('createCheckoutSession', () => {
     expect(err.message).not.toContain('sk_test');
   });
 
+  it('exposes the Stripe error type, never the message', async () => {
+    stubFetch(async () =>
+      json(400, { error: { type: 'idempotency_error', message: 'Keys for idempotent requests sk_test_SECRET' } })
+    );
+    const err: any = await createStripeClient(rt).retrieveCheckoutSession('cs_1').catch((e) => e);
+    expect(err.code).toBe('STRIPE_REQUEST_FAILED');
+    expect(err.stripeErrorType).toBe('idempotency_error');
+    expect(err.message).not.toContain('sk_test');
+  });
+
   it('network error -> STRIPE_UNREACHABLE', async () => {
     stubFetch(async () => {
       throw new TypeError('fetch failed');

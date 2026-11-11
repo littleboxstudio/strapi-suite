@@ -50,8 +50,12 @@ export class EcommercePaymentError extends Error {
       | 'NOTHING_DUE'
       | 'STOREFRONT_URL_MISSING'
       /** A Stripe payment (e.g. Multibanco) awaits confirmation: no new link meanwhile. */
-      | 'PAYMENT_PENDING',
-    message: string = code
+      | 'PAYMENT_PENDING'
+      /** A Stripe session does not match the stored session or payment (id or amount). */
+      | 'STRIPE_SESSION_MISMATCH',
+    message: string = code,
+    /** Stripe's `error.type` (e.g. `idempotency_error`), never its message. */
+    public stripeErrorType?: string
   ) {
     super(message);
   }

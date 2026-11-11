@@ -249,13 +249,13 @@ const EcommercePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
     const supplementary = before.payments.some((p) => p.status === 'COMPLETED');
 
     // Stripe calls happen outside any transaction (getOrCreatePaymentLink manages its own).
-    let link: { url: string; expiresAt: string } | null = null;
+    let link: { url: string; expiresAt: string; amount: number } | null = null;
     if (mode === 'STRIPE') {
       const stripePayments: {
         getOrCreatePaymentLink(
           orderId: number,
           opts: { purpose: 'CHECKOUT' | 'SUPPLEMENTARY'; actor: string }
-        ): Promise<{ url: string; expiresAt: string }>;
+        ): Promise<{ url: string; expiresAt: string; amount: number }>;
       } = service('EcommerceStripePaymentService');
       link = await stripePayments.getOrCreatePaymentLink(orderId, {
         purpose: supplementary ? 'SUPPLEMENTARY' : 'CHECKOUT',
@@ -268,7 +268,8 @@ const EcommercePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
       await orders().lockOrder(orderId);
       const state = await orders().computeOrderState(orderId);
       orders().assertAction(state, 'SEND_PAYMENT_INSTRUCTIONS');
-      const amountDue = state.summary.due;
+      // The link's amount is what the customer is asked to pay.
+      const amountDue = link ? link.amount : state.summary.due;
       const payload: Record<string, unknown> = { mode };
       if (instructions !== undefined) payload.instructions = instructions;
       if (link) {
