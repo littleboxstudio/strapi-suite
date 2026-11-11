@@ -20,7 +20,10 @@ import type { OrderLine } from '../../orderTypes';
 const THUMBNAIL_SIZE = 40;
 const COLUMNS = ['product', 'sku', 'unitPrice', 'quantity', 'shipped', 'total'] as const;
 
-/** The order's lines with the prices recorded on the order (requirements 4.1–4.3). */
+/**
+ * The order's lines with the prices recorded on the order (requirements 4.1–4.3): "shipped /
+ * ordered", units left to ship, units being shipped (PENDING at the carrier) and returned.
+ */
 const OrderLinesTable = ({ lines }: { lines: OrderLine[] }) => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const t = (id: string, values?: Record<string, any>) =>
@@ -120,6 +123,16 @@ const OrderLinesTable = ({ lines }: { lines: OrderLine[] }) => {
                   {pending && (
                     <Typography variant="pi" textColor="warning600">
                       {t(pending.id, pending.values)}
+                    </Typography>
+                  )}
+                  {line.reserved > line.shipped && (
+                    <Typography variant="pi" textColor="neutral600">
+                      {t('ecommerce.orders.detail.lines.inProgress', { count: line.reserved - line.shipped })}
+                    </Typography>
+                  )}
+                  {line.returnedQuantity > 0 && (
+                    <Typography variant="pi" textColor="neutral600">
+                      {t('ecommerce.orders.detail.lines.returned', { count: line.returnedQuantity })}
                     </Typography>
                   )}
                 </Flex>

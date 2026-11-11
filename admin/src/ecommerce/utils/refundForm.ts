@@ -75,16 +75,32 @@ export type RefundForm = {
 
 export type RefundDraft = Omit<CreateRefundInput, 'idempotencyKey'>;
 
+/** Prefill of a refund opened from another action (e.g. "Refund now" after a return). */
+export type RefundInitial = { reason: RefundReason; amount?: number };
+
 /**
  * Defaults: the maximum refundable, a manual transfer (store credit when nothing can go back as
- * money), a store credit valid for 12 months.
+ * money), a store credit valid for 12 months. `initial` sets the reason and an amount, capped by
+ * the preview: by the money refundable when the default method returns money (store-credit-paid
+ * orders), else by the refundable.
  */
-export function emptyRefundForm(preview: RefundPreview, locale: string, now = new Date()): RefundForm {
+export function emptyRefundForm(
+  preview: RefundPreview,
+  locale: string,
+  now = new Date(),
+  initial?: RefundInitial
+): RefundForm {
+  const money = preview.moneyRefundable > 0;
+  let amount = preview.refundable;
+  if (initial?.amount !== undefined) {
+    const cap = money ? Math.min(preview.moneyRefundable, preview.refundable) : preview.refundable;
+    amount = Math.max(0, Math.min(initial.amount, cap));
+  }
   return {
-    amount: formatAmountInput(preview.refundable, locale),
-    reason: '',
+    amount: formatAmountInput(amount, locale),
+    reason: initial?.reason ?? '',
     description: '',
-    method: preview.moneyRefundable > 0 ? 'MANUAL_TRANSFER' : 'STORE_CREDIT',
+    method: money ? 'MANUAL_TRANSFER' : 'STORE_CREDIT',
     reference: '',
     expiresAt: addMonthsDate(now),
     conditions: '',

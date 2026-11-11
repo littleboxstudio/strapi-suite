@@ -4,6 +4,7 @@ import { Button, Flex, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import {
   allowedToolbarActions,
+  modifyBlockedByShipment,
   type OrderActionPermissions,
   type ToolbarAction,
 } from '../../utils/orderDetail';
@@ -21,10 +22,12 @@ type Props = {
 };
 
 const VARIANTS: Record<ToolbarAction, 'default' | 'secondary' | 'danger-light' | 'tertiary'> = {
+  SHIP: 'default',
   MODIFY: 'secondary',
   ADD_PAYMENT: 'default',
   SEND_PAYMENT_INSTRUCTIONS: 'secondary',
   REFUND: 'secondary',
+  REGISTER_RETURN: 'secondary',
   CANCEL: 'danger-light',
   ARCHIVE: 'tertiary',
 };
@@ -35,6 +38,8 @@ const OrderHeader = ({ order, back, permissions, busy, onAction }: Props) => {
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
   const actions = allowedToolbarActions(order.availableActions, permissions);
+  // MODIFY is left out while a carrier shipment is pending: say why to whoever could modify.
+  const modifyBlocked = permissions.canManage && modifyBlockedByShipment(order);
 
   return (
     <Flex justifyContent="space-between" alignItems="flex-start" gap={4} wrap="wrap">
@@ -56,18 +61,27 @@ const OrderHeader = ({ order, back, permissions, busy, onAction }: Props) => {
           </Typography>
         </Flex>
       </Flex>
-      {actions.length > 0 && (
-        <Flex gap={2} wrap="wrap">
-          {actions.map((action) => (
-            <Button
-              key={action}
-              variant={VARIANTS[action]}
-              disabled={busy}
-              onClick={() => onAction(action)}
-            >
-              {t(`ecommerce.orders.detail.actions.${action}`)}
-            </Button>
-          ))}
+      {(actions.length > 0 || modifyBlocked) && (
+        <Flex direction="column" alignItems="flex-end" gap={2}>
+          {actions.length > 0 && (
+            <Flex gap={2} wrap="wrap" justifyContent="flex-end">
+              {actions.map((action) => (
+                <Button
+                  key={action}
+                  variant={VARIANTS[action]}
+                  disabled={busy}
+                  onClick={() => onAction(action)}
+                >
+                  {t(`ecommerce.orders.detail.actions.${action}`)}
+                </Button>
+              ))}
+            </Flex>
+          )}
+          {modifyBlocked && (
+            <Typography variant="pi" textColor="warning600" style={{ maxWidth: 420, textAlign: 'right' }}>
+              {t('ecommerce.orders.errors.SHIPMENT_PENDING')}
+            </Typography>
+          )}
         </Flex>
       )}
     </Flex>

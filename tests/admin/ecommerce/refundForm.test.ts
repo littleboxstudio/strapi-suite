@@ -76,6 +76,34 @@ describe('emptyRefundForm', () => {
   });
 });
 
+describe('emptyRefundForm with an initial reason and amount (return hand-off)', () => {
+  it('takes the reason and the amount, capped by the preview refundable', () => {
+    expect(emptyRefundForm(preview(), 'pt-PT', NOW, { reason: 'RETURN', amount: 900 })).toMatchObject({
+      amount: '9,00',
+      reason: 'RETURN',
+      method: 'MANUAL_TRANSFER',
+    });
+    expect(emptyRefundForm(preview(), 'pt-PT', NOW, { reason: 'RETURN', amount: 9900 }).amount).toBe('15,00');
+  });
+
+  it('respects the money cap of a store-credit-paid order', () => {
+    expect(
+      emptyRefundForm(preview({ moneyRefundable: 400 }), 'pt-PT', NOW, { reason: 'RETURN', amount: 1200 }).amount
+    ).toBe('4,00');
+    // Nothing goes back as money: the store credit default may use the whole refundable.
+    expect(
+      emptyRefundForm(preview({ moneyRefundable: 0 }), 'pt-PT', NOW, { reason: 'RETURN', amount: 1200 })
+    ).toMatchObject({ amount: '12,00', method: 'STORE_CREDIT' });
+  });
+
+  it('without an amount, keeps the default maximum', () => {
+    expect(emptyRefundForm(preview(), 'pt-PT', NOW, { reason: 'RETURN' })).toMatchObject({
+      amount: '15,00',
+      reason: 'RETURN',
+    });
+  });
+});
+
 describe('validateRefundForm', () => {
   it('builds a manual transfer refund with trimmed text', () => {
     const r = validateRefundForm(

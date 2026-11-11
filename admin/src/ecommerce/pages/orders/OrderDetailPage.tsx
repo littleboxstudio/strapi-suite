@@ -12,7 +12,8 @@ import CancelOrder from '../../usecases/orders/cancelOrder';
 import ArchiveOrder from '../../usecases/orders/archiveOrder';
 import { useOrderPermissions } from '../../hooks/useOrderPermissions';
 import { usePaymentPermissions } from '../../hooks/usePaymentPermissions';
-import { isActionUnavailable, type ToolbarAction } from '../../utils/orderDetail';
+import { apiErrorMessageId, type ToolbarAction } from '../../utils/orderDetail';
+import type { RefundInitial } from '../../utils/refundForm';
 import type { ModificationApplied, Order } from '../../orderTypes';
 import OrderHeader from '../../components/orders/OrderHeader';
 import OrderSection from '../../components/orders/OrderSection';
@@ -31,6 +32,9 @@ import PaymentInstructionsModal from '../../components/orders/PaymentInstruction
 import RefundModal from '../../components/orders/RefundModal';
 import RefundsTable from '../../components/orders/RefundsTable';
 import NotificationsSection from '../../components/orders/NotificationsSection';
+import ShipmentsSection from '../../components/orders/ShipmentsSection';
+import ShipOrderModal from '../../components/orders/ShipOrderModal';
+import RegisterReturnModal from '../../components/orders/RegisterReturnModal';
 
 /** Order management screen (requirements 3–8). The fetched order is the single source of truth. */
 const OrderDetailPage = () => {
@@ -57,6 +61,8 @@ const OrderDetailPage = () => {
   const [version, setVersion] = useState(0);
   // Opened after a modification leaves an amount due (requirement 16.7).
   const [supplementary, setSupplementary] = useState(false);
+  // Prefill of the refund modal when it opens from "Refund now" after a return.
+  const [refundInitial, setRefundInitial] = useState<RefundInitial | undefined>(undefined);
   const hasOrderRef = useRef(false);
   // Only the latest request may update the page (navigation, quick successive refetches).
   const requestRef = useRef(0);
@@ -143,10 +149,10 @@ const OrderDetailPage = () => {
       else await new ArchiveOrder().execute(order.id);
       toggleNotification({ type: 'success', message: t(`ecommerce.orders.detail.${key}.success`) });
     } catch (err) {
-      const unavailable = isActionUnavailable(err);
+      // ACTION_NOT_AVAILABLE, SHIPMENT_PENDING (a cancel waits for the carrier), …
       toggleNotification({
         type: 'danger',
-        message: t(unavailable ? 'ecommerce.orders.detail.actions.unavailable' : `ecommerce.orders.detail.${key}.error`),
+        message: t(apiErrorMessageId(err, `ecommerce.orders.detail.${key}.error`)),
       });
     } finally {
       await load();
@@ -186,6 +192,7 @@ const OrderDetailPage = () => {
         busy={busy}
         onAction={(action) => {
           setModalKey((k) => k + 1);
+          setRefundInitial(undefined);
           setModal(action);
         }}
       />
@@ -201,7 +208,14 @@ const OrderDetailPage = () => {
               <PaymentsTable payments={order.payments} />
             </OrderSection>
             <SectionPlaceholder title={t('ecommerce.orders.detail.sections.invoices')} />
-            <SectionPlaceholder title={t('ecommerce.orders.detail.sections.shipments')} />
+            <ShipmentsSection
+              title={t('ecommerce.orders.detail.sections.shipments')}
+              orderStatus={order.orderStatus}
+              deliveryStatus={order.shipping.deliveryStatus}
+              shipments={order.shipments}
+              canManage={canManage}
+              onChanged={load}
+            />
             <OrderSection title={t('ecommerce.orders.detail.sections.refunds')}>
               <RefundsTable
                 orderId={order.id}
@@ -261,7 +275,29 @@ const OrderDetailPage = () => {
         />
       )}
       {canRefund && modal === 'REFUND' && (
-        <RefundModal orderId={order.id} reference={order.reference} onClose={closeModal} onRefunded={afterChange} />
+        <RefundModal
+          orderId={order.id}
+          reference={order.reference}
+          initial={refundInitial}
+          onClose={closeModal}
+          onRefunded={afterChange}
+        />
+      )}
+      {canManage && modal === 'SHIP' && (
+        <ShipOrderModal order={order} onClose={closeModal} onShipped={afterChange} />
+      )}
+      {canManage && modal === 'REGISTER_RETURN' && (
+        <RegisterReturnModal
+          order={order}
+          canRefund={canRefund}
+          onClose={(changed) => (changed ? afterChange() : closeModal())}
+          onRefundNow={(initial) => {
+            // The refund modal reads its amounts from a fresh preview; the order reloads behind it.
+            setRefundInitial(initial);
+            setModal('REFUND');
+            load();
+          }}
+        />
       )}
       {canManage && modal === 'ADD_PAYMENT' && (
         <AddPaymentModal orderId={order.id} due={order.summary.due} onClose={closeModal} onAdded={afterChange} />
