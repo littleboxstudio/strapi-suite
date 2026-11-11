@@ -28,6 +28,7 @@ import EcommerceReturnService from './modules/ecommerce/returns';
 import EcommerceInvoiceService from './modules/ecommerce/invoices';
 import EcommercePromotionService from './modules/ecommerce/promotions';
 import EcommerceStorefrontCatalogService from './modules/ecommerce/storefrontCatalog';
+import EcommerceStorefrontSessionService from './modules/ecommerce/storefrontSessions';
 
 export default {
   SettingAppService,
@@ -60,4 +61,5 @@ export default {
   EcommerceInvoiceService,
   EcommercePromotionService,
   EcommerceStorefrontCatalogService,
+  EcommerceStorefrontSessionService,
 };

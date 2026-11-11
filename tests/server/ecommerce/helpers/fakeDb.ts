@@ -52,6 +52,14 @@ function assertJsonColumns(uid: string, data: any): void {
   }
 }
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}T/;
+const RANGE_OPS: [string, (a: any, b: any) => boolean][] = [
+  ['$lt', (a, b) => a < b],
+  ['$lte', (a, b) => a <= b],
+  ['$gt', (a, b) => a > b],
+  ['$gte', (a, b) => a >= b],
+];
+
 /**
  * relation name -> [target uid, foreign key on target] (oneToMany), or
  * [target uid, column on this row holding the target id, 'manyToOne'].
@@ -80,6 +88,8 @@ export function createFakeDb(
   };
   const tables: Record<string, any[]> = Object.fromEntries(uids.map((u) => [u, []]));
   const seq: Record<string, number> = {};
+  const comparable = (v: any) =>
+    v instanceof Date ? v.getTime() : typeof v === 'string' && ISO_DATE.test(v) ? Date.parse(v) : v;
   const isOp = (o: any) =>
     o && typeof o === 'object' && Object.keys(o).some((k) => k.startsWith('$'));
 
@@ -100,6 +110,13 @@ export function createFakeDb(
         // SQL semantics: `<>` never matches NULL.
         if ('$ne' in cond) return value !== null && value !== undefined && value !== cond.$ne;
         if ('$startsWith' in cond) return typeof value === 'string' && value.startsWith(cond.$startsWith);
+        for (const [op, cmp] of RANGE_OPS) {
+          if (op in cond) {
+            // SQL semantics: comparisons with NULL never match. Dates compare by instant.
+            if (value === null || value === undefined) return false;
+            return cmp(comparable(value), comparable(cond[op]));
+          }
+        }
         if ('$containsi' in cond)
           return String(value ?? '')
             .toLowerCase()
@@ -149,7 +166,10 @@ export function createFakeDb(
         tables[uid].filter((r) => match(uid, r, p.where)),
         p.orderBy
       );
-      if (p.offset !== undefined) rows = rows.slice(p.offset, p.offset + (p.limit ?? rows.length));
+      if (p.offset !== undefined || p.limit !== undefined) {
+        const offset = p.offset ?? 0;
+        rows = rows.slice(offset, offset + (p.limit ?? rows.length));
+      }
       return rows.map((r) => populate(uid, r, p.populate));
     },
     findOne: async (p: any = {}) => {
