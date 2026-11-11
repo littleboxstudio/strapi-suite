@@ -160,6 +160,39 @@ describe('simulateModification', () => {
     expect(r.stockMovements).toEqual([{ variantId: 102, quantity: 1 }]);
   });
 
+  it('removing every line → LINES_REQUIRED', () => {
+    const current = {
+      lines: [existing({ id: 1, variantId: 101 }), existing({ id: 2, variantId: 102 })],
+      orderDiscount: 0,
+      shippingOriginal: 1000,
+      shippingDiscount: 0,
+      payments: [],
+      refunds: [],
+    };
+    const omitted = simulateModification(current, { lines: [], shipping: keep }, catalogOf());
+    expect(omitted.errors).toEqual([{ path: 'lines', code: 'LINES_REQUIRED' }]);
+    const zeroed = simulateModification(
+      current,
+      {
+        lines: [
+          { orderLineId: 1, variantId: 101, quantity: 0 },
+          { orderLineId: 2, variantId: 102, quantity: 0 },
+          { variantId: 201, quantity: 0 },
+        ],
+        shipping: keep,
+      },
+      catalogOf(variant()),
+    );
+    expect(zeroed.errors).toEqual([{ path: 'lines', code: 'LINES_REQUIRED' }]);
+    // Replacing every line with a new one is fine.
+    const replaced = simulateModification(
+      current,
+      { lines: [{ variantId: 201, quantity: 1 }], shipping: keep },
+      catalogOf(variant()),
+    );
+    expect(replaced.errors).toEqual([]);
+  });
+
   it('Review Focus 1: reducing a quantity below what was shipped → QUANTITY_BELOW_SHIPPED', () => {
     const current = {
       lines: [existing({ id: 7, quantity: 10, shipped: 4 })],

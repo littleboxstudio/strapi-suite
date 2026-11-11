@@ -668,5 +668,6 @@
   "littlebox-strapi-suite.ecommerce.orders.errors.QUANTITY_BELOW_SHIPPED": "A quantidade não pode ser inferior às unidades já enviadas.",
   "littlebox-strapi-suite.ecommerce.orders.errors.SHIPPING_QUOTE_FAILED": "Não foi possível cotar o método de envio da encomenda. Mantenha os portes atuais ou defina-os manualmente.",
   "littlebox-strapi-suite.ecommerce.orders.errors.INVALID_AMOUNT": "Indique um valor válido (0 ou mais).",
+  "littlebox-strapi-suite.ecommerce.orders.errors.LINES_REQUIRED": "Mantenha pelo menos um produto na encomenda. Para remover tudo, cancele a encomenda.",
   "littlebox-strapi-suite.ecommerce.orders.errors.OPERATION_ID_CONFLICT": "Esta modificação já foi aplicada. Feche esta janela para ver a encomenda."
 }

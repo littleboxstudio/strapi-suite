@@ -184,6 +184,7 @@ const validQuantity = (q: number) => Number.isSafeInteger(q) && q >= 1;
 /** Mirrors the server rules (same paths) so obvious mistakes are flagged without a round trip. */
 export function validateModificationForm(form: ModifyOrderForm): FieldError[] {
   const errors: FieldError[] = [];
+  if (!sentLines(form).length) errors.push({ path: 'lines', code: 'LINES_REQUIRED' });
   sentLines(form).forEach((l, i) => {
     if (l.isGift) return;
     if (!validQuantity(l.quantity)) errors.push({ path: `lines.${i}.quantity`, code: 'INVALID_QUANTITY' });

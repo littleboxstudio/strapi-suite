@@ -228,6 +228,17 @@ describe('validateModificationForm', () => {
     ]);
   });
 
+  it('requires at least one line', () => {
+    const form = modifyFormFromOrder(order({ lines: [orderLine()] } as any));
+    const lines = removeModifyLine(form.lines, keyOf(form, 1));
+    expect(validateModificationForm({ ...form, lines })).toEqual([
+      { path: 'lines', code: 'LINES_REQUIRED' },
+    ]);
+    expect(toModificationErrorMap({ ...form, lines }, [{ path: 'lines', code: 'LINES_REQUIRED' }])).toEqual({
+      lines: 'LINES_REQUIRED',
+    });
+  });
+
   it('requires the fields of a changed address', () => {
     const form = modifyFormFromOrder(order());
     const changed = { ...form, shippingAddress: { ...form.shippingAddress, city: '' } };
@@ -305,6 +316,7 @@ describe('translations', () => {
     'ecommerce.orders.errors.QUANTITY_BELOW_SHIPPED',
     'ecommerce.orders.errors.SHIPPING_QUOTE_FAILED',
     'ecommerce.orders.errors.INVALID_AMOUNT',
+    'ecommerce.orders.errors.LINES_REQUIRED',
   ];
   it.each(keys)('%s exists in en and pt', (key) => {
     const id = `littlebox-strapi-suite.${key}`;
