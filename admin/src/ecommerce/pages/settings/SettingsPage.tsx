@@ -77,7 +77,7 @@ const SettingsPage = () => {
             </Typography>
           )}
           {section === 'general' && <GeneralSettings readOnly={!canUpdate} />}
-          {category && <IntegrationsSection key={category} category={category} />}
+          {category && <IntegrationsSection key={category} category={category} readOnly={!canUpdate} />}
           {section === 'email-templates' && <EmailTemplatesSection />}
         </>
       )}
