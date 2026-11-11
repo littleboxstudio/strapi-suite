@@ -30,19 +30,22 @@ export function integrationFormFromView(view: IntegrationView): IntegrationFormV
 
 /**
  * The `PUT /integrations/:id` body. Blank secrets are left out (the server keeps the stored
- * value), integer text becomes a number, and blank config values are sent as null to clear them.
+ * value) unless listed in `clearedSecrets` (optional ones only), which are sent as null to delete
+ * them; integer text becomes a number, and blank config values are sent as null to clear them.
  */
 export function buildIntegrationPayload(
   fields: ProviderField[],
-  values: IntegrationFormValues
+  values: IntegrationFormValues,
+  clearedSecrets: string[] = []
 ): IntegrationInput {
   const config: Record<string, unknown> = {};
-  const secrets: Record<string, string> = {};
+  const secrets: Record<string, string | null> = {};
 
   fields.forEach((field) => {
     const value = values[field.key];
     if (field.type === 'secret') {
       if (typeof value === 'string' && value.trim() !== '') secrets[field.key] = value.trim();
+      else if (!field.required && clearedSecrets.includes(field.key)) secrets[field.key] = null;
       return;
     }
     if (field.type === 'boolean') {

@@ -46,6 +46,8 @@ const IntegrationConfigModal = ({ integration, initialErrors = {}, onClose, onSa
   );
   const [errors, setErrors] = useState<Record<string, string>>(initialErrors);
   const [saving, setSaving] = useState(false);
+  /** Stored optional secrets the user chose to delete on save. */
+  const [clearedSecrets, setClearedSecrets] = useState<string[]>([]);
 
   const name = t(
     `ecommerce.settings.providers.${integration.id}.name`,
@@ -69,7 +71,7 @@ const IntegrationConfigModal = ({ integration, initialErrors = {}, onClose, onSa
     try {
       const saved = await new UpdateIntegration().execute(
         integration.id,
-        buildIntegrationPayload(integration.fields, values)
+        buildIntegrationPayload(integration.fields, values, clearedSecrets)
       );
       toggleNotification({ type: 'success', message: t('ecommerce.settings.saved') });
       onSaved(saved);
@@ -120,17 +122,41 @@ const IntegrationConfigModal = ({ integration, initialErrors = {}, onClose, onSa
             ))}
           </SingleSelect>
         );
-      case 'secret':
+      case 'secret': {
+        const cleared = clearedSecrets.includes(field.key);
+        const clearable = !field.required && !!integration.secrets[field.key];
         return (
-          <TextInput
-            type="password"
-            autoComplete="new-password"
-            value={typeof value === 'string' ? value : ''}
-            placeholder={integration.secrets[field.key] ?? ''}
-            hasError={hasError}
-            onChange={(e: any) => setValue(field.key, e.target.value)}
-          />
+          <Flex gap={2} alignItems="center">
+            <Box flex="1">
+              <TextInput
+                type="password"
+                autoComplete="new-password"
+                value={typeof value === 'string' ? value : ''}
+                placeholder={cleared ? '' : (integration.secrets[field.key] ?? '')}
+                hasError={hasError}
+                onChange={(e: any) => {
+                  setValue(field.key, e.target.value);
+                  // Typing a new value replaces the stored one instead of clearing it.
+                  if (cleared) setClearedSecrets((keys) => keys.filter((k) => k !== field.key));
+                }}
+              />
+            </Box>
+            {clearable && (
+              <Button
+                variant="tertiary"
+                onClick={() => {
+                  setValue(field.key, '');
+                  setClearedSecrets((keys) =>
+                    cleared ? keys.filter((k) => k !== field.key) : [...keys, field.key]
+                  );
+                }}
+              >
+                {t(`ecommerce.settings.integrations.secret.${cleared ? 'undoClear' : 'clear'}`)}
+              </Button>
+            )}
+          </Flex>
         );
+      }
       case 'number':
         return (
           <TextInput
@@ -156,6 +182,9 @@ const IntegrationConfigModal = ({ integration, initialErrors = {}, onClose, onSa
 
   const secretHint = (field: ProviderField) => {
     if (field.type !== 'secret') return undefined;
+    if (clearedSecrets.includes(field.key)) {
+      return t('ecommerce.settings.integrations.secret.clearHint');
+    }
     if (integration.secretsStatus === 'unreadable') {
       return t('ecommerce.settings.integrations.secret.unreadableHint');
     }

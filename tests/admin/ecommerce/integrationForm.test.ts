@@ -44,6 +44,20 @@ describe('buildIntegrationPayload', () => {
     expect(payload.secrets).toEqual({ clientSecret: 's3cret', password: 'pw' });
   });
 
+  it('sends null for cleared optional secrets, never for required ones or retyped values', () => {
+    const fields: ProviderField[] = [
+      ...FIELDS,
+      { key: 'webhookSecret', type: 'secret', required: false, label: 'w' },
+      { key: 'other', type: 'secret', required: false, label: 'o' },
+    ];
+    const payload = buildIntegrationPayload(
+      fields,
+      { webhookSecret: '', other: 'new-value', password: '' },
+      ['webhookSecret', 'other', 'password']
+    );
+    expect(payload.secrets).toEqual({ webhookSecret: null, other: 'new-value' });
+  });
+
   it('converts numbers and clears blank optional values with null', () => {
     const payload = buildIntegrationPayload(FIELDS, {
       clientId: ' abc ',
