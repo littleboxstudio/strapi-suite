@@ -50,6 +50,27 @@ describe('rateKeys', () => {
     expect(JSON.stringify(keys)).not.toMatch(/ana@x\.pt/i);
   });
 
+  it('normalises IPv4-mapped IPv6 to IPv4 and keys IPv6 by its /64 prefix', () => {
+    const key = (ip: string) => rateKeys('catalog', { sessionId: null, ip })[0].key;
+    expect(key('::ffff:203.0.113.7')).toBe('catalog:ip:203.0.113.7');
+    expect(key('::FFFF:cb00:7107')).toBe('catalog:ip:203.0.113.7');
+    expect(key('2001:db8:1:2:3:4:5:6')).toBe('catalog:ip:2001:db8:1:2::/64');
+    expect(key('2001:0DB8:0001:0002::9')).toBe('catalog:ip:2001:db8:1:2::/64');
+    expect(key('2001:db8::1')).toBe('catalog:ip:2001:db8:0:0::/64');
+    expect(key('::1')).toBe('catalog:ip:0:0:0:0::/64');
+    expect(key('2001:db8:1:3::1')).not.toBe(key('2001:db8:1:2::1'));
+  });
+
+  it('session.create without a valid client IP uses one shared unknown bucket', () => {
+    expect(rateKeys('session.create', { sessionId: null, ip: null })).toEqual([
+      { key: 'session.create:ip:unknown', rule: { limit: 20, windowMs: 60 * MIN } },
+    ]);
+    expect(rateKeys('session.create', { sessionId: null, ip: 'not-an-ip' })[0].key).toBe('session.create:ip:unknown');
+    // the other rules keep "no IP → no IP key" (Review Focus 5)
+    expect(rateKeys('catalog', { sessionId: null, ip: 'not-an-ip' })).toEqual([]);
+    expect(rateKeys('cart.quote', { sessionId: 4, ip: null }).map((k) => k.key)).toEqual(['cart.quote:s:4']);
+  });
+
   it('skips an empty e-mail and dimensions the rule does not define', () => {
     expect(rateKeys('order.read', { sessionId: 3, ip: '203.0.113.7', email: 'a@b.pt' }).map((k) => k.key)).toEqual([
       'order.read:s:3',
@@ -152,6 +173,23 @@ describe('createRateLimiter', () => {
     expect(limiter.hit('r:ip:late', one(9000)).allowed).toBe(false);
     expect(limiter.hit('r:s:1', one(1000)).allowed).toBe(false);
     expect(limiter.size()).toBe(3);
+  });
+
+  it('evicts session / e-mail keys in a batch too (no sort per insertion)', () => {
+    let t = 0;
+    const limiter = createRateLimiter({ now: () => t, maxKeys: 1000 });
+    const one = { limit: 1, windowMs: 10_000 };
+    for (let i = 0; i < 1000; i++) limiter.hit(`r:s:${i}`, one);
+    expect(limiter.size()).toBe(1000);
+    t = 1;
+    limiter.hit('r:s:new0', one);
+    // 1% batch (10 keys) freed at once, then the next 9 new keys need no eviction
+    expect(limiter.size()).toBe(991);
+    for (let i = 1; i < 10; i++) limiter.hit(`r:s:new${i}`, one);
+    expect(limiter.size()).toBe(1000);
+    // the oldest went first
+    expect(limiter.hit('r:s:0', one).allowed).toBe(true);
+    expect(limiter.hit('r:s:999', one).allowed).toBe(false);
   });
 
   it('evicts session / e-mail keys only when no IP key is left', () => {
