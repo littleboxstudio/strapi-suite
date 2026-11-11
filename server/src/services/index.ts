@@ -19,6 +19,7 @@ import EcommerceOrderHistoryService from './modules/ecommerce/orderHistory';
 import EcommerceOrderService from './modules/ecommerce/orders';
 import EcommercePaymentService from './modules/ecommerce/payments';
 import EcommerceStripePaymentService from './modules/ecommerce/stripePayments';
+import EcommerceStripeWebhookService from './modules/ecommerce/stripeWebhooks';
 
 export default {
   SettingAppService,
@@ -42,4 +43,5 @@ export default {
   EcommerceOrderService,
   EcommercePaymentService,
   EcommerceStripePaymentService,
+  EcommerceStripeWebhookService,
 };

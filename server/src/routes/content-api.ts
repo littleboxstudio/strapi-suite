@@ -1,4 +1,5 @@
 import { PLUGIN_ID } from '../config';
+import ecommerceWebhookRoutes from './ecommerce/content-api-webhooks';
 
 export default [
   {
@@ -60,5 +61,6 @@ export default [
       policies: ['check-api-token'],
       auth: false,
     },
-  }
+  },
+  ...ecommerceWebhookRoutes,
 ];

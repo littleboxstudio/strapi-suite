@@ -123,14 +123,19 @@ const EcommerceStripePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
    * a payment that is already COMPLETED is left untouched. A `complete` session that is not
    * paid yet (asynchronous methods such as Multibanco) is marked COMPLETE and its payment stays
    * PENDING until Stripe confirms it.
+   *
+   * With `opts.collector` (a caller running its own enclosing transaction, e.g. the webhook),
+   * the event goes into that collector and the caller flushes it after its commit.
    */
   const completeFromSession = async (
     sessionRow: { id: number },
     retrieved: RetrievedCheckoutSession,
-    actor: string
+    actor: string,
+    opts: { collector?: { emit(e: any): void } } = {}
   ): Promise<{ completed: boolean }> => {
     const u = uids();
-    const collector = events().collector();
+    const own = opts.collector ? null : events().collector();
+    const collector = opts.collector ?? (own as { emit(e: any): void });
     const result = await strapi.db.transaction(async () => {
       const row = await strapi.db.query(u.stripeSession).findOne({
         where: { id: sessionRow.id },
@@ -210,7 +215,7 @@ const EcommerceStripePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
       });
       return { completed: true };
     });
-    await collector.flush();
+    if (own) await own.flush();
     return result;
   };
 
