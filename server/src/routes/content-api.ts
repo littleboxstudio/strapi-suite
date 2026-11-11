@@ -1,5 +1,6 @@
 import { PLUGIN_ID } from '../config';
 import ecommerceWebhookRoutes from './ecommerce/content-api-webhooks';
+import ecommerceStorefrontRoutes from './ecommerce/content-api-storefront';
 
 export default [
   {
@@ -63,4 +64,5 @@ export default [
     },
   },
   ...ecommerceWebhookRoutes,
+  ...ecommerceStorefrontRoutes,
 ];
