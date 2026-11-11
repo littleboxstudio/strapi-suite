@@ -22,6 +22,7 @@ import {
   type OrderStatus,
   type PaymentLike,
   type PaymentStatus,
+  type RefundLike,
   type ShipmentLike,
 } from './domain/orders';
 import {
@@ -32,6 +33,7 @@ import {
   type ModificationResult,
   type ShippingModification,
 } from './domain/orderModification';
+import { refundableAmount } from './domain/refunds';
 import type { ShippingOption, ShippingQuoteRequest } from './shipping';
 import type { StockMoveInput } from './stock';
 import type { OrderHistoryEntry } from './orderHistory';
@@ -120,9 +122,16 @@ export type OrderState = {
   lines: OrderLineView[];
   /** Payment rows sorted by id. */
   payments: any[];
+  /** Refund rows sorted by id. */
+  refunds: any[];
+  /** Sum of the PENDING / PROCESSING refunds. */
+  inFlightRefunds: number;
+  hasPendingRefunds: boolean;
   summary: FinancialSummary;
   actions: OrderActionKey[];
 };
+
+const IN_FLIGHT_REFUND = ['PENDING', 'PROCESSING'];
 
 export type OrderListParams = {
   page?: number;
@@ -256,6 +265,13 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       serviceId: string
     ): Promise<ShippingOption | null>;
   } => service('EcommerceShippingService');
+  const refundService = (): {
+    releaseStoreCreditOnCancel(
+      orderId: number,
+      actor: string,
+      opts: { collector: { emit(e: any): void }; operationId?: string }
+    ): Promise<unknown>;
+  } => service('EcommerceRefundService');
   const history = (): { record(entry: OrderHistoryEntry): Promise<void> } =>
     service('EcommerceOrderHistoryService');
   const events = (): {
@@ -414,12 +430,27 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
   /** Shipments arrive in plan 4; until then nothing is shipped. */
   const loadShipments = async (_orderId: number): Promise<ShipmentLike[]> => [];
 
-  const summaryOf = (order: any, payments: PaymentLike[]): FinancialSummary =>
-    financialSummary(num(order.total), payments, [], {
+  /** Every refund of the order (any status), sorted by id. */
+  const loadRefunds = async (orderId: number): Promise<any[]> => {
+    const rows: any[] = await strapi.db.query(uids().refund).findMany({
+      where: { order: { id: orderId } },
+      populate: { payment: { select: ['id'] }, storeCredit: { select: ['id', 'code'] } },
+      orderBy: { id: 'asc' },
+    });
+    return rows;
+  };
+
+  const summaryOf = (order: any, payments: PaymentLike[], refunds: RefundLike[]): FinancialSummary =>
+    financialSummary(num(order.total), payments, refunds, {
       orderCancelled: order.orderStatus === 'CANCELLED',
     });
 
   const toPaymentLike = (p: any): PaymentLike => ({ status: p.status, amount: num(p.amount) });
+  const toRefundLike = (r: any): RefundLike => ({
+    status: r.status,
+    amount: num(r.amount),
+    kind: r.kind === 'STORE_CREDIT' ? 'STORE_CREDIT' : 'MONEY',
+  });
 
   const create = async (input: CreateOrderInput, ctx: CreateOrderContext) => {
     // A replay returns the stored order before any validation, catalog or shipping work,
@@ -722,7 +753,11 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     const shipped = shippedQuantities(shipments);
     const lines = [...(order.lines ?? [])].sort(byPosition).map((l: any) => toLineView(l, shipped));
     const payments: any[] = [...(order.payments ?? [])].sort((a, b) => a.id - b.id);
-    const summary = summaryOf(order, payments.map(toPaymentLike));
+    const refunds = await loadRefunds(orderId);
+    const summary = summaryOf(order, payments.map(toPaymentLike), refunds.map(toRefundLike));
+    const inFlight = refunds.filter((r) => IN_FLIGHT_REFUND.includes(r.status));
+    const inFlightRefunds = inFlight.reduce((s, r) => s + num(r.amount), 0);
+    const hasPendingRefunds = inFlight.length > 0;
     const actions = availableActions({
       orderStatus: order.orderStatus,
       paymentStatus: order.paymentStatus,
@@ -734,11 +769,14 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         .filter((s) => s.status !== 'CANCELLED')
         .every((s) => s.delivered),
       hasPendingPayments: payments.some((p) => p.status === 'PENDING'),
-      hasPendingRefunds: false,
+      hasPendingRefunds,
       // Invoicing arrives in plan 4.
       hasUninvoicedCompletedPayments: false,
-    });
-    return { order, lines, payments, summary, actions };
+    }).filter(
+      // In-flight refunds already claim part of the excess.
+      (a) => a !== 'REFUND' || refundableAmount(summary, inFlightRefunds) > 0
+    );
+    return { order, lines, payments, refunds, inFlightRefunds, hasPendingRefunds, summary, actions };
   };
 
   const get = async (id: number): Promise<OrderView> => {
@@ -818,7 +856,8 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     strapi.db.transaction(async () => {
       const order = await loadOrder(orderId);
       const payments: PaymentLike[] = (order.payments ?? []).map(toPaymentLike);
-      const paymentStatus = derivePaymentStatus(summaryOf(order, payments));
+      const refunds: RefundLike[] = (await loadRefunds(orderId)).map(toRefundLike);
+      const paymentStatus = derivePaymentStatus(summaryOf(order, payments, refunds));
       const shipped = shippedQuantities(await loadShipments(orderId));
       const fulfillmentStatus = deriveFulfillmentStatus(
         (order.lines ?? []).map((l: any) => ({ id: l.id, quantity: num(l.quantity) })),
@@ -925,6 +964,9 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
           });
           if (applied) restocked.push({ variantId, quantity: units });
         }
+        // Store credit spent on the order goes back to its vouchers (design 4.14), as
+        // COMPLETED STORE_CREDIT refunds, in this same transaction.
+        await refundService().releaseStoreCreditOnCancel(orderId, actor, { collector, operationId });
         await history().record({
           orderId,
           type: 'ORDER_CANCELLED',
@@ -968,7 +1010,27 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       }
     });
     await collector.flush();
+    if (to === 'CANCELLED') await expireOpenStripeSessions(orderId);
     return get(orderId);
+  };
+
+  /**
+   * After a cancel commits: expires the order's OPEN Stripe sessions so the customer can no
+   * longer pay (a session Stripe reports paid is settled instead: the money is recorded and
+   * becomes refundable). Best effort: failures are logged and never undo the cancel.
+   */
+  const expireOpenStripeSessions = async (orderId: number): Promise<void> => {
+    try {
+      const stripePayments: { expireOpenSessions(orderId: number): Promise<void> } | undefined =
+        service('EcommerceStripePaymentService');
+      await stripePayments?.expireOpenSessions(orderId);
+    } catch (err) {
+      const name = err instanceof Error ? err.name : typeof err;
+      const code = (err as { code?: unknown })?.code;
+      strapi.log?.error(
+        `[ecommerce] could not expire the Stripe sessions of cancelled order ${orderId}: ${name}${typeof code === 'string' ? `:${code}` : ''}`
+      );
+    }
   };
 
   const cancel = (orderId: number, actor: string) =>
@@ -1060,8 +1122,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     shippingOriginal: num(state.order.shippingOriginal),
     shippingDiscount: num(state.order.shippingDiscount),
     payments: state.payments.map(toPaymentLike),
-    // Refunds arrive in plan 4.
-    refunds: [],
+    refunds: state.refunds.map(toRefundLike),
   });
 
   const toModificationCatalog = (catalog: Map<number, CatalogVariant>) => {

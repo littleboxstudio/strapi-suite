@@ -4,6 +4,8 @@ import { PLUGIN_ID, LtbConfigs } from '../../../config';
 import { EcommerceValidationError } from './errors';
 import { isUniqueViolation } from './dbErrors';
 import { MAX_MONEY_CENTS, computeCoverage, type OrderActionKey } from './domain/orders';
+import { storeCreditUsable } from './domain/storeCredit';
+import { normalizeStoreCreditCode, type ConsumeStoreCreditInput } from './storeCredits';
 import type { OrderHistoryEntry } from './orderHistory';
 import type { OrderState } from './orders';
 
@@ -71,6 +73,12 @@ export const coverageFor = (state: OrderState, amount: number) =>
     state.payments.filter((p) => p.status === 'COMPLETED'),
     amount
   );
+
+export type StoreCreditPaymentInput = {
+  code: string;
+  /** Required. A repeated key returns the stored payment without side effects. */
+  idempotencyKey: string;
+};
 
 export type PaymentInstructionsInput =
   { mode: 'MANUAL'; instructions: string } | { mode: 'STRIPE' };
@@ -213,6 +221,136 @@ const EcommercePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   /**
+   * Pays the order with a store credit: `min(due, balance)` as a COMPLETED `STORE_CREDIT`
+   * payment (value coverage) and the matching conditional consumption, in one transaction. The
+   * credit must belong to the order's snapshot e-mail; any refusal leaves the balance and the
+   * payments untouched.
+   */
+  const addStoreCreditPayment = async (
+    rawOrderId: number | string,
+    input: StoreCreditPaymentInput,
+    actor: string
+  ): Promise<PaymentView> => {
+    const orderId = Number(rawOrderId);
+    const idempotencyKey = clean(input?.idempotencyKey);
+    if (!idempotencyKey) {
+      throw new EcommerceValidationError('Invalid payment', [
+        { path: 'idempotencyKey', code: 'required' },
+      ]);
+    }
+    const existing = await findByKey(orderId, idempotencyKey);
+    if (existing) return existing;
+    const code = normalizeStoreCreditCode(input?.code);
+    if (!code) {
+      throw new EcommerceValidationError('Invalid payment', [{ path: 'code', code: 'required' }]);
+    }
+    const storeCredits: { consume(i: ConsumeStoreCreditInput): Promise<unknown> } =
+      service('EcommerceStoreCreditService');
+    const refuse = (c: string) =>
+      new EcommerceValidationError('Invalid payment', [{ path: 'code', code: c }]);
+
+    const collector = events().collector();
+    const operationId = randomUUID();
+    try {
+      const created = await strapi.db.transaction(async () => {
+        await orders().lockOrder(orderId);
+        const state = await orders().computeOrderState(orderId);
+        orders().assertAction(state, 'ADD_PAYMENT');
+        const { order } = state;
+        const email = String(order.customerSnapshot?.email ?? '');
+
+        const credit = await strapi.db.query(uids().storeCredit).findOne({ where: { code } });
+        if (!credit) throw refuse('STORE_CREDIT_NOT_FOUND');
+        const usable = storeCreditUsable(
+          {
+            status: credit.status,
+            balance: Number(credit.balance) || 0,
+            expiresAt: credit.expiresAt ?? null,
+            emailNormalized: credit.emailNormalized ?? '',
+          },
+          email,
+          new Date()
+        );
+        if ('code' in usable) throw refuse(usable.code);
+        const amount = Math.min(state.summary.due, Number(credit.balance) || 0);
+
+        const payment = await strapi.db.query(uids().payment).create({
+          data: {
+            order: orderId,
+            method: 'STORE_CREDIT',
+            status: 'COMPLETED',
+            amount,
+            currency: 'EUR',
+            reference: credit.code,
+            externalId: null,
+            idempotencyKey,
+            coverage: coverageFor(state, amount),
+            completedAt: new Date().toISOString(),
+            actor,
+            metadata: { storeCreditId: credit.id, code: credit.code },
+          },
+        });
+        // Strict conditional decrement: a concurrent consumption makes this throw and roll back.
+        await storeCredits.consume({
+          code: credit.code,
+          email,
+          amount,
+          orderId,
+          paymentId: payment.id,
+          operationKey: `consume:${payment.id}`,
+          actor,
+        });
+
+        const value = {
+          paymentId: payment.id,
+          method: 'STORE_CREDIT',
+          amount,
+          storeCreditId: credit.id,
+          code: credit.code,
+        };
+        await history().record({
+          orderId,
+          type: 'PAYMENT_CREATED',
+          description: `Store credit payment of ${amount} cents registered`,
+          previousValue: null,
+          newValue: value,
+          actor,
+          operationId,
+        });
+        await history().record({
+          orderId,
+          type: 'PAYMENT_COMPLETED',
+          description: `Store credit payment of ${amount} cents completed`,
+          previousValue: null,
+          newValue: value,
+          actor,
+          operationId,
+        });
+        await orders().recalculate(orderId, { actor, operationId });
+        collector.emit({
+          type: 'PAYMENT_COMPLETED',
+          orderId,
+          payload: {
+            paymentId: payment.id,
+            amount,
+            method: 'STORE_CREDIT',
+            reference: order.reference,
+          },
+        });
+        return payment;
+      });
+      await collector.flush();
+      return toPaymentView(created);
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        const winner = await findByKey(orderId, idempotencyKey);
+        if (winner) return winner;
+      }
+      throw err;
+    }
+  };
+
+  /**
    * Sends the customer how to pay what is due: free-text manual instructions, or a Stripe
    * payment link. Only emits `PAYMENT_INSTRUCTIONS_SENT` (the notification goes out from it);
    * never settles anything.
@@ -294,7 +432,7 @@ const EcommercePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
     return link ? { url: link.url, expiresAt: link.expiresAt } : {};
   };
 
-  return { addManualPayment, sendPaymentInstructions };
+  return { addManualPayment, addStoreCreditPayment, sendPaymentInstructions };
 };
 
 export default EcommercePaymentService;

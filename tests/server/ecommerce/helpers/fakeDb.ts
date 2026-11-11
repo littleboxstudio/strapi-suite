@@ -65,7 +65,7 @@ export type FakeRelations = Record<
  * In-memory stand-in for the Strapi Query Engine (`strapi.db`), covering the subset the
  * e-commerce services use. `transaction` restores every table when the callback throws.
  * `metadata.get(uid).tableName` is the uid itself, so `connection(tableName)` (a tiny knex-like
- * builder: `.where({ id }).increment(col, n).transacting(trx)`) reaches the same rows.
+ * builder: `.where({ id }).where(col, '>=', n).increment|decrement(col, n).transacting(trx)`) reaches the same rows.
  */
 export function createFakeDb(
   uids: string[],
@@ -187,12 +187,30 @@ export function createFakeDb(
   const trx = { fakeTrx: true };
   const increments: { table: string; where: any; column: string; amount: number; trx: any }[] = [];
 
+  const COMPARE: Record<string, (a: any, b: any) => boolean> = {
+    '=': (a, b) => a === b,
+    '>=': (a, b) => a >= b,
+    '>': (a, b) => a > b,
+    '<=': (a, b) => a <= b,
+    '<': (a, b) => a < b,
+  };
+
   const connection = (table: string) => {
     if (!tables[table]) throw new Error(`unknown table ${table}`);
-    const state: { where: any; column?: string; amount?: number; trx?: any } = { where: {} };
+    const state: {
+      where: any;
+      compares: [string, string, any][];
+      column?: string;
+      amount?: number;
+      trx?: any;
+    } = { where: {}, compares: [] };
     const run = () => {
-      if (state.column === undefined) throw new Error('only increment is supported');
-      const rows = tables[table].filter((r) => match(table, r, state.where));
+      if (state.column === undefined) throw new Error('only increment/decrement is supported');
+      const rows = tables[table].filter(
+        (r) =>
+          match(table, r, state.where) &&
+          state.compares.every(([col, op, v]) => COMPARE[op](r[col] ?? 0, v))
+      );
       rows.forEach((r) => {
         r[state.column as string] = (r[state.column as string] ?? 0) + (state.amount as number);
       });
@@ -206,13 +224,23 @@ export function createFakeDb(
       return rows.length;
     };
     const builder: any = {
-      where(w: any) {
-        state.where = { ...state.where, ...w };
+      where(w: any, op?: string, value?: any) {
+        if (typeof w === 'string') {
+          if (!COMPARE[op as string]) throw new Error(`unsupported operator ${op}`);
+          state.compares.push([w, op as string, value]);
+        } else {
+          state.where = { ...state.where, ...w };
+        }
         return builder;
       },
       increment(column: string, amount: number) {
         state.column = column;
         state.amount = amount;
+        return builder;
+      },
+      decrement(column: string, amount: number) {
+        state.column = column;
+        state.amount = -amount;
         return builder;
       },
       transacting(t: any) {

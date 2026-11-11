@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import EcommerceOrderService from '../../../server/src/services/modules/ecommerce/orders';
+import EcommerceStoreCreditService from '../../../server/src/services/modules/ecommerce/storeCredits';
+import EcommerceRefundService from '../../../server/src/services/modules/ecommerce/refunds';
 import EcommercePaymentService from '../../../server/src/services/modules/ecommerce/payments';
 import EcommerceOrderHistoryService from '../../../server/src/services/modules/ecommerce/orderHistory';
 import EcommerceStockService from '../../../server/src/services/modules/ecommerce/stock';
@@ -24,6 +26,7 @@ const UIDS = {
   payment: `${P}payment`,
   stockMovement: `${P}stock-movement`,
   orderHistory: `${P}order-history`,
+  refund: `${P}refund`,
 };
 
 const RELATIONS: FakeRelations = {
@@ -98,6 +101,8 @@ function setup() {
   services.EcommerceEventBus = { collector: bus.collector, subscribe: bus.subscribe };
   const orders = EcommerceOrderService({ strapi });
   services.EcommerceOrderService = orders;
+  services.EcommerceStoreCreditService = EcommerceStoreCreditService({ strapi });
+  services.EcommerceRefundService = EcommerceRefundService({ strapi });
   const payments = EcommercePaymentService({ strapi });
   services.EcommercePaymentService = payments;
 

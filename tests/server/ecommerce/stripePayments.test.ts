@@ -11,6 +11,8 @@ vi.mock('../../../server/src/services/modules/ecommerce/providers/payments/strip
 }));
 
 import EcommerceOrderService from '../../../server/src/services/modules/ecommerce/orders';
+import EcommerceStoreCreditService from '../../../server/src/services/modules/ecommerce/storeCredits';
+import EcommerceRefundService from '../../../server/src/services/modules/ecommerce/refunds';
 import EcommercePaymentService from '../../../server/src/services/modules/ecommerce/payments';
 import EcommerceStripePaymentService from '../../../server/src/services/modules/ecommerce/stripePayments';
 import EcommerceOrderHistoryService from '../../../server/src/services/modules/ecommerce/orderHistory';
@@ -40,6 +42,9 @@ const UIDS = {
   stockMovement: `${P}stock-movement`,
   orderHistory: `${P}order-history`,
   stripeSession: `${P}stripe-session`,
+  refund: `${P}refund`,
+  storeCredit: `${P}store-credit`,
+  storeCreditMovement: `${P}store-credit-movement`,
 };
 
 const RELATIONS: FakeRelations = {
@@ -125,6 +130,8 @@ function setup(opts: { storefrontUrl?: string | null; stripeActive?: boolean } =
   };
   services.EcommerceEventBus = { collector: bus.collector, subscribe: bus.subscribe };
   services.EcommerceOrderService = EcommerceOrderService({ strapi });
+  services.EcommerceStoreCreditService = EcommerceStoreCreditService({ strapi });
+  services.EcommerceRefundService = EcommerceRefundService({ strapi });
   services.EcommercePaymentService = EcommercePaymentService({ strapi });
   services.EcommerceStripePaymentService = EcommerceStripePaymentService({ strapi });
 
