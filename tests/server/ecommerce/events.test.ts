@@ -32,7 +32,8 @@ describe('EcommerceEventBus', () => {
     const order: string[] = [];
     b.subscribe('*', async () => {
       order.push('a');
-      throw new Error('boom');
+      // Error messages may echo personal data (e.g. a provider rejecting an email).
+      throw new TypeError('rejected recipient a@b.pt');
     });
     b.subscribe('ORDER_CANCELLED', async () => void order.push('b'));
     b.subscribe('ORDER_CREATED', async () => void order.push('x'));
@@ -41,6 +42,11 @@ describe('EcommerceEventBus', () => {
     await expect(c.flush()).resolves.toBeUndefined();
     expect(order).toEqual(['b', 'a']);
     expect(error).toHaveBeenCalledTimes(1);
-    expect(String(error.mock.calls[0][0])).not.toContain('a@b.pt');
+    const logged = String(error.mock.calls[0][0]);
+    expect(logged).not.toContain('a@b.pt');
+    expect(logged).not.toContain('rejected recipient');
+    expect(logged).toContain('ORDER_CANCELLED');
+    expect(logged).toContain('TypeError');
+    expect(logged).toMatch(/[0-9a-f-]{36}/);
   });
 });
