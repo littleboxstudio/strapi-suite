@@ -45,6 +45,14 @@ describe('secrets', () => {
     );
   });
 
+  it.each([4, 8, 12, 15])('rejects an authentication tag truncated to %i bytes', (len) => {
+    const enc = encryptSecret('hello world', key);
+    const tag = Buffer.from(enc.tag, 'base64').subarray(0, len).toString('base64');
+    expect(() => decryptSecret({ ...enc, tag }, key)).toThrow(
+      expect.objectContaining({ code: 'SECRET_UNREADABLE' })
+    );
+  });
+
   it('masks secrets', () => {
     expect(maskSecret('sk_test_1234567890abcd')).toBe('sk_********abcd');
     expect(maskSecret('short')).toBe('********');

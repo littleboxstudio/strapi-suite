@@ -7,6 +7,8 @@ export { maskSecret };
 export type EncryptedValue = { v: 1; iv: string; tag: string; data: string };
 
 const ALGORITHM = 'aes-256-gcm';
+/** Full-length GCM tag; shorter tags would let a forger verify against fewer bits. */
+const AUTH_TAG_LENGTH = 16;
 
 function clean(value: unknown): string | null {
   return typeof value === 'string' && value.trim() !== '' ? value : null;
@@ -33,8 +35,12 @@ export function encryptSecret(plain: string, key: Buffer): EncryptedValue {
 
 export function decryptSecret(value: EncryptedValue, key: Buffer): string {
   try {
-    const decipher = createDecipheriv(ALGORITHM, key, Buffer.from(value.iv, 'base64'));
-    decipher.setAuthTag(Buffer.from(value.tag, 'base64'));
+    const tag = Buffer.from(value.tag, 'base64');
+    if (tag.length !== AUTH_TAG_LENGTH) throw new Error('bad tag length');
+    const decipher = createDecipheriv(ALGORITHM, key, Buffer.from(value.iv, 'base64'), {
+      authTagLength: AUTH_TAG_LENGTH,
+    });
+    decipher.setAuthTag(tag);
     return Buffer.concat([
       decipher.update(Buffer.from(value.data, 'base64')),
       decipher.final(),
