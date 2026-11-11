@@ -18,6 +18,7 @@ const orders: [string, string, string, string][] = [
   ['POST', O, 'create', P.ordersManage],
   ['GET', `${O}/locales`, 'getLocales', P.ordersRead],
   ['POST', `${O}/shipping-quote`, 'shippingQuote', P.ordersManage],
+  ['POST', `${O}/quote`, 'quote', P.ordersManage],
   ['GET', `${O}/variant-search`, 'variantSearch', P.ordersManage],
   ['GET', `${O}/:id`, 'get', P.ordersRead],
   ['POST', `${O}/:id/payments`, 'addPayment', P.ordersManage],
@@ -53,5 +54,6 @@ describe('ecommerce order routes', () => {
     expect(idx('GET', `${O}/locales`)).toBeLessThan(id);
     expect(idx('GET', `${O}/variant-search`)).toBeLessThan(id);
     expect(idx('POST', `${O}/shipping-quote`)).toBeLessThan(idx('POST', `${O}/:id/cancel`));
+    expect(idx('POST', `${O}/quote`)).toBeLessThan(idx('POST', `${O}/:id/payments`));
   });
 });

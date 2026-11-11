@@ -25,6 +25,7 @@ export default [
   // (hasPermissions with several actions requires all of them).
   route('GET', '/locales', 'getLocales', read),
   route('POST', '/shipping-quote', 'shippingQuote', manage),
+  route('POST', '/quote', 'quote', manage),
   route('GET', '/variant-search', 'variantSearch', manage),
   route('GET', '/:id', 'get', read),
   route('POST', '/:id/payments', 'addPayment', manage),

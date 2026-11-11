@@ -17,6 +17,7 @@ import EcommerceNotificationController from './modules/ecommerce/notifications';
 import EcommerceShipmentController from './modules/ecommerce/shipments';
 import EcommerceReturnController from './modules/ecommerce/returns';
 import EcommerceInvoiceController from './modules/ecommerce/invoices';
+import EcommercePromotionController from './modules/ecommerce/promotions';
 import EcommerceStripeWebhookController from './modules/ecommerce/stripeWebhook';
 
 export default {
@@ -39,5 +40,6 @@ export default {
   EcommerceShipmentController,
   EcommerceReturnController,
   EcommerceInvoiceController,
+  EcommercePromotionController,
   EcommerceStripeWebhookController,
 };

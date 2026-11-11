@@ -184,3 +184,106 @@ describe('EcommerceCustomerController', () => {
     expect(ctx.body).toEqual({ shippingAddress: null, billingAddress: null });
   });
 });
+
+describe('EcommerceOrderController promotions', () => {
+  const run = async (method: 'create' | 'quote', body: any, service: any) => {
+    const c = orders({ EcommerceOrderService: service });
+    const ctx = mkCtx({ request: { body: { idempotencyKey: 'k', ...body } } });
+    await c[method](ctx);
+    return ctx;
+  };
+
+  it('create passes promotionCodes, expectedTotal and giftChoices', async () => {
+    const create = vi.fn().mockResolvedValue({ id: 1 });
+    const body = { promotionCodes: ['SUMMER'], expectedTotal: 1000, giftChoices: { '3': 40 } };
+    const ctx = await run('create', body, { create });
+    expect(create).toHaveBeenCalledWith(
+      { idempotencyKey: 'k', ...body },
+      { actor: 'user:7', source: 'admin' }
+    );
+    expect(ctx.status).toBe(201);
+  });
+
+  it.each([
+    ['six codes', { promotionCodes: ['A', 'B', 'C', 'D', 'E', 'F'] }, 'promotionCodes', 'too_many'],
+    ['codes not a list', { promotionCodes: 'A' }, 'promotionCodes', 'invalid'],
+    ['non-string code', { promotionCodes: [1] }, 'promotionCodes.0', 'invalid'],
+    ['41-char code', { promotionCodes: ['x'.repeat(41)] }, 'promotionCodes.0', 'too_long'],
+    ['negative total', { expectedTotal: -1 }, 'expectedTotal', 'invalid_amount'],
+    ['fractional total', { expectedTotal: 1.5 }, 'expectedTotal', 'invalid_amount'],
+    ['total above the cap', { expectedTotal: 1e9 + 1 }, 'expectedTotal', 'invalid_amount'],
+    ['gift choices as list', { giftChoices: [1] }, 'giftChoices', 'invalid'],
+    ['eleven gift choices', { giftChoices: Object.fromEntries(Array.from({ length: 11 }, (_, i) => [i + 1, 1])) }, 'giftChoices', 'too_many'],
+    ['gift key not an id', { giftChoices: { a: 1 } }, 'giftChoices.a', 'invalid'],
+    ['gift value zero', { giftChoices: { '1': 0 } }, 'giftChoices.1', 'invalid'],
+  ])('create and quote reject %s with 400 before the service', async (_n, extra, path, code) => {
+    const create = vi.fn();
+    const quote = vi.fn();
+    for (const m of ['create', 'quote'] as const) {
+      const ctx = await run(m, extra, { create, quote });
+      expect(ctx.badRequest).toHaveBeenCalledWith('Invalid order', {
+        code,
+        errors: [{ path, code }],
+      });
+    }
+    expect(create).not.toHaveBeenCalled();
+    expect(quote).not.toHaveBeenCalled();
+  });
+
+  it('accepts five codes of 40 characters and ten gift choices', async () => {
+    const quote = vi.fn().mockResolvedValue({});
+    const giftChoices = Object.fromEntries(Array.from({ length: 10 }, (_, i) => [i + 1, i + 1]));
+    const ctx = await run(
+      'quote',
+      { promotionCodes: Array(5).fill('x'.repeat(40)), expectedTotal: 0, giftChoices },
+      { quote }
+    );
+    expect(ctx.badRequest).not.toHaveBeenCalled();
+    expect(quote).toHaveBeenCalledTimes(1);
+  });
+
+  it('create PROMOTION_UNAVAILABLE is a 409 carrying the code as detail', async () => {
+    const err = new EcommerceValidationError('x', [
+      { path: 'promotions.7', code: 'PROMOTION_UNAVAILABLE', detail: 'SUMMER' },
+    ]);
+    const ctx = await run('create', {}, { create: vi.fn().mockRejectedValue(err) });
+    expect(ctx.status).toBe(409);
+    expect(ctx.body.error.details.code).toBe('PROMOTION_UNAVAILABLE');
+    expect(ctx.body.error.details.errors[0].detail).toBe('SUMMER');
+  });
+
+  it.each([
+    ['TOTAL_CHANGED', 'expectedTotal', 409],
+    ['STORE_CREDIT_INSUFFICIENT', 'x', 409],
+    ['PROMOTION_CODE_INVALID', 'promotionCodes.0', 400],
+    ['invalid', 'promotionCodes.0', 400],
+    ['too_many', 'promotionCodes', 400],
+    ['invalid_email', 'email', 400],
+    ['invalid_country', 'shipping.country', 400],
+    ['required', 'shipping.country', 400],
+    ['INSUFFICIENT_STOCK', 'gifts.30', 400],
+  ])('service error %s maps to %s status', async (code, path, status) => {
+    const err = new EcommerceValidationError('x', [{ path, code }]);
+    for (const m of ['create', 'quote'] as const) {
+      const ctx = await run(m, {}, { create: vi.fn().mockRejectedValue(err), quote: vi.fn().mockRejectedValue(err) });
+      if (status === 409) {
+        expect(ctx.status).toBe(409);
+        expect(ctx.body.error.details.code).toBe(code);
+      } else {
+        expect(ctx.badRequest).toHaveBeenCalledWith('Invalid order', { code, errors: [{ path, code }] });
+      }
+    }
+  });
+
+  it('quote returns codes and totals from the service without an idempotency key', async () => {
+    const result = { codes: [{ code: 'SUMMER', status: 'APPLIED' }], totals: { total: 900 } };
+    const quote = vi.fn().mockResolvedValue(result);
+    const c = orders({ EcommerceOrderService: { quote } });
+    const ctx = mkCtx({ request: { body: { lines: [], promotionCodes: ['SUMMER'] } } });
+    await c.quote(ctx);
+    expect(quote).toHaveBeenCalledWith({ lines: [], promotionCodes: ['SUMMER'] });
+    expect(ctx.body).toEqual(result);
+    expect(ctx.body.codes).toBeDefined();
+    expect(ctx.body.totals).toBeDefined();
+  });
+});
