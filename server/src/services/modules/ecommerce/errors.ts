@@ -14,3 +14,11 @@ export class EcommerceValidationError extends Error {
 export class EcommerceNotFoundError extends Error {
   name = 'EcommerceNotFoundError';
 }
+
+export class EcommerceSecretError extends Error {
+  name = 'EcommerceSecretError';
+
+  constructor(public code: 'ENCRYPTION_KEY_MISSING' | 'SECRET_UNREADABLE') {
+    super(code);
+  }
+}
