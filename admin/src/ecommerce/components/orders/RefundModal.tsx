@@ -39,6 +39,8 @@ type Props = {
   /** Prefill (e.g. reason RETURN and the return's value after a return); capped by the preview. */
   initial?: RefundInitial;
   onClose: () => void;
+  /** The refund request started (true) or settled (false): the page must keep this modal open meanwhile. */
+  onSubmitting?: (submitting: boolean) => void;
   /** After the refund was created (the order changed). */
   onRefunded: () => void;
 };
@@ -52,7 +54,7 @@ const FORM_FIELDS: FormField[] = ['amount', 'reason', 'description', 'method', '
  * Creates a refund (requirement 15.5): amounts from the server preview, the form, then a review
  * step. Mount it only while open: each opening mints a new idempotency key.
  */
-const RefundModal = ({ orderId, reference, initial, onClose, onRefunded }: Props) => {
+const RefundModal = ({ orderId, reference, initial, onClose, onSubmitting, onRefunded }: Props) => {
   const { formatMessage, formatDate, locale: uiLocale } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) =>
@@ -127,6 +129,7 @@ const RefundModal = ({ orderId, reference, initial, onClose, onRefunded }: Props
   const submit = async () => {
     if (!draft || saving) return;
     setSaving(true);
+    onSubmitting?.(true);
     try {
       const created = await new CreateRefund().execute(orderId, { ...draft, idempotencyKey });
       const processing = created.some((r) => r.status === 'PROCESSING');
@@ -156,6 +159,7 @@ const RefundModal = ({ orderId, reference, initial, onClose, onRefunded }: Props
       }
     } finally {
       setSaving(false);
+      onSubmitting?.(false);
     }
   };
 
@@ -355,7 +359,13 @@ const RefundModal = ({ orderId, reference, initial, onClose, onRefunded }: Props
 
   return (
     <Modal.Root open onOpenChange={(next: boolean) => !next && !saving && onClose()}>
-      <Modal.Content>
+      <Modal.Content
+        // The review step is shorter than the form: a click meant for "Review" that lands after the
+        // dialog shrank (double click) must not dismiss it from the overlay. Cancel, Back and Escape still close.
+        onPointerDownOutside={(e: Event) => {
+          if (draft || saving) e.preventDefault();
+        }}
+      >
         <Modal.Header>
           <Modal.Title>{t('ecommerce.orders.refund.title', { reference })}</Modal.Title>
         </Modal.Header>

@@ -7,8 +7,12 @@ import {
   Button,
   Field,
   Flex,
+  IconButton,
   Link,
+  Loader,
+  MenuItem,
   Modal,
+  SimpleMenu,
   Table,
   Tbody,
   Td,
@@ -18,6 +22,7 @@ import {
   Tr,
   Typography,
 } from '@strapi/design-system';
+import { More } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import EmptyShipping from '../../illustrations/EmptyShipping';
 import CancelShipment from '../../usecases/orders/cancelShipment';
@@ -70,7 +75,8 @@ const ORDER_DELIVERY_VARIANT: Record<OrderDeliveryStatus, Variant> = {
   DELIVERED: 'success',
 };
 
-const COLUMNS = ['date', 'carrier', 'items', 'tracking', 'cost', 'status', 'delivery', 'actions'] as const;
+// The cost is shown under the carrier and the actions sit in one menu, so the row fits the admin width.
+const COLUMNS = ['date', 'carrier', 'items', 'tracking', 'status', 'delivery', 'actions'] as const;
 
 /** Shipments and deliveries of the order (requirement 9.5). */
 const ShipmentsSection = ({ title, orderStatus, deliveryStatus, shipments, canManage, onChanged }: Props) => {
@@ -253,7 +259,12 @@ const ShipmentsSection = ({ title, orderStatus, deliveryStatus, shipments, canMa
                         </Flex>
                       </Td>
                       <Td>
-                        <Typography textColor="neutral800">{s.carrierName}</Typography>
+                        <Flex direction="column" alignItems="flex-start">
+                          <Typography textColor="neutral800">{s.carrierName}</Typography>
+                          <Typography variant="pi" textColor="neutral600">
+                            {t('ecommerce.orders.shipments.columns.cost')}: {money(s.shippingCost)}
+                          </Typography>
+                        </Flex>
                       </Td>
                       <Td style={{ maxWidth: 240 }}>
                         <Flex direction="column" alignItems="flex-start">
@@ -276,9 +287,6 @@ const ShipmentsSection = ({ title, orderStatus, deliveryStatus, shipments, canMa
                             </Link>
                           )}
                         </Flex>
-                      </Td>
-                      <Td>
-                        <Typography textColor="neutral800">{money(s.shippingCost)}</Typography>
                       </Td>
                       <Td>
                         <Flex direction="column" alignItems="flex-start" gap={1}>
@@ -309,25 +317,37 @@ const ShipmentsSection = ({ title, orderStatus, deliveryStatus, shipments, canMa
                         )}
                       </Td>
                       <Td>
-                        <Flex gap={1} justifyContent="flex-end" wrap="wrap">
-                          {actions.map((a) => (
-                            <Button
-                              key={a}
-                              size="S"
-                              variant={a === 'CANCEL' ? 'danger-light' : a === 'DELIVER' || a === 'RETRY' ? 'secondary' : 'tertiary'}
-                              disabled={busy !== null}
-                              loading={busy === s.id && (a === 'REFRESH' || a === 'RETRY' || a === 'LABEL')}
-                              onClick={() => act(s, a)}
-                            >
-                              {t(`ecommerce.orders.shipments.actions.${a}`)}
-                            </Button>
-                          ))}
-                          {s.events.length > 0 && (
-                            <Button size="S" variant="ghost" onClick={() => toggle(s.id)} aria-expanded={open}>
-                              {t(open ? 'ecommerce.orders.shipments.hideEvents' : 'ecommerce.orders.shipments.showEvents', {
-                                count: s.events.length,
-                              })}
-                            </Button>
+                        <Flex justifyContent="flex-end">
+                          {busy === s.id ? (
+                            <Loader small />
+                          ) : (
+                            (actions.length > 0 || s.events.length > 0) && (
+                              <SimpleMenu
+                                tag={IconButton}
+                                icon={<More />}
+                                label={t('ecommerce.orders.shipments.moreActions', { id: s.id })}
+                                disabled={busy !== null}
+                                popoverPlacement="bottom-end"
+                              >
+                                {actions.map((a) => (
+                                  <MenuItem
+                                    key={a}
+                                    variant={a === 'CANCEL' ? 'danger' : 'default'}
+                                    onSelect={() => act(s, a)}
+                                  >
+                                    {t(`ecommerce.orders.shipments.actions.${a}`)}
+                                  </MenuItem>
+                                ))}
+                                {s.events.length > 0 && (
+                                  <MenuItem onSelect={() => toggle(s.id)}>
+                                    {t(
+                                      open ? 'ecommerce.orders.shipments.hideEvents' : 'ecommerce.orders.shipments.showEvents',
+                                      { count: s.events.length }
+                                    )}
+                                  </MenuItem>
+                                )}
+                              </SimpleMenu>
+                            )
                           )}
                         </Flex>
                       </Td>
