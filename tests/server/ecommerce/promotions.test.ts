@@ -230,6 +230,37 @@ describe('EcommercePromotionService admin', () => {
     expect(c.tables[UIDS.auditLog].at(-1)).toMatchObject({ action: 'delete', targetId: String(free.id) });
   });
 
+  it('remove locks the promotion row, then counts, in one transaction (a reserve that wins the lock is seen)', async () => {
+    const view = await svc.create(input(), 'user:1');
+    const conn = c.strapi.db.getConnection;
+    const ops: string[] = [];
+    // A checkout commits its redemption just before remove obtains the row lock.
+    c.strapi.db.getConnection = (table: string) => {
+      const b = conn(table);
+      const forUpdate = b.forUpdate;
+      b.forUpdate = () => {
+        ops.push(`lock:${table === UIDS.promotion ? 'promotion' : table}`);
+        c.tables[UIDS.promotionRedemption].push({ id: 1, promotion: view.id, uniqueKey: `${view.id}:1` });
+        return forUpdate();
+      };
+      return b;
+    };
+    const q = c.strapi.db.query;
+    c.strapi.db.query = (uid: string) => {
+      const real = q(uid);
+      if (uid !== UIDS.promotionRedemption) return real;
+      return { ...real, count: async (p: any) => (ops.push('count'), real.count(p)) };
+    };
+    expect(await codesOf(svc.remove(view.id, 'user:1'))).toEqual(['PROMOTION_IN_USE']);
+    expect(ops).toEqual(['lock:promotion', 'count']);
+    expect(c.db.locks).toEqual([expect.objectContaining({ table: UIDS.promotion, where: { id: view.id }, trx: c.db.trx })]);
+    expect(c.tables[UIDS.promotion].map((r) => r.id)).toEqual([view.id]);
+  });
+
+  it('remove of an unknown promotion is not found', async () => {
+    await expect(svc.remove(999, 'user:1')).rejects.toThrow('Promotion not found');
+  });
+
   it('lists redemptions with the order reference', async () => {
     const id = addPromotion({ method: 'CODE', code: 'VERAO20' });
     addOrder(7, 1007);
@@ -323,6 +354,11 @@ describe('giftOptions', () => {
     const gifts = await svc.giftOptions(candidates, new Map([[10, 2]]));
     expect([...gifts.keys()]).toEqual([10]);
     expect(gifts.get(10)).toEqual({ variantId: 10, productId: 1, unitPrice: 2000, available: 3, active: true });
+    // No stock entry from the stock service: nothing available (no fallback to the row).
+    const stock = c.services.EcommerceStockService.available;
+    c.services.EcommerceStockService.available = async () => new Map();
+    expect((await svc.giftOptions(candidates, new Map())).get(10).available).toBe(0);
+    c.services.EcommerceStockService.available = stock;
     const none = await svc.giftOptions(candidates, new Map([[10, 9]]));
     expect(none.get(10).available).toBe(0);
   });
@@ -384,6 +420,34 @@ describe('reserve and releaseForOrder', () => {
     promo(id).usageLimit = 2;
     await svc.reserve([applied(id, null)], ctx(1));
     expect(promo(id).redemptions).toBe(2);
+  });
+
+  it('reads the limits with a locking read in the transaction, not a possibly stale snapshot', async () => {
+    const id = addPromotion({ usageLimit: 1, redemptions: 1 });
+    addOrder(1);
+    // A consistent (snapshot) read could still show the old, higher limit.
+    const q = c.strapi.db.query;
+    c.strapi.db.query = (uid: string) => {
+      const real = q(uid);
+      if (uid !== UIDS.promotion) return real;
+      return { ...real, findOne: async (p: any) => ({ ...(await real.findOne(p)), usageLimit: 5 }) };
+    };
+    expect(await codesOf(svc.reserve([applied(id, null)], ctx(1)))).toEqual(['PROMOTION_UNAVAILABLE']);
+    expect(promo(id).redemptions).toBe(1);
+    expect(c.db.locks).toEqual([expect.objectContaining({ table: UIDS.promotion, where: { id }, trx: c.db.trx })]);
+  });
+
+  it('refuses a per-customer limited promotion for an order without e-mail', async () => {
+    const limited = addPromotion({ perCustomerLimit: 1 });
+    const open = addPromotion();
+    addOrder(1);
+    expect(await errorsOf(svc.reserve([applied(limited, null)], ctx(1, '  ')))).toEqual([
+      { path: `promotions.${limited}`, code: 'PROMOTION_UNAVAILABLE', detail: '' },
+    ]);
+    expect(promo(limited).redemptions).toBe(0);
+    await svc.reserve([applied(open, null)], ctx(1, ''));
+    expect(promo(open).redemptions).toBe(1);
+    expect(c.tables[UIDS.promotionCustomerUsage]).toEqual([]);
   });
 
   it('fails when the promotion was deactivated or deleted', async () => {

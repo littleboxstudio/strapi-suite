@@ -65,7 +65,9 @@ export type FakeRelations = Record<
  * In-memory stand-in for the Strapi Query Engine (`strapi.db`), covering the subset the
  * e-commerce services use. `transaction` restores every table when the callback throws.
  * `metadata.get(uid).tableName` is the uid itself, so `connection(tableName)` (a tiny knex-like
- * builder: `.where({ id }).where(col, '>=', n).increment|decrement(col, n).transacting(trx)`) reaches the same rows.
+ * builder: `.where({ id }).where(col, '>=', n).increment|decrement(col, n).transacting(trx)`, or
+ * `.select({ alias: col }).forUpdate().first().transacting(trx)`) reaches the same rows; columns
+ * are the attribute names.
  */
 export function createFakeDb(
   uids: string[],
@@ -189,6 +191,8 @@ export function createFakeDb(
   /** The trx handed to transaction callbacks; `connection` calls record what they ran with. */
   const trx = { fakeTrx: true };
   const increments: { table: string; where: any; column: string; amount: number; trx: any }[] = [];
+  /** `forUpdate()` reads, in the order they ran. */
+  const locks: { table: string; where: any; trx: any }[] = [];
 
   const COMPARE: Record<string, (a: any, b: any) => boolean> = {
     '=': (a, b) => a === b,
@@ -206,14 +210,24 @@ export function createFakeDb(
       column?: string;
       amount?: number;
       trx?: any;
+      select?: Record<string, string> | null;
+      forUpdate?: boolean;
+      first?: boolean;
     } = { where: {}, compares: [] };
     const run = () => {
-      if (state.column === undefined) throw new Error('only increment/decrement is supported');
       const rows = tables[table].filter(
         (r) =>
           match(table, r, state.where) &&
           state.compares.every(([col, op, v]) => COMPARE[op](r[col] ?? 0, v))
       );
+      if (state.first) {
+        if (state.forUpdate) locks.push({ table, where: state.where, trx: state.trx });
+        const r = rows[0];
+        if (!r) return undefined;
+        if (!state.select) return { ...r };
+        return Object.fromEntries(Object.entries(state.select).map(([alias, col]) => [alias, r[col]]));
+      }
+      if (state.column === undefined) throw new Error('only increment/decrement or first() is supported');
       rows.forEach((r) => {
         r[state.column as string] = (r[state.column as string] ?? 0) + (state.amount as number);
       });
@@ -234,6 +248,23 @@ export function createFakeDb(
         } else {
           state.where = { ...state.where, ...w };
         }
+        return builder;
+      },
+      /** `select({ alias: column })` or `select('a', 'b')`. */
+      select(...cols: any[]) {
+        state.select =
+          cols.length === 1 && typeof cols[0] === 'object'
+            ? { ...cols[0] }
+            : Object.fromEntries(cols.map((c: string) => [c, c]));
+        return builder;
+      },
+      forUpdate() {
+        state.forUpdate = true;
+        return builder;
+      },
+      first(...cols: string[]) {
+        if (cols.length) builder.select(...cols);
+        state.first = true;
         return builder;
       },
       increment(column: string, amount: number) {
@@ -270,5 +301,5 @@ export function createFakeDb(
     }
   });
 
-  return { tables, query, transaction, connection, metadata, trx, increments };
+  return { tables, query, transaction, connection, metadata, trx, increments, locks };
 }
