@@ -32,3 +32,23 @@ Lista de itens adiados nas revisões do plano 1 (Base e Produtos), a considerar 
 - Task 11: minor (deferred, SHOULD FIX in final wave): AI results keyed by variant index while Add/Remove enabled during translate — disable variant edits while translating
 - Task 11: minor (deferred): option error hidden in modal when on other locale; failed reload after save replaces editor; no locale-tab error markers; no component tests; ProductEditPage 444 lines
 - Task 12: minor (deferred): upload/delete catch blocks drop error (no log); changeHeight uses lockedHeight(next,1/ratio) oddly; Link icon for lock
+
+## Plano 2 (Configurações): pendentes
+- **'= {{' em texto:** a regra rejeita também texto normal como 'Total = {{order.total}}' (falso positivo). Restringir a verificação ao interior das tags.
+- **Valores sem aspas a começar por texto literal** (`href=https://x/{{a}}`) não são apanhados. O escape de `=`, aspas e backtick limita o impacto.
+- **Segredo opcional ilegível:** não pode ser limpo pela UI (o servidor permite).
+- **Mensagens de sucesso do teste de ligação** ('Restricted key', 'Key valid (sending access only)') vêm do servidor em inglês e não são traduzidas.
+- Task 1: minor (deferred, SHOULD FIX in final wave): decipher without authTagLength 16 / tag length check — add {authTagLength:16} + truncated-tag test
+- Task 1: minor (deferred): no tests for v!==1/malformed shape; no RED
+- Task 2: minor (deferred): required flags not asserted; displayName 'Ecommerce' vs 'E-commerce'; no RED
+- Task 3: minor (deferred): UNREACHABLE for any unexpected status; __resetRegistryForTests in prod code; no RED
+- Task 4: minor (deferred): concurrent activations may leave two billing active (no lock); settings.ts ~600 lines (extract validators); exclusivity per category
+- Task 5: minor (deferred, SHOULD FIX in final wave): unsafe-HTML false positives (';on…=' in URLs, whitespace-stripped 'Java Script:'); escape '=' and '`' / reject unquoted ={{…}} attribute interpolation
+- Task 5: minor (deferred): recursion depth cap; bounded meta regex; duplicate issues under invalid #each
+- Task 6: minor (deferred, SHOULD FIX in final wave): fromName not quoted in Resend 'from' (comma/angle brackets)
+- Task 6: minor (deferred): concurrent template saves may duplicate snapshot version numbers; 'store credit' vs 'commercial credit' wording
+- Task 7: minor (deferred): validation coverage tests for preview/versions/restore routes; NaN ids → integer check; misleading route-order comment; no RED
+- Task 8: minor (deferred): duplicate toast + inline errors; unknown details.code falls to raw id; encryption flag via integrations list; country picker no search
+- Task 9: minor (deferred): unknown test code shows raw i18n id; delete confirm doesn't name method; switch label shows 'Active' even when off (browser)
+- Task 10: minor (deferred, SHOULD FIX in final wave): no unsaved-changes guard on back/route leave/tab close in template editor (useBlocker + beforeunload)
+- Task 10: minor (deferred): stale preview on locale switch (bump counter); test email sends saved version (warn if dirty)
