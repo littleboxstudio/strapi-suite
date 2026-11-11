@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import en from '../../../admin/src/core/translations/en.json';
+import pt from '../../../admin/src/core/translations/pt.json';
 import { IntlMessageFormat } from 'intl-messageformat';
 import {
   verifiedEmailForced,
@@ -251,6 +253,21 @@ describe('validatePromotionForm', () => {
       usageLimit: 'invalid',
     });
     expect(validatePromotionForm(baseForm({ benefits: [] }))).toMatchObject({ benefits: 'required' });
+  });
+
+  it('allows at most one GIFT benefit per promotion (duplicate_gift on the later ones, as the server)', () => {
+    const gift = { ...emptyBenefit('BUY_X_GET_Y'), getMode: 'GIFT' as const };
+    const errors = validatePromotionForm(baseForm({ benefits: [gift, emptyBenefit('BUY_X_GET_Y'), gift] }));
+    expect(errors['benefits.2']).toBe('duplicate_gift');
+    expect(errors['benefits.0']).toBeUndefined();
+    expect(errors['benefits.1']).toBeUndefined();
+    // The server issue lands on the benefit itself, which the benefit editor displays.
+    const map = errorMapFromIssues([{ path: 'benefits.1', code: 'duplicate_gift' }]);
+    expect(map).toEqual({ 'benefits.1': 'duplicate_gift' });
+    expect(unmappedErrors(map)).toEqual([]);
+    const key = 'littlebox-strapi-suite.ecommerce.promotions.form.errors.duplicate_gift';
+    expect((en as Record<string, string>)[key]).toEqual(expect.any(String));
+    expect((pt as Record<string, string>)[key]).toEqual(expect.any(String));
   });
 
   it('checks the e-mail list', () => {

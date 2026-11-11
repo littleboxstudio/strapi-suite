@@ -27,7 +27,7 @@ export type CatalogVariant = {
 
 export type MergedLine = { index: number; variantId: number; quantity: number };
 
-const isRecord = (v: unknown): v is Record<string, any> =>
+export const isRecord = (v: unknown): v is Record<string, any> =>
   !!v && typeof v === 'object' && !Array.isArray(v);
 
 /** Units per variant, in first-appearance order. */

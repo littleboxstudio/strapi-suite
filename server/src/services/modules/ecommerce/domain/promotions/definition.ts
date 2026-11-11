@@ -412,8 +412,14 @@ export function validatePromotionInput(
   if (!Array.isArray(raw.benefits) || raw.benefits.length < 1 || raw.benefits.length > 10) {
     errors.push({ path: 'benefits', code: 'required' });
   } else {
+    // Gift choices are keyed by promotion (`giftChoices[promotionId]`): one GIFT benefit at most.
+    let hasGift = false;
     raw.benefits.forEach((b: unknown, i: number) => {
       const benefit = readBenefit(b, `benefits.${i}`, errors);
+      if (benefit?.type === 'BUY_X_GET_Y' && benefit.get.mode === 'GIFT') {
+        if (hasGift) errors.push({ path: `benefits.${i}`, code: 'duplicate_gift' });
+        hasGift = true;
+      }
       if (benefit) benefits.push(benefit);
     });
   }

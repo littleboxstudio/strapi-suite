@@ -874,6 +874,13 @@ export function validatePromotionForm(form: PromotionForm, timeZone?: string): P
 
   if (form.benefits.length < 1 || form.benefits.length > MAX_BENEFITS) errors.benefits = 'required';
   form.benefits.forEach((b, i) => validateBenefit(b, `benefits.${i}`, errors));
+  // As the server: gift choices are keyed by promotion, so one GIFT benefit at most.
+  form.benefits.forEach((b, i) => {
+    if (b.type !== 'BUY_X_GET_Y' || b.getMode !== 'GIFT') return;
+    if (form.benefits.slice(0, i).some((o) => o.type === 'BUY_X_GET_Y' && o.getMode === 'GIFT')) {
+      errors[`benefits.${i}`] = 'duplicate_gift';
+    }
+  });
 
   (['usageLimit', 'perCustomerLimit', 'perOrderLimit'] as const).forEach((key) => {
     const raw = form[key].trim();
