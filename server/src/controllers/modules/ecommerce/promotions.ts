@@ -30,20 +30,25 @@ const EcommercePromotionController = ({ strapi }: { strapi: Core.Strapi }) => {
     return respond(ctx, () => fn(id), status);
   };
 
-  const pageOf = (v: unknown): number => {
-    const n = toInt(v);
-    return Number.isInteger(n) && n >= 1 ? n : 1;
+  /** Absent `page` is 1; anything but a strict positive integer is a 400. */
+  const withPage = (ctx: any, fn: (page: number) => unknown) => {
+    const raw = ctx.query?.page;
+    if (raw === undefined) return fn(1);
+    const n = toInt(raw);
+    if (!Number.isInteger(n) || n < 1) return ctx.badRequest('Invalid page');
+    return fn(n);
   };
 
   return {
     list: (ctx: any) =>
-      respond(ctx, async () => {
-        const { page, search } = ctx.query || {};
-        return promotions().list({
-          page: pageOf(page),
-          search: optionalString(MSG, 'search', search, 100),
-        });
-      }),
+      withPage(ctx, (page) =>
+        respond(ctx, async () =>
+          promotions().list({
+            page,
+            search: optionalString(MSG, 'search', ctx.query?.search, 100),
+          })
+        )
+      ),
 
     // The definition itself (fields, conditions, benefits) is validated by the service.
     create: (ctx: any) =>
@@ -71,7 +76,9 @@ const EcommercePromotionController = ({ strapi }: { strapi: Core.Strapi }) => {
       }),
 
     listRedemptions: (ctx: any) =>
-      withId(ctx, (id) => promotions().listRedemptions(id, { page: pageOf(ctx.query?.page) })),
+      withPage(ctx, (page) =>
+        withId(ctx, (id) => promotions().listRedemptions(id, { page }))
+      ),
   };
 };
 
