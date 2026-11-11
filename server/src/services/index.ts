@@ -11,6 +11,7 @@ import EcommerceProductService from './modules/ecommerce/products';
 import EcommerceSettingsService from './modules/ecommerce/settings';
 import EcommerceAuditService from './modules/ecommerce/audit';
 import EcommerceEmailTemplateService from './modules/ecommerce/email/templates';
+import EcommerceStockService from './modules/ecommerce/stock';
 
 export default {
   SettingAppService,
@@ -26,4 +27,5 @@ export default {
   EcommerceSettingsService,
   EcommerceAuditService,
   EcommerceEmailTemplateService,
+  EcommerceStockService,
 };

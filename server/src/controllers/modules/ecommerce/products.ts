@@ -11,6 +11,8 @@ const EcommerceProductController = ({ strapi }: { strapi: Core.Strapi }) => {
   const images = () => service('EcommerceImageService');
   const ai = () => service('AiTranslationModuleService');
   const toId = (ctx: any) => Number(ctx.params.id);
+  /** Recorded on stock movements made by the save. */
+  const actorOf = (ctx: any) => (ctx.state?.user?.id ? `user:${ctx.state.user.id}` : 'system');
 
   const handleDomainError = (ctx: any, err: unknown) =>
     handleSharedDomainError(ctx, err, { invalid: 'Invalid product', notFound: 'Product not found' });
@@ -44,7 +46,7 @@ const EcommerceProductController = ({ strapi }: { strapi: Core.Strapi }) => {
 
     async create(ctx: any) {
       try {
-        const result = await products().create(ctx.request.body);
+        const result = await products().create(ctx.request.body, actorOf(ctx));
         ctx.status = 201;
         ctx.body = { id: result.id };
       } catch (err) {
@@ -54,7 +56,7 @@ const EcommerceProductController = ({ strapi }: { strapi: Core.Strapi }) => {
 
     async update(ctx: any) {
       try {
-        await products().update(toId(ctx), ctx.request.body);
+        await products().update(toId(ctx), ctx.request.body, actorOf(ctx));
         ctx.status = 204;
       } catch (err) {
         return handleDomainError(ctx, err);

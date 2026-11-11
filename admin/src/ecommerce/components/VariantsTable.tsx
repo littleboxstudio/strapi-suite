@@ -154,7 +154,14 @@ const VariantsTable = ({
                   <Typography textColor="neutral800">{`${v.tax}%`}</Typography>
                 </Td>
                 <Td>
-                  <Typography textColor="neutral800">{v.stock}</Typography>
+                  <Typography textColor={v.stock < 0 ? 'danger600' : 'neutral800'}>
+                    {v.stock}
+                  </Typography>
+                  {v.stockAdjustment ? (
+                    <Typography variant="pi" textColor="neutral600">
+                      {` (${v.stockAdjustment > 0 ? '+' : ''}${v.stockAdjustment})`}
+                    </Typography>
+                  ) : null}
                 </Td>
                 <Td>
                   {v.active ? (

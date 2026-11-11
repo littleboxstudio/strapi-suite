@@ -83,4 +83,17 @@ describe('EcommerceProductController', () => {
     const ctx: any = { params: { id: '1' }, badRequest: vi.fn(), notFound: vi.fn() };
     await expect(controller.get(ctx)).rejects.toBe(boom);
   });
+
+  it('create and update pass the admin user as the stock actor', async () => {
+    const create = vi.fn().mockResolvedValue({ id: 5 });
+    const update = vi.fn().mockResolvedValue(undefined);
+    const controller = setup({ EcommerceProductService: { create, update } });
+    const body = { active: true };
+    await controller.create({ request: { body }, state: { user: { id: 3 } } } as any);
+    await controller.update({ request: { body }, params: { id: '5' }, state: { user: { id: 3 } } } as any);
+    expect(create).toHaveBeenCalledWith(body, 'user:3');
+    expect(update).toHaveBeenCalledWith(5, body, 'user:3');
+    await controller.update({ request: { body }, params: { id: '5' } } as any);
+    expect(update).toHaveBeenLastCalledWith(5, body, 'system');
+  });
 });

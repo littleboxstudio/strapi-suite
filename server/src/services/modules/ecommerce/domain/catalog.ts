@@ -5,7 +5,10 @@ export type VariantInput = {
   sku: string;
   price: number;
   tax: number;
+  /** Initial stock of a new variant; ignored for existing ones (stock moves via the ledger). */
   stock: number;
+  /** Signed manual adjustment for an existing variant; 0 or absent means none. */
+  stockAdjustment?: number;
   weight: number;
   width: number;
   height: number;
@@ -116,12 +119,21 @@ export function validateProductInput(input: ProductInput, defaultLocale: string)
         errors.push({ path: `${base}.${field}`, code: 'invalid_number' });
         return;
       }
+      if (field === 'stock') return; // stock may be negative (orders can oversell)
       const max = field === 'tax' ? 100 : Infinity;
       if (value < 0 || value > max) {
         errors.push({ path: `${base}.${field}`, code: 'out_of_range' });
       }
     };
     (['price', 'tax', 'stock', 'weight', 'width', 'height', 'depth'] as const).forEach(num);
+
+    if (
+      v.stockAdjustment !== undefined &&
+      v.stockAdjustment !== null &&
+      !(typeof v.stockAdjustment === 'number' && Number.isInteger(v.stockAdjustment))
+    ) {
+      errors.push({ path: `${base}.stockAdjustment`, code: 'invalid_number' });
+    }
   });
 
   return errors;
