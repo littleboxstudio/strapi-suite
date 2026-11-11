@@ -10,6 +10,7 @@ import type {
   EmailTemplateView,
   IntegrationInput,
   IntegrationView,
+  LookupResult,
   ManualMethod,
   ManualMethodInput,
   ShippingZone,
@@ -38,6 +39,7 @@ export default interface EcommerceSettingsGateway {
   updateIntegration(id: string, input: IntegrationInput): Promise<IntegrationView>;
   setIntegrationActive(id: string, active: boolean): Promise<IntegrationView>;
   testIntegration(id: string): Promise<ConnectionResult>;
+  fetchIntegrationLookups(id: string, companyId?: string): Promise<LookupResult>;
 
   fetchShippingMethods(): Promise<ManualMethod[]>;
   createShippingMethod(input: ManualMethodInput): Promise<ManualMethod>;
@@ -135,6 +137,11 @@ export class EcommerceSettingsGatewayHttp implements EcommerceSettingsGateway {
 
   async testIntegration(id: string): Promise<ConnectionResult> {
     return this.httpClient.post(`${this.base}/integrations/${seg(id)}/test`, {});
+  }
+
+  async fetchIntegrationLookups(id: string, companyId?: string): Promise<LookupResult> {
+    const query = companyId ? `?companyId=${encodeURIComponent(companyId)}` : '';
+    return this.httpClient.get(`${this.base}/integrations/${seg(id)}/lookups${query}`);
   }
 
   async fetchShippingMethods(): Promise<ManualMethod[]> {

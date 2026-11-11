@@ -19,6 +19,22 @@ export type ProviderField = {
   label: string;
   /** Admin i18n key of a plain-text "how to find this value" explanation (paragraphs split by blank lines). */
   help?: string;
+  /**
+   * `credentials`: step 1 of a two-step form. When a definition has such fields, the other fields
+   * only show once these are saved and accepted by the provider (see `lookups`).
+   */
+  group?: 'credentials';
+  /** Name of the `lookups` list whose options the admin offers for this field. */
+  lookup?: string;
+};
+
+export type LookupOption = { value: string; label: string };
+
+/** Lists read from the provider's API with the saved credentials, keyed by lookup name. */
+export type LookupResult = {
+  lists: Record<string, LookupOption[]>;
+  /** Lists that could not be read (the admin falls back to a plain input). */
+  failed: string[];
 };
 
 export type ProviderRuntime = {
@@ -42,6 +58,11 @@ export type ProviderDefinition = {
   /** false = shown as "not verified" */
   verified: boolean;
   testConnection?(rt: ProviderRuntime): Promise<ConnectionResult>;
+  /**
+   * Options for `lookup` fields. Without `companyId` only the lists that do not depend on it.
+   * Throws the provider's error when the credentials are refused or the API is unreachable.
+   */
+  lookups?(rt: ProviderRuntime, params: { companyId: number | null }): Promise<LookupResult>;
 };
 
 const builtIns = (): ProviderDefinition[] => [stripe, moloni, cttExpresso, manual, resend];

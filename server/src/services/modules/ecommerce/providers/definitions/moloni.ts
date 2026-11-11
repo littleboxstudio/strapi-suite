@@ -1,5 +1,6 @@
 import type { ConnectionResult, ProviderDefinition } from '../registry';
 import { INVALID_CREDENTIALS, UNREACHABLE, missingFields, str, timedFetch } from '../http';
+import { MOLONI_LOOKUPS, moloniLookups } from '../billing/moloni/lookups';
 
 const L = 'ecommerce.settings.providers.moloni.fields';
 
@@ -10,20 +11,21 @@ const moloni: ProviderDefinition = {
   exclusive: true,
   verified: false,
   fields: [
-    { key: 'clientId', type: 'string', required: true, label: `${L}.clientId`, help: `${L}.clientId.help` },
-    { key: 'clientSecret', type: 'secret', required: true, label: `${L}.clientSecret`, help: `${L}.clientSecret.help` },
-    { key: 'username', type: 'string', required: true, label: `${L}.username`, help: `${L}.username.help` },
-    { key: 'password', type: 'secret', required: true, label: `${L}.password`, help: `${L}.password.help` },
-    { key: 'companyId', type: 'number', required: true, label: `${L}.companyId`, help: `${L}.companyId.help` },
+    { key: 'clientId', type: 'string', required: true, label: `${L}.clientId`, help: `${L}.clientId.help`, group: 'credentials' },
+    { key: 'clientSecret', type: 'secret', required: true, label: `${L}.clientSecret`, help: `${L}.clientSecret.help`, group: 'credentials' },
+    { key: 'username', type: 'string', required: true, label: `${L}.username`, help: `${L}.username.help`, group: 'credentials' },
+    { key: 'password', type: 'secret', required: true, label: `${L}.password`, help: `${L}.password.help`, group: 'credentials' },
+    { key: 'companyId', type: 'number', required: true, label: `${L}.companyId`, help: `${L}.companyId.help`, lookup: MOLONI_LOOKUPS.companies },
     { key: 'documentType', type: 'select', required: false, default: 'FR', options: ['FR', 'FT'], label: `${L}.documentType` },
-    { key: 'documentSetId', type: 'number', required: false, label: `${L}.documentSetId`, help: `${L}.documentSetId.help` },
-    { key: 'exemptionReason', type: 'string', required: false, label: `${L}.exemptionReason`, help: `${L}.exemptionReason.help` },
-    { key: 'paymentMethodId', type: 'number', required: false, label: `${L}.paymentMethodId`, help: `${L}.paymentMethodId.help` },
-    { key: 'storeCreditPaymentMethodId', type: 'number', required: false, label: `${L}.storeCreditPaymentMethodId`, help: `${L}.storeCreditPaymentMethodId.help` },
-    { key: 'productCategoryId', type: 'number', required: false, label: `${L}.productCategoryId`, help: `${L}.productCategoryId.help` },
-    { key: 'measurementUnitId', type: 'number', required: false, label: `${L}.measurementUnitId`, help: `${L}.measurementUnitId.help` },
+    { key: 'documentSetId', type: 'number', required: false, label: `${L}.documentSetId`, help: `${L}.documentSetId.help`, lookup: MOLONI_LOOKUPS.documentSets },
+    { key: 'exemptionReason', type: 'string', required: false, label: `${L}.exemptionReason`, help: `${L}.exemptionReason.help`, lookup: MOLONI_LOOKUPS.exemptionReasons },
+    { key: 'paymentMethodId', type: 'number', required: false, label: `${L}.paymentMethodId`, help: `${L}.paymentMethodId.help`, lookup: MOLONI_LOOKUPS.paymentMethods },
+    { key: 'storeCreditPaymentMethodId', type: 'number', required: false, label: `${L}.storeCreditPaymentMethodId`, help: `${L}.storeCreditPaymentMethodId.help`, lookup: MOLONI_LOOKUPS.paymentMethods },
+    { key: 'productCategoryId', type: 'number', required: false, label: `${L}.productCategoryId`, help: `${L}.productCategoryId.help`, lookup: MOLONI_LOOKUPS.productCategories },
+    { key: 'measurementUnitId', type: 'number', required: false, label: `${L}.measurementUnitId`, help: `${L}.measurementUnitId.help`, lookup: MOLONI_LOOKUPS.measurementUnits },
     { key: 'shippingReference', type: 'string', required: false, default: 'PORTES', label: `${L}.shippingReference`, help: `${L}.shippingReference.help` },
   ],
+  lookups: moloniLookups,
   async testConnection(rt) {
     const values = {
       client_id: str(rt, 'clientId'),

@@ -1,6 +1,7 @@
 import type {
   IntegrationInput,
   IntegrationView,
+  LookupOption,
   ProviderField,
   SettingsFieldError,
 } from '../settingsTypes';
@@ -124,4 +125,52 @@ export function validateIntegrationForm(
 export function showsAsRequired(field: ProviderField): boolean {
   if (!field.required) return false;
   return !(typeof field.default === 'string' && field.default !== '');
+}
+
+/** True when the provider is configured in two steps: credentials first, then the rest. */
+export function hasCredentialsStep(fields: ProviderField[]): boolean {
+  return fields.some((f) => f.group === 'credentials');
+}
+
+/** The fields of one step of a two-step form. */
+export function stepFields(fields: ProviderField[], step: 'credentials' | 'details'): ProviderField[] {
+  return fields.filter((f) => (f.group === 'credentials') === (step === 'credentials'));
+}
+
+/** Every required credential is stored (secrets) or saved in the config. */
+export function credentialsSaved(view: IntegrationView): boolean {
+  return stepFields(view.fields, 'credentials').every((field) => {
+    if (!field.required) return true;
+    if (field.type === 'secret') return !!view.secrets[field.key];
+    const value = view.config[field.key];
+    return value !== undefined && value !== null && String(value).trim() !== '';
+  });
+}
+
+/**
+ * Required credentials left empty in the form and not already stored. A blank secret keeps the
+ * stored one, so it only counts when nothing is stored.
+ */
+export function missingCredentials(view: IntegrationView, values: IntegrationFormValues): string[] {
+  return stepFields(view.fields, 'credentials')
+    .filter((field) => {
+      if (!field.required) return false;
+      const value = values[field.key];
+      const filled = typeof value === 'string' && value.trim() !== '';
+      return field.type === 'secret' ? !filled && !view.secrets[field.key] : !filled;
+    })
+    .map((field) => field.key);
+}
+
+/**
+ * The options for a lookup field. A saved value missing from the provider's list (deleted there,
+ * or another company) is kept as an extra option, labelled by `unknownLabel`, so it is not lost.
+ */
+export function lookupFieldOptions(
+  list: LookupOption[],
+  current: string,
+  unknownLabel: (value: string) => string
+): LookupOption[] {
+  if (current === '' || list.some((o) => o.value === current)) return list;
+  return [...list, { value: current, label: unknownLabel(current) }];
 }

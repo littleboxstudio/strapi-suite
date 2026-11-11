@@ -1,10 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildIntegrationPayload,
+  credentialsSaved,
+  hasCredentialsStep,
   integrationErrorMap,
   integrationFormFromView,
   isIntegerText,
+  lookupFieldOptions,
+  missingCredentials,
   showsAsRequired,
+  stepFields,
   validateIntegrationForm,
 } from '../../../admin/src/ecommerce/utils/integrationForm';
 import {
@@ -311,5 +316,59 @@ describe('showsAsRequired', () => {
     expect(showsAsRequired({ ...base, type: 'string', required: true })).toBe(true);
     expect(showsAsRequired({ ...base, type: 'zones', required: true, default: [] })).toBe(true);
     expect(showsAsRequired({ ...base, type: 'string', required: false })).toBe(false);
+  });
+});
+
+describe('two-step configure helpers', () => {
+  const STEP_FIELDS: ProviderField[] = [
+    { key: 'clientId', type: 'string', required: true, label: 'l', group: 'credentials' },
+    { key: 'clientSecret', type: 'secret', required: true, label: 'l', group: 'credentials' },
+    { key: 'companyId', type: 'number', required: true, label: 'l', lookup: 'companies' },
+    { key: 'documentSetId', type: 'number', required: false, label: 'l', lookup: 'documentSets' },
+  ];
+  const stepView = (config: Record<string, unknown>, secrets: Record<string, string | null>): IntegrationView => ({
+    id: 'moloni',
+    category: 'billing',
+    name: 'Moloni',
+    active: false,
+    verified: false,
+    fields: STEP_FIELDS,
+    config,
+    secrets,
+    secretsStatus: 'ok',
+    encryptionKeyConfigured: true,
+  });
+
+  it('hasCredentialsStep is true only when some field is a credential', () => {
+    expect(hasCredentialsStep(STEP_FIELDS)).toBe(true);
+    expect(hasCredentialsStep(FIELDS)).toBe(false);
+  });
+
+  it('stepFields splits credentials from the rest', () => {
+    expect(stepFields(STEP_FIELDS, 'credentials').map((f) => f.key)).toEqual(['clientId', 'clientSecret']);
+    expect(stepFields(STEP_FIELDS, 'details').map((f) => f.key)).toEqual(['companyId', 'documentSetId']);
+  });
+
+  it('credentialsSaved needs every required credential stored', () => {
+    expect(credentialsSaved(stepView({ clientId: 'abc' }, { clientSecret: 'abc********1234' }))).toBe(true);
+    expect(credentialsSaved(stepView({ clientId: 'abc' }, { clientSecret: null }))).toBe(false);
+    expect(credentialsSaved(stepView({ clientId: ' ' }, { clientSecret: 'abc********1234' }))).toBe(false);
+  });
+
+  it('missingCredentials accepts a blank secret only when one is stored', () => {
+    const stored = stepView({}, { clientSecret: 'abc********1234' });
+    expect(missingCredentials(stored, { clientId: 'abc', clientSecret: '' })).toEqual([]);
+    expect(missingCredentials(stored, { clientId: '', clientSecret: '' })).toEqual(['clientId']);
+    const empty = stepView({}, { clientSecret: null });
+    expect(missingCredentials(empty, { clientId: 'abc', clientSecret: '  ' })).toEqual(['clientSecret']);
+    expect(missingCredentials(empty, { clientId: 'abc', clientSecret: 'new' })).toEqual([]);
+  });
+
+  it('lookupFieldOptions keeps a saved value missing from the list', () => {
+    const list = [{ value: '5', label: 'Loja online' }];
+    const unknown = (v: string) => `ID ${v} (not found)`;
+    expect(lookupFieldOptions(list, '5', unknown)).toEqual(list);
+    expect(lookupFieldOptions(list, '', unknown)).toEqual(list);
+    expect(lookupFieldOptions(list, '9', unknown)).toEqual([...list, { value: '9', label: 'ID 9 (not found)' }]);
   });
 });
