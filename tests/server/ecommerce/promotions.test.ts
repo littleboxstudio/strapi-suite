@@ -634,4 +634,15 @@ describe('requireVerifiedEmail', () => {
     const out = await svc.loadCandidates({ codes: ['OLD'], email: null });
     expect(out.find((x) => x.id === legacy)?.requireVerifiedEmail).toBe(false);
   });
+
+  it('skips the per-customer usage lookup for an unverified e-mail', async () => {
+    const id = addPromotion({ method: 'CODE', code: 'ONCE2', perCustomerLimit: 1 });
+    c.tables[UIDS.promotionCustomerUsage].push({
+      id: 9, promotion: id, emailNormalized: 'ana@example.pt', uses: 1, uniqueKey: usageKey(id, 'ana@example.pt'),
+    });
+    const [p] = await svc.loadCandidates({ codes: ['ONCE2'], email: 'ana@example.pt', emailVerified: false });
+    expect(p.customerUses).toBe(0);
+    const [q] = await svc.loadCandidates({ codes: ['ONCE2'], email: 'ana@example.pt', emailVerified: true });
+    expect(q.customerUses).toBe(1);
+  });
 });

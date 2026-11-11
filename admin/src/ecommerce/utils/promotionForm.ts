@@ -1061,3 +1061,7 @@ export function describePromotion(form: PromotionForm, money: Money, t: Translat
   lines.push(t(`${S}.status.${form.active ? 'active' : 'inactive'}`));
   return lines;
 }
+
+/** The "verified e-mail" box is forced on (and disabled) for an e-mail list or a per-customer limit. */
+export const verifiedEmailForced = (form: Pick<PromotionForm, 'eligibilityMode' | 'perCustomerLimit'>): boolean =>
+  form.eligibilityMode === 'EMAILS' || form.perCustomerLimit.trim() !== '';

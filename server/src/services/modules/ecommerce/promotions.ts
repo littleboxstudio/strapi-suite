@@ -534,7 +534,12 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
    * Running automatic promotions plus the CODE promotions whose code was entered, in any
    * state (the engine reports why a code does not apply). Sorted by id.
    */
-  const loadCandidates = async (p: { codes: string[]; email: string | null }): Promise<PromotionCandidate[]> => {
+  const loadCandidates = async (p: {
+    codes: string[];
+    email: string | null;
+    /** `false`: the per-customer usage is not read (it is never evaluated for unverified e-mails). */
+    emailVerified?: boolean;
+  }): Promise<PromotionCandidate[]> => {
     const u = uids();
     const q = strapi.db.query(u.promotion);
     const codes = [...new Set((p?.codes ?? []).map(normalizePromotionCode).filter(Boolean))];
@@ -549,7 +554,7 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
       (a, b) => a.id - b.id
     );
 
-    const email = p?.email ? normalizeEmail(p.email) : '';
+    const email = p?.email && p.emailVerified !== false ? normalizeEmail(p.email) : '';
     const uses = new Map<string, number>();
     if (email && rows.length) {
       const keys = rows.map((r) => promotionUsageKey(r.id, email));

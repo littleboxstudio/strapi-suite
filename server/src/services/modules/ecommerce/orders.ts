@@ -606,7 +606,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
   /** The only way the order service reaches promotions (create, cancel, get, quote, modify). */
   const promotions = (): {
     evaluate(input: Omit<EvaluationInput, 'searchLimit' | 'onConditionError'>): PromotionEvaluation;
-    loadCandidates(p: { codes: string[]; email: string | null }): Promise<PromotionCandidate[]>;
+    loadCandidates(p: { codes: string[]; email: string | null; emailVerified?: boolean }): Promise<PromotionCandidate[]>;
     giftOptions(
       candidates: PromotionCandidate[],
       cartQuantities: Map<number, number>
