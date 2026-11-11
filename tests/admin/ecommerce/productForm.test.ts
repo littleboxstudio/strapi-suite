@@ -62,6 +62,7 @@ describe('productFormFromDetail', () => {
     const detail: ProductDetail = {
       id: 7,
       active: false,
+      deletable: true,
       images: [],
       translations: { en: { name: 'Shirt', slug: 'shirt', description: '<p>x</p>' } },
       variants: [
@@ -78,6 +79,7 @@ describe('productFormFromDetail', () => {
           active: true,
           translations: { en: { option: 'Black' } },
           images: [],
+          deletable: false,
         },
       ],
     };
@@ -92,6 +94,8 @@ describe('productFormFromDetail', () => {
     expect(result.translations.pt).toEqual({ name: '', shortDescription: '', description: '' });
     expect(result.variants[0].id).toBe(3);
     expect(result.variants[0].key).toBe('id-3');
+    // A variant in some order keeps the flag, so its trash button explains instead of removing.
+    expect(result.variants[0].deletable).toBe(false);
     expect(result.variants[0].translations).toEqual({
       en: { option: 'Black' },
       pt: { option: '' },
@@ -100,10 +104,11 @@ describe('productFormFromDetail', () => {
 });
 
 describe('buildProductInput', () => {
-  it('strips form-only fields (key, images, slug)', () => {
+  it('strips form-only fields (key, images, slug, deletable)', () => {
     const f = form();
     f.translations.en.slug = 'shirt';
     f.variants[0].id = 9;
+    f.variants[0].deletable = false;
     const input = buildProductInput(f);
     expect(input.translations.en).toEqual({
       name: 'Shirt',
@@ -124,6 +129,7 @@ describe('buildProductInput', () => {
       translations: { en: { option: 'Black' }, pt: { option: '' } },
     });
     expect('key' in input.variants[0]).toBe(false);
+    expect('deletable' in input.variants[0]).toBe(false);
   });
 
   it('sends a pending stock adjustment of an existing variant', () => {
@@ -178,8 +184,8 @@ describe('error mapping', () => {
   });
 
   it('shows a removed variant used by open orders on the variants section', () => {
-    expect(toErrorMap([{ path: 'variants.2', code: 'VARIANT_IN_OPEN_ORDERS' }])).toEqual({
-      variants: 'VARIANT_IN_OPEN_ORDERS',
+    expect(toErrorMap([{ path: 'variants.2', code: 'VARIANT_IN_ORDERS' }])).toEqual({
+      variants: 'VARIANT_IN_ORDERS',
     });
   });
 

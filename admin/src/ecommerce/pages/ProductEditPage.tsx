@@ -22,6 +22,9 @@ import { convertToSlug } from '../../core/utils/convertToSlug';
 import FetchEcommerceLocales from '../usecases/fetchEcommerceLocales';
 import FetchProduct from '../usecases/fetchProduct';
 import SaveProduct from '../usecases/saveProduct';
+import DeleteProduct from '../usecases/deleteProduct';
+import ConfirmModal from '../../components/ConfirmModal';
+import { NoticeModal } from '../components/NoticeModal';
 import TranslateProductStrings from '../usecases/translateProductStrings';
 import { LocaleSwitcher } from '../components/LocaleSwitcher';
 import { DescriptionEditor } from '../components/DescriptionEditor';
@@ -89,6 +92,10 @@ const ProductEditPage = () => {
   const [saving, setSaving] = useState(false);
   const [translating, setTranslating] = useState(false);
   const [modal, setModal] = useState<ModalState | null>(null);
+  /** False once the product is in some order: it can only be deactivated. */
+  const [deletable, setDeletable] = useState(true);
+  const [deleteDialog, setDeleteDialog] = useState<'confirm' | 'blocked' | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const newKeyCounter = useRef(0);
 
   const codes = info?.locales.map((l) => l.code) ?? [];
@@ -97,6 +104,7 @@ const ProductEditPage = () => {
     const next = productFormFromDetail(detail, localeCodes);
     setForm(next);
     setProductImages(detail.images);
+    setDeletable(detail.deletable !== false);
     setSavedSlugs(
       Object.fromEntries(
         Object.entries(next.translations)
@@ -236,6 +244,29 @@ const ProductEditPage = () => {
     }
   };
 
+  const askDelete = () => setDeleteDialog(deletable ? 'confirm' : 'blocked');
+
+  const deleteProduct = async () => {
+    if (productId === undefined || deleting) return;
+    setDeleting(true);
+    try {
+      await new DeleteProduct().execute(productId);
+      toggleNotification({ type: 'success', message: t('ecommerce.product.deleted') });
+      navigate(basePath, { replace: true });
+    } catch (err: any) {
+      // Ordered since the page was loaded: explain instead of a generic error.
+      if (err?.response?.status === 409) {
+        setDeletable(false);
+        setDeleteDialog('blocked');
+        return;
+      }
+      setDeleteDialog(null);
+      toggleNotification({ type: 'danger', message: t('ecommerce.product.deleteError') });
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const translateWithAi = async () => {
     const request = buildTranslationRequest(form, defaultLocale, codes);
     if (!request) {
@@ -323,11 +354,39 @@ const ProductEditPage = () => {
             />
             <Typography variant="omega">{t('ecommerce.product.active')}</Typography>
           </Flex>
-          <Button onClick={save} loading={saving} disabled={translating}>
+          {productId !== undefined && (
+            <Button
+              variant="danger"
+              onClick={askDelete}
+              loading={deleting}
+              disabled={saving || translating}
+            >
+              {t('ecommerce.product.delete')}
+            </Button>
+          )}
+          <Button onClick={save} loading={saving} disabled={translating || deleting}>
             {t('ecommerce.product.save')}
           </Button>
         </Flex>
       </Flex>
+
+      <ConfirmModal
+        open={deleteDialog === 'confirm'}
+        title={t('ecommerce.product.deleteConfirm.title')}
+        text={t('ecommerce.product.deleteConfirm.text')}
+        confirm={{ button: t('ecommerce.product.delete'), action: deleteProduct }}
+        cancel={{
+          button: t('ecommerce.product.deleteConfirm.cancel'),
+          action: () => setDeleteDialog(null),
+        }}
+      />
+      <NoticeModal
+        open={deleteDialog === 'blocked'}
+        title={t('ecommerce.product.deleteBlocked.title')}
+        text={t('ecommerce.product.deleteBlocked.text')}
+        okLabel={t('ecommerce.product.ok')}
+        onClose={() => setDeleteDialog(null)}
+      />
 
       <Section
         title={t('ecommerce.product.information')}

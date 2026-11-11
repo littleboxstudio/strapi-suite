@@ -30,6 +30,7 @@ export default [
   route('GET', '/admin/ecommerce/products/:id', 'get', read),
   route('POST', '/admin/ecommerce/products', 'create', manage),
   route('PUT', '/admin/ecommerce/products/:id', 'update', manage),
+  route('DELETE', '/admin/ecommerce/products/:id', 'delete', manage),
   route('POST', '/admin/ecommerce/images', 'uploadImage', manage),
   route('DELETE', '/admin/ecommerce/images/:id', 'removeImage', manage),
 ];

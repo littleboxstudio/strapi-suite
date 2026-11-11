@@ -62,6 +62,15 @@ const EcommerceProductController = ({ strapi }: { strapi: Core.Strapi }) => {
       }
     },
 
+    async delete(ctx: any) {
+      try {
+        await products().delete(toId(ctx));
+        ctx.status = 204;
+      } catch (err) {
+        return handleDomainError(ctx, err);
+      }
+    },
+
     async uploadImage(ctx: any) {
       const file = ctx.request.files?.file;
       const body = ctx.request.body || {};

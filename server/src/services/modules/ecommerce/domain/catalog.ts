@@ -36,7 +36,8 @@ export type FieldError = {
     | 'duplicate_sku'
     | 'invalid_number'
     | 'out_of_range'
-    | 'VARIANT_IN_OPEN_ORDERS';
+    | 'VARIANT_IN_ORDERS'
+    | 'PRODUCT_IN_ORDERS';
 };
 
 export function slugify(text: string): string {

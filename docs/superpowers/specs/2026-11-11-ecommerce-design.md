@@ -149,6 +149,11 @@ Usar o **mesmo formato já existente** no plugin (`maskSecret` em `services/app/
 - Encomendas, stock, portes e faturas referem sempre a variante.
 - Variante inativa: não aparece no storefront, mas continua visível nas encomendas antigas.
   Produto inativo esconde todas as suas variantes **[Escolha técnica, aceite]**.
+- Eliminar: um produto ou uma variante que já esteja em alguma encomenda (em qualquer estado) não
+  pode ser eliminado, só desativado. Sem encomendas, o botão "Delete" (produto) e o ícone da lixeira
+  (variante) eliminam-no com confirmação, junto com as imagens no servidor. O estado é calculado a
+  partir das linhas de encomenda (`productId`/`variantId`), sem campo próprio na BD
+  **[Decisão, 2026-11-11]**.
 
 ### 3.2 Traduções **[Decisão]**
 - Um produto é **um único registo**. Não se cria um produto por idioma (não usar documentos i18n do Strapi).

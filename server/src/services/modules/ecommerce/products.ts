@@ -37,7 +37,9 @@ export type ProductListItem = {
 export type ProductDetail = Omit<ProductInput, 'variants'> & {
   id: number;
   images: ImageRecord[];
-  variants: (VariantInput & { id: number; images: ImageRecord[] })[];
+  /** False once any order (in any state) has a line with this product: it can only be deactivated. */
+  deletable: boolean;
+  variants: (VariantInput & { id: number; images: ImageRecord[]; deletable: boolean })[];
 };
 
 const toImage = (r: any): ImageRecord => ({
@@ -65,6 +67,35 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
     strapi.plugin(PLUGIN_ID).service('EcommerceStockService');
 
   const getDefaultLocale = async (): Promise<string> => locales().getDefaultLocale();
+
+  /**
+   * Which of these variants appear in an order line, and whether the product itself does. Any
+   * order counts (cancelled and archived too): order lines, invoices and returns keep pointing at
+   * them, so ordered products and variants are deactivated, never deleted.
+   */
+  const orderUsage = async (
+    productId: number | null,
+    variantIds: number[]
+  ): Promise<{ product: boolean; variants: Set<number> }> => {
+    const u = uids();
+    const variants = new Set<number>();
+    let product = false;
+    if (productId !== null) {
+      const byProduct: { variantId: number | null }[] = await strapi.db
+        .query(u.orderLine)
+        .findMany({ where: { productId }, select: ['variantId'] });
+      product = byProduct.length > 0;
+      byProduct.forEach((l) => l.variantId && variants.add(l.variantId));
+    }
+    if (variantIds.length) {
+      const byVariant: { variantId: number }[] = await strapi.db
+        .query(u.orderLine)
+        .findMany({ where: { variantId: { $in: variantIds } }, select: ['variantId'] });
+      byVariant.forEach((l) => variants.add(l.variantId));
+      if (byVariant.length) product = true;
+    }
+    return { product, variants };
+  };
 
   const getLocales = async (): Promise<{ code: string; name: string }[]> => {
     const all = await locales().find();
@@ -176,21 +207,17 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
         variants.map((v) => v.id).filter((id): id is number => !!id && currentIds.has(id))
       );
 
-      // A variant still used by OPEN orders cannot be deleted (cancelling or modifying those
-      // orders needs it): the admin deactivates it instead. Paths index the stored order.
+      // A variant that was ever ordered (any order state) cannot be deleted: the admin
+      // deactivates it instead. Paths index the stored order.
       const ordered = [...current].sort(
         (a: any, b: any) => (a.position ?? 0) - (b.position ?? 0) || a.id - b.id
       );
       const removedIds = ordered.filter((v) => !keptIds.has(v.id)).map((v) => v.id);
       if (removedIds.length) {
-        const used: { variantId: number }[] = await strapi.db.query(u.orderLine).findMany({
-          where: { variantId: { $in: removedIds }, order: { orderStatus: 'OPEN' } },
-          select: ['variantId'],
-        });
-        const inUse = new Set(used.map((l) => l.variantId));
+        const { variants: inUse } = await orderUsage(null, removedIds);
         const blocked: FieldError[] = ordered
           .map((v, i) =>
-            inUse.has(v.id) ? { path: `variants.${i}`, code: 'VARIANT_IN_OPEN_ORDERS' } : null
+            inUse.has(v.id) ? { path: `variants.${i}`, code: 'VARIANT_IN_ORDERS' } : null
           )
           .filter((e): e is FieldError => !!e);
         if (blocked.length) throw new EcommerceValidationError('Invalid product', blocked);
@@ -374,12 +401,15 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
       const vs: any[] = [...(p.variants ?? [])].sort(
         (a, b) => (a.position ?? 0) - (b.position ?? 0)
       );
+      const usage = await orderUsage(p.id, vs.map((v) => v.id));
       return {
         id: p.id,
         active: !!p.active,
+        deletable: !usage.product,
         translations,
         images: sortImages(p.images),
         variants: vs.map((v) => ({
+          deletable: !usage.variants.has(v.id),
           id: v.id,
           sku: v.sku,
           price: v.price,
@@ -405,6 +435,42 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
     /** `actor` is recorded on stock movements (e.g. `user:<id>`). */
     async update(id: number, input: ProductInput, actor = 'system'): Promise<void> {
       await save(id, input, actor);
+    },
+
+    /**
+     * Deletes a product that was never ordered, with its variants, translations and images.
+     * An ordered product is refused with `PRODUCT_IN_ORDERS` (409): deactivate it instead.
+     * Stock movements keep their `variantId` as history.
+     */
+    async delete(id: number): Promise<void> {
+      const u = uids();
+      const removedImages: StoredImage[] = [];
+      await strapi.db.transaction(async () => {
+        const p = await strapi.db.query(u.product).findOne({ where: { id }, populate: { variants: true } });
+        if (!p) throw new EcommerceNotFoundError('Product not found');
+        const variantIds: number[] = (p.variants ?? []).map((v: any) => v.id);
+        if ((await orderUsage(id, variantIds)).product) {
+          throw new EcommerceValidationError('Invalid product', [{ path: 'product', code: 'PRODUCT_IN_ORDERS' }]);
+        }
+        const imgs: StoredImage[] = [
+          ...(await strapi.db.query(u.image).findMany({ where: { product: id } })),
+          ...(variantIds.length
+            ? await strapi.db.query(u.image).findMany({ where: { variant: { id: { $in: variantIds } } } })
+            : []),
+        ];
+        if (imgs.length) {
+          await strapi.db.query(u.image).deleteMany({ where: { id: { $in: imgs.map((img) => img.id) } } });
+          removedImages.push(...imgs);
+        }
+        for (const variantId of variantIds) {
+          await strapi.db.query(u.variantTranslation).deleteMany({ where: { variant: variantId } });
+          await strapi.db.query(u.variant).delete({ where: { id: variantId } });
+        }
+        await strapi.db.query(u.productTranslation).deleteMany({ where: { product: id } });
+        await strapi.db.query(u.product).delete({ where: { id } });
+      });
+      // Files go only after the rows are gone for good.
+      if (removedImages.length) await images().removeFiles(removedImages);
     },
   };
 };

@@ -9,6 +9,7 @@ const expected: [string, string, string][] = [
   ['GET', '/admin/ecommerce/products/:id', P.productsRead],
   ['POST', '/admin/ecommerce/products', P.productsManage],
   ['PUT', '/admin/ecommerce/products/:id', P.productsManage],
+  ['DELETE', '/admin/ecommerce/products/:id', P.productsManage],
   ['POST', '/admin/ecommerce/images', P.productsManage],
   ['DELETE', '/admin/ecommerce/images/:id', P.productsManage],
   ['POST', '/admin/ecommerce/products/translate', P.productsManage],
