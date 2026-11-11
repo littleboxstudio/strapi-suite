@@ -52,8 +52,14 @@ function assertJsonColumns(uid: string, data: any): void {
   }
 }
 
-/** relation name -> [target uid, foreign key on target] */
-export type FakeRelations = Record<string, Record<string, [string, string]>>;
+/**
+ * relation name -> [target uid, foreign key on target] (oneToMany), or
+ * [target uid, column on this row holding the target id, 'manyToOne'].
+ */
+export type FakeRelations = Record<
+  string,
+  Record<string, [string, string] | [string, string, 'manyToOne']>
+>;
 
 /**
  * In-memory stand-in for the Strapi Query Engine (`strapi.db`), covering the subset the
@@ -80,6 +86,9 @@ export function createFakeDb(
       if (key === '$or') return cond.some((w: any) => match(uid, row, w));
       const rel = relations[uid]?.[key];
       if (rel) {
+        if (rel[2] === 'manyToOne') {
+          return tables[rel[0]].some((r) => r.id === row[rel[1]] && match(rel[0], r, cond));
+        }
         return tables[rel[0]].some((r) => r[rel[1]] === row.id && match(rel[0], r, cond));
       }
       const value = key === 'id' ? row.id : row[key];
@@ -87,7 +96,9 @@ export function createFakeDb(
         if ('$in' in cond) return cond.$in.includes(value);
         if ('$ne' in cond) return value !== cond.$ne;
         if ('$containsi' in cond)
-          return String(value ?? '').toLowerCase().includes(cond.$containsi.toLowerCase());
+          return String(value ?? '')
+            .toLowerCase()
+            .includes(cond.$containsi.toLowerCase());
         throw new Error('unsupported op');
       }
       if (cond && typeof cond === 'object') return match(uid, { id: value }, cond);
@@ -98,7 +109,13 @@ export function createFakeDb(
     if (!pop) return { ...row };
     const out = { ...row };
     for (const [key, spec] of Object.entries(pop) as [string, any][]) {
-      const [target, fk] = relations[uid][key];
+      const [target, fk, kind] = relations[uid][key];
+      const nested = spec === true ? null : spec.populate;
+      if (kind === 'manyToOne') {
+        const r = tables[target].find((x) => x.id === row[fk]);
+        out[key] = r ? populate(target, r, nested) : null;
+        continue;
+      }
       out[key] = tables[target]
         .filter((r) => r[fk] === row.id)
         .map((r) => populate(target, r, spec === true ? null : spec.populate));
@@ -123,7 +140,10 @@ export function createFakeDb(
 
   const query = (uid: string) => ({
     findMany: async (p: any = {}) => {
-      let rows = sort(tables[uid].filter((r) => match(uid, r, p.where)), p.orderBy);
+      let rows = sort(
+        tables[uid].filter((r) => match(uid, r, p.where)),
+        p.orderBy
+      );
       if (p.offset !== undefined) rows = rows.slice(p.offset, p.offset + (p.limit ?? rows.length));
       return rows.map((r) => populate(uid, r, p.populate));
     },

@@ -157,5 +157,28 @@
     "i18n": {
       "localized": false
     }
-  }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_order_reference_unique",
+      "columns": [
+        "reference"
+      ],
+      "type": "unique"
+    },
+    {
+      "name": "ecommerce_order_public_id_unique",
+      "columns": [
+        "public_id"
+      ],
+      "type": "unique"
+    },
+    {
+      "name": "ecommerce_order_idempotency_key_unique",
+      "columns": [
+        "idempotency_key"
+      ],
+      "type": "unique"
+    }
+  ]
 }

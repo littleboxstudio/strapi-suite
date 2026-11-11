@@ -51,5 +51,14 @@
     "i18n": {
       "localized": false
     }
-  }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_integration_provider_id_unique",
+      "columns": [
+        "provider_id"
+      ],
+      "type": "unique"
+    }
+  ]
 }

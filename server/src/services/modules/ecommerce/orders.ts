@@ -165,7 +165,9 @@ function normalizeAddress(
     if (!out[f]) errors.push({ path: `${path}.${f}`, code: 'required' });
   }
   out.country = out.country.toUpperCase();
-  if (out.country && allowedCountries && !allowedCountries.includes(out.country)) {
+  if (out.country && !/^[A-Z]{2}$/.test(out.country)) {
+    errors.push({ path: `${path}.country`, code: 'invalid_country' });
+  } else if (out.country && allowedCountries && !allowedCountries.includes(out.country)) {
     errors.push({ path: `${path}.country`, code: 'invalid_country' });
   }
   for (const f of ADDRESS_OPTIONAL) {
@@ -339,7 +341,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
   const loadOrder = async (id: number) => {
     const order = await strapi.db.query(uids().order).findOne({
       where: { id },
-      populate: { lines: true, payments: true, history: true },
+      populate: { lines: true, payments: true, history: true, customer: { select: ['id'] } },
     });
     if (!order) throw new EcommerceNotFoundError('Order not found');
     return order;
@@ -356,12 +358,15 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
   const toPaymentLike = (p: any): PaymentLike => ({ status: p.status, amount: num(p.amount) });
 
   const create = async (input: CreateOrderInput, ctx: CreateOrderContext) => {
-    const v = await validateInput(input);
-
-    if (v.idempotencyKey) {
-      const existing = await findByIdempotencyKey(v.idempotencyKey);
+    // A replay returns the stored order before any validation, catalog or shipping work,
+    // so it succeeds even if settings or the catalog changed since.
+    const replayKey = clean(input?.idempotencyKey);
+    if (replayKey) {
+      const existing = await findByIdempotencyKey(replayKey);
       if (existing) return existing;
     }
+
+    const v = await validateInput(input);
 
     // Catalog, availability and the shipping quote are read before the transaction: carrier
     // quotes may be remote calls and must not hold a database transaction open.
@@ -584,17 +589,13 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     const term = clean(params.search);
     if (term) {
       const ref = term.replace(/^#/, '');
+      // JSON columns are not portably searchable: match the customer's normalized e-mail,
+      // which is the snapshot e-mail at creation time.
+      const byEmail = { customer: { emailNormalized: { $containsi: term.toLowerCase() } } };
       if (/^\d+$/.test(ref) && Number.isSafeInteger(Number(ref))) {
-        where.reference = Number(ref);
+        where.$or = [{ reference: Number(ref) }, byEmail];
       } else {
-        // JSON columns are not portably searchable: match the customer's normalized e-mail,
-        // which is the snapshot e-mail at creation time.
-        const matches: { id: number }[] = await strapi.db.query(u.customer).findMany({
-          where: { emailNormalized: { $containsi: term.toLowerCase() } },
-          select: ['id'],
-        });
-        if (!matches.length) return { results: [], pagination: pagination(0) };
-        where.customer = { id: { $in: matches.map((m) => m.id) } };
+        Object.assign(where, byEmail);
       }
     }
 
@@ -625,12 +626,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   const get = async (id: number): Promise<OrderView> => {
-    const u = uids();
     const order = await loadOrder(id);
-    const customer = await strapi.db.query(u.customer).findOne({
-      where: { orders: { id } },
-      select: ['id'],
-    });
     const shipments = await loadShipments(id);
     const shipped = shippedQuantities(shipments);
 
@@ -688,7 +684,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       createdAt: order.createdAt,
       cancelledAt: order.cancelledAt ?? null,
       archivedAt: order.archivedAt ?? null,
-      customer: { id: customer?.id ?? null, ...(order.customerSnapshot ?? {}) },
+      customer: { id: order.customer?.id ?? null, ...(order.customerSnapshot ?? {}) },
       shippingAddress: order.shippingAddress ?? null,
       billingAddress: order.billingAddress ?? null,
       shippingMethod: order.shippingMethod ?? null,

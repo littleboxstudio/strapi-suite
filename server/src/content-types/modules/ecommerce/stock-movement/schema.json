@@ -61,5 +61,14 @@
     "i18n": {
       "localized": false
     }
-  }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_stock_mvt_operation_key_unique",
+      "columns": [
+        "operation_key"
+      ],
+      "type": "unique"
+    }
+  ]
 }

@@ -31,5 +31,14 @@
     "i18n": {
       "localized": false
     }
-  }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_store_setting_key_unique",
+      "columns": [
+        "key"
+      ],
+      "type": "unique"
+    }
+  ]
 }

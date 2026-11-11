@@ -86,5 +86,14 @@
     "i18n": {
       "localized": false
     }
-  }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_variant_sku_unique",
+      "columns": [
+        "sku"
+      ],
+      "type": "unique"
+    }
+  ]
 }
