@@ -106,15 +106,37 @@ const toStoredCart = (raw: unknown): StoredCart => {
 };
 
 /** Pending code stored in `emailVerification` (only the HMAC of the code, never the code). */
-type PendingVerification = { emailNormalized: string; codeHash: string; expiresAt: string };
+/**
+ * Pending code stored in `emailVerification` (only the HMAC of the code, never the code).
+ * `verificationAttempts` is a counter that never goes down (it also works as the row's version
+ * for compare-and-set writes); the attempts used on this code are `counter - attemptsBase`.
+ */
+type PendingVerification = {
+  emailNormalized: string;
+  codeHash: string;
+  expiresAt: string;
+  attemptsBase: number;
+};
 
 const pendingOf = (raw: unknown): PendingVerification | null =>
   isRecord(raw) &&
   typeof raw.emailNormalized === 'string' &&
   typeof raw.codeHash === 'string' &&
-  typeof raw.expiresAt === 'string'
-    ? { emailNormalized: raw.emailNormalized, codeHash: raw.codeHash, expiresAt: raw.expiresAt }
+  typeof raw.expiresAt === 'string' &&
+  Number.isInteger(raw.attemptsBase)
+    ? {
+        emailNormalized: raw.emailNormalized,
+        codeHash: raw.codeHash,
+        expiresAt: raw.expiresAt,
+        attemptsBase: raw.attemptsBase as number,
+      }
     : null;
+
+const counterOf = (row: { verificationAttempts?: unknown }): number =>
+  Number.isInteger(row.verificationAttempts) ? (row.verificationAttempts as number) : 0;
+
+/** Bound for compare-and-set retries; each lost round means another writer made progress. */
+const MAX_CAS_ROUNDS = 10;
 
 const VERIFICATION_CODE = /^\d{6}$/;
 const MAX_EMAIL_LENGTH = 254;
@@ -329,39 +351,58 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
     ]);
   };
 
-  /**
-   * After a failed send: puts back what was there before (the previous, still valid code when
-   * the attempts were kept, so a send failure can never lift a lock; `{}` otherwise), but only
-   * while the pending record is still the one this request wrote, so a concurrent request's
-   * code is never wiped. The JSON column cannot be compared portably, hence a re-read plus a
-   * compare-and-set on the scalar attempts column; the remaining window is tiny.
-   */
-  const undoPending = async (
-    sessionId: number,
-    codeHash: string,
-    restore: PendingVerification | Record<string, never> | null
-  ): Promise<void> => {
-    const current = await sessionsQuery().findOne({
+  const readVerification = (sessionId: number) =>
+    sessionsQuery().findOne({
       where: { id: sessionId, status: 'ACTIVE' },
       select: ['id', 'emailVerification', 'verificationAttempts'],
     });
-    if (!current || pendingOf(current.emailVerification)?.codeHash !== codeHash) return;
-    await sessionsQuery().updateMany({
-      where: {
-        id: sessionId,
-        status: 'ACTIVE',
-        verificationAttempts: current.verificationAttempts ?? null,
-      },
-      data: { emailVerification: restore ?? {} },
-    });
+
+  /** Compare-and-set on the counter column; true when this writer won. */
+  const casWrite = async (
+    sessionId: number,
+    row: { verificationAttempts?: unknown },
+    data: Record<string, unknown>
+  ): Promise<boolean> =>
+    changed(
+      await sessionsQuery().updateMany({
+        where: {
+          id: sessionId,
+          status: 'ACTIVE',
+          verificationAttempts: row.verificationAttempts ?? null,
+        },
+        data,
+      })
+    ) > 0;
+
+  /**
+   * After a failed send: puts back the code that was live before this request (with the
+   * attempts it had used, so a send failure never lifts a lock), or `{}` when none was live.
+   * Only while the pending record is still the one this request wrote, so a concurrent
+   * request's code is never wiped.
+   */
+  const undoPending = async (
+    sessionId: number,
+    ours: PendingVerification,
+    restore: { record: PendingVerification; used: number; chained: boolean } | null
+  ): Promise<void> => {
+    for (let round = 0; round < MAX_CAS_ROUNDS; round++) {
+      const row = await readVerification(sessionId);
+      if (!row || pendingOf(row.emailVerification)?.codeHash !== ours.codeHash) return;
+      const counter = counterOf(row);
+      const next = counter + 1;
+      // Same e-mail: the chain's attempts include any made on our code; else the old code's own.
+      const used = restore ? (restore.chained ? counter - ours.attemptsBase : restore.used) : 0;
+      const emailVerification = restore ? { ...restore.record, attemptsBase: next - used } : {};
+      if (await casWrite(sessionId, row, { emailVerification, verificationAttempts: next })) return;
+    }
   };
 
   /**
    * Sends a 6-digit code to `email` directly through Resend (never through the notification
-   * queue, so the code is never stored). Only its HMAC is kept on the session. A new code for
-   * the same e-mail while the previous one is still valid keeps `verificationAttempts`, so
-   * asking for another code never lifts a lock: while locked, the request is refused (nothing
-   * written or sent) and the lock lifts at the pending code's original expiry.
+   * queue, so the code is never stored). Only its HMAC is kept on the session. While a pending
+   * code is locked and unexpired, every request (any e-mail) is refused with nothing written
+   * or sent; the lock lifts at that code's expiry. A new code for the same e-mail while the
+   * previous one is valid keeps its attempts. The counter never goes down.
    */
   const requestEmailVerification = async (
     s: CheckoutSession,
@@ -379,52 +420,67 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
     if (!rt || !rt.active || !secret) {
       throw new EcommerceEmailError('EMAIL_NOT_CONFIGURED', 'Resend is not active.');
     }
-    const row = await sessionsQuery().findOne({
-      where: { id: s.id, status: 'ACTIVE' },
-      select: ['id', 'emailVerification', 'verificationAttempts'],
-    });
-    if (!row) throw sessionInvalid();
-    const now = Date.now();
-    const previous = pendingOf(row.emailVerification);
-    const keepAttempts =
-      previous !== null && previous.emailNormalized === email && time(previous.expiresAt) > now;
-    const attempts = Number.isInteger(row.verificationAttempts) ? row.verificationAttempts : 0;
-    if (keepAttempts && attempts >= VERIFICATION_MAX_ATTEMPTS) throw codeLocked();
 
-    const code = generateVerificationCode(randomInt);
-    const codeHash = verificationCodeHash(secret, s.id, email, code);
-    const expiresAt = new Date(now + VERIFICATION_CODE_TTL_MS).toISOString();
-    const pending: PendingVerification = { emailNormalized: email, codeHash, expiresAt };
-    await sessionsQuery().updateMany({
-      where: { id: s.id, status: 'ACTIVE' },
-      data: { emailVerification: pending, ...(keepAttempts ? {} : { verificationAttempts: 0 }) },
-    });
+    for (let round = 0; round < MAX_CAS_ROUNDS; round++) {
+      const row = await readVerification(s.id);
+      if (!row) throw sessionInvalid();
+      const now = Date.now();
+      const counter = counterOf(row);
+      const previous = pendingOf(row.emailVerification);
+      const live = previous !== null && time(previous.expiresAt) > now ? previous : null;
+      const previousUsed = live ? counter - live.attemptsBase : 0;
+      if (live && previousUsed >= VERIFICATION_MAX_ATTEMPTS) throw codeLocked();
+      const keepAttempts = live !== null && live.emailNormalized === email;
 
-    try {
-      const message = await strapi
-        .plugin(PLUGIN_ID)
-        .service('EcommerceEmailTemplateService')
-        .render('EMAIL_VERIFICATION', input.locale, {
-          customer: { email },
-          verification: { code, validMinutes: String(VERIFICATION_CODE_TTL_MS / 60_000) },
+      const next = counter + 1;
+      const code = generateVerificationCode(randomInt);
+      const codeHash = verificationCodeHash(secret, s.id, email, code);
+      const expiresAt = new Date(now + VERIFICATION_CODE_TTL_MS).toISOString();
+      const pending: PendingVerification = {
+        emailNormalized: email,
+        codeHash,
+        expiresAt,
+        attemptsBase: keepAttempts ? next - previousUsed : next,
+      };
+      // Decided on `row`: if anything changed since, read again and decide again.
+      if (
+        !(await casWrite(s.id, row, { emailVerification: pending, verificationAttempts: next }))
+      ) {
+        continue;
+      }
+
+      try {
+        const message = await strapi
+          .plugin(PLUGIN_ID)
+          .service('EcommerceEmailTemplateService')
+          .render('EMAIL_VERIFICATION', input.locale, {
+            customer: { email },
+            verification: { code, validMinutes: String(VERIFICATION_CODE_TTL_MS / 60_000) },
+          });
+        await sendWithResend(rt, {
+          to: email,
+          subject: message.subject,
+          html: message.html,
+          idempotencyKey: `verify:${s.id}:${codeHash}`,
         });
-      await sendWithResend(rt, {
-        to: email,
-        subject: message.subject,
-        html: message.html,
-        idempotencyKey: `verify:${s.id}:${codeHash}`,
-      });
-    } catch (err) {
-      await undoPending(s.id, codeHash, keepAttempts ? previous : {});
-      throw err;
+      } catch (err) {
+        await undoPending(
+          s.id,
+          pending,
+          live ? { record: live, used: previousUsed, chained: keepAttempts } : null
+        );
+        throw err;
+      }
+      return { expiresAt };
     }
-    return { expiresAt };
+    throw verificationConflict();
   };
 
   /**
-   * Checks a code. The attempt is counted first, with a conditional update on the scalar
-   * column (portable compare-and-set), and only then compared in constant time; parallel
-   * confirmations can never compare more than `VERIFICATION_MAX_ATTEMPTS` codes.
+   * Checks a code. The attempt is counted first, with a compare-and-set on the counter column
+   * (portable; its values never repeat because it never goes down and every request bumps it),
+   * and only then compared in constant time; parallel confirmations can never compare more
+   * than `VERIFICATION_MAX_ATTEMPTS` codes, and a confirm that raced a request re-reads.
    */
   const confirmEmailVerification = async (
     s: CheckoutSession,
@@ -432,12 +488,8 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
   ): Promise<{ verified: true }> => {
     const email = typeof input?.email === 'string' ? normalizeEmail(input.email) : '';
     const code = typeof input?.code === 'string' ? input.code.trim() : '';
-    // Attempts only grow, so this bounds the compare-and-set retries.
-    for (let round = 0; round <= VERIFICATION_MAX_ATTEMPTS; round++) {
-      const row = await sessionsQuery().findOne({
-        where: { id: s.id, status: 'ACTIVE' },
-        select: ['id', 'emailVerification', 'verificationAttempts'],
-      });
+    for (let round = 0; round < MAX_CAS_ROUNDS; round++) {
+      const row = await readVerification(s.id);
       if (!row) throw sessionInvalid();
       const pending = pendingOf(row.emailVerification);
       if (
@@ -447,19 +499,9 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
       ) {
         throw codeInvalid();
       }
-      const attempts = Number.isInteger(row.verificationAttempts) ? row.verificationAttempts : 0;
-      if (attempts >= VERIFICATION_MAX_ATTEMPTS) throw codeLocked();
-      const counted = changed(
-        await sessionsQuery().updateMany({
-          where: {
-            id: s.id,
-            status: 'ACTIVE',
-            verificationAttempts: row.verificationAttempts ?? null,
-          },
-          data: { verificationAttempts: attempts + 1 },
-        })
-      );
-      if (counted === 0) continue; // a parallel confirmation counted first: read again
+      const counter = counterOf(row);
+      if (counter - pending.attemptsBase >= VERIFICATION_MAX_ATTEMPTS) throw codeLocked();
+      if (!(await casWrite(s.id, row, { verificationAttempts: counter + 1 }))) continue;
 
       const secret = verificationSecret();
       if (!secret) warnSecretMissing();
@@ -469,15 +511,13 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
       ) {
         throw codeInvalid();
       }
-      // Conditional on the attempt just counted: a request for another e-mail or after expiry
-      // (both reset the counter) in between makes this write miss.
-      const verified = changed(
-        await sessionsQuery().updateMany({
-          where: { id: s.id, status: 'ACTIVE', verificationAttempts: attempts + 1 },
-          data: { verifiedEmail: email, emailVerification: {}, verificationAttempts: 0 },
-        })
+      // Conditional on the attempt just counted: any request in between bumps the counter.
+      const verified = await casWrite(
+        s.id,
+        { verificationAttempts: counter + 1 },
+        { verifiedEmail: email, emailVerification: {} }
       );
-      if (verified === 0) throw codeInvalid();
+      if (!verified) throw codeInvalid();
       return { verified: true };
     }
     throw verificationConflict();
