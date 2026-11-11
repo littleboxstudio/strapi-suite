@@ -127,7 +127,7 @@ export type OrderPricingDeps = {
     ): Promise<ShippingOption | null>;
   };
   stock(): { available(ids: number[]): Promise<Map<number, number>> };
-  getStoreSettings(): Promise<{ shippingCountries?: string[] } | null | undefined>;
+  getStoreSettings(): Promise<{ markets?: string[] } | null | undefined>;
   service(name: string): any;
   getDefaultLocale(): Promise<string>;
   clean(v: unknown): string;
@@ -377,7 +377,7 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
         errors.push({ path: 'shipping.country', code: 'required' });
       } else {
         const store = await getStoreSettings();
-        const countries: string[] = store?.shippingCountries ?? [];
+        const countries: string[] = store?.markets ?? [];
         if (!/^[A-Z]{2}$/.test(country) || !countries.includes(country)) {
           errors.push({ path: 'shipping.country', code: 'invalid_country' });
         }

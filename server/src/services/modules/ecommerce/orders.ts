@@ -630,7 +630,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
   const validateInput = async (input: CreateOrderInput) => {
     const errors: ValidationIssue[] = [];
     const store = await service('EcommerceSettingsService').getStoreSettings();
-    const countries: string[] = store?.shippingCountries ?? [];
+    const countries: string[] = store?.markets ?? [];
 
     const c = (input?.customer ?? {}) as Record<string, unknown>;
     const customer = {
@@ -1724,7 +1724,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         a.shipping,
         'addresses.shipping',
         errors,
-        store?.shippingCountries ?? []
+        store?.markets ?? []
       );
     }
     if (a?.billing) addresses.billing = normalizeAddress(a.billing, 'addresses.billing', errors);

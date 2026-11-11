@@ -165,7 +165,7 @@ function setup() {
   };
   services.EcommerceSettingsService = {
     getActiveProviders: async () => [],
-    getStoreSettings: async () => ({ shippingCountries: ['PT'] }),
+    getStoreSettings: async () => ({ markets: ['PT'] }),
   };
   services.EcommerceEventBus = { collector: bus.collector, subscribe: bus.subscribe };
   const orders = EcommerceOrderService({ strapi });

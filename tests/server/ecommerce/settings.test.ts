@@ -4,73 +4,18 @@ import {
   EcommerceSecretError,
   EcommerceValidationError,
 } from '../../../server/src/services/modules/ecommerce/errors';
-import EcommerceSettingsService from '../../../server/src/services/modules/ecommerce/settings';
-import EcommerceAuditService from '../../../server/src/services/modules/ecommerce/audit';
 import {
   __resetRegistryForTests,
   registerProvider,
 } from '../../../server/src/services/modules/ecommerce/providers/registry';
-import EcommerceImageService from '../../../server/src/services/modules/ecommerce/images';
 import sharp from 'sharp';
-import { createFakeDb } from './helpers/fakeDb';
-
-const P = 'plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-';
-const UIDS = {
-  integration: `${P}integration`,
-  storeSetting: `${P}store-setting`,
-  manualShippingMethod: `${P}manual-shipping-method`,
-  auditLog: `${P}audit-log`,
-};
+import { UIDS, makeStrapi } from './helpers/settingsStrapi';
 
 const STRIPE_KEY = 'sk_test_51ABCDEFsecretvalue9876';
 const MOLONI = {
   config: { clientId: 'cid', username: 'user', companyId: 5 },
   secrets: { clientSecret: 'moloni-client-secret-1', password: 'moloni-password-2' },
 };
-
-function makeStrapi(opts: { encryptionKey?: string | null } = {}) {
-  const db = createFakeDb(Object.values(UIDS));
-  const pluginConfig: any = {
-    uuid: { modules: { ecommerce: UIDS } },
-    ecommerce: { encryptionKey: opts.encryptionKey === undefined ? 'key-one' : opts.encryptionKey },
-  };
-  let audit: any;
-  let images: any;
-  const provider = {
-    upload: vi.fn(async (file: any) => {
-      file.url = `/uploads/${file.hash}${file.ext}`;
-    }),
-    delete: vi.fn(async () => undefined),
-  };
-  const apiTokenGetById = vi.fn(async (id: number) => (id === 7 ? { id: 7 } : null));
-  const strapi: any = {
-    db: { query: db.query, transaction: db.transaction },
-    service: (name: string) => (name === 'admin::api-token' ? { getById: apiTokenGetById } : undefined),
-    config: { get: (k?: string) => (k === 'plugin::upload' ? { provider: 'local' } : pluginConfig) },
-    log: { warn: vi.fn() },
-    plugin: (id: string) =>
-      id === 'upload'
-        ? { provider }
-        : id === 'i18n'
-        ? {
-            service: () => ({
-              getDefaultLocale: async () => 'en',
-              find: async () => [
-                { code: 'en', name: 'English' },
-                { code: 'pt', name: 'Portuguese' },
-              ],
-            }),
-          }
-        : {
-            service: (name: string) =>
-              name === 'EcommerceAuditService' ? audit : name === 'EcommerceImageService' ? images : undefined,
-          },
-  };
-  audit = EcommerceAuditService({ strapi });
-  images = EcommerceImageService({ strapi });
-  const service = EcommerceSettingsService({ strapi });
-  return { service, strapi, provider, apiTokenGetById, tables: db.tables, pluginConfig, transaction: db.transaction };
-}
 
 const fakeBilling = (exclusive = true) => ({
   id: 'fake-billing',
@@ -443,7 +388,7 @@ describe('EcommerceSettingsService — store settings', () => {
       brandColor: '#4945ff',
       storefrontUrl: null,
       timezone: 'Europe/Lisbon',
-      shippingCountries: ['PT'],
+      markets: ['PT'],
       supportEmail: null,
       storefrontApiTokenId: null,
       checkoutSessionTtlHours: 168,
@@ -479,11 +424,11 @@ describe('EcommerceSettingsService — store settings', () => {
   it('persists one row per key and audits', async () => {
     const { service, tables } = makeStrapi();
     const res = await service.updateStoreSettings(
-      { storeName: 'Loja', storefrontUrl: 'https://shop.example.com', shippingCountries: ['PT', 'ES'] },
+      { storeName: 'Loja', storefrontUrl: 'https://shop.example.com', markets: ['PT', 'ES'] },
       '3'
     );
-    expect(res).toMatchObject({ storeName: 'Loja', storefrontUrl: 'https://shop.example.com', shippingCountries: ['PT', 'ES'] });
-    expect(tables[UIDS.storeSetting].map((r) => r.key).sort()).toEqual(['shippingCountries', 'storeName', 'storefrontUrl']);
+    expect(res).toMatchObject({ storeName: 'Loja', storefrontUrl: 'https://shop.example.com', markets: ['PT', 'ES'] });
+    expect(tables[UIDS.storeSetting].map((r) => r.key).sort()).toEqual(['markets', 'storeName', 'storefrontUrl']);
     await service.updateStoreSettings({ storeName: 'Loja 2' }, '3');
     expect(tables[UIDS.storeSetting]).toHaveLength(3);
     expect((await service.getStoreSettings()).storeName).toBe('Loja 2');
@@ -492,20 +437,20 @@ describe('EcommerceSettingsService — store settings', () => {
 
   it('stores each value wrapped in a JSON object (MariaDB json_valid) and unwraps it on read', async () => {
     const { service, tables } = makeStrapi();
-    await service.updateStoreSettings({ storeName: 'Loja Teste', shippingCountries: ['ES'] }, '1');
+    await service.updateStoreSettings({ storeName: 'Loja Teste', markets: ['ES'] }, '1');
     const row = tables[UIDS.storeSetting].find((r) => r.key === 'storeName');
     expect(row.value).toEqual({ v: 'Loja Teste' });
     const settings = await service.getStoreSettings();
     expect(settings.storeName).toBe('Loja Teste');
-    expect(settings.shippingCountries).toEqual(['ES']);
+    expect(settings.markets).toEqual(['ES']);
   });
 
   it('reads legacy rows whose value is not wrapped', async () => {
     const { service, tables } = makeStrapi();
-    tables[UIDS.storeSetting].push({ id: 50, key: 'shippingCountries', value: ['FR'] });
+    tables[UIDS.storeSetting].push({ id: 50, key: 'markets', value: ['FR'] });
     tables[UIDS.storeSetting].push({ id: 51, key: 'storeName', value: 'Legacy' });
     const settings = await service.getStoreSettings();
-    expect(settings.shippingCountries).toEqual(['FR']);
+    expect(settings.markets).toEqual(['FR']);
     expect(settings.storeName).toBe('Legacy');
   });
 
@@ -525,7 +470,7 @@ describe('EcommerceSettingsService — store settings', () => {
           storefrontUrl: '/relative',
           brandColor: '#fff',
           timezone: 'Mars/Olympus',
-          shippingCountries: ['PT', 'pt', 'ZZ'],
+          markets: ['PT', 'pt', 'ZZ'],
           supportEmail: 'not-an-email',
         },
         '1'
@@ -538,12 +483,36 @@ describe('EcommerceSettingsService — store settings', () => {
         { path: 'storefrontUrl', code: 'invalid_url' },
         { path: 'brandColor', code: 'invalid_color' },
         { path: 'timezone', code: 'invalid_timezone' },
-        { path: 'shippingCountries.1', code: 'invalid_country' },
-        { path: 'shippingCountries.2', code: 'invalid_country' },
+        { path: 'markets.1', code: 'invalid_country' },
+        { path: 'markets.2', code: 'invalid_country' },
         { path: 'supportEmail', code: 'invalid_email' },
       ])
     );
     expect(tables[UIDS.storeSetting]).toHaveLength(0);
+  });
+
+  it('markets are required', async () => {
+    const { service } = makeStrapi();
+    await expect(service.updateStoreSettings({ markets: [] })).rejects.toMatchObject({
+      errors: [{ path: 'markets', code: 'required' }],
+    });
+  });
+
+  it('removing from markets a country still in a zone fails with MARKET_IN_USE and saves nothing', async () => {
+    const { service, zones, tables } = makeStrapi();
+    await service.updateStoreSettings({ markets: ['PT', 'ES', 'FR'] });
+    await zones.create({ name: 'Ibéria', countries: ['PT', 'ES'] });
+    const rowsBefore = JSON.stringify(tables[UIDS.storeSetting]);
+    const err: any = await service
+      .updateStoreSettings({ storeName: 'Nova', markets: ['PT', 'FR'] })
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(EcommerceValidationError);
+    expect(err.errors).toEqual([{ path: 'markets', code: 'MARKET_IN_USE', detail: 'Ibéria' }]);
+    expect(JSON.stringify(tables[UIDS.storeSetting])).toBe(rowsBefore);
+    expect((await service.getStoreSettings()).storeName).toBe('');
+
+    const res = await service.updateStoreSettings({ markets: ['PT', 'ES'] });
+    expect(res.markets).toEqual(['PT', 'ES']);
   });
 
   it('accepts null for optional fields and ignores unknown keys', async () => {

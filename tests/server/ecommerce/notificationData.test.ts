@@ -20,7 +20,7 @@ const store: any = {
   brandColor: '#111111',
   storefrontUrl: 'https://shop.example',
   timezone: 'Europe/Lisbon',
-  shippingCountries: ['PT'],
+  markets: ['PT'],
   supportEmail: 'help@shop.example',
 };
 

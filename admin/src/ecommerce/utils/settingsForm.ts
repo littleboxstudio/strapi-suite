@@ -29,7 +29,7 @@ export type StoreForm = {
   storefrontUrl: string;
   supportEmail: string;
   timezone: string;
-  shippingCountries: string[];
+  markets: string[];
   /** Carried through untouched so saving another section never loses the storefront settings. */
   storefrontApiTokenId?: number | null;
   checkoutSessionTtlHours?: number;
@@ -97,7 +97,7 @@ export function storeFormFromSettings(settings: StoreSettings): StoreForm {
     storefrontUrl: settings.storefrontUrl ?? '',
     supportEmail: settings.supportEmail ?? '',
     timezone: settings.timezone,
-    shippingCountries: [...settings.shippingCountries],
+    markets: [...settings.markets],
     ...(settings.storefrontApiTokenId !== undefined && { storefrontApiTokenId: settings.storefrontApiTokenId }),
     ...(settings.checkoutSessionTtlHours !== undefined && {
       checkoutSessionTtlHours: settings.checkoutSessionTtlHours,
@@ -113,7 +113,7 @@ export function buildStoreSettingsInput(form: StoreForm): StoreSettingsInput {
     storefrontUrl: optional(form.storefrontUrl),
     supportEmail: optional(form.supportEmail),
     timezone: form.timezone,
-    shippingCountries: normalizeCountries(form.shippingCountries),
+    markets: normalizeCountries(form.markets),
     ...(form.storefrontApiTokenId !== undefined && { storefrontApiTokenId: form.storefrontApiTokenId }),
     ...(form.checkoutSessionTtlHours !== undefined && {
       checkoutSessionTtlHours: form.checkoutSessionTtlHours,
@@ -136,8 +136,15 @@ export function validateStoreForm(form: StoreForm): SettingsFieldError[] {
   const email = form.supportEmail.trim();
   if (email !== '' && !isEmail(email)) push('supportEmail', 'invalid_email');
   if (form.timezone === '' || !isTimezone(form.timezone)) push('timezone', 'invalid_timezone');
-  if (normalizeCountries(form.shippingCountries).length === 0) push('shippingCountries', 'required');
+  if (normalizeCountries(form.markets).length === 0) push('markets', 'required');
   return errors;
+}
+
+/** Names of the shipping zones that still hold markets the save tried to remove. */
+export function marketInUseZones(errors: SettingsFieldError[]): string[] {
+  return errors
+    .filter((e) => e.code === 'MARKET_IN_USE' && typeof e.detail === 'string')
+    .map((e) => e.detail as string);
 }
 
 /** `details.code` of a secret or e-mail error thrown by Strapi's fetch client, or null. */

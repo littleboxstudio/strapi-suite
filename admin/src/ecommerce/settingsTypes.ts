@@ -6,7 +6,8 @@ export type StoreSettings = {
   brandColor: string;
   storefrontUrl: string | null;
   timezone: string;
-  shippingCountries: string[];
+  /** Countries where the store sells; shipping zones group them. */
+  markets: string[];
   supportEmail: string | null;
   /** Storefront (BFF) API; optional here so older payloads and fixtures still type-check. */
   storefrontApiTokenId?: number | null;
@@ -137,7 +138,10 @@ export type SettingsFieldError = {
     | 'out_of_range'
     | 'invalid_number'
     | 'invalid_option'
+    | 'MARKET_IN_USE'
     | (string & {});
+  /** Extra context, e.g. the zone name of `MARKET_IN_USE` and `ZONE_COUNTRY_CONFLICT`. */
+  detail?: string;
 };
 
 /** `details.code` of the secret and e-mail errors. */

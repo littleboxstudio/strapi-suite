@@ -28,6 +28,7 @@ import {
   countryOptions,
   extractErrorCode,
   isValidHexColor,
+  marketInUseZones,
   storeFormFromSettings,
   timezoneOptions,
   validateStoreForm,
@@ -35,9 +36,9 @@ import {
 } from '../../utils/settingsForm';
 import type { SettingsFieldError, StoreSettings } from '../../settingsTypes';
 
-type TextField = Exclude<keyof StoreForm, 'shippingCountries' | 'timezone'>;
+type TextField = Exclude<keyof StoreForm, 'markets' | 'timezone'>;
 
-/** First error code per top-level field (`shippingCountries.2` → `shippingCountries`). */
+/** First error code per top-level field (`markets.2` → `markets`). */
 type ErrorMap = Partial<Record<keyof StoreForm, string>>;
 
 const toErrorMap = (errors: SettingsFieldError[]): ErrorMap => {
@@ -87,6 +88,8 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
   const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [logo, setLogo] = useState<StoreSettings['logo']>(null);
+  /** Zones named by a `MARKET_IN_USE` error, shown in the Markets field. */
+  const [marketZones, setMarketZones] = useState<string[]>([]);
 
   const countries = useMemo(() => countryOptions(locale), [locale]);
   const timezones = useMemo(() => timezoneOptions(form?.timezone ?? ''), [form?.timezone]);
@@ -138,10 +141,13 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
   };
 
   const errorText = (field: keyof StoreForm) =>
-    errors[field] ? t(`ecommerce.settings.errors.${errors[field]}`) : undefined;
+    errors[field]
+      ? t(`ecommerce.settings.errors.${errors[field]}`, { zones: marketZones.join(', ') })
+      : undefined;
 
   const showErrors = (list: SettingsFieldError[]) => {
     setErrors(toErrorMap(list));
+    setMarketZones(marketInUseZones(list));
     toggleNotification({ type: 'warning', message: t('ecommerce.settings.errors.fix') });
   };
 
@@ -294,18 +300,18 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
           </Grid.Item>
           <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
             <Field.Root
-              name="shippingCountries"
+              name="markets"
               required
-              error={errorText('shippingCountries')}
-              hint={t('ecommerce.settings.store.shippingCountries.hint')}
+              error={errorText('markets')}
+              hint={t('ecommerce.settings.store.markets.hint')}
             >
-              <Field.Label>{t('ecommerce.settings.store.shippingCountries')}</Field.Label>
+              <Field.Label>{t('ecommerce.settings.store.markets')}</Field.Label>
               <MultiSelect
                 withTags
-                value={form.shippingCountries}
+                value={form.markets}
                 disabled={readOnly}
-                hasError={!!errors.shippingCountries}
-                onChange={(value: string[]) => update('shippingCountries', value)}
+                hasError={!!errors.markets}
+                onChange={(value: string[]) => update('markets', value)}
               >
                 {countries.map(({ code, name }) => (
                   <MultiSelectOption key={code} value={code}>

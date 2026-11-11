@@ -5,6 +5,7 @@ import {
   countryOptions,
   extractErrorCode,
   isValidHexColor,
+  marketInUseZones,
   isValidHttpUrl,
   normalizeCountries,
   storeFormFromSettings,
@@ -20,7 +21,7 @@ const SETTINGS: StoreSettings = {
   brandColor: '#4945ff',
   storefrontUrl: 'https://shop.example.com',
   timezone: 'Europe/Lisbon',
-  shippingCountries: ['PT'],
+  markets: ['PT'],
   supportEmail: null,
 };
 
@@ -105,14 +106,14 @@ describe('store form', () => {
       ...storeFormFromSettings(SETTINGS),
       storeName: '  Littlebox ',
       supportEmail: ' help@example.com ',
-      shippingCountries: ['pt', 'PT', 'es'],
+      markets: ['pt', 'PT', 'es'],
     };
     const input = buildStoreSettingsInput(form);
     expect(input.storeName).toBe('Littlebox');
     expect('logo' in input).toBe(false);
     expect('logoUrl' in input).toBe(false);
     expect(input.supportEmail).toBe('help@example.com');
-    expect(input.shippingCountries).toEqual(['PT', 'ES']);
+    expect(input.markets).toEqual(['PT', 'ES']);
   });
 
   it('keeps the storefront token and session lifetime of the loaded settings', () => {
@@ -141,7 +142,7 @@ describe('store form', () => {
       storefrontUrl: 'ftp://shop',
       supportEmail: 'nope',
       timezone: '',
-      shippingCountries: [],
+      markets: [],
     };
     expect(validateStoreForm(form)).toEqual([
       { path: 'storeName', code: 'required' },
@@ -149,8 +150,20 @@ describe('store form', () => {
       { path: 'storefrontUrl', code: 'invalid_url' },
       { path: 'supportEmail', code: 'invalid_email' },
       { path: 'timezone', code: 'invalid_timezone' },
-      { path: 'shippingCountries', code: 'required' },
+      { path: 'markets', code: 'required' },
     ]);
+  });
+});
+
+describe('marketInUseZones', () => {
+  it('returns the zone names of the MARKET_IN_USE errors', () => {
+    expect(
+      marketInUseZones([
+        { path: 'markets', code: 'MARKET_IN_USE', detail: 'Ibéria' },
+        { path: 'x', code: 'required' },
+      ])
+    ).toEqual(['Ibéria']);
+    expect(marketInUseZones([])).toEqual([]);
   });
 });
 

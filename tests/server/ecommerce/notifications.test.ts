@@ -531,7 +531,7 @@ function fulfilmentSetup() {
   settings.getRuntime = async (id: string) =>
     id === 'fakebill' ? { config: {}, secrets: {}, active: true } : baseRuntime(id);
   settings.getStoreSettings = async () => ({
-    shippingCountries: ['PT'],
+    markets: ['PT'],
     storefrontUrl: 'https://shop.example/',
     timezone: 'Europe/Lisbon',
   });

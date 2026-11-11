@@ -151,7 +151,7 @@ function setup(opts: { webhookSecret?: string | null } = {}) {
   const secret = opts.webhookSecret === undefined ? SECRET : opts.webhookSecret;
   services.EcommerceSettingsService = {
     getActiveProviders: async () => [],
-    getStoreSettings: async () => ({ shippingCountries: ['PT'] }),
+    getStoreSettings: async () => ({ markets: ['PT'] }),
     getRuntime: async (id: string) =>
       id === 'stripe'
         ? {

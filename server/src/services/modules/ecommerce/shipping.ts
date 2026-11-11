@@ -115,7 +115,7 @@ const EcommerceShippingService = ({ strapi }: { strapi: Core.Strapi }) => {
     const options: ShippingOption[] = [];
     const failures: { providerId: string; code: string }[] = [];
 
-    if (!(store.shippingCountries ?? []).includes(req.country)) return { options, failures };
+    if (!(store.markets ?? []).includes(req.country)) return { options, failures };
 
     if (activeCarriers.includes('manual')) {
       const defaultLocale = await getDefaultLocale();

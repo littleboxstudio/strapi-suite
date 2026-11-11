@@ -40,6 +40,10 @@ export default [
   route('POST', '/shipping-methods', 'createShippingMethod', manage),
   route('PUT', '/shipping-methods/:id', 'updateShippingMethod', manage),
   route('DELETE', '/shipping-methods/:id', 'deleteShippingMethod', manage),
+  route('GET', '/shipping-zones', 'listShippingZones', read),
+  route('POST', '/shipping-zones', 'createShippingZone', manage),
+  route('PUT', '/shipping-zones/:id', 'updateShippingZone', manage),
+  route('DELETE', '/shipping-zones/:id', 'deleteShippingZone', manage),
   route('GET', '/email-templates', 'listEmailTemplates', read),
   // Registered before the ':locale' routes so 'preview' is never read as a locale.
   route('POST', '/email-templates/:type/preview', 'previewEmailTemplate', read),

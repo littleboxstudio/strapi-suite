@@ -154,7 +154,7 @@ function setup(
   services.EcommerceSettingsService = {
     getActiveProviders: async () => [],
     getStoreSettings: async () => ({
-      shippingCountries: ['PT'],
+      markets: ['PT'],
       storefrontUrl:
         opts.storefrontUrl === undefined ? 'https://shop.example/' : opts.storefrontUrl,
     }),
