@@ -1,5 +1,13 @@
 import { isEmail } from './settingsForm';
-import type { Address, CreateOrderInput, FieldError, VariantSearchResult } from '../orderTypes';
+import {
+  MAX_PROMOTION_CODES,
+  type Address,
+  type CreateOrderInput,
+  type FieldError,
+  type OrderQuote,
+  type OrderQuoteInput,
+  type VariantSearchResult,
+} from '../orderTypes';
 
 /** Every address field as a string; shipping ignores `company` and `nif` in the UI. */
 export type AddressForm = {
@@ -35,6 +43,8 @@ export type OrderForm = {
   lines: OrderLineDraft[];
   shipping: { providerId: string; serviceId: string } | null;
   notes: string;
+  /** Promotion codes typed by the admin (shown as tags). */
+  promotionCodes: string[];
 };
 
 /** First error code per path (`customer.email`, `lines.0.quantity`, `shipping`, …). */
@@ -76,6 +86,7 @@ export function emptyOrderForm(locale: string): OrderForm {
     lines: [],
     shipping: null,
     notes: '',
+    promotionCodes: [],
   };
 }
 
@@ -173,8 +184,16 @@ export function toAddress(a: AddressForm, withBillingFields: boolean): Address {
   return out as unknown as Address;
 }
 
-export function buildCreateOrderInput(form: OrderForm, idempotencyKey: string): CreateOrderInput {
+/** What the last quote decided: the total shown to the admin and the gift variants it priced. */
+export type QuoteDecision = { expectedTotal: number; giftChoices: Record<number, number> };
+
+export function buildCreateOrderInput(
+  form: OrderForm,
+  idempotencyKey: string,
+  quote?: QuoteDecision
+): CreateOrderInput {
   const phone = form.customer.phone.trim();
+  const codes = normalizePromotionCodes(form.promotionCodes ?? []);
   const billing = form.billingSameAsShipping
     ? copyAddress(form.shippingAddress, form.billingAddress)
     : form.billingAddress;
@@ -193,6 +212,8 @@ export function buildCreateOrderInput(form: OrderForm, idempotencyKey: string): 
     shipping: form.shipping ?? { providerId: '', serviceId: '' },
     ...(notes ? { notes } : {}),
     idempotencyKey,
+    ...(codes.length ? { promotionCodes: codes } : {}),
+    ...(quote ? { expectedTotal: quote.expectedTotal, giftChoices: { ...quote.giftChoices } } : {}),
   };
 }
 
@@ -210,4 +231,100 @@ export function toOrderErrorMap(errors: FieldError[], billingSameAsShipping: boo
     if (!(key in map)) map[key] = code;
   });
   return map;
+}
+
+// ---------------------------------------------------------------------------
+// Promotion codes and the order quote (promotions plan 6)
+// ---------------------------------------------------------------------------
+
+/** Codes as the server matches them: trimmed, upper case, no blanks, no repeats (order kept). */
+export function normalizePromotionCodes(codes: string[]): string[] {
+  const out: string[] = [];
+  codes.forEach((raw) => {
+    const code = (raw ?? '').trim().toUpperCase();
+    if (code && !out.includes(code)) out.push(code);
+  });
+  return out;
+}
+
+export type PromotionCodeError = 'required' | 'duplicate' | 'too_many';
+
+/** Adds one typed code to the tags; the list is unchanged when the code is refused. */
+export function addPromotionCode(
+  codes: string[],
+  raw: string
+): { codes: string[]; error: PromotionCodeError | null } {
+  const code = (raw ?? '').trim().toUpperCase();
+  if (!code) return { codes, error: 'required' };
+  if (codes.includes(code)) return { codes, error: 'duplicate' };
+  if (codes.length >= MAX_PROMOTION_CODES) return { codes, error: 'too_many' };
+  return { codes: [...codes, code], error: null };
+}
+
+/**
+ * Body of `orders/quote`. The shipping destination is sent only once a country and a shipping
+ * method are chosen; an e-mail only when it looks valid (it decides e-mail eligibility).
+ */
+export function buildQuoteInput(form: OrderForm, giftChoices: Record<number, number>): OrderQuoteInput {
+  const email = form.customer.email.trim();
+  const country = form.shippingAddress.country.trim().toUpperCase();
+  const postalCode = form.shippingAddress.postalCode.trim();
+  return {
+    lines: form.lines.map((l) => ({ variantId: l.variantId, quantity: l.quantity })),
+    locale: form.locale,
+    email: email && isEmail(email) ? email : null,
+    promotionCodes: normalizePromotionCodes(form.promotionCodes ?? []),
+    giftChoices: { ...giftChoices },
+    shipping:
+      country && form.shipping
+        ? {
+            country,
+            ...(postalCode ? { postalCode } : {}),
+            providerId: form.shipping.providerId,
+            serviceId: form.shipping.serviceId,
+          }
+        : null,
+  };
+}
+
+export type GiftSelector = { promotionId: number; variantIds: number[]; selected: number | null };
+
+/** Gift benefits of the applied promotions that let the admin choose between several variants. */
+export function giftSelectors(quote: OrderQuote): GiftSelector[] {
+  const out: GiftSelector[] = [];
+  quote.promotions.forEach((p) => {
+    p.benefits.forEach((b) => {
+      const params = b.params;
+      if (params.type !== 'BUY_X_GET_Y' || params.get.mode !== 'GIFT') return;
+      const variantIds = params.get.variantIds;
+      if (variantIds.length < 2 || out.some((s) => s.promotionId === p.promotionId)) return;
+      const line = quote.lines.find(
+        (l) => l.isGift && l.refs.some((r) => r.promotionId === p.promotionId && r.benefitIndex === b.index)
+      );
+      out.push({ promotionId: p.promotionId, variantIds: [...variantIds], selected: line?.variantId ?? null });
+    });
+  });
+  return out;
+}
+
+/** The gift variant the quote priced for each promotion with a choice: sent with the order. */
+export function giftChoicesFromQuote(quote: OrderQuote): Record<number, number> {
+  const out: Record<number, number> = {};
+  giftSelectors(quote).forEach((s) => {
+    if (s.selected !== null) out[s.promotionId] = s.selected;
+  });
+  return out;
+}
+
+const CREATE_CONFLICTS = ['TOTAL_CHANGED', 'PROMOTION_UNAVAILABLE', 'PROMOTION_CODE_INVALID'] as const;
+export type CreateOrderConflict = (typeof CREATE_CONFLICTS)[number];
+
+/** A refused create the admin answers by re-quoting (the totals or a promotion changed). */
+export function createOrderConflict(err: unknown): CreateOrderConflict | null {
+  const details = (err as any)?.response?.data?.error?.details;
+  const codes: unknown[] = [
+    details?.code,
+    ...(Array.isArray(details?.errors) ? details.errors.map((e: any) => e?.code) : []),
+  ];
+  return CREATE_CONFLICTS.find((c) => codes.includes(c)) ?? null;
 }

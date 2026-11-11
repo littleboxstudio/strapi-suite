@@ -10,6 +10,7 @@ import {
   setModifyLineQuantity,
   toModificationErrorMap,
   validateModificationForm,
+  discountWarningMessage,
   type ModifyLineDraft,
   type ModifyOrderForm,
 } from '../../../admin/src/ecommerce/utils/modification';
@@ -329,5 +330,82 @@ describe('translations', () => {
     expect(en['littlebox-strapi-suite.ecommerce.orders.modify.refundable']).toBe(
       'There is an amount eligible for refund'
     );
+  });
+});
+
+describe('order discount field', () => {
+  it('starts empty and is left out of the input when empty (keep the stored discount)', () => {
+    const form = modifyFormFromOrder(order());
+    expect(form.orderDiscount).toBe('');
+    expect('orderDiscount' in buildModificationInput(form)).toBe(false);
+    expect('orderDiscount' in buildModificationInput({ ...form, orderDiscount: '   ' })).toBe(false);
+  });
+
+  it('sends the typed euros as cents', () => {
+    const form = modifyFormFromOrder(order());
+    expect(buildModificationInput({ ...form, orderDiscount: '13,50' }).orderDiscount).toBe(1350);
+    expect(buildModificationInput({ ...form, orderDiscount: '0' }).orderDiscount).toBe(0);
+  });
+
+  it('flags an invalid amount on orderDiscount and maps the server path', () => {
+    const form = { ...modifyFormFromOrder(order()), orderDiscount: '-3' };
+    expect(validateModificationForm(form)).toContainEqual({ path: 'orderDiscount', code: 'INVALID_AMOUNT' });
+    expect(validateModificationForm({ ...form, orderDiscount: '10' })).toEqual([]);
+    expect(toModificationErrorMap(form, [{ path: 'orderDiscount', code: 'INVALID_AMOUNT' }])).toEqual({
+      orderDiscount: 'INVALID_AMOUNT',
+    });
+  });
+});
+
+describe('split lines', () => {
+  it('sends every line of a variant split over several lines with its own orderLineId', () => {
+    const split = order({
+      lines: [
+        orderLine({ id: 20, variantId: 1, quantity: 2, unitDiscount: 0 }),
+        orderLine({ id: 21, variantId: 1, quantity: 1, unitDiscount: 1250 }),
+      ],
+    });
+    expect(buildModificationInput(modifyFormFromOrder(split)).lines).toEqual([
+      { orderLineId: 20, variantId: 1, quantity: 2 },
+      { orderLineId: 21, variantId: 1, quantity: 1 },
+    ]);
+  });
+});
+
+describe('discountWarningMessage', () => {
+  const fill = (template: string, values: Record<string, string | number> = {}) =>
+    template.replace(/\{(\w+)\}/g, (_, k) => String(values[k]));
+  const text = (dict: Record<string, string>, w: Parameters<typeof discountWarningMessage>[0]) => {
+    const m = discountWarningMessage(w);
+    return fill(dict[`littlebox-strapi-suite.${m.id}`], m.values);
+  };
+
+  it('translates SHIPPING_PROMOTION_DROPPED with the promotion name (en + pt)', () => {
+    const w = { code: 'SHIPPING_PROMOTION_DROPPED' as const, promotionId: 3, name: 'Free shipping 50' };
+    expect(text(en, w)).toBe(
+      'Free shipping 50: the shipping promotion no longer applies; the original discount is kept in the history'
+    );
+    expect(text(pt, w)).toBe(
+      'Free shipping 50: a promoção de portes deixou de se aplicar; o desconto original mantém-se no histórico'
+    );
+  });
+
+  it('translates PROMOTION_CONDITION_UNMET with the promotion name (en + pt)', () => {
+    const w = { code: 'PROMOTION_CONDITION_UNMET' as const, promotionId: 1, name: 'Summer' };
+    expect(text(en, w)).toBe('Summer: the conditions are no longer met; the discount was kept');
+    expect(text(pt, w)).toMatch(/^Summer: /);
+  });
+
+  it('keeps ORDER_DISCOUNT_CAPPED without parameters', () => {
+    expect(discountWarningMessage({ code: 'ORDER_DISCOUNT_CAPPED' })).toEqual({
+      id: 'ecommerce.orders.modify.warnings.ORDER_DISCOUNT_CAPPED',
+    });
+  });
+
+  it('has en + pt labels for the order discount field', () => {
+    ['ecommerce.orders.modify.orderDiscount.label', 'ecommerce.orders.modify.orderDiscount.hint'].forEach((k) => {
+      expect(en[`littlebox-strapi-suite.${k}`], k).toEqual(expect.any(String));
+      expect(pt[`littlebox-strapi-suite.${k}`], k).toEqual(expect.any(String));
+    });
   });
 });

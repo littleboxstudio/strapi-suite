@@ -244,6 +244,29 @@ const ModifyOrderModal = ({ order, onClose, onApplied }: ModifyOrderModalProps) 
         </Flex>
       </OrderSection>
 
+      <OrderSection title={t('ecommerce.orders.modify.orderDiscount.label')}>
+        <Box style={{ maxWidth: 240 }}>
+          <Field.Root
+            name="orderDiscount"
+            hint={t('ecommerce.orders.modify.orderDiscount.hint', {
+              amount: formatCents(order.totals.orderDiscount, uiLocale),
+            })}
+            error={errorText('orderDiscount')}
+          >
+            <Field.Label>{t('ecommerce.orders.modify.orderDiscount.label')}</Field.Label>
+            <TextInput
+              value={form.orderDiscount}
+              inputMode="decimal"
+              disabled={disabled}
+              endAction={<span>€</span>}
+              onChange={(e: any) => change({ ...form, orderDiscount: e.target.value }, ['orderDiscount'])}
+            />
+            <Field.Hint />
+            <Field.Error />
+          </Field.Root>
+        </Box>
+      </OrderSection>
+
       {errors.form && <Typography textColor="danger600">{errorText('form')}</Typography>}
     </Flex>
   );

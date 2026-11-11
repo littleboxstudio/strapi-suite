@@ -1,14 +1,18 @@
 import { fulfillmentStatusBadge, orderStatusBadge, paymentStatusBadge, type StatusBadge } from './statusBadges';
 import type {
   Address,
+  AppliedPromotion,
+  DiscountClass,
   FinancialSummary,
   FulfillmentStatus,
   OrderActionKey,
   OrderHistoryItem,
+  OrderPromotion,
   OrderStatus,
   OrderTotals,
   PaymentStatus,
 } from '../orderTypes';
+import type { PromotionBenefit, PromotionMethod } from '../promotionTypes';
 
 /** `id` is a plugin translation key (without the plugin prefix). */
 export type Message = { id: string; values?: Record<string, string | number> };
@@ -168,6 +172,7 @@ export type SummaryRowKey =
   | 'subtotal'
   | 'shippingOriginal'
   | 'shippingDiscount'
+  | 'totalDiscount'
   | 'total'
   | 'paid'
   | 'pendingPayments'
@@ -178,6 +183,11 @@ export type SummaryRowKey =
   | 'overRefunded';
 
 export type SummaryRow = { key: SummaryRowKey; amount: number; strong?: true };
+
+/** Product + order + shipping discounts of the order (promotions requirement 3.6). */
+export function totalDiscount(totals: OrderTotals): number {
+  return (totals.productDiscount || 0) + (totals.orderDiscount || 0) + (totals.shippingDiscount || 0);
+}
 
 /**
  * Rows of the financial summary (requirements 8.1 and promotions 3.6). Discounts are negative;
@@ -195,6 +205,7 @@ export function financialSummaryRows(totals: OrderTotals, summary: FinancialSumm
   add('subtotal', totals.subtotal - totals.orderDiscount);
   add('shippingOriginal', totals.shippingOriginal);
   add('shippingDiscount', -totals.shippingDiscount, { hideZero: true });
+  add('totalDiscount', -totalDiscount(totals), { hideZero: true });
   add('total', totals.total, { strong: true });
   add('paid', summary.paid);
   add('pendingPayments', summary.pendingPayments, { hideZero: true });
@@ -204,6 +215,82 @@ export function financialSummaryRows(totals: OrderTotals, summary: FinancialSumm
   add('excess', summary.excess, { hideZero: true });
   add('overRefunded', summary.overRefunded ?? 0, { hideZero: true });
   return rows;
+}
+
+// ---------------------------------------------------------------------------
+// Promotions recorded on the order (promotions requirements 3.2–3.8)
+// ---------------------------------------------------------------------------
+
+const nonBlank = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
+
+/** The customer-facing name: the order's locale, then the default locale; null when neither has one. */
+export function promotionDisplayName(
+  p: Pick<AppliedPromotion, 'displayName'>,
+  locale: string,
+  defaultLocale?: string | null
+): string | null {
+  const names = isRecord(p.displayName) ? p.displayName : {};
+  return nonBlank(names[locale]) ?? (defaultLocale ? nonBlank(names[defaultLocale]) : null);
+}
+
+export type PromotionLocales = { locale: string; defaultLocale?: string | null };
+
+export type PromotionRow = {
+  /** `<promotionId>-<benefit index>` */
+  key: string;
+  promotionId: number;
+  /** Null: show the neutral "Promotion" label. */
+  displayName: string | null;
+  /** Internal name (admin only, secondary). */
+  name: string;
+  code: string | null;
+  method: PromotionMethod;
+  discountClass: DiscountClass;
+  benefit: PromotionBenefit;
+  amount: number;
+  /** The redemption was released (the order was cancelled). */
+  released: boolean;
+};
+
+/** One row per benefit of each applied promotion, read from the stored snapshot (never recomputed). */
+export function promotionRows(promotions: OrderPromotion[], locales: PromotionLocales): PromotionRow[] {
+  if (!Array.isArray(promotions)) return [];
+  return promotions.flatMap((p) =>
+    (Array.isArray(p.benefits) ? p.benefits : []).map((b) => ({
+      key: `${p.promotionId}-${b.index}`,
+      promotionId: p.promotionId,
+      displayName: promotionDisplayName(p, locales.locale, locales.defaultLocale),
+      name: p.name,
+      code: p.code ?? null,
+      method: p.method,
+      discountClass: b.class,
+      benefit: b.params,
+      amount: b.amount,
+      released: p.redemptionStatus === 'RELEASED',
+    }))
+  );
+}
+
+/** What the applied promotions gave, as stored on the order. */
+export function promotionsDiscountTotal(promotions: Pick<AppliedPromotion, 'amount'>[]): number {
+  return (Array.isArray(promotions) ? promotions : []).reduce(
+    (sum, p) => sum + (isNumber(p.amount) ? p.amount : 0),
+    0
+  );
+}
+
+/** Labels of the promotions that discounted a line: display name, else the internal name (admin). */
+export function linePromotionNames(
+  promotionIds: number[],
+  promotions: AppliedPromotion[],
+  locales: PromotionLocales
+): string[] {
+  if (!Array.isArray(promotionIds) || !Array.isArray(promotions)) return [];
+  return promotionIds.flatMap((id) => {
+    const p = promotions.find((x) => x.promotionId === id);
+    if (!p) return [];
+    return [promotionDisplayName(p, locales.locale, locales.defaultLocale) ?? p.name];
+  });
 }
 
 /** True when the server refused an action the order no longer allows (`ACTION_NOT_AVAILABLE`). */
@@ -344,6 +431,13 @@ export const API_ERROR_CODES = [
   'NOTHING_TO_INVOICE',
   'exceeds_creditable',
   'coverage_mismatch',
+  // Promotions on orders (plan 6)
+  'PROMOTION_UNAVAILABLE',
+  'PROMOTION_CODE_INVALID',
+  'TOTAL_CHANGED',
+  'too_many',
+  'invalid_email',
+  'invalid_country',
 ] as const;
 
 /**

@@ -4,7 +4,12 @@ import { Box, Flex, Table, Tbody, Td, Th, Thead, Tr, Typography } from '@strapi/
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { formatCents } from '../../utils/money';
 import { toAddress, type AddressForm } from '../../utils/orderForm';
-import { addressChanged, countLines, type ModifyOrderForm } from '../../utils/modification';
+import {
+  addressChanged,
+  countLines,
+  discountWarningMessage,
+  type ModifyOrderForm,
+} from '../../utils/modification';
 import type { ModificationPreview } from '../../orderTypes';
 
 type Props = {
@@ -62,6 +67,15 @@ const ModificationSummary = ({ preview, form }: Props) => {
     { key: 'products', before: String(counts.before.products), after: String(counts.after.products) },
     { key: 'units', before: String(counts.before.units), after: String(counts.after.units) },
     { key: 'subtotal', before: money(before.subtotal), after: money(after.subtotal) },
+    ...(before.orderDiscount || after.orderDiscount
+      ? [
+          {
+            key: 'orderDiscount',
+            before: money(before.orderDiscount ? -before.orderDiscount : 0),
+            after: money(after.orderDiscount ? -after.orderDiscount : 0),
+          },
+        ]
+      : []),
     { key: 'shipping', before: money(before.shippingTotal), after: money(after.shippingTotal) },
     { key: 'total', before: money(before.total), after: money(after.total) },
     { key: 'paid', before: money(before.paid), after: money(after.paid) },
@@ -209,11 +223,14 @@ const ModificationSummary = ({ preview, form }: Props) => {
 
       {preview.discountWarnings.length > 0 && (
         <Block title={t('ecommerce.orders.modify.summary.warnings')}>
-          {preview.discountWarnings.map((w, i) => (
-            <Typography key={i} textColor="warning600">
-              {t(`ecommerce.orders.modify.warnings.${w.code}`)}
-            </Typography>
-          ))}
+          {preview.discountWarnings.map((w, i) => {
+            const message = discountWarningMessage(w);
+            return (
+              <Typography key={i} textColor="warning600">
+                {t(message.id, message.values)}
+              </Typography>
+            );
+          })}
         </Block>
       )}
     </Flex>
