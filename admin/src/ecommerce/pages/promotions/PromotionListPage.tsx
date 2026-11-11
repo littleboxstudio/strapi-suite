@@ -36,7 +36,7 @@ type PageInfo = { page: number; pageCount: number };
 const PromotionListPage = () => {
   const { formatMessage, locale } = useIntl();
   const navigate = useNavigate();
-  const { canManage } = usePromotionPermissions();
+  const { isLoading: permissionsLoading, canRead, canManage } = usePromotionPermissions();
   const basePath = `/plugins/${config.pluginId}/ecommerce/promotions`;
   const t = (id: string) => formatMessage({ id: getTranslation(id) });
 
@@ -60,6 +60,8 @@ const PromotionListPage = () => {
   }, [searchTerm, search]);
 
   useEffect(() => {
+    // The server enforces promotions.read too; without it nothing is requested.
+    if (!canRead) return;
     const current = ++requestId.current;
     setLoading(true);
     new FetchPromotions()
@@ -79,7 +81,24 @@ const PromotionListPage = () => {
         setError(true);
         setLoading(false);
       });
-  }, [page, search]);
+  }, [canRead, page, search]);
+
+  if (permissionsLoading) {
+    return (
+      <Flex justifyContent="center" padding={8}>
+        <Loader />
+      </Flex>
+    );
+  }
+
+  if (!canRead) {
+    return (
+      <Flex direction="column" alignItems="stretch" gap={4}>
+        <PromotionTabs />
+        <Typography textColor="neutral600">{t('ecommerce.promotions.forbidden')}</Typography>
+      </Flex>
+    );
+  }
 
   const isEmpty = !loading && !error && items.length === 0;
   const noSearch = search === '' && searchTerm === '';
@@ -200,7 +219,7 @@ const PromotionListPage = () => {
                         size="S"
                         onClick={() => navigate(`${basePath}/${item.id}`)}
                       >
-                        {t('ecommerce.promotions.edit')}
+                        {t(canManage ? 'ecommerce.promotions.edit' : 'ecommerce.promotions.view')}
                       </Button>
                     </Box>
                   </Td>

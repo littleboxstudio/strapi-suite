@@ -274,6 +274,17 @@ describe('EcommercePromotionService admin', () => {
     expect(JSON.stringify(page)).not.toContain('ana@example.pt');
     expect(page.results[0]).not.toHaveProperty('email');
   });
+
+  it('context gives the editor the locales and the store time zone', async () => {
+    expect(await svc.context()).toEqual({
+      defaultLocale: 'en',
+      locales: [
+        { code: 'en', name: 'en' },
+        { code: 'pt', name: 'pt' },
+      ],
+      timezone: 'Europe/Lisbon',
+    });
+  });
 });
 
 describe('searchLimit', () => {

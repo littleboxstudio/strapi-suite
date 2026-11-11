@@ -63,6 +63,9 @@ const EcommercePromotionController = ({ strapi }: { strapi: Core.Strapi }) => {
         );
       }),
 
+    /** `{ defaultLocale, locales, timezone }` for the editor (display names, wall-time dates). */
+    context: (ctx: any) => respond(ctx, () => promotions().context()),
+
     get: (ctx: any) => withId(ctx, (id) => promotions().get(id)),
 
     /** Body: the promotion definition plus the `version` it was loaded with. */

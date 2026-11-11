@@ -412,6 +412,23 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
     return { results, pagination: pagination(page, total) };
   };
 
+  /** What the editor needs without other permissions: the locales and the store time zone. */
+  const context = async (): Promise<{
+    defaultLocale: string;
+    locales: { code: string; name: string }[];
+    timezone: string;
+  }> => {
+    const [defaultLocale, all, timezone] = await Promise.all([
+      locales().getDefaultLocale(),
+      locales().find(),
+      timeZone(),
+    ]);
+    const list = ((all as any[]) ?? [])
+      .filter((l) => typeof l?.code === 'string')
+      .map((l) => ({ code: l.code as string, name: typeof l.name === 'string' && l.name ? l.name : l.code }));
+    return { defaultLocale, locales: list, timezone };
+  };
+
   const get = async (id: number | string): Promise<PromotionView> =>
     toView(await findRow(id), await timeZone());
 
@@ -761,6 +778,7 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
     remove,
     listRedemptions,
     catalogSearch,
+    context,
     searchLimit,
     evaluate,
     unmet,

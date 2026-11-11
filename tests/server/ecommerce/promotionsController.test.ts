@@ -144,4 +144,11 @@ describe('EcommercePromotionController', () => {
     await promos({ catalogSearch }).catalogSearch(none);
     expect(catalogSearch).toHaveBeenLastCalledWith('', undefined);
   });
+
+  it('context returns the editor context from the service', async () => {
+    const context = vi.fn().mockResolvedValue({ defaultLocale: 'en', locales: [], timezone: 'Europe/Lisbon' });
+    const ctx = mkCtx();
+    await promos({ context }).context(ctx);
+    expect(ctx.body).toEqual({ defaultLocale: 'en', locales: [], timezone: 'Europe/Lisbon' });
+  });
 });
