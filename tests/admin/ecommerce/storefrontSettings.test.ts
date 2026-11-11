@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   storefrontBasePath,
-  isTokenMissing,
+  storefrontTokenActions,
   tokenWarning,
   tokenWarnings,
   validateTtlHours,
@@ -38,12 +38,18 @@ describe('tokenWarnings', () => {
   });
 });
 
-describe('isTokenMissing', () => {
-  it('is true only for a saved id that is not in the list', () => {
-    expect(isTokenMissing(null, [])).toBe(false);
-    expect(isTokenMissing(5, [{ id: 5 }])).toBe(false);
-    expect(isTokenMissing(5, [{ id: 6 }])).toBe(true);
-    expect(isTokenMissing(5, [])).toBe(true);
+describe('storefrontTokenActions', () => {
+  const token = { id: 3, name: 'BFF', description: null, type: 'custom' as const, createdAt: null, lastUsedAt: null, expiresAt: null };
+  it('offers Generate only when no token exists', () => {
+    expect(storefrontTokenActions({ token: null, missing: false }, false)).toEqual({ generate: true, regenerate: false });
+    expect(storefrontTokenActions({ token: null, missing: true }, false)).toEqual({ generate: true, regenerate: false });
+  });
+  it('offers Regenerate once a token exists', () => {
+    expect(storefrontTokenActions({ token, missing: false }, false)).toEqual({ generate: false, regenerate: true });
+  });
+  it('offers nothing to read-only users', () => {
+    expect(storefrontTokenActions({ token: null, missing: false }, true)).toEqual({ generate: false, regenerate: false });
+    expect(storefrontTokenActions({ token, missing: false }, true)).toEqual({ generate: false, regenerate: false });
   });
 });
 

@@ -14,6 +14,75 @@ export const UIDS = {
   auditLog: `${P}audit-log`,
 };
 
+type FakeApiToken = {
+  id: number;
+  name: string;
+  description: string | null;
+  type: 'read-only' | 'full-access' | 'custom';
+  kind: 'content-api';
+  permissions: string[];
+  lifespan: number | null;
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/**
+ * In-memory stand-in for `strapi.service('admin::api-token')` (content-API tokens): names are
+ * unique like in Strapi, `create` returns the plain `accessKey` once, `revoke` of a missing id
+ * returns null.
+ */
+export function createFakeApiTokens() {
+  const rows = new Map<number, FakeApiToken & { accessKey: string }>();
+  let nextId = 1;
+  const view = (row: FakeApiToken & { accessKey: string }): FakeApiToken => {
+    const { accessKey: _omit, ...rest } = row;
+    return { ...rest, permissions: [...rest.permissions] };
+  };
+  const seed = (attrs: Partial<FakeApiToken> & { name: string }): FakeApiToken => {
+    const id = attrs.id ?? nextId;
+    nextId = Math.max(nextId, id + 1);
+    const now = new Date().toISOString();
+    const row = {
+      description: null,
+      type: 'custom' as const,
+      permissions: [],
+      lifespan: null,
+      expiresAt: null,
+      lastUsedAt: null,
+      createdAt: now,
+      updatedAt: now,
+      ...attrs,
+      id,
+      kind: 'content-api' as const,
+      accessKey: `access-key-${id}`,
+    };
+    rows.set(id, row);
+    return view(row);
+  };
+  const service = {
+    getById: vi.fn(async (id: number) => {
+      const row = rows.get(id);
+      return row ? view(row) : null;
+    }),
+    exists: vi.fn(async (where: Record<string, unknown>) =>
+      [...rows.values()].some((r) => Object.entries(where).every(([k, v]) => (r as any)[k] === v))
+    ),
+    create: vi.fn(async (attrs: any) => {
+      if ([...rows.values()].some((r) => r.name === attrs.name)) throw new Error('Unique constraint: name');
+      const created = seed({ ...attrs, expiresAt: attrs.lifespan ? new Date(Date.now() + attrs.lifespan).toISOString() : null });
+      return { ...created, accessKey: rows.get(created.id)!.accessKey };
+    }),
+    revoke: vi.fn(async (id: number) => {
+      const row = rows.get(id);
+      rows.delete(id);
+      return row ? view(row) : null;
+    }),
+  };
+  return { service, rows, seed };
+}
+
 /**
  * A fake Strapi with the real settings, shipping zone, audit and image services over one
  * in-memory database.
@@ -31,10 +100,10 @@ export function makeStrapi(opts: { encryptionKey?: string | null } = {}) {
     }),
     delete: vi.fn(async () => undefined),
   };
-  const apiTokenGetById = vi.fn(async (id: number) => (id === 7 ? { id: 7 } : null));
+  const apiTokens = createFakeApiTokens();
   const strapi: any = {
     db: { query: db.query, transaction: db.transaction },
-    service: (name: string) => (name === 'admin::api-token' ? { getById: apiTokenGetById } : undefined),
+    service: (name: string) => (name === 'admin::api-token' ? apiTokens.service : undefined),
     config: { get: (k?: string) => (k === 'plugin::upload' ? { provider: 'local' } : pluginConfig) },
     log: { warn: vi.fn() },
     plugin: (id: string) =>
@@ -61,7 +130,7 @@ export function makeStrapi(opts: { encryptionKey?: string | null } = {}) {
     zones: services.EcommerceShippingZoneService as ReturnType<typeof EcommerceShippingZoneService>,
     strapi,
     provider,
-    apiTokenGetById,
+    apiTokens,
     tables: db.tables,
     pluginConfig,
     transaction: db.transaction,

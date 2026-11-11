@@ -9,19 +9,39 @@ export type StoreSettings = {
   /** Countries where the store sells; shipping zones group them. */
   markets: string[];
   supportEmail: string | null;
-  /** Storefront (BFF) API; optional here so older payloads and fixtures still type-check. */
+  /**
+   * Storefront (BFF) API; optional here so older payloads and fixtures still type-check.
+   * Read-only: only the storefront token endpoints (generate/regenerate) set the token id.
+   */
   storefrontApiTokenId?: number | null;
   checkoutSessionTtlHours?: number;
 };
 
-/** What PUT /store accepts: the logo has its own endpoints. */
-export type StoreSettingsInput = Omit<StoreSettings, 'logo'>;
+/** What PUT /store accepts: the logo and the storefront token have their own endpoints. */
+export type StoreSettingsInput = Omit<StoreSettings, 'logo' | 'storefrontApiTokenId'>;
 
-export type StorefrontApiToken = {
+/** The storefront (BFF) API token as the admin sees it: never its value. */
+export type StorefrontTokenView = {
   id: number;
   name: string;
+  description: string | null;
   type: 'read-only' | 'full-access' | 'custom';
+  createdAt: string | null;
+  lastUsedAt: string | null;
   expiresAt: string | null;
+};
+
+export type StorefrontTokenState = {
+  token: StorefrontTokenView | null;
+  /** A token id is stored but that token no longer exists. */
+  missing: boolean;
+};
+
+/** Generate/regenerate result: `accessKey` is the plain token, shown this one time only. */
+export type GeneratedStorefrontToken = StorefrontTokenState & {
+  accessKey: string;
+  /** Regenerate only: false when the previous token could not be deleted. */
+  previousTokenDeleted?: boolean;
 };
 
 export type ProviderCategory = 'payment' | 'billing' | 'carrier' | 'email';
@@ -157,7 +177,9 @@ export type SettingsErrorCode =
   | 'EMAIL_NOT_CONFIGURED'
   | 'EMAIL_SEND_FAILED'
   | 'INVALID_IMAGE'
-  | 'UPLOAD_FAILED';
+  | 'UPLOAD_FAILED'
+  /** 409: generate was asked while a storefront token is configured. */
+  | 'STOREFRONT_TOKEN_EXISTS';
 
 /** Where Stripe must send its webhooks: `path` is relative to the Strapi origin. */
 export type StripeWebhookInfo = { path: string; events: string[] };

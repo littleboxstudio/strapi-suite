@@ -30,8 +30,7 @@ export type StoreForm = {
   supportEmail: string;
   timezone: string;
   markets: string[];
-  /** Carried through untouched so saving another section never loses the storefront settings. */
-  storefrontApiTokenId?: number | null;
+  /** Carried through untouched so saving another section never loses the session lifetime. */
   checkoutSessionTtlHours?: number;
 };
 
@@ -98,7 +97,6 @@ export function storeFormFromSettings(settings: StoreSettings): StoreForm {
     supportEmail: settings.supportEmail ?? '',
     timezone: settings.timezone,
     markets: [...settings.markets],
-    ...(settings.storefrontApiTokenId !== undefined && { storefrontApiTokenId: settings.storefrontApiTokenId }),
     ...(settings.checkoutSessionTtlHours !== undefined && {
       checkoutSessionTtlHours: settings.checkoutSessionTtlHours,
     }),
@@ -114,7 +112,6 @@ export function buildStoreSettingsInput(form: StoreForm): StoreSettingsInput {
     supportEmail: optional(form.supportEmail),
     timezone: form.timezone,
     markets: normalizeCountries(form.markets),
-    ...(form.storefrontApiTokenId !== undefined && { storefrontApiTokenId: form.storefrontApiTokenId }),
     ...(form.checkoutSessionTtlHours !== undefined && {
       checkoutSessionTtlHours: form.checkoutSessionTtlHours,
     }),

@@ -1,4 +1,4 @@
-import type { StorefrontApiToken } from '../settingsTypes';
+import type { StorefrontTokenState, StorefrontTokenView } from '../settingsTypes';
 
 /** Where the storefront API is served (relative to the Strapi origin). */
 export const storefrontBasePath = '/api/littlebox-strapi-suite/ecommerce/storefront';
@@ -9,9 +9,9 @@ const SOON_DAYS = 14;
 
 export type TokenWarning = 'FULL_ACCESS' | 'READ_ONLY' | 'EXPIRES_SOON' | 'EXPIRED';
 
-/** Everything wrong with the chosen BFF token (expiry first, then access type). */
+/** Everything wrong with the configured BFF token (e.g. one chosen by hand before tokens were generated) (expiry first, then access type). */
 export function tokenWarnings(
-  token: Pick<StorefrontApiToken, 'type' | 'expiresAt'> | null,
+  token: Pick<StorefrontTokenView, 'type' | 'expiresAt'> | null,
   now: Date
 ): TokenWarning[] {
   if (!token) return [];
@@ -30,15 +30,19 @@ export function tokenWarnings(
 
 /** The most serious warning, or null. */
 export function tokenWarning(
-  token: Pick<StorefrontApiToken, 'type' | 'expiresAt'> | null,
+  token: Pick<StorefrontTokenView, 'type' | 'expiresAt'> | null,
   now: Date
 ): TokenWarning | null {
   return tokenWarnings(token, now)[0] ?? null;
 }
 
-/** The saved token id is not among the tokens the admin can see. */
-export function isTokenMissing(tokenId: number | null, tokens: Pick<StorefrontApiToken, 'id'>[]): boolean {
-  return tokenId !== null && !tokens.some((t) => t.id === tokenId);
+/** Which token buttons to show: Generate without a token, Regenerate with one, none when read-only. */
+export function storefrontTokenActions(
+  state: StorefrontTokenState,
+  readOnly: boolean
+): { generate: boolean; regenerate: boolean } {
+  if (readOnly) return { generate: false, regenerate: false };
+  return { generate: state.token === null, regenerate: state.token !== null };
 }
 
 /** Whole hours from 1 to 720. */

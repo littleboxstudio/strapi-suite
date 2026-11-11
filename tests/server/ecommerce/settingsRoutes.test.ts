@@ -12,7 +12,9 @@ const expected: [string, string, string, string][] = [
   ['POST', `${B}/store/logo`, 'uploadStoreLogo', P.settingsManage],
   ['DELETE', `${B}/store/logo`, 'removeStoreLogo', P.settingsManage],
   ['GET', `${B}/stripe-webhook`, 'getStripeWebhook', P.settingsRead],
-  ['GET', `${B}/storefront/api-tokens`, 'listApiTokens', P.settingsRead],
+  ['GET', `${B}/storefront/token`, 'getStorefrontToken', P.settingsRead],
+  ['POST', `${B}/storefront/token/generate`, 'generateStorefrontToken', P.settingsManage],
+  ['POST', `${B}/storefront/token/regenerate`, 'regenerateStorefrontToken', P.settingsManage],
   ['GET', `${B}/integrations`, 'listIntegrations', P.settingsRead],
   ['PUT', `${B}/integrations/:id`, 'updateIntegration', P.settingsManage],
   ['POST', `${B}/integrations/:id/activate`, 'setIntegrationActive', P.settingsManage],
@@ -53,6 +55,10 @@ describe('ecommerce settings routes', () => {
     const idx = (p: string) => routes.findIndex((r) => r.path === p);
     expect(idx(`${B}/email-templates/:type/preview`)).toBeLessThan(idx(`${T}/test`));
     expect(idx(`${B}/email-templates/:type/preview`)).toBeLessThan(idx(T));
+  });
+
+  it('no longer lists the Strapi API tokens for choosing', () => {
+    expect(routes.some((r) => r.path.includes('api-tokens'))).toBe(false);
   });
 
   it('are included in the admin routes', () => {

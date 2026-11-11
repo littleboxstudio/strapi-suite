@@ -15,16 +15,26 @@ configured for these routes, and the storefront's origins must **not** be added 
 
 ## 2. The BFF token
 
-1. In Strapi, *Settings → API Tokens → Create new API Token*: type **Custom**, with **no
-   permissions** at all, and a name such as `storefront-bff`. Copy the token: Strapi shows it
-   once.
-2. In the e-commerce *Settings*, choose that token as the storefront API token
-   (`storefrontApiTokenId`).
+The e-commerce module creates and manages the BFF token itself.
 
-Only the chosen token passes the `check-storefront-token` policy. Any other token is refused
-with `403`, including the *read-only* token that the other modules (menus, pages…) accept, an
-admin token, an expired token, or any token while none is chosen. Rotating it: create a new
-token, choose it in Settings, deploy the BFF with it, then delete the old one.
+1. In the e-commerce *Settings → API*, click **Generate token**. Strapi creates an API token
+   named `Littlebox storefront BFF <date>`: type **Custom**, **no permissions**, unlimited
+   duration. Its description says it is managed by the e-commerce module; do not edit or delete
+   it in *Settings → API Tokens*.
+2. Copy the token from the dialog: it is shown **once**. Put it in the BFF environment (for
+   example `STRAPI_STOREFRONT_TOKEN`) and send it as `Authorization: Bearer <token>`.
+
+Settings → API then shows the token's name, creation date and last use, never its value.
+
+Only that token passes the `check-storefront-token` policy. Any other token is refused with
+`403`, including the *read-only* token that the other modules (menus, pages…) accept, an admin
+token, an expired token, or any token while none is configured. The token id is not part of the
+generic store settings: only *Generate token* and *Regenerate* change it.
+
+**Rotating it**: click **Regenerate** and confirm. A new token is created, becomes the BFF token,
+and the previous one is deleted, so it **stops working at once**. Copy the new token and deploy
+the BFF with it straight away: until then the storefront API answers `403`. If creating the new
+token fails, nothing changes and the current token keeps working.
 
 ## 3. Headers
 

@@ -116,18 +116,20 @@ describe('store form', () => {
     expect(input.markets).toEqual(['PT', 'ES']);
   });
 
-  it('keeps the storefront token and session lifetime of the loaded settings', () => {
-    const loaded: StoreSettings = { ...SETTINGS, storefrontApiTokenId: 5, checkoutSessionTtlHours: 24 };
+  it('keeps the session lifetime of the loaded settings', () => {
+    const loaded: StoreSettings = { ...SETTINGS, checkoutSessionTtlHours: 24 };
     const input = buildStoreSettingsInput(storeFormFromSettings(loaded));
-    expect(input.storefrontApiTokenId).toBe(5);
     expect(input.checkoutSessionTtlHours).toBe(24);
-    const nullToken = buildStoreSettingsInput(storeFormFromSettings({ ...SETTINGS, storefrontApiTokenId: null }));
-    expect(nullToken.storefrontApiTokenId).toBeNull();
   });
 
-  it('does not invent the storefront fields when they were not loaded', () => {
-    const input = buildStoreSettingsInput(storeFormFromSettings(SETTINGS));
+  it('never sends the storefront token id (only generate/regenerate set it)', () => {
+    const loaded: StoreSettings = { ...SETTINGS, storefrontApiTokenId: 5, checkoutSessionTtlHours: 24 };
+    const input = buildStoreSettingsInput(storeFormFromSettings(loaded));
     expect('storefrontApiTokenId' in input).toBe(false);
+  });
+
+  it('does not invent the session lifetime when it was not loaded', () => {
+    const input = buildStoreSettingsInput(storeFormFromSettings(SETTINGS));
     expect('checkoutSessionTtlHours' in input).toBe(false);
   });
 

@@ -16,7 +16,8 @@ import type {
   ShippingZoneInput,
   StoreSettings,
   StoreSettingsInput,
-  StorefrontApiToken,
+  GeneratedStorefrontToken,
+  StorefrontTokenState,
   StripeWebhookInfo,
   TemplateContent,
 } from '../settingsTypes';
@@ -29,7 +30,9 @@ export default interface EcommerceSettingsGateway {
   uploadStoreLogo(form: FormData): Promise<StoreSettings>;
   removeStoreLogo(): Promise<StoreSettings>;
   fetchStripeWebhook(): Promise<StripeWebhookInfo>;
-  fetchApiTokens(): Promise<StorefrontApiToken[]>;
+  fetchStorefrontToken(): Promise<StorefrontTokenState>;
+  generateStorefrontToken(): Promise<GeneratedStorefrontToken>;
+  regenerateStorefrontToken(): Promise<GeneratedStorefrontToken>;
 
   fetchIntegrations(): Promise<IntegrationView[]>;
   updateIntegration(id: string, input: IntegrationInput): Promise<IntegrationView>;
@@ -94,8 +97,16 @@ export class EcommerceSettingsGatewayHttp implements EcommerceSettingsGateway {
     return this.httpClient.get(`${this.base}/stripe-webhook`);
   }
 
-  async fetchApiTokens(): Promise<StorefrontApiToken[]> {
-    return this.httpClient.get(`${this.base}/storefront/api-tokens`);
+  async fetchStorefrontToken(): Promise<StorefrontTokenState> {
+    return this.httpClient.get(`${this.base}/storefront/token`);
+  }
+
+  async generateStorefrontToken(): Promise<GeneratedStorefrontToken> {
+    return this.httpClient.post(`${this.base}/storefront/token/generate`, {});
+  }
+
+  async regenerateStorefrontToken(): Promise<GeneratedStorefrontToken> {
+    return this.httpClient.post(`${this.base}/storefront/token/regenerate`, {});
   }
 
   async updateStore(input: Partial<StoreSettingsInput>): Promise<StoreSettings> {

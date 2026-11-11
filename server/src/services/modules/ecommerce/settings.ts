@@ -80,6 +80,55 @@ export const STORE_SETTINGS_DEFAULTS: StoreSettings = {
   checkoutSessionTtlHours: 168,
 };
 
+/** The storefront (BFF) API token as the admin sees it: never its value. */
+export type StorefrontTokenView = {
+  id: number;
+  name: string;
+  description: string | null;
+  type: 'read-only' | 'full-access' | 'custom';
+  createdAt: string | null;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+};
+
+export type StorefrontTokenState = {
+  token: StorefrontTokenView | null;
+  /** A token id is stored but that token no longer exists. */
+  missing: boolean;
+};
+
+/** Generate/regenerate result: `accessKey` is the plain token, returned this one time only. */
+export type GeneratedStorefrontToken = StorefrontTokenState & {
+  accessKey: string;
+  /** Regenerate only: false when deleting the previous token failed (it may still work). */
+  previousTokenDeleted?: boolean;
+};
+
+export const STOREFRONT_TOKEN_NAME = 'Littlebox storefront BFF';
+export const STOREFRONT_TOKEN_DESCRIPTION =
+  'Managed by the Littlebox e-commerce module for the storefront server (BFF). Do not edit or delete it here: use E-commerce → Settings → API to regenerate it.';
+const MAX_NAME_ATTEMPTS = 10;
+
+const toDateString = (v: unknown): string | null => {
+  if (v === null || v === undefined || v === '') return null;
+  const d = v instanceof Date ? v : new Date(v as string);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+};
+
+const toTokenView = (t: any): StorefrontTokenView => ({
+  id: Number(t.id),
+  name: String(t.name ?? ''),
+  description: t.description ?? null,
+  type: t.type,
+  createdAt: toDateString(t.createdAt),
+  lastUsedAt: toDateString(t.lastUsedAt),
+  expiresAt: toDateString(t.expiresAt),
+});
+
+/** `Littlebox storefront BFF 2026-11-11 09:08:07` (UTC). */
+const tokenBaseName = (now: Date) =>
+  `${STOREFRONT_TOKEN_NAME} ${now.toISOString().slice(0, 19).replace('T', ' ')}`;
+
 export type ManualMethod = {
   id: number;
   name: Record<string, string>;
@@ -199,12 +248,7 @@ function normalizeStorePatch(patch: Record<string, unknown>): {
     else if (typeof v !== 'string' || !isEmail(v)) errors.push({ path: 'supportEmail', code: 'invalid_email' });
     else values.supportEmail = v;
   }
-  if (has('storefrontApiTokenId')) {
-    const v = patch.storefrontApiTokenId;
-    if (v === null || v === undefined) values.storefrontApiTokenId = null;
-    else if (typeof v !== 'number' || !Number.isInteger(v) || v < 1) errors.push({ path: 'storefrontApiTokenId', code: 'invalid_token' });
-    else values.storefrontApiTokenId = v;
-  }
+  // `storefrontApiTokenId` is ignored here: only generate/regenerate set it.
   if (has('checkoutSessionTtlHours')) {
     const v = patch.checkoutSessionTtlHours;
     if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > 720)
@@ -437,7 +481,115 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
       details: { changedFields },
     });
 
+  const apiTokens = (): any => strapi.service('admin::api-token');
+
+  const getStorefrontToken = async (): Promise<StorefrontTokenState> => {
+    const id = (await getStoreSettings()).storefrontApiTokenId;
+    if (typeof id !== 'number') return { token: null, missing: false };
+    const token = await apiTokens().getById(id);
+    return token ? { token: toTokenView(token), missing: false } : { token: null, missing: true };
+  };
+
+  /**
+   * Creates a content-API token for the BFF: type custom, no permissions, unlimited lifespan.
+   * Names are unique in Strapi, so a taken name gets a ` (n)` suffix; a create that fails while
+   * the name now exists (a concurrent insert) is retried with the next name.
+   */
+  const createStorefrontApiToken = async (): Promise<{ id: number; accessKey: string; token: any }> => {
+    const base = tokenBaseName(new Date());
+    for (let attempt = 1; attempt <= MAX_NAME_ATTEMPTS; attempt += 1) {
+      const name = attempt === 1 ? base : `${base} (${attempt})`;
+      if (await apiTokens().exists({ name })) continue;
+      try {
+        const created = await apiTokens().create({
+          name,
+          description: STOREFRONT_TOKEN_DESCRIPTION,
+          type: 'custom',
+          permissions: [],
+          lifespan: null,
+        });
+        return { id: Number(created.id), accessKey: created.accessKey, token: created };
+      } catch (err) {
+        if (await apiTokens().exists({ name })) continue;
+        throw err;
+      }
+    }
+    throw new Error('Could not find a free API token name');
+  };
+
+  /** Stores the new token id; on failure the new token is deleted (best effort) and nothing changes. */
+  const saveStorefrontTokenId = async (id: number): Promise<void> => {
+    try {
+      await writeStoreValues({ storefrontApiTokenId: id });
+    } catch (err) {
+      try {
+        await apiTokens().revoke(id);
+      } catch {
+        strapi.log.warn(`[ecommerce] Could not delete the unused storefront API token ${id}.`);
+      }
+      throw err;
+    }
+  };
+
   return {
+    getStorefrontToken,
+
+    /** First token for the BFF; refused (409) while the configured token exists. */
+    async generateStorefrontToken(userId?: string | number): Promise<GeneratedStorefrontToken> {
+      const current = await getStorefrontToken();
+      if (current.token) {
+        throw new EcommerceValidationError('Invalid settings', [
+          { path: 'storefrontApiTokenId', code: 'STOREFRONT_TOKEN_EXISTS' },
+        ]);
+      }
+      const created = await createStorefrontApiToken();
+      await saveStorefrontTokenId(created.id);
+      await audit({
+        area: AREA,
+        action: 'store.update',
+        userId: userId === undefined ? undefined : String(userId),
+        details: { changedFields: ['storefrontApiTokenId'], storefrontToken: 'generated', tokenId: created.id },
+      });
+      return { token: toTokenView(created.token), missing: false, accessKey: created.accessKey };
+    },
+
+    /**
+     * Replaces the BFF token: the new one is created and stored first, then the previous one
+     * (whatever it was) is deleted, so it stops working at once. A create failure changes nothing.
+     */
+    async regenerateStorefrontToken(userId?: string | number): Promise<GeneratedStorefrontToken> {
+      const previousId = (await getStoreSettings()).storefrontApiTokenId;
+      const created = await createStorefrontApiToken();
+      await saveStorefrontTokenId(created.id);
+      let previousTokenDeleted = true;
+      if (typeof previousId === 'number' && previousId !== created.id) {
+        try {
+          // A token that no longer exists returns null: not an error.
+          await apiTokens().revoke(previousId);
+        } catch {
+          previousTokenDeleted = false;
+          strapi.log.warn(`[ecommerce] Could not delete the previous storefront API token ${previousId}.`);
+        }
+      }
+      await audit({
+        area: AREA,
+        action: 'store.update',
+        userId: userId === undefined ? undefined : String(userId),
+        details: {
+          changedFields: ['storefrontApiTokenId'],
+          storefrontToken: 'regenerated',
+          tokenId: created.id,
+          previousTokenId: previousId ?? null,
+        },
+      });
+      return {
+        token: toTokenView(created.token),
+        missing: false,
+        accessKey: created.accessKey,
+        previousTokenDeleted,
+      };
+    },
+
     async listIntegrations(): Promise<IntegrationView[]> {
       const rows: IntegrationRow[] = await strapi.db.query(uids().integration).findMany({});
       const byId = new Map(rows.map((r) => [r.providerId, r]));
@@ -632,12 +784,6 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
     async updateStoreSettings(patch: Partial<StoreSettings>, userId?: string | number): Promise<StoreSettings> {
       const { values, errors } = normalizeStorePatch((patch ?? {}) as Record<string, unknown>);
       if (errors.length) throw new EcommerceValidationError('Invalid settings', errors);
-      if (typeof values.storefrontApiTokenId === 'number') {
-        const token = await strapi.service('admin::api-token').getById(values.storefrontApiTokenId);
-        if (!token) {
-          throw new EcommerceValidationError('Invalid settings', [{ path: 'storefrontApiTokenId', code: 'invalid_token' }]);
-        }
-      }
 
       if (values.markets) {
         // A market still grouped in a shipping zone cannot go: nothing of this patch is saved.
