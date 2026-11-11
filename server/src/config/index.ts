@@ -49,6 +49,11 @@ export interface LtbConfigs {
         stripeSession: UID.ContentType;
         notification: UID.ContentType;
         webhookEvent: UID.ContentType;
+        shipment: UID.ContentType;
+        shipmentEvent: UID.ContentType;
+        orderReturn: UID.ContentType;
+        invoice: UID.ContentType;
+        invoiceAllocation: UID.ContentType;
       },
     },
     customFields: {
@@ -97,6 +102,11 @@ export default {
           stripeSession: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-stripe-session`,
           notification: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-notification`,
           webhookEvent: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-webhook-event`,
+          shipment: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-shipment`,
+          shipmentEvent: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-shipment-event`,
+          orderReturn: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-order-return`,
+          invoice: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-invoice`,
+          invoiceAllocation: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-invoice-allocation`,
         },
       },
       customFields: {

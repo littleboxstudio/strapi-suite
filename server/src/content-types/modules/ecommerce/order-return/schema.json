@@ -1,0 +1,67 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_order_returns",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-order-return",
+    "pluralName": "ltb-st-module-ecommerce-order-returns",
+    "displayName": "Littlebox Strapi Suite - E-commerce Order Return",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Order Return"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "order": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-order"
+    },
+    "items": {
+      "type": "json"
+    },
+    "grossValue": {
+      "type": "integer"
+    },
+    "discountShare": {
+      "type": "integer"
+    },
+    "refundableValue": {
+      "type": "integer"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "text"
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "required": true,
+      "unique": true
+    },
+    "actor": {
+      "type": "string"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_order_return_idempotency_key_unique",
+      "columns": [
+        "idempotency_key"
+      ],
+      "type": "unique"
+    }
+  ]
+}

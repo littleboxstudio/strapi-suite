@@ -1,0 +1,107 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_invoices",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-invoice",
+    "pluralName": "ltb-st-module-ecommerce-invoices",
+    "displayName": "Littlebox Strapi Suite - E-commerce Invoice",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Invoice"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "order": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-order"
+    },
+    "provider": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "enumeration",
+      "enum": [
+        "INVOICE",
+        "CREDIT_NOTE"
+      ]
+    },
+    "documentType": {
+      "type": "string"
+    },
+    "status": {
+      "type": "enumeration",
+      "enum": [
+        "PENDING",
+        "ISSUED",
+        "FAILED",
+        "UNCERTAIN"
+      ],
+      "default": "PENDING"
+    },
+    "externalId": {
+      "type": "string"
+    },
+    "number": {
+      "type": "string"
+    },
+    "series": {
+      "type": "string"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "lines": {
+      "type": "json"
+    },
+    "customerData": {
+      "type": "json"
+    },
+    "creditedInvoice": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-invoice"
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "required": true,
+      "unique": true
+    },
+    "ourReference": {
+      "type": "string"
+    },
+    "issuedAt": {
+      "type": "datetime"
+    },
+    "error": {
+      "type": "text"
+    },
+    "actor": {
+      "type": "string"
+    },
+    "metadata": {
+      "type": "json"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_invoice_idempotency_key_unique",
+      "columns": [
+        "idempotency_key"
+      ],
+      "type": "unique"
+    }
+  ]
+}
