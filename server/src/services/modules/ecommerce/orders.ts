@@ -61,15 +61,21 @@ import type { OrderHistoryEntry } from './orderHistory';
 import type { CustomerInput } from './customers';
 import { normalizeEmail } from './domain/email';
 import {
-  normalizePromotionCode,
   type AppliedPromotion,
   type EvaluationInput,
   type EvaluationLine,
   type GiftOption,
-  type PricedLine,
   type PromotionCandidate,
   type PromotionEvaluation,
 } from './domain/promotions';
+import { createOrderPricing } from './orderPricing';
+import {
+  MAX_PROMOTION_CODES,
+  normalizeLines,
+  normalizePromotionFields,
+  quantitiesByVariant,
+  type CatalogVariant,
+} from './orderPricingHelpers';
 
 export type { Address } from './domain/orders';
 
@@ -78,7 +84,8 @@ const MAX_CREATE_ATTEMPTS = 3;
 /** Jittered pause before running a failed creation again, so racing requests drift apart. */
 const retryPause = () => new Promise((r) => setTimeout(r, 10 + Math.floor(Math.random() * 41)));
 const FIRST_REFERENCE = 1001;
-export const MAX_PROMOTION_CODES = 5;
+export { MAX_PROMOTION_CODES };
+export type { OrderQuote, OrderQuoteInput, OrderQuoteLine } from './orderPricing';
 
 export type OrderSource = 'admin' | 'storefront';
 
@@ -99,43 +106,6 @@ export type CreateOrderInput = {
   giftChoices?: Record<number, number>;
 };
 
-export type OrderQuoteInput = {
-  lines: { variantId: number; quantity: number }[];
-  locale: string;
-  email?: string | null;
-  promotionCodes?: string[];
-  giftChoices?: Record<number, number>;
-  shipping?: { country: string; postalCode?: string; providerId: string; serviceId: string } | null;
-};
-
-export type OrderQuoteLine = PricedLine & {
-  sku: string;
-  name: string;
-  option: string | null;
-  imageUrl: string | null;
-};
-
-export type OrderQuote = {
-  lines: OrderQuoteLine[];
-  promotions: AppliedPromotion[];
-  codes: PromotionEvaluation['codes'];
-  rejected: PromotionEvaluation['rejected'];
-  totals: {
-    itemsOriginal: number;
-    productDiscount: number;
-    subtotal: number;
-    orderDiscount: number;
-    shippingOriginal: number | null;
-    shippingDiscount: number;
-    shippingTotal: number | null;
-    total: number;
-    totalDiscount: number;
-  };
-  shippingOption: ShippingOption | null;
-  exhaustive: boolean;
-};
-
-/** An applied promotion as the order stored it, with the state of its redemption. */
 export type OrderPromotionView = AppliedPromotion & {
   redemptionStatus: 'RESERVED' | 'RELEASED' | null;
 };
@@ -331,26 +301,6 @@ export type OrderListParams = {
   fulfillmentStatus?: string;
 };
 
-type CatalogVariant = {
-  variantId: number;
-  productId: number;
-  sku: string;
-  price: number;
-  tax: number;
-  weight: number;
-  width: number;
-  height: number;
-  depth: number;
-  name: string;
-  option: string | null;
-  imageUrl: string | null;
-  stock: number;
-  /** The variant and its product are both active. */
-  active: boolean;
-};
-
-type MergedLine = { index: number; variantId: number; quantity: number };
-
 /**
  * What the admin sends to preview or apply a modification. `RECALCULATE` carries no amount:
  * the service quotes it. `MANUAL` may rename the stored method.
@@ -451,90 +401,6 @@ const promotionIdsOf = (refs: unknown): number[] => {
 /** `Promotions applied: Summer (VERAO20), Free shipping`. */
 const describePromotions = (verb: string, list: { name: string; code: string | null }[]) =>
   `Promotions ${verb}: ${list.map((p) => (p.code ? `${p.name} (${p.code})` : p.name)).join(', ')}`;
-
-/** Units per variant, in first-appearance order. */
-const quantitiesByVariant = (lines: { variantId: number; quantity: number }[]) => {
-  const out = new Map<number, number>();
-  for (const l of lines) out.set(l.variantId, (out.get(l.variantId) ?? 0) + l.quantity);
-  return out;
-};
-
-const giftSignature = (e: PromotionEvaluation): string =>
-  JSON.stringify(
-    [...quantitiesByVariant(e.lines.filter((l) => l.isGift)).entries()].sort((a, b) => a[0] - b[0])
-  );
-
-/** Order lines with repeated variants summed into the first occurrence. */
-function normalizeLines(raw: unknown, errors: ValidationIssue[]): MergedLine[] {
-  const rawLines: any[] = Array.isArray(raw) ? raw : [];
-  if (!rawLines.length) errors.push({ path: 'lines', code: 'required' });
-  const merged = new Map<number, MergedLine>();
-  rawLines.forEach((l, i) => {
-    const variantId = Number(l?.variantId);
-    const quantity = l?.quantity;
-    if (!Number.isSafeInteger(variantId) || variantId <= 0) {
-      errors.push({ path: `lines.${i}.variantId`, code: 'required' });
-      return;
-    }
-    if (typeof quantity !== 'number' || !Number.isSafeInteger(quantity) || quantity < 1) {
-      errors.push({ path: `lines.${i}.quantity`, code: 'INVALID_QUANTITY' });
-      return;
-    }
-    const prev = merged.get(variantId);
-    if (prev) prev.quantity += quantity;
-    else merged.set(variantId, { index: i, variantId, quantity });
-  });
-  return [...merged.values()];
-}
-
-/**
- * `promotionCodes` (strings, at most MAX_PROMOTION_CODES, kept in order so errors point at the
- * entered index) and `giftChoices` (positive integer ids on both sides).
- */
-function normalizePromotionFields(
-  input: { promotionCodes?: unknown; giftChoices?: unknown } | undefined,
-  errors: ValidationIssue[]
-): { promotionCodes: string[]; giftChoices: Record<number, number> } {
-  const rawCodes = input?.promotionCodes;
-  let promotionCodes: string[] = [];
-  if (rawCodes !== undefined && rawCodes !== null) {
-    if (!Array.isArray(rawCodes)) {
-      errors.push({ path: 'promotionCodes', code: 'invalid' });
-    } else if (rawCodes.length > MAX_PROMOTION_CODES) {
-      errors.push({ path: 'promotionCodes', code: 'too_many' });
-    } else {
-      rawCodes.forEach((code, i) => {
-        if (typeof code !== 'string') errors.push({ path: `promotionCodes.${i}`, code: 'invalid' });
-      });
-      promotionCodes = rawCodes.map((code) => (typeof code === 'string' ? code : ''));
-    }
-  }
-
-  const rawChoices = input?.giftChoices;
-  const giftChoices: Record<number, number> = {};
-  if (rawChoices !== undefined && rawChoices !== null) {
-    if (!isRecord(rawChoices)) {
-      errors.push({ path: 'giftChoices', code: 'invalid' });
-    } else {
-      for (const [key, value] of Object.entries(rawChoices)) {
-        const promotionId = Number(key);
-        const variantId = Number(value);
-        if (
-          !Number.isSafeInteger(promotionId) ||
-          promotionId <= 0 ||
-          typeof value !== 'number' ||
-          !Number.isSafeInteger(variantId) ||
-          variantId <= 0
-        ) {
-          errors.push({ path: `giftChoices.${key}`, code: 'invalid' });
-        } else {
-          giftChoices[promotionId] = variantId;
-        }
-      }
-    }
-  }
-  return { promotionCodes, giftChoices };
-}
 
 function normalizeExpectedTotal(raw: unknown, errors: ValidationIssue[]): number | null {
   if (raw === undefined || raw === null) return null;
@@ -688,6 +554,20 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     return out;
   };
 
+  const pricing = createOrderPricing({
+    strapi,
+    loadCatalog,
+    promotions,
+    shipping,
+    stock,
+    getStoreSettings: () => service('EcommerceSettingsService').getStoreSettings(),
+    service,
+    getDefaultLocale,
+    clean,
+    num,
+  });
+  const { priceCart, quote, assertLinesAvailable, assertPricedStock, assertCodesUsable } = pricing;
+
   const validateInput = async (input: CreateOrderInput) => {
     const errors: ValidationIssue[] = [];
     const store = await service('EcommerceSettingsService').getStoreSettings();
@@ -818,259 +698,6 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     promoted: r.metadata?.promotedFromFailed === true,
   });
 
-  /** Lines that are unknown or inactive → VARIANT_UNAVAILABLE; then too few units → INSUFFICIENT_STOCK. */
-  const assertLinesAvailable = async (
-    lines: MergedLine[],
-    catalog: Map<number, CatalogVariant>
-  ): Promise<void> => {
-    const lineErrors: ValidationIssue[] = [];
-    for (const l of lines) {
-      if (!catalog.get(l.variantId)?.active)
-        lineErrors.push({ path: `lines.${l.index}.variantId`, code: 'VARIANT_UNAVAILABLE' });
-    }
-    if (lineErrors.length) throw new EcommerceValidationError('Invalid order', lineErrors);
-
-    const available = await stock().available(lines.map((l) => l.variantId));
-    for (const l of lines) {
-      if ((available.get(l.variantId) ?? 0) < l.quantity) {
-        lineErrors.push({ path: `lines.${l.index}.quantity`, code: 'INSUFFICIENT_STOCK' });
-      }
-    }
-    if (lineErrors.length) throw new EcommerceValidationError('Invalid order', lineErrors);
-  };
-
-  /**
-   * Stock for the priced lines, gifts included, summed per variant. A shortfall is reported on
-   * the customer's line of that variant, or on `gifts.<variantId>` for a gift-only variant.
-   */
-  const assertPricedStock = async (lines: MergedLine[], priced: PricedLine[]): Promise<void> => {
-    if (!priced.some((l) => l.isGift)) return;
-    const needed = quantitiesByVariant(priced);
-    const available = await stock().available([...needed.keys()]);
-    const errors: ValidationIssue[] = [];
-    for (const [variantId, units] of needed) {
-      if ((available.get(variantId) ?? 0) >= units) continue;
-      const line = lines.find((l) => l.variantId === variantId);
-      errors.push({
-        path: line ? `lines.${line.index}.quantity` : `gifts.${variantId}`,
-        code: 'INSUFFICIENT_STOCK',
-      });
-    }
-    if (errors.length) throw new EcommerceValidationError('Invalid order', errors);
-  };
-
-  type PricedCart = {
-    evaluation: PromotionEvaluation;
-    /** The instant every evaluation of this cart used (stored as `evaluatedAt`). */
-    evaluatedAt: Date;
-    option: ShippingOption | null;
-    /** The cart's variants and every gift variant on offer. */
-    catalog: Map<number, CatalogVariant>;
-  };
-
-  /**
-   * Prices a cart with its promotions (shared by `quote` and `create`, no writes):
-   * 1. candidates and gift options (gift texts in the order's locale);
-   * 2. evaluation without shipping → gifts G1;
-   * 3. shipping quoted for the lines plus G1 (units summed per variant), on the subtotal after
-   *    the order discount of pass 1;
-   * 4. evaluation with that shipping; if its gifts differ, one more quote with the new gifts and a
-   *    third, final evaluation (at most two shipping quotes).
-   */
-  const priceCart = async (p: {
-    lines: MergedLine[];
-    catalog: Map<number, CatalogVariant>;
-    locale: string;
-    email: string | null;
-    codes: string[];
-    giftChoices: Record<number, number>;
-    destination: {
-      country: string;
-      postalCode?: string;
-      providerId: string;
-      serviceId: string;
-    } | null;
-  }): Promise<PricedCart> => {
-    const promo = promotions();
-    const candidates = await promo.loadCandidates({ codes: p.codes, email: p.email });
-    const gifts = await promo.giftOptions(candidates, quantitiesByVariant(p.lines));
-    const catalog = new Map(p.catalog);
-    const missing = [...gifts.keys()].filter((id) => !catalog.has(id));
-    if (missing.length) {
-      for (const [id, entry] of await loadCatalog(missing, p.locale)) catalog.set(id, entry);
-    }
-
-    const lines = p.lines.map((l) => {
-      const c = catalog.get(l.variantId)!;
-      return { variantId: l.variantId, productId: c.productId, unitPrice: c.price, quantity: l.quantity };
-    });
-    const now = new Date();
-    const evaluate = (shippingPrice: number | null) =>
-      promo.evaluate({
-        lines,
-        email: p.email,
-        shipping: shippingPrice,
-        codes: p.codes,
-        candidates,
-        gifts,
-        giftChoices: p.giftChoices,
-        now,
-      });
-
-    const first = evaluate(null);
-    const destination = p.destination;
-    if (!destination) return { evaluation: first, evaluatedAt: now, option: null, catalog };
-
-    const quoteFor = async (e: PromotionEvaluation): Promise<ShippingOption> => {
-      const option = await shipping().findOption(
-        {
-          country: destination.country,
-          postalCode: destination.postalCode,
-          items: [...quantitiesByVariant(e.lines)].map(([variantId, quantity]) => {
-            const c = catalog.get(variantId);
-            return {
-              variantId,
-              quantity,
-              weight: c?.weight ?? 0,
-              width: c?.width ?? 0,
-              height: c?.height ?? 0,
-              depth: c?.depth ?? 0,
-            };
-          }),
-          subtotal: e.subtotal - e.orderDiscount,
-          locale: p.locale,
-        },
-        destination.providerId,
-        destination.serviceId
-      );
-      if (!option) {
-        throw new EcommerceValidationError('Invalid order', [
-          { path: 'shipping', code: 'SHIPPING_UNAVAILABLE' },
-        ]);
-      }
-      return option;
-    };
-
-    let option = await quoteFor(first);
-    let evaluation = evaluate(num(option.price));
-    if (giftSignature(evaluation) !== giftSignature(first)) {
-      option = await quoteFor(evaluation);
-      evaluation = evaluate(num(option.price));
-    }
-    return { evaluation, evaluatedAt: now, option, catalog };
-  };
-
-  /**
-   * Entered codes that did not apply: a reached limit → PROMOTION_UNAVAILABLE (409); CONFLICT and
-   * NO_BENEFIT are dropped (the order is created without them); anything else →
-   * PROMOTION_CODE_INVALID on the entered index with the code's status.
-   */
-  const assertCodesUsable = (entered: string[], evaluation: PromotionEvaluation): void => {
-    const statusOf = new Map(evaluation.codes.map((c) => [c.code, c]));
-    const seen = new Set<string>();
-    const issues: ValidationIssue[] = [];
-    entered.forEach((raw, i) => {
-      const code = normalizePromotionCode(raw);
-      if (!code || seen.has(code)) return;
-      seen.add(code);
-      const s = statusOf.get(code);
-      // The engine reports every entered code; a missing one is treated as unknown.
-      if (!s) {
-        issues.push({ path: `promotionCodes.${i}`, code: 'PROMOTION_CODE_INVALID', detail: 'NOT_FOUND' });
-        return;
-      }
-      switch (s.status) {
-        case 'APPLIED':
-        case 'CONFLICT':
-        case 'NO_BENEFIT':
-          return;
-        case 'USAGE_LIMIT_REACHED':
-        case 'CUSTOMER_LIMIT_REACHED':
-          issues.push({ path: `promotions.${s.promotionId}`, code: 'PROMOTION_UNAVAILABLE', detail: code });
-          return;
-        default:
-          issues.push({ path: `promotionCodes.${i}`, code: 'PROMOTION_CODE_INVALID', detail: s.status });
-      }
-    });
-    if (issues.length) throw new EcommerceValidationError('Invalid order', issues);
-  };
-
-  /** A cart priced with its promotions, without writing anything (plan 7's entry point). */
-  const quote = async (input: OrderQuoteInput): Promise<OrderQuote> => {
-    const errors: ValidationIssue[] = [];
-    const locale = clean(input?.locale);
-    if (!locale) errors.push({ path: 'locale', code: 'required' });
-    const lines = normalizeLines(input?.lines, errors);
-    const { promotionCodes, giftChoices } = normalizePromotionFields(input, errors);
-    const email = clean(input?.email) || null;
-    if (email && !isValidEmail(email)) errors.push({ path: 'email', code: 'invalid_email' });
-
-    let destination: Parameters<typeof priceCart>[0]['destination'] = null;
-    if (input?.shipping) {
-      const country = clean(input.shipping.country).toUpperCase();
-      const providerId = clean(input.shipping.providerId);
-      const serviceId = clean(input.shipping.serviceId);
-      const postalCode = clean(input.shipping.postalCode);
-      if (!providerId || !serviceId) errors.push({ path: 'shipping', code: 'required' });
-      if (!country) {
-        errors.push({ path: 'shipping.country', code: 'required' });
-      } else {
-        const store = await service('EcommerceSettingsService').getStoreSettings();
-        const countries: string[] = store?.shippingCountries ?? [];
-        if (!/^[A-Z]{2}$/.test(country) || !countries.includes(country)) {
-          errors.push({ path: 'shipping.country', code: 'invalid_country' });
-        }
-      }
-      destination = { country, ...(postalCode ? { postalCode } : {}), providerId, serviceId };
-    }
-    if (errors.length) throw new EcommerceValidationError('Invalid quote', errors);
-
-    const catalog = await loadCatalog(
-      lines.map((l) => l.variantId),
-      locale
-    );
-    await assertLinesAvailable(lines, catalog);
-    const priced = await priceCart({
-      lines,
-      catalog,
-      locale,
-      email,
-      codes: promotionCodes,
-      giftChoices,
-      destination,
-    });
-    const e = priced.evaluation;
-    await assertPricedStock(lines, e.lines);
-
-    return {
-      lines: e.lines.map((l) => {
-        const c = priced.catalog.get(l.variantId);
-        return {
-          ...l,
-          sku: c?.sku ?? '',
-          name: c?.name ?? '',
-          option: c?.option ?? null,
-          imageUrl: c?.imageUrl ?? null,
-        };
-      }),
-      promotions: e.applied,
-      codes: e.codes,
-      rejected: e.rejected,
-      totals: {
-        itemsOriginal: e.itemsOriginal,
-        productDiscount: e.productDiscount,
-        subtotal: e.subtotal,
-        orderDiscount: e.orderDiscount,
-        shippingOriginal: e.shippingOriginal,
-        shippingDiscount: e.shippingDiscount,
-        shippingTotal: e.shippingOriginal === null ? null : e.shippingOriginal - e.shippingDiscount,
-        total: e.total,
-        totalDiscount: e.totalDiscount,
-      },
-      shippingOption: priced.option,
-      exhaustive: e.exhaustive,
-    };
-  };
 
   const create = async (input: CreateOrderInput, ctx: CreateOrderContext) => {
     // A replay returns the stored order before any validation, catalog or shipping work,
