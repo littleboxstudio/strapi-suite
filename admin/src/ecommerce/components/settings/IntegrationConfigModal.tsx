@@ -7,6 +7,8 @@ import {
   Field,
   Flex,
   Modal,
+  MultiSelect,
+  MultiSelectOption,
   SingleSelect,
   SingleSelectOption,
   Switch,
@@ -25,18 +27,26 @@ import {
   type IntegrationFormValues,
   validateIntegrationForm,
 } from '../../utils/integrationForm';
-import type { IntegrationView, ProviderField } from '../../settingsTypes';
+import type { IntegrationView, ProviderField, ShippingZone } from '../../settingsTypes';
 
 /** Mount it only while open: the form is initialised once, from the props. */
 type Props = {
   integration: IntegrationView;
   /** Errors to show on open (e.g. an activation refused for missing fields), keyed by field. */
   initialErrors?: Record<string, string>;
+  /** The shipping zones offered by a `zones` field. */
+  zones?: ShippingZone[];
   onClose: () => void;
   onSaved: (integration: IntegrationView) => void;
 };
 
-const IntegrationConfigModal = ({ integration, initialErrors = {}, onClose, onSaved }: Props) => {
+const IntegrationConfigModal = ({
+  integration,
+  initialErrors = {},
+  zones = [],
+  onClose,
+  onSaved,
+}: Props) => {
   const { formatMessage } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>, defaultMessage?: string) =>
@@ -57,7 +67,7 @@ const IntegrationConfigModal = ({ integration, initialErrors = {}, onClose, onSa
   );
   const hasSecrets = integration.fields.some((f) => f.type === 'secret');
 
-  const setValue = (key: string, value: string | boolean) => {
+  const setValue = (key: string, value: string | boolean | string[]) => {
     setValues((v) => ({ ...v, [key]: value }));
     setErrors((current) => {
       if (!(key in current)) return current;
@@ -164,6 +174,30 @@ const IntegrationConfigModal = ({ integration, initialErrors = {}, onClose, onSa
           </Flex>
         );
       }
+      case 'zones':
+        if (zones.length === 0) {
+          return (
+            <Box background="warning100" borderColor="warning200" hasRadius padding={4}>
+              <Typography textColor="neutral800">
+                {t('ecommerce.settings.zones.createFirst')}
+              </Typography>
+            </Box>
+          );
+        }
+        return (
+          <MultiSelect
+            withTags
+            value={Array.isArray(value) ? value : []}
+            hasError={hasError}
+            onChange={(next: string[]) => setValue(field.key, next)}
+          >
+            {zones.map((zone) => (
+              <MultiSelectOption key={zone.id} value={String(zone.id)}>
+                {zone.name}
+              </MultiSelectOption>
+            ))}
+          </MultiSelect>
+        );
       case 'number':
         return (
           <TextInput

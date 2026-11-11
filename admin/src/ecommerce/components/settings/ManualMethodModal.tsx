@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import {
@@ -8,8 +8,6 @@ import {
   Flex,
   Grid,
   Modal,
-  MultiSelect,
-  MultiSelectOption,
   SingleSelect,
   SingleSelectOption,
   Switch,
@@ -21,7 +19,6 @@ import { LocaleSwitcher } from '../LocaleSwitcher';
 import CreateShippingMethod from '../../usecases/settings/createShippingMethod';
 import UpdateShippingMethod from '../../usecases/settings/updateShippingMethod';
 import { extractFieldErrors } from '../../utils/productForm';
-import { countryOptions } from '../../utils/settingsForm';
 import { TAX_OTHER, TAX_PRESETS } from '../../utils/variantDraft';
 import {
   draftToManualMethodInput,
@@ -31,7 +28,7 @@ import {
   type ManualMethodDraft,
   type ManualMethodErrors,
 } from '../../utils/manualMethodForm';
-import type { ManualMethod } from '../../settingsTypes';
+import type { ManualMethod, ShippingZone } from '../../settingsTypes';
 
 /** Mount it only while open: the draft is initialised once, from the props. */
 type Props = {
@@ -39,11 +36,13 @@ type Props = {
   method: ManualMethod | null;
   locales: { code: string; name: string }[];
   defaultLocale: string;
+  /** One price per zone; without zones the method cannot be saved. */
+  zones: ShippingZone[];
   onClose: () => void;
   onSaved: (method: ManualMethod) => void;
 };
 
-const ManualMethodModal = ({ method, locales, defaultLocale, onClose, onSaved }: Props) => {
+const ManualMethodModal = ({ method, locales, defaultLocale, zones, onClose, onSaved }: Props) => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) =>
@@ -51,12 +50,13 @@ const ManualMethodModal = ({ method, locales, defaultLocale, onClose, onSaved }:
   const codes = locales.map((l) => l.code);
 
   const [draft, setDraft] = useState<ManualMethodDraft>(() =>
-    method ? manualMethodToDraft(method, codes, uiLocale) : emptyManualMethodDraft(codes)
+    method
+      ? manualMethodToDraft(method, codes, uiLocale, zones)
+      : emptyManualMethodDraft(codes, zones)
   );
   const [errors, setErrors] = useState<ManualMethodErrors>({});
   const [locale, setLocale] = useState(defaultLocale);
   const [saving, setSaving] = useState(false);
-  const countries = useMemo(() => countryOptions(uiLocale), [uiLocale]);
 
   const namePath = (code: string) => `name.${code}`;
 
@@ -76,6 +76,12 @@ const ManualMethodModal = ({ method, locales, defaultLocale, onClose, onSaved }:
     clearError(errorPath);
   };
 
+  const updateRate = (zoneId: string, text: string) => {
+    setDraft((d) => ({ ...d, rates: { ...d.rates, [zoneId]: text } }));
+    clearError(`rates.${zoneId}`);
+    clearError('rates');
+  };
+
   const errorText = (path: string) =>
     errors[path] ? t(`ecommerce.settings.errors.${errors[path]}`) : undefined;
 
@@ -86,7 +92,7 @@ const ManualMethodModal = ({ method, locales, defaultLocale, onClose, onSaved }:
   };
 
   const save = async () => {
-    if (saving) return;
+    if (saving || zones.length === 0) return;
     const result = draftToManualMethodInput(draft, defaultLocale);
     if (!result.input) {
       showErrors(result.errors);
@@ -113,6 +119,7 @@ const ManualMethodModal = ({ method, locales, defaultLocale, onClose, onSaved }:
   };
 
   const taxError = errorText('tax');
+  const ratesError = errorText('rates');
 
   return (
     <Modal.Root open onOpenChange={(next: boolean) => !next && onClose()}>
@@ -166,24 +173,52 @@ const ManualMethodModal = ({ method, locales, defaultLocale, onClose, onSaved }:
               </Flex>
             </Field.Root>
 
+            <Flex direction="column" alignItems="stretch" gap={3}>
+              <Flex direction="column" alignItems="flex-start" gap={1}>
+                <Typography variant="pi" fontWeight="bold" textColor="neutral800">
+                  {t('ecommerce.settings.manualMethods.fields.rates')}
+                </Typography>
+                <Typography variant="pi" textColor="neutral600">
+                  {t('ecommerce.settings.manualMethods.fields.rates.hint')}
+                </Typography>
+              </Flex>
+              {zones.length === 0 ? (
+                <Box background="warning100" borderColor="warning200" hasRadius padding={4}>
+                  <Typography textColor="neutral800">
+                    {t('ecommerce.settings.zones.createFirst')}
+                  </Typography>
+                </Box>
+              ) : (
+                <Grid.Root gap={4}>
+                  {zones.map((zone) => {
+                    const id = String(zone.id);
+                    return (
+                      <Grid.Item key={id} col={6} s={12} direction="column" alignItems="stretch">
+                        <Field.Root name={`rates.${id}`} error={errorText(`rates.${id}`)}>
+                          <Field.Label>{zone.name}</Field.Label>
+                          <TextInput
+                            inputMode="decimal"
+                            value={draft.rates[id] ?? ''}
+                            hasError={!!errors[`rates.${id}`] || !!ratesError}
+                            onChange={(e: any) => updateRate(id, e.target.value)}
+                          />
+                          <Field.Error />
+                        </Field.Root>
+                      </Grid.Item>
+                    );
+                  })}
+                </Grid.Root>
+              )}
+              {ratesError && (
+                <Typography variant="pi" textColor="danger600" role="alert">
+                  {errors.rates === 'required'
+                    ? t('ecommerce.settings.manualMethods.ratesRequired')
+                    : ratesError}
+                </Typography>
+              )}
+            </Flex>
+
             <Grid.Root gap={4}>
-              <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
-                <Field.Root
-                  name="price"
-                  required
-                  error={errorText('price')}
-                  hint={t('ecommerce.settings.manualMethods.price.hint')}
-                >
-                  <Field.Label>{t('ecommerce.settings.manualMethods.price')}</Field.Label>
-                  <TextInput
-                    inputMode="decimal"
-                    value={draft.price}
-                    onChange={(e: any) => update('price', e.target.value)}
-                  />
-                  <Field.Error />
-                  <Field.Hint />
-                </Field.Root>
-              </Grid.Item>
               <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
                 <Field.Root name="tax" error={taxError} required>
                   <Field.Label>{t('ecommerce.settings.manualMethods.tax')}</Field.Label>
@@ -221,30 +256,6 @@ const ManualMethodModal = ({ method, locales, defaultLocale, onClose, onSaved }:
                   <Field.Error />
                 </Field.Root>
               </Grid.Item>
-              <Grid.Item col={12} direction="column" alignItems="stretch">
-                <Field.Root
-                  name="countries"
-                  required
-                  error={errorText('countries')}
-                  hint={t('ecommerce.settings.manualMethods.countries.hint')}
-                >
-                  <Field.Label>{t('ecommerce.settings.manualMethods.countries')}</Field.Label>
-                  <MultiSelect
-                    withTags
-                    value={draft.countries}
-                    hasError={!!errors.countries}
-                    onChange={(value: string[]) => update('countries', value)}
-                  >
-                    {countries.map(({ code, name }) => (
-                      <MultiSelectOption key={code} value={code}>
-                        {name}
-                      </MultiSelectOption>
-                    ))}
-                  </MultiSelect>
-                  <Field.Error />
-                  <Field.Hint />
-                </Field.Root>
-              </Grid.Item>
             </Grid.Root>
           </Flex>
         </Modal.Body>
@@ -252,7 +263,7 @@ const ManualMethodModal = ({ method, locales, defaultLocale, onClose, onSaved }:
           <Button variant="tertiary" onClick={onClose}>
             {t('ecommerce.settings.cancel')}
           </Button>
-          <Button onClick={save} loading={saving}>
+          <Button onClick={save} loading={saving} disabled={zones.length === 0}>
             {t('ecommerce.settings.save')}
           </Button>
         </Modal.Footer>

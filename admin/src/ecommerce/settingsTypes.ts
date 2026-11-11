@@ -28,7 +28,8 @@ export type ProviderCategory = 'payment' | 'billing' | 'carrier' | 'email';
 
 export type ProviderField = {
   key: string;
-  type: 'string' | 'secret' | 'boolean' | 'number' | 'select';
+  /** `zones`: a list of shipping zone ids (`number[]`). */
+  type: 'string' | 'secret' | 'boolean' | 'number' | 'select' | 'zones';
   required: boolean;
   default?: unknown;
   options?: string[];
@@ -67,9 +68,9 @@ export type ConnectionResult = {
 export type ManualMethod = {
   id: number;
   name: Record<string, string>;
-  price: number;
+  /** Price in cents (VAT included) per shipping zone id; a zone without one does not offer it. */
+  rates: Record<string, number>;
   tax: number;
-  countries: string[];
   active: boolean;
   position: number;
 };

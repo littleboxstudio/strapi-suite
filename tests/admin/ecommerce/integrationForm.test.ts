@@ -11,8 +11,15 @@ import {
   emptyManualMethodDraft,
   manualMethodErrorMap,
   manualMethodToDraft,
+  ratesSummary,
 } from '../../../admin/src/ecommerce/utils/manualMethodForm';
-import type { IntegrationView, ProviderField } from '../../../admin/src/ecommerce/settingsTypes';
+import { formatCents } from '../../../admin/src/ecommerce/utils/money';
+import type {
+  IntegrationView,
+  ManualMethod,
+  ProviderField,
+  ShippingZone,
+} from '../../../admin/src/ecommerce/settingsTypes';
 
 const L = 'ecommerce.settings.providers.moloni.fields';
 
@@ -136,63 +143,126 @@ describe('integrationErrorMap', () => {
   });
 });
 
+const ZONES: ShippingZone[] = [
+  { id: 1, name: 'Continente', countries: ['PT'], position: 1 },
+  { id: 2, name: 'Ilhas', countries: ['ES'], position: 2 },
+];
+
+const METHOD: ManualMethod = {
+  id: 1,
+  name: { pt: 'Correio' },
+  rates: { '1': 495 },
+  tax: 6,
+  active: false,
+  position: 0,
+};
+
 describe('manual method draft', () => {
-  it('builds the input from a valid draft', () => {
+  it('starts with every zone blank', () => {
+    expect(emptyManualMethodDraft(['pt'], ZONES).rates).toEqual({ '1': '', '2': '' });
+  });
+
+  it('builds the input from a valid draft, leaving blank zones out', () => {
     const draft = {
-      ...emptyManualMethodDraft(['pt', 'en']),
-      names: { pt: ' Entrega em loja ', en: '' },
-      price: '3,50',
+      names: { pt: 'Entrega em loja' },
+      rates: { '1': '3,50', '2': '' },
       taxChoice: '23',
-      countries: ['PT', 'ES'],
+      taxOther: '',
+      active: true,
     };
     expect(draftToManualMethodInput(draft, 'pt')).toEqual({
       errors: {},
-      input: { name: { pt: 'Entrega em loja' }, price: 350, tax: 23, countries: ['PT', 'ES'], active: true },
+      input: { name: { pt: 'Entrega em loja' }, rates: { '1': 350 }, tax: 23, active: true },
     });
   });
 
-  it('reports the default-locale name, price, tax and countries errors', () => {
+  it('flags an invalid price per zone', () => {
+    const draft = { ...emptyManualMethodDraft(['pt'], ZONES), names: { pt: 'X' }, rates: { '1': 'abc' } };
+    expect(draftToManualMethodInput(draft, 'pt').errors['rates.1']).toBe('invalid_number');
+  });
+
+  it('requires a price in at least one zone', () => {
+    const draft = { ...emptyManualMethodDraft(['pt'], ZONES), names: { pt: 'X' } };
+    expect(draftToManualMethodInput(draft, 'pt').errors.rates).toBe('required');
+  });
+
+  it('reports the default-locale name and tax errors', () => {
     const draft = {
-      ...emptyManualMethodDraft(['pt', 'en']),
+      ...emptyManualMethodDraft(['pt', 'en'], ZONES),
       names: { pt: '', en: 'Pickup' },
-      price: 'abc',
+      rates: { '1': '1' },
       taxChoice: 'other',
       taxOther: '120',
-      countries: [],
     };
     expect(draftToManualMethodInput(draft, 'pt')).toEqual({
-      errors: {
-        'name.pt': 'required',
-        price: 'invalid_number',
-        tax: 'out_of_range',
-        countries: 'required',
-      },
+      errors: { 'name.pt': 'required', tax: 'out_of_range' },
     });
   });
 
   it('round-trips a stored method through the draft', () => {
-    const draft = manualMethodToDraft(
-      { id: 1, name: { pt: 'Correio' }, price: 495, tax: 6, countries: ['PT'], active: false, position: 0 },
-      ['pt', 'en'],
-      'pt-PT'
-    );
-    expect(draft).toMatchObject({ names: { pt: 'Correio', en: '' }, price: '4,95', taxChoice: '6', active: false });
+    const draft = manualMethodToDraft(METHOD, ['pt'], 'pt', ZONES);
+    expect(draft).toMatchObject({ names: { pt: 'Correio' }, rates: { '1': '4,95', '2': '' }, taxChoice: '6', active: false });
     expect(draftToManualMethodInput(draft, 'pt').input).toEqual({
       name: { pt: 'Correio' },
-      price: 495,
+      rates: { '1': 495 },
       tax: 6,
-      countries: ['PT'],
       active: false,
     });
   });
 
-  it('collapses countries.N server errors onto countries', () => {
-    expect(
-      manualMethodErrorMap([
-        { path: 'countries.2', code: 'invalid_country' },
-        { path: 'name.pt', code: 'required' },
-      ])
-    ).toEqual({ countries: 'invalid_country', 'name.pt': 'required' });
+  it('keeps rates.<id> server errors per zone', () => {
+    expect(manualMethodErrorMap([{ path: 'rates.9', code: 'invalid_zone' }])).toEqual({
+      'rates.9': 'invalid_zone',
+    });
+  });
+});
+
+describe('ratesSummary', () => {
+  it('lists the priced zones in zone order', () => {
+    // The price follows formatCents (Node's ICU writes "€ 4,95" for plain `pt`).
+    expect(ratesSummary({ ...METHOD, rates: { '2': 995, '1': 495 } }, ZONES, 'pt')).toBe(
+      `Continente ${formatCents(495, 'pt')} · Ilhas ${formatCents(995, 'pt')}`
+    );
+    expect(ratesSummary({ rates: { '2': 995, '1': 495 } }, ZONES, 'pt-PT')).toBe(
+      'Continente 4,95\u00a0€ · Ilhas 9,95\u00a0€'
+    );
+  });
+
+  it('omits zones without a price and is empty without any', () => {
+    expect(ratesSummary({ ...METHOD, rates: { '2': 995 } }, ZONES, 'pt')).toBe(
+      `Ilhas ${formatCents(995, 'pt')}`
+    );
+    expect(ratesSummary({ ...METHOD, rates: {} }, ZONES, 'pt')).toBe('');
+  });
+});
+
+describe('zones field', () => {
+  const zonesField: ProviderField = { key: 'zones', type: 'zones', required: true, default: [], label: 'z' };
+  const view = (config: Record<string, unknown>): IntegrationView => ({
+    id: 'ctt-expresso',
+    category: 'carrier',
+    name: 'CTT',
+    active: false,
+    verified: true,
+    fields: [zonesField],
+    config,
+    secrets: {},
+    secretsStatus: 'none',
+    encryptionKeyConfigured: true,
+  });
+
+  it('sends the zone ids as numbers', () => {
+    expect(buildIntegrationPayload([zonesField], { zones: ['1', '3'] }).config.zones).toEqual([1, 3]);
+  });
+
+  it('reads the stored ids as text', () => {
+    expect(integrationFormFromView(view({ zones: [2] })).zones).toEqual(['2']);
+    expect(integrationFormFromView(view({})).zones).toEqual([]);
+  });
+
+  it('requires a zone when the field is required', () => {
+    expect(validateIntegrationForm([zonesField], { zones: [] })).toEqual({ zones: 'required' });
+    expect(validateIntegrationForm([zonesField], { zones: ['1'] })).toEqual({});
   });
 });
 
