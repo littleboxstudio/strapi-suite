@@ -11,6 +11,7 @@ const expected: [string, string, string][] = [
   ['PUT', '/admin/ecommerce/products/:id', P.productsManage],
   ['DELETE', '/admin/ecommerce/products/:id', P.productsManage],
   ['PUT', '/admin/ecommerce/products/:id/active', P.productsManage],
+  ['PUT', '/admin/ecommerce/variants/:id/active', P.productsManage],
   ['POST', '/admin/ecommerce/images', P.productsManage],
   ['DELETE', '/admin/ecommerce/images/:id', P.productsManage],
   ['POST', '/admin/ecommerce/products/translate', P.productsManage],

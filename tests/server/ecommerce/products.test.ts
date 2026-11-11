@@ -569,3 +569,19 @@ describe('EcommerceProductService — setActive', () => {
     await expect(service.setActive(404, true)).rejects.toBeInstanceOf(EcommerceNotFoundError);
   });
 });
+
+describe('EcommerceProductService — setVariantActive', () => {
+  it('changes only that variant', async () => {
+    const { service, tables } = makeStrapi();
+    const { id } = await service.create(input('Camisa', [variant('A'), variant('B')]));
+    const [a, b] = (await service.get(id)).variants;
+    expect(await service.setVariantActive(a.id, false)).toEqual({ active: false });
+    expect(tables[UIDS.variant].find((v) => v.id === a.id).active).toBe(false);
+    expect(tables[UIDS.variant].find((v) => v.id === b.id).active).toBe(true);
+  });
+
+  it('is a not-found error for an unknown variant', async () => {
+    const { service } = makeStrapi();
+    await expect(service.setVariantActive(404, true)).rejects.toBeInstanceOf(EcommerceNotFoundError);
+  });
+});

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNotification } from '@strapi/strapi/admin';
 import { useIntl } from 'react-intl';
 import {
   Box,
@@ -15,6 +16,7 @@ import {
 import { getTranslation } from '../../core/utils/getTranslation';
 import { LocaleSwitcher } from './LocaleSwitcher';
 import { Gallery } from './Gallery';
+import SetVariantActive from '../usecases/setVariantActive';
 import type { ErrorMap, FormVariant } from '../utils/productForm';
 import type { ImageRecord } from '../types';
 import {
@@ -41,6 +43,8 @@ type Props = {
   onConfirm: (variant: FormVariant) => void;
   /** Uploads and deletes are saved at once, so the page must learn of them even on Cancel. */
   onImagesChange: (variantId: number, images: ImageRecord[]) => void;
+  /** Enabling/disabling a saved variant is stored at once too (same reason). */
+  onActiveChange: (variantId: number, active: boolean) => void;
 };
 
 type TextField =
@@ -62,6 +66,7 @@ const VariantModal = ({
   onClose,
   onConfirm,
   onImagesChange,
+  onActiveChange,
 }: Props) => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const t = (id: string, values?: Record<string, any>) =>
@@ -73,6 +78,35 @@ const VariantModal = ({
   );
   const [errors, setErrors] = useState<ErrorMap>(serverErrors);
   const [locale, setLocale] = useState(initialLocale);
+  const [toggling, setToggling] = useState(false);
+  const { toggleNotification } = useNotification();
+
+  /**
+   * Like the product button: a saved variant is enabled/disabled right away; a new one only in the
+   * draft (stored when the product is saved).
+   */
+  const toggleActive = async () => {
+    if (toggling) return;
+    const next = !draft.active;
+    if (draft.id === undefined) {
+      setDraft((d) => ({ ...d, active: next }));
+      return;
+    }
+    setToggling(true);
+    try {
+      const { active } = await new SetVariantActive().execute(draft.id, next);
+      setDraft((d) => ({ ...d, active }));
+      onActiveChange(draft.id, active);
+      toggleNotification({
+        type: 'success',
+        message: t(active ? 'ecommerce.product.variant.enabledNotice' : 'ecommerce.product.variant.disabledNotice'),
+      });
+    } catch {
+      toggleNotification({ type: 'danger', message: t('ecommerce.product.variant.toggleError') });
+    } finally {
+      setToggling(false);
+    }
+  };
 
   const optionPath = (code: string) => `translations.${code}.option`;
 
@@ -260,10 +294,11 @@ const VariantModal = ({
             <Button variant="tertiary" onClick={onClose}>
               {t('ecommerce.product.variant.cancel')}
             </Button>
-            {/* Same look as the product's button; stored when the product is saved. */}
+            {/* Same as the product's button: applied immediately on a saved variant. */}
             <Button
               variant={draft.active ? 'default' : 'danger'}
-              onClick={() => setDraft((d) => ({ ...d, active: !d.active }))}
+              onClick={toggleActive}
+              loading={toggling}
               aria-pressed={draft.active}
             >
               {formatMessage({ id: getTranslation(draft.active ? 'app.enabled' : 'app.disabled') })}
