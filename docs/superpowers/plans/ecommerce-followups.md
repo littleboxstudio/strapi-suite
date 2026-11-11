@@ -81,3 +81,4 @@ Lista de itens adiados nas revisões do plano 1 (Base e Produtos), a considerar 
 - P4 final review: parked (F6/M3): an order modification can raise the total while a Stripe refund is PROCESSING; when it completes a `due` reappears for money being refunded (block MODIFY while hasPendingRefunds, or require after.excess >= inFlight)
 - P4 final review: parked (F10/M7): sendPaymentInstructions has no idempotency key; a double submit / network retry sends two e-mails and two history entries (UI ref guard exists; the Stripe link itself is reused)
 - P4 final review: note: refunds made directly in the Stripe dashboard (`charge.refunded` for refunds we didn't create) are ignored by design
+- P4 final review: over-refund is recomputed on read: a promoted-from-failed refund can mask a later real amount due after a modification raises the total — persist overRefunded at promotion time

@@ -394,7 +394,9 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
           operationId,
         });
         collector.emit({ type: 'REFUND_FAILED', orderId, payload: eventPayload(updated) });
-      } else {
+      } else if (externalId && !row.externalId) {
+        // Only when Stripe first gives the refund its id: a refresh or resume of a refund that
+        // already had one never re-announces it (each REFUND_STARTED e-mails the customer).
         collector.emit({ type: 'REFUND_STARTED', orderId, payload: eventPayload(updated) });
       }
     });
