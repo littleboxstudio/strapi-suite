@@ -269,12 +269,21 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
       }));
     },
 
-    /** POST /checkout/session: reuses the current session (optional header) or opens one. */
+    /**
+     * POST /checkout/session: a valid current session (optional header) is reused without
+     * counting against `session.create`; only a new session counts.
+     */
     async openSession(ctx: any) {
+      const token = headerOf(ctx, SESSION_HEADER);
+      const current: CheckoutSession | null = token ? await sessions().resolve(token) : null;
+      if (current) {
+        ctx.status = 200;
+        ctx.body = { token: null, expiresAt: current.expiresAt, reused: true };
+        return;
+      }
       if (limited(ctx, 'session.create', { sessionId: null })) return;
-      const current = headerOf(ctx, SESSION_HEADER) || null;
       return respond(ctx, { notFound: 'NOT_FOUND' }, async () => {
-        const opened = await sessions().open(current);
+        const opened = await sessions().open(null);
         return opened.reused
           ? { body: { token: null, expiresAt: opened.expiresAt, reused: true } }
           : { status: 201, body: { token: opened.token, expiresAt: opened.expiresAt } };

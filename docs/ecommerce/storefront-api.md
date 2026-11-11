@@ -53,8 +53,10 @@ token, choose it in Settings, deploy the BFF with it, then delete the old one.
 
 `POST /checkout/session` returns the session token **once** (`201 { token, expiresAt }`).
 Strapi only keeps its hash. The session lives `checkoutSessionTtlHours` from its creation
-(Settings; never extended). Sent with a valid current token in `X-Checkout-Session`, it answers
-`200 { token: null, expiresAt, reused: true }`: keep the token you have.
+(Settings; never extended). **Call it only when the BFF has no valid session** (no cookie, or
+an answer `401 SESSION_INVALID`): each new session counts against `session.create` (20 per hour
+per client IP). Sent with a valid current token in `X-Checkout-Session`, it answers
+`200 { token: null, expiresAt, reused: true }` (keep the token you have) without counting.
 
 The BFF keeps the token in its own cookie: `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`.
 Never in `localStorage` or anything script-readable.
@@ -157,7 +159,7 @@ client IP when the header is valid, e-mail for the verification routes).
 
 | Rule | Per session | Per client IP | Per e-mail |
 |---|---|---|---|
-| `session.create` | | 20 / 60 min (shared bucket without the IP header) | |
+| `session.create` | | 20 / 60 min, new sessions only (shared bucket without the IP header) | |
 | `catalog` | | 600 / 1 min | |
 | `cart.quote` | 120 / 10 min | 600 / 10 min | |
 | `discount.apply` | 20 / 10 min | 60 / 60 min | |
@@ -187,7 +189,7 @@ errors? } } }`. `errors` is a list of `{ path, code, detail? }`.
 | 404 | `ORDER_NOT_FOUND` | order of another session or unknown |
 | 404 | `NOT_FOUND` | unknown product |
 | 409 | `TOTAL_CHANGED` | the total changed: re-quote (`detail` = new total) |
-| 409 | `PROMOTION_UNAVAILABLE` | a code reached its usage limit meanwhile (`promotionCodes.<i>`), or an automatic promotion became unavailable (`promotions`): re-quote |
+| 409 | `PROMOTION_UNAVAILABLE` | an entered code reached its usage limit meanwhile (`promotionCodes.<i>`), or an automatic promotion became unavailable (`promotions`, without its code): re-quote |
 | 409 | `STORE_CREDIT_INSUFFICIENT`, `STORE_CREDIT_CONFLICT` | the credit changed meanwhile |
 | 409 | `NOTHING_DUE`, `PAYMENT_PENDING` | nothing to pay / a payment awaits confirmation |
 | 409 | `VERIFICATION_CONFLICT`, `IDEMPOTENCY_KEY_CONFLICT`, … | concurrent change: retry |

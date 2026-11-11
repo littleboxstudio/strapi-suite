@@ -236,6 +236,21 @@ describe('EcommerceStorefrontController', () => {
       }
     });
 
+    it('F4: POST /checkout/session that only reuses a valid session does not count against session.create', async () => {
+      const t = setup({ fixedClock: true });
+      const headers = { 'X-Storefront-Client-IP': '203.0.113.7' };
+      const first = await t.call('openSession', { headers });
+      expect(first.status).toBe(201);
+      for (let i = 0; i < 30; i++) {
+        const again = await t.call('openSession', { headers: { ...headers, ...S(first.body.token) } });
+        expect(again.status).toBe(200);
+        expect(again.body.reused).toBe(true);
+      }
+      // 19 new sessions are still allowed for this IP (20 per hour in all).
+      for (let i = 0; i < 19; i++) expect((await t.call('openSession', { headers })).status).toBe(201);
+      expect((await t.call('openSession', { headers })).status).toBe(429);
+    });
+
     it('POST /checkout/session without a client IP counts in the shared unknown bucket (20 per hour)', async () => {
       const t = setup({ fixedClock: true });
       for (let i = 0; i < 20; i++) expect((await t.call('openSession')).status).toBe(201);
@@ -606,6 +621,73 @@ describe('EcommerceStorefrontController', () => {
         const raw = JSON.stringify(ctx.body);
         expect(raw).not.toContain('promotions.');
         expect(raw).not.toContain('41');
+      });
+    });
+
+    describe('fix round 1: refusal reasons', () => {
+      const place = (t: ReturnType<typeof setup>, token: string, code: string, key: string) =>
+        t.call('createOrder', {
+          headers: S(token, { 'Idempotency-Key': key }),
+          body: orderBody({ promotionCodes: [code] }),
+        });
+      const refuse = (t: ReturnType<typeof setup>, promotionId: number, detail: string) =>
+        vi.spyOn(t.c.orders, 'create').mockRejectedValue(
+          new EcommerceValidationError('Promotion unavailable', [
+            { path: `promotions.${promotionId}`, code: 'PROMOTION_UNAVAILABLE', detail },
+          ])
+        );
+
+      it('F1: no per-customer limit → 409 USAGE_LIMIT_REACHED even when the global counter looks free (race)', async () => {
+        const t = setup();
+        t.addPromotion(5, { method: 'CODE', code: 'FREE', usageLimit: 10, redemptions: 3 });
+        const token = await t.open();
+        t.verify(token, 'ana@example.pt');
+        refuse(t, 5, 'FREE');
+        const ctx = await place(t, token, 'FREE', 'key-fix1-0001');
+        expect(ctx.status).toBe(409);
+        expect(errorOf(ctx).details.errors).toEqual([
+          { path: 'promotionCodes.0', code: 'PROMOTION_UNAVAILABLE', detail: 'USAGE_LIMIT_REACHED' },
+        ]);
+      });
+
+      it('F1: a per-customer limit but an unverified session → 409 USAGE_LIMIT_REACHED, never NOT_ELIGIBLE', async () => {
+        const t = setup();
+        t.addPromotion(6, { method: 'CODE', code: 'ONCE', perCustomerLimit: 1 });
+        const token = await t.open();
+        refuse(t, 6, 'ONCE');
+        const ctx = await place(t, token, 'ONCE', 'key-fix1-0002');
+        expect(ctx.status).toBe(409);
+        expect(JSON.stringify(ctx.body)).not.toContain('NOT_ELIGIBLE');
+      });
+
+      it('F6: a refused AUTOMATIC promotion whose admin code the customer typed → generic 409 on "promotions", no code echo', async () => {
+        const t = setup();
+        t.addPromotion(7, { method: 'AUTOMATIC', code: 'ADMIN7', usageLimit: 1, redemptions: 1 });
+        const token = await t.open();
+        refuse(t, 7, 'ADMIN7');
+        const ctx = await place(t, token, 'ADMIN7', 'key-fix1-0003');
+        expect(ctx.status).toBe(409);
+        expect(errorOf(ctx).details.errors).toEqual([{ path: 'promotions', code: 'PROMOTION_UNAVAILABLE' }]);
+      });
+
+      it('F2: a failing lookup is logged (no personal data) and answers 409 USAGE_LIMIT_REACHED', async () => {
+        const t = setup();
+        t.addPromotion(8, { method: 'CODE', code: 'BROKEN', perCustomerLimit: 1 });
+        const token = await t.open();
+        t.verify(token, 'ana@example.pt');
+        refuse(t, 8, 'BROKEN');
+        const realQuery = t.c.strapi.db.query;
+        t.c.strapi.db.query = (uid: string) =>
+          uid === UIDS.promotion
+            ? { findOne: async () => { throw new Error('db down'); } }
+            : realQuery(uid);
+        const ctx = await place(t, token, 'BROKEN', 'key-fix1-0004');
+        t.c.strapi.db.query = realQuery;
+        expect(ctx.status).toBe(409);
+        expect(t.c.log.warn).toHaveBeenCalledWith(
+          '[ecommerce:storefront] promotion refusal lookup failed: db down'
+        );
+        expect(JSON.stringify(t.c.log.warn.mock.calls)).not.toContain('ana@');
       });
     });
   });

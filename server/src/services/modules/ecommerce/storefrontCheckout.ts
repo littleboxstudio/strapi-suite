@@ -411,13 +411,27 @@ const EcommerceStorefrontCheckoutService = ({ strapi }: { strapi: Core.Strapi })
    * rollback, so the counters are those the order met. Internal: `storefrontErrors.ts` turns it
    * into the public status (only a reached global limit stays a 409).
    */
-  const refusalReason = async (promotionId: number): Promise<CodeStatus> => {
+  const refusalReason = async (
+    promotionId: number,
+    emailVerified: boolean
+  ): Promise<{ reason: CodeStatus; automatic: boolean }> => {
     try {
       const row = await strapi.db.query(uids().promotion).findOne({
         where: { id: promotionId },
-        select: ['id', 'active', 'startsAt', 'endsAt', 'usageLimit', 'redemptions'],
+        select: [
+          'id',
+          'method',
+          'active',
+          'startsAt',
+          'endsAt',
+          'usageLimit',
+          'redemptions',
+          'perCustomerLimit',
+        ],
       });
-      if (!row) return 'INACTIVE';
+      // Unknown method (row gone): treated as automatic, so no entered code is confirmed.
+      if (!row) return { reason: 'INACTIVE', automatic: true };
+      const automatic = row.method !== 'CODE';
       const status = promotionStatus(
         {
           active: row.active === true,
@@ -426,21 +440,39 @@ const EcommerceStorefrontCheckoutService = ({ strapi }: { strapi: Core.Strapi })
         },
         new Date()
       );
-      if (status !== 'ACTIVE') return status;
+      if (status !== 'ACTIVE') return { reason: status, automatic };
       if (row.usageLimit !== null && row.usageLimit !== undefined) {
-        if (num(row.redemptions) >= num(row.usageLimit)) return 'USAGE_LIMIT_REACHED';
+        if (num(row.redemptions) >= num(row.usageLimit)) {
+          return { reason: 'USAGE_LIMIT_REACHED', automatic };
+        }
       }
-      return 'CUSTOMER_LIMIT_REACHED';
-    } catch {
-      return 'USAGE_LIMIT_REACHED';
+      // A per-customer refusal needs a per-customer limit and a verified e-mail (the engine
+      // never evaluates it otherwise); anything else is a global-capacity race.
+      const perCustomer =
+        row.perCustomerLimit !== null && row.perCustomerLimit !== undefined && emailVerified;
+      return { reason: perCustomer ? 'CUSTOMER_LIMIT_REACHED' : 'USAGE_LIMIT_REACHED', automatic };
+    } catch (err) {
+      strapi.log.warn(
+        `${LOG_PREFIX} promotion refusal lookup failed: ${(err as Error)?.message ?? 'unknown error'}`
+      );
+      return { reason: 'USAGE_LIMIT_REACHED', automatic: false };
     }
   };
 
-  const withRefusalReasons = (errors: ValidationIssue[]): Promise<StorefrontIssue[]> =>
+  /**
+   * Adds the internal reason to each `PROMOTION_UNAVAILABLE`. For an automatic promotion the
+   * detail (its admin code) is dropped, so the refusal is never attached to an entered code.
+   */
+  const withRefusalReasons = (
+    errors: ValidationIssue[],
+    emailVerified: boolean
+  ): Promise<StorefrontIssue[]> =>
     Promise.all(
       errors.map(async (e): Promise<StorefrontIssue> => {
         const m = e.code === 'PROMOTION_UNAVAILABLE' ? /^promotions\.(\d+)$/.exec(e.path) : null;
-        return m ? { ...e, reason: await refusalReason(Number(m[1])) } : e;
+        if (!m) return e;
+        const { reason, automatic } = await refusalReason(Number(m[1]), emailVerified);
+        return automatic ? { path: e.path, code: e.code, reason } : { ...e, reason };
       })
     );
 
@@ -476,6 +508,7 @@ const EcommerceStorefrontCheckoutService = ({ strapi }: { strapi: Core.Strapi })
     await assertSessionLive(s);
 
     const email = input.customer?.email;
+    const emailVerified = typeof email === 'string' ? sessions().isEmailVerified(s, email) : false;
     let created: CreatedOrder;
     try {
       created = await orders().create(
@@ -493,7 +526,7 @@ const EcommerceStorefrontCheckoutService = ({ strapi }: { strapi: Core.Strapi })
           storeCreditCode: input.storeCreditCode,
           idempotencyKey: `sf:${s.id}:${key}`,
           // A store credit needs no verified e-mail: its code is the secret (Global Constraints).
-          emailVerified: typeof email === 'string' ? sessions().isEmailVerified(s, email) : false,
+          emailVerified,
         },
         { actor: 'storefront', source: 'storefront', checkoutSessionId: s.id }
       );
@@ -501,7 +534,7 @@ const EcommerceStorefrontCheckoutService = ({ strapi }: { strapi: Core.Strapi })
       if (err instanceof EcommerceValidationError) {
         throw new EcommerceValidationError(
           err.message,
-          await withRefusalReasons(toStorefrontIssues(err.errors))
+          await withRefusalReasons(toStorefrontIssues(err.errors), emailVerified)
         );
       }
       throw err;
