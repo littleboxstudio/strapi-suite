@@ -1,10 +1,7 @@
 import fs from 'fs';
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID } from '../../../config';
-import {
-  EcommerceNotFoundError,
-  EcommerceValidationError,
-} from '../../../services/modules/ecommerce/errors';
+import { handleDomainError as handleSharedDomainError } from './errors';
 
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 
@@ -15,15 +12,8 @@ const EcommerceProductController = ({ strapi }: { strapi: Core.Strapi }) => {
   const ai = () => service('AiTranslationModuleService');
   const toId = (ctx: any) => Number(ctx.params.id);
 
-  const handleDomainError = (ctx: any, err: unknown) => {
-    if (err instanceof EcommerceValidationError) {
-      return ctx.badRequest('Invalid product', { errors: err.errors });
-    }
-    if (err instanceof EcommerceNotFoundError) {
-      return ctx.notFound('Product not found');
-    }
-    throw err;
-  };
+  const handleDomainError = (ctx: any, err: unknown) =>
+    handleSharedDomainError(ctx, err, { invalid: 'Invalid product', notFound: 'Product not found' });
 
   return {
     async getLocales(ctx: any) {
