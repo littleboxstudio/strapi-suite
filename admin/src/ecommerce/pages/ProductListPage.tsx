@@ -30,24 +30,13 @@ import FetchProducts from '../usecases/fetchProducts';
 import FetchEcommerceLocales from '../usecases/fetchEcommerceLocales';
 import EmptyProducts from '../illustrations/EmptyProducts';
 import { formatCents } from '../utils/money';
+import { pageWindow } from '../utils/pagination';
 import type { ProductListItem } from '../types';
 
 const SEARCH_DEBOUNCE_MS = 300;
 const THUMBNAIL_SIZE = 36;
 
 type PageInfo = { page: number; pageCount: number };
-
-/** Page numbers to render, with `null` standing for a gap (dots). */
-function pageWindow(page: number, pageCount: number): (number | null)[] {
-  const wanted = new Set([1, pageCount, page - 1, page, page + 1]);
-  const pages = [...wanted].filter((p) => p >= 1 && p <= pageCount).sort((a, b) => a - b);
-  const result: (number | null)[] = [];
-  pages.forEach((p, i) => {
-    if (i > 0 && p - pages[i - 1] > 1) result.push(null);
-    result.push(p);
-  });
-  return result;
-}
 
 const ProductListPage = () => {
   const { formatMessage, locale: uiLocale } = useIntl();

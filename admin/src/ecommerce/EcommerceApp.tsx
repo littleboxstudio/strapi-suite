@@ -6,6 +6,8 @@ import { ProductListPage } from './pages/ProductListPage';
 import { ProductEditPage } from './pages/ProductEditPage';
 import { SettingsPage } from './pages/settings/SettingsPage';
 import { EmailTemplateEditorPage } from './pages/settings/EmailTemplateEditorPage';
+import { CustomerListPage } from './pages/customers/CustomerListPage';
+import { CustomerDetailPage } from './pages/customers/CustomerDetailPage';
 
 const EcommerceApp = () => (
   <EcommerceLayout>
@@ -15,7 +17,8 @@ const EcommerceApp = () => (
       <Route path="products/new" element={<ProductEditPage />} />
       <Route path="products/:id" element={<ProductEditPage />} />
       <Route path="orders" element={<EcommerceComingSoon />} />
-      <Route path="customers" element={<EcommerceComingSoon />} />
+      <Route path="customers" element={<CustomerListPage />} />
+      <Route path="customers/:id" element={<CustomerDetailPage />} />
       <Route path="promotions" element={<EcommerceComingSoon />} />
       <Route path="settings" element={<SettingsPage />} />
       <Route path="settings/:section" element={<SettingsPage />} />

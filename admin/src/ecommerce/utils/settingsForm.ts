@@ -88,7 +88,7 @@ const isTimezone = (value: string) => {
   }
 };
 
-const isEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+export const isEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
 const isRelativePath = (value: string) => value.startsWith('/') && !value.startsWith('//');
 
