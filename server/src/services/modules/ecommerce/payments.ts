@@ -81,7 +81,8 @@ export type StoreCreditPaymentInput = {
 };
 
 export type PaymentInstructionsInput =
-  { mode: 'MANUAL'; instructions: string } | { mode: 'STRIPE' };
+  /** `methodLabel`: the selected manual method's name (e.g. "MB WAY"), shown in the e-mail. */
+  { mode: 'MANUAL'; instructions: string; methodLabel?: string } | { mode: 'STRIPE' };
 
 export const MAX_INSTRUCTIONS_LENGTH = 5000;
 
@@ -368,11 +369,18 @@ const EcommercePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
       ]);
     }
     let instructions: string | undefined;
+    let methodLabel: string | undefined;
     if (mode === 'MANUAL') {
       instructions = clean((input as { instructions?: unknown }).instructions);
       if (!instructions) {
         throw new EcommerceValidationError('Invalid payment instructions', [
           { path: 'instructions', code: 'required' },
+        ]);
+      }
+      methodLabel = clean((input as { methodLabel?: unknown }).methodLabel) || undefined;
+      if (methodLabel && methodLabel.length > 255) {
+        throw new EcommerceValidationError('Invalid payment instructions', [
+          { path: 'methodLabel', code: 'too_long' },
         ]);
       }
       if (instructions.length > MAX_INSTRUCTIONS_LENGTH) {
@@ -410,6 +418,7 @@ const EcommercePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
       const amountDue = link ? link.amount : state.summary.due;
       const payload: Record<string, unknown> = { mode };
       if (instructions !== undefined) payload.instructions = instructions;
+      if (methodLabel !== undefined) payload.methodLabel = methodLabel;
       if (link) {
         payload.url = link.url;
         payload.expiresAt = link.expiresAt;

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { createHmac } from 'node:crypto';
 
 const resend = vi.hoisted(() => ({ sendWithResend: vi.fn() }));
 vi.mock('../../../server/src/services/modules/ecommerce/providers/email/resendSender', async (importOriginal) => {
@@ -12,7 +13,10 @@ import {
   type DomainEvent,
 } from '../../../server/src/services/modules/ecommerce/events';
 import { EcommerceEmailError, EcommerceNotFoundError } from '../../../server/src/services/modules/ecommerce/errors';
-import { subscribeNotifications } from '../../../server/src/services/modules/ecommerce/notifications';
+import {
+  subscribeNotifications,
+  __drainNotificationsForTests,
+} from '../../../server/src/services/modules/ecommerce/notifications';
 import { UIDS, setupCommerce, createOrder, type Commerce } from './helpers/commerceSetup';
 
 beforeEach(() => {
@@ -225,6 +229,110 @@ describe('EcommerceNotificationService.handle', () => {
   });
 });
 
+
+describe('fix round 1', () => {
+  it('two concurrent handlers of the same event send once (the insert loser returns)', async () => {
+    const c = setup();
+    await createOrder(c);
+    const event: DomainEvent = c.events.find((e) => e.type === 'ORDER_CREATED');
+    c.tables[UIDS.notification].length = 0;
+    resend.sendWithResend.mockClear();
+    await Promise.all([c.notifications.handle(event), c.notifications.handle({ ...event })]);
+    expect(resend.sendWithResend).toHaveBeenCalledTimes(1);
+    expect(notifs(c)).toHaveLength(1);
+    expect(notifs(c)[0].status).toBe('SENT');
+  });
+
+  it('skips a row that another sender has in progress', async () => {
+    const c = setup();
+    await createOrder(c);
+    const event: DomainEvent = c.events.find((e) => e.type === 'ORDER_CREATED');
+    Object.assign(notifs(c)[0], { status: 'FAILED', error: 'IN_PROGRESS' });
+    resend.sendWithResend.mockClear();
+    await c.notifications.handle(event);
+    expect(resend.sendWithResend).not.toHaveBeenCalled();
+    expect(notifs(c)[0].error).toBe('IN_PROGRESS');
+  });
+
+  it('REFUND_COMPLETED from the Stripe webhook sends the e-mail (reference = Stripe refund id)', async () => {
+    const c = setup();
+    const orderId = await createOrder(c);
+    c.tables[UIDS.payment].push({
+      id: 900, order: orderId, method: 'STRIPE', status: 'COMPLETED', amount: 4500, currency: 'EUR',
+      externalId: 'pi_1', idempotencyKey: 'stripe:900', coverage: null,
+      completedAt: '2026-11-11T10:00:00.000Z', actor: 'webhook:stripe', metadata: null,
+    });
+    c.tables[UIDS.refund].push({
+      id: 50, order: orderId, payment: 900, method: 'STRIPE', kind: 'MONEY', status: 'PROCESSING',
+      amount: 1000, currency: 'EUR', reason: 'OTHER', description: 'Damaged item', reference: null,
+      externalId: 're_abc', idempotencyKey: 'k:900', storeCredit: null, completedAt: null,
+      metadata: { paymentIntentId: 'pi_1' }, actor: 'user:1',
+    });
+    const raw = Buffer.from(JSON.stringify({
+      id: 'evt_r', object: 'event', type: 'refund.updated',
+      data: { object: { id: 're_abc', object: 'refund', status: 'succeeded' } },
+    }));
+    const t = Math.floor(Date.now() / 1000);
+    const sig = `t=${t},v1=${createHmac('sha256', 'whsec_test_123').update(`${t}.`).update(raw).digest('hex')}`;
+    expect(await c.webhooks.handle(raw, sig)).toEqual({ duplicate: false, status: 'PROCESSED' });
+    const row = notifs(c).find((n) => n.type === 'REFUND_COMPLETED');
+    expect(row).toMatchObject({ status: 'SENT', order: orderId });
+    expect(row.payload.refund).toMatchObject({
+      amount: '€10.00',
+      reference: 're_abc',
+      description: 'Damaged item',
+      method: 'Card / original payment method',
+      isPartial: 'yes',
+    });
+  });
+
+  it('a failure loading the order still records a resendable FAILED row', async () => {
+    const c = setup();
+    const orderId = await createOrder(c);
+    const real = c.orders.get;
+    c.orders.get = vi.fn().mockRejectedValueOnce(new Error('db down'));
+    resend.sendWithResend.mockClear();
+    await c.payments.addManualPayment(orderId, { amount: 100, idempotencyKey: 'p1' }, actor);
+    const row = notifs(c).find((n) => n.type === 'PAYMENT_CONFIRMATION');
+    expect(row).toMatchObject({ status: 'FAILED', error: 'PREPARE_FAILED', order: orderId });
+    expect(resend.sendWithResend).not.toHaveBeenCalled();
+    c.orders.get = real;
+    const view = await c.notifications.resend(row.id, actor);
+    expect(view).toMatchObject({ status: 'SENT', recipient: 'Ana@Example.pt', locale: 'en', error: null });
+    const stored = notifs(c).find((n) => n.id === row.id);
+    expect(stored.payload.payment.amount).toBe('€1.00');
+    expect(resend.sendWithResend.mock.calls[0][1].idempotencyKey).toBe(row.uniqueKey);
+  });
+
+  it('resend that corrects the recipient also updates the payload e-mail', async () => {
+    const c = setup();
+    const orderId = await createOrder(c);
+    const order = c.tables[UIDS.order].find((o) => o.id === orderId);
+    const original = order.customerSnapshot.email;
+    order.customerSnapshot = { ...order.customerSnapshot, email: '' };
+    await c.payments.addManualPayment(orderId, { amount: 100, idempotencyKey: 'p1' }, actor);
+    const row = notifs(c).find((n) => n.type === 'PAYMENT_CONFIRMATION');
+    expect(row.status).toBe('SKIPPED');
+    order.customerSnapshot = { ...order.customerSnapshot, email: original };
+    expect((await c.notifications.resend(row.id, actor)).status).toBe('SENT');
+    const stored = notifs(c).find((n) => n.id === row.id);
+    expect(stored.recipient).toBe(original);
+    expect(stored.payload.customer.email).toBe(original);
+  });
+
+  it('manual payment instructions carry the selected manual method name', async () => {
+    const c = setup();
+    const orderId = await createOrder(c);
+    await c.payments.sendPaymentInstructions(
+      orderId,
+      { mode: 'MANUAL', instructions: 'Pay by MB WAY to 912345678', methodLabel: 'MB WAY' },
+      actor
+    );
+    const row = notifs(c).find((n) => n.type === 'PAYMENT_INSTRUCTIONS');
+    expect(row.payload.payment.method).toBe('MB WAY');
+  });
+});
+
 describe('EcommerceNotificationService.resend / listForOrder', () => {
   it('resending a SENT notification returns it without sending', async () => {
     const c = setup();
@@ -258,7 +366,7 @@ describe('subscribeNotifications', () => {
   const event: DomainEvent = { id: 'e1', type: 'ORDER_CREATED', orderId: 1, occurredAt: '', payload: {} };
 
   const fakeStrapi = (active: string | null) => {
-    const handle = vi.fn(async () => undefined);
+    const handle = vi.fn(async (_e: DomainEvent) => undefined);
     const bus = createEventBus(() => undefined);
     const strapi: any = {
       log: { error: vi.fn() },
@@ -284,7 +392,45 @@ describe('subscribeNotifications', () => {
       const col = bus.collector();
       col.emit(event);
       await col.flush();
+      await __drainNotificationsForTests();
       expect(handle).toHaveBeenCalledTimes(calls);
     }
+  });
+
+  it('does not block the flush: events queue and are handled one at a time, in order', async () => {
+    __resetEventHandlersForTests();
+    const { strapi, bus, handle } = fakeStrapi('true');
+    const order: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    handle.mockImplementation(async (e: DomainEvent) => {
+      order.push(`start:${e.id}`);
+      if (e.id === 'a') await gate;
+      order.push(`end:${e.id}`);
+    });
+    subscribeNotifications(strapi);
+    const col = bus.collector();
+    col.emit({ ...event, id: 'a' });
+    col.emit({ ...event, id: 'b' });
+    await col.flush(); // returns although 'a' is still sending
+    await new Promise((r) => setTimeout(r, 5));
+    expect(order).toEqual(['start:a']);
+    release();
+    await __drainNotificationsForTests();
+    expect(order).toEqual(['start:a', 'end:a', 'start:b', 'end:b']);
+  });
+
+  it('a failing item does not stop the queue', async () => {
+    __resetEventHandlersForTests();
+    const { strapi, bus, handle } = fakeStrapi('true');
+    handle.mockRejectedValueOnce(new Error('x'));
+    subscribeNotifications(strapi);
+    const col = bus.collector();
+    col.emit({ ...event, id: 'a' });
+    col.emit({ ...event, id: 'b' });
+    await col.flush();
+    await __drainNotificationsForTests();
+    expect(handle).toHaveBeenCalledTimes(2);
+    expect(strapi.log.error).toHaveBeenCalled();
   });
 });

@@ -36,6 +36,10 @@ export type NotificationView = {
 const SYSTEM = 'system';
 /** A row claimed by a sender that has not finished (a crash leaves it resendable). */
 const IN_PROGRESS = 'IN_PROGRESS';
+/** The template data could not be built (order/settings load failed); resend rebuilds it. */
+const PREPARE_FAILED = 'PREPARE_FAILED';
+/** Payload key holding the source event of a PREPARE_FAILED row. */
+const SOURCE_EVENT = 'sourceEvent';
 
 const idOf = (v: any): number | null =>
   v === null || v === undefined ? null : typeof v === 'object' ? (v.id ?? null) : Number(v);
@@ -255,6 +259,66 @@ const EcommerceNotificationService = ({ strapi }: { strapi: Core.Strapi }) => {
     }
   };
 
+  /** A FAILED row that keeps the source event, so `resend` can build the e-mail later. */
+  const recordPrepareFailure = async (
+    event: DomainEvent,
+    type: NotificationTemplateType,
+    uniqueKey: string
+  ): Promise<void> => {
+    try {
+      const row = await rows().create({
+        data: {
+          order: event.orderId ?? null,
+          type,
+          eventId: event.id,
+          uniqueKey,
+          recipient: null,
+          locale: null,
+          status: 'FAILED',
+          providerMessageId: null,
+          error: PREPARE_FAILED,
+          attempts: 0,
+          sentAt: null,
+          payload: {
+            [SOURCE_EVENT]: {
+              id: event.id,
+              type: event.type,
+              orderId: event.orderId ?? null,
+              occurredAt: event.occurredAt,
+              payload: event.payload ?? {},
+            },
+          },
+        },
+      });
+      await recordHistory(row, 'FAILED', SYSTEM);
+    } catch (err) {
+      if (!isUniqueViolation(err)) logError('failure record', err);
+    }
+  };
+
+  /** Rebuilds a PREPARE_FAILED row from its source event; null when it still cannot. */
+  const rebuild = async (row: any): Promise<any> => {
+    const src = row.payload?.[SOURCE_EVENT];
+    if (!src || typeof src !== 'object') return null;
+    const event: DomainEvent = {
+      id: String(src.id),
+      type: src.type,
+      ...(src.orderId != null ? { orderId: Number(src.orderId) } : {}),
+      occurredAt: String(src.occurredAt ?? ''),
+      payload: src.payload && typeof src.payload === 'object' ? src.payload : {},
+    };
+    const prepared = await prepare(event, row.type);
+    return rows().update({
+      where: { id: row.id },
+      data: {
+        recipient: prepared.recipient || null,
+        locale: prepared.locale,
+        payload: prepared.payload,
+        error: null,
+      },
+    });
+  };
+
   const handle = async (event: DomainEvent): Promise<void> => {
     try {
       const type = templateForEvent(event);
@@ -263,10 +327,23 @@ const EcommerceNotificationService = ({ strapi }: { strapi: Core.Strapi }) => {
       const existing = await rows().findOne({ where: { uniqueKey } });
       if (existing) {
         // A redelivered event: sent once only; an earlier failure is retried.
-        if (existing.status !== 'SENT' && existing.error !== IN_PROGRESS) await deliver(existing, SYSTEM);
+        if (
+          existing.status !== 'SENT' &&
+          existing.error !== IN_PROGRESS &&
+          existing.error !== PREPARE_FAILED
+        ) {
+          await deliver(existing, SYSTEM);
+        }
         return;
       }
-      const prepared = await prepare(event, type);
+      let prepared: Prepared;
+      try {
+        prepared = await prepare(event, type);
+      } catch (err) {
+        logError(`preparation for ${event.type} (event ${event.id})`, err);
+        await recordPrepareFailure(event, type, uniqueKey);
+        return;
+      }
       const row = await claimRow(event, uniqueKey, prepared);
       if (!row) return; // another handler owns this key
       await deliver(row, SYSTEM);
@@ -281,13 +358,31 @@ const EcommerceNotificationService = ({ strapi }: { strapi: Core.Strapi }) => {
     if (!row) throw new EcommerceNotFoundError('Notification not found');
     if (row.status === 'SENT') return toView(row);
     let target = row;
-    if (!isEmail(row.recipient)) {
+    if (row.error === PREPARE_FAILED) {
+      try {
+        target = (await rebuild(row)) ?? row;
+      } catch (err) {
+        logError('rebuild', err);
+        return toView(row);
+      }
+      if (target.error === PREPARE_FAILED) return toView(target);
+    }
+    if (!isEmail(target.recipient)) {
       // The snapshot may have been corrected since: take the order's current e-mail.
-      const orderId = idOf(row.order);
+      const orderId = idOf(target.order);
       if (orderId !== null) {
         const order: OrderView = await service('EcommerceOrderService').get(orderId);
         const email = typeof order.customer?.email === 'string' ? order.customer.email.trim() : '';
-        if (email) target = await rows().update({ where: { id: row.id }, data: { recipient: email } });
+        if (email) {
+          const payload =
+            target.payload && typeof target.payload === 'object' ? target.payload : {};
+          const customer =
+            payload.customer && typeof payload.customer === 'object' ? payload.customer : {};
+          target = await rows().update({
+            where: { id: target.id },
+            data: { recipient: email, payload: { ...payload, customer: { ...customer, email } } },
+          });
+        }
       }
     }
     const updated = await deliver(target, actor);
@@ -309,6 +404,26 @@ const EcommerceNotificationService = ({ strapi }: { strapi: Core.Strapi }) => {
  * Subscribes the notification service to every domain event (from `bootstrap`). Events are
  * handled only while the e-commerce module is active.
  */
+/**
+ * In-process serial queue (FIFO, one send at a time): the bus subscriber only enqueues, so the
+ * request that committed the operation (checkout, Stripe webhook, admin action) never waits for
+ * the e-mail provider. Single instance, in memory, like the event bus itself.
+ */
+let queue: Promise<void> = Promise.resolve();
+
+const enqueue = (task: () => Promise<void>, onError: (err: unknown) => void): void => {
+  queue = queue.then(task).catch(onError);
+};
+
+/** Test helper: resolves once every queued notification (including ones queued meanwhile) ran. */
+export async function __drainNotificationsForTests(): Promise<void> {
+  let current: Promise<void>;
+  do {
+    current = queue;
+    await current;
+  } while (current !== queue);
+}
+
 export function subscribeNotifications(strapi: Core.Strapi): void {
   const isActive = async (): Promise<boolean> => {
     const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
@@ -317,14 +432,15 @@ export function subscribeNotifications(strapi: Core.Strapi): void {
       .findOne({ where: { module: ECOMMERCE_MODULE, property: 'active' } });
     return setting?.value === 'true';
   };
+  const onError = (err: unknown) => {
+    const name = err instanceof Error ? err.name : typeof err;
+    strapi.log?.error?.(`[ecommerce] notification subscriber failed: ${name}`);
+  };
   const handler: DomainEventHandler = async (event) => {
-    try {
+    enqueue(async () => {
       if (!(await isActive())) return;
       await strapi.plugin(PLUGIN_ID).service('EcommerceNotificationService').handle(event);
-    } catch (err) {
-      const name = err instanceof Error ? err.name : typeof err;
-      strapi.log?.error?.(`[ecommerce] notification subscriber failed: ${name}`);
-    }
+    }, onError);
   };
   strapi.plugin(PLUGIN_ID).service('EcommerceEventBus').subscribe('*', handler);
 }
