@@ -34,6 +34,9 @@ import EcommerceStoreCreditMovementSchema from './modules/ecommerce/store-credit
 import EcommerceStripeSessionSchema from './modules/ecommerce/stripe-session';
 import EcommerceNotificationSchema from './modules/ecommerce/notification';
 import EcommerceWebhookEventSchema from './modules/ecommerce/webhook-event';
+import EcommercePromotionSchema from './modules/ecommerce/promotion';
+import EcommercePromotionRedemptionSchema from './modules/ecommerce/promotion-redemption';
+import EcommercePromotionCustomerUsageSchema from './modules/ecommerce/promotion-customer-usage';
 
 export default {
   "ltb-st-app-setting": SettingsAppSchema,
@@ -71,5 +74,8 @@ export default {
   "ltb-st-module-ecommerce-store-credit-movement": EcommerceStoreCreditMovementSchema,
   "ltb-st-module-ecommerce-stripe-session": EcommerceStripeSessionSchema,
   "ltb-st-module-ecommerce-notification": EcommerceNotificationSchema,
-  "ltb-st-module-ecommerce-webhook-event": EcommerceWebhookEventSchema
+  "ltb-st-module-ecommerce-webhook-event": EcommerceWebhookEventSchema,
+  "ltb-st-module-ecommerce-promotion": EcommercePromotionSchema,
+  "ltb-st-module-ecommerce-promotion-redemption": EcommercePromotionRedemptionSchema,
+  "ltb-st-module-ecommerce-promotion-customer-usage": EcommercePromotionCustomerUsageSchema
 };

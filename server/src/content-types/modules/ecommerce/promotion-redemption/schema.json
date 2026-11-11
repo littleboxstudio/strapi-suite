@@ -1,0 +1,79 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_promotion_redemptions",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-promotion-redemption",
+    "pluralName": "ltb-st-module-ecommerce-promotion-redemptions",
+    "displayName": "Littlebox Strapi Suite - E-commerce Promotion Redemption",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Promotion Redemption"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "promotion": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-promotion"
+    },
+    "order": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-order"
+    },
+    "customer": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-customer"
+    },
+    "emailNormalized": {
+      "type": "string"
+    },
+    "promotionCode": {
+      "type": "string"
+    },
+    "amount": {
+      "type": "integer"
+    },
+    "status": {
+      "type": "enumeration",
+      "enum": [
+        "RESERVED",
+        "RELEASED"
+      ],
+      "default": "RESERVED"
+    },
+    "releasedAt": {
+      "type": "datetime"
+    },
+    "uniqueKey": {
+      "type": "string",
+      "required": true,
+      "unique": true
+    },
+    "actor": {
+      "type": "string"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_promo_redemption_key_unique",
+      "columns": [
+        "unique_key"
+      ],
+      "type": "unique"
+    }
+  ]
+}
