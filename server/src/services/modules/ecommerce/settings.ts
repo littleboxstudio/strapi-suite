@@ -136,7 +136,7 @@ const isCountry = (v: unknown): boolean => {
 /** True for values shaped like a mask (`********`, `sk_********9876`): never accepted as a secret. */
 const isMaskShaped = (v: string) => maskSecret(v) === v || /^.{0,3}\*{8}.{0,4}$/.test(v);
 
-const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+export const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 
 function validateCountries(value: unknown, path: string, errors: ValidationIssue[]): void {
   if (!Array.isArray(value)) {
