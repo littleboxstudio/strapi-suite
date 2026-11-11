@@ -28,7 +28,7 @@ import FetchEmailTemplate from '../../usecases/settings/fetchEmailTemplate';
 import SaveEmailTemplate from '../../usecases/settings/saveEmailTemplate';
 import PreviewEmailTemplate from '../../usecases/settings/previewEmailTemplate';
 import RestoreDefaultEmailTemplate from '../../usecases/settings/restoreDefaultEmailTemplate';
-import FetchEcommerceLocales from '../../usecases/fetchEcommerceLocales';
+import FetchSettingsLocales from '../../usecases/settings/fetchSettingsLocales';
 import { extractFieldErrors } from '../../utils/productForm';
 import { insertAtCursor, isEmailTemplateType } from '../../utils/emailTemplateEditor';
 import { useSettingsPermissions } from './useSettingsPermissions';
@@ -121,7 +121,7 @@ const EmailTemplateEditorPage = () => {
 
   useEffect(() => {
     let cancelled = false;
-    new FetchEcommerceLocales()
+    new FetchSettingsLocales()
       .execute()
       .then((info) => {
         if (!cancelled) setLocales(info);
