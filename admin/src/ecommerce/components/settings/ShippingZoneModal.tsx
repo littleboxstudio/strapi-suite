@@ -19,6 +19,7 @@ import {
   draftToZoneInput,
   emptyZoneDraft,
   zoneErrorMap,
+  zoneCountryChoices,
   zoneToDraft,
   type ZoneDraft,
 } from '../../utils/shippingZoneForm';
@@ -30,11 +31,13 @@ type Props = {
   zone: ShippingZone | null;
   /** The store's markets: the only countries a zone can hold. */
   markets: string[];
+  /** All zones: a country already in another zone is not offered. */
+  zones: ShippingZone[];
   onClose: () => void;
   onSaved: (zone: ShippingZone) => void;
 };
 
-const ShippingZoneModal = ({ zone, markets, onClose, onSaved }: Props) => {
+const ShippingZoneModal = ({ zone, markets, zones, onClose, onSaved }: Props) => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) =>
@@ -45,11 +48,11 @@ const ShippingZoneModal = ({ zone, markets, onClose, onSaved }: Props) => {
   const [conflictZones, setConflictZones] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
-  // Market countries, plus any stored country no longer in the markets so it can be removed.
+  // Market countries not in another zone, plus the zone's own (even outside the markets).
   const options = useMemo(() => {
-    const allowed = new Set([...markets, ...(zone?.countries ?? [])]);
+    const allowed = zoneCountryChoices(markets, zone, zones);
     return countryOptions(uiLocale).filter((o) => allowed.has(o.code));
-  }, [markets, zone, uiLocale]);
+  }, [markets, zone, zones, uiLocale]);
 
   const update = <K extends keyof ZoneDraft>(field: K, value: ZoneDraft[K]) => {
     setDraft((d) => ({ ...d, [field]: value }));

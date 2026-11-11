@@ -22,6 +22,9 @@ type Props = {
   zones?: ShippingZone[];
 };
 
+/** Stable fallback, so the methods table does not refetch on every render. */
+const NO_ZONES: ShippingZone[] = [];
+
 /** Billing allows a single active provider; the server deactivates the others. */
 const EXCLUSIVE_CATEGORIES: ProviderCategory[] = ['billing'];
 
@@ -163,7 +166,7 @@ const IntegrationsSection = ({ category, readOnly, zones }: Props) => {
           onToggleActive={(active) => onToggleActive(integration, active)}
         >
           {integration.id === 'manual' && (
-            <ManualMethodsTable embedded readOnly={readOnly} zones={zones ?? []} />
+            <ManualMethodsTable readOnly={readOnly} zones={zones ?? NO_ZONES} />
           )}
         </IntegrationCard>
       ))}

@@ -84,22 +84,27 @@ export function integrationErrorMap(errors: SettingsFieldError[]): Record<string
   return map;
 }
 
-/** A storefront path: one leading `/`, no spaces or backslashes (same rule as the server). */
-const isStorefrontPath = (text: string) => /^\/(?!\/)[^\s\\]*$/.test(text);
+/**
+ * A storefront path: one leading `/`; no spaces, backslashes, query or fragment (same rule as the
+ * server).
+ */
+const isStorefrontPath = (text: string) => /^\/(?!\/)[^\s\\?#]*$/.test(text);
 
 /**
  * Client-side checks keyed by field key, with the server's error codes. Blank values are left to
- * the server, except a required `zones` field with no zone.
+ * the server, except a required `zones` field with no zone on an active integration (like the
+ * server, required fields only block saving while the integration is active).
  */
 export function validateIntegrationForm(
   fields: ProviderField[],
-  values: IntegrationFormValues
+  values: IntegrationFormValues,
+  active = false
 ): Record<string, string> {
   const errors: Record<string, string> = {};
   fields.forEach((field) => {
     if (field.type === 'zones') {
       const value = values[field.key];
-      if (field.required && (!Array.isArray(value) || value.length === 0)) {
+      if (active && field.required && (!Array.isArray(value) || value.length === 0)) {
         errors[field.key] = 'required';
       }
       return;
@@ -110,4 +115,13 @@ export function validateIntegrationForm(
     if (text !== '' && !isStorefrontPath(text)) errors[field.key] = 'invalid_path';
   });
   return errors;
+}
+
+/**
+ * Whether the field shows as required. A text field with a default is not: left blank, the
+ * server restores the default.
+ */
+export function showsAsRequired(field: ProviderField): boolean {
+  if (!field.required) return false;
+  return !(typeof field.default === 'string' && field.default !== '');
 }

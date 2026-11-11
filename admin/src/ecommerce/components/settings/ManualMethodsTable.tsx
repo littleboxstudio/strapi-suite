@@ -31,23 +31,25 @@ import type { ManualMethod, ShippingZone } from '../../settingsTypes';
 
 type Editing = { method: ManualMethod | null };
 
+/**
+ * The manual shipping methods, shown inside the "Manual shipping" card (which already has the
+ * title, switch and description).
+ */
 type Props = {
   readOnly: boolean;
-  /** Inside the "Manual shipping" card, which already has the title, switch and description. */
-  embedded?: boolean;
   /** The shipping zones; a new list (a zone changed) refetches the methods. */
   zones: ShippingZone[];
 };
 
-const ManualMethodsTable = ({ readOnly, embedded = false, zones }: Props) => {
+const ManualMethodsTable = ({ readOnly, zones }: Props) => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
 
   const [methods, setMethods] = useState<ManualMethod[] | null>(null);
-  const [locales, setLocales] = useState<EcommerceLocales | null>(null);
   // Editing needs the locales (the name is per locale).
+  const [locales, setLocales] = useState<EcommerceLocales | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<ManualMethod | null>(null);
@@ -107,8 +109,9 @@ const ManualMethodsTable = ({ readOnly, embedded = false, zones }: Props) => {
 
   const canEdit = !readOnly && locales !== null;
 
+  // A method needs a price in at least one zone, so adding one waits for a zone.
   const addButton = (variant: 'default' | 'secondary') =>
-    !canEdit ? null : (
+    !canEdit || zones.length === 0 ? null : (
       <Button variant={variant} startIcon={<Plus />} onClick={() => setEditing({ method: null })}>
         {t('ecommerce.settings.manualMethods.add')}
       </Button>
@@ -130,7 +133,11 @@ const ManualMethodsTable = ({ readOnly, embedded = false, zones }: Props) => {
         <Flex direction="column" alignItems="center" gap={3} padding={6}>
           <EmptyShipping />
           <Typography variant="omega" textColor="neutral600">
-            {t('ecommerce.settings.manualMethods.empty')}
+            {t(
+              zones.length === 0
+                ? 'ecommerce.settings.zones.createFirst'
+                : 'ecommerce.settings.manualMethods.empty'
+            )}
           </Typography>
           {addButton('default')}
         </Flex>
@@ -217,7 +224,6 @@ const ManualMethodsTable = ({ readOnly, embedded = false, zones }: Props) => {
 
   const modals = (
     <>
-
       {editing && locales && canEdit && (
         <ManualMethodModal
           method={editing.method}
@@ -248,16 +254,8 @@ const ManualMethodsTable = ({ readOnly, embedded = false, zones }: Props) => {
     </>
   );
 
-  if (embedded) {
-    return (
-      <Box>
-        {content()}
-        {modals}
-      </Box>
-    );
-  }
   return (
-    <Box background="neutral0" shadow="tableShadow" hasRadius padding={6}>
+    <Box>
       {content()}
       {modals}
     </Box>

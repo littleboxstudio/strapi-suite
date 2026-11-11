@@ -4,6 +4,7 @@ import {
   integrationErrorMap,
   integrationFormFromView,
   isIntegerText,
+  showsAsRequired,
   validateIntegrationForm,
 } from '../../../admin/src/ecommerce/utils/integrationForm';
 import {
@@ -215,6 +216,18 @@ describe('manual method draft', () => {
       'rates.9': 'invalid_zone',
     });
   });
+
+  it('reports an error on a zone the form does not show on the rates as a whole', () => {
+    expect(
+      manualMethodErrorMap(
+        [
+          { path: 'rates.9', code: 'invalid_zone' },
+          { path: 'rates.1', code: 'out_of_range' },
+        ],
+        [{ id: 1 }]
+      )
+    ).toEqual({ rates: 'invalid_zone', 'rates.1': 'out_of_range' });
+  });
 });
 
 describe('ratesSummary', () => {
@@ -260,9 +273,10 @@ describe('zones field', () => {
     expect(integrationFormFromView(view({})).zones).toEqual([]);
   });
 
-  it('requires a zone when the field is required', () => {
-    expect(validateIntegrationForm([zonesField], { zones: [] })).toEqual({ zones: 'required' });
-    expect(validateIntegrationForm([zonesField], { zones: ['1'] })).toEqual({});
+  it('requires a zone only on an active integration, like any required field', () => {
+    expect(validateIntegrationForm([zonesField], { zones: [] })).toEqual({});
+    expect(validateIntegrationForm([zonesField], { zones: [] }, true)).toEqual({ zones: 'required' });
+    expect(validateIntegrationForm([zonesField], { zones: ['1'] }, true)).toEqual({});
   });
 });
 
@@ -276,8 +290,26 @@ describe('validateIntegrationForm', () => {
       paymentSuccessPath: 'invalid_path',
     });
   });
+  it('flags a path with a query or a fragment', () => {
+    expect(validateIntegrationForm(fields, { paymentSuccessPath: '/ok?x=1', name: '' })).toEqual({
+      paymentSuccessPath: 'invalid_path',
+    });
+    expect(validateIntegrationForm(fields, { paymentSuccessPath: '/ok#a', name: '' })).toEqual({
+      paymentSuccessPath: 'invalid_path',
+    });
+  });
   it('accepts a valid or blank path', () => {
     expect(validateIntegrationForm(fields, { paymentSuccessPath: '/ok', name: '' })).toEqual({});
     expect(validateIntegrationForm(fields, { paymentSuccessPath: '  ', name: '' })).toEqual({});
+  });
+});
+
+describe('showsAsRequired', () => {
+  it('a required text field with a default is not shown as required (blank restores it)', () => {
+    const base = { key: 'k', label: 'x' };
+    expect(showsAsRequired({ ...base, type: 'string', format: 'path', required: true, default: '/a' })).toBe(false);
+    expect(showsAsRequired({ ...base, type: 'string', required: true })).toBe(true);
+    expect(showsAsRequired({ ...base, type: 'zones', required: true, default: [] })).toBe(true);
+    expect(showsAsRequired({ ...base, type: 'string', required: false })).toBe(false);
   });
 });

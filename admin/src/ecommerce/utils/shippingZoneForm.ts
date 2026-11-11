@@ -51,3 +51,16 @@ export function zoneCountriesSummary(zone: Pick<ShippingZone, 'countries'>, loca
   const names = new Map(countryOptions(locale).map((o) => [o.code, o.name]));
   return zone.countries.map((code) => names.get(code) ?? code).join(', ');
 }
+
+/**
+ * The countries a zone can choose: the markets not held by another zone, plus the zone's own
+ * stored countries (even outside the markets, so they can be removed).
+ */
+export function zoneCountryChoices(
+  markets: string[],
+  zone: Pick<ShippingZone, 'id' | 'countries'> | null,
+  zones: Pick<ShippingZone, 'id' | 'countries'>[]
+): Set<string> {
+  const taken = new Set(zones.filter((z) => z.id !== zone?.id).flatMap((z) => z.countries));
+  return new Set([...markets.filter((code) => !taken.has(code)), ...(zone?.countries ?? [])]);
+}
