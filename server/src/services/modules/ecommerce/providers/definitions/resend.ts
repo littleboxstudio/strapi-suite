@@ -8,7 +8,6 @@ const resend: ProviderDefinition = {
   category: 'email',
   name: 'Resend',
   exclusive: false,
-  verified: true,
   fields: [
     { key: 'apiKey', type: 'secret', required: true, label: `${L}.apiKey` },
     { key: 'fromEmail', type: 'string', format: 'email', required: true, label: `${L}.fromEmail` },

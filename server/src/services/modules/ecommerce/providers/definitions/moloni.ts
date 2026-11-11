@@ -9,7 +9,6 @@ const moloni: ProviderDefinition = {
   category: 'billing',
   name: 'Moloni',
   exclusive: true,
-  verified: false,
   fields: [
     { key: 'clientId', type: 'string', required: true, label: `${L}.clientId`, help: `${L}.clientId.help`, group: 'credentials' },
     { key: 'clientSecret', type: 'secret', required: true, label: `${L}.clientSecret`, help: `${L}.clientSecret.help`, group: 'credentials' },

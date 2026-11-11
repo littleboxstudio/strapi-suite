@@ -400,7 +400,7 @@ Implementar os capítulos 1–3 de Promoções tal como estão, com:
 Implementar o capítulo de Configurações tal como está, com:
 - Mascaramento conforme 2.9 e cifragem conforme 2.10.
 - **Moloni:** implementado a partir da documentação pública da API, **sem testes reais** até haver
-  credenciais. Fica marcado como "não verificado".
+  credenciais. Sem marca de "não verificado" no admin: cada loja configura e testa a sua conta Moloni **[Decisão, 2026-11-11]**.
   Configuração em 2 passos: (1) Developer ID, Client Secret, utilizador e palavra-passe, guardados
   e verificados com `companies/getAll`; (2) empresa, série, métodos de pagamento, categoria,
   unidade e motivo de isenção escolhidos de listas lidas da API do Moloni

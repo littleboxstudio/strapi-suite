@@ -5,7 +5,6 @@ const manual: ProviderDefinition = {
   category: 'carrier',
   name: 'Manual',
   exclusive: false,
-  verified: true,
   fields: [],
 };
 

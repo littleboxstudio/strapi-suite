@@ -38,7 +38,6 @@ export type IntegrationView = {
   category: ProviderCategory;
   name: string;
   active: boolean;
-  verified: boolean;
   fields: ProviderField[];
   config: Record<string, unknown>;
   /** Masked values; null when not set or unreadable. */
@@ -419,7 +418,6 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
       category: def.category,
       name: def.name,
       active: row?.active ?? false,
-      verified: def.verified,
       fields: def.fields,
       config: configWithDefaults(def, row?.config ?? null),
       secrets,

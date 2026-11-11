@@ -55,8 +55,6 @@ export type ProviderDefinition = {
   fields: ProviderField[];
   /** billing = true */
   exclusive: boolean;
-  /** false = shown as "not verified" */
-  verified: boolean;
   testConnection?(rt: ProviderRuntime): Promise<ConnectionResult>;
   /**
    * Options for `lookup` fields. Without `companyId` only the lists that do not depend on it.

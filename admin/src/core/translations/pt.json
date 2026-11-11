@@ -210,7 +210,6 @@
   "littlebox-strapi-suite.ecommerce.settings.integrations.empty": "Não há integrações disponíveis para esta secção.",
   "littlebox-strapi-suite.ecommerce.settings.integrations.active": "Ativo",
   "littlebox-strapi-suite.ecommerce.settings.integrations.inactive": "Inativo",
-  "littlebox-strapi-suite.ecommerce.settings.integrations.notVerified": "Não verificado",
   "littlebox-strapi-suite.ecommerce.settings.integrations.activate": "Ativar {name}",
   "littlebox-strapi-suite.ecommerce.settings.integrations.activateLabel": "Ativo",
   "littlebox-strapi-suite.ecommerce.settings.integrations.activated": "{name} ativado",

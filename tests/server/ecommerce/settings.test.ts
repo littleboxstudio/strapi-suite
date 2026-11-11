@@ -22,7 +22,6 @@ const fakeBilling = (exclusive = true) => ({
   category: 'billing' as const,
   name: 'Fake billing',
   exclusive,
-  verified: true,
   fields: [],
 });
 
@@ -46,7 +45,6 @@ describe('EcommerceSettingsService — integrations', () => {
     expect(moloni).toMatchObject({
       category: 'billing',
       active: false,
-      verified: false,
       secretsStatus: 'none',
       encryptionKeyConfigured: true,
       secrets: { clientSecret: null, password: null },
@@ -272,7 +270,7 @@ describe('EcommerceSettingsService — integrations', () => {
   it('allows several carriers active at the same time', async () => {
     const { service } = makeStrapi();
     await service.setActive('manual', true, '1');
-    registerProvider({ id: 'other-carrier', category: 'carrier', name: 'x', exclusive: false, verified: true, fields: [] });
+    registerProvider({ id: 'other-carrier', category: 'carrier', name: 'x', exclusive: false, fields: [] });
     await service.setActive('other-carrier', true, '1');
     expect((await service.getActiveProviders('carrier')).sort()).toEqual(['manual', 'other-carrier']);
   });

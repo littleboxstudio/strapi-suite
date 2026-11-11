@@ -8,7 +8,6 @@ const stripe: ProviderDefinition = {
   category: 'payment',
   name: 'Stripe',
   exclusive: false,
-  verified: true,
   fields: [
     { key: 'secretKey', type: 'secret', required: true, label: `${L}.secretKey` },
     { key: 'webhookSecret', type: 'secret', required: false, label: `${L}.webhookSecret` },

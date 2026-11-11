@@ -426,7 +426,6 @@
   "littlebox-strapi-suite.ecommerce.settings.integrations.empty": "No integrations are available for this section.",
   "littlebox-strapi-suite.ecommerce.settings.integrations.active": "Active",
   "littlebox-strapi-suite.ecommerce.settings.integrations.inactive": "Inactive",
-  "littlebox-strapi-suite.ecommerce.settings.integrations.notVerified": "Not verified",
   "littlebox-strapi-suite.ecommerce.settings.integrations.activate": "Activate {name}",
   "littlebox-strapi-suite.ecommerce.settings.integrations.activateLabel": "Active",
   "littlebox-strapi-suite.ecommerce.settings.integrations.activated": "{name} activated",
