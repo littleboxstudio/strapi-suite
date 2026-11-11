@@ -20,7 +20,9 @@ export type OrderHistoryType =
   | 'PAYMENT_CANCELLED'
   | 'STOCK_MOVED'
   | 'ORDER_CANCELLED'
-  | 'ORDER_ARCHIVED';
+  | 'ORDER_ARCHIVED'
+  | 'NOTIFICATION_SENT'
+  | 'NOTIFICATION_FAILED';
 
 export type OrderHistoryEntry = {
   orderId: number;

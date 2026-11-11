@@ -234,6 +234,7 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
     method: r.method,
     kind: r.kind,
     reference: r.reference ?? null,
+    description: r.description ?? null,
     externalId: r.externalId ?? null,
     storeCreditId: idOf(r.storeCredit),
     ...extra,
