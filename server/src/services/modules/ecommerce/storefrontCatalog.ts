@@ -144,6 +144,8 @@ const EcommerceStorefrontCatalogService = ({ strapi }: { strapi: Core.Strapi }) 
       if (typeof sort !== 'string' || !(SORTS as readonly string[]).includes(sort)) {
         bad('sort', 'invalid_sort');
       }
+      // `sanitizeSearchTerm` strips `%`, `_` and `\`, so an underscore typed in the search is
+      // dropped: a SKU such as `AB_1` is found by `AB1`-style fragments, not by the underscore.
       const search = sanitizeSearchTerm(q.search);
       const defaultLocale: string = await locales().getDefaultLocale();
 
@@ -158,7 +160,11 @@ const EcommerceStorefrontCatalogService = ({ strapi }: { strapi: Core.Strapi }) 
         await strapi.db.query(u.product).findMany({
           where,
           orderBy: { id: 'desc' },
-          populate: { translations: true, variants: true },
+          // Only what the list view needs: no descriptions, no variant dimensions.
+          populate: {
+            translations: { select: ['locale', 'name', 'slug', 'shortDescription'] },
+            variants: { select: ['price', 'tax', 'active', 'stock', 'position'] },
+          },
         })
       ).filter((p) => activeVariants(p).length > 0);
 
