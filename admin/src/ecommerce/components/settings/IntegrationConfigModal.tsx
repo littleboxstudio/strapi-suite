@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useIntl } from 'react-intl';
+import styled from 'styled-components';
 import { useNotification } from '@strapi/strapi/admin';
 import {
   Box,
@@ -32,6 +33,18 @@ import {
 } from '../../utils/integrationForm';
 import type { IntegrationView, ProviderField, ShippingZone } from '../../settingsTypes';
 import { FieldHelpModal } from './FieldHelpModal';
+
+/** All fields in two columns (one on narrow screens). */
+const FieldGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px 16px;
+  align-items: start;
+
+  @media (max-width: 640px) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+`;
 
 /** Mount it only while open: the form is initialised once, from the props. */
 type Props = {
@@ -258,41 +271,43 @@ const IntegrationConfigModal = ({
                 </Typography>
               </Box>
             )}
-            {integration.fields.map((field) => (
-              <Field.Root
-                key={field.key}
-                name={field.key}
-                required={showsAsRequired(field)}
-                error={
-                  errors[field.key]
-                    ? t(`ecommerce.settings.errors.${errors[field.key]}`)
-                    : undefined
-                }
-                hint={secretHint(field)}
-              >
-                <Field.Label
-                  action={
-                    field.help ? (
-                      <IconButton
-                        variant="ghost"
-                        size="XS"
-                        label={t('ecommerce.settings.integrations.help.open', {
-                          field: t(field.label, undefined, field.key),
-                        })}
-                        onClick={() => setHelpField(field)}
-                      >
-                        <Information />
-                      </IconButton>
-                    ) : undefined
+            <FieldGrid>
+              {integration.fields.map((field) => (
+                <Field.Root
+                  key={field.key}
+                  name={field.key}
+                  required={showsAsRequired(field)}
+                  error={
+                    errors[field.key]
+                      ? t(`ecommerce.settings.errors.${errors[field.key]}`)
+                      : undefined
                   }
+                  hint={secretHint(field)}
                 >
-                  {t(field.label, undefined, field.key)}
-                </Field.Label>
-                {fieldInput(field)}
-                <Field.Error />
-                <Field.Hint />
-              </Field.Root>
-            ))}
+                  <Field.Label
+                    action={
+                      field.help ? (
+                        <IconButton
+                          variant="ghost"
+                          size="XS"
+                          label={t('ecommerce.settings.integrations.help.open', {
+                            field: t(field.label, undefined, field.key),
+                          })}
+                          onClick={() => setHelpField(field)}
+                        >
+                          <Information />
+                        </IconButton>
+                      ) : undefined
+                    }
+                  >
+                    {t(field.label, undefined, field.key)}
+                  </Field.Label>
+                  {fieldInput(field)}
+                  <Field.Error />
+                  <Field.Hint />
+                </Field.Root>
+              ))}
+            </FieldGrid>
           </Flex>
         </Modal.Body>
         <Modal.Footer>
