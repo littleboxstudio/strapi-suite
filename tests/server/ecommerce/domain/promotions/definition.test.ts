@@ -137,4 +137,20 @@ describe('validatePromotionInput', () => {
     };
     expect(codes(valid({ benefits: [b] }))).toContain('benefits.0.get.variantIds:required');
   });
+  it('is strict about boolean flags', () => {
+    expect(codes(valid({ active: 'yes' }))).toContain('active:invalid');
+    expect(codes(valid({ stacking: { exclusive: 'true' } }))).toContain('stacking.exclusive:invalid');
+    expect(codes(valid({ stacking: { exclusive: false, withOrder: 0 } }))).toContain('stacking.withOrder:invalid');
+  });
+  it('reports an unknown timezone explicitly', () => {
+    const r = validatePromotionInput(valid(), { locales: ['en'], timeZone: 'Mars/Base' });
+    expect(r.errors.map((e) => `${e.path}:${e.code}`)).toContain('timeZone:invalid_timezone');
+    expect(r.errors.map((e) => e.code)).not.toContain('invalid_date');
+  });
+  it('stops recursion past the depth limit', () => {
+    let g: any = group();
+    for (let i = 0; i < 5000; i++) g = group([g]);
+    const r = validatePromotionInput(valid({ conditions: g }), ctx);
+    expect(r.errors.map((e) => e.code)).toContain('too_deep');
+  });
 });

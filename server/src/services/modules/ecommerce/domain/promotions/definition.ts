@@ -1,7 +1,7 @@
 import type { ValidationIssue } from '../../errors';
 import { MAX_MONEY_CENTS } from '../orders';
 import { isValidEmailFormat, normalizeEmail } from '../email';
-import { zonedWallTimeToUtc } from './time';
+import { isValidTimeZone, zonedWallTimeToUtc } from './time';
 import type {
   Benefit,
   Condition,
@@ -94,9 +94,6 @@ function readOperator(raw: unknown, allowed: readonly string[], path: string, er
   return raw;
 }
 
-const depthOf = (g: ConditionGroup): number =>
-  1 + Math.max(0, ...g.children.map((c) => (c.type === 'GROUP' ? depthOf(c) : 0)));
-
 function readCondition(raw: unknown, path: string, errors: Issues): Condition | null {
   if (!isObj(raw)) {
     errors.push({ path, code: 'invalid' });
@@ -145,8 +142,18 @@ function readCondition(raw: unknown, path: string, errors: Issues): Condition | 
   }
 }
 
-function readGroup(raw: unknown, path: string, errors: Issues, leaves: { n: number }): ConditionGroup {
+function readGroup(
+  raw: unknown,
+  path: string,
+  errors: Issues,
+  leaves: { n: number; tooDeep: boolean },
+  depth = 1
+): ConditionGroup {
   const group: ConditionGroup = { type: 'GROUP', operator: 'AND', children: [] };
+  if (depth > MAX_DEPTH) {
+    leaves.tooDeep = true;
+    return group;
+  }
   if (!isObj(raw) || raw.type !== 'GROUP' || !Array.isArray(raw.children)) {
     errors.push({ path, code: 'invalid' });
     return group;
@@ -156,7 +163,7 @@ function readGroup(raw: unknown, path: string, errors: Issues, leaves: { n: numb
   raw.children.forEach((child: unknown, i: number) => {
     const childPath = `${path}.children.${i}`;
     if (isObj(child) && child.type === 'GROUP') {
-      group.children.push(readGroup(child, childPath, errors, leaves));
+      group.children.push(readGroup(child, childPath, errors, leaves, depth + 1));
       return;
     }
     leaves.n += 1;
@@ -298,14 +305,26 @@ function readEligibility(raw: unknown, errors: Issues): Eligibility {
   return { mode: 'EMAILS', emails };
 }
 
-function readStacking(raw: unknown): Stacking {
+function readStacking(raw: unknown, errors: Issues): Stacking {
   const s = isObj(raw) ? raw : {};
-  const exclusive = s.exclusive === true;
+  const flag = (key: keyof Stacking, fallback: boolean): boolean => {
+    const v = s[key];
+    if (v === undefined) return fallback;
+    if (typeof v !== 'boolean') {
+      errors.push({ path: `stacking.${key}`, code: 'invalid' });
+      return fallback;
+    }
+    return v;
+  };
+  const exclusive = flag('exclusive', false);
+  const withProduct = flag('withProduct', true);
+  const withOrder = flag('withOrder', true);
+  const withShipping = flag('withShipping', true);
   return {
     exclusive,
-    withProduct: !exclusive && s.withProduct !== false,
-    withOrder: !exclusive && s.withOrder !== false,
-    withShipping: !exclusive && s.withShipping !== false,
+    withProduct: !exclusive && withProduct,
+    withOrder: !exclusive && withOrder,
+    withShipping: !exclusive && withShipping,
   };
 }
 
@@ -341,12 +360,14 @@ export function validatePromotionInput(
     errors.push({ path: 'code', code: 'required' });
   }
 
-  const startsAt = zonedWallTimeToUtc(String(raw.startsAt ?? ''), ctx.timeZone);
-  if (!startsAt) errors.push({ path: 'startsAt', code: 'invalid_date' });
+  const zoneOk = isValidTimeZone(ctx.timeZone);
+  if (!zoneOk) errors.push({ path: 'timeZone', code: 'invalid_timezone' });
+  const startsAt = zoneOk ? zonedWallTimeToUtc(String(raw.startsAt ?? ''), ctx.timeZone) : null;
+  if (zoneOk && !startsAt) errors.push({ path: 'startsAt', code: 'invalid_date' });
   let endsAt: string | null = null;
   if (raw.endsAt !== null && raw.endsAt !== undefined && raw.endsAt !== '') {
-    endsAt = zonedWallTimeToUtc(String(raw.endsAt), ctx.timeZone);
-    if (!endsAt) errors.push({ path: 'endsAt', code: 'invalid_date' });
+    endsAt = zoneOk ? zonedWallTimeToUtc(String(raw.endsAt), ctx.timeZone) : null;
+    if (zoneOk && !endsAt) errors.push({ path: 'endsAt', code: 'invalid_date' });
     else if (startsAt && endsAt <= startsAt) errors.push({ path: 'endsAt', code: 'ends_before_start' });
   }
 
@@ -367,11 +388,18 @@ export function validatePromotionInput(
     }
   }
 
+  let active = true;
+  if (raw.active !== undefined) {
+    if (typeof raw.active !== 'boolean') errors.push({ path: 'active', code: 'invalid' });
+    else active = raw.active;
+  }
+  const stacking = readStacking(raw.stacking, errors);
+
   const eligibility = readEligibility(raw.eligibility, errors);
 
-  const leaves = { n: 0 };
+  const leaves = { n: 0, tooDeep: false };
   const conditions = readGroup(raw.conditions ?? { type: 'GROUP', operator: 'AND', children: [] }, 'conditions', errors, leaves);
-  if (depthOf(conditions) > MAX_DEPTH) errors.push({ path: 'conditions', code: 'too_deep' });
+  if (leaves.tooDeep) errors.push({ path: 'conditions', code: 'too_deep' });
   if (leaves.n > MAX_LEAVES) errors.push({ path: 'conditions', code: 'too_many' });
 
   const benefits: Benefit[] = [];
@@ -407,7 +435,7 @@ export function validatePromotionInput(
       code,
       displayName,
       priority: priority as number,
-      active: raw.active !== false,
+      active,
       startsAt,
       endsAt,
       usageLimit,
@@ -416,7 +444,7 @@ export function validatePromotionInput(
       eligibility,
       conditions,
       benefits,
-      stacking: readStacking(raw.stacking),
+      stacking,
     },
     errors,
   };

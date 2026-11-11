@@ -32,4 +32,15 @@ describe('promotion time', () => {
     // 2026-11-01 01:30 ambiguous -> first (EDT) = 05:30Z
     expect(zonedWallTimeToUtc('2026-11-01T01:30', 'America/New_York')).toBe('2026-11-01T05:30:00.000Z');
   });
+  it('handles a non-DST zone and the exact gap start', () => {
+    expect(zonedWallTimeToUtc('2026-07-01T10:00', 'Asia/Kolkata')).toBe('2026-07-01T04:30:00.000Z');
+    expect(zonedWallTimeToUtc('2026-07-01T10:00', 'UTC')).toBe('2026-07-01T10:00:00.000Z');
+    // Lisbon gap starts at 01:00 local (= 01:00Z); 01:00 does not exist -> 02:00 WEST = 01:00Z
+    expect(zonedWallTimeToUtc('2026-03-29T01:00', TZ)).toBe('2026-03-29T01:00:00.000Z');
+  });
+  it('never throws on an unknown zone', () => {
+    expect(zonedWallTimeToUtc('2026-07-01T10:00', 'Mars/Base')).toBeNull();
+    expect(utcToZonedWallTime('2026-07-01T10:00:00.000Z', 'Mars/Base')).toBeNull();
+    expect(utcToZonedWallTime('garbage', TZ)).toBeNull();
+  });
 });
