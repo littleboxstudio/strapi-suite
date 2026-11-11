@@ -370,6 +370,32 @@ describe('EcommerceSettingsService — store settings', () => {
     expect(tables[UIDS.auditLog].at(-1)).toMatchObject({ area: 'settings', userId: '3', details: { changedFields: ['storeName'] } });
   });
 
+  it('stores each value wrapped in a JSON object (MariaDB json_valid) and unwraps it on read', async () => {
+    const { service, tables } = makeStrapi();
+    await service.updateStoreSettings({ storeName: 'Loja Teste', logoUrl: null, shippingCountries: ['ES'] }, '1');
+    const row = tables[UIDS.storeSetting].find((r) => r.key === 'storeName');
+    expect(row.value).toEqual({ v: 'Loja Teste' });
+    const settings = await service.getStoreSettings();
+    expect(settings.storeName).toBe('Loja Teste');
+    expect(settings.shippingCountries).toEqual(['ES']);
+  });
+
+  it('reads legacy rows whose value is not wrapped', async () => {
+    const { service, tables } = makeStrapi();
+    tables[UIDS.storeSetting].push({ id: 50, key: 'shippingCountries', value: ['FR'] });
+    tables[UIDS.storeSetting].push({ id: 51, key: 'storeName', value: 'Legacy' });
+    const settings = await service.getStoreSettings();
+    expect(settings.shippingCountries).toEqual(['FR']);
+    expect(settings.storeName).toBe('Legacy');
+  });
+
+  it('the fake DB rejects bare scalars in json columns, like MariaDB', async () => {
+    const { strapi } = makeStrapi();
+    await expect(
+      strapi.db.query(UIDS.storeSetting).create({ data: { key: 'storeName', value: 'bare' } })
+    ).rejects.toThrow(/CONSTRAINT/);
+  });
+
   it('validates every field', async () => {
     const { service, tables } = makeStrapi();
     const err: any = await service

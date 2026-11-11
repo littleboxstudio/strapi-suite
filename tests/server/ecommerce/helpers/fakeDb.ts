@@ -1,4 +1,42 @@
+import { readFileSync, readdirSync } from 'fs';
+import { join } from 'path';
 import { vi } from 'vitest';
+
+const CONTENT_TYPES_DIR = join(__dirname, '../../../../server/src/content-types/modules/ecommerce');
+
+/** uid -> names of `type: 'json'` attributes, read from the plugin's ecommerce schemas. */
+function loadJsonAttributes(): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const dir of readdirSync(CONTENT_TYPES_DIR)) {
+    let schema: any;
+    try {
+      schema = JSON.parse(readFileSync(join(CONTENT_TYPES_DIR, dir, 'schema.json'), 'utf8'));
+    } catch {
+      continue;
+    }
+    out[`plugin::littlebox-strapi-suite.${schema.info.singularName}`] = Object.entries(
+      schema.attributes ?? {}
+    )
+      .filter(([, a]: [string, any]) => a.type === 'json')
+      .map(([name]) => name);
+  }
+  return out;
+}
+
+const JSON_ATTRIBUTES = loadJsonAttributes();
+
+/**
+ * MariaDB/MySQL json columns carry CHECK(json_valid(col)) and Strapi passes strings through
+ * unencoded, so only objects, arrays and null are safe. Mirror that strictly.
+ */
+function assertJsonColumns(uid: string, data: any): void {
+  for (const attr of JSON_ATTRIBUTES[uid] ?? []) {
+    if (!data || !(attr in data)) continue;
+    const v = data[attr];
+    if (v === null || v === undefined || typeof v === 'object') continue;
+    throw new Error(`CONSTRAINT ${uid}.${attr} failed: json column needs an object, array or null`);
+  }
+}
 
 /** relation name -> [target uid, foreign key on target] */
 export type FakeRelations = Record<string, Record<string, [string, string]>>;
@@ -71,18 +109,21 @@ export function createFakeDb(uids: string[], relations: FakeRelations = {}) {
     },
     count: async (p: any = {}) => tables[uid].filter((r) => match(uid, r, p.where)).length,
     create: async ({ data }: any) => {
+      assertJsonColumns(uid, data);
       seq[uid] = (seq[uid] ?? 0) + 1;
       const row = { id: seq[uid], ...data };
       tables[uid].push(row);
       return { ...row };
     },
     update: async ({ where, data }: any) => {
+      assertJsonColumns(uid, data);
       const r = tables[uid].find((x) => match(uid, x, where));
       if (!r) return null;
       Object.assign(r, data);
       return { ...r };
     },
     updateMany: async ({ where, data }: any) => {
+      assertJsonColumns(uid, data);
       const rows = tables[uid].filter((x) => match(uid, x, where));
       rows.forEach((r) => Object.assign(r, data));
       return { count: rows.length };
