@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   EcommerceBillingError,
+  EcommerceNotFoundError,
   EcommerceValidationError,
 } from '../../../server/src/services/modules/ecommerce/errors';
 import createInvoices from '../../../server/src/controllers/modules/ecommerce/invoices';
@@ -149,5 +150,66 @@ describe('EcommerceInvoiceController', () => {
       expect(b.badRequest).toHaveBeenCalled();
     }
     expect(issueCreditNote).toHaveBeenCalledTimes(1);
+  });
+
+  it('maps not found to 404 on every endpoint', async () => {
+    const nf = () => vi.fn().mockRejectedValue(new EcommerceNotFoundError('x'));
+    const svc = { preview: nf(), issue: nf(), reconcile: nf(), getPdf: nf(), creditNotePreview: nf(), issueCreditNote: nf() };
+    const c = createInvoices({ strapi: strapiWith(svc) });
+    const calls: [string, any][] = [
+      ['preview', mkCtx({ query: { scope: 'TOTAL' } })],
+      ['issue', body({ scope: 'TOTAL', idempotencyKey: 'k' })],
+      ['reconcile', body({})],
+      ['pdf', mkCtx()],
+      ['creditNotePreview', mkCtx()],
+      ['issueCreditNote', body({ lines: [{ index: 0, value: 1 }], reason: 'r', idempotencyKey: 'k' })],
+    ];
+    for (const [h, ctx] of calls) {
+      await (c as any)[h](ctx);
+      expect(ctx.notFound, h).toHaveBeenCalled();
+    }
+  });
+
+  it('credit note rejects a 201-character idempotencyKey and a reason over 500 characters', async () => {
+    const issueCreditNote = vi.fn();
+    const c = createInvoices({ strapi: strapiWith({ issueCreditNote }) });
+    const lines = [{ index: 0, value: 1 }];
+    for (const bad of [
+      { lines, reason: 'r', idempotencyKey: 'x'.repeat(201) },
+      { lines, reason: 'x'.repeat(501), idempotencyKey: 'k' },
+    ]) {
+      const ctx = body(bad);
+      await c.issueCreditNote(ctx);
+      expect(ctx.badRequest).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ errors: expect.any(Array) }));
+    }
+    expect(issueCreditNote).not.toHaveBeenCalled();
+  });
+
+  it('billing-side NOT_SUPPORTED is a 400 with the code (reconcile and credit note)', async () => {
+    const err = () => vi.fn().mockRejectedValue(new EcommerceBillingError('NOT_SUPPORTED'));
+    const c = createInvoices({ strapi: strapiWith({ reconcile: err(), issueCreditNote: err() }) });
+    const a = body({ markFailed: true });
+    await c.reconcile(a);
+    expect(a.badRequest).toHaveBeenCalledWith(expect.any(String), { code: 'NOT_SUPPORTED' });
+    const b = body({ lines: [{ index: 0, value: 1 }], reason: 'r', idempotencyKey: 'k' });
+    await c.issueCreditNote(b);
+    expect(b.badRequest).toHaveBeenCalledWith(expect.any(String), { code: 'NOT_SUPPORTED' });
+  });
+
+  it.each(['1e2', '0x10', ' 5', '-1', '0', '9'.repeat(30)])('rejects id %j strictly', async (id) => {
+    const getPdf = vi.fn();
+    const c = createInvoices({ strapi: strapiWith({ getPdf }) });
+    const ctx = mkCtx({ params: { id } });
+    await c.pdf(ctx);
+    expect(ctx.badRequest).toHaveBeenCalledWith('Invalid id');
+    expect(getPdf).not.toHaveBeenCalled();
+  });
+
+  it('sanitises the invoice PDF filename (CR/LF, quotes, slashes, unicode) and ends in .pdf', async () => {
+    const getPdf = vi.fn().mockResolvedValue({ filename: 'FR\r\n"a/b\\ç', content: Buffer.from('%PDF') });
+    const c = createInvoices({ strapi: strapiWith({ getPdf }) });
+    const ctx = mkCtx();
+    await c.pdf(ctx);
+    expect(ctx.headers['Content-Disposition']).toBe('attachment; filename="FR___a_b__.pdf"');
   });
 });

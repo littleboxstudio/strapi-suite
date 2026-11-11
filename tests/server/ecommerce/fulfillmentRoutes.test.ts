@@ -46,15 +46,23 @@ describe.each([
 });
 
 describe('route ordering', () => {
-  it('no parametrised path shadows a later static one', () => {
-    const all = (adminRoutes as any[]).filter((r) => r.path.startsWith('/admin/ecommerce'));
+  const all = (adminRoutes as any[]).filter((r) => r.path.startsWith('/admin/ecommerce'));
+  const matches = (pattern: string, concrete: string) =>
+    new RegExp(`^${pattern.replace(/:[^/]+/g, '[^/]+')}$`).test(concrete);
+
+  it('has ecommerce routes to check', () => expect(all.length).toBeGreaterThan(40));
+
+  it('no parameterised route precedes a static route it would shadow (same method)', () => {
     all.forEach((r, i) => {
-      const re = new RegExp(`^${r.path.replace(/:[^/]+/g, '[^/]+')}$`);
+      if (!r.path.includes(':')) return;
       all.slice(i + 1).forEach((later) => {
-        if (later.method === r.method && !later.path.includes(':')) {
-          expect(re.test(later.path), `${r.path} shadows ${later.path}`).toBe(false);
-        }
+        if (later.method !== r.method || later.path.includes(':')) return;
+        expect(matches(r.path, later.path), `${r.method} ${r.path} shadows ${later.path}`).toBe(false);
       });
     });
+  });
+
+  it('the check detects a shadowing pair', () => {
+    expect(matches('/admin/ecommerce/shipments/:id', '/admin/ecommerce/shipments/export')).toBe(true);
   });
 });

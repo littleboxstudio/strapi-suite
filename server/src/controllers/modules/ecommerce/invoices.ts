@@ -5,6 +5,7 @@ import { sendPdf } from './pdf';
 import {
   MAX_KEY,
   asObject,
+  toInt,
   fail,
   nonNegativeCents,
   objectList,
@@ -13,8 +14,6 @@ import {
 } from './validation';
 
 const MSG = 'Invalid invoice';
-
-const toInt = (v: unknown): number => (typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : NaN);
 
 const EcommerceInvoiceController = ({ strapi }: { strapi: Core.Strapi }) => {
   const invoices = (): any => strapi.plugin(PLUGIN_ID).service('EcommerceInvoiceService');
@@ -25,7 +24,7 @@ const EcommerceInvoiceController = ({ strapi }: { strapi: Core.Strapi }) => {
     fn: (id: number) => Promise<unknown>,
     opts: { status?: number; notFound?: string } = {}
   ) => {
-    const id = Number(ctx.params?.id);
+    const id = toInt(ctx.params?.id);
     if (!Number.isInteger(id) || id < 1) return ctx.badRequest('Invalid id');
     try {
       const result = await fn(id);
@@ -84,7 +83,7 @@ const EcommerceInvoiceController = ({ strapi }: { strapi: Core.Strapi }) => {
       }),
 
     pdf: async (ctx: any) => {
-      const id = Number(ctx.params?.id);
+      const id = toInt(ctx.params?.id);
       if (!Number.isInteger(id) || id < 1) return ctx.badRequest('Invalid id');
       try {
         sendPdf(ctx, await invoices().getPdf(id));
