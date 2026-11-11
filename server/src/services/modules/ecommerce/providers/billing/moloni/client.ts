@@ -96,7 +96,10 @@ export function createMoloniClient(rt: ProviderRuntime) {
     };
   }
 
-  /** Cached token; `force` skips the cache and the refresh token (the current token was rejected). */
+  /**
+   * Cached token; `force` skips the cached token and its refresh token (the current token was
+   * rejected). A grant already in flight is shared even when forced: it yields a new token anyway.
+   */
   async function token(c: Credentials, force: boolean): Promise<Token> {
     const key = `${c.clientId}:${c.username}`;
     const cached = tokens.get(key);
