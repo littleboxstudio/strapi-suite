@@ -584,6 +584,33 @@ describe('EcommerceOrderService.create', () => {
     expect(l2).toMatchObject({ name: 'Shirt', option: 'Large' });
     expect(tables[UIDS.order][0].locale).toBe('pt');
   });
+
+  it('forwards emailVerified to the promotion engine; absent means trusted (admin)', async () => {
+    const { service, strapi } = setup();
+    const promo = strapi.plugin('littlebox-strapi-suite').service('EcommercePromotionService');
+    const loadCandidates = vi.spyOn(promo, 'loadCandidates');
+    const evaluate = vi.spyOn(promo, 'evaluate');
+
+    const one = [{ variantId: 10, quantity: 1 }];
+    await service.create(input({ lines: one, emailVerified: false, idempotencyKey: 'k-unverified' }), ctx);
+    expect(loadCandidates.mock.calls[0][0]).toMatchObject({ emailVerified: false });
+    expect(evaluate.mock.calls.every((c: any[]) => c[0].emailVerified === false)).toBe(true);
+
+    loadCandidates.mockClear();
+    evaluate.mockClear();
+    await service.create(input({ lines: one, idempotencyKey: 'k-trusted' }), ctx);
+    expect(loadCandidates.mock.calls[0][0].emailVerified).toBeUndefined();
+    expect(evaluate.mock.calls.every((c: any[]) => c[0].emailVerified === undefined)).toBe(true);
+  });
+
+  it('quote lines carry the catalog VAT rate as a number', async () => {
+    const { service } = setup();
+    const q = await service.quote({ lines: input().lines, locale: 'en' });
+    expect(q.lines.map((l: any) => [l.variantId, l.tax])).toEqual([
+      [10, 23],
+      [11, 23],
+    ]);
+  });
 });
 
 describe('EcommerceOrderService.list / get', () => {

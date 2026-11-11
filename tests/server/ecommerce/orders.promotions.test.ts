@@ -882,3 +882,144 @@ describe('orders with promotions: quote', () => {
     });
   });
 });
+
+describe('orders with promotions: plan 7 pricing (gift options, line VAT, verified e-mail, F5)', () => {
+  const ptName = (productId: number, name: string) =>
+    c.tables[UIDS.productTranslation].push({ id: 500 + productId, product: productId, locale: 'pt', name });
+  const choiceGift = () =>
+    addPromotion({
+      benefits: {
+        items: [
+          {
+            type: 'BUY_X_GET_Y',
+            buy: { target: T([10]), quantity: 2, minAmount: null },
+            get: { mode: 'GIFT', variantIds: [30, 40], quantity: 1 },
+            reward: { kind: 'FREE' },
+          },
+        ],
+      },
+    });
+
+  it('"buy 2 A, get B or C" with C out of stock: giftOptions with names in pt, availability and the selected B', async () => {
+    addVariant(30, 4, 300, 5, 'Socks');
+    addVariant(40, 5, 400, 0, 'Cap');
+    ptName(4, 'Meias');
+    ptName(5, 'Boné');
+    const promo = choiceGift();
+
+    const q = await c.orders.quote({ lines: [{ variantId: 10, quantity: 2 }], locale: 'pt' });
+
+    expect(q.giftOptions).toEqual([
+      {
+        promotionId: promo,
+        benefitIndex: 0,
+        quantity: 1,
+        selectedVariantId: 30,
+        variants: [
+          { variantId: 30, sku: 'SKU-30', name: 'Meias', option: null, imageUrl: null, available: true },
+          { variantId: 40, sku: 'SKU-40', name: 'Boné', option: null, imageUrl: null, available: false },
+        ],
+      },
+    ]);
+    expect(q.lines.find((l: any) => l.isGift)).toMatchObject({ variantId: 30, name: 'Meias' });
+  });
+
+  it('a quote without gift promotions has no giftOptions; every line carries its VAT rate', async () => {
+    addVariant(30, 4, 300, 5, 'Socks');
+    c.tables[UIDS.variant].find((v) => v.id === 30).tax = 6;
+    const q = await c.orders.quote({
+      lines: [
+        { variantId: 10, quantity: 1 },
+        { variantId: 30, quantity: 1 },
+      ],
+      locale: 'en',
+    });
+    expect(q.giftOptions).toEqual([]);
+    expect(q.lines.map((l: any) => [l.variantId, l.tax])).toEqual([
+      [10, 23],
+      [30, 6],
+    ]);
+  });
+
+  it('gift lines carry the VAT rate of the gift variant', async () => {
+    addVariant(30, 4, 300, 5, 'Socks');
+    c.tables[UIDS.variant].find((v) => v.id === 30).tax = 13;
+    choiceGift();
+    const q = await c.orders.quote({ lines: [{ variantId: 10, quantity: 2 }], locale: 'en' });
+    expect(q.lines.map((l: any) => [l.variantId, l.isGift, l.tax])).toEqual([
+      [10, false, 23],
+      [30, true, 13],
+    ]);
+  });
+
+  it('requireVerifiedEmail with emailVerified false → EMAIL_NOT_VERIFIED in the quote and 400 on create; absent → applied', async () => {
+    const promo = addPromotion({
+      method: 'CODE',
+      code: 'VIP',
+      requireVerifiedEmail: true,
+      benefits: { items: [{ type: 'ORDER_FIXED', amount: 100 }] },
+    });
+    const base = { lines: [{ variantId: 10, quantity: 1 }], locale: 'en', email: 'ana@example.pt', promotionCodes: ['vip'] };
+
+    const unverified = await c.orders.quote({ ...base, emailVerified: false });
+    expect(unverified.codes).toEqual([{ code: 'VIP', status: 'EMAIL_NOT_VERIFIED', promotionId: promo }]);
+    expect(unverified.promotions).toEqual([]);
+
+    expect(await errorsOf(create({ promotionCodes: ['VIP'], emailVerified: false }))).toEqual([
+      { path: 'promotionCodes.0', code: 'PROMOTION_CODE_INVALID', detail: 'EMAIL_NOT_VERIFIED' },
+    ]);
+    expect(c.tables[UIDS.order]).toHaveLength(0);
+
+    const trusted = await c.orders.quote(base);
+    expect(trusted.codes).toEqual([{ code: 'VIP', status: 'APPLIED', promotionId: promo }]);
+    const order = await create({ promotionCodes: ['VIP'] });
+    expect(orderRow(order.id).promotions.applied.map((a: any) => a.promotionId)).toEqual([promo]);
+  });
+
+  it('F5: the final evaluation changes the gifts quoted for shipping again → SHIPPING_UNAVAILABLE, no order', async () => {
+    addVariant(30, 4, 300, 5, 'Socks');
+    addPromotion({
+      benefits: {
+        items: [
+          {
+            type: 'BUY_X_GET_Y',
+            buy: { target: T([10]), quantity: 1, minAmount: null },
+            get: { mode: 'GIFT', variantIds: [30], quantity: 1 },
+            reward: { kind: 'FREE' },
+          },
+        ],
+      },
+    });
+    addPromotion({
+      stacking: { ...STACK_ALL, exclusive: true },
+      benefits: { items: [{ type: 'SHIPPING_FREE', maxAmount: null }] },
+    });
+    // With the gift the parcel is expensive (free shipping wins), without it cheap (the gift wins).
+    const findOption = vi.fn(async (req: any, providerId: string, serviceId: string) => ({
+      providerId,
+      serviceId,
+      name: 'Standard',
+      price: req.items.some((i: any) => i.variantId === 30) ? 2000 : 100,
+      tax: 23,
+    }));
+    c.services.EcommerceShippingService = { findOption };
+
+    expect(await errorsOf(create({ lines: [{ variantId: 10, quantity: 1 }] }))).toEqual([
+      { path: 'shipping', code: 'SHIPPING_UNAVAILABLE' },
+    ]);
+    expect(findOption).toHaveBeenCalledTimes(2);
+    expect(c.tables[UIDS.order]).toHaveLength(0);
+    expect(c.tables[UIDS.stockMovement]).toHaveLength(0);
+    expect(
+      (
+        await errorsOf(
+          c.orders.quote({
+            lines: [{ variantId: 10, quantity: 1 }],
+            locale: 'en',
+            shipping: { country: 'PT', providerId: 'manual', serviceId: '1' },
+          })
+        )
+      ).map((e) => e.code)
+    ).toEqual(['SHIPPING_UNAVAILABLE']);
+  });
+});
