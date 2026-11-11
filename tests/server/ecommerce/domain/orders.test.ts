@@ -340,3 +340,132 @@ describe('availableActions', () => {
     ).toEqual([]);
   });
 });
+
+describe('fix round 1', () => {
+  const actionBase = {
+    orderStatus: 'OPEN' as const,
+    fulfillmentStatus: 'UNFULFILLED' as const,
+    hasUnshippedQuantity: true,
+    hasShippedUnreturned: false,
+    allShipmentsDelivered: false,
+    hasPendingPayments: false,
+    hasPendingRefunds: false,
+    hasUninvoicedCompletedPayments: false,
+  };
+  const withSummary = (summary: ReturnType<typeof financialSummary>) => ({
+    ...actionBase,
+    summary,
+    paymentStatus: derivePaymentStatus(summary),
+  });
+
+  it('SHIP available for a zero-total order', () => {
+    const summary = financialSummary(0, [], []);
+    expect(derivePaymentStatus(summary)).toBe('PENDING');
+    expect(availableActions(withSummary(summary))).toContain('SHIP');
+  });
+
+  it('SHIP available when PARTIALLY_REFUNDED with due 0', () => {
+    const summary = financialSummary(5000, [{ status: 'COMPLETED', amount: 10000 }], [
+      { status: 'COMPLETED', amount: 5000, kind: 'MONEY' },
+    ]);
+    expect(derivePaymentStatus(summary)).toBe('PARTIALLY_REFUNDED');
+    expect(summary.due).toBe(0);
+    expect(availableActions(withSummary(summary))).toContain('SHIP');
+  });
+
+  it('no SHIP when PARTIALLY_PAID', () => {
+    const summary = financialSummary(10000, [{ status: 'COMPLETED', amount: 4000 }], []);
+    expect(derivePaymentStatus(summary)).toBe('PARTIALLY_PAID');
+    expect(availableActions(withSummary(summary))).not.toContain('SHIP');
+  });
+
+  it('no SHIP without unshipped quantity', () => {
+    const summary = financialSummary(0, [], []);
+    expect(
+      availableActions({ ...withSummary(summary), hasUnshippedQuantity: false }),
+    ).not.toContain('SHIP');
+  });
+
+  it('fulfillment ignores zero-quantity lines', () => {
+    expect(deriveFulfillmentStatus([{ id: 1, quantity: 0 }], new Map())).toBe('UNFULFILLED');
+    expect(
+      deriveFulfillmentStatus(
+        [
+          { id: 1, quantity: 2 },
+          { id: 2, quantity: 0 },
+        ],
+        new Map([[1, 2]]),
+      ),
+    ).toBe('FULFILLED');
+  });
+
+  it('cancelled & partially paid stays PARTIALLY_PAID with full excess', () => {
+    const s = financialSummary(10000, [{ status: 'COMPLETED', amount: 4000 }], [], {
+      orderCancelled: true,
+    });
+    expect(derivePaymentStatus(s)).toBe('PARTIALLY_PAID');
+    expect(s.excess).toBe(4000);
+    expect(s.due).toBe(0);
+  });
+
+  it('cancelled & fully paid is PAID', () => {
+    const s = financialSummary(10000, [{ status: 'COMPLETED', amount: 10000 }], [], {
+      orderCancelled: true,
+    });
+    expect(derivePaymentStatus(s)).toBe('PAID');
+  });
+
+  const order = { orderDiscount: 1300, shippingOriginal: 0, shippingDiscount: 0 };
+
+  it('returns pro-rate the order discount (return 1 of 2)', () => {
+    const t = computeTotals(
+      [{ unitPrice: 5000, unitDiscount: 1000, quantity: 2, returnedQuantity: 1 }],
+      order,
+    );
+    expect(t.subtotal).toBe(4000);
+    expect(t.orderDiscount).toBe(650);
+    expect(t.total).toBe(3350);
+  });
+
+  it('returns pro-rate the order discount (return both)', () => {
+    const t = computeTotals(
+      [{ unitPrice: 5000, unitDiscount: 1000, quantity: 2, returnedQuantity: 2 }],
+      order,
+    );
+    expect(t.subtotal).toBe(0);
+    expect(t.orderDiscount).toBe(0);
+    expect(t.total).toBe(0);
+  });
+
+  it('pro-rating rounds half-up to integer cents', () => {
+    // 1001 × 4000 / 8000 = 500.5 → 501
+    const t = computeTotals(
+      [{ unitPrice: 5000, unitDiscount: 1000, quantity: 2, returnedQuantity: 1 }],
+      { ...order, orderDiscount: 1001 },
+    );
+    expect(t.orderDiscount).toBe(501);
+  });
+
+  it('all lines returned across several lines → orderDiscount 0', () => {
+    const t = computeTotals(
+      [
+        { unitPrice: 3000, unitDiscount: 0, quantity: 1, returnedQuantity: 1 },
+        { unitPrice: 2000, unitDiscount: 0, quantity: 3, returnedQuantity: 3 },
+      ],
+      { orderDiscount: 1000, shippingOriginal: 500, shippingDiscount: 0 },
+    );
+    expect(t.subtotal).toBe(0);
+    expect(t.orderDiscount).toBe(0);
+    expect(t.total).toBe(500);
+  });
+
+  it('negative net (over-refund) yields due greater than total (documented; caps in plan 4)', () => {
+    const s = financialSummary(5000, [{ status: 'COMPLETED', amount: 1000 }], [
+      { status: 'COMPLETED', amount: 3000, kind: 'MONEY' },
+    ]);
+    expect(s.net).toBe(-2000);
+    expect(s.due).toBe(7000);
+    expect(s.due).toBeGreaterThan(s.total);
+    expect(derivePaymentStatus(s)).toBe('REFUNDED');
+  });
+});
