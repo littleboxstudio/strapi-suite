@@ -151,16 +151,6 @@ const EcommerceLayout = ({ children }: { children: ReactNode }) => {
     breadcrumbs.push({ title: formatMessage({ id: getTranslation(`ecommerce.menu.${section}`) }) });
   }
 
-  const switchButton = active ? (
-    <Button size="S" onClick={() => toggleState(false)}>
-      {formatMessage({ id: getTranslation('app.enabled') })}
-    </Button>
-  ) : (
-    <Button variant="danger" size="S" onClick={() => toggleState(true)}>
-      {formatMessage({ id: getTranslation('app.disabled') })}
-    </Button>
-  );
-
   return (
     <Shell>
       <TopBar>
@@ -182,9 +172,6 @@ const EcommerceLayout = ({ children }: { children: ReactNode }) => {
             )}
           </Breadcrumbs>
         </Box>
-        <Flex alignItems="center" style={{ flexShrink: 0 }}>
-          {switchButton}
-        </Flex>
       </TopBar>
 
       {!active && (

@@ -17,6 +17,7 @@ import {
 import { WarningCircle } from '@strapi/icons';
 import { StoreLogoField } from '../../components/settings/StoreLogoField';
 import { MarketsTable } from '../../components/settings/MarketsTable';
+import { ModuleStatusSection } from '../../components/settings/ModuleStatusSection';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchStoreSettings from '../../usecases/settings/fetchStoreSettings';
 import FetchIntegrations from '../../usecases/settings/fetchIntegrations';
@@ -233,6 +234,8 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
           </Flex>
         </Box>
       )}
+
+      <ModuleStatusSection readOnly={readOnly} />
 
       <Section title={t('ecommerce.settings.store.title')}>
         <Grid.Root gap={5}>
