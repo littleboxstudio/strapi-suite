@@ -25,6 +25,8 @@ import {
 } from './domain/promotions';
 
 const PAGE_SIZE = 50;
+/** What `reserve` needs from the locked promotion row. */
+const RESERVE_COLUMNS = ['code', 'method', 'active', 'startsAt', 'endsAt', 'usageLimit', 'perCustomerLimit'];
 const DEFAULT_TIMEZONE = 'Europe/Lisbon';
 
 export type PromotionListItem = {
@@ -434,10 +436,13 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
   const remove = async (rawId: number | string, actor: string): Promise<void> => {
     const id = Number(rawId);
     const u = uids();
-    await findRow(id);
-    const used = await strapi.db.query(u.promotionRedemption).count({ where: { promotion: { id } } });
-    if (used > 0) throw invalid('id', 'PROMOTION_IN_USE');
-    await strapi.db.transaction(async () => {
+    await strapi.db.transaction(async ({ trx }: { trx: any }) => {
+      // The row lock serializes against `reserve` (which bumps the same row): a checkout that
+      // got there first has committed its redemption before the count below; one that comes
+      // later finds no row and fails PROMOTION_UNAVAILABLE.
+      if (!(await lockPromotion(trx, id, ['id']))) throw new EcommerceNotFoundError('Promotion not found');
+      const used = await strapi.db.query(u.promotionRedemption).count({ where: { promotion: { id } } });
+      if (used > 0) throw invalid('id', 'PROMOTION_IN_USE');
       await strapi.db.query(u.promotionCustomerUsage).deleteMany({ where: { promotion: { id } } });
       await strapi.db.query(u.promotion).delete({ where: { id } });
     });
@@ -543,7 +548,7 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
           variantId: v.id,
           productId: p.id,
           unitPrice: num(v.price),
-          available: Math.max(0, (stock.get(v.id) ?? num(v.stock)) - inCart),
+          available: Math.max(0, (stock.get(v.id) ?? 0) - inCart),
           active: !!p.active && !!v.active,
         });
       }
@@ -554,6 +559,25 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
   // -------------------------------------------------------------------------
   // Capacity
   // -------------------------------------------------------------------------
+
+  /**
+   * `SELECT … FOR UPDATE` of one promotion row through knex (schema-aware connection), in the
+   * caller's transaction; the result is keyed by attribute name. Null when the row is gone.
+   */
+  const lockPromotion = async (trx: any, id: number, attributes: string[]): Promise<any | null> => {
+    const meta: any = strapi.db.metadata.get(uids().promotion as any);
+    const columns = Object.fromEntries(
+      attributes.map((a) => [a, meta.attributes?.[a]?.columnName ?? a])
+    );
+    const row = await strapi.db
+      .getConnection(meta.tableName)
+      .select(columns)
+      .where({ id })
+      .forUpdate()
+      .first()
+      .transacting(trx);
+    return row ?? null;
+  };
 
   /** Atomic `column = column + delta` on one row; `guards` are `[column, op, constant]`. */
   const bump = async (
@@ -595,29 +619,31 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
         if (await strapi.db.query(u.promotionRedemption).findOne({ where: { uniqueKey: key }, select: ['id'] })) {
           continue;
         }
-        const row = await strapi.db.query(u.promotion).findOne({ where: { id: a.promotionId } });
+        // A locking (current) read: a snapshot read could predate an admin lowering a limit.
+        const row = await lockPromotion(trx, a.promotionId, RESERVE_COLUMNS);
         const code = a.code ?? row?.code ?? null;
         if (!row) throw unavailable(a.promotionId, code);
-        const current = toCandidate(row, 0);
+        const current = toCandidate({ ...row, id: a.promotionId }, 0);
         if (promotionStatus(current, now) !== 'ACTIVE') throw unavailable(a.promotionId, code);
 
         // 1. Global capacity; the limit is a constant read from the row in this transaction.
         const globalGuards: [string, string, number][] =
           current.usageLimit === null ? [] : [['redemptions', '<=', current.usageLimit - 1]];
-        if (!(await bump(trx, u.promotion, row.id, 'redemptions', 1, { active: true }, globalGuards))) {
+        if (!(await bump(trx, u.promotion, a.promotionId, 'redemptions', 1, { active: true }, globalGuards))) {
           throw unavailable(a.promotionId, code);
         }
 
         // 2. Per e-mail capacity. A concurrent create of the same counter fails on the unique
         // index and aborts the whole transaction (never caught here): the order retries.
+        if (current.perCustomerLimit !== null && !email) throw unavailable(a.promotionId, code);
         if (email) {
-          const usageKey = promotionUsageKey(row.id, email);
+          const usageKey = promotionUsageKey(a.promotionId, email);
           let usage = await strapi.db
             .query(u.promotionCustomerUsage)
             .findOne({ where: { uniqueKey: usageKey }, select: ['id'] });
           if (!usage) {
             usage = await strapi.db.query(u.promotionCustomerUsage).create({
-              data: { promotion: row.id, emailNormalized: email, uses: 0, uniqueKey: usageKey },
+              data: { promotion: a.promotionId, emailNormalized: email, uses: 0, uniqueKey: usageKey },
             });
           }
           const customerGuards: [string, string, number][] =
@@ -630,7 +656,7 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
         // 3. The redemption that the cancel releases.
         await strapi.db.query(u.promotionRedemption).create({
           data: {
-            promotion: row.id,
+            promotion: a.promotionId,
             order: ctx.orderId,
             customer: ctx.customerId ?? null,
             emailNormalized: email || null,
