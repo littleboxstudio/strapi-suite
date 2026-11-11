@@ -1,14 +1,14 @@
 import { ReactNode } from 'react';
 import { useIntl } from 'react-intl';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
-import { Main, Box, Flex, Button, Typography } from '@strapi/design-system';
+import { Main, Box, Flex, Button, Typography, Breadcrumbs, Crumb, CrumbLink } from '@strapi/design-system';
 import { PriceTag, ShoppingCart, User, Gift, Cog } from '@strapi/icons';
 import config from '../core/config';
 import UpdateSetting from '../core/usecases/updateSetting';
 import { getTranslation } from '../core/utils/getTranslation';
 import { useSettings } from '../contexts/settings';
-import HeaderLayout from '../components/HeaderLayout';
+import Logo from '../components/Logo';
 import EmptyProducts from './illustrations/EmptyProducts';
 import { usePromotionPermissions } from './hooks/usePromotionPermissions';
 import { PROMOTIONS_READ_ACTION, filterMenu } from './utils/rbac';
@@ -22,6 +22,46 @@ const MENU = [
 ] as const;
 
 type MenuKey = (typeof MENU)[number]['key'];
+
+const TOP_BAR_HEIGHT = 56;
+
+/** E-commerce top bar: 56px high, 12px padding — logo, breadcrumbs, then the module switch. */
+const TopBar = styled.header`
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  box-sizing: border-box;
+  height: ${TOP_BAR_HEIGHT}px;
+  padding: 12px;
+  background: ${({ theme }) => theme.colors.neutral0};
+  border-bottom: 1px solid ${({ theme }) => theme.colors.neutral150};
+`;
+
+/** Fits the shared logo inside the bar (32px = 56px − 2 × 12px). */
+const LogoSlot = styled.div`
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  height: 100%;
+
+  a,
+  svg {
+    display: block;
+    height: 100%;
+    width: auto;
+  }
+`;
+
+/** Left menu: flush with the left edge, from the top bar to the bottom of the page. */
+const SideNav = styled.nav`
+  box-sizing: border-box;
+  width: 220px;
+  flex-shrink: 0;
+  min-height: calc(100vh - ${TOP_BAR_HEIGHT}px);
+  padding: 12px 8px;
+  background: ${({ theme }) => theme.colors.neutral0};
+  border-right: 1px solid ${({ theme }) => theme.colors.neutral150};
+`;
 
 const NavItem = styled(Link)<{ $active: boolean }>`
   display: flex;
@@ -58,6 +98,7 @@ const EcommerceLayout = ({ children }: { children: ReactNode }) => {
   const module = config.uuid.modules.ecommerce;
   const { formatMessage } = useIntl();
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   const settings = useSettings();
   const active = settings.provide(module).active;
   const section = activeSection(pathname);
@@ -78,61 +119,72 @@ const EcommerceLayout = ({ children }: { children: ReactNode }) => {
     breadcrumbs.push({ title: formatMessage({ id: getTranslation(`ecommerce.menu.${section}`) }) });
   }
 
+  const switchButton = active ? (
+    <Button size="S" onClick={() => toggleState(false)}>
+      {formatMessage({ id: getTranslation('app.enabled') })}
+    </Button>
+  ) : (
+    <Button variant="danger" size="S" onClick={() => toggleState(true)}>
+      {formatMessage({ id: getTranslation('app.disabled') })}
+    </Button>
+  );
+
   return (
-    <Main style={{ width: '100%', padding: '40px 50px' }}>
-      <HeaderLayout
-        breadcrumbs={breadcrumbs}
-        description={formatMessage({ id: getTranslation(`module.${module}.description`) })}
-      >
-        {!active && (
-          <Button variant="danger" size="S" onClick={() => toggleState(true)}>
-            {formatMessage({ id: getTranslation('app.disabled') })}
-          </Button>
-        )}
-        {active && (
-          <Button size="S" onClick={() => toggleState(false)}>
-            {formatMessage({ id: getTranslation('app.enabled') })}
-          </Button>
-        )}
-      </HeaderLayout>
+    <Main style={{ width: '100%', padding: 0, minHeight: '100vh' }}>
+      <TopBar>
+        <LogoSlot>
+          <Logo />
+        </LogoSlot>
+        <Box style={{ flex: 1, minWidth: 0 }}>
+          <Breadcrumbs>
+            {breadcrumbs.map((crumb, index) =>
+              index === breadcrumbs.length - 1 ? (
+                <Crumb key={index} isCurrent>
+                  {crumb.title}
+                </Crumb>
+              ) : (
+                <CrumbLink key={index} onClick={() => crumb.link && navigate(crumb.link)}>
+                  {crumb.title}
+                </CrumbLink>
+              )
+            )}
+          </Breadcrumbs>
+        </Box>
+        <Flex alignItems="center" style={{ flexShrink: 0 }}>
+          {switchButton}
+        </Flex>
+      </TopBar>
 
       {!active && (
-        <Flex
-          direction="column"
-          alignItems="center"
-          gap={3}
-          marginTop={10}
-          padding={10}
-          background="neutral0"
-          shadow="tableShadow"
-          hasRadius
-        >
-          <EmptyProducts />
-          <Typography variant="beta" tag="h2">
-            {formatMessage({ id: getTranslation('ecommerce.disabled.title') })}
-          </Typography>
-          <Typography variant="omega" textColor="neutral600" textAlign="center">
-            {formatMessage({ id: getTranslation('ecommerce.disabled.description') })}
-          </Typography>
-          <Box paddingTop={2}>
-            <Button onClick={() => toggleState(true)}>
-              {formatMessage({ id: getTranslation('ecommerce.disabled.cta') })}
-            </Button>
-          </Box>
-        </Flex>
-      )}
-
-      {active && (
-        <Flex alignItems="flex-start" gap={6} paddingTop={10}>
-          <Box
-            tag="nav"
-            aria-label={formatMessage({ id: getTranslation(`module.${module}.name`) })}
+        <Box padding={10}>
+          <Flex
+            direction="column"
+            alignItems="center"
+            gap={3}
+            padding={10}
             background="neutral0"
             shadow="tableShadow"
             hasRadius
-            padding={2}
-            style={{ width: '220px', flexShrink: 0 }}
           >
+            <EmptyProducts />
+            <Typography variant="beta" tag="h2">
+              {formatMessage({ id: getTranslation('ecommerce.disabled.title') })}
+            </Typography>
+            <Typography variant="omega" textColor="neutral600" textAlign="center">
+              {formatMessage({ id: getTranslation('ecommerce.disabled.description') })}
+            </Typography>
+            <Box paddingTop={2}>
+              <Button onClick={() => toggleState(true)}>
+                {formatMessage({ id: getTranslation('ecommerce.disabled.cta') })}
+              </Button>
+            </Box>
+          </Flex>
+        </Box>
+      )}
+
+      {active && (
+        <Flex alignItems="stretch">
+          <SideNav aria-label={formatMessage({ id: getTranslation(`module.${module}.name`) })}>
             <Flex direction="column" alignItems="stretch" gap={1}>
               {menu.map(({ key, icon: Icon }) => (
                 <NavItem
@@ -146,8 +198,8 @@ const EcommerceLayout = ({ children }: { children: ReactNode }) => {
                 </NavItem>
               ))}
             </Flex>
-          </Box>
-          <Box style={{ flex: 1, minWidth: 0 }}>{children}</Box>
+          </SideNav>
+          <Box style={{ flex: 1, minWidth: 0, padding: '32px 40px' }}>{children}</Box>
         </Flex>
       )}
     </Main>
