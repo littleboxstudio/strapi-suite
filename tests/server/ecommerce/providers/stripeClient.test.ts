@@ -57,6 +57,7 @@ describe('createCheckoutSession', () => {
     const p = new URLSearchParams(init.body);
     expect(p.get('mode')).toBe('payment');
     expect(p.get('metadata[orderId]')).toBe('7');
+    expect(p.get('payment_intent_data[metadata][orderId]')).toBe('7');
     expect(p.get('line_items[0][price_data][unit_amount]')).toBe('1234');
     expect(p.get('line_items[0][price_data][currency]')).toBe('eur');
     expect(p.get('line_items[0][quantity]')).toBe('1');
@@ -100,11 +101,36 @@ describe('retrieve / expire / refund', () => {
     });
   });
 
-  it('expire ignores already-expired errors but not others', async () => {
-    stubFetch(async () =>
-      json(400, { error: { message: 'Only Checkout Sessions with a status in (open) can be expired.' } })
+  it('expire returns the resulting status on 2xx', async () => {
+    const f = stubFetch(async () => json(200, { id: 'cs_1', status: 'expired' }));
+    await expect(createStripeClient(rt).expireCheckoutSession('cs_1')).resolves.toBe('expired');
+    expect(f.mock.calls[0][0]).toBe('https://api.stripe.com/v1/checkout/sessions/cs_1/expire');
+    expect(f.mock.calls[0][1].method).toBe('POST');
+  });
+
+  it('expire on 400 retrieves the session and returns its status', async () => {
+    const f = stubFetch(async (_url, init) =>
+      init.method === 'POST'
+        ? json(400, { error: { message: 'anything' } })
+        : json(200, { id: 'cs_1', status: 'complete', payment_status: 'paid', payment_intent: 'pi_1' })
     );
-    await expect(createStripeClient(rt).expireCheckoutSession('cs_1')).resolves.toBeUndefined();
+    await expect(createStripeClient(rt).expireCheckoutSession('cs_1')).resolves.toBe('complete');
+    expect(f.mock.calls[1][0]).toBe('https://api.stripe.com/v1/checkout/sessions/cs_1');
+    expect(f.mock.calls[1][1].method).toBe('GET');
+  });
+
+  it('expire on 400 throws when the session is still open', async () => {
+    stubFetch(async (_url, init) =>
+      init.method === 'POST'
+        ? json(400, { error: { message: 'x' } })
+        : json(200, { id: 'cs_1', status: 'open', payment_status: 'unpaid' })
+    );
+    await expect(createStripeClient(rt).expireCheckoutSession('cs_1')).rejects.toMatchObject({
+      code: 'STRIPE_REQUEST_FAILED',
+    });
+  });
+
+  it('expire throws on other errors', async () => {
     stubFetch(async () => json(500, {}));
     await expect(createStripeClient(rt).expireCheckoutSession('cs_1')).rejects.toMatchObject({
       code: 'STRIPE_REQUEST_FAILED',

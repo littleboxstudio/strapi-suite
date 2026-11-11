@@ -6,7 +6,12 @@ export type DomainEventType =
   | 'PAYMENT_COMPLETED'
   | 'ORDER_MODIFIED'
   | 'ORDER_CANCELLED'
-  | 'ORDER_ARCHIVED';
+  | 'ORDER_ARCHIVED'
+  | 'PAYMENT_INSTRUCTIONS_SENT'
+  | 'REFUND_STARTED'
+  | 'REFUND_COMPLETED'
+  | 'REFUND_FAILED'
+  | 'STORE_CREDIT_ISSUED';
 
 export type DomainEvent = {
   id: string;

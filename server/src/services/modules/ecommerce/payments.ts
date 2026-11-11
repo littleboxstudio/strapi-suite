@@ -49,6 +49,34 @@ export const toPaymentView = (p: any): PaymentView => ({
   methodLabel: p.metadata?.methodLabel ?? null,
 });
 
+/**
+ * Value-based coverage (design 4.4) of a payment of `amount` that becomes COMPLETED now,
+ * after the order's already COMPLETED payments. `state` comes from `computeOrderState`.
+ */
+export const coverageFor = (state: OrderState, amount: number) =>
+  computeCoverage(
+    {
+      lines: state.lines.map((l) => ({
+        id: l.id,
+        unitPrice: l.unitPrice,
+        unitDiscount: l.unitDiscount,
+        quantity: l.quantity,
+        returnedQuantity: l.returnedQuantity,
+        tax: l.tax,
+      })),
+      orderDiscount: num(state.order.orderDiscount),
+      shippingTotal: num(state.order.shippingTotal),
+      shippingTax: num(state.order.shippingTax),
+    },
+    state.payments.filter((p) => p.status === 'COMPLETED'),
+    amount
+  );
+
+export type PaymentInstructionsInput =
+  { mode: 'MANUAL'; instructions: string } | { mode: 'STRIPE' };
+
+export const MAX_INSTRUCTIONS_LENGTH = 5000;
+
 const EcommercePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
   const uids = () => {
     const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
@@ -124,23 +152,7 @@ const EcommercePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
         orders().assertAction(state, 'ADD_PAYMENT');
 
         const { order } = state;
-        const coverage = computeCoverage(
-          {
-            lines: state.lines.map((l) => ({
-              id: l.id,
-              unitPrice: l.unitPrice,
-              unitDiscount: l.unitDiscount,
-              quantity: l.quantity,
-              returnedQuantity: l.returnedQuantity,
-              tax: l.tax,
-            })),
-            orderDiscount: num(order.orderDiscount),
-            shippingTotal: num(order.shippingTotal),
-            shippingTax: num(order.shippingTax),
-          },
-          state.payments.filter((p) => p.status === 'COMPLETED'),
-          amount
-        );
+        const coverage = coverageFor(state, amount);
 
         const payment = await strapi.db.query(uids().payment).create({
           data: {
@@ -200,7 +212,88 @@ const EcommercePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
     }
   };
 
-  return { addManualPayment };
+  /**
+   * Sends the customer how to pay what is due: free-text manual instructions, or a Stripe
+   * payment link. Only emits `PAYMENT_INSTRUCTIONS_SENT` (the notification goes out from it);
+   * never settles anything.
+   */
+  const sendPaymentInstructions = async (
+    rawOrderId: number | string,
+    input: PaymentInstructionsInput,
+    actor: string
+  ): Promise<{ url?: string; expiresAt?: string }> => {
+    const orderId = Number(rawOrderId);
+    const mode = input?.mode;
+    if (mode !== 'MANUAL' && mode !== 'STRIPE') {
+      throw new EcommerceValidationError('Invalid payment instructions', [
+        { path: 'mode', code: 'invalid' },
+      ]);
+    }
+    let instructions: string | undefined;
+    if (mode === 'MANUAL') {
+      instructions = clean((input as { instructions?: unknown }).instructions);
+      if (!instructions) {
+        throw new EcommerceValidationError('Invalid payment instructions', [
+          { path: 'instructions', code: 'required' },
+        ]);
+      }
+      if (instructions.length > MAX_INSTRUCTIONS_LENGTH) {
+        throw new EcommerceValidationError('Invalid payment instructions', [
+          { path: 'instructions', code: 'too_long' },
+        ]);
+      }
+    }
+
+    const before = await orders().computeOrderState(orderId);
+    orders().assertAction(before, 'SEND_PAYMENT_INSTRUCTIONS');
+    const supplementary = before.payments.some((p) => p.status === 'COMPLETED');
+
+    // Stripe calls happen outside any transaction (getOrCreatePaymentLink manages its own).
+    let link: { url: string; expiresAt: string } | null = null;
+    if (mode === 'STRIPE') {
+      const stripePayments: {
+        getOrCreatePaymentLink(
+          orderId: number,
+          opts: { purpose: 'CHECKOUT' | 'SUPPLEMENTARY'; actor: string }
+        ): Promise<{ url: string; expiresAt: string }>;
+      } = service('EcommerceStripePaymentService');
+      link = await stripePayments.getOrCreatePaymentLink(orderId, {
+        purpose: supplementary ? 'SUPPLEMENTARY' : 'CHECKOUT',
+        actor,
+      });
+    }
+
+    const collector = events().collector();
+    await strapi.db.transaction(async () => {
+      await orders().lockOrder(orderId);
+      const state = await orders().computeOrderState(orderId);
+      orders().assertAction(state, 'SEND_PAYMENT_INSTRUCTIONS');
+      const amountDue = state.summary.due;
+      const payload: Record<string, unknown> = { mode };
+      if (instructions !== undefined) payload.instructions = instructions;
+      if (link) {
+        payload.url = link.url;
+        payload.expiresAt = link.expiresAt;
+      }
+      payload.amountDue = amountDue;
+      payload.supplementary = supplementary;
+
+      await history().record({
+        orderId,
+        type: 'PAYMENT_INSTRUCTIONS_SENT',
+        description:
+          mode === 'STRIPE' ? 'Stripe payment link sent' : 'Manual payment instructions sent',
+        previousValue: null,
+        newValue: payload,
+        actor,
+      });
+      collector.emit({ type: 'PAYMENT_INSTRUCTIONS_SENT', orderId, payload });
+    });
+    await collector.flush();
+    return link ? { url: link.url, expiresAt: link.expiresAt } : {};
+  };
+
+  return { addManualPayment, sendPaymentInstructions };
 };
 
 export default EcommercePaymentService;
