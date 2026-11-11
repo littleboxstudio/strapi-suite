@@ -64,20 +64,18 @@ const StripeWebhookModal = ({ onClose }: Props) => {
             )}
             {info && (
               <>
-                <Flex gap={2} alignItems="flex-start">
-                  <Box style={{ flex: 1, minWidth: 0 }}>
-                    <Field.Root name="stripeWebhookUrl" hint={t('ecommerce.settings.stripeWebhook.urlHint')}>
-                      <Field.Label>{t('ecommerce.settings.stripeWebhook.url')}</Field.Label>
+                <Field.Root name="stripeWebhookUrl" hint={t('ecommerce.settings.stripeWebhook.urlHint')}>
+                  <Field.Label>{t('ecommerce.settings.stripeWebhook.url')}</Field.Label>
+                  <Flex gap={2} alignItems="center">
+                    <Box style={{ flex: 1, minWidth: 0 }}>
                       <TextInput value={url} readOnly onFocus={(e: any) => e.target.select()} />
-                      <Field.Hint />
-                    </Field.Root>
-                  </Box>
-                  <Box paddingTop={6}>
-                    <Button variant="secondary" onClick={copy}>
+                    </Box>
+                    <Button variant="secondary" size="L" onClick={copy}>
                       {t('ecommerce.settings.stripeWebhook.copy')}
                     </Button>
-                  </Box>
-                </Flex>
+                  </Flex>
+                  <Field.Hint />
+                </Field.Root>
                 <Flex direction="column" alignItems="flex-start" gap={2}>
                   <Typography variant="sigma" textColor="neutral600">
                     {t('ecommerce.settings.stripeWebhook.events')}
