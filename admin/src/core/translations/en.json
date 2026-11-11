@@ -217,5 +217,15 @@
   "littlebox-strapi-suite.tabs.edit-view.errors": "{count, plural, one {# error} other {# errors}}",
   "littlebox-strapi-suite.module.ecommerce.name": "E-commerce",
   "littlebox-strapi-suite.module.ecommerce.description": "Manage products, variants and images for your online store.",
-  "littlebox-strapi-suite.app.manage": "Manage"
+  "littlebox-strapi-suite.app.manage": "Manage",
+  "littlebox-strapi-suite.ecommerce.menu.products": "Products",
+  "littlebox-strapi-suite.ecommerce.menu.orders": "Orders",
+  "littlebox-strapi-suite.ecommerce.menu.customers": "Customers",
+  "littlebox-strapi-suite.ecommerce.menu.promotions": "Promotions",
+  "littlebox-strapi-suite.ecommerce.menu.settings": "Settings",
+  "littlebox-strapi-suite.ecommerce.comingSoon": "Coming soon",
+  "littlebox-strapi-suite.ecommerce.comingSoon.description": "This section is on its way. Check back after the next update.",
+  "littlebox-strapi-suite.ecommerce.disabled.title": "The E-commerce module is disabled",
+  "littlebox-strapi-suite.ecommerce.disabled.description": "Enable the module to manage your store's products, variants and images.",
+  "littlebox-strapi-suite.ecommerce.disabled.cta": "Enable E-commerce"
 }

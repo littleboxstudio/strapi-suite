@@ -9,6 +9,7 @@ import { MenuSettingsEditPage } from './MenuSettingsEditPage';
 import { ParameterSettingsPage } from './ParameterSettingsPage';
 import { TranslationSettingsPage } from './TranslationSettingsPage';
 import { TemplateSettingsPage } from './TemplateSettingsPage';
+import { EcommerceApp } from '../ecommerce/EcommerceApp';
 
 const App = () => {
   return (
@@ -22,6 +23,7 @@ const App = () => {
         <Route path="parameter" element={<ParameterSettingsPage />} />
         <Route path="translation" element={<TranslationSettingsPage />} />
         <Route path="template" element={<TemplateSettingsPage />} />
+        <Route path="ecommerce/*" element={<EcommerceApp />} />
         <Route path="*" element={<ErrorPage />} />
       </Routes>
     </SettingsProvider>

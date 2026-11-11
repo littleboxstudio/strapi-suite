@@ -1,5 +1,15 @@
 {
   "littlebox-strapi-suite.module.ecommerce.name": "E-commerce",
   "littlebox-strapi-suite.module.ecommerce.description": "Gira produtos, variantes e imagens da sua loja online.",
-  "littlebox-strapi-suite.app.manage": "Gerir"
+  "littlebox-strapi-suite.app.manage": "Gerir",
+  "littlebox-strapi-suite.ecommerce.menu.products": "Produtos",
+  "littlebox-strapi-suite.ecommerce.menu.orders": "Encomendas",
+  "littlebox-strapi-suite.ecommerce.menu.customers": "Clientes",
+  "littlebox-strapi-suite.ecommerce.menu.promotions": "Promoções",
+  "littlebox-strapi-suite.ecommerce.menu.settings": "Definições",
+  "littlebox-strapi-suite.ecommerce.comingSoon": "Brevemente",
+  "littlebox-strapi-suite.ecommerce.comingSoon.description": "Esta secção está a caminho. Volte a espreitar depois da próxima atualização.",
+  "littlebox-strapi-suite.ecommerce.disabled.title": "O módulo de E-commerce está desligado",
+  "littlebox-strapi-suite.ecommerce.disabled.description": "Ative o módulo para gerir os produtos, as variantes e as imagens da sua loja.",
+  "littlebox-strapi-suite.ecommerce.disabled.cta": "Ativar o E-commerce"
 }
