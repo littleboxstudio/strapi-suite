@@ -314,7 +314,7 @@ const Input = React.forwardRef<HTMLButtonElement, Props>(
                       onClick={() => {
                         setEditMode(false);
                         if (slugBeforeEdit) {
-                          createChangeEvent(slugBeforeEdit);
+                          createChangeEvent(slugBeforeEdit as string);
                         } else {
                           setAttachedTitle(true);
                           createChangeEvent(context.form.values.title);
