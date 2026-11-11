@@ -9,7 +9,6 @@ import {
   Flex,
   IconButton,
   Loader,
-  Switch,
   Textarea,
   TextInput,
   Tooltip,
@@ -344,16 +343,6 @@ const ProductEditPage = () => {
           </Typography>
         </Flex>
         <Flex gap={4} alignItems="center">
-          <Flex gap={2} alignItems="center">
-            <Switch
-              checked={form.active}
-              onCheckedChange={(checked: boolean) =>
-                setForm((f) => (f ? { ...f, active: checked } : f))
-              }
-              aria-label={t('ecommerce.product.active')}
-            />
-            <Typography variant="omega">{t('ecommerce.product.active')}</Typography>
-          </Flex>
           {productId !== undefined && (
             <Button
               variant="danger-light"
@@ -364,6 +353,14 @@ const ProductEditPage = () => {
               {t('ecommerce.product.delete')}
             </Button>
           )}
+          {/* Same toggle as the module header; the change is stored with Save. */}
+          <Button
+            variant={form.active ? 'default' : 'danger'}
+            onClick={() => setForm((f) => (f ? { ...f, active: !f.active } : f))}
+            aria-pressed={form.active}
+          >
+            {formatMessage({ id: getTranslation(form.active ? 'app.enabled' : 'app.disabled') })}
+          </Button>
           <Button onClick={save} loading={saving} disabled={translating || deleting}>
             {t('ecommerce.product.save')}
           </Button>
