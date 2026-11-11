@@ -7,7 +7,43 @@ const makePng = () =>
     .png()
     .toBuffer();
 
+const makeRotatedJpeg = () =>
+  sharp({ create: { width: 400, height: 300, channels: 3, background: '#0f0' } })
+    .jpeg()
+    .withMetadata({ orientation: 6 })
+    .toBuffer();
+
 describe('processImage', () => {
+  it('crops in the EXIF-oriented frame (orientation 6)', async () => {
+    const out = await processImage(await makeRotatedJpeg(), {
+      mode: 'crop',
+      width: 150,
+      height: 200,
+      crop: { x: 0, y: 0, width: 300, height: 400 },
+    });
+    const meta = await sharp(out.buffer).metadata();
+    expect(meta.format).toBe('webp');
+    expect([meta.width, meta.height]).toEqual([150, 200]);
+    expect([out.width, out.height]).toEqual([150, 200]);
+  });
+
+  it('resizes an EXIF-oriented image to the requested size', async () => {
+    const out = await processImage(await makeRotatedJpeg(), { mode: 'resize', width: 150, height: 200 });
+    const meta = await sharp(out.buffer).metadata();
+    expect([meta.width, meta.height]).toEqual([150, 200]);
+  });
+
+  it('rejects a crop that only fits the raw (unoriented) frame', async () => {
+    await expect(
+      processImage(await makeRotatedJpeg(), {
+        mode: 'crop',
+        width: 100,
+        height: 100,
+        crop: { x: 0, y: 0, width: 400, height: 300 },
+      })
+    ).rejects.toThrow('INVALID_IMAGE');
+  });
+
   it('crops then resizes to webp', async () => {
     const out = await processImage(await makePng(), {
       mode: 'crop',
