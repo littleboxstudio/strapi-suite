@@ -538,6 +538,21 @@ describe('EcommerceOrderService.cancel', () => {
     expect(events).toHaveLength(1);
   });
 
+  it('cancels an order whose variant was deleted: records the movement, restocks the rest', async () => {
+    const { orders, tables } = setup();
+    const { id } = await createOrder(orders);
+    // The variant row is gone (e.g. removed from its product after the order closed).
+    tables[UIDS.variant] = tables[UIDS.variant].filter((v) => v.id !== 11);
+    const view = await orders.cancel(id, 'user:1');
+    expect(view.orderStatus).toBe('CANCELLED');
+    expect(stockOf(tables, 10)).toBe(5);
+    const restock = tables[UIDS.stockMovement].filter((m) => m.type === 'CANCEL_RESTOCK');
+    expect(restock.map((m) => [m.variant, m.variantId, m.quantity])).toEqual([
+      [10, 10, 2],
+      [null, 11, 1],
+    ]);
+  });
+
   it('a concurrent cancel that committed first makes this one fail with no effects', async () => {
     const { orders, tables, bus, loseNextOrderUpdate } = setup();
     const { id } = await createOrder(orders);

@@ -110,7 +110,9 @@ export function validateProductForm(form: ProductForm, defaultLocale: string): F
 export function toErrorMap(errors: FieldError[]): ErrorMap {
   const map: ErrorMap = {};
   errors.forEach(({ path, code }) => {
-    if (!(path in map)) map[path] = code;
+    // The variant was removed from the form, so the message belongs to the variants section.
+    const key = code === 'VARIANT_IN_OPEN_ORDERS' ? 'variants' : path;
+    if (!(key in map)) map[key] = code;
   });
   return map;
 }

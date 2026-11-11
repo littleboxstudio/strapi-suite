@@ -104,6 +104,7 @@
   "littlebox-strapi-suite.ecommerce.product.errors.duplicate_sku": "Este SKU já está a ser usado.",
   "littlebox-strapi-suite.ecommerce.product.errors.invalid_number": "Introduza um número válido.",
   "littlebox-strapi-suite.ecommerce.product.errors.out_of_range": "Este valor está fora do intervalo permitido.",
+  "littlebox-strapi-suite.ecommerce.product.errors.VARIANT_IN_OPEN_ORDERS": "Uma variante que removeu está a ser usada por encomendas abertas. Anule a remoção e desative a variante.",
   "littlebox-strapi-suite.ecommerce.image.add": "Adicionar imagem",
   "littlebox-strapi-suite.ecommerce.image.empty": "Ainda não há imagens",
   "littlebox-strapi-suite.ecommerce.image.upload.title": "Adicionar imagem",

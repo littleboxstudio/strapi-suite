@@ -30,7 +30,13 @@ export type ProductInput = {
 
 export type FieldError = {
   path: string;
-  code: 'required' | 'min_variants' | 'duplicate_sku' | 'invalid_number' | 'out_of_range';
+  code:
+    | 'required'
+    | 'min_variants'
+    | 'duplicate_sku'
+    | 'invalid_number'
+    | 'out_of_range'
+    | 'VARIANT_IN_OPEN_ORDERS';
 };
 
 export function slugify(text: string): string {
