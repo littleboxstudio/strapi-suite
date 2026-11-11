@@ -11,6 +11,17 @@ import {
 import type { ProviderRuntime } from './providers/registry';
 import type { OrderHistoryEntry } from './orderHistory';
 
+/** The Stripe event types `dispatch` handles (shown in the admin so the webhook can be set up). */
+export const STRIPE_WEBHOOK_EVENTS = [
+  'checkout.session.completed',
+  'checkout.session.async_payment_succeeded',
+  'checkout.session.async_payment_failed',
+  'checkout.session.expired',
+  'charge.refunded',
+  'refund.updated',
+  'refund.failed',
+] as const;
+
 export type WebhookOutcome = 'PROCESSED' | 'IGNORED';
 export type WebhookResult =
   | { duplicate: true }

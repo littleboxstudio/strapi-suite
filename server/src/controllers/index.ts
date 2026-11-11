@@ -11,6 +11,9 @@ import EcommerceProductController from './modules/ecommerce/products';
 import EcommerceSettingsController from './modules/ecommerce/settings';
 import EcommerceCustomerController from './modules/ecommerce/customers';
 import EcommerceOrderController from './modules/ecommerce/orders';
+import EcommerceRefundController from './modules/ecommerce/refunds';
+import EcommerceStoreCreditController from './modules/ecommerce/storeCredits';
+import EcommerceNotificationController from './modules/ecommerce/notifications';
 import EcommerceStripeWebhookController from './modules/ecommerce/stripeWebhook';
 
 export default {
@@ -27,5 +30,8 @@ export default {
   EcommerceSettingsController,
   EcommerceCustomerController,
   EcommerceOrderController,
+  EcommerceRefundController,
+  EcommerceStoreCreditController,
+  EcommerceNotificationController,
   EcommerceStripeWebhookController,
 };

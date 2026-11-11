@@ -15,7 +15,7 @@ const route = (method: string, path: string, handler: string, action: string) =>
   },
 });
 
-const { ordersRead: read, ordersManage: manage } = ECOMMERCE_PERMISSIONS;
+const { ordersRead: read, ordersManage: manage, paymentsManage: pay } = ECOMMERCE_PERMISSIONS;
 
 export default [
   route('GET', '', 'list', read),
@@ -28,6 +28,9 @@ export default [
   route('GET', '/variant-search', 'variantSearch', manage),
   route('GET', '/:id', 'get', read),
   route('POST', '/:id/payments', 'addPayment', manage),
+  route('POST', '/:id/payment-link', 'createPaymentLink', pay),
+  route('POST', '/:id/payment-instructions', 'sendPaymentInstructions', pay),
+  route('POST', '/:id/store-credit-payment', 'addStoreCreditPayment', manage),
   route('POST', '/:id/cancel', 'cancel', manage),
   route('POST', '/:id/archive', 'archive', manage),
   route('POST', '/:id/modification/preview', 'previewModification', manage),

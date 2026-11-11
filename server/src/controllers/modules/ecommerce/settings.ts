@@ -1,5 +1,6 @@
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID } from '../../../config';
+import { STRIPE_WEBHOOK_EVENTS } from '../../../services/modules/ecommerce/stripeWebhooks';
 import { handleDomainError as handleSharedDomainError } from './errors';
 
 const EcommerceSettingsController = ({ strapi }: { strapi: Core.Strapi }) => {
@@ -32,6 +33,14 @@ const EcommerceSettingsController = ({ strapi }: { strapi: Core.Strapi }) => {
     getLocales: (ctx: any) => {
       const products: any = strapi.plugin(PLUGIN_ID).controller('EcommerceProductController');
       return products.getLocales(ctx);
+    },
+
+    /** What the admin shows to set up the Stripe webhook (no secrets). */
+    getStripeWebhook: (ctx: any) => {
+      ctx.body = {
+        path: `/api/${PLUGIN_ID}/ecommerce/stripe/webhook`,
+        events: [...STRIPE_WEBHOOK_EVENTS],
+      };
     },
 
     getStore: (ctx: any) => respond(ctx, () => settings().getStoreSettings()),
