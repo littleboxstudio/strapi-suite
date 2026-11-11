@@ -745,7 +745,15 @@ describe('EcommerceOrderService.create with a store credit and a checkout sessio
   /** Variant 13 at 4500 + 500 shipping = 5000. */
   const commerce = () => {
     const c = setupCommerce();
-    c.tables[U.variant].push({ id: 13, product: 1, sku: 'SH-XL', price: 4500, tax: 23, stock: 5, active: true });
+    c.tables[U.variant].push({
+      id: 13,
+      product: 1,
+      sku: 'SH-XL',
+      price: 4500,
+      tax: 23,
+      stock: 5,
+      active: true,
+    });
     return c;
   };
   const orderInput = (extra: any = {}) => ({
@@ -764,7 +772,12 @@ describe('EcommerceOrderService.create with a store credit and a checkout sessio
       lastName: 'Y',
       email,
     });
-    return c.storeCredits.issue({ customerId: customer.id, amount, actor: 'user:1', operationKey: `issue:${email}:${amount}` });
+    return c.storeCredits.issue({
+      customerId: customer.id,
+      amount,
+      actor: 'user:1',
+      operationKey: `issue:${email}:${amount}`,
+    });
   };
   const creditRow = (c: Commerce, id: number) => c.tables[U.storeCredit].find((x) => x.id === id);
   const addAutomaticPromotion = (c: Commerce) => {
@@ -807,22 +820,44 @@ describe('EcommerceOrderService.create with a store credit and a checkout sessio
     const issued = await creditFor(c, 'ana@example.pt', 3000);
     c.events.length = 0;
 
-    const res = await c.orders.create(orderInput({ storeCreditCode: issued.code.toLowerCase() }), sf);
-    expect(res).toEqual({ id: expect.any(Number), reference: 1001, publicId: expect.any(String), total: 5000 });
+    const res = await c.orders.create(
+      orderInput({ storeCreditCode: issued.code.toLowerCase() }),
+      sf
+    );
+    expect(res).toEqual({
+      id: expect.any(Number),
+      reference: 1001,
+      publicId: expect.any(String),
+      total: 5000,
+    });
 
     const order = c.tables[U.order].find((o) => o.id === res.id);
-    expect(order).toMatchObject({ total: 5000, paymentStatus: 'PARTIALLY_PAID', source: 'storefront' });
+    expect(order).toMatchObject({
+      total: 5000,
+      paymentStatus: 'PARTIALLY_PAID',
+      source: 'storefront',
+    });
     expect(c.tables[U.payment]).toEqual([
-      expect.objectContaining({ order: res.id, method: 'STORE_CREDIT', status: 'COMPLETED', amount: 3000 }),
+      expect.objectContaining({
+        order: res.id,
+        method: 'STORE_CREDIT',
+        status: 'COMPLETED',
+        amount: 3000,
+      }),
     ]);
     expect(creditRow(c, issued.id).balance).toBe(0);
     expect(c.events.map((e) => e.type)).toEqual(['ORDER_CREATED', 'PAYMENT_COMPLETED']);
-    const history = c.tables[U.orderHistory]
+    const rows = c.tables[U.orderHistory]
       .filter((h) => h.order === res.id)
-      .sort((a, b) => a.id - b.id)
-      .map((h) => h.type);
+      .sort((a, b) => a.id - b.id);
+    const history = rows.map((h) => h.type);
     expect(history.indexOf('ORDER_CREATED')).toBe(0);
     expect(history.indexOf('PAYMENT_COMPLETED')).toBeGreaterThan(0);
+    // One operation: the creation and its store credit payment share the operationId.
+    const created = rows.find((h) => h.type === 'ORDER_CREATED');
+    const paid = rows.find((h) => h.type === 'PAYMENT_COMPLETED');
+    expect(created.operationId).toEqual(expect.any(String));
+    expect(paid.operationId).toBe(created.operationId);
   });
 
   it('a credit larger than the total pays it all and keeps the rest', async () => {
@@ -839,9 +874,8 @@ describe('EcommerceOrderService.create with a store credit and a checkout sessio
     addAutomaticPromotion(c);
     const issued = await creditFor(c, 'bruno@example.pt', 3000);
     c.events.length = 0;
-    expect((await codes(c.orders.create(orderInput({ storeCreditCode: issued.code }), sf))).map((e: any) => e.code)).toEqual([
-      'STORE_CREDIT_EMAIL_MISMATCH',
-    ]);
+    const refused = await codes(c.orders.create(orderInput({ storeCreditCode: issued.code }), sf));
+    expect(refused.map((e: any) => e.code)).toEqual(['STORE_CREDIT_EMAIL_MISMATCH']);
     nothingCreated(c, issued.id, 3000);
     expect(c.tables[U.promotion][0].redemptions).toBe(0);
   });
@@ -857,9 +891,8 @@ describe('EcommerceOrderService.create with a store credit and a checkout sessio
       if (table === U.storeCredit) creditRow(c, issued.id).balance = 100;
       return original(table);
     };
-    expect((await codes(c.orders.create(orderInput({ storeCreditCode: issued.code }), sf))).map((e: any) => e.code)).toEqual([
-      'STORE_CREDIT_INSUFFICIENT',
-    ]);
+    const refused = await codes(c.orders.create(orderInput({ storeCreditCode: issued.code }), sf));
+    expect(refused.map((e: any) => e.code)).toEqual(['STORE_CREDIT_INSUFFICIENT']);
     c.strapi.db.getConnection = original;
     nothingCreated(c, issued.id, 3000);
     expect(c.tables[U.promotion][0].redemptions).toBe(0);
@@ -868,8 +901,9 @@ describe('EcommerceOrderService.create with a store credit and a checkout sessio
   it('a repeated idempotencyKey returns the same order and consumes the credit once', async () => {
     const c = commerce();
     const issued = await creditFor(c, 'ana@example.pt', 3000);
-    const a = await c.orders.create(orderInput({ storeCreditCode: issued.code, idempotencyKey: 'k-sc' }), sf);
-    const b = await c.orders.create(orderInput({ storeCreditCode: issued.code, idempotencyKey: 'k-sc' }), sf);
+    const repeated = orderInput({ storeCreditCode: issued.code, idempotencyKey: 'k-sc' });
+    const a = await c.orders.create(repeated, sf);
+    const b = await c.orders.create(repeated, sf);
     expect(b).toEqual(a);
     expect(a.total).toBe(5000);
     expect(c.tables[U.order]).toHaveLength(1);
@@ -884,10 +918,68 @@ describe('EcommerceOrderService.create with a store credit and a checkout sessio
     expect(await codes(c.orders.create(orderInput({ storeCreditCode: 5 }), sf))).toEqual([
       { path: 'storeCreditCode', code: 'invalid' },
     ]);
-    expect(await codes(c.orders.create(orderInput({ storeCreditCode: 'A'.repeat(65) }), sf))).toEqual([
+    const long = orderInput({ storeCreditCode: 'A'.repeat(65) });
+    expect(await codes(c.orders.create(long, sf))).toEqual([
       { path: 'storeCreditCode', code: 'too_long' },
     ]);
     expect(c.tables[U.order]).toHaveLength(0);
+  });
+
+  it('a transient conflict inside the store credit payment retries the whole creation once', async () => {
+    const c = commerce();
+    const issued = await creditFor(c, 'ana@example.pt', 3000);
+    c.events.length = 0;
+    const apply = c.payments.applyStoreCredit;
+    let calls = 0;
+    c.services.EcommercePaymentService = {
+      ...c.payments,
+      applyStoreCredit: async (p: any) => {
+        calls++;
+        const view = await apply(p);
+        if (calls === 1) {
+          throw Object.assign(new Error('deadlock'), { errno: 1213, code: 'ER_LOCK_DEADLOCK' });
+        }
+        return view;
+      },
+    };
+    const res = await c.orders.create(orderInput({ storeCreditCode: issued.code }), sf);
+    expect(calls).toBe(2);
+    expect(c.tables[U.order]).toHaveLength(1);
+    expect(c.tables[U.payment]).toHaveLength(1);
+    expect(c.tables[U.storeCreditMovement].filter((m) => m.type === 'CONSUME')).toHaveLength(1);
+    expect(creditRow(c, issued.id).balance).toBe(0);
+    expect(c.events.map((e) => e.type)).toEqual(['ORDER_CREATED', 'PAYMENT_COMPLETED']);
+    expect(res.total).toBe(5000);
+  });
+
+  it('a zero total ignores the store credit code: order created, credit untouched', async () => {
+    const c = commerce();
+    c.tables[U.variant].find((v) => v.id === 13).price = 0;
+    c.services.EcommerceShippingService = {
+      findOption: async (_r: any, providerId: string, serviceId: string) => ({
+        providerId,
+        serviceId,
+        name: 'Pickup',
+        price: 0,
+        tax: 23,
+      }),
+    };
+    const issued = await creditFor(c, 'ana@example.pt', 3000);
+    const res = await c.orders.create(orderInput({ storeCreditCode: issued.code }), sf);
+    expect(res.total).toBe(0);
+    expect(c.tables[U.order]).toHaveLength(1);
+    expect(c.tables[U.payment]).toHaveLength(0);
+    expect(creditRow(c, issued.id).balance).toBe(3000);
+  });
+
+  it('rejects an idempotencyKey longer than 200 characters', async () => {
+    const c = commerce();
+    const tooLong = orderInput({ idempotencyKey: 'k'.repeat(201) });
+    expect(await codes(c.orders.create(tooLong, sf))).toEqual([
+      { path: 'idempotencyKey', code: 'too_long' },
+    ]);
+    const ok = await c.orders.create(orderInput({ idempotencyKey: 'k'.repeat(200) }), sf);
+    expect(ok.reference).toBe(1001);
   });
 
   it('links the order to its checkout session', async () => {

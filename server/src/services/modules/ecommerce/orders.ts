@@ -134,6 +134,8 @@ export type CreateOrderContext = {
 export type CreatedOrder = { id: number; reference: number; publicId: string; total: number };
 
 export const MAX_STORE_CREDIT_CODE_LENGTH = 64;
+/** Derived keys (`<key>:store-credit`, storefront `sf:<sessionId>:<key>`) fit a varchar(255). */
+export const MAX_ORDER_IDEMPOTENCY_KEY_LENGTH = 200;
 
 export type OrderLineView = {
   id: number;
@@ -660,6 +662,11 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
 
     const notes = clean(input?.notes) || null;
     const idempotencyKey = clean(input?.idempotencyKey) || null;
+    if (idempotencyKey && idempotencyKey.length > MAX_ORDER_IDEMPOTENCY_KEY_LENGTH) {
+      throw new EcommerceValidationError('Invalid order', [
+        { path: 'idempotencyKey', code: 'too_long' },
+      ]);
+    }
     const emailVerified = typeof input?.emailVerified === 'boolean' ? input.emailVerified : undefined;
     return {
       customer,
@@ -934,6 +941,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
             lines: v.lines.map((l) => ({ variantId: l.variantId, quantity: l.quantity })),
           },
           actor: ctx.actor,
+          operationId,
         });
         if (applied.length) {
           await history().record({
@@ -949,6 +957,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
               })),
             },
             actor: ctx.actor,
+            operationId,
           });
         }
 
@@ -960,7 +969,8 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
 
         // Last, so history and e-mails read ORDER_CREATED then PAYMENT_COMPLETED. Any refusal
         // (STORE_CREDIT_*) rolls the whole creation back: no order, stock or reservation.
-        if (v.storeCreditCode) {
+        // Nothing is due on a zero total: the code is ignored.
+        if (v.storeCreditCode && totals.total > 0) {
           await paymentService().applyStoreCredit({
             orderId,
             code: v.storeCreditCode,
