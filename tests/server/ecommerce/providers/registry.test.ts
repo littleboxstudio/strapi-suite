@@ -32,11 +32,14 @@ describe('provider registry', () => {
     expect(f('moloni')).toEqual([
       'clientId:string:*', 'clientSecret:secret:*', 'username:string:*', 'password:secret:*',
       'companyId:number:*', 'documentType:select:', 'documentSetId:number:', 'exemptionReason:string:',
+      'paymentMethodId:number:', 'storeCreditPaymentMethodId:number:', 'productCategoryId:number:',
+      'measurementUnitId:number:', 'shippingReference:string:',
     ]);
     expect(f('ctt-expresso')).toEqual([
       'clientId:string:*', 'contractNumber:string:*', 'username:string:*', 'password:secret:*',
     ]);
     expect(f('resend')).toEqual(['apiKey:secret:*', 'fromEmail:string:*', 'fromName:string:']);
+    expect(getProviderDefinition('moloni')!.fields.find((x) => x.key === 'shippingReference')!.default).toBe('PORTES');
     const dt = getProviderDefinition('moloni')!.fields.find((x) => x.key === 'documentType')!;
     expect(dt.default).toBe('FR');
     expect(dt.options).toEqual(['FR', 'FT']);

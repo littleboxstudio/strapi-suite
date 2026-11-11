@@ -18,6 +18,11 @@ const moloni: ProviderDefinition = {
     { key: 'documentType', type: 'select', required: false, default: 'FR', options: ['FR', 'FT'], label: `${L}.documentType` },
     { key: 'documentSetId', type: 'number', required: false, label: `${L}.documentSetId` },
     { key: 'exemptionReason', type: 'string', required: false, label: `${L}.exemptionReason` },
+    { key: 'paymentMethodId', type: 'number', required: false, label: `${L}.paymentMethodId` },
+    { key: 'storeCreditPaymentMethodId', type: 'number', required: false, label: `${L}.storeCreditPaymentMethodId` },
+    { key: 'productCategoryId', type: 'number', required: false, label: `${L}.productCategoryId` },
+    { key: 'measurementUnitId', type: 'number', required: false, label: `${L}.measurementUnitId` },
+    { key: 'shippingReference', type: 'string', required: false, default: 'PORTES', label: `${L}.shippingReference` },
   ],
   async testConnection(rt) {
     const values = {
