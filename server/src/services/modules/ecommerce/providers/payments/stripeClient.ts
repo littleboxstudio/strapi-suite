@@ -67,12 +67,16 @@ export function createStripeClient(rt: ProviderRuntime) {
   }
 
   /** Error message never echoes Stripe's response (it may quote the key). */
-  const failed = (status: number) =>
-    new EcommercePaymentError('STRIPE_REQUEST_FAILED', `Stripe rejected the request (HTTP ${status}).`);
+  const failed = (status: number, body?: any) =>
+    new EcommercePaymentError(
+      'STRIPE_REQUEST_FAILED',
+      `Stripe rejected the request (HTTP ${status}).`,
+      typeof body?.error?.type === 'string' ? body.error.type : undefined
+    );
 
   async function ok(p: Promise<StripeResponse>): Promise<any> {
     const res = await p;
-    if (res.status < 200 || res.status >= 300 || !res.body) throw failed(res.status);
+    if (res.status < 200 || res.status >= 300 || !res.body) throw failed(res.status, res.body);
     return res.body;
   }
 

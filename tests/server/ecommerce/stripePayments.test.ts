@@ -75,7 +75,9 @@ function setup(opts: { storefrontUrl?: string | null; stripeActive?: boolean } =
   });
   const services: Record<string, any> = {};
   const bus = createEventBus(() => undefined);
+  const log = { warn: vi.fn(), error: vi.fn(), info: vi.fn() };
   const strapi: any = {
+    log,
     db: {
       query: db.query,
       transaction: db.transaction,
@@ -90,7 +92,15 @@ function setup(opts: { storefrontUrl?: string | null; stripeActive?: boolean } =
   };
   services.EcommerceStockService = EcommerceStockService({ strapi });
   services.EcommerceCustomerService = EcommerceCustomerService({ strapi });
-  services.EcommerceOrderHistoryService = EcommerceOrderHistoryService({ strapi });
+  const realHistory = EcommerceOrderHistoryService({ strapi });
+  // Simulates a database failure in the next transaction that records `type`.
+  const failHistory = new Set<string>();
+  services.EcommerceOrderHistoryService = {
+    record: async (entry: any) => {
+      if (failHistory.delete(entry.type)) throw new Error('db down');
+      return realHistory.record(entry);
+    },
+  };
   services.EcommerceShippingService = {
     findOption: async (_req: any, providerId: string, serviceId: string) => ({
       providerId,
@@ -141,6 +151,8 @@ function setup(opts: { storefrontUrl?: string | null; stripeActive?: boolean } =
     stripePayments: services.EcommerceStripePaymentService,
     tables: t,
     events,
+    log,
+    failNextHistory: (type: string) => failHistory.add(type),
   };
 }
 
@@ -493,6 +505,14 @@ describe('completeFromSession', () => {
     });
 
     // While that payment awaits confirmation, no second link is created.
+    stripe.retrieveCheckoutSession.mockResolvedValueOnce({
+      id: 'cs_1',
+      status: 'complete',
+      paymentStatus: 'unpaid',
+      paymentIntentId: 'pi_1',
+      amountTotal: 4500,
+      metadata: {},
+    });
     await expect(
       stripePayments.getOrCreatePaymentLink(order.id, { purpose: 'CHECKOUT', actor })
     ).rejects.toMatchObject({ code: 'PAYMENT_PENDING' });
@@ -591,5 +611,205 @@ describe('sendPaymentInstructions', () => {
       .catch((x: any) => x);
     expect(err).toBeInstanceOf(EcommerceValidationError);
     expect(err.errors[0]).toEqual({ path: 'mode', code: 'invalid' });
+  });
+});
+
+describe('fix round 1', () => {
+  const paidSession = (id: string, amountTotal: number) => ({
+    id,
+    status: 'complete',
+    paymentStatus: 'paid',
+    paymentIntentId: `pi_${id}`,
+    amountTotal,
+    metadata: {},
+  });
+
+  it('due changes while Stripe creates the session: that session is retired, the link is for the new due', async () => {
+    const { orders, payments, stripePayments, tables } = setup();
+    const order = await createOrder(orders);
+    const impl = stripe.createCheckoutSession.getMockImplementation()!;
+    stripe.createCheckoutSession.mockImplementationOnce(async (p: any) => {
+      await payments.addManualPayment(order.id, { amount: 1000, idempotencyKey: 'm-race' }, actor);
+      return impl(p);
+    });
+
+    const link = await stripePayments.getOrCreatePaymentLink(order.id, {
+      purpose: 'CHECKOUT',
+      actor,
+    });
+
+    expect(link).toMatchObject({ sessionId: 'cs_2', amount: 3500, reused: false });
+    expect(stripe.expireCheckoutSession).toHaveBeenCalledWith('cs_1');
+    const sessions = tables[UIDS.stripeSession];
+    expect(sessions.map((s) => [s.sessionId, s.status, s.amount])).toEqual([
+      ['cs_1', 'EXPIRED', 4500],
+      ['cs_2', 'OPEN', 3500],
+    ]);
+    expect(
+      tables[UIDS.payment].filter((p) => p.method === 'STRIPE').map((p) => [p.status, p.amount])
+    ).toEqual([
+      ['CANCELLED', 4500],
+      ['PENDING', 3500],
+    ]);
+  });
+
+  it('reusing a session retires every other OPEN session of the order', async () => {
+    const { orders, stripePayments, tables } = setup();
+    const order = await createOrder(orders);
+    await stripePayments.getOrCreatePaymentLink(order.id, { purpose: 'CHECKOUT', actor });
+    // A second OPEN row with another amount (left behind by a race).
+    tables[UIDS.payment].push({
+      id: 99,
+      order: order.id,
+      method: 'STRIPE',
+      status: 'PENDING',
+      amount: 1234,
+      externalId: 'cs_x',
+      metadata: {},
+    });
+    tables[UIDS.stripeSession].push({
+      id: 99,
+      order: order.id,
+      payment: 99,
+      sessionId: 'cs_x',
+      url: 'https://checkout.stripe.com/c/pay/cs_x',
+      amount: 1234,
+      status: 'OPEN',
+      expiresAt: new Date(Date.now() + 20 * 3600 * 1000).toISOString(),
+      purpose: 'CHECKOUT',
+    });
+
+    const link = await stripePayments.getOrCreatePaymentLink(order.id, {
+      purpose: 'CHECKOUT',
+      actor,
+    });
+
+    expect(link).toMatchObject({ sessionId: 'cs_1', reused: true });
+    expect(stripe.expireCheckoutSession).toHaveBeenCalledWith('cs_x');
+    expect(stripe.expireCheckoutSession).not.toHaveBeenCalledWith('cs_1');
+    expect(
+      tables[UIDS.stripeSession].filter((s) => s.status === 'OPEN').map((s) => s.sessionId)
+    ).toEqual(['cs_1']);
+    expect(tables[UIDS.payment].find((p) => p.id === 99).status).toBe('CANCELLED');
+  });
+
+  it('Stripe succeeded but the store transaction failed: the retry returns the same session', async () => {
+    const { orders, stripePayments, tables, failNextHistory } = setup();
+    const order = await createOrder(orders);
+    failNextHistory('PAYMENT_CREATED');
+    await expect(
+      stripePayments.getOrCreatePaymentLink(order.id, { purpose: 'CHECKOUT', actor })
+    ).rejects.toThrow('db down');
+    expect(tables[UIDS.stripeSession]).toHaveLength(0);
+
+    const link = await stripePayments.getOrCreatePaymentLink(order.id, {
+      purpose: 'CHECKOUT',
+      actor,
+    });
+    expect(link).toMatchObject({ sessionId: 'cs_1', amount: 4500 });
+    expect(sessionSeq).toBe(1); // Stripe replayed the same session
+    expect(tables[UIDS.stripeSession]).toHaveLength(1);
+    expect(tables[UIDS.payment]).toHaveLength(1);
+    expect(tables[UIDS.orderHistory].filter((h) => h.type === 'PAYMENT_CREATED')).toHaveLength(1);
+  });
+
+  it('a concurrent replay of the same orphan finds the stored row (existing-row branch)', async () => {
+    const { orders, stripePayments, tables } = setup();
+    const order = await createOrder(orders);
+    const impl = stripe.createCheckoutSession.getMockImplementation()!;
+    let inner: any;
+    // While the first call waits on Stripe, a second call reuses the same reserved payment
+    // and key, gets the same session and stores it first.
+    stripe.createCheckoutSession.mockImplementationOnce(async (p: any) => {
+      inner = await stripePayments.getOrCreatePaymentLink(order.id, { purpose: 'CHECKOUT', actor });
+      return impl(p);
+    });
+
+    const outer = await stripePayments.getOrCreatePaymentLink(order.id, {
+      purpose: 'CHECKOUT',
+      actor,
+    });
+
+    expect(inner.sessionId).toBe('cs_1');
+    expect(outer).toMatchObject({ sessionId: 'cs_1', amount: 4500 });
+    expect(sessionSeq).toBe(1);
+    expect(tables[UIDS.stripeSession]).toHaveLength(1);
+    expect(tables[UIDS.payment]).toHaveLength(1);
+    expect(tables[UIDS.orderHistory].filter((h) => h.type === 'PAYMENT_CREATED')).toHaveLength(1);
+  });
+
+  it('a retry reuses the stored create params, even if settings changed', async () => {
+    const { orders, stripePayments, tables } = setup();
+    const order = await createOrder(orders);
+    stripe.createCheckoutSession.mockRejectedValueOnce(
+      new EcommercePaymentError('STRIPE_UNREACHABLE', 'x')
+    );
+    await stripePayments
+      .getOrCreatePaymentLink(order.id, { purpose: 'CHECKOUT', actor })
+      .catch(() => null);
+    tables[UIDS.order][0].customerSnapshot = {
+      ...tables[UIDS.order][0].customerSnapshot,
+      email: 'new@example.pt',
+    };
+    await stripePayments.getOrCreatePaymentLink(order.id, { purpose: 'CHECKOUT', actor });
+    const [a, b] = stripe.createCheckoutSession.mock.calls.map((c) => c[0]);
+    expect(b).toEqual(a);
+    expect(a.customerEmail).toBe('ana@example.pt');
+  });
+
+  it('an idempotency mismatch cancels the orphan and uses a fresh key', async () => {
+    const { orders, stripePayments, tables } = setup();
+    const order = await createOrder(orders);
+    stripe.createCheckoutSession.mockRejectedValueOnce(
+      new EcommercePaymentError('STRIPE_REQUEST_FAILED', 'x', 'idempotency_error')
+    );
+    const link = await stripePayments.getOrCreatePaymentLink(order.id, {
+      purpose: 'CHECKOUT',
+      actor,
+    });
+    expect(link.amount).toBe(4500);
+    const keys = stripe.createCheckoutSession.mock.calls.map((c) => c[0].idempotencyKey);
+    expect(keys).toEqual([`session:${order.id}:4500:0`, `session:${order.id}:4500:1`]);
+    expect(tables[UIDS.payment].map((p) => p.status)).toEqual(['CANCELLED', 'PENDING']);
+  });
+
+  it('completeFromSession refuses a session whose id or amount does not match', async () => {
+    const { orders, stripePayments, tables, log } = setup();
+    const order = await createOrder(orders);
+    await stripePayments.getOrCreatePaymentLink(order.id, { purpose: 'CHECKOUT', actor });
+    const row = tables[UIDS.stripeSession][0];
+    for (const bad of [paidSession('cs_other', 4500), paidSession('cs_1', 100)]) {
+      await expect(
+        stripePayments.completeFromSession(row, bad, 'webhook:stripe')
+      ).rejects.toMatchObject({ code: 'STRIPE_SESSION_MISMATCH' });
+    }
+    expect(tables[UIDS.payment][0].status).toBe('PENDING');
+    expect(tables[UIDS.stripeSession][0].status).toBe('OPEN');
+    expect(log.warn).toHaveBeenCalledTimes(2);
+  });
+
+  it('an awaiting session that is now paid is completed instead of blocking', async () => {
+    const { orders, stripePayments, tables } = setup();
+    const order = await createOrder(orders);
+    await stripePayments.getOrCreatePaymentLink(order.id, { purpose: 'CHECKOUT', actor });
+    const row = tables[UIDS.stripeSession][0];
+    await stripePayments.completeFromSession(
+      row,
+      { ...paidSession('cs_1', 4500), paymentStatus: 'unpaid' },
+      'webhook:stripe'
+    );
+    stripe.retrieveCheckoutSession.mockResolvedValueOnce(paidSession('cs_1', 4500));
+    await expect(
+      stripePayments.getOrCreatePaymentLink(order.id, { purpose: 'CHECKOUT', actor })
+    ).rejects.toMatchObject({ code: 'NOTHING_DUE' });
+    expect(tables[UIDS.payment][0].status).toBe('COMPLETED');
+  });
+
+  it('STRIPE instructions report the link amount as amountDue', async () => {
+    const { orders, payments, events } = setup();
+    const order = await createOrder(orders);
+    await payments.sendPaymentInstructions(order.id, { mode: 'STRIPE' }, actor);
+    const e = events.find((x) => x.type === 'PAYMENT_INSTRUCTIONS_SENT');
+    expect(e.payload.amountDue).toBe(4500);
   });
 });

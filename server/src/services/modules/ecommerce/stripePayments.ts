@@ -41,6 +41,18 @@ const idOf = (v: any): number | null =>
   v === null || v === undefined ? null : Number(typeof v === 'object' ? v.id : v);
 const isoFromUnix = (sec: number): string => new Date(sec * 1000).toISOString();
 
+/** The exact `createCheckoutSession` parameters, kept on the reserved payment for retries. */
+type StoredParams = {
+  amount: number;
+  currency: 'EUR';
+  description: string;
+  customerEmail: string | null;
+  successUrl: string;
+  cancelUrl: string;
+  expiresAt: number;
+  metadata: Record<string, string>;
+};
+
 const notAvailable = () =>
   new EcommerceValidationError('Action not available', [
     { path: 'action', code: 'ACTION_NOT_AVAILABLE' },
@@ -129,6 +141,25 @@ const EcommerceStripePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
       if (orderId === null) return { completed: false };
       await orders().lockOrder(orderId);
 
+      const paymentId = idOf(row.payment);
+      const payment =
+        paymentId === null
+          ? null
+          : await strapi.db.query(u.payment).findOne({ where: { id: paymentId } });
+      // Never settle a payment from a session that is not the one stored for it.
+      if (
+        retrieved.id !== row.sessionId ||
+        (payment && retrieved.amountTotal !== num(payment.amount))
+      ) {
+        strapi.log?.warn(
+          `[ecommerce] Stripe session mismatch for stripe-session ${row.id} (payment ${paymentId ?? '-'})`
+        );
+        throw new EcommercePaymentError(
+          'STRIPE_SESSION_MISMATCH',
+          'The Stripe session does not match the stored payment.'
+        );
+      }
+
       const paymentIntentId = retrieved.paymentIntentId ?? row.paymentIntentId ?? null;
       if (retrieved.status === 'complete' && row.status !== 'COMPLETE') {
         await strapi.db
@@ -136,10 +167,6 @@ const EcommerceStripePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
           .update({ where: { id: row.id }, data: { status: 'COMPLETE', paymentIntentId } });
       }
       if (retrieved.paymentStatus !== 'paid') return { completed: false };
-
-      const paymentId = idOf(row.payment);
-      if (paymentId === null) return { completed: false };
-      const payment = await strapi.db.query(u.payment).findOne({ where: { id: paymentId } });
       if (!payment || payment.status === 'COMPLETED') return { completed: false };
 
       // Money Stripe confirms is always recorded, whatever the order's state now.
@@ -197,12 +224,10 @@ const EcommerceStripePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
         .updateMany({ where: { id: row.id, status: 'OPEN' }, data: { status: 'EXPIRED' } });
       const paymentId = idOf(row.payment);
       if (paymentId !== null) {
-        await strapi.db
-          .query(u.payment)
-          .updateMany({
-            where: { id: paymentId, status: 'PENDING' },
-            data: { status: 'CANCELLED' },
-          });
+        await strapi.db.query(u.payment).updateMany({
+          where: { id: paymentId, status: 'PENDING' },
+          data: { status: 'CANCELLED' },
+        });
       }
     });
   };
@@ -233,12 +258,22 @@ const EcommerceStripePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
       const due = assertLinkable(state, store);
 
       // A completed-but-unpaid session (e.g. Multibanco reference) may still be paid: a second
-      // link could charge the customer twice.
-      const awaiting = (await sessionsOf(orderId, 'COMPLETE')).some(
+      // link could charge the customer twice. If Stripe says it is paid by now, settle it.
+      const awaiting = (await sessionsOf(orderId, 'COMPLETE')).filter(
         (s) => s.payment && s.payment.status === 'PENDING'
       );
-      if (awaiting) {
-        throw new EcommercePaymentError('PAYMENT_PENDING', 'A Stripe payment awaits confirmation.');
+      if (awaiting.length) {
+        for (const row of awaiting) {
+          const retrieved = await client.retrieveCheckoutSession(row.sessionId);
+          if (retrieved.paymentStatus !== 'paid') {
+            throw new EcommercePaymentError(
+              'PAYMENT_PENDING',
+              'A Stripe payment awaits confirmation.'
+            );
+          }
+          await completeFromSession(row, retrieved, 'system');
+        }
+        continue; // re-read: the due changed
       }
 
       const open = await sessionsOf(orderId, 'OPEN');
@@ -247,9 +282,11 @@ const EcommerceStripePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
           num(s.amount) === due &&
           new Date(s.expiresAt).getTime() - Date.now() > REUSE_MIN_REMAINING_MS
       );
-      if (reusable) return toLink(reusable, true);
-      if (open.length) {
-        for (const row of open) await retire(client, orderId, row);
+      // Retire every OPEN session except the reusable one: one live link per order.
+      const stale = open.filter((s) => s !== reusable);
+      if (reusable && !stale.length) return toLink(reusable, true);
+      if (stale.length) {
+        for (const row of stale) await retire(client, orderId, row);
         continue; // re-read: a paid session may have changed the due
       }
 
@@ -272,7 +309,7 @@ const EcommerceStripePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
           (p) =>
             num(p.amount) === due &&
             p.metadata?.purpose === purpose &&
-            num(p.metadata?.expiresAt) > minExpiry &&
+            num(p.metadata?.stripeParams?.expiresAt) > minExpiry &&
             typeof p.metadata?.stripeIdempotencyKey === 'string'
         );
         for (const p of orphans) {
@@ -285,7 +322,7 @@ const EcommerceStripePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
           // n = session attempts already made for this order (one STRIPE payment each).
           const n = stripePayments.length;
           const stripeIdempotencyKey = `session:${orderId}:${due}:${n}`;
-          payment = await strapi.db.query(u.payment).create({
+          const created = await strapi.db.query(u.payment).create({
             data: {
               order: orderId,
               method: 'STRIPE',
@@ -298,74 +335,113 @@ const EcommerceStripePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
               coverage: null,
               completedAt: null,
               actor,
-              metadata: {
-                purpose,
-                stripeIdempotencyKey,
-                expiresAt: Math.floor(Date.now() / 1000) + SESSION_TTL_SEC,
-              },
+              metadata: null,
             },
           });
+          // The exact create parameters are stored: a retry with the same Idempotency-Key must
+          // send identical ones, or Stripe rejects it.
+          const { order } = fresh;
+          const base = String(store.storefrontUrl).replace(/\/+$/, '');
+          const query = `?order=${encodeURIComponent(order.publicId)}`;
+          const email = order.customerSnapshot?.email;
+          const stripeParams: StoredParams = {
+            amount: due,
+            currency: 'EUR',
+            description: `Order #${order.reference}`,
+            customerEmail: typeof email === 'string' && email ? email : null,
+            successUrl: `${base}${store.paymentSuccessPath}${query}`,
+            cancelUrl: `${base}${store.paymentCancelPath}${query}`,
+            expiresAt: Math.floor(Date.now() / 1000) + SESSION_TTL_SEC,
+            metadata: { orderId: String(orderId), paymentId: String(created.id), purpose },
+          };
+          const metadata = { purpose, stripeIdempotencyKey, stripeParams };
+          await strapi.db
+            .query(u.payment)
+            .update({ where: { id: created.id }, data: { metadata } });
+          payment = { ...created, metadata };
         }
-        return { payment, order: fresh.order };
+        return { payment };
       });
       if (!reserved) continue;
 
-      const { payment, order } = reserved;
-      const base = String(store.storefrontUrl).replace(/\/+$/, '');
-      const query = `?order=${encodeURIComponent(order.publicId)}`;
-      const email = order.customerSnapshot?.email;
-      // Identical parameters on a retry, so Stripe replays the same session for the same key.
-      const session = await client.createCheckoutSession({
-        amount: due,
-        currency: 'EUR',
-        description: `Order #${order.reference}`,
-        customerEmail: typeof email === 'string' && email ? email : undefined,
-        successUrl: `${base}${store.paymentSuccessPath}${query}`,
-        cancelUrl: `${base}${store.paymentCancelPath}${query}`,
-        expiresAt: num(payment.metadata.expiresAt),
-        metadata: { orderId: String(orderId), paymentId: String(payment.id), purpose },
-        idempotencyKey: payment.metadata.stripeIdempotencyKey,
-      });
+      const { payment } = reserved;
+      const params: StoredParams = payment.metadata.stripeParams;
+      let session: Awaited<ReturnType<StripeClient['createCheckoutSession']>>;
+      try {
+        session = await client.createCheckoutSession({
+          ...params,
+          customerEmail: params.customerEmail ?? undefined,
+          idempotencyKey: payment.metadata.stripeIdempotencyKey,
+        });
+      } catch (err) {
+        // The key was used with other parameters: abandon it, the next pass uses n + 1.
+        if (err instanceof EcommercePaymentError && err.stripeErrorType === 'idempotency_error') {
+          await strapi.db.transaction(async () => {
+            await orders().lockOrder(orderId);
+            await strapi.db.query(u.payment).updateMany({
+              where: { id: payment.id, status: 'PENDING', externalId: null },
+              data: { status: 'CANCELLED' },
+            });
+          });
+          continue;
+        }
+        throw err;
+      }
 
-      const row = await strapi.db.transaction(async () => {
+      const stored = await strapi.db.transaction(async () => {
         await orders().lockOrder(orderId);
-        const existing = await strapi.db
+        let row = await strapi.db
           .query(u.stripeSession)
           .findOne({ where: { sessionId: session.id } });
-        if (existing) return existing;
-        const created = await strapi.db.query(u.stripeSession).create({
-          data: {
-            order: orderId,
-            payment: payment.id,
-            sessionId: session.id,
-            paymentIntentId: session.paymentIntentId,
-            url: session.url,
-            amount: due,
-            status: 'OPEN',
-            expiresAt: isoFromUnix(session.expiresAt),
-            purpose,
-          },
-        });
-        await strapi.db
-          .query(u.payment)
-          .update({ where: { id: payment.id }, data: { externalId: session.id } });
-        await history().record({
-          orderId,
-          type: 'PAYMENT_CREATED',
-          description: 'Stripe payment link created',
-          previousValue: null,
-          newValue: {
-            paymentId: payment.id,
-            method: 'STRIPE',
-            amount: due,
-            sessionId: session.id,
-            purpose,
-          },
-          actor,
-        });
-        return created;
+        if (!row) {
+          // Stored even when stale below, so the session is tracked and can be retired.
+          row = await strapi.db.query(u.stripeSession).create({
+            data: {
+              order: orderId,
+              payment: payment.id,
+              sessionId: session.id,
+              paymentIntentId: session.paymentIntentId,
+              url: session.url,
+              amount: params.amount,
+              status: 'OPEN',
+              expiresAt: isoFromUnix(session.expiresAt),
+              purpose,
+            },
+          });
+          await strapi.db
+            .query(u.payment)
+            .update({ where: { id: payment.id }, data: { externalId: session.id } });
+          await history().record({
+            orderId,
+            type: 'PAYMENT_CREATED',
+            description: 'Stripe payment link created',
+            previousValue: null,
+            newValue: {
+              paymentId: payment.id,
+              method: 'STRIPE',
+              amount: params.amount,
+              sessionId: session.id,
+              purpose,
+            },
+            actor,
+          });
+        }
+        // While Stripe was creating the session the order may have changed (a payment, a
+        // modification, a concurrent link): only a session for the current due is handed out.
+        const current = await strapi.db.query(u.payment).findOne({ where: { id: payment.id } });
+        const fresh = await orders().computeOrderState(orderId);
+        const stale =
+          row.status !== 'OPEN' ||
+          !current ||
+          current.status !== 'PENDING' ||
+          fresh.order.orderStatus !== 'OPEN' ||
+          fresh.summary.due !== num(row.amount);
+        return { row, stale };
       });
-      return toLink(row, false);
+      if (!stored.stale) return toLink(stored.row, false);
+      if (stored.row.status === 'OPEN') {
+        await retire(client, orderId, { ...stored.row, payment: payment.id });
+      }
     }
     // Only reachable when concurrent writers keep changing the order.
     throw new EcommercePaymentError('STRIPE_REQUEST_FAILED', 'Could not create a payment link.');
