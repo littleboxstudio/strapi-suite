@@ -5,6 +5,7 @@ import config from '../../../core/config';
 import UpdateSetting from '../../../core/usecases/updateSetting';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { useSettings } from '../../../contexts/settings';
+import ConfirmModal from '../../../components/ConfirmModal';
 
 /**
  * Settings → General: turns the whole E-commerce module on or off (it used to sit in the module
@@ -17,12 +18,13 @@ const ModuleStatusSection = ({ readOnly }: { readOnly: boolean }) => {
   const settings = useSettings();
   const active = settings.provide(module).active;
   const [saving, setSaving] = useState(false);
+  const [confirming, setConfirming] = useState(false);
 
-  const toggle = async () => {
+  const setActive = async (value: boolean) => {
     if (saving) return;
     setSaving(true);
     try {
-      await new UpdateSetting().execute({ property: 'active', module, value: !active });
+      await new UpdateSetting().execute({ property: 'active', module, value });
     } finally {
       setSaving(false);
     }
@@ -39,16 +41,30 @@ const ModuleStatusSection = ({ readOnly }: { readOnly: boolean }) => {
             {t('ecommerce.settings.module.description')}
           </Typography>
         </Flex>
-        <Button
-          variant={active ? 'default' : 'danger'}
-          onClick={toggle}
-          loading={saving}
-          disabled={readOnly}
-          aria-pressed={active}
-        >
-          {t(active ? 'app.enabled' : 'app.disabled')}
-        </Button>
+        {/* Disabling closes the store, so it asks first; enabling (rare here) does not. */}
+        {active ? (
+          <Button variant="danger" onClick={() => setConfirming(true)} loading={saving} disabled={readOnly}>
+            {t('ecommerce.settings.module.disable')}
+          </Button>
+        ) : (
+          <Button onClick={() => setActive(true)} loading={saving} disabled={readOnly}>
+            {t('ecommerce.settings.module.enable')}
+          </Button>
+        )}
       </Flex>
+      <ConfirmModal
+        open={confirming}
+        title={t('ecommerce.settings.module.confirm.title')}
+        text={t('ecommerce.settings.module.confirm.text')}
+        confirm={{
+          button: t('ecommerce.settings.module.disable'),
+          action: () => {
+            setConfirming(false);
+            setActive(false);
+          },
+        }}
+        cancel={{ button: t('ecommerce.settings.cancel'), action: () => setConfirming(false) }}
+      />
     </Box>
   );
 };
