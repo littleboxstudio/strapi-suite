@@ -302,6 +302,57 @@ describe('EcommerceStorefrontController', () => {
       expect(confirm).toHaveBeenCalledTimes(5);
     });
 
+    it('F2: requests without a valid session never spend the e-mail budget', async () => {
+      const t = setup({ fixedClock: true });
+      const send = vi
+        .spyOn(t.sessions, 'requestEmailVerification')
+        .mockResolvedValue({ expiresAt: '2026-11-11T10:10:00.000Z' });
+      const body = { email: 'ana@example.pt', locale: 'en' };
+      for (let i = 0; i < 20; i++) {
+        const headers: Record<string, string> = {
+          'X-Storefront-Client-IP': `198.51.100.${i + 1}`,
+          ...(i % 2 ? { 'X-Checkout-Session': `bogus-${i}` } : {}),
+        };
+        const ctx = await t.call('requestEmailVerification', { headers, body });
+        expect(ctx.status).toBe(401);
+        expect(errorOf(ctx).details.code).toBe('SESSION_INVALID');
+      }
+      // The customer still has the whole e-mail budget (5 per hour) with real sessions.
+      const statuses: number[] = [];
+      for (let i = 0; i < 6; i++) {
+        const token = await t.open();
+        const ctx = await t.call('requestEmailVerification', {
+          headers: S(token, { 'X-Storefront-Client-IP': `203.0.113.${i + 1}` }),
+          body,
+        });
+        statuses.push(ctx.status);
+      }
+      expect(statuses).toEqual([202, 202, 202, 202, 202, 429]);
+      expect(send).toHaveBeenCalledTimes(5);
+    });
+
+    it('F2: a request refused by its session limit does not count against the e-mail', async () => {
+      const t = setup({ fixedClock: true });
+      vi.spyOn(t.sessions, 'requestEmailVerification').mockResolvedValue({
+        expiresAt: '2026-11-11T10:10:00.000Z',
+      });
+      const body = { email: 'ana@example.pt', locale: 'en' };
+      const token = await t.open();
+      const statuses: number[] = [];
+      // email.send: 3 per session per 15 min, 5 per e-mail per hour.
+      for (let i = 0; i < 10; i++) {
+        statuses.push((await t.call('requestEmailVerification', { headers: S(token), body })).status);
+      }
+      expect(statuses).toEqual([202, 202, 202, 429, 429, 429, 429, 429, 429, 429]);
+      // Only 3 e-mail hits were spent: two more sessions still get through, the third does not.
+      const more: number[] = [];
+      for (let i = 0; i < 3; i++) {
+        const other = await t.open();
+        more.push((await t.call('requestEmailVerification', { headers: S(other), body })).status);
+      }
+      expect(more).toEqual([202, 202, 429]);
+    });
+
     it('POST /checkout/email-verification → 202 { expiresAt } with the resolved locale', async () => {
       const t = setup();
       const send = vi

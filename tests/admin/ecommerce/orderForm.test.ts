@@ -340,7 +340,7 @@ describe('promotion codes', () => {
 describe('order quote', () => {
   const quote = (over: Partial<OrderQuote> = {}): OrderQuote => ({
     lines: [
-      { sourceIndex: 0, variantId: 1, productId: 10, unitPrice: 1250, quantity: 2, unitDiscount: 0, isGift: false, refs: [], sku: 'MUG', name: 'Mug', option: null, imageUrl: null },
+      { sourceIndex: 0, variantId: 1, productId: 10, unitPrice: 1250, quantity: 2, unitDiscount: 0, isGift: false, refs: [], sku: 'MUG', name: 'Mug', option: null, imageUrl: null, tax: 23 },
       {
         sourceIndex: null,
         variantId: 31,
@@ -354,6 +354,7 @@ describe('order quote', () => {
         name: 'Socks',
         option: 'Blue',
         imageUrl: null,
+        tax: 23,
       },
     ],
     promotions: [

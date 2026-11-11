@@ -609,7 +609,7 @@ describe('EcommerceOrderService.create', () => {
     loadCandidates.mockClear();
     evaluate.mockClear();
     await service.create(input({ lines: one, idempotencyKey: 'k-trusted' }), ctx);
-    expect(loadCandidates.mock.calls[0][0].emailVerified).toBeUndefined();
+    expect((loadCandidates.mock.calls[0][0] as any).emailVerified).toBeUndefined();
     expect(evaluate.mock.calls.every((c: any[]) => c[0].emailVerified === undefined)).toBe(true);
   });
 

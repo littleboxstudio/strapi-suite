@@ -33,8 +33,11 @@ const orderLine = (over: Partial<OrderLine> = {}): OrderLine => ({
   returnedQuantity: 0,
   tax: 23,
   isGift: false,
+  promotionIds: [],
   shipped: 0,
+  reserved: 0,
   pending: 2,
+  returnable: 0,
   ...over,
 });
 

@@ -121,6 +121,30 @@ describe('createRateLimiter', () => {
     expect(results).toEqual([true, true, true, true, true, false]);
   });
 
+  it('hitAll counts every key only when all of them allow the request', () => {
+    let t = 0;
+    const limiter = createRateLimiter({ now: () => t });
+    const tight = { limit: 1, windowMs: 10_000 };
+    const loose = { limit: 5, windowMs: 60_000 };
+    const keys = [
+      { key: 'r:s:1', rule: tight },
+      { key: 'r:e:abc', rule: loose },
+    ];
+    expect(limiter.hitAll(keys)).toEqual({ allowed: true, retryAfterSec: 0 });
+    // The session key now refuses: nothing is counted, the wait is the session's.
+    for (let i = 0; i < 10; i++) expect(limiter.hitAll(keys)).toEqual({ allowed: false, retryAfterSec: 10 });
+    // The e-mail key spent 1 of 5: four more hits through other sessions.
+    for (let i = 2; i <= 5; i++) {
+      expect(limiter.hitAll([{ key: `r:s:${i}`, rule: tight }, keys[1]]).allowed).toBe(true);
+    }
+    const refused = limiter.hitAll([{ key: 'r:s:9', rule: tight }, keys[1]]);
+    expect(refused).toEqual({ allowed: false, retryAfterSec: 60 });
+    // The refused request did not create the session key.
+    t = 1;
+    expect(limiter.hit('r:s:9', tight).allowed).toBe(true);
+    expect(limiter.hitAll([])).toEqual({ allowed: true, retryAfterSec: 0 });
+  });
+
   it('stays within maxKeys', () => {
     const limiter = createRateLimiter({ now: () => 0, maxKeys: 3 });
     const rule = { limit: 5, windowMs: 1000 };

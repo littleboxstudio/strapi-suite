@@ -1,0 +1,11 @@
+{
+  "extends": "../server/tsconfig.json",
+  "include": ["./server/ecommerce/**/*.ts", "./admin/ecommerce/**/*.ts"],
+  "compilerOptions": {
+    "rootDir": "../",
+    "baseUrl": "../server",
+    "lib": ["ES2020", "DOM"],
+    "noEmit": true,
+    "incremental": false
+  }
+}

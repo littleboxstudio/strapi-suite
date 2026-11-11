@@ -37,7 +37,7 @@ function makeStrapi() {
     { enforceUnique: [UIDS.stockMovement, UIDS.variant] }
   );
 
-  const imageService = { remove: vi.fn(), removeFiles: vi.fn(async () => undefined) };
+  const imageService = { remove: vi.fn(), removeFiles: vi.fn(async (_rows: any[]) => undefined) };
   let stockService: any;
 
   const strapi: any = {

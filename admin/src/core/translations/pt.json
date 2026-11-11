@@ -1480,7 +1480,7 @@
   "littlebox-strapi-suite.ecommerce.orders.promotions.codeStatus.CUSTOMER_LIMIT_REACHED": "Limite por cliente atingido",
   "littlebox-strapi-suite.ecommerce.orders.promotions.codeStatus.EMAIL_NOT_ELIGIBLE": "Não disponível para este e-mail",
   "littlebox-strapi-suite.ecommerce.promotions.form.requireVerifiedEmail": "Exigir e-mail verificado no checkout",
-  "littlebox-strapi-suite.ecommerce.promotions.form.requireVerifiedEmail.hint": "Sempre ativa nas promoções restritas a e-mails ou com limite por cliente. Recomendada para promoções de valor elevado ou de utilização única.",
+  "littlebox-strapi-suite.ecommerce.promotions.form.requireVerifiedEmail.hint": "Sempre ativa nas promoções restritas a e-mails, com uma condição de e-mail ou com limite por cliente. Recomendada para promoções de valor elevado ou de utilização única.",
   "littlebox-strapi-suite.ecommerce.orders.promotions.codeStatus.EMAIL_NOT_VERIFIED": "Requer um e-mail verificado",
   "littlebox-strapi-suite.ecommerce.orders.promotions.codeStatus.CONDITIONS_NOT_MET": "Condições não cumpridas",
   "littlebox-strapi-suite.ecommerce.orders.promotions.codeStatus.CONFLICT": "Não acumula com as outras promoções",

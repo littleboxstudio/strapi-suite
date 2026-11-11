@@ -1,14 +1,14 @@
 import { useIntl } from 'react-intl';
 import { Checkbox, Field, Flex, Radio, Textarea } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
-import { emailList, verifiedEmailForced, type PromotionErrors } from '../../utils/promotionForm';
+import { emailList, type PromotionErrors } from '../../utils/promotionForm';
 
 type Props = {
   mode: 'ALL' | 'EMAILS';
   emails: string;
   requireVerifiedEmail: boolean;
-  /** A per-customer limit is set: verification is then always required. */
-  hasCustomerLimit: boolean;
+  /** Verification is always required (e-mail list, EMAIL condition or per-customer limit). */
+  verifiedEmailForced: boolean;
   onChange: (patch: {
     eligibilityMode?: 'ALL' | 'EMAILS';
     emails?: string;
@@ -23,7 +23,7 @@ const EligibilityFields = ({
   mode,
   emails,
   requireVerifiedEmail,
-  hasCustomerLimit,
+  verifiedEmailForced: forced,
   onChange,
   errors,
   disabled,
@@ -41,11 +41,6 @@ const EligibilityFields = ({
     const email = emailList(emails)[Number(lineError.split('.')[2])];
     error = email !== undefined ? t(`${p}.emails.invalidLine`, { email }) : t(`${p}.errors.${errors[lineError]}`);
   }
-
-  const forced = verifiedEmailForced({
-    eligibilityMode: mode,
-    perCustomerLimit: hasCustomerLimit ? '1' : '',
-  });
 
   return (
     <Flex direction="column" alignItems="stretch" gap={4}>
