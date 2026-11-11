@@ -476,6 +476,141 @@ describe('EcommerceShipmentService.cancel', () => {
     shipmentRows(c)[0].deliveryStatus = 'DELIVERED';
     expect(await codesOf(ships.cancel(s.id, {}, 'user:1'))).toEqual(['ALREADY_DELIVERED']);
   });
+  it('M3: local rules refuse before the carrier is called', async () => {
+    const { c, ships, adapter } = setup();
+    const { id, lineId } = await paidOrder(c, 2, 'acme');
+    const s = await ships.create(id, carrier(lineId, 2, 'k'), 'user:1');
+    c.tables[UIDS.orderLine].find((l) => l.id === lineId).returnedQuantity = 1;
+    expect(await codesOf(ships.cancel(s.id, {}, 'user:1'))).toEqual(['SHIPMENT_HAS_RETURNS']);
+    shipmentRows(c)[0].deliveryStatus = 'DELIVERED';
+    expect(await codesOf(ships.cancel(s.id, {}, 'user:1'))).toEqual(['ALREADY_DELIVERED']);
+    expect(adapter.cancelShipment).not.toHaveBeenCalled();
+  });
+
+  it('M3: the carrier cancelled but the local state changed meanwhile: history and a clear error', async () => {
+    const { c, ships, adapter } = setup();
+    const { id, lineId } = await paidOrder(c, 2, 'acme');
+    const s = await ships.create(id, carrier(lineId, 2, 'k'), 'user:1');
+    adapter.cancelShipment.mockImplementationOnce(async () => {
+      shipmentRows(c)[0].deliveryStatus = 'DELIVERED';
+    });
+    expect(await codesOf(ships.cancel(s.id, {}, 'user:1'))).toEqual(['SHIPMENT_STATE_CHANGED']);
+    expect(shipmentRows(c)[0]).toMatchObject({ status: 'ACTIVE', error: 'CARRIER_CANCELLED' });
+    const entries = c.tables[UIDS.orderHistory].filter(
+      (h) => h.order === id && h.type === 'SHIPMENT_CANCELLED'
+    );
+    expect(entries).toHaveLength(1);
+    expect(entries[0].newValue).toMatchObject({
+      carrierCancelled: true,
+      refusedWith: 'ALREADY_DELIVERED',
+    });
+  });
+
+  it('M7: get() reads the shipments once', async () => {
+    const { c, ships } = setup();
+    const { id, lineId } = await paidOrder(c);
+    await ships.create(id, manual(lineId, 1, 'k'), 'user:1');
+    const realQuery = c.strapi.db.query;
+    let reads = 0;
+    c.strapi.db.query = (uid: string) => {
+      const q = realQuery(uid);
+      if (uid !== UIDS.shipment) return q;
+      return {
+        ...q,
+        findMany: async (p: any) => {
+          reads++;
+          return q.findMany(p);
+        },
+      };
+    };
+    const view = await c.orders.get(id);
+    c.strapi.db.query = realQuery;
+    expect(view.shipments).toHaveLength(1);
+    expect(reads).toBe(1);
+  });
+});
+
+describe('EcommerceShipmentService carrier edge cases (fix round 1)', () => {
+  it('M2: a success without externalId stays PENDING/UNCERTAIN, never ACTIVE', async () => {
+    const { c, ships, adapter } = setup();
+    const { id, lineId } = await paidOrder(c, 2, 'acme');
+    adapter.createShipment.mockResolvedValueOnce({
+      externalId: '',
+      trackingCode: 'T',
+      trackingUrl: null,
+      cost: null,
+      labelAvailable: true,
+    });
+    const s = await ships.create(id, carrier(lineId, 2, 'k'), 'user:1');
+    expect(s).toMatchObject({ status: 'PENDING', error: 'UNCERTAIN' });
+    expect(shipEvents(c)).toHaveLength(0);
+    expect(orderRow(c, id).fulfillmentStatus).toBe('UNFULFILLED');
+  });
+
+  it('M4: a failure before contacting the carrier is FAILED, not UNCERTAIN', async () => {
+    const { c, ships, adapter } = setup();
+    const { id, lineId } = await paidOrder(c, 2, 'acme');
+    const realQuery = c.strapi.db.query;
+    c.strapi.db.query = (uid: string) => {
+      const q = realQuery(uid);
+      if (uid !== UIDS.variant) return q;
+      return {
+        ...q,
+        findMany: async () => {
+          throw new Error('db down');
+        },
+      };
+    };
+    expect(await codesOf(ships.create(id, carrier(lineId, 2, 'k'), 'user:1'))).toEqual([
+      'CARRIER_REQUEST_FAILED',
+    ]);
+    c.strapi.db.query = realQuery;
+    expect(adapter.createShipment).not.toHaveBeenCalled();
+    expect(shipmentRows(c)).toEqual([
+      expect.objectContaining({ status: 'FAILED', error: 'CARRIER_REQUEST_FAILED' }),
+    ]);
+  });
+
+  it('M5: tx2 finding the row FAILED keeps the returned externalId and raises SHIPMENT_STATE_CHANGED', async () => {
+    const { c, ships, adapter } = setup();
+    const { id, lineId } = await paidOrder(c, 2, 'acme');
+    adapter.createShipment.mockImplementationOnce(async () => {
+      shipmentRows(c)[0].status = 'FAILED';
+      return {
+        externalId: 'EXT-7',
+        trackingCode: null,
+        trackingUrl: null,
+        cost: null,
+        labelAvailable: false,
+      };
+    });
+    expect(await codesOf(ships.create(id, carrier(lineId, 2, 'k'), 'user:1'))).toEqual([
+      'SHIPMENT_STATE_CHANGED',
+    ]);
+    expect(shipmentRows(c)[0]).toMatchObject({ status: 'FAILED', externalId: 'EXT-7' });
+    expect(shipEvents(c)).toHaveLength(0);
+  });
+
+  it('a FAILED/ORDER_CHANGED shipment the carrier created is cancelled at the carrier', async () => {
+    const { c, ships, adapter } = setup();
+    const { id, lineId } = await paidOrder(c, 2, 'acme');
+    adapter.createShipment.mockImplementationOnce(async () => {
+      orderRow(c, id).orderStatus = 'CANCELLED';
+      return {
+        externalId: 'EXT-9',
+        trackingCode: null,
+        trackingUrl: null,
+        cost: null,
+        labelAvailable: false,
+      };
+    });
+    await codesOf(ships.create(id, carrier(lineId, 2, 'k'), 'user:1'));
+    const s = shipmentRows(c)[0];
+    expect(s).toMatchObject({ status: 'FAILED', error: 'ORDER_CHANGED', externalId: 'EXT-9' });
+    const cancelled = await ships.cancel(s.id, {}, 'user:1');
+    expect(adapter.cancelShipment).toHaveBeenCalledWith('EXT-9', RUNTIME, { timeoutMs: 15000 });
+    expect(cancelled.status).toBe('CANCELLED');
+  });
 });
 
 describe('EcommerceShipmentService.getLabel', () => {

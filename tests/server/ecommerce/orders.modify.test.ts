@@ -253,7 +253,7 @@ describe('EcommerceOrderService.previewModification', () => {
     });
   });
 
-  it('RECALCULATE excludes reserved (PENDING) units from both the items and the subtotal', async () => {
+  it('RECALCULATE excludes reserved units from both the items and the subtotal (PENDING ones block MODIFY)', async () => {
     const ctx = setup();
     const { id } = await createOrder(ctx.orders);
     const line10 = linesOf(ctx, id).find((l) => l.variantId === 10);
@@ -262,8 +262,8 @@ describe('EcommerceOrderService.previewModification', () => {
       order: id,
       providerId: 'acme',
       carrierName: 'Acme',
-      status: 'PENDING',
-      error: 'UNCERTAIN',
+      status: 'ACTIVE',
+      deliveryStatus: 'IN_TRANSIT',
       items: { lines: [{ orderLineId: line10.id, sku: 'SH-M', name: 'Shirt', option: null, quantity: 1 }] },
       shippingCost: 0,
       idempotencyKey: 'pending-1',
@@ -279,6 +279,37 @@ describe('EcommerceOrderService.previewModification', () => {
       { variantId: 11, quantity: 1, weight: 250, width: 0, height: 0, depth: 0 },
     ]);
     expect(req.subtotal).toBe(2000 + 2500);
+  });
+
+  it('a PENDING (uncertain) shipment blocks modification with SHIPMENT_PENDING', async () => {
+    const ctx = setup();
+    const { id } = await createOrder(ctx.orders);
+    const line10 = linesOf(ctx, id).find((l) => l.variantId === 10);
+    ctx.tables[UIDS.shipment].push({
+      id: 1,
+      order: id,
+      providerId: 'acme',
+      carrierName: 'Acme',
+      status: 'PENDING',
+      error: 'UNCERTAIN',
+      items: { lines: [{ orderLineId: line10.id, sku: 'SH-M', name: 'Shirt', option: null, quantity: 2 }] },
+      shippingCost: 0,
+      idempotencyKey: 'pending-1',
+    });
+    const removeLine = {
+      lines: lineInputs(ctx, id).filter((l) => l.variantId !== 10),
+      shipping: KEEP,
+    };
+    expect((await issues(ctx.orders.previewModification(id, removeLine))).map((e: any) => e.code)).toEqual([
+      'SHIPMENT_PENDING',
+    ]);
+    expect(
+      (await issues(ctx.orders.applyModification(id, removeLine, 'user:1', 'op-pending-1'))).map(
+        (e: any) => e.code
+      )
+    ).toEqual(['SHIPMENT_PENDING']);
+    expect(linesOf(ctx, id)).toHaveLength(2);
+    expect((await ctx.orders.get(id)).availableActions).not.toContain('MODIFY');
   });
 
   it('RECALCULATE adds the cost of previous shipments (requirement 16.5.2)', async () => {

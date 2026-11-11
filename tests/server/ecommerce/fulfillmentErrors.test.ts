@@ -45,6 +45,7 @@ describe('handleDomainError (fulfillment)', () => {
 
   it.each([
     'PAYMENT_NOT_INVOICEABLE', 'ALREADY_DELIVERED', 'SHIPMENT_PENDING', 'SHIPMENT_UNCERTAIN', 'SHIPMENT_HAS_RETURNS',
+    'ORDER_CHANGED', 'SHIPMENT_STATE_CHANGED',
   ])('%s gives 409', (code) => {
     const ctx = mkCtx();
     handleDomainError(ctx, new EcommerceValidationError('x', [{ path: 'a', code }]), labels);
