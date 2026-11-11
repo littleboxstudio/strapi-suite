@@ -117,3 +117,29 @@ export function invoiceFailureMessageId(code: string): string | null {
   if ((API_ERROR_CODES as readonly string[]).includes(code)) return `ecommerce.orders.errors.${code}`;
   return null;
 }
+
+/** A replayed key returned the stored row of an attempt the provider refused. */
+export function isFailedReplay(doc: Pick<InvoiceView, 'status'>): boolean {
+  return doc.status === 'FAILED';
+}
+
+/** The provider did not confirm the document: it must be reconciled, never re-issued by hand. */
+export function isUncertainResult(doc: Pick<InvoiceView, 'status'>): boolean {
+  return doc.status === 'UNCERTAIN' || doc.status === 'PENDING';
+}
+
+/** Warnings of a just-issued document the admin has to act on at the provider. */
+const ISSUE_WARNINGS = ['TOTAL_MISMATCH', 'RECEIPT_FAILED'];
+export function issuedWarnings(doc: Pick<InvoiceView, 'warnings'>): string[] {
+  return doc.warnings.filter((w) => ISSUE_WARNINGS.includes(w));
+}
+
+/** "Mark as failed" is sent only for a row the server reconciles, after the explicit confirmation. */
+export function canMarkFailed(
+  invoice: Pick<InvoiceView, 'status' | 'reconcilable'>,
+  confirmed: boolean
+): boolean {
+  return (
+    confirmed && invoice.reconcilable && (invoice.status === 'UNCERTAIN' || invoice.status === 'PENDING')
+  );
+}

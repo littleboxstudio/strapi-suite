@@ -13,6 +13,7 @@ import {
   apiErrorCode,
   apiErrorMessageId,
   modifyBlockedByShipment,
+  shouldRenewIdempotencyKey,
 } from '../../../admin/src/ecommerce/utils/orderDetail';
 import type { FinancialSummary, OrderHistoryItem, OrderTotals } from '../../../admin/src/ecommerce/orderTypes';
 
@@ -576,5 +577,38 @@ describe('modifyBlockedByShipment', () => {
     expect(modifyBlockedByShipment({ orderStatus: 'OPEN', shipments: [{ status: 'PENDING' }] })).toBe(true);
     expect(modifyBlockedByShipment({ orderStatus: 'OPEN', shipments: [{ status: 'ACTIVE' }] })).toBe(false);
     expect(modifyBlockedByShipment({ orderStatus: 'CANCELLED', shipments: [{ status: 'PENDING' }] })).toBe(false);
+  });
+});
+
+describe('shouldRenewIdempotencyKey', () => {
+  const fetchError = (status: number, code?: string) =>
+    Object.assign(new Error('x'), {
+      status,
+      response: { data: { error: { status, details: code ? { code } : {} } } },
+    });
+
+  it('a 4xx answer (the request was refused) → a new key for the next attempt', () => {
+    expect(shouldRenewIdempotencyKey(fetchError(400, 'BILLING_TAX_NOT_FOUND'))).toBe(true);
+    expect(shouldRenewIdempotencyKey(fetchError(409, 'PAYMENT_NOT_INVOICEABLE'))).toBe(true);
+    expect(shouldRenewIdempotencyKey(fetchError(404))).toBe(true);
+  });
+
+  it('keeps the key on 408 / 429 (the request may not have been handled)', () => {
+    expect(shouldRenewIdempotencyKey(fetchError(408))).toBe(false);
+    expect(shouldRenewIdempotencyKey(fetchError(429))).toBe(false);
+  });
+
+  it('keeps the key on 5xx (a proxy may hide a recorded document) and without an answer', () => {
+    expect(shouldRenewIdempotencyKey(fetchError(500))).toBe(false);
+    expect(shouldRenewIdempotencyKey(fetchError(502))).toBe(false);
+    expect(shouldRenewIdempotencyKey(fetchError(504))).toBe(false);
+    expect(shouldRenewIdempotencyKey(new TypeError('Failed to fetch'))).toBe(false);
+    expect(shouldRenewIdempotencyKey(new SyntaxError('Unexpected token <'))).toBe(false);
+    expect(shouldRenewIdempotencyKey(undefined)).toBe(false);
+  });
+
+  it('reads the status from the error body when the error has none', () => {
+    expect(shouldRenewIdempotencyKey({ response: { data: { error: { status: 400 } } } })).toBe(true);
+    expect(shouldRenewIdempotencyKey({ response: { data: { error: { status: 503 } } } })).toBe(false);
   });
 });

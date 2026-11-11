@@ -20,8 +20,8 @@ import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchInvoicePreview from '../../usecases/orders/fetchInvoicePreview';
 import IssueInvoice from '../../usecases/orders/issueInvoice';
 import { formatCents } from '../../utils/money';
-import { apiErrorMessageId } from '../../utils/orderDetail';
-import { invoiceFailureMessageId } from '../../utils/invoiceForm';
+import { apiErrorMessageId, shouldRenewIdempotencyKey } from '../../utils/orderDetail';
+import { invoiceFailureMessageId, isFailedReplay, isUncertainResult, issuedWarnings } from '../../utils/invoiceForm';
 import { mintUuid } from '../../utils/variantDraft';
 import type { InvoicePreview, InvoiceScopeInput } from '../../orderTypes';
 
@@ -65,7 +65,7 @@ const IssueInvoiceModal = ({ orderId, scope, onClose, onIssued }: Props) => {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderId]);
+  }, [orderId, scope.scope, scope.scope === 'PAYMENT' ? scope.paymentId : null]);
 
   const failureText = (code: string | null) => {
     const id = code ? invoiceFailureMessageId(code) : null;
@@ -78,22 +78,32 @@ const IssueInvoiceModal = ({ orderId, scope, onClose, onIssued }: Props) => {
     setError(null);
     try {
       const invoice = await new IssueInvoice().execute(orderId, { ...scope, idempotencyKey });
-      if (invoice.status === 'FAILED') {
+      if (isFailedReplay(invoice)) {
         // A replay of an attempt the provider refused: say why; the next try is a new request.
         setIdempotencyKey(mintUuid());
         setError(failureText(invoice.error));
         return;
       }
-      if (invoice.status === 'UNCERTAIN' || invoice.status === 'PENDING') {
+      if (isUncertainResult(invoice)) {
         setUncertain(true);
         return;
       }
-      toggleNotification({ type: 'success', message: t('ecommerce.orders.invoices.issue.success') });
+      const warnings = issuedWarnings(invoice);
+      toggleNotification(
+        warnings.length
+          ? {
+              type: 'warning',
+              message: t('ecommerce.orders.invoices.issue.warnings', {
+                warnings: warnings.map((w) => t(`ecommerce.orders.invoices.warnings.${w}`)).join(' '),
+              }),
+            }
+          : { type: 'success', message: t('ecommerce.orders.invoices.issue.success') }
+      );
       onIssued();
     } catch (err) {
-      // The server answered (validation, refusal by the provider → FAILED row): a new key for the
-      // next attempt. Without an answer the key is kept, so a retry returns what was recorded.
-      if ((err as any)?.response) setIdempotencyKey(mintUuid());
+      // A 4xx (validation, refusal by the provider → FAILED row) gets a new key for the next attempt.
+      // On a 5xx or without an answer the key is kept, so a retry returns what was recorded.
+      if (shouldRenewIdempotencyKey(err)) setIdempotencyKey(mintUuid());
       setError(t(apiErrorMessageId(err, 'ecommerce.orders.invoices.issue.error')));
     } finally {
       setSaving(false);

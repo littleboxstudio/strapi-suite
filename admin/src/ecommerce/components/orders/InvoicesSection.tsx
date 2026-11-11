@@ -27,6 +27,7 @@ import { apiErrorMessageId } from '../../utils/orderDetail';
 import {
   hasUninvoicedPayments,
   invoiceActions,
+  canMarkFailed,
   invoiceFailureMessageId,
   invoiceStatusTone,
   type InvoiceAction,
@@ -145,7 +146,7 @@ const InvoicesSection = ({ title, order, canInvoice, onIssue, onChanged }: Props
     }
   };
 
-  const statusNote = (invoice: InvoiceView): { tone: string; text: string } | null => {
+  const statusNote = (invoice: InvoiceView): { tone: string; text: string; code?: string } | null => {
     if (invoice.status === 'UNCERTAIN') {
       return { tone: 'warning600', text: t('ecommerce.orders.invoices.uncertainHint') };
     }
@@ -157,7 +158,10 @@ const InvoicesSection = ({ title, order, canInvoice, onIssue, onChanged }: Props
     }
     if (invoice.status === 'FAILED' && invoice.error) {
       const id = invoiceFailureMessageId(invoice.error);
-      return { tone: 'danger600', text: id ? t(id) : invoice.error };
+      // Unknown codes get a translated sentence, with the raw code shown muted next to it.
+      return id
+        ? { tone: 'danger600', text: t(id) }
+        : { tone: 'danger600', text: t('ecommerce.orders.invoices.failure.unknown'), code: invoice.error };
     }
     return null;
   };
@@ -265,6 +269,12 @@ const InvoicesSection = ({ title, order, canInvoice, onIssue, onChanged }: Props
                         {note && (
                           <Typography variant="pi" textColor={note.tone}>
                             {note.text}
+                            {note.code && (
+                              <Typography variant="pi" textColor="neutral500">
+                                {' '}
+                                ({note.code})
+                              </Typography>
+                            )}
                           </Typography>
                         )}
                         {invoice.warnings
@@ -350,9 +360,10 @@ const InvoicesSection = ({ title, order, canInvoice, onIssue, onChanged }: Props
               </Button>
               <Button
                 variant="danger"
-                disabled={!confirmed}
+                disabled={!canMarkFailed(markingFailed, confirmed)}
                 onClick={() => {
                   const target = markingFailed;
+                  if (!canMarkFailed(target, confirmed)) return;
                   setMarkingFailed(null);
                   reconcile(target, true);
                 }}
