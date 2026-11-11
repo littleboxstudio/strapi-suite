@@ -26,6 +26,7 @@ import EcommerceNotificationService from './modules/ecommerce/notifications';
 import EcommerceShipmentService from './modules/ecommerce/shipments';
 import EcommerceReturnService from './modules/ecommerce/returns';
 import EcommerceInvoiceService from './modules/ecommerce/invoices';
+import EcommercePromotionService from './modules/ecommerce/promotions';
 
 export default {
   SettingAppService,
@@ -56,4 +57,5 @@ export default {
   EcommerceShipmentService,
   EcommerceReturnService,
   EcommerceInvoiceService,
+  EcommercePromotionService,
 };
