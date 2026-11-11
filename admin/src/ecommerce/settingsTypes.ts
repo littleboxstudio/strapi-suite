@@ -76,7 +76,8 @@ export type EmailTemplateType =
   | 'REFUND_STARTED'
   | 'REFUND_COMPLETED'
   | 'INVOICE_AVAILABLE'
-  | 'STORE_CREDIT_ISSUED';
+  | 'STORE_CREDIT_ISSUED'
+  | 'EMAIL_VERIFICATION';
 
 export type EmailTemplateSummary = { type: EmailTemplateType; customLocales: string[] };
 

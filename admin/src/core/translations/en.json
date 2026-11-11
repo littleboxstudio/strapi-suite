@@ -525,6 +525,8 @@
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.types.INVOICE_AVAILABLE.description": "Sent when the invoice of an order is issued.",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.types.STORE_CREDIT_ISSUED.name": "Store credit issued",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.types.STORE_CREDIT_ISSUED.description": "Sent when store credit is given to the customer.",
+  "littlebox-strapi-suite.ecommerce.settings.emailTemplates.types.EMAIL_VERIFICATION.name": "E-mail verification",
+  "littlebox-strapi-suite.ecommerce.settings.emailTemplates.types.EMAIL_VERIFICATION.description": "Sent at checkout with the code that confirms the customer's e-mail address.",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.editor.back": "Back to email templates",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.editor.locale": "Language",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.editor.default": "Default",

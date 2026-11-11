@@ -1,14 +1,23 @@
 import type { Core } from '@strapi/strapi';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomInt } from 'node:crypto';
 import { PLUGIN_ID, LtbConfigs } from '../../../config';
-import { normalizeEmail } from './domain/email';
+import { isValidEmailFormat, normalizeEmail } from './domain/email';
 import { isRecord } from './orderPricingHelpers';
 import {
+  VERIFICATION_CODE_TTL_MS,
+  VERIFICATION_MAX_ATTEMPTS,
+  deriveVerificationSecret,
   generateSessionToken,
+  generateVerificationCode,
   hashSessionToken,
   isWellFormedSessionToken,
   sessionExpiry,
+  verificationCodeHash,
+  verificationCodeMatches,
 } from './domain/storefront/session';
+import { EcommerceEmailError, EcommerceValidationError } from './errors';
+import { resolveEncryptionKeySource } from './secrets';
+import { sendWithResend } from './providers/email/resendSender';
 
 /** Server-side cart of an anonymous checkout session (stored as a JSON object). */
 export type StoredCart = {
@@ -95,6 +104,20 @@ const toStoredCart = (raw: unknown): StoredCart => {
     locale: typeof c.locale === 'string' ? c.locale : null,
   };
 };
+
+/** Pending code stored in `emailVerification` (only the HMAC of the code, never the code). */
+type PendingVerification = { emailNormalized: string; codeHash: string; expiresAt: string };
+
+const pendingOf = (raw: unknown): PendingVerification | null =>
+  isRecord(raw) &&
+  typeof raw.emailNormalized === 'string' &&
+  typeof raw.codeHash === 'string' &&
+  typeof raw.expiresAt === 'string'
+    ? { emailNormalized: raw.emailNormalized, codeHash: raw.codeHash, expiresAt: raw.expiresAt }
+    : null;
+
+const VERIFICATION_CODE = /^\d{6}$/;
+const MAX_EMAIL_LENGTH = 254;
 
 const time = (v: unknown): number =>
   v instanceof Date
@@ -273,7 +296,158 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
     return { id: order.id, publicId: order.publicId };
   };
 
-  return { open, resolve, purgeExpired, saveCart, clearCart, isEmailVerified, findOwnedOrder };
+  /** HMAC key for the codes; null when no encryption key is configured. */
+  const verificationSecret = (): Buffer | null => {
+    const source = resolveEncryptionKeySource(strapi);
+    return source ? deriveVerificationSecret(source) : null;
+  };
+
+  const codeInvalid = () =>
+    new EcommerceValidationError('Invalid verification code', [
+      { path: 'code', code: 'VERIFICATION_CODE_INVALID' },
+    ]);
+
+  const codeLocked = () => {
+    strapi.log.warn(`${LOG_PREFIX} VERIFICATION_LOCKED`);
+    return new EcommerceValidationError('Too many verification attempts', [
+      { path: 'code', code: 'VERIFICATION_LOCKED' },
+    ]);
+  };
+
+  /**
+   * Sends a 6-digit code to `email` directly through Resend (never through the notification
+   * queue, so the code is never stored). Only its HMAC is kept on the session. A new code for
+   * the same e-mail while the previous one is still valid keeps `verificationAttempts`, so
+   * asking for another code never lifts a lock.
+   */
+  const requestEmailVerification = async (
+    s: CheckoutSession,
+    input: { email: unknown; locale: string }
+  ): Promise<{ expiresAt: string }> => {
+    const email = typeof input?.email === 'string' ? normalizeEmail(input.email) : '';
+    if (!isValidEmailFormat(email) || email.length > MAX_EMAIL_LENGTH) {
+      throw new EcommerceValidationError('Invalid e-mail', [
+        { path: 'email', code: 'invalid_email' },
+      ]);
+    }
+    const rt = await settings().getRuntime('resend');
+    const secret = verificationSecret();
+    if (!rt || !rt.active || !secret) {
+      throw new EcommerceEmailError('EMAIL_NOT_CONFIGURED', 'Resend is not active.');
+    }
+    const row = await sessionsQuery().findOne({
+      where: { id: s.id, status: 'ACTIVE' },
+      select: ['id', 'emailVerification'],
+    });
+    if (!row) {
+      throw new EcommerceValidationError('Invalid session', [
+        { path: 'session', code: 'SESSION_INVALID' },
+      ]);
+    }
+    const now = Date.now();
+    const previous = pendingOf(row.emailVerification);
+    const keepAttempts =
+      previous !== null && previous.emailNormalized === email && time(previous.expiresAt) > now;
+
+    const code = generateVerificationCode(randomInt);
+    const codeHash = verificationCodeHash(secret, s.id, email, code);
+    const expiresAt = new Date(now + VERIFICATION_CODE_TTL_MS).toISOString();
+    const pending: PendingVerification = { emailNormalized: email, codeHash, expiresAt };
+    await sessionsQuery().updateMany({
+      where: { id: s.id, status: 'ACTIVE' },
+      data: { emailVerification: pending, ...(keepAttempts ? {} : { verificationAttempts: 0 }) },
+    });
+
+    try {
+      const message = await strapi
+        .plugin(PLUGIN_ID)
+        .service('EcommerceEmailTemplateService')
+        .render('EMAIL_VERIFICATION', input.locale, {
+          customer: { email },
+          verification: { code, validMinutes: String(VERIFICATION_CODE_TTL_MS / 60_000) },
+        });
+      await sendWithResend(rt, {
+        to: email,
+        subject: message.subject,
+        html: message.html,
+        idempotencyKey: `verify:${s.id}:${codeHash}`,
+      });
+    } catch (err) {
+      await sessionsQuery().updateMany({
+        where: { id: s.id, status: 'ACTIVE' },
+        data: { emailVerification: {} },
+      });
+      throw err;
+    }
+    return { expiresAt };
+  };
+
+  /**
+   * Checks a code. The attempt is counted first, with a conditional update on the scalar
+   * column (portable compare-and-set), and only then compared in constant time; parallel
+   * confirmations can never compare more than `VERIFICATION_MAX_ATTEMPTS` codes.
+   */
+  const confirmEmailVerification = async (
+    s: CheckoutSession,
+    input: { email: unknown; code: unknown }
+  ): Promise<{ verified: true }> => {
+    const email = typeof input?.email === 'string' ? normalizeEmail(input.email) : '';
+    const code = typeof input?.code === 'string' ? input.code.trim() : '';
+    // Attempts only grow, so this bounds the compare-and-set retries.
+    for (let round = 0; round <= VERIFICATION_MAX_ATTEMPTS; round++) {
+      const row = await sessionsQuery().findOne({
+        where: { id: s.id, status: 'ACTIVE' },
+        select: ['id', 'emailVerification', 'verificationAttempts'],
+      });
+      const pending = row ? pendingOf(row.emailVerification) : null;
+      if (
+        !pending ||
+        pending.emailNormalized !== email ||
+        !(time(pending.expiresAt) > Date.now())
+      ) {
+        throw codeInvalid();
+      }
+      const attempts = Number.isInteger(row.verificationAttempts) ? row.verificationAttempts : 0;
+      if (attempts >= VERIFICATION_MAX_ATTEMPTS) throw codeLocked();
+      const counted = changed(
+        await sessionsQuery().updateMany({
+          where: {
+            id: s.id,
+            status: 'ACTIVE',
+            verificationAttempts: row.verificationAttempts ?? null,
+          },
+          data: { verificationAttempts: attempts + 1 },
+        })
+      );
+      if (counted === 0) continue; // a parallel confirmation counted first: read again
+
+      const secret = verificationSecret();
+      if (!VERIFICATION_CODE.test(code) || !secret) throw codeInvalid();
+      if (
+        !verificationCodeMatches(pending.codeHash, verificationCodeHash(secret, s.id, email, code))
+      ) {
+        throw codeInvalid();
+      }
+      await sessionsQuery().updateMany({
+        where: { id: s.id, status: 'ACTIVE' },
+        data: { verifiedEmail: email, emailVerification: {}, verificationAttempts: 0 },
+      });
+      return { verified: true };
+    }
+    throw codeLocked();
+  };
+
+  return {
+    open,
+    resolve,
+    purgeExpired,
+    saveCart,
+    clearCart,
+    isEmailVerified,
+    findOwnedOrder,
+    requestEmailVerification,
+    confirmEmailVerification,
+  };
 };
 
 export default EcommerceStorefrontSessionService;

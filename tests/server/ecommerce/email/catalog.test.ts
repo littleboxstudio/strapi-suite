@@ -6,12 +6,10 @@ import {
 } from '../../../../server/src/services/modules/ecommerce/email/catalog';
 import { renderTemplate } from '../../../../server/src/services/modules/ecommerce/email/templateEngine';
 
+const STORE = ['store.name', 'store.logoUrl', 'store.brandColor', 'store.url', 'store.supportEmail'];
+
 const COMMON = [
-  'store.name',
-  'store.logoUrl',
-  'store.brandColor',
-  'store.url',
-  'store.supportEmail',
+  ...STORE,
   'customer.firstName',
   'customer.lastName',
   'customer.email',
@@ -79,7 +77,12 @@ const SPECIFIC: Record<string, string[]> = {
   ],
   INVOICE_AVAILABLE: ['invoice.number'],
   STORE_CREDIT_ISSUED: ['credit.amount', 'credit.code', 'credit.expiresAt', 'credit.conditions'],
+  EMAIL_VERIFICATION: ['verification.code', 'verification.validMinutes'],
 };
+
+/** EMAIL_VERIFICATION has no order or customer name: only the store and the e-mail address. */
+const BASE: Record<string, string[]> = { EMAIL_VERIFICATION: [...STORE, 'customer.email'] };
+const baseOf = (type: string) => BASE[type] ?? COMMON;
 
 const resolve = (data: unknown, path: string) =>
   path
@@ -87,13 +90,14 @@ const resolve = (data: unknown, path: string) =>
     .reduce<unknown>((acc, key) => (acc as Record<string, unknown> | undefined)?.[key], data);
 
 describe('email variable catalog', () => {
-  it('exports the twelve template types', () => {
+  it('exports the thirteen template types', () => {
+    expect(EMAIL_TEMPLATE_TYPES).toHaveLength(13);
     expect([...EMAIL_TEMPLATE_TYPES].sort()).toEqual(Object.keys(SPECIFIC).sort());
   });
 
   it.each(Object.keys(SPECIFIC))('%s has exactly the common + specific variables', (type) => {
     const paths = getVariableCatalog(type as never).map((v) => v.path);
-    expect([...paths].sort()).toEqual([...COMMON, ...SPECIFIC[type]].sort());
+    expect([...paths].sort()).toEqual([...baseOf(type), ...SPECIFIC[type]].sort());
     for (const def of getVariableCatalog(type as never)) expect(def.description).toBeTruthy();
   });
 
@@ -121,6 +125,28 @@ describe('email variable catalog', () => {
     );
     expect(html).toContain('Summer Sale');
     expect(html).not.toMatch(/\/admin|\/api\/|littlebox-strapi-suite/);
+  });
+
+  it('EMAIL_VERIFICATION: sample data and a default that renders the code with no link or button', async () => {
+    const { DEFAULT_TEMPLATES } = await import(
+      '../../../../server/src/services/modules/ecommerce/email/defaults'
+    );
+    const data = getSampleData('EMAIL_VERIFICATION') as any;
+    expect(data.verification).toEqual({ code: expect.stringMatching(/^\d{6}$/), validMinutes: '10' });
+    expect(data.customer).toEqual({ email: expect.stringContaining('@') });
+    expect(data.order).toBeUndefined();
+    const { subject, html } = DEFAULT_TEMPLATES.EMAIL_VERIFICATION;
+    expect(subject).toBe('Your verification code - {{store.name}}');
+    expect(renderTemplate(subject, data)).toBe('Your verification code - Littlebox Store');
+    const out = renderTemplate(html, data);
+    expect(out).toContain(data.verification.code);
+    expect(out).toContain('This code expires in 10 minutes.');
+    expect(out).toContain('If you did not request it, ignore this e-mail.');
+    expect(out).not.toMatch(/\/admin|\/api\/|littlebox-strapi-suite/);
+    expect(html).not.toContain('class="ltb-btn"');
+    // The only links are the layout footer's (support mailto and storefront URL).
+    const body = html.slice(html.indexOf('<h1'), html.indexOf('Thank you,'));
+    expect(body).not.toContain('<a ');
   });
 
   it('declares list item fields', () => {

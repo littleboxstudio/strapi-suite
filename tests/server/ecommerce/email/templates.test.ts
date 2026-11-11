@@ -197,6 +197,18 @@ describe('EcommerceEmailTemplateService', () => {
     });
   });
 
+  it('renders EMAIL_VERIFICATION with the code, the store name and no backoffice URL', async () => {
+    const { service } = makeStrapi();
+    const out = await service.render('EMAIL_VERIFICATION', 'pt', {
+      customer: { email: 'ana@x.pt' },
+      verification: { code: '042917', validMinutes: '10' },
+    });
+    expect(out.subject).toBe('Your verification code - Acme');
+    expect(out.html).toContain('042917');
+    expect(out.html).toContain('This code expires in 10 minutes.');
+    expect(out.html).not.toMatch(/\/admin|\/api\/|littlebox-strapi-suite/);
+  });
+
   it('preview renders sample data with the real store data and reports issues', async () => {
     const { service } = makeStrapi();
     const ok = await service.preview('ORDER_CONFIRMATION', DEFAULT_TEMPLATES.ORDER_CONFIRMATION);

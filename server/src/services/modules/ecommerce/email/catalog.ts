@@ -16,6 +16,7 @@ export const EMAIL_TEMPLATE_TYPES = [
   'REFUND_COMPLETED',
   'INVOICE_AVAILABLE',
   'STORE_CREDIT_ISSUED',
+  'EMAIL_VERIFICATION',
 ] as const;
 
 export type EmailTemplateType = (typeof EMAIL_TEMPLATE_TYPES)[number];
@@ -44,18 +45,29 @@ const list = (path: string, description: string, itemFields: string[]): Variable
   itemFields,
 });
 
-const COMMON: VariableDef[] = [
+const STORE: VariableDef[] = [
   value('store.name', 'Store name'),
   value('store.logoUrl', 'Store logo URL'),
   value('store.brandColor', 'Store brand colour (hex)'),
   value('store.url', 'Storefront URL'),
   value('store.supportEmail', 'Support e-mail address'),
+];
+
+const CUSTOMER_EMAIL = value('customer.email', 'Customer e-mail address');
+
+const COMMON: VariableDef[] = [
+  ...STORE,
   value('customer.firstName', 'Customer first name'),
   value('customer.lastName', 'Customer last name'),
-  value('customer.email', 'Customer e-mail address'),
+  CUSTOMER_EMAIL,
   value('order.reference', 'Order reference'),
   value('order.date', 'Order date'),
 ];
+
+/** Types sent before there is an order or a customer name: only the store and the address. */
+const BASE: Partial<Record<EmailTemplateType, VariableDef[]>> = {
+  EMAIL_VERIFICATION: [...STORE, CUSTOMER_EMAIL],
+};
 
 const PAYMENT_REQUEST: VariableDef[] = [
   value('payment.amountDue', 'Amount due'),
@@ -130,6 +142,10 @@ const SPECIFIC: Record<EmailTemplateType, VariableDef[]> = {
     value('credit.code', 'Credit code'),
     value('credit.expiresAt', 'Credit expiry date'),
     value('credit.conditions', 'Credit conditions'),
+  ],
+  EMAIL_VERIFICATION: [
+    value('verification.code', 'Verification code'),
+    value('verification.validMinutes', 'Minutes the code stays valid'),
   ],
 };
 
@@ -213,10 +229,12 @@ const SAMPLE_VALUES: Record<string, unknown> = {
   'credit.code': 'CREDIT-7Q2X',
   'credit.expiresAt': '11/11/2027',
   'credit.conditions': 'Valid for one purchase on the online store.',
+  'verification.code': '482913',
+  'verification.validMinutes': '10',
 };
 
 export function getVariableCatalog(type: EmailTemplateType): VariableDef[] {
-  return [...COMMON, ...SPECIFIC[type]].map((def) => ({
+  return [...(BASE[type] ?? COMMON), ...SPECIFIC[type]].map((def) => ({
     ...def,
     ...(def.itemFields ? { itemFields: [...def.itemFields] } : {}),
   }));
