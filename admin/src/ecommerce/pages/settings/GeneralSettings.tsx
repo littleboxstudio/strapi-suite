@@ -17,6 +17,7 @@ import {
   Typography,
 } from '@strapi/design-system';
 import { WarningCircle } from '@strapi/icons';
+import { StoreLogoField } from '../../components/settings/StoreLogoField';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchStoreSettings from '../../usecases/settings/fetchStoreSettings';
 import FetchIntegrations from '../../usecases/settings/fetchIntegrations';
@@ -27,13 +28,12 @@ import {
   countryOptions,
   extractErrorCode,
   isValidHexColor,
-  isValidHttpUrl,
   storeFormFromSettings,
   timezoneOptions,
   validateStoreForm,
   type StoreForm,
 } from '../../utils/settingsForm';
-import type { SettingsFieldError } from '../../settingsTypes';
+import type { SettingsFieldError, StoreSettings } from '../../settingsTypes';
 
 type TextField = Exclude<keyof StoreForm, 'shippingCountries' | 'timezone'>;
 
@@ -75,16 +75,6 @@ const ColorSwatch = styled.input`
   }
 `;
 
-const LogoThumb = styled.img`
-  width: 40px;
-  height: 40px;
-  flex-shrink: 0;
-  object-fit: contain;
-  border: 1px solid ${({ theme }) => theme.colors.neutral200};
-  border-radius: ${({ theme }) => theme.borderRadius};
-  background: ${({ theme }) => theme.colors.neutral100};
-`;
-
 const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
   const { formatMessage, locale } = useIntl();
   const { toggleNotification } = useNotification();
@@ -96,7 +86,7 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
   const [errors, setErrors] = useState<ErrorMap>({});
   const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [logoBroken, setLogoBroken] = useState(false);
+  const [logo, setLogo] = useState<StoreSettings['logo']>(null);
 
   const countries = useMemo(() => countryOptions(locale), [locale]);
   const timezones = useMemo(() => timezoneOptions(form?.timezone ?? ''), [form?.timezone]);
@@ -114,6 +104,7 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
         return;
       }
       setForm(storeFormFromSettings(store.value));
+      setLogo(store.value.logo);
       // Every integration carries the same flag; without the list, assume the key is there.
       if (integrations.status === 'fulfilled' && integrations.value.length > 0) {
         setKeyConfigured(integrations.value[0].encryptionKeyConfigured);
@@ -144,7 +135,6 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
       delete next[field];
       return next;
     });
-    if (field === 'logoUrl') setLogoBroken(false);
   };
 
   const errorText = (field: keyof StoreForm) =>
@@ -166,6 +156,7 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
     try {
       const saved = await new UpdateStoreSettings().execute(buildStoreSettingsInput(form));
       setForm(storeFormFromSettings(saved));
+      setLogo(saved.logo);
       setErrors({});
       toggleNotification({ type: 'success', message: t('ecommerce.settings.saved') });
     } catch (err) {
@@ -201,15 +192,6 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
       <Field.Hint />
     </Field.Root>
   );
-
-  const logoPreview =
-    form.logoUrl.trim() !== '' && isValidHttpUrl(form.logoUrl) && !logoBroken ? (
-      <LogoThumb
-        src={form.logoUrl.trim()}
-        alt={t('ecommerce.settings.store.logoPreview')}
-        onError={() => setLogoBroken(true)}
-      />
-    ) : null;
 
   const brandColor = form.brandColor.trim();
 
@@ -254,11 +236,11 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
             })}
           </Grid.Item>
           <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
-            {textField('logoUrl', {
-              placeholder: 'https://',
-              hint: t('ecommerce.settings.store.logoUrl.hint'),
-              start: logoPreview,
-            })}
+            <StoreLogoField
+              logo={logo}
+              readOnly={readOnly}
+              onChange={(saved) => setLogo(saved.logo)}
+            />
           </Grid.Item>
           <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
             {textField('brandColor', {

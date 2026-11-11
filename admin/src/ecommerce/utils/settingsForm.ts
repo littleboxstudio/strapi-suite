@@ -1,4 +1,4 @@
-import type { SettingsErrorCode, SettingsFieldError, StoreSettings } from '../settingsTypes';
+import type { SettingsErrorCode, SettingsFieldError, StoreSettings, StoreSettingsInput } from '../settingsTypes';
 
 /** ISO 3166-1 alpha-2 country codes. */
 export const COUNTRY_CODES = [
@@ -25,7 +25,6 @@ const COUNTRY_SET = new Set<string>(COUNTRY_CODES);
 /** The store settings as the form keeps them: optional fields are empty strings, never null. */
 export type StoreForm = {
   storeName: string;
-  logoUrl: string;
   brandColor: string;
   storefrontUrl: string;
   paymentSuccessPath: string;
@@ -98,7 +97,6 @@ const isRelativePath = (value: string) => value.startsWith('/') && !value.starts
 export function storeFormFromSettings(settings: StoreSettings): StoreForm {
   return {
     storeName: settings.storeName,
-    logoUrl: settings.logoUrl ?? '',
     brandColor: settings.brandColor,
     storefrontUrl: settings.storefrontUrl ?? '',
     paymentSuccessPath: settings.paymentSuccessPath,
@@ -113,11 +111,10 @@ export function storeFormFromSettings(settings: StoreSettings): StoreForm {
   };
 }
 
-export function buildStoreSettingsInput(form: StoreForm): StoreSettings {
+export function buildStoreSettingsInput(form: StoreForm): StoreSettingsInput {
   const optional = (value: string) => (value.trim() === '' ? null : value.trim());
   return {
     storeName: form.storeName.trim(),
-    logoUrl: optional(form.logoUrl),
     brandColor: form.brandColor.trim(),
     storefrontUrl: optional(form.storefrontUrl),
     paymentSuccessPath: form.paymentSuccessPath.trim(),
@@ -136,7 +133,7 @@ export function buildStoreSettingsInput(form: StoreForm): StoreSettings {
 export function validateStoreForm(form: StoreForm): SettingsFieldError[] {
   const errors: SettingsFieldError[] = [];
   const push = (path: string, code: SettingsFieldError['code']) => errors.push({ path, code });
-  const optionalUrl = (path: 'logoUrl' | 'storefrontUrl') => {
+  const optionalUrl = (path: 'storefrontUrl') => {
     const value = form[path].trim();
     if (value !== '' && !isValidHttpUrl(value)) push(path, 'invalid_url');
   };
@@ -147,7 +144,6 @@ export function validateStoreForm(form: StoreForm): SettingsFieldError[] {
   };
 
   if (form.storeName.trim() === '') push('storeName', 'required');
-  optionalUrl('logoUrl');
   if (!isValidHexColor(form.brandColor.trim())) push('brandColor', 'invalid_color');
   optionalUrl('storefrontUrl');
   requiredPath('paymentSuccessPath');

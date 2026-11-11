@@ -16,7 +16,7 @@ import type { StoreSettings } from '../../../admin/src/ecommerce/settingsTypes';
 
 const SETTINGS: StoreSettings = {
   storeName: 'Littlebox',
-  logoUrl: null,
+  logo: null,
   brandColor: '#4945ff',
   storefrontUrl: 'https://shop.example.com',
   paymentSuccessPath: '/checkout/success',
@@ -97,7 +97,7 @@ describe('country and timezone options', () => {
 describe('store form', () => {
   it('maps settings to a form with empty strings for nulls', () => {
     const form = storeFormFromSettings(SETTINGS);
-    expect(form.logoUrl).toBe('');
+    expect('logoUrl' in form).toBe(false);
     expect(form.supportEmail).toBe('');
     expect(form.storefrontUrl).toBe('https://shop.example.com');
   });
@@ -106,13 +106,13 @@ describe('store form', () => {
     const form: StoreForm = {
       ...storeFormFromSettings(SETTINGS),
       storeName: '  Littlebox ',
-      logoUrl: '   ',
       supportEmail: ' help@example.com ',
       shippingCountries: ['pt', 'PT', 'es'],
     };
     const input = buildStoreSettingsInput(form);
     expect(input.storeName).toBe('Littlebox');
-    expect(input.logoUrl).toBeNull();
+    expect('logo' in input).toBe(false);
+    expect('logoUrl' in input).toBe(false);
     expect(input.supportEmail).toBe('help@example.com');
     expect(input.shippingCountries).toEqual(['PT', 'ES']);
   });
@@ -139,7 +139,6 @@ describe('store form', () => {
   it('reports every invalid field with the server error codes', () => {
     const form: StoreForm = {
       storeName: ' ',
-      logoUrl: 'logo.png',
       brandColor: '#fff',
       storefrontUrl: 'ftp://shop',
       paymentSuccessPath: '',
@@ -150,7 +149,6 @@ describe('store form', () => {
     };
     expect(validateStoreForm(form)).toEqual([
       { path: 'storeName', code: 'required' },
-      { path: 'logoUrl', code: 'invalid_url' },
       { path: 'brandColor', code: 'invalid_color' },
       { path: 'storefrontUrl', code: 'invalid_url' },
       { path: 'paymentSuccessPath', code: 'required' },

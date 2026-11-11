@@ -13,6 +13,7 @@ import type {
   ManualMethod,
   ManualMethodInput,
   StoreSettings,
+  StoreSettingsInput,
   StorefrontApiToken,
   StripeWebhookInfo,
   TemplateContent,
@@ -22,7 +23,9 @@ import type { EcommerceLocales } from '../types';
 export default interface EcommerceSettingsGateway {
   fetchLocales(): Promise<EcommerceLocales>;
   fetchStore(): Promise<StoreSettings>;
-  updateStore(input: Partial<StoreSettings>): Promise<StoreSettings>;
+  updateStore(input: Partial<StoreSettingsInput>): Promise<StoreSettings>;
+  uploadStoreLogo(form: FormData): Promise<StoreSettings>;
+  removeStoreLogo(): Promise<StoreSettings>;
   fetchStripeWebhook(): Promise<StripeWebhookInfo>;
   fetchApiTokens(): Promise<StorefrontApiToken[]>;
 
@@ -88,8 +91,16 @@ export class EcommerceSettingsGatewayHttp implements EcommerceSettingsGateway {
     return this.httpClient.get(`${this.base}/storefront/api-tokens`);
   }
 
-  async updateStore(input: Partial<StoreSettings>): Promise<StoreSettings> {
+  async updateStore(input: Partial<StoreSettingsInput>): Promise<StoreSettings> {
     return this.httpClient.put(`${this.base}/store`, input);
+  }
+
+  async uploadStoreLogo(form: FormData): Promise<StoreSettings> {
+    return this.httpClient.post(`${this.base}/store/logo`, form);
+  }
+
+  async removeStoreLogo(): Promise<StoreSettings> {
+    return this.httpClient.delete(`${this.base}/store/logo`);
   }
 
   async fetchIntegrations(): Promise<IntegrationView[]> {
