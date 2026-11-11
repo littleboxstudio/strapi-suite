@@ -321,7 +321,7 @@ export const paymentResult = (o: {
 export type OrderStatusSource = {
   publicId: string;
   reference: number;
-  createdAt: string;
+  createdAt: string | null;
   locale: string;
   orderStatus: string;
   paymentStatus: string;
@@ -350,7 +350,7 @@ export type OrderStatusSource = {
 export type PublicOrderStatus = {
   publicId: string;
   reference: string;
-  createdAt: string;
+  createdAt: string | null;
   locale: string;
   orderStatus: string;
   paymentStatus: string;

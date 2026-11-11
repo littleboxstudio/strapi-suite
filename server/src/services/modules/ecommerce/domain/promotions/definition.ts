@@ -1,6 +1,7 @@
 import type { ValidationIssue } from '../../errors';
 import { MAX_MONEY_CENTS } from '../orders';
 import { isValidEmailFormat, normalizeEmail } from '../email';
+import { MAX_PROMOTION_CODE_LENGTH } from '../storefront/limits';
 import { isValidTimeZone, zonedWallTimeToUtc } from './time';
 import type {
   Benefit,
@@ -23,7 +24,7 @@ export type PromotionInput = Omit<PromotionDefinition, 'id' | 'version'> & {
   perCustomerLimit: number | null;
 };
 
-const CODE_RE = /^[A-Z0-9_-]{3,40}$/;
+const CODE_RE = new RegExp(`^[A-Z0-9_-]{3,${MAX_PROMOTION_CODE_LENGTH}}$`);
 const VOUCHER_RE = /^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
 const NUMBER_OPERATORS: NumberOperator[] = ['eq', 'neq', 'gt', 'gte', 'lt', 'lte'];
 const EMAIL_OPERATORS = ['eq', 'neq', 'contains', 'not_contains'];

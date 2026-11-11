@@ -422,7 +422,8 @@ describe('EcommerceOrderService.create', () => {
     const { service, tables } = setup();
     const a = await service.create(input({ idempotencyKey: 'k-1' }), ctx);
     const b = await service.create(input({ idempotencyKey: 'k-1' }), ctx);
-    expect(b).toEqual(a);
+    expect(a).not.toHaveProperty('replayed');
+    expect(b).toEqual({ ...a, replayed: true });
     expect(tables[UIDS.order]).toHaveLength(1);
     expect(tables[UIDS.stockMovement]).toHaveLength(2);
     expect(stockOf(tables, 10)).toBe(3);
@@ -433,7 +434,10 @@ describe('EcommerceOrderService.create', () => {
     const a = await service.create(input({ idempotencyKey: 'k-r' }), ctx);
     settings.countries = ['ES'];
     shipping.findOption.mockClear();
-    expect(await service.create(input({ idempotencyKey: 'k-r' }), ctx)).toEqual(a);
+    expect(await service.create(input({ idempotencyKey: 'k-r' }), ctx)).toEqual({
+      ...a,
+      replayed: true,
+    });
     expect(shipping.findOption).not.toHaveBeenCalled();
     expect(tables[UIDS.order]).toHaveLength(1);
   });
@@ -456,7 +460,8 @@ describe('EcommerceOrderService.create', () => {
         },
       };
     };
-    expect(await service.create(input(one), ctx)).toEqual(first);
+    // The conflict path reports the replay too.
+    expect(await service.create(input(one), ctx)).toEqual({ ...first, replayed: true });
     expect(missed).toBe(true);
     expect(tables[UIDS.order]).toHaveLength(1);
     expect(tables[UIDS.customer]).toHaveLength(1);
@@ -904,7 +909,7 @@ describe('EcommerceOrderService.create with a store credit and a checkout sessio
     const repeated = orderInput({ storeCreditCode: issued.code, idempotencyKey: 'k-sc' });
     const a = await c.orders.create(repeated, sf);
     const b = await c.orders.create(repeated, sf);
-    expect(b).toEqual(a);
+    expect(b).toEqual({ ...a, replayed: true });
     expect(a.total).toBe(5000);
     expect(c.tables[U.order]).toHaveLength(1);
     expect(c.tables[U.payment]).toHaveLength(1);
