@@ -13,14 +13,19 @@ import { ManualMethodsTable } from '../../components/settings/ManualMethodsTable
 import { extractFieldErrors } from '../../utils/productForm';
 import { extractErrorCode } from '../../utils/settingsForm';
 import { integrationErrorMap } from '../../utils/integrationForm';
-import type { IntegrationView, ProviderCategory } from '../../settingsTypes';
+import type { IntegrationView, ProviderCategory, ShippingZone } from '../../settingsTypes';
 
-type Props = { category: ProviderCategory; readOnly: boolean };
+type Props = {
+  category: ProviderCategory;
+  readOnly: boolean;
+  /** Carriers only: the shipping zones; a new list (a zone changed) refetches the integrations. */
+  zones?: ShippingZone[];
+};
 
 /** Billing allows a single active provider; the server deactivates the others. */
 const EXCLUSIVE_CATEGORIES: ProviderCategory[] = ['billing'];
 
-const IntegrationsSection = ({ category, readOnly }: Props) => {
+const IntegrationsSection = ({ category, readOnly, zones }: Props) => {
   const { formatMessage } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>, defaultMessage?: string) =>
@@ -52,7 +57,7 @@ const IntegrationsSection = ({ category, readOnly }: Props) => {
     return () => {
       cancelled = true;
     };
-  }, [category]);
+  }, [category, zones]);
 
   const providerName = (i: IntegrationView) =>
     t(`ecommerce.settings.providers.${i.id}.name`, undefined, i.name);
@@ -156,10 +161,12 @@ const IntegrationsSection = ({ category, readOnly }: Props) => {
           onConfigure={() => setConfiguring({ id: integration.id })}
           onTest={() => runTest(integration.id)}
           onToggleActive={(active) => onToggleActive(integration, active)}
-        />
+        >
+          {integration.id === 'manual' && (
+            <ManualMethodsTable embedded readOnly={readOnly} zones={zones ?? []} />
+          )}
+        </IntegrationCard>
       ))}
-
-      {category === 'carrier' && <ManualMethodsTable readOnly={readOnly} />}
 
       {configured && !readOnly && (
         <IntegrationConfigModal

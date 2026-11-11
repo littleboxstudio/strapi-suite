@@ -7,6 +7,7 @@ import type { ProviderCategory } from '../../settingsTypes';
 import { useSettingsPermissions } from './useSettingsPermissions';
 import { GeneralSettings } from './GeneralSettings';
 import { IntegrationsSection } from './IntegrationsSection';
+import { ShippingSettings } from './ShippingSettings';
 import { EmailTemplatesSection } from './EmailTemplatesSection';
 import { SETTINGS_SECTIONS, type SettingsSection } from '../../utils/settingsSections';
 import { StorefrontSettings } from './StorefrontSettings';
@@ -16,11 +17,10 @@ import StickyTabs from '../../components/StickyTabs';
 export { SETTINGS_SECTIONS };
 export type { SettingsSection };
 
-/** Provider category shown by each integrations section. */
+/** Provider category shown by each integrations section (shipping has its own page). */
 const SECTION_CATEGORY: Partial<Record<SettingsSection, ProviderCategory>> = {
   payments: 'payment',
   billing: 'billing',
-  shipping: 'carrier',
   'email-service': 'email',
 };
 
@@ -76,6 +76,7 @@ const SettingsPage = () => {
           )}
           {section === 'general' && <GeneralSettings readOnly={!canUpdate} />}
           {section === 'storefront' && <StorefrontSettings readOnly={!canUpdate} />}
+          {section === 'shipping' && <ShippingSettings readOnly={!canUpdate} />}
           {category && (
             <IntegrationsSection key={category} category={category} readOnly={!canUpdate} />
           )}

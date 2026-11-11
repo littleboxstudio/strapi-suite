@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { useIntl } from 'react-intl';
 import { Badge, Box, Button, Flex, Switch, Typography } from '@strapi/design-system';
 import { Cog, Play } from '@strapi/icons';
@@ -20,6 +21,8 @@ type Props = {
   onConfigure: () => void;
   onTest: () => void;
   onToggleActive: (active: boolean) => void;
+  /** Extra content inside the card, after the actions (e.g. the manual shipping methods). */
+  children?: ReactNode;
 };
 
 const IntegrationCard = ({
@@ -30,6 +33,7 @@ const IntegrationCard = ({
   onConfigure,
   onTest,
   onToggleActive,
+  children,
 }: Props) => {
   const { formatMessage } = useIntl();
   const t = (id: string, values?: Record<string, any>, defaultMessage?: string) =>
@@ -139,6 +143,8 @@ const IntegrationCard = ({
             {testResult()}
           </Flex>
         )}
+
+        {children}
       </Flex>
     </Box>
   );

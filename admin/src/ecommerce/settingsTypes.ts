@@ -76,6 +76,11 @@ export type ManualMethod = {
 
 export type ManualMethodInput = Partial<Omit<ManualMethod, 'id'>>;
 
+/** A group of market countries that share the shipping prices of each method. */
+export type ShippingZone = { id: number; name: string; countries: string[]; position: number };
+
+export type ShippingZoneInput = { name?: string; countries?: string[]; position?: number };
+
 export type EmailTemplateType =
   | 'ORDER_CONFIRMATION'
   | 'PAYMENT_CONFIRMATION'

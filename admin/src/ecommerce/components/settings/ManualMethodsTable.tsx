@@ -27,14 +27,22 @@ import FetchSettingsLocales from '../../usecases/settings/fetchSettingsLocales';
 import { formatCents } from '../../utils/money';
 import { ManualMethodModal } from './ManualMethodModal';
 import type { EcommerceLocales } from '../../types';
-import type { ManualMethod } from '../../settingsTypes';
+import type { ManualMethod, ShippingZone } from '../../settingsTypes';
 
 /** Countries listed in a row before collapsing the rest into "+N". */
 const VISIBLE_COUNTRIES = 4;
 
 type Editing = { method: ManualMethod | null };
 
-const ManualMethodsTable = ({ readOnly }: { readOnly: boolean }) => {
+type Props = {
+  readOnly: boolean;
+  /** Inside the "Manual shipping" card, which already has the title, switch and description. */
+  embedded?: boolean;
+  /** The shipping zones; a new list (a zone changed) refetches the methods. */
+  zones: ShippingZone[];
+};
+
+const ManualMethodsTable = ({ readOnly, embedded = false, zones }: Props) => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) =>
@@ -49,24 +57,33 @@ const ManualMethodsTable = ({ readOnly }: { readOnly: boolean }) => {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      const [rows, info] = await Promise.allSettled([
-        new FetchShippingMethods().execute(),
-        // Needs the products read permission; without it the table stays read-only.
-        new FetchSettingsLocales().execute(),
-      ]);
-      if (cancelled) return;
-      if (rows.status === 'rejected') {
-        setLoadError(true);
-        return;
-      }
-      setMethods(rows.value);
-      if (info.status === 'fulfilled') setLocales(info.value);
-    })();
+    // Needs the products read permission; without it the table stays read-only.
+    new FetchSettingsLocales()
+      .execute()
+      .then((info) => {
+        if (!cancelled) setLocales(info);
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
   }, []);
+
+  // Deleting a zone removes its prices from the methods, so reload them when the zones change.
+  useEffect(() => {
+    let cancelled = false;
+    new FetchShippingMethods()
+      .execute()
+      .then((rows) => {
+        if (!cancelled) setMethods(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [zones]);
 
   const remove = async (method: ManualMethod) => {
     try {
@@ -90,17 +107,6 @@ const ManualMethodsTable = ({ readOnly }: { readOnly: boolean }) => {
         : [...list, saved];
     });
   };
-
-  const header = (
-    <Flex direction="column" alignItems="flex-start" gap={1}>
-      <Typography variant="delta" tag="h2">
-        {t('ecommerce.settings.manualMethods.title')}
-      </Typography>
-      <Typography variant="omega" textColor="neutral600">
-        {t('ecommerce.settings.manualMethods.description')}
-      </Typography>
-    </Flex>
-  );
 
   const canEdit = !readOnly && locales !== null;
 
@@ -214,12 +220,8 @@ const ManualMethodsTable = ({ readOnly }: { readOnly: boolean }) => {
     );
   };
 
-  return (
-    <Box background="neutral0" shadow="tableShadow" hasRadius padding={6}>
-      <Flex direction="column" alignItems="stretch" gap={5}>
-        {header}
-        {content()}
-      </Flex>
+  const modals = (
+    <>
 
       {editing && locales && canEdit && (
         <ManualMethodModal
@@ -247,6 +249,21 @@ const ManualMethodsTable = ({ readOnly }: { readOnly: boolean }) => {
           action: () => setConfirmDelete(null),
         }}
       />
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <Box>
+        {content()}
+        {modals}
+      </Box>
+    );
+  }
+  return (
+    <Box background="neutral0" shadow="tableShadow" hasRadius padding={6}>
+      {content()}
+      {modals}
     </Box>
   );
 };
