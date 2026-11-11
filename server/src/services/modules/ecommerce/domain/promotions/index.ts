@@ -3,3 +3,4 @@ export * from './definition';
 export * from './time';
 export * from './availability';
 export * from './conditions';
+export * from './benefits';
