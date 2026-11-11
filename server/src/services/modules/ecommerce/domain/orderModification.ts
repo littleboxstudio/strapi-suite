@@ -12,10 +12,16 @@ import {
   type PaymentLike,
   type RefundLike,
 } from './orders';
+import {
+  unmetAppliedPromotions,
+  type AppliedPromotion,
+  type EvaluationLine,
+} from './promotions';
 
 export type ExistingLine = LineAmounts & {
   id: number;
   variantId: number;
+  productId: number;
   sku: string;
   name: string;
   option: string;
@@ -38,10 +44,16 @@ export type ModificationInput = {
   lines: { orderLineId?: number; variantId: number; quantity: number }[];
   shipping: ShippingModification;
   addresses?: { shipping?: Address; billing?: Address };
+  /**
+   * Manual order discount (integer cents in [0, MAX_MONEY_CENTS]): replaces the stored one
+   * before the cap at the new subtotal. Absent = keep the stored discount.
+   */
+  orderDiscount?: number;
 };
 
 export type CatalogVariant = {
   variantId: number;
+  productId: number;
   sku: string;
   name: string;
   option: string;
@@ -87,10 +99,15 @@ export type ModificationResult = {
     shippingOriginal: number;
     shippingDiscount: number;
   };
-  discountWarnings: { code: 'ORDER_DISCOUNT_CAPPED' }[];
+  discountWarnings: DiscountWarning[];
   outcome: 'DUE' | 'REFUNDABLE' | 'NONE';
   difference: number;
 };
+
+export type DiscountWarning =
+  | { code: 'ORDER_DISCOUNT_CAPPED' }
+  | { code: 'PROMOTION_CONDITION_UNMET'; promotionId: number; name: string }
+  | { code: 'SHIPPING_PROMOTION_DROPPED'; promotionId: number; name: string };
 
 export type ModificationCurrent = {
   lines: ExistingLine[];
@@ -99,6 +116,21 @@ export type ModificationCurrent = {
   shippingDiscount: number;
   payments: PaymentLike[];
   refunds: RefundLike[];
+  /** The promotions the order stored (absent = none). Never re-evaluated or re-priced. */
+  promotions?: AppliedPromotion[];
+  /** The customer e-mail, for e-mail conditions (absent = null). */
+  email?: string | null;
+};
+
+export type ModificationOptions = {
+  /**
+   * Which stored promotions no longer hold for the modified order. Defaults to the pure,
+   * fail-closed check; the order service passes the promotion service's (which logs errors).
+   */
+  unmet?: (
+    applied: AppliedPromotion[],
+    ctx: { lines: EvaluationLine[]; email: string | null }
+  ) => { promotionId: number; name: string }[];
 };
 
 const isNonNegativeInt = (n: unknown): n is number =>
@@ -122,6 +154,7 @@ export const simulateModification = (
   current: ModificationCurrent,
   input: ModificationInput,
   catalog: Map<number, CatalogVariant>,
+  options: ModificationOptions = {},
 ): ModificationResult => {
   const errors: ModificationResult['errors'] = [];
   const lineError = (index: number, code: ModificationErrorCode) =>
@@ -135,6 +168,8 @@ export const simulateModification = (
   const claimedBy = new Map<number, number>();
   const added: AddedLine[] = [];
   const addedVariants = new Set<number>();
+  /** Lines of an ambiguous entry (see below): kept unchanged, not claimed. */
+  const keptUnchanged = new Set<number>();
 
   input.lines.forEach((entry, index) => {
     let target: ExistingLine | undefined;
@@ -145,7 +180,15 @@ export const simulateModification = (
         return;
       }
     } else {
-      target = current.lines.find((l) => !l.isGift && l.variantId === entry.variantId);
+      const matches = current.lines.filter((l) => !l.isGift && l.variantId === entry.variantId);
+      // A variant split over several lines (promotions) needs the line id: resolving to the
+      // first line would silently remove the others.
+      if (matches.length > 1) {
+        errors.push({ path: `lines.${index}.orderLineId`, code: 'INVALID_QUANTITY' });
+        matches.forEach((l) => keptUnchanged.add(l.id));
+        return;
+      }
+      target = matches[0];
     }
 
     if (target && claimedBy.has(target.id)) {
@@ -192,8 +235,8 @@ export const simulateModification = (
   for (const line of current.lines) {
     if (requested.has(line.id)) {
       newQuantity.set(line.id, requested.get(line.id)!);
-    } else if (claimedBy.has(line.id) || line.isGift) {
-      // Claimed by an invalid entry, or a gift line: unchanged.
+    } else if (claimedBy.has(line.id) || line.isGift || keptUnchanged.has(line.id)) {
+      // Claimed by an invalid entry, a gift line, or targeted ambiguously: unchanged.
       newQuantity.set(line.id, line.quantity);
     } else if (line.shipped > 0) {
       errors.push({ path: `removed.${line.id}`, code: 'QUANTITY_BELOW_SHIPPED' });
@@ -281,6 +324,15 @@ export const simulateModification = (
     }
   }
 
+  // --- Order discount ------------------------------------------------------
+  const manualDiscount = input.orderDiscount !== undefined;
+  if (manualDiscount && !isMoneyAmount(input.orderDiscount)) {
+    errors.push({ path: 'orderDiscount', code: 'INVALID_AMOUNT' });
+  }
+  /** The discount asked for, before the cap at the new subtotal. */
+  const requestedDiscount =
+    manualDiscount && isMoneyAmount(input.orderDiscount) ? input.orderDiscount : current.orderDiscount;
+
   // --- Totals --------------------------------------------------------------
   const beforeTotals = computeTotals(current.lines, current);
   const afterLines: LineAmounts[] = [
@@ -293,7 +345,7 @@ export const simulateModification = (
     ...added.map((a) => ({ unitPrice: a.variant.unitPrice, unitDiscount: 0, quantity: a.quantity, returnedQuantity: 0 })),
   ];
   const afterTotals = computeTotals(afterLines, {
-    orderDiscount: current.orderDiscount,
+    orderDiscount: requestedDiscount,
     shippingOriginal: shipping.shippingOriginal,
     shippingDiscount: shipping.shippingDiscount,
   });
@@ -301,8 +353,48 @@ export const simulateModification = (
   const before = withMoney(beforeTotals, current.payments, current.refunds);
   const after = withMoney(afterTotals, current.payments, current.refunds);
 
-  const discountWarnings: ModificationResult['discountWarnings'] =
-    afterTotals.orderDiscount < current.orderDiscount ? [{ code: 'ORDER_DISCOUNT_CAPPED' }] : [];
+  // --- Warnings (nothing is re-priced: design 4.8) ---------------------------
+  const discountWarnings: DiscountWarning[] =
+    afterTotals.orderDiscount < requestedDiscount ? [{ code: 'ORDER_DISCOUNT_CAPPED' }] : [];
+
+  const promotions = current.promotions ?? [];
+  if (promotions.length) {
+    // Customer lines after the modification at original price (no gifts), net of returns.
+    const conditionLines: EvaluationLine[] = [
+      ...current.lines
+        .filter((l) => !l.isGift)
+        .map((l) => ({
+          variantId: l.variantId,
+          productId: l.productId,
+          unitPrice: l.unitPrice,
+          quantity: newQuantity.get(l.id)! - l.returnedQuantity,
+        })),
+      ...added.map((a) => ({
+        variantId: a.variant.variantId,
+        productId: a.variant.productId,
+        unitPrice: a.variant.unitPrice,
+        quantity: a.quantity,
+      })),
+    ].filter((l) => l.quantity > 0);
+    const unmet = options.unmet ?? ((a, c) => unmetAppliedPromotions(a, c));
+    for (const p of unmet(promotions, { lines: conditionLines, email: current.email ?? null })) {
+      discountWarnings.push({ code: 'PROMOTION_CONDITION_UNMET', promotionId: p.promotionId, name: p.name });
+    }
+
+    // Recalculated or manual shipping clears the shipping discount: the shipping promotions
+    // stop applying (the stored promotions keep them as history, spec 3.8).
+    if (input.shipping.mode !== 'KEEP' && current.shippingDiscount > 0 && shipping.shippingDiscount === 0) {
+      for (const p of promotions) {
+        if (Array.isArray(p.classes) && p.classes.includes('SHIPPING_DISCOUNT')) {
+          discountWarnings.push({
+            code: 'SHIPPING_PROMOTION_DROPPED',
+            promotionId: p.promotionId,
+            name: p.name,
+          });
+        }
+      }
+    }
+  }
 
   const outcome: ModificationResult['outcome'] =
     after.due > before.due

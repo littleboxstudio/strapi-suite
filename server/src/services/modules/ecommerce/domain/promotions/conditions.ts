@@ -159,3 +159,44 @@ export const unmetPromotions = (
         )
     )
     .map((a) => ({ promotionId: a.promotionId, name: a.name }));
+
+/**
+ * `unmetPromotions` for stored snapshots, failing closed per promotion: a condition that throws
+ * or a malformed snapshot reports the promotion as unmet (never silently met), and
+ * `onConditionError` hears about it with the promotion id.
+ */
+export const unmetAppliedPromotions = (
+  applied: {
+    promotionId: number;
+    name: string;
+    snapshot: { eligibility: Eligibility; conditions: ConditionGroup };
+  }[],
+  ctx: { lines: EvaluationLine[]; email: string | null },
+  onConditionError?: (promotionId: number, type: string, err: unknown) => void
+): { promotionId: number; name: string }[] => {
+  const notify = (promotionId: number, type: string, err: unknown) => {
+    try {
+      onConditionError?.(promotionId, type, err);
+    } catch {
+      // a failing hook must not break evaluation
+    }
+  };
+  return applied
+    .filter((a) => {
+      let failed = false;
+      try {
+        const unmet = unmetPromotions([a], {
+          ...ctx,
+          onError: (type, err) => {
+            failed = true;
+            notify(a.promotionId, type, err);
+          },
+        });
+        return failed || unmet.length > 0;
+      } catch (err) {
+        notify(a.promotionId, 'SNAPSHOT', err);
+        return true;
+      }
+    })
+    .map((a) => ({ promotionId: a.promotionId, name: a.name }));
+};
