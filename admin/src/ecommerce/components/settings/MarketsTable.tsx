@@ -76,10 +76,11 @@ const MarketsTable = ({ value, countries, readOnly, error, onChange }: Props) =>
                 ))}
               </Combobox>
             </Box>
-            <Button startIcon={<Plus />} onClick={add} disabled={!pick}>
+            <Button size="L" startIcon={<Plus />} onClick={add} disabled={!pick}>
               {t('markets.add')}
             </Button>
             <Button
+              size="L"
               variant="secondary"
               onClick={() =>
                 onChange(
@@ -94,6 +95,7 @@ const MarketsTable = ({ value, countries, readOnly, error, onChange }: Props) =>
               {t('markets.addAll')}
             </Button>
             <Button
+              size="L"
               variant="danger-light"
               onClick={() => onChange([])}
               disabled={value.length === 0}
