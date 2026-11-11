@@ -1,12 +1,12 @@
 /**
- * Public projections of quotes and orders for the storefront API. Only display names and
+ * Public projections of quotes and orders for the storefront API. Only public names and
  * amounts of promotions (never the internal name, the code of an AUTOMATIC promotion or the
  * snapshot), no addresses, e-mail, internal ids or stock counts.
  *
  * The domain does not import service files: QuoteSource and OrderStatusSource are the
  * structural subsets of OrderQuote and OrderView used here (a type test keeps them assignable).
  */
-import { displayNameFor, type AppliedPromotion, type CodeStatus } from '../promotions';
+import type { AppliedPromotion, CodeStatus } from '../promotions';
 import { quoteVatItems, vatBreakdown, type VatRow } from './tax';
 
 export const PUBLIC_CODE_STATUSES = [
@@ -82,9 +82,26 @@ const CODE_STATUS_MESSAGES: Record<'en' | 'pt', Record<PublicCodeStatus, string>
   },
 };
 
-const messageLanguage = (locale: string): 'en' | 'pt' => {
-  const l = typeof locale === 'string' ? locale.toLowerCase() : '';
-  return l === 'pt' || l.startsWith('pt-') ? 'pt' : 'en';
+/** `pt` / `pt-*` → pt, anything else → en (same rule as notificationData.ts). */
+const messageLanguage = (locale: string): 'en' | 'pt' =>
+  typeof locale === 'string' && locale.toLowerCase().startsWith('pt') ? 'pt' : 'en';
+
+const PROMOTION_FALLBACK_NAME: Record<'en' | 'pt', string> = { en: 'Promotion', pt: 'Promoção' };
+
+/**
+ * The public name of a promotion: displayName[locale] → displayName[defaultLocale] → a neutral
+ * "Promotion" / "Promoção" (by the requested locale). Never the internal `name`.
+ */
+export const publicPromotionName = (
+  p: { displayName: Record<string, string> | null | undefined },
+  locale: string,
+  defaultLocale: string
+): string => {
+  const pick = (l: string) => {
+    const v = p.displayName?.[l];
+    return typeof v === 'string' && v.trim() !== '' ? v : null;
+  };
+  return pick(locale) ?? pick(defaultLocale) ?? PROMOTION_FALLBACK_NAME[messageLanguage(locale)];
 };
 
 export const codeStatusMessage = (status: PublicCodeStatus, locale: string): string =>
@@ -92,7 +109,7 @@ export const codeStatusMessage = (status: PublicCodeStatus, locale: string): str
 
 type PromotionSource = Pick<
   AppliedPromotion,
-  'promotionId' | 'name' | 'displayName' | 'code' | 'method' | 'classes' | 'amount'
+  'promotionId' | 'displayName' | 'code' | 'method' | 'classes' | 'amount'
 >;
 
 /** Structural subset of OrderQuote (orderPricing.ts). */
@@ -224,7 +241,7 @@ export const toPublicQuote = (
     lines,
     promotions: q.promotions.map((p) => ({
       promotionId: p.promotionId,
-      name: displayNameFor(p, ctx.locale, ctx.defaultLocale),
+      name: publicPromotionName(p, ctx.locale, ctx.defaultLocale),
       code: p.method === 'CODE' ? p.code : null,
       amount: p.amount,
       classes: [...p.classes],
@@ -249,7 +266,17 @@ export const toPublicQuote = (
         available: v.available,
       })),
     })),
-    totals: { ...q.totals },
+    totals: {
+      itemsOriginal: q.totals.itemsOriginal,
+      productDiscount: q.totals.productDiscount,
+      subtotal: q.totals.subtotal,
+      orderDiscount: q.totals.orderDiscount,
+      shippingOriginal: q.totals.shippingOriginal,
+      shippingDiscount: q.totals.shippingDiscount,
+      shippingTotal: q.totals.shippingTotal,
+      total: q.totals.total,
+      totalDiscount: q.totals.totalDiscount,
+    },
     taxes: vatBreakdown(
       quoteVatItems({
         lines: q.lines,
@@ -316,7 +343,7 @@ export type OrderStatusSource = {
     unitDiscount: number;
     isGift: boolean;
   }[];
-  promotions: Pick<AppliedPromotion, 'name' | 'displayName' | 'amount'>[];
+  promotions: Pick<AppliedPromotion, 'displayName' | 'amount'>[];
   shippingMethod: Record<string, unknown> | null;
 };
 
@@ -393,7 +420,7 @@ export const toPublicOrderStatus = (
       isGift: l.isGift,
     })),
     promotions: view.promotions.map((p) => ({
-      name: displayNameFor(p, view.locale, ctx.defaultLocale),
+      name: publicPromotionName(p, view.locale, ctx.defaultLocale),
       amount: p.amount,
     })),
     shipping: typeof shippingName === 'string' && shippingName !== '' ? { name: shippingName } : null,

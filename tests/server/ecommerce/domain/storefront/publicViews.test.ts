@@ -248,6 +248,34 @@ describe('toPublicQuote', () => {
     });
   });
 
+  it('never shows the internal name: neutral label when displayName is empty (F1)', () => {
+    const q = quote();
+    (q.promotions as unknown as Record<string, unknown>[])[0] = appliedPromotion({ name: 'INTERNO-SECRETO', displayName: {} });
+    (q.promotions as unknown as Record<string, unknown>[])[1] = appliedPromotion({
+      promotionId: 2,
+      name: 'SEGREDO-2',
+      displayName: { de: 'Sommer', pt: '  ' },
+      method: 'CODE',
+      code: 'WELCOME',
+    });
+    const pt = toPublicQuote(q, { ...ctx, locale: 'pt-PT' });
+    expect(pt.promotions.map((p) => p.name)).toEqual(['Promoção', 'Promoção']);
+    const en = toPublicQuote(q, { ...ctx, locale: 'fr' });
+    expect(en.promotions.map((p) => p.name)).toEqual(['Promotion', 'Promotion']);
+    for (const json of [JSON.stringify(pt), JSON.stringify(en)]) {
+      expect(json).not.toContain('INTERNO-SECRETO');
+      expect(json).not.toContain('SEGREDO-2');
+    }
+  });
+
+  it('builds totals field by field (F3)', () => {
+    const q = quote();
+    (q.totals as unknown as Record<string, unknown>).internalCost = 123;
+    const pub = toPublicQuote(q, ctx);
+    expect(pub.totals).not.toHaveProperty('internalCost');
+    expect(Object.keys(pub.totals).sort()).toEqual(Object.keys(quote().totals).sort());
+  });
+
   it('no shipping selected', () => {
     const q = { ...quote(), shippingOption: null, totals: { ...quote().totals, shippingTotal: null } };
     const pub = toPublicQuote(q, { ...ctx, shippingOptions: null });
@@ -368,6 +396,18 @@ describe('toPublicOrderStatus', () => {
     for (const leak of ['Interno', 'CAMP-INT', 'snapshot', 'ana@x.pt', 'Rua', 'pi_x', '"id"', 'internal note']) {
       expect(json).not.toContain(leak);
     }
+  });
+
+  it('never shows the internal name on the order status (F1)', () => {
+    const view = {
+      ...orderView(),
+      promotions: [{ ...appliedPromotion({ name: 'INTERNO-SECRETO', displayName: {} }), redemptionStatus: 'RESERVED' }],
+    } as unknown as OrderView;
+    const pub = toPublicOrderStatus(view, { defaultLocale: 'en', hasPendingStripePayment: false });
+    expect(pub.promotions).toEqual([{ name: 'Promoção', amount: 1000 }]);
+    const en = toPublicOrderStatus({ ...view, locale: 'en' } as OrderView, { defaultLocale: 'pt', hasPendingStripePayment: false });
+    expect(en.promotions).toEqual([{ name: 'Promotion', amount: 1000 }]);
+    expect(JSON.stringify(pub) + JSON.stringify(en)).not.toContain('INTERNO-SECRETO');
   });
 
   it('falls back to the default locale name and handles no shipping / cancelled', () => {
