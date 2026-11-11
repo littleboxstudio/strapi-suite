@@ -1,5 +1,6 @@
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID, LtbConfigs } from '../../../config';
+import { EcommerceNotFoundError } from './errors';
 
 export type StockMovementType =
   | 'ORDER_DEDUCT'
@@ -29,14 +30,15 @@ const ORDER_NET_TYPES: StockMovementType[] = [
   'RETURN_RESTOCK',
 ];
 
-/** Unique-index violation across SQLite, PostgreSQL and MySQL/MariaDB drivers. */
+/** Unique / primary-key violation only (PostgreSQL, MySQL/MariaDB, SQLite). */
 const isUniqueViolation = (err: any): boolean => {
   const code = String(err?.code ?? '');
   return (
     code === '23505' ||
     code === 'ER_DUP_ENTRY' ||
-    code.startsWith('SQLITE_CONSTRAINT') ||
-    /unique|duplicate/i.test(String(err?.message ?? ''))
+    err?.errno === 1062 ||
+    code === 'SQLITE_CONSTRAINT_UNIQUE' ||
+    code === 'SQLITE_CONSTRAINT_PRIMARYKEY'
   );
 };
 
@@ -50,10 +52,7 @@ const EcommerceStockService = ({ strapi }: { strapi: Core.Strapi }) => {
     return config.uuid.modules.ecommerce;
   };
 
-  const move = async (
-    input: StockMoveInput,
-    opts: { trx?: any } = {}
-  ): Promise<{ applied: boolean }> => {
+  const move = async (input: StockMoveInput): Promise<{ applied: boolean }> => {
     const u = uids();
     const movements = () => strapi.db.query(u.stockMovement);
 
@@ -80,11 +79,13 @@ const EcommerceStockService = ({ strapi }: { strapi: Core.Strapi }) => {
 
         if (input.type !== 'RETURN_NO_RESTOCK' && input.quantity !== 0) {
           const { tableName } = strapi.db.metadata.get(u.variant);
-          await strapi.db
+          const updated = await strapi.db
             .connection(tableName)
             .where({ id: input.variantId })
             .increment('stock', input.quantity)
-            .transacting(opts.trx ?? trx);
+            .transacting(trx);
+          // Throwing rolls the movement back with the transaction.
+          if (!updated) throw new EcommerceNotFoundError('Variant not found');
         }
         return { applied: true };
       });

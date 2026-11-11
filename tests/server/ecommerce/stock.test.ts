@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import EcommerceStockService from '../../../server/src/services/modules/ecommerce/stock';
+import { EcommerceNotFoundError } from '../../../server/src/services/modules/ecommerce/errors';
 import { createFakeDb } from './helpers/fakeDb';
 
 const P = 'plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-';
@@ -90,14 +91,81 @@ describe('EcommerceStockService', () => {
     ]);
   });
 
-  it('uses the trx it is given', async () => {
-    const { service, increments } = makeStrapi();
-    const outer = { outer: true };
-    await service.move(
-      { variantId: 2, quantity: 1, type: 'MANUAL_ADJUST', operationKey: 'k', actor: 'system' },
-      { trx: outer }
-    );
-    expect(increments[0].trx).toBe(outer);
+  it('runs the increment on the transaction trx', async () => {
+    const { service, increments, trx, transaction } = makeStrapi();
+    await service.move({
+      variantId: 2,
+      quantity: 1,
+      type: 'MANUAL_ADJUST',
+      operationKey: 'k',
+      actor: 'system',
+    });
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(increments[0].trx).toBe(trx);
+  });
+
+  it('rethrows constraint errors that are not unique violations', async () => {
+    const fk = Object.assign(new Error('FOREIGN KEY constraint failed'), {
+      code: 'SQLITE_CONSTRAINT_FOREIGNKEY',
+    });
+    const { service } = makeStrapi((db) => ({
+      query: ((uid: string) => {
+        const q = db.query(uid);
+        return uid === UIDS.stockMovement
+          ? { ...q, create: async () => Promise.reject(fk) }
+          : q;
+      }) as Db['query'],
+    }));
+    await expect(
+      service.move({
+        variantId: 1,
+        quantity: 1,
+        type: 'MANUAL_ADJUST',
+        operationKey: 'fk',
+        actor: 'system',
+      })
+    ).rejects.toBe(fk);
+  });
+
+  it.each([
+    { code: '23505' },
+    { code: 'ER_DUP_ENTRY' },
+    { errno: 1062 },
+    { code: 'SQLITE_CONSTRAINT_UNIQUE' },
+    { code: 'SQLITE_CONSTRAINT_PRIMARYKEY' },
+  ])('treats %o as already applied', async (props) => {
+    const dup = Object.assign(new Error('boom'), props);
+    const { service } = makeStrapi((db) => ({
+      query: ((uid: string) => {
+        const q = db.query(uid);
+        return uid === UIDS.stockMovement
+          ? { ...q, create: async () => Promise.reject(dup) }
+          : q;
+      }) as Db['query'],
+    }));
+    expect(
+      await service.move({
+        variantId: 1,
+        quantity: 1,
+        type: 'MANUAL_ADJUST',
+        operationKey: 'dup',
+        actor: 'system',
+      })
+    ).toEqual({ applied: false });
+  });
+
+  it('throws not-found and records nothing when the variant does not exist', async () => {
+    const { service, tables } = makeStrapi();
+    await expect(
+      service.move({
+        variantId: 404,
+        quantity: 1,
+        type: 'MANUAL_ADJUST',
+        operationKey: 'missing',
+        actor: 'system',
+      })
+    ).rejects.toBeInstanceOf(EcommerceNotFoundError);
+    expect(tables[UIDS.stockMovement]).toHaveLength(0);
   });
 
   it('records RETURN_NO_RESTOCK without touching stock', async () => {

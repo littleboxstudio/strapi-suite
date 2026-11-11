@@ -161,3 +161,29 @@ export function draftToVariant(
     },
   };
 }
+
+/** RFC 4122 v4 id; `crypto.randomUUID` is missing outside secure contexts (plain-http admin). */
+export function mintUuid(): string {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+/**
+ * Attaches the idempotency key of a confirmed adjustment: kept when the pending amount is
+ * unchanged, minted otherwise, removed when there is no adjustment.
+ */
+export function withAdjustmentKey(
+  variant: FormVariant,
+  previous: FormVariant | null,
+  mint: () => string = mintUuid
+): FormVariant {
+  const { stockAdjustmentKey: _old, ...rest } = variant;
+  if (!variant.stockAdjustment) return rest;
+  const keep =
+    previous?.stockAdjustmentKey && previous.stockAdjustment === variant.stockAdjustment;
+  return { ...rest, stockAdjustmentKey: keep ? previous.stockAdjustmentKey : mint() };
+}

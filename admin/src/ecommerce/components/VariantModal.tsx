@@ -24,6 +24,7 @@ import {
   draftToVariant,
   emptyVariantDraft,
   variantToDraft,
+  withAdjustmentKey,
   type VariantDraft,
 } from '../utils/variantDraft';
 
@@ -99,7 +100,7 @@ const VariantModal = ({
       if (result.errors[optionPath(defaultLocale)]) setLocale(defaultLocale);
       return;
     }
-    onConfirm(result.variant);
+    onConfirm(withAdjustmentKey(result.variant, variant));
   };
 
   const textField = (field: TextField, opts: { required?: boolean; hint?: string } = {}) => (

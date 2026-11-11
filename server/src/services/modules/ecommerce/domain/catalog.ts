@@ -9,6 +9,8 @@ export type VariantInput = {
   stock: number;
   /** Signed manual adjustment for an existing variant; 0 or absent means none. */
   stockAdjustment?: number;
+  /** Client-minted idempotency key for `stockAdjustment` (one per confirmed adjustment). */
+  stockAdjustmentKey?: string;
   weight: number;
   width: number;
   height: number;
