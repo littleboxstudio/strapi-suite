@@ -32,6 +32,11 @@ export const UIDS = {
   storeCreditMovement: `${P}store-credit-movement`,
   webhookEvent: `${P}webhook-event`,
   notification: `${P}notification`,
+  shipment: `${P}shipment`,
+  shipmentEvent: `${P}shipment-event`,
+  orderReturn: `${P}order-return`,
+  invoice: `${P}invoice`,
+  invoiceAllocation: `${P}invoice-allocation`,
 };
 
 const RELATIONS: FakeRelations = {
@@ -66,6 +71,21 @@ const RELATIONS: FakeRelations = {
     sourceOrder: [UIDS.order, 'sourceOrder', 'manyToOne'],
     sourceRefund: [UIDS.refund, 'sourceRefund', 'manyToOne'],
   },
+  [UIDS.shipment]: { order: [UIDS.order, 'order', 'manyToOne'] },
+  [UIDS.shipmentEvent]: {
+    shipment: [UIDS.shipment, 'shipment', 'manyToOne'],
+    order: [UIDS.order, 'order', 'manyToOne'],
+  },
+  [UIDS.orderReturn]: { order: [UIDS.order, 'order', 'manyToOne'] },
+  [UIDS.invoice]: {
+    order: [UIDS.order, 'order', 'manyToOne'],
+    creditedInvoice: [UIDS.invoice, 'creditedInvoice', 'manyToOne'],
+  },
+  [UIDS.invoiceAllocation]: {
+    invoice: [UIDS.invoice, 'invoice', 'manyToOne'],
+    payment: [UIDS.payment, 'payment', 'manyToOne'],
+    order: [UIDS.order, 'order', 'manyToOne'],
+  },
   [UIDS.notification]: { order: [UIDS.order, 'order', 'manyToOne'] },
   [UIDS.storeCreditMovement]: {
     storeCredit: [UIDS.storeCredit, 'storeCredit', 'manyToOne'],
@@ -88,6 +108,11 @@ export function setupCommerce(opts: { stripeActive?: boolean; resendActive?: boo
       UIDS.storeCreditMovement,
       UIDS.webhookEvent,
       UIDS.notification,
+      UIDS.shipment,
+      UIDS.shipmentEvent,
+      UIDS.orderReturn,
+      UIDS.invoice,
+      UIDS.invoiceAllocation,
     ],
   });
   const services: Record<string, any> = {};

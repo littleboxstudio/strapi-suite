@@ -1,0 +1,61 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_invoice_allocations",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-invoice-allocation",
+    "pluralName": "ltb-st-module-ecommerce-invoice-allocations",
+    "displayName": "Littlebox Strapi Suite - E-commerce Invoice Allocation",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Invoice Allocation"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "invoice": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-invoice"
+    },
+    "payment": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-payment"
+    },
+    "order": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-order"
+    },
+    "amount": {
+      "type": "integer"
+    },
+    "coverage": {
+      "type": "json"
+    },
+    "uniqueKey": {
+      "type": "string",
+      "unique": true
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_invoice_allocation_unique_key_unique",
+      "columns": [
+        "unique_key"
+      ],
+      "type": "unique"
+    }
+  ]
+}

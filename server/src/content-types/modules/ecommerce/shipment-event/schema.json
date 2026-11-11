@@ -1,0 +1,81 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_shipment_events",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-shipment-event",
+    "pluralName": "ltb-st-module-ecommerce-shipment-events",
+    "displayName": "Littlebox Strapi Suite - E-commerce Shipment Event",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Shipment Event"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "shipment": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-shipment"
+    },
+    "order": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-order"
+    },
+    "type": {
+      "type": "enumeration",
+      "enum": [
+        "CREATED",
+        "TRACKING",
+        "DELIVERED",
+        "TRACKING_UPDATED",
+        "CANCELLED"
+      ]
+    },
+    "code": {
+      "type": "string"
+    },
+    "description": {
+      "type": "text"
+    },
+    "occurredAt": {
+      "type": "datetime"
+    },
+    "source": {
+      "type": "enumeration",
+      "enum": [
+        "ADMIN",
+        "CARRIER",
+        "SYSTEM"
+      ]
+    },
+    "actor": {
+      "type": "string"
+    },
+    "uniqueKey": {
+      "type": "string",
+      "required": true,
+      "unique": true
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_shipment_event_unique_key_unique",
+      "columns": [
+        "unique_key"
+      ],
+      "type": "unique"
+    }
+  ]
+}

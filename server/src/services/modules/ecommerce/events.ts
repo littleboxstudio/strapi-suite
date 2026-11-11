@@ -11,7 +11,11 @@ export type DomainEventType =
   | 'REFUND_STARTED'
   | 'REFUND_COMPLETED'
   | 'REFUND_FAILED'
-  | 'STORE_CREDIT_ISSUED';
+  | 'STORE_CREDIT_ISSUED'
+  | 'SHIPMENT_CREATED'
+  | 'SHIPMENT_DELIVERED'
+  | 'RETURN_REGISTERED'
+  | 'INVOICE_ISSUED';
 
 export type DomainEvent = {
   id: string;

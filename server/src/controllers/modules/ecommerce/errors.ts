@@ -1,4 +1,6 @@
 import {
+  EcommerceBillingError,
+  EcommerceCarrierError,
   EcommerceEmailError,
   EcommerceNotFoundError,
   EcommercePaymentError,
@@ -7,7 +9,16 @@ import {
 } from '../../../services/modules/ecommerce/errors';
 
 /** Validation codes that mean "the request clashes with current state": HTTP 409. */
-const CONFLICT_CODES = ['IDEMPOTENCY_KEY_CONFLICT', 'STORE_CREDIT_CONFLICT'];
+const CONFLICT_CODES = [
+  'IDEMPOTENCY_KEY_CONFLICT',
+  'STORE_CREDIT_CONFLICT',
+  'QUANTITY_EXCEEDS_PENDING',
+  'ALREADY_DELIVERED',
+  'PAYMENT_NOT_INVOICEABLE',
+  'SHIPMENT_PENDING',
+  'SHIPMENT_UNCERTAIN',
+  'SHIPMENT_HAS_RETURNS',
+];
 
 /**
  * Maps e-commerce domain errors to HTTP responses; rethrows anything else.
@@ -19,8 +30,12 @@ export const handleDomainError = (
   labels: { invalid: string; notFound: string; withCode?: boolean }
 ) => {
   if (err instanceof EcommerceValidationError) {
-    const code = err.errors.find((e) => e && typeof (e as any).code === 'string')?.code;
-    if (code && CONFLICT_CODES.includes(code)) {
+    const codes = err.errors
+      .map((e) => (e && typeof (e as any).code === 'string' ? ((e as any).code as string) : undefined))
+      .filter((c): c is string => !!c);
+    const conflict = codes.find((c) => CONFLICT_CODES.includes(c));
+    const code = conflict ?? codes[0];
+    if (conflict) {
       ctx.status = 409;
       ctx.body = {
         data: null,
@@ -28,7 +43,7 @@ export const handleDomainError = (
           status: 409,
           name: 'ConflictError',
           message: labels.invalid,
-          details: { code, errors: err.errors },
+          details: { code: conflict, errors: err.errors },
         },
       };
       return;
@@ -38,7 +53,11 @@ export const handleDomainError = (
       labels.withCode && code ? { code, errors: err.errors } : { errors: err.errors }
     );
   }
-  if (err instanceof EcommercePaymentError) {
+  if (
+    err instanceof EcommercePaymentError ||
+    err instanceof EcommerceCarrierError ||
+    err instanceof EcommerceBillingError
+  ) {
     return ctx.badRequest(err.message, { code: err.code });
   }
   if (err instanceof EcommerceNotFoundError) {

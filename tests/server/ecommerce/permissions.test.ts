@@ -35,6 +35,12 @@ describe('registerEcommercePermissions', () => {
     expect(ECOMMERCE_PERMISSIONS.paymentsManage).toBe('plugin::littlebox-strapi-suite.ecommerce.payments.manage');
   });
 
+  it('exposes the invoicing action uid', () => {
+    expect(ECOMMERCE_PERMISSIONS.invoicingManage).toBe(
+      'plugin::littlebox-strapi-suite.ecommerce.invoicing.manage'
+    );
+  });
+
   it('registers read and manage actions', async () => {
     const registerMany = vi.fn().mockResolvedValue(undefined);
     const strapi = {
@@ -45,7 +51,7 @@ describe('registerEcommercePermissions', () => {
 
     expect(registerMany).toHaveBeenCalledTimes(1);
     const actions = registerMany.mock.calls[0][0];
-    expect(actions).toHaveLength(10);
+    expect(actions).toHaveLength(11);
     expect(actions).toEqual([
       expect.objectContaining({
         section: 'plugins',
@@ -110,6 +116,10 @@ describe('registerEcommercePermissions', () => {
       expect.objectContaining({
         uid: 'ecommerce.payments.manage',
         displayName: 'Manage payment links and instructions',
+      }),
+      expect.objectContaining({
+        uid: 'ecommerce.invoicing.manage',
+        displayName: 'Issue invoices and credit notes',
       }),
     ]);
   });

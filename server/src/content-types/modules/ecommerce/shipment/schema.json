@@ -1,0 +1,121 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_shipments",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-shipment",
+    "pluralName": "ltb-st-module-ecommerce-shipments",
+    "displayName": "Littlebox Strapi Suite - E-commerce Shipment",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Shipment"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "order": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-order"
+    },
+    "providerId": {
+      "type": "string",
+      "required": true
+    },
+    "serviceId": {
+      "type": "string"
+    },
+    "carrierName": {
+      "type": "string",
+      "required": true
+    },
+    "status": {
+      "type": "enumeration",
+      "enum": [
+        "PENDING",
+        "ACTIVE",
+        "FAILED",
+        "CANCELLED"
+      ],
+      "default": "PENDING"
+    },
+    "items": {
+      "type": "json"
+    },
+    "trackingCode": {
+      "type": "string"
+    },
+    "trackingUrl": {
+      "type": "text"
+    },
+    "externalId": {
+      "type": "string"
+    },
+    "shippingCost": {
+      "type": "integer",
+      "default": 0
+    },
+    "labelAvailable": {
+      "type": "boolean",
+      "default": false
+    },
+    "deliveryStatus": {
+      "type": "enumeration",
+      "enum": [
+        "IN_TRANSIT",
+        "DELIVERED",
+        "EXCEPTION"
+      ],
+      "default": "IN_TRANSIT"
+    },
+    "deliverySource": {
+      "type": "enumeration",
+      "enum": [
+        "MANUAL",
+        "CARRIER"
+      ]
+    },
+    "shippedAt": {
+      "type": "datetime"
+    },
+    "deliveredAt": {
+      "type": "datetime"
+    },
+    "cancelledAt": {
+      "type": "datetime"
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "required": true,
+      "unique": true
+    },
+    "actor": {
+      "type": "string"
+    },
+    "error": {
+      "type": "text"
+    },
+    "metadata": {
+      "type": "json"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_shipment_idempotency_key_unique",
+      "columns": [
+        "idempotency_key"
+      ],
+      "type": "unique"
+    }
+  ]
+}
