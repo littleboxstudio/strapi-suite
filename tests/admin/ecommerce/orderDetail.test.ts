@@ -38,9 +38,9 @@ const entry = (overrides: Partial<OrderHistoryItem>): OrderHistoryItem => ({
 });
 
 describe('formatShippedProgress', () => {
-  it('renders "shipped / ordered"', () => {
-    expect(formatShippedProgress(10, 0)).toBe('0 / 10');
-    expect(formatShippedProgress(3, 2)).toBe('2 / 3');
+  it('renders "ordered / shipped"', () => {
+    expect(formatShippedProgress(10, 0)).toBe('10 / 0');
+    expect(formatShippedProgress(10, 3)).toBe('10 / 3');
     expect(formatShippedProgress(10, 10)).toBe('10 / 10');
   });
 });

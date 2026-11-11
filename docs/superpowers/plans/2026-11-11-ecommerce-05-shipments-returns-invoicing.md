@@ -631,7 +631,7 @@
 ### Task 12: Admin: expedições, entregas e devoluções
 
 **Files:**
-- Modify: `ecommerceOrdersGateway.ts`, `orderTypes.ts` (`ShipmentView`, `ReturnView`, `OrderView.shipping`, `OrderLineView.reserved/returnable`), `usecases/orders/*` (um por rota nova), `utils/orderDetail.ts` (`ToolbarAction` + `SHIP` e `REGISTER_RETURN` com `canManage`; códigos novos em `API_ERROR_CODES`), `OrderHeader.tsx` (variantes), `OrderDetailPage.tsx` (substitui o `SectionPlaceholder` de expedições), `OrderLinesTable.tsx` (enviado/encomendado e "Faltam enviar N unidades", requisito 4.3), `RefundModal.tsx` (prop opcional `initial?: { reason: RefundReason; amount?: number }`)
+- Modify: `ecommerceOrdersGateway.ts`, `orderTypes.ts` (`ShipmentView`, `ReturnView`, `OrderView.shipping`, `OrderLineView.reserved/returnable`), `usecases/orders/*` (um por rota nova), `utils/orderDetail.ts` (`ToolbarAction` + `SHIP` e `REGISTER_RETURN` com `canManage`; códigos novos em `API_ERROR_CODES`), `OrderHeader.tsx` (variantes), `OrderDetailPage.tsx` (substitui o `SectionPlaceholder` de expedições), `OrderLinesTable.tsx` (encomendado/enviado e "Faltam enviar N unidades", requisito 4.3), `RefundModal.tsx` (prop opcional `initial?: { reason: RefundReason; amount?: number }`)
 - Create: `admin/src/ecommerce/components/orders/{ShipOrderModal,ShipmentsSection,DeliveryModal,TrackingModal,RegisterReturnModal}.tsx`, `admin/src/ecommerce/utils/shipmentForm.ts`, `admin/src/ecommerce/utils/returnForm.ts`
 - Modify: `admin/src/core/translations/{en,pt}.json`
 - Test: `tests/admin/ecommerce/shipmentForm.test.ts`, `tests/admin/ecommerce/returnForm.test.ts`, `tests/admin/ecommerce/orderDetail.test.ts` (acrescentar)
@@ -711,7 +711,7 @@
 - [ ] `npx vitest run`, `npm run test:ts:back`, `npm run test:ts:front` e `npm run build` limpos.
 - [ ] No Strapi de teste (`~/Projects/littlebox-plugins/strapi/backend-base`, MariaDB, reiniciado):
   1. As tabelas novas e os índices únicos existem (`ltb_st_module_ecommerce_shipments`, `ltb_st_module_ecommerce_shipment_events`, `ltb_st_module_ecommerce_order_returns`, `ltb_st_module_ecommerce_invoices`, `ltb_st_module_ecommerce_invoice_allocations`).
-  2. Numa encomenda paga com 3 unidades, expedir 2 por método manual com rastreio dá `PARTIALLY_FULFILLED`; expedir a restante dá `FULFILLED`. Ficam as notificações `PARTIAL_SHIPMENT` e `FULL_SHIPMENT` (`SKIPPED` sem Resend). As quantidades "2 / 3" e "Faltam enviar" aparecem na tabela de produtos.
+  2. Numa encomenda paga com 3 unidades, expedir 2 por método manual com rastreio dá `PARTIALLY_FULFILLED`; expedir a restante dá `FULFILLED`. Ficam as notificações `PARTIAL_SHIPMENT` e `FULL_SHIPMENT` (`SKIPPED` sem Resend). As quantidades "3 / 2" e "Faltam enviar" aparecem na tabela de produtos.
   3. Confirmar a entrega da primeira expedição não gera e-mail de entrega; confirmar a segunda gera uma `DELIVERY_CONFIRMATION`, o indicador mostra "Delivered" e "Archive" aparece. Arquivar funciona.
   4. Noutra encomenda enviada: devolver 1 unidade sem reposição e 1 com reposição. O stock só sobe 1, aparece "Refund" com o valor aprovado e o reembolso por transferência deixa `due = excess = 0`.
   5. Com o CTT ativo, o formulário de criação manual de encomenda continua a mostrar os métodos manuais. "Ship" por transportadora numa encomenda CTT (se existir) mostra o erro `NOT_IMPLEMENTED` claro.
