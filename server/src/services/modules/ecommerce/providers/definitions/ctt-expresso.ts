@@ -13,6 +13,8 @@ const cttExpresso: ProviderDefinition = {
     { key: 'contractNumber', type: 'string', required: true, label: `${L}.contractNumber` },
     { key: 'username', type: 'string', required: true, label: `${L}.username` },
     { key: 'password', type: 'secret', required: true, label: `${L}.password` },
+    // The shipping zones CTT serves; the price comes from the CTT quote.
+    { key: 'zones', type: 'zones', required: true, default: [], label: `${L}.zones` },
   ],
   async testConnection() {
     return { ok: false, code: 'NOT_IMPLEMENTED' };

@@ -80,4 +80,36 @@ describe('EcommerceShippingZoneService', () => {
       ['settings', 'shipping_zone.delete', String(a.id), '4'],
     ]);
   });
+
+  it('deleting a zone removes its rates and its id from the carriers, and refreshes the runtime cache', async () => {
+    const { zones, service, tables } = makeStrapi();
+    await service.updateStoreSettings({ markets: ['PT', 'ES'] });
+    const z1 = await zones.create({ name: 'PT', countries: ['PT'] });
+    const z2 = await zones.create({ name: 'ES', countries: ['ES'] });
+    const a = await service.createManualMethod({ name: { en: 'A' }, rates: { [z1.id]: 500, [z2.id]: 900 } });
+    const b = await service.createManualMethod({ name: { en: 'B' }, rates: { [z1.id]: 300 } });
+    const c = await service.createManualMethod({ name: { en: 'C' }, rates: { [z2.id]: 100 } });
+    await service.updateIntegration('ctt-expresso', { config: { zones: [z1.id, z2.id] } });
+    expect((await service.getRuntime('ctt-expresso'))!.config.zones).toEqual([z1.id, z2.id]);
+
+    await zones.remove(z1.id, 5);
+
+    const methods = Object.fromEntries((await service.listManualMethods()).map((m) => [m.id, m.rates]));
+    expect(methods).toEqual({ [a.id]: { [z2.id]: 900 }, [b.id]: {}, [c.id]: { [z2.id]: 100 } });
+    expect((await service.getRuntime('ctt-expresso'))!.config.zones).toEqual([z2.id]);
+    expect(tables[UIDS.auditLog].at(-1)).toMatchObject({
+      action: 'shipping_zone.delete',
+      targetId: String(z1.id),
+      userId: '5',
+      details: { methods: [a.id, b.id], carriers: ['ctt-expresso'] },
+    });
+  });
+
+  it('deleting the last zone of a carrier leaves it without zones', async () => {
+    const { zones, service } = makeStrapi();
+    const z1 = await zones.create({ name: 'PT', countries: ['PT'] });
+    await service.updateIntegration('ctt-expresso', { config: { zones: [z1.id] } });
+    await zones.remove(z1.id);
+    expect((await service.getRuntime('ctt-expresso'))!.config.zones).toEqual([]);
+  });
 });

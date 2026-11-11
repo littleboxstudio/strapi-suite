@@ -388,6 +388,10 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
 
   /** Normalizes a non-secret config value for storage (numbers from strings, trimmed strings). */
   const normalizeConfigValue = (field: ProviderField, value: unknown): unknown => {
+    if (field.type === 'zones') {
+      if (!Array.isArray(value) || value.length === 0) return undefined;
+      return [...new Set(value)];
+    }
     if (isBlank(value)) return undefined;
     if (field.type === 'number' && typeof value === 'string') return Number(value.trim());
     if (typeof value === 'string') return value.trim();
@@ -480,6 +484,17 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
         { config: configWithDefaults(def, nextConfig), secrets: newSecrets },
         (k) => Boolean(storedSecrets[k])
       );
+      // Zone ids must exist, whether the integration is active or not.
+      const zoneFields = def.fields.filter((f) => f.type === 'zones');
+      if (zoneFields.length && !issues.some((i) => i.code === 'invalid_zone')) {
+        const existing = await zoneIds();
+        for (const field of zoneFields) {
+          const value = nextConfig[field.key];
+          if (Array.isArray(value) && value.some((id) => !existing.has(id))) {
+            issues.push({ path: `config.${field.key}`, code: 'invalid_zone' });
+          }
+        }
+      }
       // Missing required fields only block saving an active integration; activation checks them.
       const blocking = row?.active ? issues : issues.filter((i) => i.code !== 'required');
       if (blocking.length) throw new EcommerceValidationError('Invalid settings', blocking);
@@ -672,6 +687,52 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
       await auditStoreUpdate(['logo'], userId);
       await strapi.plugin(PLUGIN_ID).service('EcommerceImageService').removeFiles([previous]);
       return getStoreSettings();
+    },
+
+    /** Clears the provider runtime cache (after changes committed elsewhere). */
+    invalidateRuntimes: invalidate,
+
+    /**
+     * Removes a deleted shipping zone from the manual method rates and from the `zones` fields
+     * of the stored integrations. Run inside the zone deletion transaction.
+     */
+    async removeZoneReferences(zoneId: number): Promise<{ methods: number[]; carriers: string[] }> {
+      const key = String(zoneId);
+      const methods: number[] = [];
+      const carriers: string[] = [];
+
+      const mq = strapi.db.query(uids().manualShippingMethod);
+      const rows = await mq.findMany({ orderBy: [{ id: 'asc' }] });
+      for (const row of rows) {
+        const rates = toManualMethod(row).rates;
+        if (!(key in rates)) continue;
+        const { [key]: _removed, ...rest } = rates;
+        await mq.update({ where: { id: row.id }, data: { rates: rest } });
+        methods.push(row.id);
+      }
+
+      const iq = strapi.db.query(uids().integration);
+      const integrations: IntegrationRow[] = await iq.findMany({});
+      for (const row of integrations) {
+        const def = getProviderDefinition(row.providerId);
+        if (!def || !row.config) continue;
+        const config = { ...row.config };
+        let changed = false;
+        for (const field of def.fields) {
+          const value = config[field.key];
+          if (field.type !== 'zones' || !Array.isArray(value) || !value.includes(zoneId)) continue;
+          const rest = value.filter((id) => id !== zoneId);
+          if (rest.length) config[field.key] = rest;
+          else delete config[field.key];
+          changed = true;
+        }
+        if (!changed) continue;
+        await iq.update({ where: { id: row.id }, data: { config } });
+        carriers.push(row.providerId);
+      }
+
+      invalidate();
+      return { methods, carriers };
     },
 
     async listManualMethods(): Promise<ManualMethod[]> {
