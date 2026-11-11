@@ -43,6 +43,12 @@ export interface LtbConfigs {
         payment: UID.ContentType;
         stockMovement: UID.ContentType;
         orderHistory: UID.ContentType;
+        refund: UID.ContentType;
+        storeCredit: UID.ContentType;
+        storeCreditMovement: UID.ContentType;
+        stripeSession: UID.ContentType;
+        notification: UID.ContentType;
+        webhookEvent: UID.ContentType;
       },
     },
     customFields: {
@@ -85,6 +91,12 @@ export default {
           payment: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-payment`,
           stockMovement: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-stock-movement`,
           orderHistory: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-order-history`,
+          refund: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-refund`,
+          storeCredit: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-store-credit`,
+          storeCreditMovement: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-store-credit-movement`,
+          stripeSession: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-stripe-session`,
+          notification: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-notification`,
+          webhookEvent: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-webhook-event`,
         },
       },
       customFields: {

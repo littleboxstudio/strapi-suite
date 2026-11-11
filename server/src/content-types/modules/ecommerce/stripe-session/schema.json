@@ -1,0 +1,79 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_stripe_sessions",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-stripe-session",
+    "pluralName": "ltb-st-module-ecommerce-stripe-sessions",
+    "displayName": "Littlebox Strapi Suite - E-commerce Stripe Session",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Stripe Session"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "order": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-order"
+    },
+    "payment": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-payment"
+    },
+    "sessionId": {
+      "type": "string",
+      "required": true,
+      "unique": true
+    },
+    "paymentIntentId": {
+      "type": "string"
+    },
+    "url": {
+      "type": "text"
+    },
+    "amount": {
+      "type": "integer"
+    },
+    "status": {
+      "type": "enumeration",
+      "enum": [
+        "OPEN",
+        "COMPLETE",
+        "EXPIRED"
+      ],
+      "default": "OPEN"
+    },
+    "expiresAt": {
+      "type": "datetime"
+    },
+    "purpose": {
+      "type": "enumeration",
+      "enum": [
+        "CHECKOUT",
+        "SUPPLEMENTARY"
+      ]
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_stripe_session_session_id_unique",
+      "columns": [
+        "session_id"
+      ],
+      "type": "unique"
+    }
+  ]
+}

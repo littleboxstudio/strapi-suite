@@ -1,0 +1,91 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_store_credits",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-store-credit",
+    "pluralName": "ltb-st-module-ecommerce-store-credits",
+    "displayName": "Littlebox Strapi Suite - E-commerce Store Credit",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Store Credit"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "code": {
+      "type": "string",
+      "required": true,
+      "unique": true
+    },
+    "customer": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-customer"
+    },
+    "emailNormalized": {
+      "type": "string"
+    },
+    "initialAmount": {
+      "type": "integer"
+    },
+    "balance": {
+      "type": "integer"
+    },
+    "currency": {
+      "type": "string"
+    },
+    "expiresAt": {
+      "type": "datetime"
+    },
+    "status": {
+      "type": "enumeration",
+      "enum": [
+        "ACTIVE",
+        "VOID"
+      ],
+      "default": "ACTIVE"
+    },
+    "sourceOrder": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-order"
+    },
+    "sourceRefund": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-refund"
+    },
+    "conditions": {
+      "type": "text"
+    },
+    "actor": {
+      "type": "string"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_store_credit_code_unique",
+      "columns": [
+        "code"
+      ],
+      "type": "unique"
+    },
+    {
+      "name": "ecommerce_store_credit_email_idx",
+      "columns": [
+        "email_normalized"
+      ]
+    }
+  ]
+}
