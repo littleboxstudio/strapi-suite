@@ -266,3 +266,82 @@ export const availableActions = (input: AvailableActionsInput): OrderActionKey[]
   if (open && input.hasUninvoicedCompletedPayments) actions.push('INVOICE_TOTAL');
   return actions;
 };
+
+// ---------------------------------------------------------------------------
+// Payment coverage (design 4.4)
+// ---------------------------------------------------------------------------
+
+export type CoverageLine = {
+  orderLineId: number;
+  quantity: number;
+  unitPrice: number;
+  unitDiscount: number;
+  tax: number;
+};
+
+export type PaymentCoverage = {
+  lines: CoverageLine[];
+  shipping: { amount: number; tax: number };
+  /** The amount the payment actually paid (may differ from the covered value). */
+  amount: number;
+};
+
+export type CoverageOrderState = {
+  lines: (LineAmounts & { id: number; tax: number })[];
+  shippingTotal: number;
+  shippingTax: number;
+};
+
+const finiteOr0 = (v: unknown): number => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
+
+/**
+ * What a new payment covers: the lines (effective quantity) and shipping added since the
+ * previous coverages. Only positive deltas count; malformed previous coverages are ignored.
+ * The first payment therefore covers every line and the shipping of the moment.
+ */
+export const computeCoverage = (
+  order: CoverageOrderState,
+  previousPayments: { coverage?: unknown }[],
+  amount: number
+): PaymentCoverage => {
+  const coveredQty = new Map<number, number>();
+  let coveredShipping = 0;
+  for (const p of previousPayments) {
+    const c = p?.coverage as Partial<PaymentCoverage> | null | undefined;
+    if (!c || typeof c !== 'object') continue;
+    if (Array.isArray(c.lines)) {
+      for (const l of c.lines) {
+        const id = Number(l?.orderLineId);
+        if (!Number.isFinite(id)) continue;
+        coveredQty.set(id, (coveredQty.get(id) ?? 0) + finiteOr0(l?.quantity));
+      }
+    }
+    if (c.shipping && typeof c.shipping === 'object')
+      coveredShipping += finiteOr0(c.shipping.amount);
+  }
+
+  const lines: CoverageLine[] = [];
+  for (const l of order.lines) {
+    const delta = l.quantity - l.returnedQuantity - (coveredQty.get(l.id) ?? 0);
+    if (delta > 0) {
+      lines.push({
+        orderLineId: l.id,
+        quantity: delta,
+        unitPrice: l.unitPrice,
+        unitDiscount: l.unitDiscount,
+        tax: l.tax,
+      });
+    }
+  }
+  return {
+    lines,
+    shipping: {
+      amount: Math.max(0, order.shippingTotal - coveredShipping),
+      tax: order.shippingTax,
+    },
+    amount,
+  };
+};

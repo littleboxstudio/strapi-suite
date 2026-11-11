@@ -9,6 +9,7 @@ import {
   PAYMENT_STATUSES,
   FULFILLMENT_STATUSES,
   availableActions,
+  canTransition,
   computeTotals,
   deriveFulfillmentStatus,
   derivePaymentStatus,
@@ -105,6 +106,16 @@ export type OrderView = {
   history: Record<string, unknown>[];
 };
 
+export type OrderState = {
+  /** The stored order row, populated with lines, payments and history. */
+  order: any;
+  lines: OrderLineView[];
+  /** Payment rows sorted by id. */
+  payments: any[];
+  summary: FinancialSummary;
+  actions: OrderActionKey[];
+};
+
 export type OrderListParams = {
   page?: number;
   search?: string;
@@ -185,6 +196,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
   const service = (name: string): any => strapi.plugin(PLUGIN_ID).service(name);
   const stock = (): {
     move(input: StockMoveInput): Promise<{ applied: boolean }>;
+    netDeductedForOrder(orderId: number): Promise<Map<number, number>>;
     available(ids: number[]): Promise<Map<number, number>>;
   } => service('EcommerceStockService');
   const customers = (): {
@@ -625,35 +637,40 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     };
   };
 
-  const get = async (id: number): Promise<OrderView> => {
-    const order = await loadOrder(id);
-    const shipments = await loadShipments(id);
+  const toLineView = (l: any, shipped: Map<number, number>): OrderLineView => {
+    const quantity = num(l.quantity);
+    const s = shipped.get(l.id) ?? 0;
+    return {
+      id: l.id,
+      variantId: l.variantId,
+      productId: l.productId,
+      sku: l.sku,
+      name: l.name,
+      option: l.option ?? null,
+      imageUrl: l.imageUrl ?? null,
+      unitPrice: num(l.unitPrice),
+      unitDiscount: num(l.unitDiscount),
+      quantity,
+      returnedQuantity: num(l.returnedQuantity),
+      tax: num(l.tax),
+      isGift: !!l.isGift,
+      shipped: s,
+      pending: Math.max(0, quantity - s),
+    };
+  };
+
+  /**
+   * Internal: the order with its lines, payments, financial summary and available actions.
+   * The single source of truth for `get()` and for every action precondition.
+   * Joins the caller's transaction when there is one.
+   */
+  const computeOrderState = async (orderId: number): Promise<OrderState> => {
+    const order = await loadOrder(orderId);
+    const shipments = await loadShipments(orderId);
     const shipped = shippedQuantities(shipments);
-
-    const lines: OrderLineView[] = [...(order.lines ?? [])].sort(byPosition).map((l: any) => {
-      const quantity = num(l.quantity);
-      const s = shipped.get(l.id) ?? 0;
-      return {
-        id: l.id,
-        variantId: l.variantId,
-        productId: l.productId,
-        sku: l.sku,
-        name: l.name,
-        option: l.option ?? null,
-        imageUrl: l.imageUrl ?? null,
-        unitPrice: num(l.unitPrice),
-        unitDiscount: num(l.unitDiscount),
-        quantity,
-        returnedQuantity: num(l.returnedQuantity),
-        tax: num(l.tax),
-        isGift: !!l.isGift,
-        shipped: s,
-        pending: Math.max(0, quantity - s),
-      };
-    });
-
-    const paymentRows: any[] = [...(order.payments ?? [])].sort((a, b) => a.id - b.id);
-    const summary = summaryOf(order, paymentRows.map(toPaymentLike));
+    const lines = [...(order.lines ?? [])].sort(byPosition).map((l: any) => toLineView(l, shipped));
+    const payments: any[] = [...(order.payments ?? [])].sort((a, b) => a.id - b.id);
+    const summary = summaryOf(order, payments.map(toPaymentLike));
     const actions = availableActions({
       orderStatus: order.orderStatus,
       paymentStatus: order.paymentStatus,
@@ -664,11 +681,16 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       allShipmentsDelivered: shipments
         .filter((s) => s.status !== 'CANCELLED')
         .every((s) => s.delivered),
-      hasPendingPayments: paymentRows.some((p) => p.status === 'PENDING'),
+      hasPendingPayments: payments.some((p) => p.status === 'PENDING'),
       hasPendingRefunds: false,
       // Invoicing arrives in plan 4.
       hasUninvoicedCompletedPayments: false,
     });
+    return { order, lines, payments, summary, actions };
+  };
+
+  const get = async (id: number): Promise<OrderView> => {
+    const { order, lines, payments: paymentRows, summary, actions } = await computeOrderState(id);
 
     const historyRows: any[] = [...(order.history ?? [])].sort((a, b) => b.id - a.id);
 
@@ -709,6 +731,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         reference: p.reference ?? null,
         externalId: p.externalId ?? null,
         coverage: p.coverage ?? null,
+        methodLabel: p.metadata?.methodLabel ?? null,
         completedAt: p.completedAt ?? null,
         actor: p.actor ?? null,
         createdAt: p.createdAt,
@@ -782,7 +805,111 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       return { paymentStatus, fulfillmentStatus };
     });
 
-  return { create, list, get, recalculate };
+  /** Throws `ACTION_NOT_AVAILABLE` unless `action` is in the order's available actions. */
+  const assertAction = (state: OrderState, action: OrderActionKey, allowed = true): void => {
+    if (!allowed || !state.actions.includes(action)) {
+      throw new EcommerceValidationError('Action not available', [
+        { path: 'action', code: 'ACTION_NOT_AVAILABLE' },
+      ]);
+    }
+  };
+
+  /** Moves an OPEN order to `to` after checking `action`; one transaction, events after commit. */
+  const transition = async (
+    orderId: number,
+    actor: string,
+    action: 'CANCEL' | 'ARCHIVE',
+    to: 'CANCELLED' | 'ARCHIVED'
+  ): Promise<OrderView> => {
+    const collector = events().collector();
+    const operationId = randomUUID();
+    await strapi.db.transaction(async () => {
+      const state = await computeOrderState(orderId);
+      const from: OrderStatus = state.order.orderStatus;
+      assertAction(state, action, canTransition(from, to));
+
+      const now = new Date().toISOString();
+      const reference = state.order.reference;
+      const u = uids();
+      await strapi.db.query(u.order).update({
+        where: { id: orderId },
+        data:
+          to === 'CANCELLED'
+            ? { orderStatus: to, cancelledAt: now }
+            : { orderStatus: to, archivedAt: now },
+      });
+
+      if (to === 'CANCELLED') {
+        // Restock only what the order still holds (net of earlier restocks and returns).
+        // The deterministic key makes a concurrent second cancel a no-op.
+        const held = await stock().netDeductedForOrder(orderId);
+        const restocked: { variantId: number; quantity: number }[] = [];
+        for (const [variantId, units] of held) {
+          if (units <= 0) continue;
+          await stock().move({
+            variantId,
+            quantity: units,
+            type: 'CANCEL_RESTOCK',
+            operationKey: `cancel:${orderId}:${variantId}`,
+            orderId,
+            reason: `Order #${reference} cancelled`,
+            actor,
+          });
+          restocked.push({ variantId, quantity: units });
+        }
+        await history().record({
+          orderId,
+          type: 'ORDER_CANCELLED',
+          description: `Order cancelled`,
+          previousValue: null,
+          newValue: { cancelledAt: now, restocked },
+          actor,
+          operationId,
+        });
+      } else {
+        await history().record({
+          orderId,
+          type: 'ORDER_ARCHIVED',
+          description: `Order archived`,
+          previousValue: null,
+          newValue: { archivedAt: now },
+          actor,
+          operationId,
+        });
+      }
+      await history().record({
+        orderId,
+        type: 'ORDER_STATUS_CHANGED',
+        description: `Order status changed from ${from} to ${to}`,
+        previousValue: { orderStatus: from },
+        newValue: { orderStatus: to },
+        actor,
+        operationId,
+      });
+      await recalculate(orderId, { actor, operationId });
+
+      if (to === 'CANCELLED') {
+        const after = await computeOrderState(orderId);
+        collector.emit({
+          type: 'ORDER_CANCELLED',
+          orderId,
+          payload: { reference, amountPaid: after.summary.paid },
+        });
+      } else {
+        collector.emit({ type: 'ORDER_ARCHIVED', orderId, payload: { reference } });
+      }
+    });
+    await collector.flush();
+    return get(orderId);
+  };
+
+  const cancel = (orderId: number, actor: string) =>
+    transition(orderId, actor, 'CANCEL', 'CANCELLED');
+
+  const archive = (orderId: number, actor: string) =>
+    transition(orderId, actor, 'ARCHIVE', 'ARCHIVED');
+
+  return { create, list, get, recalculate, computeOrderState, assertAction, cancel, archive };
 };
 
 export default EcommerceOrderService;
