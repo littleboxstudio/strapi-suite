@@ -1,0 +1,45 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_email_template_versions",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-email-template-version",
+    "pluralName": "ltb-st-module-ecommerce-email-template-versions",
+    "displayName": "Littlebox Strapi Suite - Ecommerce Email Template Version",
+    "description": "Model for managing Littlebox Strapi Suite Ecommerce Email Template Version"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "type": {
+      "type": "string"
+    },
+    "locale": {
+      "type": "string"
+    },
+    "subject": {
+      "type": "text"
+    },
+    "html": {
+      "type": "text"
+    },
+    "version": {
+      "type": "integer"
+    },
+    "createdBy": {
+      "type": "string"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  }
+}

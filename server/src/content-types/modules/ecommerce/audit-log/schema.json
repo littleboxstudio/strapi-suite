@@ -1,0 +1,44 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_audit_logs",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-audit-log",
+    "pluralName": "ltb-st-module-ecommerce-audit-logs",
+    "displayName": "Littlebox Strapi Suite - Ecommerce Audit Log",
+    "description": "Model for managing Littlebox Strapi Suite Ecommerce Audit Log"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "area": {
+      "type": "string",
+      "required": true
+    },
+    "action": {
+      "type": "string",
+      "required": true
+    },
+    "targetId": {
+      "type": "string"
+    },
+    "userId": {
+      "type": "string"
+    },
+    "details": {
+      "type": "json"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  }
+}

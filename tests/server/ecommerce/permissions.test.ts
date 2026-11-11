@@ -14,6 +14,15 @@ describe('registerEcommercePermissions', () => {
     );
   });
 
+  it('exposes the settings action uids', () => {
+    expect(ECOMMERCE_PERMISSIONS.settingsRead).toBe(
+      'plugin::littlebox-strapi-suite.ecommerce.settings.read'
+    );
+    expect(ECOMMERCE_PERMISSIONS.settingsManage).toBe(
+      'plugin::littlebox-strapi-suite.ecommerce.settings.manage'
+    );
+  });
+
   it('registers read and manage actions', async () => {
     const registerMany = vi.fn().mockResolvedValue(undefined);
     const strapi = {
@@ -24,7 +33,7 @@ describe('registerEcommercePermissions', () => {
 
     expect(registerMany).toHaveBeenCalledTimes(1);
     const actions = registerMany.mock.calls[0][0];
-    expect(actions).toHaveLength(2);
+    expect(actions).toHaveLength(4);
     expect(actions).toEqual([
       expect.objectContaining({
         section: 'plugins',
@@ -39,6 +48,20 @@ describe('registerEcommercePermissions', () => {
         subCategory: 'ecommerce',
         uid: 'ecommerce.products.manage',
         displayName: 'Manage products',
+      }),
+      expect.objectContaining({
+        section: 'plugins',
+        pluginName: 'littlebox-strapi-suite',
+        subCategory: 'ecommerce',
+        uid: 'ecommerce.settings.read',
+        displayName: 'Read settings',
+      }),
+      expect.objectContaining({
+        section: 'plugins',
+        pluginName: 'littlebox-strapi-suite',
+        subCategory: 'ecommerce',
+        uid: 'ecommerce.settings.manage',
+        displayName: 'Manage settings',
       }),
     ]);
   });
