@@ -808,3 +808,24 @@ describe('shipment, delivery and invoice e-mails', () => {
     }
   });
 });
+
+describe('order confirmation promotions', () => {
+  it('prepare passes the store default locale, so the name resolves in it', async () => {
+    const c = setup();
+    const orderId = await createOrder(c);
+    const row = c.tables[UIDS.order].find((o) => o.id === orderId);
+    row.locale = 'pt';
+    row.promotions = {
+      applied: [
+        { promotionId: 1, name: 'Internal', displayName: { en: 'Summer' }, code: null, amount: 500 },
+      ],
+      codes: [],
+      exhaustive: true,
+    };
+    resend.sendWithResend.mockClear();
+    const event = c.events.find((e) => e.type === 'ORDER_CREATED');
+    await c.notifications.handle({ ...event, id: 'evt-promo' });
+    const sent = c.tables[UIDS.notification].find((n) => n.uniqueKey === 'notif:evt-promo:ORDER_CONFIRMATION');
+    expect(sent.payload.order.promotions).toEqual([{ name: 'Summer', amount: expect.stringContaining('5') }]);
+  });
+});

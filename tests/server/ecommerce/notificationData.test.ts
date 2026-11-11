@@ -446,3 +446,46 @@ describe('buildTemplateData: shipments, delivery and invoice', () => {
     expect(other.attachment).toBeUndefined();
   });
 });
+
+describe('ORDER_CONFIRMATION promotions', () => {
+  const applied = (over: Record<string, any> = {}) => ({
+    promotionId: 1,
+    name: 'Internal summer 20',
+    displayName: { pt: 'Verão' },
+    code: 'SECRET20',
+    amount: 500,
+    ...over,
+  });
+  const build = (order: any, extra?: any) =>
+    buildTemplateData('ORDER_CONFIRMATION', { order, store, event: event('ORDER_CREATED'), extra });
+  const html = (data: any) => renderTemplate(DEFAULT_TEMPLATES.ORDER_CONFIRMATION.html, data);
+
+  it('uses the display name of the order locale and the money in that locale', () => {
+    const data = build(makeOrder({ locale: 'pt', promotions: [applied()] }));
+    expect(data.order.promotions).toEqual([{ name: 'Verão', amount: formatMoney(500, 'pt') }]);
+  });
+
+  it('falls back to the default locale, then to the name', () => {
+    const order = makeOrder({ locale: 'en', promotions: [applied()] });
+    expect(build(order, { defaultLocale: 'pt' }).order.promotions[0].name).toBe('Verão');
+    expect(build(order).order.promotions[0].name).toBe('Internal summer 20');
+  });
+
+  it('is an empty list without promotions and the template hides the block', () => {
+    const data = build(makeOrder());
+    expect(data.order.promotions).toEqual([]);
+    expect(spaces(html(data))).not.toContain('Promotions');
+  });
+
+  it('shows names escaped, never the code, and no backoffice URLs', () => {
+    const data = build(
+      makeOrder({ promotions: [applied({ displayName: { en: '<b>Verão</b>' }, amount: 500 })] })
+    );
+    const out = html(data);
+    expect(out).toContain('&lt;b&gt;Verão&lt;/b&gt;');
+    expect(out).not.toContain('<b>Verão');
+    expect(out).not.toContain('SECRET20');
+    expect(out).not.toMatch(/\/admin|\/api\/|littlebox-strapi-suite/);
+    expect(spaces(out)).toContain('Promotions');
+  });
+});

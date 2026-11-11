@@ -26,6 +26,17 @@ const items = `<table role="presentation" width="100%" border="0" cellpadding="0
     <td colspan="2" style="${CELL}">Shipping</td>
     <td align="right" style="${CELL};white-space:nowrap">{{order.shipping}}</td>
   </tr>
+{{#if order.promotions}}
+  <tr>
+    <td colspan="3" style="${HEAD}">Promotions applied</td>
+  </tr>
+{{#each order.promotions}}
+  <tr>
+    <td colspan="2" style="${CELL}">{{this.name}}</td>
+    <td align="right" style="${CELL};white-space:nowrap">&minus;{{this.amount}}</td>
+  </tr>
+{{/each}}
+{{/if}}
 {{#if order.discount}}
   <tr>
     <td colspan="2" style="${CELL}">Discount</td>
