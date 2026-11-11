@@ -911,16 +911,9 @@ describe('markFailed', () => {
     const h = c.tables[UIDS.orderHistory].filter((x) => x.type === 'REFUND_FAILED');
     expect(h).toHaveLength(1);
     expect(h[0]).toMatchObject({ actor: 'user:9' });
-    expect(c.events.filter((e) => e.type === 'REFUND_FAILED')).toHaveLength(1);
-  });
-
-  it('a later Stripe success still promotes it (existing FAILED to COMPLETED rule)', async () => {
-    const c = setupCommerce();
-    const orderId = await stripeOrder(c);
-    const row = await unknownRefund(c, orderId);
-    await c.refunds.markFailed(row.id, actor, {});
-    // the webhook promotion is covered in stripeWebhooks tests; here the row must stay promotable
-    expect(refundsOf(c)[0]).toMatchObject({ status: 'FAILED', externalId: null, method: 'STRIPE' });
+    const failed = c.events.filter((e) => e.type === 'REFUND_FAILED');
+    expect(failed).toHaveLength(1);
+    expect(failed[0].payload).toMatchObject({ source: 'ADMIN_MARKED' });
   });
 
   it('rejects other states with REFUND_NOT_MARKABLE', async () => {
@@ -971,5 +964,43 @@ describe('OrderView refunds and notificationsSummary', () => {
     expect(view.refunds[1].hasStripeRefundId).toBe(true);
     expect(JSON.stringify(view.refunds)).not.toContain('re_secret');
     expect(view.notificationsSummary).toEqual({ sent: 2, failed: 1, skipped: 1 });
+  });
+});
+
+describe('refund list and view policies', () => {
+  it('the refund list keeps the Stripe refund id but shows only the store credit id', async () => {
+    const c = setupCommerce();
+    const orderId = await createOrder(c);
+    const { credit, payment } = await issueAndPay(c, orderId, 3000);
+    await payManual(c, orderId, 2500); // excess 1000
+    await c.refunds.create(
+      orderId,
+      { method: 'STORE_CREDIT', amount: 500, reason: 'OTHER', paymentId: payment.id, idempotencyKey: 'pol' },
+      actor
+    );
+    refundsOf(c)[0].externalId = 're_visible';
+    const [r] = (await c.refunds.list(orderId)) as any[];
+    expect(r.externalId).toBe('re_visible');
+    expect(r.storeCredit).not.toBeNull();
+    expect(r.storeCredit).not.toHaveProperty('code');
+    expect(r.storeCredit.id).toBeTypeOf('number');
+    expect(JSON.stringify(r)).not.toContain(credit.code);
+  });
+
+  it('OrderView shows failureReason only while the refund is FAILED', async () => {
+    const c = setupCommerce();
+    const orderId = await createOrder(c);
+    const p = await payManual(c, orderId, 6000);
+    await c.refunds.create(
+      orderId,
+      { method: 'MANUAL_TRANSFER', amount: 500, reason: 'OTHER', reference: 'r', paymentId: p.id, idempotencyKey: 'fr' },
+      actor
+    );
+    refundsOf(c)[0].metadata = { failureReason: 'MARKED_FAILED' };
+    const view: any = await c.orders.get(orderId);
+    expect(view.refunds[0].status).toBe('COMPLETED');
+    expect(view.refunds[0].failureReason).toBeNull();
+    refundsOf(c)[0].status = 'FAILED';
+    expect(((await c.orders.get(orderId)) as any).refunds[0].failureReason).toBe('MARKED_FAILED');
   });
 });

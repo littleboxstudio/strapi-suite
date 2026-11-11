@@ -865,7 +865,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
           amount: num(r.amount),
           reason: r.reason ?? null,
           hasStripeRefundId: !!r.externalId,
-          failureReason: r.metadata?.failureReason ?? null,
+          failureReason: r.status === 'FAILED' ? (r.metadata?.failureReason ?? null) : null,
           createdAt: r.createdAt ?? null,
           completedAt: r.completedAt ?? null,
         })),

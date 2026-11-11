@@ -577,6 +577,16 @@ describe('sendPaymentInstructions', () => {
     ).resolves.toEqual({});
   });
 
+  it('getOrCreatePaymentLink derives the purpose when the caller gives none', async () => {
+    const { orders, payments, stripePayments, tables } = setup();
+    const order = await createOrder(orders);
+    await stripePayments.getOrCreatePaymentLink(order.id, { actor });
+    expect(tables[UIDS.stripeSession][0].purpose).toBe('CHECKOUT');
+    await payments.addManualPayment(order.id, { amount: 1000, idempotencyKey: 'm-d' }, actor);
+    await stripePayments.getOrCreatePaymentLink(order.id, { actor });
+    expect(tables[UIDS.stripeSession][1].purpose).toBe('SUPPLEMENTARY');
+  });
+
   it('STRIPE creates a CHECKOUT link before any payment, SUPPLEMENTARY after one', async () => {
     const { orders, payments, tables, events } = setup();
     const order = await createOrder(orders);

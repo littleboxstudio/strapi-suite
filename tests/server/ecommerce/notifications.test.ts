@@ -166,6 +166,18 @@ describe('EcommerceNotificationService.handle', () => {
     expect(c.log.error).toHaveBeenCalled();
   });
 
+  it('REFUND_FAILED marked by an admin creates no notification', async () => {
+    const c = setup();
+    await c.notifications.handle({
+      id: 'e-admin',
+      type: 'REFUND_FAILED',
+      orderId: 1,
+      occurredAt: '',
+      payload: { source: 'ADMIN_MARKED', kind: 'MONEY', method: 'STRIPE' },
+    });
+    expect(notifs(c)).toHaveLength(0);
+  });
+
   it('ignores events without a template (store-credit refunds, modifications)', async () => {
     const c = setup();
     await c.notifications.handle({ id: 'e1', type: 'REFUND_COMPLETED', orderId: 1, occurredAt: '', payload: { kind: 'STORE_CREDIT' } });

@@ -506,6 +506,32 @@ describe('EcommerceStripeWebhookService.handle', () => {
       });
     });
 
+    it('a refund marked failed by an admin (no Stripe id) is promoted via metadata.refundId', async () => {
+      const s = setup();
+      const { orderId, refund } = await seedRefund(s, 'FAILED');
+      Object.assign(refund(), { externalId: null, metadata: { failureReason: 'MARKED_FAILED' } });
+      expect(
+        await deliver(
+          s,
+          evt('evt_promo', 'refund.updated', { id: 're_new', status: 'succeeded', metadata: { refundId: '70' } })
+        )
+      ).toEqual({ duplicate: false, status: 'PROCESSED' });
+      expect(refund()).toMatchObject({ status: 'COMPLETED', externalId: 're_new' });
+      expect(refund().completedAt).toBeTruthy();
+      const h = s.tables[UIDS.orderHistory].filter((x) => x.type === 'REFUND_COMPLETED');
+      expect(h).toHaveLength(1);
+      expect(h[0].previousValue).toMatchObject({ refundId: 70, status: 'FAILED' });
+      expect(s.tables[UIDS.order].find((o) => o.id === orderId)).toBeDefined();
+    });
+
+    it('stores Stripe failure_reason on a failed refund', async () => {
+      const s = setup();
+      const { refund } = await seedRefund(s);
+      await deliver(s, evt('evt_fr', 'refund.updated', { id: 're_1', status: 'failed', failure_reason: 'expired_or_canceled_card' }));
+      expect(refund().status).toBe('FAILED');
+      expect(refund().metadata).toMatchObject({ failureReason: 'expired_or_canceled_card' });
+    });
+
     it('refund.failed / canceled mark the refund FAILED', async () => {
       const s = setup();
       const { refund } = await seedRefund(s);

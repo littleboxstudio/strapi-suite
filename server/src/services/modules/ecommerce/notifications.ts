@@ -321,6 +321,8 @@ const EcommerceNotificationService = ({ strapi }: { strapi: Core.Strapi }) => {
 
   const handle = async (event: DomainEvent): Promise<void> => {
     try {
+      // An admin marked a refund failed: what the customer is told is the admin's call.
+      if (event?.type === 'REFUND_FAILED' && (event.payload as any)?.source === 'ADMIN_MARKED') return;
       const type = templateForEvent(event);
       if (!type) return;
       const uniqueKey = notificationKey(event.id, type);

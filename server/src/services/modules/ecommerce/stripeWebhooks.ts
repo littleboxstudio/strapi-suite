@@ -234,7 +234,7 @@ const EcommerceStripeWebhookService = ({ strapi }: { strapi: Core.Strapi }) => {
       data:
         target === 'COMPLETED'
           ? { status: 'COMPLETED', completedAt: new Date().toISOString(), externalId }
-          : { status: 'FAILED', externalId },
+          : { status: 'FAILED', externalId, metadata: failureMetadata(current.metadata, stripeRefund) },
     });
     if (!count) return false;
     const operationId = randomUUID();
@@ -263,6 +263,15 @@ const EcommerceStripeWebhookService = ({ strapi }: { strapi: Core.Strapi }) => {
       },
     });
     return true;
+  };
+
+  /** Keeps the row's metadata and adds Stripe's `failure_reason` (an enum string, never free text). */
+  const failureMetadata = (existing: unknown, stripeRefund: any): object => {
+    const base = existing && typeof existing === 'object' ? (existing as object) : {};
+    const reason = stripeRefund?.failure_reason;
+    return typeof reason === 'string' && /^[a-z_]{1,64}$/.test(reason)
+      ? { ...base, failureReason: reason }
+      : base;
   };
 
   const dispatch = async (event: StripeEvent, collector: Collector): Promise<WebhookOutcome> => {
