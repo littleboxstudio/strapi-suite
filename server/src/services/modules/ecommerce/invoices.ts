@@ -31,8 +31,11 @@ import type { OrderState } from './orders';
 
 const MAX_KEY = 255;
 const MAX_REASON = 500;
-/** A PENDING row older than this was left by an interrupted request: it may be reconciled. */
-const STALE_PENDING_MS = 2 * 60 * 1000;
+/**
+ * A PENDING row older than the issuing provider's `maxIssueDurationMs` (this default when it
+ * declares none) was left by an interrupted request: it may be reconciled.
+ */
+const DEFAULT_MAX_ISSUE_MS = 10 * 60 * 1000;
 const LIVE = ['ISSUED', 'PENDING', 'UNCERTAIN'];
 
 export type InvoiceKind = 'INVOICE' | 'CREDIT_NOTE';
@@ -193,7 +196,11 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     return { provider, runtime: runtimeOf(runtime) };
   };
 
-  /** The provider that issued `row`, with its stored credentials (even when deactivated). */
+  /**
+   * The provider that issued `row`, with its stored credentials, even when it is no longer the
+   * active one. A deliberate exception to "one active billing provider": PDFs and credit notes
+   * belong to the provider that holds the original document (a credit note must reference it).
+   */
   const issuingProvider = async (
     row: any
   ): Promise<{ provider: BillingProvider; runtime: ProviderRuntime } | null> => {
@@ -203,14 +210,11 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     return runtime ? { provider, runtime: runtimeOf(runtime) } : null;
   };
 
+  /** For the order view: no credentials are read (decrypted) to answer it. */
   const billingStatus = async (): Promise<{ active: boolean; providerId: string | null }> => {
-    try {
-      const { provider } = await activeProvider();
-      return { active: true, providerId: provider.id };
-    } catch (err) {
-      if (err instanceof EcommerceBillingError) return { active: false, providerId: null };
-      throw err;
-    }
+    const ids = await settings().getActiveProviders('billing');
+    if (ids.length !== 1 || !getBillingProvider(ids[0])) return { active: false, providerId: null };
+    return { active: true, providerId: ids[0] };
   };
 
   /** The store time zone; logs and uses UTC when it is missing or invalid. */
@@ -406,11 +410,17 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     row: any,
     orderId: number,
     doc: IssuedDocument,
-    ctx: { actor: string; collector: Collector }
+    ctx: {
+      actor: string;
+      collector: Collector;
+      /** Late success on a FAILED row: extra warnings, and whether the customer event goes out. */
+      late?: { warnings: string[]; emit: boolean };
+    }
   ) => {
-    const warnings = Array.isArray(doc.warnings)
-      ? doc.warnings.filter((w) => typeof w === 'string')
-      : [];
+    const warnings = [
+      ...(Array.isArray(doc.warnings) ? doc.warnings.filter((w) => typeof w === 'string') : []),
+      ...(ctx.late?.warnings ?? []),
+    ];
     await strapi.db.query(uids().invoice).update({
       where: { id: row.id },
       data: {
@@ -428,8 +438,13 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     await history().record({
       orderId,
       type: creditNote ? 'CREDIT_NOTE_ISSUED' : 'INVOICE_ISSUED',
-      description: `${describe(row)} ${doc.number} issued (${num(row.total)} cents)`,
-      previousValue: null,
+      description: ctx.late
+        ? `${describe(row)} ${doc.number} issued after it was marked failed (${row.error ?? 'FAILED'})` +
+          (warnings.includes('DUPLICATE_INVOICE')
+            ? ': its payment was invoiced again meanwhile, issue a credit note'
+            : '')
+        : `${describe(row)} ${doc.number} issued (${num(row.total)} cents)`,
+      previousValue: ctx.late ? { status: row.status, error: row.error ?? null } : null,
       newValue: {
         invoiceId: row.id,
         kind: row.kind,
@@ -441,6 +456,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
       },
       actor: ctx.actor,
     });
+    if (ctx.late && !ctx.late.emit) return;
     ctx.collector.emit({
       type: 'INVOICE_ISSUED',
       orderId,
@@ -471,6 +487,45 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   /**
+   * The provider issued a document for a row an admin had already made FAILED (markFailed, or a
+   * reconcile that found nothing yet). The document exists, so it is recorded ISSUED. Each
+   * allocation is re-claimed only when its payment has no other active allocation (checked by a
+   * query under the order lock); a payment invoiced again meanwhile is flagged DUPLICATE_INVOICE
+   * and the customer event is not emitted.
+   */
+  const recordLateSuccess = async (
+    row: any,
+    orderId: number,
+    doc: IssuedDocument,
+    ctx: { actor: string; collector: Collector }
+  ) => {
+    const q = strapi.db.query(uids().invoiceAllocation);
+    const rows: any[] = await q.findMany({
+      where: { invoice: { id: row.id } },
+      populate: { payment: { select: ['id'] } },
+      orderBy: { id: 'asc' },
+    });
+    let duplicate = false;
+    for (const a of rows) {
+      const paymentId = idOf(a.payment);
+      if (paymentId === null) continue;
+      const active = await q.count({
+        where: { payment: { id: paymentId }, uniqueKey: { $null: false } },
+      });
+      if (active > 0) {
+        duplicate = true;
+        continue;
+      }
+      await q.update({ where: { id: a.id }, data: { uniqueKey: `payment:${paymentId}` } });
+    }
+    const warnings = ['ISSUED_AFTER_FAILED', ...(duplicate ? ['DUPLICATE_INVOICE'] : [])];
+    strapi.log?.warn?.(
+      `[ecommerce] ${describe(row).toLowerCase()} ${row.id} issued after it was marked failed: ${warnings.join(', ')}`
+    );
+    await recordIssued(row, orderId, doc, { ...ctx, late: { warnings, emit: !duplicate } });
+  };
+
+  /**
    * Transaction 2: records the provider's outcome on a PENDING row. A definitive error marks it
    * FAILED (allocations released) and is rethrown; an uncertain one leaves it UNCERTAIN.
    */
@@ -485,6 +540,10 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     await strapi.db.transaction(async () => {
       await orders().lockOrder(orderId);
       const row = await loadRow(rowId);
+      if (row.status === 'FAILED' && 'doc' in call) {
+        await recordLateSuccess(row, orderId, call.doc, { actor, collector });
+        return;
+      }
       // Concluded meanwhile (an admin reconciled a stale PENDING row): keep that outcome.
       if (row.status !== 'PENDING') return;
       if ('doc' in call) {
@@ -695,7 +754,11 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     if (row.status === 'UNCERTAIN') return true;
     if (row.status !== 'PENDING') return false;
     const created = row.createdAt ? new Date(row.createdAt).getTime() : NaN;
-    return !Number.isFinite(created) || Date.now() - created > STALE_PENDING_MS;
+    const declared = row.provider
+      ? getBillingProvider(String(row.provider))?.maxIssueDurationMs
+      : undefined;
+    const maxMs = typeof declared === 'number' && declared > 0 ? declared : DEFAULT_MAX_ISSUE_MS;
+    return !Number.isFinite(created) || Date.now() - created > maxMs;
   };
 
   const reconcile = async (

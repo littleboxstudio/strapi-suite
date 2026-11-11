@@ -223,6 +223,9 @@ const today = () => new Date().toISOString().slice(0, 10);
 export const moloniProvider: BillingProvider = {
   id: 'moloni',
   capabilities: { creditNotes: true, findByReference: true },
+  // Token, customer, one lookup (and maybe an insert) per line, document, read-back, receipt:
+  // at 20 s per call a long invoice can take minutes.
+  maxIssueDurationMs: 10 * 60 * 1000,
 
   async issue(draft, rt) {
     const ctx = context(rt);

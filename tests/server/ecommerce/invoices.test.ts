@@ -62,6 +62,8 @@ const fakeProvider = (id = 'fakebill', caps = { creditNotes: true, findByReferen
   const p = {
     id,
     capabilities: caps,
+    /** Longest an `issue` may legitimately take: a PENDING row is stale after this. */
+    maxIssueDurationMs: 5 * 60 * 1000,
     issue: vi.fn(async (draft: InvoiceDraft) => issued(draft)),
     getDocument: vi.fn(),
     getPdf: vi.fn(async () => Buffer.from('%PDF-1.4 fake')),
@@ -189,6 +191,15 @@ describe('EcommerceInvoiceService.activeProvider', () => {
     await expect(inv.activeProvider()).rejects.toMatchObject({ code: 'BILLING_NOT_CONFIGURED' });
     const id = await order(c);
     expect((await c.orders.get(id)).billing).toEqual({ active: false, providerId: null });
+  });
+
+  it('the order view reports billing without reading provider credentials', async () => {
+    const { c } = setup();
+    const id = await order(c);
+    const settings = c.services.EcommerceSettingsService;
+    const spy = vi.spyOn(settings, 'getRuntime');
+    expect((await c.orders.get(id)).billing).toEqual({ active: true, providerId: 'fakebill' });
+    expect(spy).not.toHaveBeenCalled();
   });
 });
 
@@ -375,12 +386,27 @@ describe('EcommerceInvoiceService.issue', () => {
     // ISSUED and FAILED cannot be reconciled.
     expect(await codesOf(inv.reconcile(view.id, {}, 'user:1'))).toEqual(['ACTION_NOT_AVAILABLE']);
 
-    // A PENDING row is only reconcilable after 2 minutes.
+    // A PENDING row is only reconcilable once the provider's declared maximum (5 min) is over.
     const row = invoiceRows(c)[0];
     row.status = 'PENDING';
     row.createdAt = new Date().toISOString();
     expect(await codesOf(inv.reconcile(view.id, {}, 'user:1'))).toEqual(['ACTION_NOT_AVAILABLE']);
     row.createdAt = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+    expect(await codesOf(inv.reconcile(view.id, {}, 'user:1'))).toEqual(['ACTION_NOT_AVAILABLE']);
+    row.createdAt = new Date(Date.now() - 6 * 60 * 1000).toISOString();
+    expect((await inv.reconcile(view.id, {}, 'user:1')).status).toBe('FAILED');
+  });
+
+  it('a provider without a declared maximum: PENDING is stale after 10 minutes', async () => {
+    const { c, inv, provider } = setup();
+    delete (provider as any).maxIssueDurationMs;
+    const id = await order(c);
+    const view = await inv.issue(id, TOTAL, { idempotencyKey: 'k1' }, 'user:1');
+    const row = invoiceRows(c)[0];
+    row.status = 'PENDING';
+    row.createdAt = new Date(Date.now() - 9 * 60 * 1000).toISOString();
+    expect(await codesOf(inv.reconcile(view.id, {}, 'user:1'))).toEqual(['ACTION_NOT_AVAILABLE']);
+    row.createdAt = new Date(Date.now() - 11 * 60 * 1000).toISOString();
     expect((await inv.reconcile(view.id, {}, 'user:1')).status).toBe('FAILED');
   });
 
@@ -518,6 +544,28 @@ describe('EcommerceInvoiceService.issue', () => {
     expect(preview.total).toBe(4000);
   });
 
+  it('a refund without a payment is attributed first to payments without an active invoice', async () => {
+    const { c, inv } = setup();
+    const id = await order(c, [2500, 2000]);
+    const [p1, p2] = paymentRows(c, id);
+    // p2 (the latest) is invoiced; an unlinked 500 refund belongs to p1's net.
+    p1.completedAt = '2025-01-01T00:00:00.000Z';
+    p2.completedAt = '2025-01-02T00:00:00.000Z';
+    await inv.issue(id, paymentScope(p2.id), { idempotencyKey: 'k1' }, 'user:1');
+    c.tables[UIDS.refund].push({
+      id: 1,
+      order: id,
+      payment: null,
+      method: 'MANUAL_TRANSFER',
+      kind: 'MONEY',
+      status: 'COMPLETED',
+      amount: 500,
+    });
+    const state = await c.orders.computeOrderState(id);
+    expect(state.invoicing.refunded.get(p1.id)).toBe(500);
+    expect(state.invoicing.refunded.get(p2.id)).toBe(0);
+  });
+
   it('logs and falls back to UTC on an invalid store time zone', async () => {
     const { c, inv, provider } = setup();
     c.services.EcommerceSettingsService.getStoreSettings = async () => ({
@@ -529,6 +577,78 @@ describe('EcommerceInvoiceService.issue', () => {
     expect(c.log.warn).toHaveBeenCalledWith(expect.stringContaining('time zone'));
     expect(provider.issue.mock.calls[0][0].date).toBe(new Date().toISOString().slice(0, 10));
   });
+});
+
+describe('EcommerceInvoiceService: a late provider success after the row was made FAILED', () => {
+  const STALE = () => new Date(Date.now() - 6 * 60 * 1000).toISOString();
+  const paths: [string, (inv: any, id: number) => Promise<unknown>][] = [
+    ['markFailed', (inv, id) => inv.reconcile(id, { markFailed: true }, 'user:7')],
+    ['reconcile with no document found', (inv, id) => inv.reconcile(id, {}, 'user:7')],
+  ];
+
+  for (const [name, failIt] of paths) {
+    it(`${name}: recorded ISSUED, allocation re-claimed, payment not invoiceable`, async () => {
+      const { c, inv, provider } = setup();
+      const id = await order(c);
+      const paymentId = paymentRows(c, id)[0].id;
+      provider.issue.mockImplementationOnce(async (draft: InvoiceDraft) => {
+        // The admin acts while the provider is still working.
+        const row = invoiceRows(c)[0];
+        row.createdAt = STALE();
+        expect(((await failIt(inv, row.id)) as any).status).toBe('FAILED');
+        expect(allocations(c)[0].uniqueKey).toBeNull();
+        return issued(draft);
+      });
+      const view = await inv.issue(id, paymentScope(paymentId), { idempotencyKey: 'k1' }, 'user:1');
+      expect(view.status).toBe('ISSUED');
+      expect(view.warnings).toContain('ISSUED_AFTER_FAILED');
+      expect(allocations(c)[0].uniqueKey).toBe(`payment:${paymentId}`);
+      expect((await c.orders.get(id)).payments[0].invoice).toEqual({
+        invoiceable: 0,
+        invoiceId: view.id,
+        status: 'ISSUED',
+      });
+      expect(c.events.filter((e) => e.type === 'INVOICE_ISSUED')).toEqual([
+        expect.objectContaining({ payload: { invoiceId: view.id, kind: 'INVOICE' } }),
+      ]);
+      const h = c.tables[UIDS.orderHistory].filter((x) => x.type === 'INVOICE_ISSUED');
+      expect(h.at(-1).newValue.warnings).toContain('ISSUED_AFTER_FAILED');
+    });
+
+    it(`${name}: the payment was re-invoiced meanwhile → DUPLICATE_INVOICE, no customer event`, async () => {
+      const { c, inv, provider } = setup();
+      const id = await order(c);
+      const paymentId = paymentRows(c, id)[0].id;
+      let second: any;
+      provider.issue.mockImplementationOnce(async (draft: InvoiceDraft) => {
+        const row = invoiceRows(c)[0];
+        row.createdAt = STALE();
+        await failIt(inv, row.id);
+        second = await inv.issue(id, paymentScope(paymentId), { idempotencyKey: 'k2' }, 'user:1');
+        return issued(draft);
+      });
+      const first = await inv.issue(
+        id,
+        paymentScope(paymentId),
+        { idempotencyKey: 'k1' },
+        'user:1'
+      );
+      expect(first.status).toBe('ISSUED');
+      expect(first.warnings).toEqual(
+        expect.arrayContaining(['ISSUED_AFTER_FAILED', 'DUPLICATE_INVOICE'])
+      );
+      const byInvoice = (invoiceId: number) =>
+        allocations(c).find((a) => a.invoice === invoiceId).uniqueKey;
+      expect(byInvoice(first.id)).toBeNull();
+      expect(byInvoice(second.id)).toBe(`payment:${paymentId}`);
+      expect(c.events.filter((e) => e.type === 'INVOICE_ISSUED').map((e) => e.payload)).toEqual([
+        { invoiceId: second.id, kind: 'INVOICE' },
+      ]);
+      expect(c.log.warn).toHaveBeenCalledWith(expect.stringContaining('DUPLICATE_INVOICE'));
+      const h = c.tables[UIDS.orderHistory].filter((x) => x.type === 'INVOICE_ISSUED');
+      expect(h.some((x) => x.newValue.warnings?.includes('DUPLICATE_INVOICE'))).toBe(true);
+    });
+  }
 });
 
 describe('EcommerceInvoiceService.getPdf', () => {
