@@ -11,6 +11,8 @@ export type ImageTransform =
 
 export const MAX_IMAGE_DIMENSION = 6000;
 export const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
+/** Largest store logo file accepted (400 KB). */
+export const MAX_LOGO_BYTES = 400 * 1024;
 
 const invalid = () => new Error('INVALID_IMAGE');
 

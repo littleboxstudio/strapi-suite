@@ -4,7 +4,7 @@ import { PLUGIN_ID } from '../../../config';
 import { STRIPE_WEBHOOK_EVENTS } from '../../../services/modules/ecommerce/stripeWebhooks';
 import { STRIPE_WEBHOOK_SUBPATH } from '../../../middlewares/ecommerceRawBody';
 import { handleDomainError as handleSharedDomainError } from './errors';
-import { MAX_UPLOAD_BYTES } from '../../../services/modules/ecommerce/domain/imageProcessing';
+import { MAX_LOGO_BYTES } from '../../../services/modules/ecommerce/domain/imageProcessing';
 
 const EcommerceSettingsController = ({ strapi }: { strapi: Core.Strapi }) => {
   const service = (name: string): any => strapi.plugin(PLUGIN_ID).service(name);
@@ -67,7 +67,7 @@ const EcommerceSettingsController = ({ strapi }: { strapi: Core.Strapi }) => {
     uploadStoreLogo: async (ctx: any) => {
       const file = ctx.request?.files?.file;
       if (!file || Array.isArray(file)) return ctx.badRequest('A file is required');
-      if (file.size > MAX_UPLOAD_BYTES) return ctx.badRequest('The image exceeds 15 MB');
+      if (file.size > MAX_LOGO_BYTES) return ctx.badRequest('The logo exceeds 400 KB');
       try {
         const buffer = await fs.promises.readFile(file.filepath);
         ctx.body = await settings().uploadStoreLogo(
