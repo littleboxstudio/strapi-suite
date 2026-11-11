@@ -1,6 +1,10 @@
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID } from '../../../config';
 import type { ProviderRuntime } from './providers/registry';
+import { MAX_MONEY_CENTS } from './domain/orders';
+import { EcommerceCarrierError } from './errors';
+import { builtInCarrierAdapters } from './providers/carriers';
+import type { CarrierAdapter } from './providers/carriers/types';
 import type { ManualMethod, StoreSettings } from './settings';
 
 export type ShippingQuoteRequest = {
@@ -22,16 +26,54 @@ export type ShippingOption = {
 
 export type CarrierQuoter = (req: ShippingQuoteRequest, runtime: ProviderRuntime) => Promise<ShippingOption[]>;
 
-const quoters = new Map<string, CarrierQuoter>();
+export const QUOTE_TIMEOUT_MS = 8000;
+
+const adapters = new Map<string, CarrierAdapter>(builtInCarrierAdapters());
+
+/** Merges `adapter` into the one already registered for `providerId`. */
+export function registerCarrierAdapter(providerId: string, adapter: CarrierAdapter): void {
+  adapters.set(providerId, { ...adapters.get(providerId), ...adapter });
+}
 
 export function registerCarrierQuoter(providerId: string, quoter: CarrierQuoter): void {
-  quoters.set(providerId, quoter);
+  registerCarrierAdapter(providerId, { quote: quoter });
 }
 
-/** Test helper: clears every registered quoter. */
-export function __resetCarrierQuotersForTests(): void {
-  quoters.clear();
+export function getCarrierAdapter(providerId: string): CarrierAdapter | undefined {
+  return adapters.get(providerId);
 }
+
+/** Test helper: restores the built-in adapters only. */
+export function __resetCarrierQuotersForTests(): void {
+  adapters.clear();
+  for (const [id, adapter] of builtInCarrierAdapters()) adapters.set(id, adapter);
+}
+
+const isValidOption = (o: unknown): o is ShippingOption => {
+  const x = o as Partial<ShippingOption> | null;
+  return (
+    !!x &&
+    typeof x === 'object' &&
+    Number.isInteger(x.price) &&
+    (x.price as number) >= 0 &&
+    (x.price as number) <= MAX_MONEY_CENTS &&
+    typeof x.tax === 'number' &&
+    x.tax >= 0 &&
+    x.tax <= 100 &&
+    typeof x.name === 'string' &&
+    x.name.trim() !== '' &&
+    typeof x.serviceId === 'string' &&
+    x.serviceId.trim() !== ''
+  );
+};
+
+const withTimeout = <T>(work: Promise<T>, ms: number): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new EcommerceCarrierError('TIMEOUT')), ms);
+  });
+  return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
+};
 
 type Settings = {
   listManualMethods(): Promise<ManualMethod[]>;
@@ -73,20 +115,35 @@ const EcommerceShippingService = ({ strapi }: { strapi: Core.Strapi }) => {
       }
     }
 
-    for (const providerId of activeCarriers) {
-      const quoter = quoters.get(providerId);
-      if (!quoter) continue;
-      try {
+    const carriers = activeCarriers.filter((id) => id !== 'manual');
+    const settled = await Promise.allSettled(
+      carriers.map(async (providerId) => {
+        const adapter = adapters.get(providerId);
+        if (adapter && !adapter.quote) return [];
         const runtime = await svc.getRuntime(providerId);
-        if (!runtime || !runtime.active) continue;
-        const result = await quoter(req, { config: runtime.config, secrets: runtime.secrets });
-        options.push(...result);
-      } catch (error) {
-        const code = (error as { code?: unknown })?.code;
-        failures.push({ providerId, code: typeof code === 'string' ? code : 'QUOTE_FAILED' });
-        strapi.log?.warn?.(`[ecommerce] carrier quote failed for ${providerId}`);
+        if (!adapter || !runtime || !runtime.active) throw new EcommerceCarrierError('CARRIER_NOT_CONFIGURED');
+        const result = await withTimeout(
+          Promise.resolve().then(() => adapter.quote!(req, { config: runtime.config, secrets: runtime.secrets })),
+          QUOTE_TIMEOUT_MS
+        );
+        if (!Array.isArray(result)) throw new EcommerceCarrierError('INVALID_QUOTE');
+        const valid = result.filter(isValidOption).map((o) => ({ ...o, providerId }));
+        if (valid.length !== result.length) failures.push({ providerId, code: 'INVALID_QUOTE' });
+        return valid;
+      })
+    );
+    settled.forEach((r, i) => {
+      const providerId = carriers[i];
+      if (r.status === 'fulfilled') {
+        options.push(...r.value);
+        return;
       }
-    }
+      const raw = (r.reason as { code?: unknown } | null)?.code;
+      const code =
+        raw === 'CARRIER_NOT_CONFIGURED' ? 'NOT_CONFIGURED' : typeof raw === 'string' ? raw : 'QUOTE_FAILED';
+      failures.push({ providerId, code });
+      strapi.log?.warn?.(`[ecommerce] carrier quote failed for ${providerId}: ${code}`);
+    });
 
     options.sort(compare);
     return { options, failures };
@@ -94,7 +151,14 @@ const EcommerceShippingService = ({ strapi }: { strapi: Core.Strapi }) => {
 
   return {
     registerCarrierQuoter,
+    registerCarrierAdapter,
     quote,
+    async carrierFor(providerId: string): Promise<{ adapter: CarrierAdapter; runtime: ProviderRuntime }> {
+      const adapter = adapters.get(providerId);
+      const runtime = await settings().getRuntime(providerId);
+      if (!adapter || !runtime || !runtime.active) throw new EcommerceCarrierError('CARRIER_NOT_CONFIGURED');
+      return { adapter, runtime: { config: runtime.config, secrets: runtime.secrets } };
+    },
     async findOption(
       req: ShippingQuoteRequest,
       providerId: string,
