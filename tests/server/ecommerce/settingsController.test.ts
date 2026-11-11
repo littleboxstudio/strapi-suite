@@ -283,22 +283,51 @@ describe('EcommerceSettingsController — real services', () => {
   });
 });
 
-describe('EcommerceSettingsController - listApiTokens', () => {
-  it('lists the tokens of the calling admin without secrets or permissions', async () => {
-    const list = vi.fn().mockResolvedValue([
-      { id: 1, name: 'BFF', type: 'custom', expiresAt: null, accessKey: 'secret', permissions: ['x'], description: 'd', lastUsedAt: null },
-      { id: 2, name: 'Site', type: 'read-only', expiresAt: '2030-01-01T00:00:00.000Z', accessKey: 'secret2' },
-    ]);
-    const c = createController({
-      strapi: { plugin: () => ({ service: () => ({}) }), service: (n: string) => (n === 'admin::api-token' ? { list } : undefined) } as any,
-    });
+describe('EcommerceSettingsController — storefront token', () => {
+  const STATE = { token: { id: 3, name: 'Littlebox storefront BFF', type: 'custom' }, missing: false };
+  const GENERATED = { ...STATE, accessKey: 'plain-key' };
+
+  it('returns the token state', async () => {
+    const getStorefrontToken = vi.fn().mockResolvedValue(STATE);
+    const c = mocked({ EcommerceSettingsService: { getStorefrontToken } });
     const ctx = mkCtx();
-    await c.listApiTokens(ctx);
-    expect(list).toHaveBeenCalledWith({ id: 7 });
-    expect(ctx.body).toEqual([
-      { id: 1, name: 'BFF', type: 'custom', expiresAt: null },
-      { id: 2, name: 'Site', type: 'read-only', expiresAt: '2030-01-01T00:00:00.000Z' },
-    ]);
-    expect(JSON.stringify(ctx.body)).not.toContain('secret');
+    await c.getStorefrontToken(ctx);
+    expect(ctx.body).toEqual(STATE);
+  });
+
+  it('generates with the calling admin and never lets the key be cached', async () => {
+    const generateStorefrontToken = vi.fn().mockResolvedValue(GENERATED);
+    const c = mocked({ EcommerceSettingsService: { generateStorefrontToken } });
+    const ctx = mkCtx({ set: vi.fn() });
+    await c.generateStorefrontToken(ctx);
+    expect(generateStorefrontToken).toHaveBeenCalledWith('7');
+    expect(ctx.body).toEqual(GENERATED);
+    expect(ctx.set).toHaveBeenCalledWith('Cache-Control', 'no-store');
+  });
+
+  it('maps an existing token to 409', async () => {
+    const generateStorefrontToken = vi.fn().mockRejectedValue(
+      new EcommerceValidationError('Invalid settings', [{ path: 'storefrontApiTokenId', code: 'STOREFRONT_TOKEN_EXISTS' }])
+    );
+    const c = mocked({ EcommerceSettingsService: { generateStorefrontToken } });
+    const ctx = mkCtx({ set: vi.fn() });
+    await c.generateStorefrontToken(ctx);
+    expect(ctx.status).toBe(409);
+    expect(ctx.body.error.details.code).toBe('STOREFRONT_TOKEN_EXISTS');
+  });
+
+  it('regenerates with the calling admin', async () => {
+    const regenerateStorefrontToken = vi.fn().mockResolvedValue({ ...GENERATED, previousTokenDeleted: true });
+    const c = mocked({ EcommerceSettingsService: { regenerateStorefrontToken } });
+    const ctx = mkCtx({ set: vi.fn() });
+    await c.regenerateStorefrontToken(ctx);
+    expect(regenerateStorefrontToken).toHaveBeenCalledWith('7');
+    expect(ctx.body).toEqual({ ...GENERATED, previousTokenDeleted: true });
+    expect(ctx.set).toHaveBeenCalledWith('Cache-Control', 'no-store');
+  });
+
+  it('no longer exposes listApiTokens', () => {
+    const c: any = mocked({ EcommerceSettingsService: {} });
+    expect(c.listApiTokens).toBeUndefined();
   });
 });

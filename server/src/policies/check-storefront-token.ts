@@ -3,7 +3,7 @@ import { PLUGIN_ID } from '../config';
 const BEARER = 'Bearer ';
 
 /**
- * Storefront API (BFF) authentication: only the Strapi API token chosen in the e-commerce
+ * Storefront API (BFF) authentication: only the Strapi API token generated in the e-commerce
  * settings (`storefrontApiTokenId`) passes. Any other token, including the read-only token the
  * other modules accept, an admin-kind token, an expired one, or no token configured → `false`
  * (403 from Strapi). It never reads `X-Storefront-Client-IP` nor counts anything: rate limiting

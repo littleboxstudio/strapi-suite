@@ -49,15 +49,15 @@ const EcommerceSettingsController = ({ strapi }: { strapi: Core.Strapi }) => {
       };
     },
 
-    /** Tokens the calling admin may see (the service filters by user); never the key or permissions. */
-    listApiTokens: async (ctx: any) => {
-      const tokens: any[] = await (strapi as any).service('admin::api-token').list(ctx.state?.user);
-      ctx.body = (tokens ?? []).map((t) => ({
-        id: t.id,
-        name: t.name,
-        type: t.type,
-        expiresAt: t.expiresAt ?? null,
-      }));
+    getStorefrontToken: (ctx: any) => respond(ctx, () => settings().getStorefrontToken()),
+    /** The response carries the plain token once: never cached. */
+    generateStorefrontToken: (ctx: any) => {
+      ctx.set?.('Cache-Control', 'no-store');
+      return respond(ctx, () => settings().generateStorefrontToken(userId(ctx)));
+    },
+    regenerateStorefrontToken: (ctx: any) => {
+      ctx.set?.('Cache-Control', 'no-store');
+      return respond(ctx, () => settings().regenerateStorefrontToken(userId(ctx)));
     },
 
     getStore: (ctx: any) => respond(ctx, () => settings().getStoreSettings()),

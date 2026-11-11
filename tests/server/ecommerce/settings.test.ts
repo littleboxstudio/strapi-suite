@@ -469,30 +469,24 @@ describe('EcommerceSettingsService — store settings', () => {
     });
   });
 
-  it('validates checkoutSessionTtlHours and storefrontApiTokenId', async () => {
-    const { service, apiTokenGetById } = makeStrapi();
+  it('validates checkoutSessionTtlHours', async () => {
+    const { service } = makeStrapi();
     for (const v of [0, 721, 1.5, '24']) {
       await expect(service.updateStoreSettings({ checkoutSessionTtlHours: v } as any)).rejects.toMatchObject({
         errors: [{ path: 'checkoutSessionTtlHours', code: 'invalid_number' }],
       });
     }
-    await expect(service.updateStoreSettings({ storefrontApiTokenId: 99 })).rejects.toMatchObject({
-      errors: [{ path: 'storefrontApiTokenId', code: 'invalid_token' }],
-    });
-    expect(apiTokenGetById).toHaveBeenCalledWith(99);
-    for (const v of [1.5, '7']) {
-      await expect(service.updateStoreSettings({ storefrontApiTokenId: v } as any)).rejects.toMatchObject({
-        errors: [{ path: 'storefrontApiTokenId', code: 'invalid_token' }],
+    const res = await service.updateStoreSettings({ checkoutSessionTtlHours: 720 });
+    expect(res).toMatchObject({ checkoutSessionTtlHours: 720 });
+  });
+
+  it('ignores storefrontApiTokenId: only generate/regenerate set it', async () => {
+    const { service } = makeStrapi();
+    for (const v of [7, 99, null, 'x']) {
+      expect(await service.updateStoreSettings({ storefrontApiTokenId: v } as any)).toMatchObject({
+        storefrontApiTokenId: null,
       });
     }
-    await expect(service.updateStoreSettings({ storefrontApiTokenId: 0 })).rejects.toMatchObject({
-      errors: [{ path: 'storefrontApiTokenId', code: 'invalid_token' }],
-    });
-    const res = await service.updateStoreSettings({ storefrontApiTokenId: 7, checkoutSessionTtlHours: 720 });
-    expect(res).toMatchObject({ storefrontApiTokenId: 7, checkoutSessionTtlHours: 720 });
-    expect(await service.updateStoreSettings({ storefrontApiTokenId: null })).toMatchObject({
-      storefrontApiTokenId: null,
-    });
   });
 
   it('persists one row per key and audits', async () => {
