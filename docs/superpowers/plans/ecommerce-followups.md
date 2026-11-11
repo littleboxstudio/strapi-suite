@@ -82,3 +82,6 @@ Lista de itens adiados nas revisões do plano 1 (Base e Produtos), a considerar 
 - P4 final review: parked (F10/M7): sendPaymentInstructions has no idempotency key; a double submit / network retry sends two e-mails and two history entries (UI ref guard exists; the Stripe link itself is reused)
 - P4 final review: note: refunds made directly in the Stripe dashboard (`charge.refunded` for refunds we didn't create) are ignored by design
 - P4 final review: over-refund is recomputed on read: a promoted-from-failed refund can mask a later real amount due after a modification raises the total — persist overRefunded at promotion time
+
+## Plan 5
+- Spec 4.15: Moloni foreign-customer handling setting deferred — needs the store accountant's input (OSS / intra-EU / non-EU rules); today non-PT customers are invoiced like domestic ones.
