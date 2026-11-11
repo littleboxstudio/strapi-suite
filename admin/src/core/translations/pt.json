@@ -900,6 +900,7 @@
   "littlebox-strapi-suite.ecommerce.settings.stripeWebhook.title": "Webhook do Stripe",
   "littlebox-strapi-suite.ecommerce.settings.stripeWebhook.description": "No painel do Stripe (Developers → Webhooks), adicione um endpoint com este URL e selecione os eventos abaixo. Depois cole o respetivo signing secret na integração Stripe.",
   "littlebox-strapi-suite.ecommerce.settings.stripeWebhook.url": "URL do endpoint",
+  "littlebox-strapi-suite.ecommerce.settings.stripeWebhook.urlHint": "Se o painel de administração estiver num host diferente da API, use o URL público da API em vez deste host.",
   "littlebox-strapi-suite.ecommerce.settings.stripeWebhook.events": "Eventos a enviar",
   "littlebox-strapi-suite.ecommerce.settings.stripeWebhook.copy": "Copiar URL",
   "littlebox-strapi-suite.ecommerce.settings.stripeWebhook.copied": "URL copiado",

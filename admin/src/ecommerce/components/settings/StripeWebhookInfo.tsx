@@ -55,16 +55,19 @@ const StripeWebhookInfo = () => {
         {error && <Typography textColor="danger600">{t('ecommerce.settings.stripeWebhook.loadError')}</Typography>}
         {info && (
           <>
-            <Flex gap={2} alignItems="flex-end">
+            <Flex gap={2} alignItems="flex-start">
               <Box style={{ flex: 1, minWidth: 0 }}>
-                <Field.Root name="stripeWebhookUrl">
+                <Field.Root name="stripeWebhookUrl" hint={t('ecommerce.settings.stripeWebhook.urlHint')}>
                   <Field.Label>{t('ecommerce.settings.stripeWebhook.url')}</Field.Label>
                   <TextInput value={url} readOnly onFocus={(e: any) => e.target.select()} />
+                  <Field.Hint />
                 </Field.Root>
               </Box>
-              <Button variant="secondary" onClick={copy}>
-                {t('ecommerce.settings.stripeWebhook.copy')}
-              </Button>
+              <Box paddingTop={6}>
+                <Button variant="secondary" onClick={copy}>
+                  {t('ecommerce.settings.stripeWebhook.copy')}
+                </Button>
+              </Box>
             </Flex>
             <Flex direction="column" alignItems="flex-start" gap={2}>
               <Typography variant="sigma" textColor="neutral600">

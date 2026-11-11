@@ -309,7 +309,7 @@ const CustomerStoreCredits = ({ customerId, email, canManage }: Props) => {
                   </Badge>
                 </Td>
                 <Td>
-                  {canManage && credit.status === 'ACTIVE' && (
+                  {canManage && status === 'ACTIVE' && (
                     <Flex justifyContent="flex-end">
                       <Button size="S" variant="danger-light" disabled={busy} onClick={() => setVoiding(credit)}>
                         {t('ecommerce.customers.storeCredits.void')}

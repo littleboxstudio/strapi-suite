@@ -138,6 +138,11 @@ const RefundModal = ({ orderId, reference, onClose, onRefunded }: Props) => {
         // Back to the form with the server's field errors (e.g. the refundable amount changed).
         setErrors(toErrorMap(fieldErrors));
         setDraft(null);
+        // The maximums may have changed (e.g. a concurrent refund): refresh them, keep the form.
+        new FetchRefundPreview()
+          .execute(orderId)
+          .then(setPreview)
+          .catch(() => undefined);
       } else {
         toggleNotification({
           type: 'danger',

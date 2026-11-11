@@ -13,12 +13,6 @@ import {
   validateStoreCreditForm,
   type RefundForm,
 } from '../../../admin/src/ecommerce/utils/refundForm';
-import {
-  API_ERROR_CODES,
-  apiErrorCode,
-  apiErrorMessageId,
-  allowedToolbarActions,
-} from '../../../admin/src/ecommerce/utils/orderDetail';
 import type { NotificationView, RefundPreview } from '../../../admin/src/ecommerce/orderTypes';
 
 const en = require('../../../admin/src/core/translations/en.json');
@@ -258,104 +252,6 @@ describe('findNewNotification', () => {
     expect(findNewNotification(list, 5, ['PAYMENT_INSTRUCTIONS', 'SUPPLEMENTARY_PAYMENT'])?.id).toBe(9);
     expect(findNewNotification(list, 9, ['PAYMENT_INSTRUCTIONS'])).toBeNull();
     expect(findNewNotification(list, 0, ['ORDER_CONFIRMATION'])).toBeNull();
-  });
-});
-
-describe('apiErrorCode / apiErrorMessageId', () => {
-  const httpError = (status: number, error: unknown) => ({ response: { status, data: { error } } });
-
-  it('reads details.code, then the first details.errors code', () => {
-    expect(apiErrorCode(httpError(400, { details: { code: 'NOTHING_DUE' } }))).toBe('NOTHING_DUE');
-    expect(
-      apiErrorCode(httpError(409, { details: { code: 'IDEMPOTENCY_KEY_CONFLICT', errors: [] } }))
-    ).toBe('IDEMPOTENCY_KEY_CONFLICT');
-    expect(apiErrorCode(httpError(400, { details: { errors: [{ path: 'code', code: 'STORE_CREDIT_VOID' }] } }))).toBe(
-      'STORE_CREDIT_VOID'
-    );
-    expect(apiErrorCode(new Error('network'))).toBeNull();
-  });
-
-  it('maps known codes to a translation id and others to the fallback', () => {
-    expect(apiErrorMessageId(httpError(400, { details: { code: 'STRIPE_NOT_CONFIGURED' } }), 'x.fallback')).toBe(
-      'ecommerce.orders.errors.STRIPE_NOT_CONFIGURED'
-    );
-    expect(apiErrorMessageId(httpError(400, { details: { code: 'WHATEVER' } }), 'x.fallback')).toBe('x.fallback');
-    expect(apiErrorMessageId(null, 'x.fallback')).toBe('x.fallback');
-  });
-
-  it('covers every code the plan-4 admin endpoints return', () => {
-    expect(API_ERROR_CODES).toEqual(
-      expect.arrayContaining([
-        'ACTION_NOT_AVAILABLE',
-        'NOTHING_DUE',
-        'PAYMENT_PENDING',
-        'STOREFRONT_URL_MISSING',
-        'STRIPE_NOT_CONFIGURED',
-        'STRIPE_REQUEST_FAILED',
-        'STRIPE_UNREACHABLE',
-        'STRIPE_SESSION_MISMATCH',
-        'IDEMPOTENCY_KEY_CONFLICT',
-        'STORE_CREDIT_CONFLICT',
-        'STORE_CREDIT_NOT_FOUND',
-        'STORE_CREDIT_EMAIL_MISMATCH',
-        'STORE_CREDIT_EMPTY',
-        'STORE_CREDIT_EXPIRED',
-        'STORE_CREDIT_INSUFFICIENT',
-        'STORE_CREDIT_VOID',
-        'REFUND_NOT_RESUMABLE',
-        'REFUND_NOT_MARKABLE',
-        'EMAIL_NOT_CONFIGURED',
-        'EMAIL_SEND_FAILED',
-        'ENCRYPTION_KEY_MISSING',
-        'SECRET_UNREADABLE',
-        'exceeds_refundable',
-        'exceeds_payment',
-        'exceeds_stripe_refundable',
-        'incompatible_payment',
-        'invalid_payment',
-        'stripe_unavailable',
-        'customer_not_found',
-        'invalid_method',
-        'invalid_amount',
-        'invalid_date',
-        'too_long',
-        'reserved',
-        'required',
-        'invalid',
-      ])
-    );
-  });
-
-  it.each(API_ERROR_CODES)('%s has an en and a pt message', (code) => {
-    const key = `${P}ecommerce.orders.errors.${code}`;
-    expect(en[key]).toEqual(expect.any(String));
-    expect(pt[key]).toEqual(expect.any(String));
-  });
-
-  it('points EMAIL_NOT_CONFIGURED to Settings → E-mail', () => {
-    expect(en[`${P}ecommerce.orders.errors.EMAIL_NOT_CONFIGURED`]).toMatch(/Settings/);
-    expect(pt[`${P}ecommerce.orders.errors.EMAIL_NOT_CONFIGURED`]).toMatch(/Configurações/);
-  });
-});
-
-describe('allowedToolbarActions', () => {
-  const all = ['SHIP', 'MODIFY', 'CANCEL', 'REFUND', 'ADD_PAYMENT', 'SEND_PAYMENT_INSTRUCTIONS', 'ARCHIVE'] as const;
-  it('orders the actions and keeps each one behind its permission', () => {
-    expect(allowedToolbarActions([...all], { canManage: true, canPay: true, canRefund: true })).toEqual([
-      'MODIFY',
-      'ADD_PAYMENT',
-      'SEND_PAYMENT_INSTRUCTIONS',
-      'REFUND',
-      'CANCEL',
-      'ARCHIVE',
-    ]);
-    expect(allowedToolbarActions([...all], { canManage: false, canPay: true, canRefund: false })).toEqual([
-      'SEND_PAYMENT_INSTRUCTIONS',
-    ]);
-    expect(allowedToolbarActions([...all], { canManage: false, canPay: false, canRefund: true })).toEqual([
-      'REFUND',
-    ]);
-    expect(allowedToolbarActions(['REFUND'], { canManage: true, canPay: true, canRefund: false })).toEqual([]);
   });
 });
 

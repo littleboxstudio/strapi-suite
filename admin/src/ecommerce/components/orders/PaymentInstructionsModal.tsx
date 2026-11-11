@@ -86,6 +86,8 @@ const PaymentInstructionsModal = ({
   const [sent, setSent] = useState<{ url?: string } | null>(null);
   const [notification, setNotification] = useState<NotificationView | null>(null);
   const mounted = useRef(true);
+  // Synchronous guard: a double click must not queue two e-mails (the endpoint has no key).
+  const sendingRef = useRef(false);
 
   useEffect(() => {
     mounted.current = true;
@@ -94,7 +96,11 @@ const PaymentInstructionsModal = ({
     };
   }, []);
 
-  const close = () => (sent ? onSent() : onClose());
+  const close = () => {
+    if (sendingRef.current) return;
+    if (sent) onSent();
+    else onClose();
+  };
 
   const errorText = (code: string) =>
     formatMessage({
@@ -155,7 +161,7 @@ const PaymentInstructionsModal = ({
   };
 
   const send = async () => {
-    if (sending) return;
+    if (sendingRef.current) return;
     const local: ErrorMap = {};
     if (mode === 'MANUAL') {
       if (!instructions.trim()) local.instructions = errorText('required');
@@ -165,6 +171,7 @@ const PaymentInstructionsModal = ({
     setErrors(local);
     if (Object.keys(local).length) return;
 
+    sendingRef.current = true;
     setSending(true);
     const afterId = await latestNotificationId();
     try {
@@ -194,6 +201,7 @@ const PaymentInstructionsModal = ({
         });
       }
     } finally {
+      sendingRef.current = false;
       if (mounted.current) setSending(false);
     }
   };
