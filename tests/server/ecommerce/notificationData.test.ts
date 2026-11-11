@@ -468,7 +468,28 @@ describe('ORDER_CONFIRMATION promotions', () => {
   it('falls back to the default locale, then to the name', () => {
     const order = makeOrder({ locale: 'en', promotions: [applied()] });
     expect(build(order, { defaultLocale: 'pt' }).order.promotions[0].name).toBe('Verão');
-    expect(build(order).order.promotions[0].name).toBe('Internal summer 20');
+  });
+
+  it('never shows the internal name: a neutral label in the order locale', () => {
+    const en = makeOrder({ locale: 'en', promotions: [applied()] });
+    expect(build(en).order.promotions[0].name).toBe('Promotion');
+    expect(build(en, { defaultLocale: 'en' }).order.promotions[0].name).toBe('Promotion');
+    const pt = makeOrder({ locale: 'pt', promotions: [applied({ displayName: {} })] });
+    expect(build(pt).order.promotions[0].name).toBe('Promoção');
+    expect(html(build(pt))).not.toContain('Internal summer 20');
+  });
+
+  it('renders a gift line at 0 and labels the block as already included', () => {
+    const order = makeOrder({
+      promotions: [applied()],
+      lines: [
+        ...makeOrder().lines,
+        { id: 2, sku: 'G', name: 'Free tote', option: '', unitPrice: 900, unitDiscount: 900, quantity: 1, returnedQuantity: 0 },
+      ],
+    });
+    const data = build(order);
+    expect(data.order.items[1]).toMatchObject({ name: 'Free tote', unitPrice: formatMoney(0, 'en'), total: formatMoney(0, 'en') });
+    expect(spaces(html(data))).toContain('Promotions applied (already included above)');
   });
 
   it('is an empty list without promotions and the template hides the block', () => {

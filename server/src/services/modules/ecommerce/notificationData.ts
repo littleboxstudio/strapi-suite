@@ -6,7 +6,6 @@
 import type { EmailTemplateType } from './email/catalog';
 import type { DomainEvent, DomainEventType } from './events';
 import type { OrderView } from './orders';
-import { displayNameFor } from './domain/promotions/definition';
 import type { StoreSettings } from './settings';
 
 export type NotificationTemplateType = Extract<
@@ -134,6 +133,7 @@ const LABELS: Record<'en' | 'pt', Record<string, string>> = {
     'payment.PAID': 'Paid',
     'payment.PARTIALLY_REFUNDED': 'Partially refunded',
     'payment.REFUNDED': 'Refunded',
+    'promotion.fallback': 'Promotion',
     'method.STRIPE': 'Online payment',
     'method.MANUAL': 'Manual payment',
     'method.STORE_CREDIT': 'Store credit',
@@ -147,6 +147,7 @@ const LABELS: Record<'en' | 'pt', Record<string, string>> = {
     'payment.PAID': 'Pago',
     'payment.PARTIALLY_REFUNDED': 'Parcialmente reembolsado',
     'payment.REFUNDED': 'Reembolsado',
+    'promotion.fallback': 'Promoção',
     'method.STRIPE': 'Pagamento online',
     'method.MANUAL': 'Pagamento manual',
     'method.STORE_CREDIT': 'Vale de crédito',
@@ -281,7 +282,11 @@ export function buildTemplateData(
         shipping: money(order?.totals.shippingTotal),
         discount: moneyOrEmpty(order?.totals.orderDiscount, locale),
         promotions: (order?.promotions ?? []).map((a) => ({
-          name: displayNameFor(a, locale, extra.defaultLocale || locale),
+          // Never the internal name: a neutral label when no customer-visible name exists.
+          name:
+            a.displayName?.[locale] ||
+            (extra.defaultLocale ? a.displayName?.[extra.defaultLocale] : '') ||
+            label(locale, 'promotion.fallback'),
           amount: money(a.amount),
         })),
         total: money(order?.totals.total),
