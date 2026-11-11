@@ -44,6 +44,7 @@ import {
   type OrderDeliveryStatus,
 } from './domain/fulfillment';
 import { shipmentItemsOf, type ShipmentView } from './shipments';
+import type { ReturnView } from './returns';
 import type { ShippingOption, ShippingQuoteRequest } from './shipping';
 import type { StockMoveInput } from './stock';
 import type { OrderHistoryEntry } from './orderHistory';
@@ -141,6 +142,7 @@ export type OrderView = {
   notificationsSummary: { sent: number; failed: number; skipped: number };
   invoices: unknown[];
   shipments: ShipmentView[];
+  returns: ReturnView[];
   shipping: { remainingCost: number; deliveryStatus: OrderDeliveryStatus };
   promotions: unknown[];
   summary: FinancialSummary;
@@ -894,6 +896,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       id,
       shipmentRows
     );
+    const returns: ReturnView[] = await service('EcommerceReturnService').listForOrder(id);
     const countNotifications = (status: string) =>
       strapi.db.query(uids().notification).count({ where: { order: { id }, status } });
     const [sent, failed, skipped] = await Promise.all([
@@ -964,6 +967,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       notificationsSummary: { sent, failed, skipped },
       invoices: [],
       shipments: shipmentViews,
+      returns,
       shipping: {
         remainingCost: remainingShippingCost(num(order.shippingTotal), shipments),
         deliveryStatus: orderDeliveryStatus(order.fulfillmentStatus, shipments),

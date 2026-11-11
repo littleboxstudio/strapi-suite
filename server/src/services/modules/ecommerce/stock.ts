@@ -22,12 +22,16 @@ export type StockMoveInput = {
   actor: string;
 };
 
-/** Movement types that count towards the units an order still holds. */
+/**
+ * Movement types that count towards the units an order still holds. A unit returned without
+ * restock (damaged) is no longer held either, so a later cancel does not put it back.
+ */
 const ORDER_NET_TYPES: StockMovementType[] = [
   'ORDER_DEDUCT',
   'ORDER_RESTOCK',
   'CANCEL_RESTOCK',
   'RETURN_RESTOCK',
+  'RETURN_NO_RESTOCK',
 ];
 
 /**
@@ -100,7 +104,7 @@ const EcommerceStockService = ({ strapi }: { strapi: Core.Strapi }) => {
   return {
     move,
 
-    /** Units of each variant the order still holds (deductions minus restocks). */
+    /** Units of each variant the order still holds (deductions minus restocks and returns). */
     async netDeductedForOrder(orderId: number): Promise<Map<number, number>> {
       const u = uids();
       const rows: { variantId: number; quantity: number; type: StockMovementType }[] =
