@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createHmac } from 'node:crypto';
 
 import EcommerceOrderService from '../../../server/src/services/modules/ecommerce/orders';
+import EcommerceShipmentService from '../../../server/src/services/modules/ecommerce/shipments';
 import EcommerceStoreCreditService from '../../../server/src/services/modules/ecommerce/storeCredits';
 import EcommerceRefundService from '../../../server/src/services/modules/ecommerce/refunds';
 import EcommercePaymentService from '../../../server/src/services/modules/ecommerce/payments';
@@ -39,6 +40,8 @@ const UIDS = {
   webhookEvent: `${P}webhook-event`,
   storeCredit: `${P}store-credit`,
   storeCreditMovement: `${P}store-credit-movement`,
+  shipment: `${P}shipment`,
+  shipmentEvent: `${P}shipment-event`,
 };
 
 const RELATIONS: FakeRelations = {
@@ -67,6 +70,11 @@ const RELATIONS: FakeRelations = {
     order: [UIDS.order, 'order', 'manyToOne'],
     payment: [UIDS.payment, 'payment', 'manyToOne'],
     storeCredit: [UIDS.storeCredit, 'storeCredit', 'manyToOne'],
+  },
+  [UIDS.shipment]: { order: [UIDS.order, 'order', 'manyToOne'] },
+  [UIDS.shipmentEvent]: {
+    shipment: [UIDS.shipment, 'shipment', 'manyToOne'],
+    order: [UIDS.order, 'order', 'manyToOne'],
   },
 };
 
@@ -132,6 +140,7 @@ function setup(opts: { webhookSecret?: string | null } = {}) {
   };
   services.EcommerceEventBus = { collector: bus.collector, subscribe: bus.subscribe };
   services.EcommerceOrderService = EcommerceOrderService({ strapi });
+  services.EcommerceShipmentService = EcommerceShipmentService({ strapi });
   services.EcommerceStoreCreditService = EcommerceStoreCreditService({ strapi });
   services.EcommerceRefundService = EcommerceRefundService({ strapi });
   services.EcommercePaymentService = EcommercePaymentService({ strapi });

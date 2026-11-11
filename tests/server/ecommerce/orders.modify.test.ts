@@ -6,6 +6,7 @@ import EcommercePaymentService from '../../../server/src/services/modules/ecomme
 import EcommerceOrderHistoryService from '../../../server/src/services/modules/ecommerce/orderHistory';
 import EcommerceStockService from '../../../server/src/services/modules/ecommerce/stock';
 import EcommerceCustomerService from '../../../server/src/services/modules/ecommerce/customers';
+import EcommerceShipmentService from '../../../server/src/services/modules/ecommerce/shipments';
 import {
   createEventBus,
   __resetEventHandlersForTests,
@@ -28,6 +29,8 @@ const UIDS = {
   orderHistory: `${P}order-history`,
   refund: `${P}refund`,
   notification: `${P}notification`,
+  shipment: `${P}shipment`,
+  shipmentEvent: `${P}shipment-event`,
 };
 
 const RELATIONS: FakeRelations = {
@@ -48,6 +51,11 @@ const RELATIONS: FakeRelations = {
     customer: [UIDS.customer, 'customer', 'manyToOne'],
   },
   [UIDS.payment]: { order: [UIDS.order, 'order', 'manyToOne'] },
+  [UIDS.shipment]: { order: [UIDS.order, 'order', 'manyToOne'] },
+  [UIDS.shipmentEvent]: {
+    shipment: [UIDS.shipment, 'shipment', 'manyToOne'],
+    order: [UIDS.order, 'order', 'manyToOne'],
+  },
 };
 
 function setup() {
@@ -105,6 +113,7 @@ function setup() {
   services.EcommerceOrderService = orders;
   services.EcommerceStoreCreditService = EcommerceStoreCreditService({ strapi });
   services.EcommerceRefundService = EcommerceRefundService({ strapi });
+  services.EcommerceShipmentService = EcommerceShipmentService({ strapi });
   const payments = EcommercePaymentService({ strapi });
   services.EcommercePaymentService = payments;
 
@@ -241,6 +250,64 @@ describe('EcommerceOrderService.previewModification', () => {
       previousShipmentsCost: 0,
       shippingOriginal: 700,
       shippingDiscount: 0,
+    });
+  });
+
+  it('RECALCULATE excludes reserved (PENDING) units from both the items and the subtotal', async () => {
+    const ctx = setup();
+    const { id } = await createOrder(ctx.orders);
+    const line10 = linesOf(ctx, id).find((l) => l.variantId === 10);
+    ctx.tables[UIDS.shipment].push({
+      id: 1,
+      order: id,
+      providerId: 'acme',
+      carrierName: 'Acme',
+      status: 'PENDING',
+      error: 'UNCERTAIN',
+      items: { lines: [{ orderLineId: line10.id, sku: 'SH-M', name: 'Shirt', option: null, quantity: 1 }] },
+      shippingCost: 0,
+      idempotencyKey: 'pending-1',
+    });
+    ctx.findOption.mockClear();
+    await ctx.orders.previewModification(id, {
+      lines: lineInputs(ctx, id),
+      shipping: { mode: 'RECALCULATE' },
+    });
+    const [req] = ctx.findOption.mock.calls[0];
+    expect(req.items).toEqual([
+      { variantId: 10, quantity: 1, weight: 200, width: 0, height: 0, depth: 0 },
+      { variantId: 11, quantity: 1, weight: 250, width: 0, height: 0, depth: 0 },
+    ]);
+    expect(req.subtotal).toBe(2000 + 2500);
+  });
+
+  it('RECALCULATE adds the cost of previous shipments (requirement 16.5.2)', async () => {
+    const ctx = setup();
+    ctx.quote.price = 1000;
+    const { id } = await createOrder(ctx.orders);
+    const line10 = linesOf(ctx, id).find((l) => l.variantId === 10);
+    ctx.tables[UIDS.shipment].push({
+      id: 1,
+      order: id,
+      providerId: 'manual',
+      carrierName: 'CTT',
+      status: 'ACTIVE',
+      items: { lines: [{ orderLineId: line10.id, sku: 'SH-M', name: 'Shirt', option: null, quantity: 1 }] },
+      shippingCost: 600,
+      deliveryStatus: 'IN_TRANSIT',
+      idempotencyKey: 'active-1',
+    });
+    ctx.quote.price = 800;
+    const result = await ctx.orders.previewModification(id, {
+      lines: lineInputs(ctx, id),
+      shipping: { mode: 'RECALCULATE' },
+    });
+    expect(result.shipping).toMatchObject({
+      mode: 'RECALCULATE',
+      previousCharged: 1000,
+      previousShipmentsCost: 600,
+      quote: 800,
+      newCharged: 1400,
     });
   });
 

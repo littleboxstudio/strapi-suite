@@ -6,4 +6,4 @@ export const builtInCarrierAdapters = (): [string, CarrierAdapter][] => [
   ['ctt-expresso', { ...cttExpressoAdapter }],
 ];
 
-export type { CarrierAdapter, CarrierShipmentRequest, CarrierShipmentResult, CarrierTrackingEvent } from './types';
+export type { CarrierAdapter, CarrierCallOptions, CarrierShipmentRequest, CarrierShipmentResult, CarrierTrackingEvent } from './types';

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import EcommerceOrderService from '../../../server/src/services/modules/ecommerce/orders';
+import EcommerceShipmentService from '../../../server/src/services/modules/ecommerce/shipments';
 import EcommerceOrderHistoryService from '../../../server/src/services/modules/ecommerce/orderHistory';
 import EcommerceStockService from '../../../server/src/services/modules/ecommerce/stock';
 import EcommerceCustomerService from '../../../server/src/services/modules/ecommerce/customers';
@@ -25,6 +26,8 @@ const UIDS = {
   orderHistory: `${P}order-history`,
   refund: `${P}refund`,
   notification: `${P}notification`,
+  shipment: `${P}shipment`,
+  shipmentEvent: `${P}shipment-event`,
 };
 
 const RELATIONS: FakeRelations = {
@@ -43,6 +46,11 @@ const RELATIONS: FakeRelations = {
     payments: [UIDS.payment, 'order'],
     history: [UIDS.orderHistory, 'order'],
     customer: [UIDS.customer, 'customer', 'manyToOne'],
+  },
+  [UIDS.shipment]: { order: [UIDS.order, 'order', 'manyToOne'] },
+  [UIDS.shipmentEvent]: {
+    shipment: [UIDS.shipment, 'shipment', 'manyToOne'],
+    order: [UIDS.order, 'order', 'manyToOne'],
   },
 };
 
@@ -87,6 +95,7 @@ function setup(opts: { shippingPrice?: number | null } = {}) {
   services.EcommerceEventBus = { collector: bus.collector, subscribe: bus.subscribe };
   const service = EcommerceOrderService({ strapi });
   services.EcommerceOrderService = service;
+  services.EcommerceShipmentService = EcommerceShipmentService({ strapi });
 
   const t = db.tables;
   t[UIDS.product].push({ id: 1, active: true }, { id: 2, active: false });

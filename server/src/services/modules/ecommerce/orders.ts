@@ -35,6 +35,15 @@ import {
   type ShippingModification,
 } from './domain/orderModification';
 import { refundableAmount } from './domain/refunds';
+import {
+  orderDeliveryStatus,
+  previousShipmentsCost,
+  remainingShippingCost,
+  reservedQuantities,
+  type DeliveryStatus,
+  type OrderDeliveryStatus,
+} from './domain/fulfillment';
+import { shipmentItemsOf, type ShipmentView } from './shipments';
 import type { ShippingOption, ShippingQuoteRequest } from './shipping';
 import type { StockMoveInput } from './stock';
 import type { OrderHistoryEntry } from './orderHistory';
@@ -75,8 +84,14 @@ export type OrderLineView = {
   returnedQuantity: number;
   tax: number;
   isGift: boolean;
+  /** ACTIVE shipments. */
   shipped: number;
+  /** ACTIVE + PENDING shipments: units that cannot be shipped again. */
+  reserved: number;
+  /** quantity − reserved */
   pending: number;
+  /** shipped − returnedQuantity */
+  returnable: number;
 };
 
 /** A refund as the order shows it (newest first). No Stripe ids or store credit codes. */
@@ -125,7 +140,8 @@ export type OrderView = {
   refunds: OrderRefundView[];
   notificationsSummary: { sent: number; failed: number; skipped: number };
   invoices: unknown[];
-  shipments: unknown[];
+  shipments: ShipmentView[];
+  shipping: { remainingCost: number; deliveryStatus: OrderDeliveryStatus };
   promotions: unknown[];
   summary: FinancialSummary;
   availableActions: OrderActionKey[];
@@ -140,6 +156,8 @@ export type OrderState = {
   payments: any[];
   /** Refund rows sorted by id. */
   refunds: any[];
+  /** Every shipment of the order (any status), sorted by id. */
+  shipments: LoadedShipment[];
   /** Sum of the PENDING / PROCESSING refunds. */
   inFlightRefunds: number;
   hasPendingRefunds: boolean;
@@ -148,6 +166,13 @@ export type OrderState = {
 };
 
 const IN_FLIGHT_REFUND = ['PENDING', 'PROCESSING'];
+
+/** A stored shipment as the order rules need it. */
+export type LoadedShipment = ShipmentLike & {
+  id: number;
+  deliveryStatus: DeliveryStatus | null;
+  shippingCost: number;
+};
 
 export type OrderListParams = {
   page?: number;
@@ -443,8 +468,21 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     return order;
   };
 
-  /** Shipments arrive in plan 4; until then nothing is shipped. */
-  const loadShipments = async (_orderId: number): Promise<ShipmentLike[]> => [];
+  /** Every shipment of the order (any status), sorted by id. */
+  const loadShipments = async (orderId: number): Promise<LoadedShipment[]> => {
+    const rows: any[] = await strapi.db.query(uids().shipment).findMany({
+      where: { order: { id: orderId } },
+      orderBy: { id: 'asc' },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      status: r.status,
+      items: shipmentItemsOf(r).map((i) => ({ orderLineId: i.orderLineId, quantity: i.quantity })),
+      deliveryStatus: r.deliveryStatus ?? null,
+      delivered: r.deliveryStatus === 'DELIVERED',
+      shippingCost: num(r.shippingCost),
+    }));
+  };
 
   /** Every refund of the order (any status), sorted by id. */
   const loadRefunds = async (orderId: number): Promise<any[]> => {
@@ -737,9 +775,14 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     };
   };
 
-  const toLineView = (l: any, shipped: Map<number, number>): OrderLineView => {
+  const toLineView = (
+    l: any,
+    shipped: Map<number, number>,
+    reserved: Map<number, number>
+  ): OrderLineView => {
     const quantity = num(l.quantity);
     const s = shipped.get(l.id) ?? 0;
+    const r = reserved.get(l.id) ?? 0;
     return {
       id: l.id,
       variantId: l.variantId,
@@ -755,7 +798,9 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       tax: num(l.tax),
       isGift: !!l.isGift,
       shipped: s,
-      pending: Math.max(0, quantity - s),
+      reserved: r,
+      pending: Math.max(0, quantity - r),
+      returnable: Math.max(0, s - num(l.returnedQuantity)),
     };
   };
 
@@ -768,7 +813,10 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     const order = await loadOrder(orderId);
     const shipments = await loadShipments(orderId);
     const shipped = shippedQuantities(shipments);
-    const lines = [...(order.lines ?? [])].sort(byPosition).map((l: any) => toLineView(l, shipped));
+    const reserved = reservedQuantities(shipments);
+    const lines = [...(order.lines ?? [])]
+      .sort(byPosition)
+      .map((l: any) => toLineView(l, shipped, reserved));
     const payments: any[] = [...(order.payments ?? [])].sort((a, b) => a.id - b.id);
     const refunds = await loadRefunds(orderId);
     const summary = summaryOf(order, payments.map(toPaymentLike), refunds.map(toRefundLike));
@@ -783,7 +831,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       hasUnshippedQuantity: lines.some((l) => l.pending > 0),
       hasShippedUnreturned: lines.some((l) => l.shipped > l.returnedQuantity),
       allShipmentsDelivered: shipments
-        .filter((s) => s.status !== 'CANCELLED')
+        .filter((s) => s.status === 'ACTIVE')
         .every((s) => s.delivered),
       hasPendingPayments: payments.some((p) => p.status === 'PENDING'),
       hasPendingRefunds,
@@ -793,7 +841,17 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       // In-flight refunds already claim part of the excess.
       (a) => a !== 'REFUND' || refundableAmount(summary, inFlightRefunds) > 0
     );
-    return { order, lines, payments, refunds, inFlightRefunds, hasPendingRefunds, summary, actions };
+    return {
+      order,
+      lines,
+      payments,
+      refunds,
+      shipments,
+      inFlightRefunds,
+      hasPendingRefunds,
+      summary,
+      actions,
+    };
   };
 
   const get = async (id: number): Promise<OrderView> => {
@@ -802,9 +860,11 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       lines,
       payments: paymentRows,
       refunds: refundRows,
+      shipments,
       summary,
       actions,
     } = await computeOrderState(id);
+    const shipmentViews: ShipmentView[] = await service('EcommerceShipmentService').listForOrder(id);
     const countNotifications = (status: string) =>
       strapi.db.query(uids().notification).count({ where: { order: { id }, status } });
     const [sent, failed, skipped] = await Promise.all([
@@ -874,7 +934,11 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         })),
       notificationsSummary: { sent, failed, skipped },
       invoices: [],
-      shipments: [],
+      shipments: shipmentViews,
+      shipping: {
+        remainingCost: remainingShippingCost(num(order.shippingTotal), shipments),
+        deliveryStatus: orderDeliveryStatus(order.fulfillmentStatus, shipments),
+      },
       promotions: Array.isArray(order.promotions) ? order.promotions : [],
       summary,
       availableActions: actions,
@@ -1003,6 +1067,12 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       const state = await computeOrderState(orderId);
       const from: OrderStatus = state.order.orderStatus;
       assertAction(state, action, canTransition(from, to));
+      // A carrier shipment being created (or of uncertain outcome) must be settled first.
+      if (to === 'CANCELLED' && state.shipments.some((s) => s.status === 'PENDING')) {
+        throw new EcommerceValidationError('Order has a pending shipment', [
+          { path: 'shipments', code: 'SHIPMENT_PENDING' },
+        ]);
+      }
 
       const now = new Date().toISOString();
       const reference = state.order.reference;
@@ -1253,13 +1323,17 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         invalidDraft: { ...draft, shipping: { ...draft.shipping, mode: 'RECALCULATE' } },
       };
     }
-    const shippedById = new Map(state.lines.map((l) => [l.id, l.shipped]));
+    // Items and subtotal share one base: the units not yet reserved by a shipment.
+    const linesById = new Map(state.lines.map((l) => [l.id, l]));
     const items: ShippingQuoteRequest['items'] = [];
+    let subtotal = 0;
     for (const c of draft.lineChanges) {
-      const shipped = c.orderLineId !== undefined ? (shippedById.get(c.orderLineId) ?? 0) : 0;
-      const quantity = c.newQuantity - shipped;
+      const line = c.orderLineId !== undefined ? linesById.get(c.orderLineId) : undefined;
+      const quantity = c.newQuantity - (line?.reserved ?? 0);
       if (quantity <= 0) continue;
       const v = catalog.get(c.variantId);
+      const unitNet = line ? line.unitPrice - line.unitDiscount : (v?.price ?? 0);
+      subtotal += unitNet * quantity;
       items.push({
         variantId: c.variantId,
         quantity,
@@ -1276,7 +1350,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         country: destination?.country ?? '',
         postalCode: destination?.postalCode,
         items,
-        subtotal: draft.after.subtotal,
+        subtotal,
         locale: state.order.locale,
       },
       String(method.providerId ?? ''),
@@ -1288,7 +1362,11 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       ]);
     }
     return {
-      input: { mode: 'RECALCULATE', quote: num(option.price), previousShipmentsCost: 0 },
+      input: {
+        mode: 'RECALCULATE',
+        quote: num(option.price),
+        previousShipmentsCost: previousShipmentsCost(state.shipments),
+      },
       option,
     };
   };
