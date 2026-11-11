@@ -9,8 +9,6 @@ import {
   Flex,
   Grid,
   Loader,
-  MultiSelect,
-  MultiSelectOption,
   SingleSelect,
   SingleSelectOption,
   TextInput,
@@ -18,6 +16,7 @@ import {
 } from '@strapi/design-system';
 import { WarningCircle } from '@strapi/icons';
 import { StoreLogoField } from '../../components/settings/StoreLogoField';
+import { MarketsTable } from '../../components/settings/MarketsTable';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchStoreSettings from '../../usecases/settings/fetchStoreSettings';
 import FetchIntegrations from '../../usecases/settings/fetchIntegrations';
@@ -169,7 +168,8 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
       const fieldErrors = extractFieldErrors(err);
       const code = extractErrorCode(err);
       if (fieldErrors) showErrors(fieldErrors);
-      else if (code) toggleNotification({ type: 'danger', message: t(`ecommerce.settings.errors.${code}`) });
+      else if (code)
+        toggleNotification({ type: 'danger', message: t(`ecommerce.settings.errors.${code}`) });
       else toggleNotification({ type: 'danger', message: t('ecommerce.settings.saveError') });
     } finally {
       setSaving(false);
@@ -178,9 +178,20 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
 
   const textField = (
     field: TextField,
-    options: { required?: boolean; hint?: string; placeholder?: string; type?: string; start?: ReactNode } = {}
+    options: {
+      required?: boolean;
+      hint?: string;
+      placeholder?: string;
+      type?: string;
+      start?: ReactNode;
+    } = {}
   ) => (
-    <Field.Root name={field} required={options.required} error={errorText(field)} hint={options.hint}>
+    <Field.Root
+      name={field}
+      required={options.required}
+      error={errorText(field)}
+      hint={options.hint}
+    >
       <Field.Label>{t(`ecommerce.settings.store.${field}`)}</Field.Label>
       <Flex gap={2} alignItems="center">
         {options.start}
@@ -204,13 +215,7 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
   return (
     <Flex direction="column" alignItems="stretch" gap={6}>
       {!keyConfigured && (
-        <Box
-          role="status"
-          background="warning100"
-          borderColor="warning200"
-          hasRadius
-          padding={5}
-        >
+        <Box role="status" background="warning100" borderColor="warning200" hasRadius padding={5}>
           <Flex gap={3} alignItems="flex-start">
             <Box color="warning600" paddingTop={1}>
               <WarningCircle aria-hidden fill="currentColor" />
@@ -298,30 +303,14 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
               <Field.Error />
             </Field.Root>
           </Grid.Item>
-          <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
-            <Field.Root
-              name="markets"
-              required
+          <Grid.Item col={12} direction="column" alignItems="stretch">
+            <MarketsTable
+              value={form.markets}
+              countries={countries}
+              readOnly={readOnly}
               error={errorText('markets')}
-              hint={t('ecommerce.settings.store.markets.hint')}
-            >
-              <Field.Label>{t('ecommerce.settings.store.markets')}</Field.Label>
-              <MultiSelect
-                withTags
-                value={form.markets}
-                disabled={readOnly}
-                hasError={!!errors.markets}
-                onChange={(value: string[]) => update('markets', value)}
-              >
-                {countries.map(({ code, name }) => (
-                  <MultiSelectOption key={code} value={code}>
-                    {name}
-                  </MultiSelectOption>
-                ))}
-              </MultiSelect>
-              <Field.Error />
-              <Field.Hint />
-            </Field.Root>
+              onChange={(markets) => update('markets', markets)}
+            />
           </Grid.Item>
         </Grid.Root>
       </Section>
