@@ -12,7 +12,7 @@ import {
   type CoverageOrderState,
   type OrderStatus,
 } from './orders';
-import type { ValidationIssue } from '../errors';
+import { EcommerceValidationError, type ValidationIssue } from '../errors';
 
 export type InvoiceLine = {
   orderLineId: number | null;
@@ -65,6 +65,8 @@ const isObject = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === 'object' && !Array.isArray(v);
 
 /** Non-negative integer cents, or 0. */
+const isCents = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
+
 const cents = (v: unknown): number => {
   const n = typeof v === 'number' ? v : Number(v);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
@@ -121,14 +123,30 @@ export const toPaymentCoverage = (coverage: unknown): InvoicedCoverage | null =>
  *   reallocated proportionally over the remaining capacity in a second pass. What does not fit
  *   goes to `excluded`.
  *
- * Invoiced payments are processed before the others (each group in settlement order) so a new
- * invoice never claims capacity an issued invoice already covers.
+ * Invoiced coverages are processed first (every entry of `invoiced`, whether or not its payment
+ * is in `payments`) so a new invoice never claims capacity an issued invoice already covers.
+ *
+ * Each payment counts for its NET amount: `amount − refunded` (refunds COMPLETED, PROCESSING or
+ * PENDING, any method), capped at 0, so refunded money is never invoiced.
+ * `value + excluded = net` for payments without an active allocation. A negative, NaN or
+ * non-integer `amount`/`refunded` is a domain error.
  */
 export const reconcileCoverages = (
   order: CoverageOrderState,
-  payments: { id: number; amount: number; coverage: unknown }[],
+  payments: { id: number; amount: number; refunded?: number; coverage: unknown }[],
   invoiced: Map<number, InvoicedCoverage>
 ): Map<number, ReconciledCoverage> => {
+  const issues: ValidationIssue[] = [];
+  const net = new Map<number, number>();
+  payments.forEach((p, i) => {
+    const amount = p.amount;
+    const refunded = p.refunded ?? 0;
+    if (!isCents(amount)) issues.push({ path: `payments.${i}.amount`, code: 'invalid_amount' });
+    if (!isCents(refunded)) issues.push({ path: `payments.${i}.refunded`, code: 'invalid_amount' });
+    net.set(p.id, Math.max(0, amount - refunded));
+  });
+  if (issues.length) throw new EcommerceValidationError('Invalid payment amounts', issues);
+
   const { lineDue, shippingDue } = coverageDues(order);
   const lineIds = order.lines.map((l) => l.id);
   const index = new Map(lineIds.map((id, i) => [id, i]));
@@ -145,27 +163,30 @@ export const reconcileCoverages = (
   const result = new Map<number, ReconciledCoverage>();
   const pending: { id: number; amount: number; taken: number[]; orphan: number }[] = [];
 
-  for (const p of payments) {
-    const fixed = invoiced.get(p.id);
-    if (!fixed) continue;
+  for (const fixed of invoiced.values()) {
     for (const l of fixed.lines) {
       const slot = index.get(l.orderLineId);
       if (slot !== undefined) consume(slot, l.value);
     }
     consume(shippingSlot, fixed.shipping);
+  }
+
+  for (const p of payments) {
+    const fixed = invoiced.get(p.id);
+    if (!fixed) continue;
     const value = fixed.lines.reduce((s, l) => s + l.value, 0) + fixed.shipping;
     result.set(p.id, {
       paymentId: p.id,
       lines: fixed.lines.map((l) => ({ ...l })),
       shipping: fixed.shipping,
       value,
-      excluded: Math.max(0, cents(p.amount) - value),
+      excluded: Math.max(0, net.get(p.id)! - value),
     });
   }
 
   for (const p of payments) {
     if (invoiced.has(p.id)) continue;
-    const amount = cents(p.amount);
+    const amount = net.get(p.id)!;
     const source = toPaymentCoverage(p.coverage);
     const taken = capacity.map(() => 0);
     let budget = amount;
@@ -218,6 +239,11 @@ export const invoiceableByPayment = (
 // Invoice lines and customer
 // ---------------------------------------------------------------------------
 
+/**
+ * Invoice lines for the given coverages, in line order, shipping last. Coverage value on a line
+ * that is missing or has lineDue 0 is a domain error (`coverage_mismatch`): Σ totals always equals
+ * Σ coverage value.
+ */
 export const buildInvoiceLines = (
   coverages: ReconciledCoverage[],
   order: InvoiceOrderState,
@@ -231,11 +257,19 @@ export const buildInvoiceLines = (
     shippingValue += c.shipping;
   }
 
+  const mismatch = () =>
+    new EcommerceValidationError('Invoice coverage does not match the order lines', [
+      { path: 'coverage', code: 'coverage_mismatch' },
+    ]);
+  const known = new Set(order.lines.map((l) => l.id));
+  for (const [id, value] of byLine) if (value > 0 && !known.has(id)) throw mismatch();
+
   const out: InvoiceLine[] = [];
   order.lines.forEach((l, i) => {
     const due = lineDue[i];
     const value = byLine.get(l.id) ?? 0;
-    if (due <= 0 || value <= 0) return;
+    if (value <= 0) return;
+    if (due <= 0) throw mismatch();
     const effectiveQty = l.quantity - l.returnedQuantity;
     const scaled = effectiveQty * value;
     const whole = scaled % due === 0 && scaled / due >= 1;
@@ -298,7 +332,7 @@ const lineKey = (l: InvoiceLine): number | 'SHIPPING' =>
  * every due is 0. Only positive entries are returned.
  */
 export const overInvoiced = (
-  order: CoverageOrderState & { status?: OrderStatus },
+  order: CoverageOrderState & { status: OrderStatus },
   issued: { kind: 'INVOICE' | 'CREDIT_NOTE'; lines: InvoiceLine[] }[]
 ): OverInvoiced => {
   const cancelled = order.status === 'CANCELLED';
