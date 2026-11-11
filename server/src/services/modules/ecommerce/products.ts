@@ -1,5 +1,4 @@
 import type { Core } from '@strapi/strapi';
-import { errors } from '@strapi/utils';
 import { PLUGIN_ID, LtbConfigs } from '../../../config';
 import {
   FieldError,
@@ -11,6 +10,7 @@ import {
   validateProductInput,
 } from './domain/catalog';
 import type { ImageRecord } from './images';
+import { EcommerceNotFoundError, EcommerceValidationError } from './errors';
 
 const PAGE_SIZE = 50 as const;
 
@@ -90,12 +90,12 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
     }
 
     if (errorList.length) {
-      throw new errors.ValidationError('Invalid product', { errors: errorList });
+      throw new EcommerceValidationError('Invalid product', errorList);
     }
 
     if (productId !== null) {
       const found = await strapi.db.query(u.product).findOne({ where: { id: productId } });
-      if (!found) throw new errors.NotFoundError('Product not found');
+      if (!found) throw new EcommerceNotFoundError('Product not found');
     }
 
     return strapi.db.transaction(async () => {
@@ -274,7 +274,7 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
           variants: { populate: { translations: true, images: true } },
         },
       });
-      if (!p) throw new errors.NotFoundError('Product not found');
+      if (!p) throw new EcommerceNotFoundError('Product not found');
 
       const translations: ProductInput['translations'] = {};
       for (const t of p.translations ?? []) {

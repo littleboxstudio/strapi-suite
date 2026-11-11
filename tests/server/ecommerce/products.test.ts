@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { EcommerceValidationError, EcommerceNotFoundError } from '../../../server/src/services/modules/ecommerce/errors';
 import EcommerceProductService from '../../../server/src/services/modules/ecommerce/products';
 
 const P = 'plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-';
@@ -209,15 +210,15 @@ describe('EcommerceProductService', () => {
     await service.create(input('Camisa', [variant('DUP')]));
     const before = JSON.stringify(tables);
     const err: any = await service.create(input('Outra', [variant('OK'), variant('DUP')])).catch((e) => e);
-    expect(err.name).toBe('ValidationError');
-    expect(err.details.errors).toContainEqual({ path: 'variants.1.sku', code: 'duplicate_sku' });
+    expect(err).toBeInstanceOf(EcommerceValidationError);
+    expect(err.errors).toContainEqual({ path: 'variants.1.sku', code: 'duplicate_sku' });
     expect(JSON.stringify(tables)).toBe(before);
   });
 
   it('returns validation errors from domain rules', async () => {
     const { service } = makeStrapi();
     const err: any = await service.create(input('', [])).catch((e) => e);
-    expect(err.details.errors.map((e: any) => e.code)).toEqual(
+    expect(err.errors.map((e: any) => e.code)).toEqual(
       expect.arrayContaining(['required', 'min_variants'])
     );
   });
@@ -280,5 +281,13 @@ describe('EcommerceProductService', () => {
       { code: 'en', name: 'English' },
       { code: 'pt', name: 'Portuguese' },
     ]);
+  });
+
+  it('get and update throw EcommerceNotFoundError for a missing product', async () => {
+    const { service } = makeStrapi();
+    await expect(service.get(999)).rejects.toBeInstanceOf(EcommerceNotFoundError);
+    await expect(service.update(999, input('Camisa', [variant('A')]))).rejects.toBeInstanceOf(
+      EcommerceNotFoundError
+    );
   });
 });
