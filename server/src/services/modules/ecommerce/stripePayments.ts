@@ -547,7 +547,26 @@ const EcommerceStripePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
     }
   };
 
-  return { getOrCreatePaymentLink, completeFromSession, expireOpenSessions };
+  /**
+   * True when a Checkout Session of the order is COMPLETE and its STRIPE payment still PENDING:
+   * an asynchronous method (e.g. Multibanco) awaiting confirmation. The order view does not
+   * carry session states, so the storefront status reads it here.
+   */
+  const hasPendingCompletedStripeSession = async (rawOrderId: number | string): Promise<boolean> => {
+    const orderId = Number(rawOrderId);
+    if (!Number.isSafeInteger(orderId) || orderId <= 0) return false;
+    const complete = await sessionsOf(orderId, 'COMPLETE');
+    return complete.some(
+      (s) => s.payment && s.payment.method === 'STRIPE' && s.payment.status === 'PENDING'
+    );
+  };
+
+  return {
+    getOrCreatePaymentLink,
+    completeFromSession,
+    expireOpenSessions,
+    hasPendingCompletedStripeSession,
+  };
 };
 
 export default EcommerceStripePaymentService;
