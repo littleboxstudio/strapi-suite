@@ -16,7 +16,13 @@ import type {
   CustomerOrderListParams,
   CreateRefundInput,
   CreateShipmentInput,
+  CreditNoteInput,
+  CreditNotePreview,
   DeliveryInput,
+  InvoicePreview,
+  InvoiceScopeInput,
+  InvoiceView,
+  IssueInvoiceInput,
   IssueStoreCreditInput,
   ManualPaymentInput,
   ModificationApplied,
@@ -105,6 +111,16 @@ export default interface EcommerceOrdersGateway {
   /** The carrier label PDF; an error carries the API body (`response.data`) like the JSON calls. */
   fetchShipmentLabel(shipmentId: number): Promise<Blob>;
   registerReturn(orderId: number, input: RegisterReturnInput): Promise<ReturnRegistered>;
+
+  // Invoices and credit notes (read: orders.read; write: invoicing.manage)
+  fetchInvoicePreview(orderId: number, scope: InvoiceScopeInput): Promise<InvoicePreview>;
+  issueInvoice(orderId: number, input: IssueInvoiceInput): Promise<InvoiceView>;
+  /** Looks the document up at the provider by its reference, or (`markFailed`) gives it up. */
+  reconcileInvoice(invoiceId: number, markFailed: boolean): Promise<InvoiceView>;
+  /** The invoice PDF from its provider; an error carries the API body like the JSON calls. */
+  fetchInvoicePdf(invoiceId: number): Promise<Blob>;
+  fetchCreditNotePreview(invoiceId: number): Promise<CreditNotePreview>;
+  issueCreditNote(invoiceId: number, input: CreditNoteInput): Promise<InvoiceView>;
 }
 
 export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
@@ -268,11 +284,14 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
     return this.httpClient.post(`${this.base}/shipments/${shipmentId}/cancel`, reason ? { reason } : {});
   }
 
-  async fetchShipmentLabel(shipmentId: number): Promise<Blob> {
+  /**
+   * A binary download through the admin fetch client (the token goes in the Authorization header,
+   * never in the URL). Error statuses come back as a blob too (401 still throws, so the session
+   * can refresh): their JSON body is read so the caller sees the error code.
+   */
+  private async fetchBlob(url: string): Promise<Blob> {
     const { get } = getFetchClient();
-    // Error statuses come back as a blob too (401 still throws, so the session can refresh):
-    // their JSON body is read so the caller sees the error code.
-    const res = await get(`/${config.pluginId}/admin/ecommerce/shipments/${shipmentId}/label`, {
+    const res = await get(url, {
       responseType: 'blob',
       validateStatus: (status: number) => status !== 401,
     });
@@ -284,12 +303,40 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
       } catch {
         data = null;
       }
-      throw Object.assign(new Error('Label request failed'), { status, response: { data } });
+      throw Object.assign(new Error('Download failed'), { status, response: { data } });
     }
     return res.data;
   }
 
+  async fetchShipmentLabel(shipmentId: number): Promise<Blob> {
+    return this.fetchBlob(`${this.base}/shipments/${shipmentId}/label`);
+  }
+
   async registerReturn(orderId: number, input: RegisterReturnInput): Promise<ReturnRegistered> {
     return this.httpClient.post(`${this.orders}/${orderId}/returns`, input);
+  }
+
+  async fetchInvoicePreview(orderId: number, scope: InvoiceScopeInput): Promise<InvoicePreview> {
+    return this.httpClient.get(`${this.orders}/${orderId}/invoice-preview${objectToQueryString(scope)}`);
+  }
+
+  async issueInvoice(orderId: number, input: IssueInvoiceInput): Promise<InvoiceView> {
+    return this.httpClient.post(`${this.orders}/${orderId}/invoices`, input);
+  }
+
+  async reconcileInvoice(invoiceId: number, markFailed: boolean): Promise<InvoiceView> {
+    return this.httpClient.post(`${this.base}/invoices/${invoiceId}/reconcile`, markFailed ? { markFailed: true } : {});
+  }
+
+  async fetchInvoicePdf(invoiceId: number): Promise<Blob> {
+    return this.fetchBlob(`${this.base}/invoices/${invoiceId}/pdf`);
+  }
+
+  async fetchCreditNotePreview(invoiceId: number): Promise<CreditNotePreview> {
+    return this.httpClient.get(`${this.base}/invoices/${invoiceId}/credit-note/preview`);
+  }
+
+  async issueCreditNote(invoiceId: number, input: CreditNoteInput): Promise<InvoiceView> {
+    return this.httpClient.post(`${this.base}/invoices/${invoiceId}/credit-note`, input);
   }
 }

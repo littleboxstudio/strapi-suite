@@ -225,7 +225,7 @@ const ACTION_PERMISSION: { action: OrderActionKey; needs: 'canManage' | 'canPay'
 ];
 
 export type OrderActionPermissions = { canManage: boolean; canPay: boolean; canRefund: boolean };
-/** Actions this screen has a button for. Invoices arrive with Task 13. */
+/** Toolbar actions. INVOICE_TOTAL is a button of the invoices section, not of the toolbar. */
 export type ToolbarAction =
   | 'SHIP'
   | 'MODIFY'
@@ -262,8 +262,8 @@ export function allowedToolbarActions(
 }
 
 /**
- * Error codes of the payment, refund, store credit, notification, shipment and return endpoints
- * that have a message under `ecommerce.orders.errors.<code>`.
+ * Error codes of the payment, refund, store credit, notification, shipment, return and invoice
+ * endpoints that have a message under `ecommerce.orders.errors.<code>`.
  */
 export const API_ERROR_CODES = [
   'ACTION_NOT_AVAILABLE',
@@ -330,6 +330,20 @@ export const API_ERROR_CODES = [
   'invalid_shipped_at',
   'before_shipment',
   'in_future',
+  // Invoices and credit notes (plan 5)
+  'BILLING_NOT_CONFIGURED',
+  'BILLING_PROVIDER_AMBIGUOUS',
+  'BILLING_CONFIG_MISSING',
+  'BILLING_AUTH_FAILED',
+  'BILLING_UNREACHABLE',
+  'BILLING_REQUEST_FAILED',
+  'BILLING_TAX_NOT_FOUND',
+  'BILLING_EXEMPTION_REASON_MISSING',
+  'INVOICE_PDF_UNAVAILABLE',
+  'PAYMENT_NOT_INVOICEABLE',
+  'NOTHING_TO_INVOICE',
+  'exceeds_creditable',
+  'coverage_mismatch',
 ] as const;
 
 /**

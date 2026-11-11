@@ -1,7 +1,8 @@
 import { useIntl } from 'react-intl';
-import { Badge, Box, Table, Tbody, Td, Th, Thead, Tr, Typography } from '@strapi/design-system';
+import { Badge, Box, Button, Flex, Table, Tbody, Td, Th, Thead, Tr, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { formatCents } from '../../utils/money';
+import { invoiceStatusTone } from '../../utils/invoiceForm';
 import type { OrderPayment } from '../../orderTypes';
 
 const COLUMNS = ['method', 'amount', 'reference', 'status', 'date', 'actions'] as const;
@@ -13,8 +14,17 @@ const STATUS_VARIANT: Record<string, 'warning' | 'success' | 'neutral' | 'danger
   FAILED: 'danger',
 };
 
-/** The order's individual payments (requirement 7.2). Row actions arrive with plan 4. */
-const PaymentsTable = ({ payments }: { payments: OrderPayment[] }) => {
+type Props = {
+  payments: OrderPayment[];
+  /** `invoicing.manage`: "Generate invoice" on payments with something left to invoice. */
+  canInvoice?: boolean;
+  /** No active billing provider: the button stays disabled (the invoices section says why). */
+  billingActive?: boolean;
+  onInvoice?: (paymentId: number) => void;
+};
+
+/** The order's individual payments (requirement 7.2), with their invoice. */
+const PaymentsTable = ({ payments, canInvoice = false, billingActive = false, onInvoice }: Props) => {
   const { formatMessage, formatDate, locale: uiLocale } = useIntl();
   const t = (id: string, defaultMessage?: string) =>
     formatMessage({ id: getTranslation(id), defaultMessage });
@@ -68,7 +78,20 @@ const PaymentsTable = ({ payments }: { payments: OrderPayment[] }) => {
                   {date ? formatDate(date, { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
                 </Typography>
               </Td>
-              <Td />
+              <Td>
+                <Flex gap={2} justifyContent="flex-end" alignItems="center" wrap="wrap">
+                  {p.invoice?.status && (
+                    <Badge variant={invoiceStatusTone(p.invoice.status)} size="S">
+                      {t(`ecommerce.orders.detail.payments.invoice.${p.invoice.status}`, p.invoice.status)}
+                    </Badge>
+                  )}
+                  {canInvoice && onInvoice && (p.invoice?.invoiceable ?? 0) > 0 && (
+                    <Button size="S" variant="secondary" disabled={!billingActive} onClick={() => onInvoice(p.id)}>
+                      {t('ecommerce.orders.invoices.generate')}
+                    </Button>
+                  )}
+                </Flex>
+              </Td>
             </Tr>
           );
         })}

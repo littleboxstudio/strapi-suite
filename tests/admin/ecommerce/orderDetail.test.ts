@@ -502,6 +502,31 @@ describe('apiErrorCode / apiErrorMessageId', () => {
     );
   });
 
+  it('covers every code the invoicing endpoints return', () => {
+    expect(API_ERROR_CODES).toEqual(
+      expect.arrayContaining([
+        'BILLING_NOT_CONFIGURED',
+        'BILLING_PROVIDER_AMBIGUOUS',
+        'BILLING_CONFIG_MISSING',
+        'BILLING_AUTH_FAILED',
+        'BILLING_UNREACHABLE',
+        'BILLING_REQUEST_FAILED',
+        'BILLING_TAX_NOT_FOUND',
+        'BILLING_EXEMPTION_REASON_MISSING',
+        'INVOICE_PDF_UNAVAILABLE',
+        'PAYMENT_NOT_INVOICEABLE',
+        'NOTHING_TO_INVOICE',
+        'exceeds_creditable',
+        'coverage_mismatch',
+      ])
+    );
+  });
+
+  it('points BILLING_NOT_CONFIGURED to Settings → Billing', () => {
+    expect(en[`${P}ecommerce.orders.errors.BILLING_NOT_CONFIGURED`]).toMatch(/Settings → Billing/);
+    expect(pt[`${P}ecommerce.orders.errors.BILLING_NOT_CONFIGURED`]).toMatch(/Configurações → Faturação/);
+  });
+
   it.each(API_ERROR_CODES)('%s has an en and a pt message', (code) => {
     const key = `${P}ecommerce.orders.errors.${code}`;
     expect(en[key]).toEqual(expect.any(String));

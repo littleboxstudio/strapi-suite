@@ -376,7 +376,9 @@ describe('EcommerceInvoiceService.issue', () => {
       new EcommerceBillingError('BILLING_UNREACHABLE', 'BILLING_UNREACHABLE', true)
     );
     const view = await inv.issue(id, TOTAL, { idempotencyKey: 'k1' }, 'user:1');
+    expect(view.reconcilable).toBe(true);
     const res = await inv.reconcile(view.id, { markFailed: true }, 'user:7');
+    expect(res.reconcilable).toBe(false);
     expect(res.status).toBe('FAILED');
     expect(provider.findByReference).not.toHaveBeenCalled();
     expect(allocations(c)[0].uniqueKey).toBeNull();
@@ -393,7 +395,9 @@ describe('EcommerceInvoiceService.issue', () => {
     expect(await codesOf(inv.reconcile(view.id, {}, 'user:1'))).toEqual(['ACTION_NOT_AVAILABLE']);
     row.createdAt = new Date(Date.now() - 3 * 60 * 1000).toISOString();
     expect(await codesOf(inv.reconcile(view.id, {}, 'user:1'))).toEqual(['ACTION_NOT_AVAILABLE']);
+    expect((await c.orders.get(id)).invoices[0].reconcilable).toBe(false);
     row.createdAt = new Date(Date.now() - 6 * 60 * 1000).toISOString();
+    expect((await c.orders.get(id)).invoices[0].reconcilable).toBe(true);
     expect((await inv.reconcile(view.id, {}, 'user:1')).status).toBe('FAILED');
   });
 
