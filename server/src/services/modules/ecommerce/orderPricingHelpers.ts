@@ -5,7 +5,9 @@
 import type { ValidationIssue } from './errors';
 import type { PromotionEvaluation } from './domain/promotions';
 
-export const MAX_PROMOTION_CODES = 5;
+import { MAX_PROMOTION_CODES } from './domain/storefront/limits';
+
+export { MAX_PROMOTION_CODES };
 
 export type CatalogVariant = {
   variantId: number;

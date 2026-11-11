@@ -797,6 +797,9 @@ describe('EcommerceStorefrontCheckoutService', () => {
       await expect(
         t.checkout.orderStatus(b.s, '00000000-0000-4000-8000-000000000000')
       ).rejects.toBeInstanceOf(EcommerceNotFoundError);
+      await expect(
+        t.checkout.paymentLink(b.s, '00000000-0000-4000-8000-000000000000')
+      ).rejects.toBeInstanceOf(EcommerceNotFoundError);
       expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
       expect(t.c.log.warn).toHaveBeenCalledWith('[ecommerce:storefront] ORDER_ACCESS_DENIED');
     });
@@ -902,6 +905,65 @@ describe('EcommerceStorefrontCheckoutService', () => {
       const get = vi.spyOn(t.c.orders, 'get');
       await t.checkout.orderStatus(s, r.publicId);
       expect(get).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('fix round 1', () => {
+    it('F1: placeOrder caps the quantity per line at 1000, like quote', async () => {
+      const t = setup();
+      const { s } = await t.open();
+      expect(
+        await failure(
+          t.checkout.placeOrder(
+            s,
+            t.orderInput({ lines: [{ variantId: 10, quantity: 1001 }] }),
+            'key-0000050'
+          )
+        )
+      ).toEqual([{ path: 'lines.0.quantity', code: 'invalid' }]);
+      expect(t.c.tables[UIDS.order]).toHaveLength(0);
+    });
+
+    it('F2: a replay never clears the cart rebuilt since the order', async () => {
+      const t = setup();
+      const { token, s } = await t.open();
+      const first = await t.checkout.placeOrder(s, t.orderInput(), 'key-0000051');
+      await t.checkout.quote(
+        s,
+        t.cart({ lines: [{ variantId: 10, quantity: 1 }], promotionCodes: ['X'] })
+      );
+      const clearCart = vi.spyOn(t.sessions, 'clearCart');
+      const again = await t.checkout.placeOrder(s, t.orderInput(), 'key-0000051');
+      expect(again).toEqual(first);
+      expect(clearCart).not.toHaveBeenCalled();
+      expect(t.storedCart(token)).toMatchObject({
+        lines: [{ variantId: 10, quantity: 1 }],
+        promotionCodes: ['X'],
+      });
+    });
+
+    it('F3: an AWAITING_SHIPPING code is saved (not applied)', async () => {
+      const t = setup();
+      t.addPromotion(1, {
+        method: 'CODE',
+        code: 'PORTES',
+        benefits: { items: [{ type: 'SHIPPING_FREE', maxAmount: null }] },
+      });
+      const { token, s } = await t.open();
+      const r = await t.checkout.applyDiscount(s, { ...t.cart(), code: 'portes' });
+      expect(r).toMatchObject({ code: 'PORTES', status: 'AWAITING_SHIPPING', applied: false });
+      expect(t.storedCart(token).promotionCodes).toEqual(['PORTES']);
+    });
+
+    it('F5: createdAt is an ISO string, or null when missing', async () => {
+      const t = setup();
+      const { s } = await t.open();
+      const r = await t.checkout.placeOrder(s, t.orderInput(), 'key-0000052');
+      expect((await t.checkout.orderStatus(s, r.publicId)).createdAt).toBeNull();
+      t.c.tables[UIDS.order][0].createdAt = new Date('2026-11-11T10:00:00.000Z');
+      expect((await t.checkout.orderStatus(s, r.publicId)).createdAt).toBe(
+        '2026-11-11T10:00:00.000Z'
+      );
     });
   });
 

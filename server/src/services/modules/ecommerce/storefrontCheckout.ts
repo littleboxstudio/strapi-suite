@@ -14,9 +14,22 @@ import {
   type QuoteSource,
 } from './domain/storefront/publicViews';
 import { EcommerceNotFoundError, EcommerceValidationError, type ValidationIssue } from './errors';
-import { MAX_PROMOTION_CODES, isRecord } from './orderPricingHelpers';
+import { isRecord } from './orderPricingHelpers';
 import type { Address, PaymentStatus } from './domain/orders';
-import { MAX_STORE_CREDIT_CODE_LENGTH, type OrderQuote, type OrderState } from './orders';
+import type { CreatedOrder, OrderQuote, OrderState } from './orders';
+import {
+  MAX_CART_GIFT_CHOICES,
+  MAX_CART_LINES,
+  MAX_EMAIL_LENGTH,
+  MAX_LINE_QUANTITY,
+  MAX_LOCALE_LENGTH,
+  MAX_POSTAL_CODE_LENGTH,
+  MAX_PROMOTION_CODES,
+  MAX_PROMOTION_CODE_LENGTH,
+  MAX_SHIPPING_ID_LENGTH,
+  MAX_STORE_CREDIT_CODE_LENGTH,
+  MAX_STOREFRONT_IDEMPOTENCY_KEY_LENGTH,
+} from './domain/storefront/limits';
 import type { ShippingOption } from './shipping';
 import { normalizeStoreCreditCode } from './storeCredits';
 import type { CheckoutSession, StoredCart } from './storefrontSessions';
@@ -71,17 +84,6 @@ export type StorefrontPaymentLink = {
   reused: boolean;
 };
 
-/** Cart bounds (saveCart stores only a validated, bounded cart). */
-export const MAX_CART_LINES = 100;
-export const MAX_LINE_QUANTITY = 1000;
-export const MAX_CART_GIFT_CHOICES = 10;
-const MAX_PROMOTION_CODE_LENGTH = 40;
-const MAX_EMAIL_LENGTH = 254;
-const MAX_POSTAL_CODE_LENGTH = 20;
-const MAX_LOCALE_LENGTH = 35;
-const MAX_SHIPPING_ID_LENGTH = 100;
-/** `sf:<sessionId>:<key>` and the derived `<…>:store-credit` stay within the order key cap. */
-export const MAX_STOREFRONT_IDEMPOTENCY_KEY_LENGTH = 150;
 const LOG_PREFIX = '[ecommerce:storefront]';
 
 const num = (v: unknown): number => {
@@ -104,6 +106,24 @@ const positiveInt = (v: unknown, max = Number.MAX_SAFE_INTEGER): boolean =>
 const invalid = (errors: ValidationIssue[]) =>
   new EcommerceValidationError('Invalid request', errors);
 
+/** 0–100 lines with integer ids and quantities in [1, MAX_LINE_QUANTITY] (cart and order alike). */
+const cartLines = (raw: unknown, errors: ValidationIssue[]): StoredCart['lines'] => {
+  const lines: StoredCart['lines'] = [];
+  if (!Array.isArray(raw)) errors.push({ path: 'lines', code: 'invalid' });
+  else if (raw.length > MAX_CART_LINES) errors.push({ path: 'lines', code: 'too_many' });
+  else {
+    raw.forEach((l: unknown, i: number) => {
+      const line = isRecord(l) ? l : {};
+      if (!positiveInt(line.variantId)) {
+        errors.push({ path: `lines.${i}.variantId`, code: 'invalid' });
+      } else if (!positiveInt(line.quantity, MAX_LINE_QUANTITY)) {
+        errors.push({ path: `lines.${i}.quantity`, code: 'invalid' });
+      } else lines.push({ variantId: line.variantId as number, quantity: line.quantity as number });
+    });
+  }
+  return lines;
+};
+
 /**
  * Validates and bounds a cart before it is stored or priced: 0–100 lines with integer ids and
  * quantities in [1, 1000], at most 5 codes of ≤ 40 characters (normalised, without duplicates),
@@ -113,19 +133,7 @@ const toCart = (input: unknown): StoredCart => {
   const c = isRecord(input) ? input : {};
   const errors: ValidationIssue[] = [];
 
-  const lines: StoredCart['lines'] = [];
-  if (!Array.isArray(c.lines)) errors.push({ path: 'lines', code: 'invalid' });
-  else if (c.lines.length > MAX_CART_LINES) errors.push({ path: 'lines', code: 'too_many' });
-  else {
-    c.lines.forEach((l: unknown, i: number) => {
-      const line = isRecord(l) ? l : {};
-      if (!positiveInt(line.variantId))
-        errors.push({ path: `lines.${i}.variantId`, code: 'invalid' });
-      else if (!positiveInt(line.quantity, MAX_LINE_QUANTITY)) {
-        errors.push({ path: `lines.${i}.quantity`, code: 'invalid' });
-      } else lines.push({ variantId: line.variantId as number, quantity: line.quantity as number });
-    });
-  }
+  const lines = cartLines(c.lines, errors);
 
   const locale = boundedString(c.locale, MAX_LOCALE_LENGTH);
   if (!locale) errors.push({ path: 'locale', code: 'required' });
@@ -262,7 +270,7 @@ const EcommerceStorefrontCheckoutService = ({ strapi }: { strapi: Core.Strapi })
     create(
       input: Record<string, unknown>,
       ctx: { actor: string; source: 'storefront'; checkoutSessionId: number }
-    ): Promise<{ id: number; reference: number; publicId: string; total: number }>;
+    ): Promise<CreatedOrder>;
     computeOrderState(orderId: number): Promise<OrderState>;
   } => service('EcommerceOrderService');
   const sessions = () => service('EcommerceStorefrontSessionService');
@@ -356,7 +364,8 @@ const EcommerceStorefrontCheckoutService = ({ strapi }: { strapi: Core.Strapi })
     const status: PublicCodeStatus =
       priced.codes.find((c) => normalizePromotionCode(c.code) === code)?.status ?? 'NOT_FOUND';
     const applied = status === 'APPLIED';
-    if (applied) await sessions().saveCart(s.id, cart);
+    // A shipping code waits for a delivery method: keep it so it applies once one is chosen.
+    if (applied || status === 'AWAITING_SHIPPING') await sessions().saveCart(s.id, cart);
     return { code, status, message: codeStatusMessage(status, locale), applied, quote: priced };
   };
 
@@ -414,13 +423,13 @@ const EcommerceStorefrontCheckoutService = ({ strapi }: { strapi: Core.Strapi })
     if (typeof input?.expectedTotal !== 'number') {
       throw invalid([{ path: 'expectedTotal', code: 'required' }]);
     }
-    if (Array.isArray(input.lines) && input.lines.length > MAX_CART_LINES) {
-      throw invalid([{ path: 'lines', code: 'too_many' }]);
-    }
+    const lineErrors: ValidationIssue[] = [];
+    const lines = cartLines(input.lines, lineErrors);
+    if (lineErrors.length) throw invalid(lineErrors);
     await assertSessionLive(s);
 
     const email = input.customer?.email;
-    let created: { id: number; reference: number; publicId: string; total: number };
+    let created: CreatedOrder;
     try {
       created = await orders().create(
         {
@@ -428,7 +437,7 @@ const EcommerceStorefrontCheckoutService = ({ strapi }: { strapi: Core.Strapi })
           shippingAddress: input.shippingAddress,
           billingAddress: input.billingAddress ?? input.shippingAddress,
           locale: input.locale,
-          lines: input.lines,
+          lines,
           shipping: input.shippingMethod,
           notes: input.notes,
           promotionCodes: input.promotionCodes,
@@ -448,12 +457,15 @@ const EcommerceStorefrontCheckoutService = ({ strapi }: { strapi: Core.Strapi })
       throw err;
     }
 
-    try {
-      await sessions().clearCart(s.id);
-    } catch (err) {
-      strapi.log.error(
-        `${LOG_PREFIX} cart clear failed after order: ${(err as Error)?.message ?? 'unknown error'}`
-      );
+    // A replay never clears the cart: it may have been rebuilt since the order.
+    if (!created.replayed) {
+      try {
+        await sessions().clearCart(s.id);
+      } catch (err) {
+        strapi.log.error(
+          `${LOG_PREFIX} cart clear failed after order: ${(err as Error)?.message ?? 'unknown error'}`
+        );
+      }
     }
 
     const state = await orders().computeOrderState(created.id);
@@ -489,10 +501,7 @@ const EcommerceStorefrontCheckoutService = ({ strapi }: { strapi: Core.Strapi })
     const orderId = await ownedOrderId(s, publicId);
     const state = await orders().computeOrderState(orderId);
     const { order } = state;
-    const createdAt =
-      order.createdAt instanceof Date
-        ? order.createdAt.toISOString()
-        : String(order.createdAt ?? '');
+    const createdAt = isoOrNull(order.createdAt);
     const source: OrderStatusSource = {
       publicId: order.publicId,
       reference: order.reference,

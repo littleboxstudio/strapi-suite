@@ -70,6 +70,7 @@ import {
   type PromotionEvaluation,
 } from './domain/promotions';
 import { createOrderPricing } from './orderPricing';
+import { MAX_STORE_CREDIT_CODE_LENGTH } from './domain/storefront/limits';
 import {
   MAX_PROMOTION_CODES,
   isRecord,
@@ -130,10 +131,16 @@ export type CreateOrderContext = {
   checkoutSessionId?: number;
 };
 
-/** What `create` returns, also on an idempotent replay. */
-export type CreatedOrder = { id: number; reference: number; publicId: string; total: number };
+/** What `create` returns; an idempotent replay (stored order returned) adds `replayed: true`. */
+export type CreatedOrder = {
+  id: number;
+  reference: number;
+  publicId: string;
+  total: number;
+  replayed?: true;
+};
 
-export const MAX_STORE_CREDIT_CODE_LENGTH = 64;
+export { MAX_STORE_CREDIT_CODE_LENGTH };
 /** Derived keys (`<key>:store-credit`, storefront `sf:<sessionId>:<key>`) fit a varchar(255). */
 export const MAX_ORDER_IDEMPOTENCY_KEY_LENGTH = 200;
 
@@ -766,7 +773,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     const replayKey = clean(input?.idempotencyKey);
     if (replayKey) {
       const existing = await findByIdempotencyKey(replayKey);
-      if (existing) return existing;
+      if (existing) return { ...existing, replayed: true };
     }
 
     const v = await validateInput(input);
@@ -999,7 +1006,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         // A concurrent request with the same key committed first: that order is the answer.
         if (v.idempotencyKey) {
           const existing = await findByIdempotencyKey(v.idempotencyKey);
-          if (existing) return existing;
+          if (existing) return { ...existing, replayed: true };
         }
         if (i + 1 < MAX_CREATE_ATTEMPTS) await retryPause();
       }
