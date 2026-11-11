@@ -202,6 +202,18 @@ function normalizeStorePatch(patch: Record<string, unknown>): {
   return { values: values as Partial<StoreSettings>, errors };
 }
 
+/**
+ * `store-setting.value` is a json column. MariaDB/MySQL enforce CHECK(json_valid(value)) and the
+ * Query Engine passes strings through unencoded, so every value is stored as `{ v: <value> }`.
+ */
+const wrapStoreValue = (value: unknown): { v: unknown } => ({ v: value ?? null });
+
+/** Unwraps `{ v }`; rows written before the wrapper existed hold the raw value. */
+const unwrapStoreValue = (stored: unknown): unknown =>
+  stored && typeof stored === 'object' && !Array.isArray(stored) && 'v' in stored
+    ? (stored as { v: unknown }).v
+    : stored;
+
 function normalizeManualMethod(
   input: ManualMethodInput,
   defaultLocale: string
@@ -359,7 +371,9 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
     const rows: { key: string; value: unknown }[] = await strapi.db.query(uids().storeSetting).findMany({});
     const settings: Record<string, unknown> = { ...STORE_SETTINGS_DEFAULTS };
     for (const r of rows) {
-      if (r.key in STORE_SETTINGS_DEFAULTS && r.value !== undefined) settings[r.key] = r.value;
+      if (!(r.key in STORE_SETTINGS_DEFAULTS)) continue;
+      const value = unwrapStoreValue(r.value);
+      if (value !== undefined) settings[r.key] = value;
     }
     return settings as StoreSettings;
   };
@@ -543,7 +557,7 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
       );
       await strapi.db.transaction(async () => {
         for (const k of changedFields) {
-          const value = (values as any)[k];
+          const value = wrapStoreValue((values as any)[k]);
           const existing = await q().findOne({ where: { key: k } });
           if (existing) await q().update({ where: { id: existing.id }, data: { value } });
           else await q().create({ data: { key: k, value } });
