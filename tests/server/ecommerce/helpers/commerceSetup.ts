@@ -9,6 +9,7 @@ import EcommerceStockService from '../../../../server/src/services/modules/ecomm
 import EcommerceCustomerService from '../../../../server/src/services/modules/ecommerce/customers';
 import EcommerceStoreCreditService from '../../../../server/src/services/modules/ecommerce/storeCredits';
 import EcommerceRefundService from '../../../../server/src/services/modules/ecommerce/refunds';
+import EcommerceNotificationService from '../../../../server/src/services/modules/ecommerce/notifications';
 import { createEventBus } from '../../../../server/src/services/modules/ecommerce/events';
 import { createFakeDb, type FakeRelations } from './fakeDb';
 
@@ -30,6 +31,7 @@ export const UIDS = {
   storeCredit: `${P}store-credit`,
   storeCreditMovement: `${P}store-credit-movement`,
   webhookEvent: `${P}webhook-event`,
+  notification: `${P}notification`,
 };
 
 const RELATIONS: FakeRelations = {
@@ -64,6 +66,7 @@ const RELATIONS: FakeRelations = {
     sourceOrder: [UIDS.order, 'sourceOrder', 'manyToOne'],
     sourceRefund: [UIDS.refund, 'sourceRefund', 'manyToOne'],
   },
+  [UIDS.notification]: { order: [UIDS.order, 'order', 'manyToOne'] },
   [UIDS.storeCreditMovement]: {
     storeCredit: [UIDS.storeCredit, 'storeCredit', 'manyToOne'],
     order: [UIDS.order, 'order', 'manyToOne'],
@@ -73,7 +76,7 @@ const RELATIONS: FakeRelations = {
 };
 
 /** Full e-commerce service graph over the fake DB. Stripe is whatever the test file mocks. */
-export function setupCommerce(opts: { stripeActive?: boolean } = {}) {
+export function setupCommerce(opts: { stripeActive?: boolean; resendActive?: boolean } = {}) {
   const db = createFakeDb(Object.values(UIDS), RELATIONS, {
     enforceUnique: [
       UIDS.stockMovement,
@@ -84,6 +87,7 @@ export function setupCommerce(opts: { stripeActive?: boolean } = {}) {
       UIDS.storeCredit,
       UIDS.storeCreditMovement,
       UIDS.webhookEvent,
+      UIDS.notification,
     ],
   });
   const services: Record<string, any> = {};
@@ -130,7 +134,13 @@ export function setupCommerce(opts: { stripeActive?: boolean } = {}) {
             secrets: { secretKey: 'sk_test_x', webhookSecret: 'whsec_test_123' },
             active: opts.stripeActive ?? true,
           }
-        : null,
+        : id === 'resend' && opts.resendActive !== undefined
+          ? {
+              config: { fromEmail: 'shop@example.pt', fromName: 'Shop' },
+              secrets: { apiKey: 're_test_x' },
+              active: opts.resendActive,
+            }
+          : null,
   };
   services.EcommerceEventBus = { collector: bus.collector, subscribe: bus.subscribe };
   services.EcommerceOrderService = EcommerceOrderService({ strapi });
@@ -139,6 +149,13 @@ export function setupCommerce(opts: { stripeActive?: boolean } = {}) {
   services.EcommerceStripeWebhookService = EcommerceStripeWebhookService({ strapi });
   services.EcommerceStoreCreditService = EcommerceStoreCreditService({ strapi });
   services.EcommerceRefundService = EcommerceRefundService({ strapi });
+  services.EcommerceEmailTemplateService = {
+    render: vi.fn(async (type: string, locale: string, data: Record<string, unknown>) => ({
+      subject: `${type}:${locale}`,
+      html: JSON.stringify(data),
+    })),
+  };
+  services.EcommerceNotificationService = EcommerceNotificationService({ strapi });
 
   const t = db.tables;
   t[UIDS.product].push({ id: 1, active: true });
@@ -166,6 +183,8 @@ export function setupCommerce(opts: { stripeActive?: boolean } = {}) {
     storeCredits: services.EcommerceStoreCreditService,
     refunds: services.EcommerceRefundService,
     webhooks: services.EcommerceStripeWebhookService,
+    notifications: services.EcommerceNotificationService,
+    bus,
     tables: t,
     events,
     log,

@@ -22,6 +22,7 @@ import EcommerceStripePaymentService from './modules/ecommerce/stripePayments';
 import EcommerceStripeWebhookService from './modules/ecommerce/stripeWebhooks';
 import EcommerceStoreCreditService from './modules/ecommerce/storeCredits';
 import EcommerceRefundService from './modules/ecommerce/refunds';
+import EcommerceNotificationService from './modules/ecommerce/notifications';
 
 export default {
   SettingAppService,
@@ -48,4 +49,5 @@ export default {
   EcommerceStripeWebhookService,
   EcommerceStoreCreditService,
   EcommerceRefundService,
+  EcommerceNotificationService,
 };

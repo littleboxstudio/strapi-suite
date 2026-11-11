@@ -11,6 +11,7 @@ import {
   AfterUnpublishSlug
 } from './lifecycles';
 import { registerEcommercePermissions } from './services/modules/ecommerce/permissions';
+import { subscribeNotifications } from './services/modules/ecommerce/notifications';
 
 const bootstrap = async ({ strapi }: { strapi: Core.Strapi }) => {
   const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
@@ -122,6 +123,9 @@ const bootstrap = async ({ strapi }: { strapi: Core.Strapi }) => {
   }
 
   await registerEcommercePermissions(strapi);
+
+  // Customer e-mails on domain events (each event checks that the e-commerce module is active).
+  subscribeNotifications(strapi);
 
   try {
     await strapi.db.query(config.uuid.modules.template).createMany({
