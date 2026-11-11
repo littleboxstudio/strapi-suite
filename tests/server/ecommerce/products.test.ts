@@ -94,9 +94,7 @@ function makeStrapi() {
     },
   });
 
-  const imageService = { remove: vi.fn(async (id: number) => {
-    tables[UIDS.image] = tables[UIDS.image].filter((i) => i.id !== id);
-  }) };
+  const imageService = { remove: vi.fn(), removeFiles: vi.fn(async () => undefined) };
 
   const transaction = vi.fn(async (cb: () => Promise<any>) => {
     const snapshot = JSON.stringify(tables);
@@ -125,7 +123,7 @@ function makeStrapi() {
           }
         : { service: () => imageService },
   };
-  return { service: EcommerceProductService({ strapi }), tables, imageService };
+  return { service: EcommerceProductService({ strapi }), tables, imageService, transaction };
 }
 
 const variant = (sku: string, extra: any = {}) => ({
@@ -235,11 +233,33 @@ describe('EcommerceProductService', () => {
     );
     await service.update(id, { ...input('Camisa', []), variants: [{ ...variant('A'), id: a.id }] });
 
-    expect(imageService.remove).toHaveBeenCalledTimes(2);
-    expect(imageService.remove).toHaveBeenCalledWith(10);
-    expect(imageService.remove).toHaveBeenCalledWith(11);
+    expect(imageService.remove).not.toHaveBeenCalled();
+    expect(imageService.removeFiles).toHaveBeenCalledTimes(1);
+    expect(imageService.removeFiles.mock.calls[0][0].map((r: any) => r.id)).toEqual([10, 11]);
+    expect(tables[UIDS.image].map((i) => i.id)).toEqual([12]);
     expect(tables[UIDS.variant].map((v) => v.id)).toEqual([a.id]);
     expect(tables[UIDS.variantTranslation].every((t) => t.variant === a.id)).toBe(true);
+  });
+
+  it('does not delete image files when the transaction fails', async () => {
+    const { service, tables, imageService, transaction } = makeStrapi();
+    const { id } = await service.create(input('Camisa', [variant('A'), variant('B')]));
+    const [a, b] = (await service.get(id)).variants;
+    tables[UIDS.image].push({ id: 10, variant: b.id, position: 1, url: '/b1' });
+    const original = transaction.getMockImplementation()!;
+    transaction.mockImplementationOnce((cb: () => Promise<any>) =>
+      original(async () => {
+        await cb();
+        throw new Error('commit failed');
+      })
+    );
+    await expect(
+      service.update(id, { ...input('Camisa', []), variants: [{ ...variant('A'), id: a.id }] })
+    ).rejects.toThrow('commit failed');
+    expect(imageService.remove).not.toHaveBeenCalled();
+    expect(imageService.removeFiles).not.toHaveBeenCalled();
+    expect(tables[UIDS.image].map((i) => i.id)).toEqual([10]);
+    expect(tables[UIDS.variant]).toHaveLength(2);
   });
 
   it('update keeps the same SKU on the same product and upserts translations', async () => {
