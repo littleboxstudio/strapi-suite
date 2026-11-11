@@ -127,20 +127,20 @@ export const toPaymentCoverage = (coverage: unknown): InvoicedCoverage | null =>
  * is in `payments`) so a new invoice never claims capacity an issued invoice already covers.
  *
  * Each payment counts for its NET amount: `amount − refunded` (refunds COMPLETED, PROCESSING or
- * PENDING, any method), capped at 0, so refunded money is never invoiced.
+ * PENDING, any method; required), capped at 0, so refunded money is never invoiced.
  * `value + excluded = net` for payments without an active allocation. A negative, NaN or
  * non-integer `amount`/`refunded` is a domain error.
  */
 export const reconcileCoverages = (
   order: CoverageOrderState,
-  payments: { id: number; amount: number; refunded?: number; coverage: unknown }[],
+  payments: { id: number; amount: number; refunded: number; coverage: unknown }[],
   invoiced: Map<number, InvoicedCoverage>
 ): Map<number, ReconciledCoverage> => {
   const issues: ValidationIssue[] = [];
   const net = new Map<number, number>();
   payments.forEach((p, i) => {
     const amount = p.amount;
-    const refunded = p.refunded ?? 0;
+    const refunded = p.refunded;
     if (!isCents(amount)) issues.push({ path: `payments.${i}.amount`, code: 'invalid_amount' });
     if (!isCents(refunded)) issues.push({ path: `payments.${i}.refunded`, code: 'invalid_amount' });
     net.set(p.id, Math.max(0, amount - refunded));
