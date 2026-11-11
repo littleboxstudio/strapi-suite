@@ -1,4 +1,4 @@
-import type { ProviderDefinition } from '../registry';
+import type { ConnectionResult, ProviderDefinition } from '../registry';
 import { INVALID_CREDENTIALS, UNREACHABLE, missingFields, str, timedFetch } from '../http';
 
 const L = 'ecommerce.settings.providers.moloni.fields';
@@ -32,16 +32,24 @@ const moloni: ProviderDefinition = {
     const query = Object.entries({ grant_type: 'password', ...values })
       .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
       .join('&');
-    const res = await timedFetch(`https://api.moloni.pt/v1/grant/?${query}`, { method: 'GET' });
-    if (!res) return UNREACHABLE;
-    let body: any = null;
-    try {
-      body = await res.json();
-    } catch {
-      body = null;
-    }
-    if (res.ok && body && typeof body.access_token === 'string' && body.access_token) return { ok: true };
-    return INVALID_CREDENTIALS;
+    const result = await timedFetch<ConnectionResult>(
+      `https://api.moloni.pt/v1/grant/?${query}`,
+      { method: 'GET' },
+      async (res) => {
+        if (res.status >= 500) {
+          await res.body?.cancel().catch(() => undefined);
+          return UNREACHABLE;
+        }
+        const body: any = await res.json().catch((e) => {
+          if (e instanceof SyntaxError) return null; // non-JSON body
+          throw e; // abort / stalled body
+        });
+        return res.ok && body && typeof body.access_token === 'string' && body.access_token
+          ? { ok: true }
+          : INVALID_CREDENTIALS;
+      }
+    );
+    return result ?? UNREACHABLE;
   },
 };
 
