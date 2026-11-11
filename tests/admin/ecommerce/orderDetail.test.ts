@@ -19,6 +19,7 @@ import {
   promotionRows,
   promotionsDiscountTotal,
   totalDiscount,
+  unappliedPromotionCodes,
 } from '../../../admin/src/ecommerce/utils/orderDetail';
 import type {
   FinancialSummary,
@@ -781,5 +782,34 @@ describe('order promotions', () => {
         'invalid_country',
       ])
     );
+  });
+});
+
+describe('unappliedPromotionCodes', () => {
+  it('lists the entered codes that did not apply, with their status', () => {
+    expect(
+      unappliedPromotionCodes([
+        { code: 'VERAO20', status: 'APPLIED', promotionId: 1 },
+        { code: 'COAT', status: 'NO_BENEFIT', promotionId: 2 },
+        { code: 'NOPE', status: 'NOT_FOUND', promotionId: null },
+      ])
+    ).toEqual([
+      { code: 'COAT', status: 'NO_BENEFIT', promotionId: 2 },
+      { code: 'NOPE', status: 'NOT_FOUND', promotionId: null },
+    ]);
+  });
+
+  it('reads a missing list (older server) as empty', () => {
+    expect(unappliedPromotionCodes(undefined)).toEqual([]);
+  });
+
+  it('has en + pt labels for the entered codes block', () => {
+    expect(en[`${P}ecommerce.orders.promotions.enteredCodes`]).toEqual(expect.any(String));
+    expect(pt[`${P}ecommerce.orders.promotions.enteredCodes`]).toEqual(expect.any(String));
+  });
+
+  it('drops the orphan placeholder key', () => {
+    expect(en[`${P}ecommerce.orders.detail.sections.empty`]).toBeUndefined();
+    expect(pt[`${P}ecommerce.orders.detail.sections.empty`]).toBeUndefined();
   });
 });

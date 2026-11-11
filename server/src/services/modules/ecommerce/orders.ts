@@ -138,6 +138,9 @@ export type OrderPromotionView = AppliedPromotion & {
   redemptionStatus: 'RESERVED' | 'RELEASED' | null;
 };
 
+/** A code entered at checkout, as the order stored its evaluation. */
+export type OrderPromotionCodeView = { code: string; status: string; promotionId: number | null };
+
 export type CreateOrderContext = { actor: string; source: OrderSource };
 
 export type OrderLineView = {
@@ -218,6 +221,8 @@ export type OrderView = {
   returns: ReturnView[];
   shipping: { remainingCost: number; deliveryStatus: OrderDeliveryStatus };
   promotions: OrderPromotionView[];
+  /** Codes entered at checkout with their status (applied or not). Admin view only. */
+  promotionCodes: OrderPromotionCodeView[];
   summary: FinancialSummary;
   availableActions: OrderActionKey[];
   history: Record<string, unknown>[];
@@ -417,6 +422,18 @@ const appliedOf = (order: any): AppliedPromotion[] =>
   isRecord(order?.promotions) && Array.isArray(order.promotions.applied)
     ? order.promotions.applied.filter(isRecord)
     : [];
+
+/** The stored code statuses (`promotions.codes`); malformed entries and a legacy `[]` read as none. */
+const promotionCodesOf = (order: any): OrderPromotionCodeView[] => {
+  const list = isRecord(order?.promotions) && Array.isArray(order.promotions.codes) ? order.promotions.codes : [];
+  return list
+    .filter((c: unknown) => isRecord(c) && typeof c.code === 'string' && typeof c.status === 'string')
+    .map((c: any) => ({
+      code: c.code,
+      status: c.status,
+      promotionId: Number.isSafeInteger(c.promotionId) ? c.promotionId : null,
+    }));
+};
 
 /** Distinct promotion ids of a line's `promotionRefs` (`{ refs }`; a legacy `[]` reads as none). */
 const promotionIdsOf = (refs: unknown): number[] => {
@@ -1653,6 +1670,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         deliveryStatus: orderDeliveryStatus(order.fulfillmentStatus, shipments),
       },
       promotions: promotionViews,
+      promotionCodes: promotionCodesOf(order),
       summary,
       availableActions: actions,
       history: historyRows.map((h) => ({

@@ -16,6 +16,7 @@ import {
   giftChoicesFromQuote,
   giftSelectors,
   normalizePromotionCodes,
+  pruneGiftChoices,
   type OrderForm,
   type OrderLineDraft,
 } from '../../../admin/src/ecommerce/utils/orderForm';
@@ -482,5 +483,60 @@ describe('order quote', () => {
       expect(en[key], k).toEqual(expect.any(String));
       expect(pt[key], k).toEqual(expect.any(String));
     });
+  });
+});
+
+describe('promotion code rules (fix round 1)', () => {
+  it('refuses a code longer than 40 characters (too_long)', () => {
+    expect(addPromotionCode([], 'A'.repeat(41))).toEqual({ codes: [], error: 'too_long' });
+    expect(addPromotionCode([], 'A'.repeat(40))).toEqual({ codes: ['A'.repeat(40)], error: null });
+  });
+
+  it('refuses a code outside the server charset or shorter than 3 (invalid_format)', () => {
+    expect(addPromotionCode([], 'VER ÃO')).toEqual({ codes: [], error: 'invalid_format' });
+    expect(addPromotionCode([], 'ab')).toEqual({ codes: [], error: 'invalid_format' });
+    expect(addPromotionCode([], 'summer_25-off')).toEqual({ codes: ['SUMMER_25-OFF'], error: null });
+  });
+
+  it('has en + pt messages for the new refusals', () => {
+    ['too_long', 'invalid_format'].forEach((k) => {
+      const key = `littlebox-strapi-suite.ecommerce.orders.quote.codeErrors.${k}`;
+      expect(en[key], k).toEqual(expect.any(String));
+      expect(pt[key], k).toEqual(expect.any(String));
+    });
+  });
+});
+
+describe('pruneGiftChoices', () => {
+  it('keeps only the choices of promotions with a gift selector in the quote', () => {
+    const q = {
+      lines: [
+        { sourceIndex: null, variantId: 31, productId: 30, unitPrice: 300, quantity: 1, unitDiscount: 300, isGift: true, refs: [{ promotionId: 4, benefitIndex: 0, amount: 300 }], sku: 'S', name: 'Socks', option: null, imageUrl: null },
+      ],
+      promotions: [
+        {
+          promotionId: 4,
+          benefits: [
+            {
+              index: 0,
+              type: 'BUY_X_GET_Y',
+              class: 'PRODUCT_DISCOUNT',
+              amount: 300,
+              params: {
+                type: 'BUY_X_GET_Y',
+                buy: { target: { productIds: [10], variantIds: [] }, quantity: 2, minAmount: null },
+                get: { mode: 'GIFT', variantIds: [30, 31], quantity: 1 },
+                reward: { kind: 'FREE' },
+              },
+            },
+          ],
+        },
+      ],
+    } as unknown as OrderQuote;
+    const choices = { 4: 30, 9: 99 };
+    expect(pruneGiftChoices(choices, q)).toEqual({ 4: 30 });
+    // Unchanged choices keep their identity (no re-quote loop).
+    const kept = { 4: 30 };
+    expect(pruneGiftChoices(kept, q)).toBe(kept);
   });
 });

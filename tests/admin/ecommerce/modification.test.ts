@@ -393,7 +393,7 @@ describe('discountWarningMessage', () => {
   it('translates PROMOTION_CONDITION_UNMET with the promotion name (en + pt)', () => {
     const w = { code: 'PROMOTION_CONDITION_UNMET' as const, promotionId: 1, name: 'Summer' };
     expect(text(en, w)).toBe('Summer: the conditions are no longer met; the discount was kept');
-    expect(text(pt, w)).toMatch(/^Summer: /);
+    expect(text(pt, w)).toBe('Summer: as condições deixaram de se verificar; o desconto mantém-se');
   });
 
   it('keeps ORDER_DISCOUNT_CAPPED without parameters', () => {

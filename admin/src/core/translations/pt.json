@@ -520,7 +520,6 @@
   "littlebox-strapi-suite.ecommerce.orders.detail.sections.shipments": "Expedições e entregas",
   "littlebox-strapi-suite.ecommerce.orders.detail.sections.refunds": "Reembolsos e créditos",
   "littlebox-strapi-suite.ecommerce.orders.detail.sections.promotions": "Promoções e descontos",
-  "littlebox-strapi-suite.ecommerce.orders.detail.sections.empty": "Ainda não há nada aqui",
   "littlebox-strapi-suite.ecommerce.orders.detail.history.title": "Histórico",
   "littlebox-strapi-suite.ecommerce.orders.detail.history.empty": "Ainda não há histórico.",
   "littlebox-strapi-suite.ecommerce.orders.detail.history.operation": "Operação {id}",
@@ -1506,5 +1505,8 @@
   "littlebox-strapi-suite.ecommerce.orders.modify.warnings.SHIPPING_PROMOTION_DROPPED": "{name}: a promoção de portes deixou de se aplicar; o desconto original mantém-se no histórico",
   "littlebox-strapi-suite.ecommerce.orders.modify.orderDiscount.label": "Desconto da encomenda",
   "littlebox-strapi-suite.ecommerce.orders.modify.orderDiscount.hint": "Opcional. Deixe vazio para manter o desconto atual ({amount}); nunca excede o novo subtotal.",
-  "littlebox-strapi-suite.ecommerce.orders.modify.summary.orderDiscount": "Desconto da encomenda"
+  "littlebox-strapi-suite.ecommerce.orders.modify.summary.orderDiscount": "Desconto da encomenda",
+  "littlebox-strapi-suite.ecommerce.orders.quote.codeErrors.too_long": "Os códigos têm no máximo 40 caracteres.",
+  "littlebox-strapi-suite.ecommerce.orders.quote.codeErrors.invalid_format": "Use 3 a 40 letras, algarismos, \"-\" ou \"_\".",
+  "littlebox-strapi-suite.ecommerce.orders.promotions.enteredCodes": "Códigos introduzidos que não se aplicaram"
 }

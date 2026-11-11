@@ -302,6 +302,8 @@ export type Order = {
   returns: ReturnView[];
   shipping: OrderShipping;
   promotions: OrderPromotion[];
+  /** Codes entered at checkout with their status, applied or not (absent on older servers). */
+  promotionCodes?: OrderPromotionCode[];
   summary: FinancialSummary;
   availableActions: OrderActionKey[];
   history: OrderHistoryItem[];
@@ -348,6 +350,9 @@ export type AppliedPromotion = {
 export type OrderPromotion = AppliedPromotion & {
   redemptionStatus: 'RESERVED' | 'RELEASED' | null;
 };
+
+/** A code entered at checkout, as the order stored its evaluation. */
+export type OrderPromotionCode = { code: string; status: string; promotionId: number | null };
 
 export type PromotionCodeStatus =
   | 'APPLIED'
