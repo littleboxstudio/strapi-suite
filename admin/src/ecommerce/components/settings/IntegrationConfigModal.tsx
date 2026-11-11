@@ -172,6 +172,7 @@ const IntegrationConfigModal = ({ integration, initialErrors = {}, onClose, onSa
       default:
         return (
           <TextInput
+            type={field.format === 'email' ? 'email' : 'text'}
             value={typeof value === 'string' ? value : ''}
             hasError={hasError}
             onChange={(e: any) => setValue(field.key, e.target.value)}

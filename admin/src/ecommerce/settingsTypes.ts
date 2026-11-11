@@ -20,6 +20,8 @@ export type ProviderField = {
   required: boolean;
   default?: unknown;
   options?: string[];
+  /** Extra validation for `string` fields (checked by the server). */
+  format?: 'email';
   /** Admin i18n key */
   label: string;
 };
