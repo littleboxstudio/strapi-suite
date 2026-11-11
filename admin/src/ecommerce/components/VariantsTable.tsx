@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useIntl } from 'react-intl';
 import styled from 'styled-components';
 import {
@@ -16,6 +17,7 @@ import {
   VisuallyHidden,
 } from '@strapi/design-system';
 import { Pencil, Plus, Trash } from '@strapi/icons';
+import ConfirmModal from '../../components/ConfirmModal';
 import { getTranslation } from '../../core/utils/getTranslation';
 import EmptyVariants from '../illustrations/EmptyVariants';
 import { formatCents } from '../utils/money';
@@ -29,6 +31,8 @@ type Props = {
   onAdd: () => void;
   onEdit: (index: number) => void;
   onRemove: (index: number) => void;
+  /** Disables add/edit/remove (e.g. while an AI translation is writing into the form). */
+  disabled?: boolean;
 };
 
 const THUMBNAIL_SIZE = 36;
@@ -46,10 +50,12 @@ const VariantsTable = ({
   onAdd,
   onEdit,
   onRemove,
+  disabled = false,
 }: Props) => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
+  const [confirmIndex, setConfirmIndex] = useState<number | null>(null);
 
   if (variants.length === 0) {
     return (
@@ -58,7 +64,7 @@ const VariantsTable = ({
         <Typography variant="omega" textColor="neutral600">
           {t('ecommerce.product.variants.empty')}
         </Typography>
-        <Button startIcon={<Plus />} onClick={onAdd}>
+        <Button startIcon={<Plus />} onClick={onAdd} disabled={disabled}>
           {t('ecommerce.product.variants.add')}
         </Button>
       </Flex>
@@ -165,13 +171,15 @@ const VariantsTable = ({
                       label={t('ecommerce.product.variants.edit')}
                       variant="ghost"
                       onClick={() => onEdit(index)}
+                      disabled={disabled}
                     >
                       <Pencil />
                     </IconButton>
                     <IconButton
                       label={t('ecommerce.product.variants.remove')}
                       variant="ghost"
-                      onClick={() => onRemove(index)}
+                      onClick={() => setConfirmIndex(index)}
+                      disabled={disabled}
                     >
                       <Trash />
                     </IconButton>
@@ -183,10 +191,26 @@ const VariantsTable = ({
         </Tbody>
       </Table>
       <Flex justifyContent="flex-start">
-        <Button variant="secondary" startIcon={<Plus />} onClick={onAdd}>
+        <Button variant="secondary" startIcon={<Plus />} onClick={onAdd} disabled={disabled}>
           {t('ecommerce.product.variants.add')}
         </Button>
       </Flex>
+      <ConfirmModal
+        open={confirmIndex !== null}
+        title={t('ecommerce.product.variants.removeConfirm.title')}
+        text={t('ecommerce.product.variants.removeConfirm.text')}
+        confirm={{
+          button: t('ecommerce.product.variants.remove'),
+          action: () => {
+            if (confirmIndex !== null && !disabled) onRemove(confirmIndex);
+            setConfirmIndex(null);
+          },
+        }}
+        cancel={{
+          button: t('ecommerce.product.variants.removeConfirm.cancel'),
+          action: () => setConfirmIndex(null),
+        }}
+      />
     </Flex>
   );
 };

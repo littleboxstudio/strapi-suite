@@ -431,6 +431,7 @@ const ProductEditPage = () => {
           onAdd={openNewVariant}
           onEdit={(index) => setModal({ index, newKey: form.variants[index].key })}
           onRemove={removeVariant}
+          disabled={translating}
         />
       </Section>
 
