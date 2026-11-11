@@ -559,3 +559,53 @@ describe('evaluate', () => {
     expect(msg).not.toContain('ana@example.pt');
   });
 });
+
+describe('unmet', () => {
+  const ctxOf = (subtotal: number) => ({
+    lines: [{ variantId: 10, productId: 1, unitPrice: subtotal, quantity: 1 }],
+    email: 'ana@example.pt',
+  });
+  const withConditions = (promotionId: number, conditions: any): AppliedPromotion => ({
+    ...applied(promotionId, null),
+    name: `P${promotionId}`,
+    snapshot: { ...applied(promotionId, null).snapshot, conditions },
+  });
+
+  it('lists the stored promotions whose conditions no longer hold', () => {
+    const res = svc.unmet(
+      [
+        withConditions(1, group([{ type: 'SUBTOTAL', operator: 'gte', value: 10000 }])),
+        withConditions(2, group([{ type: 'SUBTOTAL', operator: 'gte', value: 5000 }])),
+      ],
+      ctxOf(8000)
+    );
+    expect(res).toEqual([{ promotionId: 1, name: 'P1' }]);
+  });
+
+  it('a condition that throws is logged (id and type, no customer data) and fails closed', () => {
+    const throwing = {
+      type: 'SUBTOTAL',
+      operator: 'gte',
+      get value() {
+        throw new Error('boom');
+      },
+    };
+    // Inside an OR with a true sibling the group alone would still hold: an error still reports it.
+    const res = svc.unmet(
+      [withConditions(3, { type: 'GROUP', operator: 'OR', children: [throwing, { type: 'TOTAL_QUANTITY', operator: 'gte', value: 1 }] })],
+      ctxOf(8000)
+    );
+    expect(res).toEqual([{ promotionId: 3, name: 'P3' }]);
+    expect(c.log.warn).toHaveBeenCalled();
+    const msg = String(c.log.warn.mock.calls[0][0]);
+    expect(msg).toContain('3');
+    expect(msg).toContain('SUBTOTAL');
+    expect(msg).not.toContain('ana@example.pt');
+  });
+
+  it('a malformed snapshot is reported as unmet and logged', () => {
+    const broken = { ...applied(4, null), name: 'P4', snapshot: null } as unknown as AppliedPromotion;
+    expect(svc.unmet([broken], ctxOf(8000))).toEqual([{ promotionId: 4, name: 'P4' }]);
+    expect(c.log.warn).toHaveBeenCalled();
+  });
+});

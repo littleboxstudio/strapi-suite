@@ -10,12 +10,14 @@ import {
   evaluatePromotions,
   normalizePromotionCode,
   promotionStatus,
+  unmetAppliedPromotions,
   utcToZonedWallTime,
   validatePromotionInput,
   type AppliedPromotion,
   type Benefit,
   type ConditionGroup,
   type EvaluationInput,
+  type EvaluationLine,
   type GiftOption,
   type ProductTarget,
   type PromotionCandidate,
@@ -258,22 +260,33 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
       : PROMOTION_SEARCH_LIMIT_DEFAULT;
   };
 
-  /**
-   * `evaluatePromotions` with the configured search limit and condition failures logged
-   * (promotion id and condition type only, never customer data).
-   */
+  /** Logs a failed condition: promotion id and condition type only, never customer data. */
+  const logConditionError = (promotionId: number, type: string, err: unknown): void => {
+    strapi.log?.warn?.(
+      `[ecommerce] promotion ${promotionId}: condition ${type} failed and counts as not met (${(err as any)?.name ?? 'Error'})`
+    );
+  };
+
+  /** `evaluatePromotions` with the configured search limit and condition failures logged. */
   const evaluate = (
     input: Omit<EvaluationInput, 'searchLimit' | 'onConditionError'>
   ): PromotionEvaluation =>
     evaluatePromotions({
       ...input,
       searchLimit: searchLimit(),
-      onConditionError: (promotionId, type, err) => {
-        strapi.log?.warn?.(
-          `[ecommerce] promotion ${promotionId}: condition ${type} failed and counts as not met (${(err as any)?.name ?? 'Error'})`
-        );
-      },
+      onConditionError: logConditionError,
     });
+
+  /**
+   * Stored (applied) promotions whose snapshot eligibility or conditions no longer hold for
+   * `ctx` (order modification warnings, design 4.8). Nothing is re-evaluated or re-priced;
+   * a failing condition is logged and reports the promotion as unmet.
+   */
+  const unmet = (
+    applied: AppliedPromotion[],
+    ctx: { lines: EvaluationLine[]; email: string | null }
+  ): { promotionId: number; name: string }[] =>
+    unmetAppliedPromotions(applied, ctx, logConditionError);
 
   // -------------------------------------------------------------------------
   // Admin
@@ -741,6 +754,7 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
     catalogSearch,
     searchLimit,
     evaluate,
+    unmet,
     loadCandidates,
     giftOptions,
     reserve,

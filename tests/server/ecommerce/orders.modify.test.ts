@@ -819,3 +819,209 @@ describe('EcommerceOrderService.applyModification', () => {
     ).toEqual([{ path: 'action', code: 'ACTION_NOT_AVAILABLE' }]);
   });
 });
+
+describe('modification with promotions (design 4.8)', () => {
+  const STACK_ALL = { exclusive: false, withProduct: true, withOrder: true, withShipping: true };
+  const group = (children: any[] = []) => ({ type: 'GROUP', operator: 'AND', children });
+  let nextId = 1;
+  const addPromotion = (ctx: Ctx, over: Record<string, unknown> = {}): number => {
+    const id = nextId++;
+    ctx.tables[UIDS.promotion].push({
+      id,
+      name: 'Promo',
+      description: null,
+      code: null,
+      method: 'AUTOMATIC',
+      active: true,
+      startsAt: '2020-01-01T00:00:00.000Z',
+      endsAt: null,
+      priority: 0,
+      displayName: {},
+      eligibility: { mode: 'ALL' },
+      conditions: group(),
+      benefits: { items: [{ type: 'ORDER_PERCENT', percent: 10 }] },
+      stacking: STACK_ALL,
+      usageLimit: null,
+      perCustomerLimit: null,
+      perOrderLimit: null,
+      redemptions: 0,
+      version: 1,
+      ...over,
+    });
+    return id;
+  };
+  const orderRow = (ctx: Ctx, id: number) => ctx.tables[UIDS.order].find((o) => o.id === id);
+  beforeEach(() => {
+    nextId = 1;
+  });
+
+  /** 5 × 2000 = 10000 with "10% above 100 €" (1000 off). */
+  const orderWithTenPercent = async (ctx: Ctx) => {
+    const promotionId = addPromotion(ctx, {
+      name: '10% above 100 €',
+      conditions: group([{ type: 'SUBTOTAL', operator: 'gte', value: 10000 }]),
+    });
+    const { id } = await createOrder(ctx.orders, [{ variantId: 10, quantity: 5 }]);
+    expect(orderRow(ctx, id)).toMatchObject({ subtotal: 10000, orderDiscount: 1000 });
+    return { id, promotionId };
+  };
+
+  it('the order drops to 80 €: PROMOTION_CONDITION_UNMET, the discount and the stored promotions stay, no capacity change', async () => {
+    const ctx = setup();
+    const { id, promotionId } = await orderWithTenPercent(ctx);
+    const storedPromotions = JSON.stringify(orderRow(ctx, id).promotions);
+    const redemptions = JSON.stringify(ctx.tables[UIDS.promotionRedemption]);
+    const lines = lineInputs(ctx, id).map((l) => ({ ...l, quantity: 4 }));
+
+    const preview = await ctx.orders.previewModification(id, { lines, shipping: KEEP });
+    expect(preview.discountWarnings).toEqual([
+      { code: 'PROMOTION_CONDITION_UNMET', promotionId, name: '10% above 100 €' },
+    ]);
+    expect(preview.after).toMatchObject({ subtotal: 8000, orderDiscount: 1000 });
+
+    const res = await ctx.orders.applyModification(id, { lines, shipping: KEEP }, 'user:1', 'op-unmet-1');
+    expect(res.order.totals).toMatchObject({ subtotal: 8000, orderDiscount: 1000, total: 7500 });
+    expect(JSON.stringify(orderRow(ctx, id).promotions)).toBe(storedPromotions);
+    expect(ctx.tables[UIDS.promotion].find((p) => p.id === promotionId).redemptions).toBe(1);
+    expect(JSON.stringify(ctx.tables[UIDS.promotionRedemption])).toBe(redemptions);
+    expect(historyOf(ctx, id, 'ORDER_DISCOUNT_CHANGED')).toEqual([]);
+  });
+
+  it('orderDiscount: 0 raises the total and records ORDER_DISCOUNT_CHANGED once, manually, with the actor', async () => {
+    const ctx = setup();
+    const { id } = await orderWithTenPercent(ctx);
+    const res = await ctx.orders.applyModification(
+      id,
+      { lines: lineInputs(ctx, id), shipping: KEEP, orderDiscount: 0 },
+      'user:7',
+      'op-manual-1'
+    );
+    expect(res.order.totals).toMatchObject({ subtotal: 10000, orderDiscount: 0, total: 10500 });
+    expect(res.difference).toBe(1000);
+    const changed = historyOf(ctx, id, 'ORDER_DISCOUNT_CHANGED');
+    expect(changed).toHaveLength(1);
+    expect(changed[0]).toMatchObject({
+      actor: 'user:7',
+      operationId: 'op-manual-1',
+      previousValue: { orderDiscount: 1000 },
+      newValue: { orderDiscount: 0 },
+    });
+    expect(changed[0].description).toMatch(/^Order discount adjusted manually/);
+  });
+
+  it('orderDiscount: 0 with 1300 stored and a smaller subtotal: no capped warning, one manual entry', async () => {
+    const ctx = setup();
+    const { id } = await createOrder(ctx.orders);
+    orderRow(ctx, id).orderDiscount = 1300;
+    const lines = lineInputs(ctx, id).filter((l) => l.variantId === 11);
+    const preview = await ctx.orders.previewModification(id, { lines, shipping: KEEP, orderDiscount: 0 });
+    expect(preview.discountWarnings).toEqual([]);
+    await ctx.orders.applyModification(id, { lines, shipping: KEEP, orderDiscount: 0 }, 'user:1', 'op-manual-2');
+    const changed = historyOf(ctx, id, 'ORDER_DISCOUNT_CHANGED');
+    expect(changed).toHaveLength(1);
+    expect(changed[0].description).toMatch(/^Order discount adjusted manually/);
+    expect(changed[0].newValue).toEqual({ orderDiscount: 0 });
+  });
+
+  it('without orderDiscount a capped discount warns and records one entry with the capped description', async () => {
+    const ctx = setup();
+    const { id } = await createOrder(ctx.orders);
+    orderRow(ctx, id).orderDiscount = 5000;
+    const lines = lineInputs(ctx, id).filter((l) => l.variantId === 11);
+    const preview = await ctx.orders.previewModification(id, { lines, shipping: KEEP });
+    expect(preview.discountWarnings).toEqual([{ code: 'ORDER_DISCOUNT_CAPPED' }]);
+    await ctx.orders.applyModification(id, { lines, shipping: KEEP }, 'user:1', 'op-capped-1');
+    const changed = historyOf(ctx, id, 'ORDER_DISCOUNT_CHANGED');
+    expect(changed).toHaveLength(1);
+    expect(changed[0].description).toMatch(/^Order discount capped at the new subtotal/);
+  });
+
+  it('orderDiscount: -1 → INVALID_AMOUNT, nothing written', async () => {
+    const ctx = setup();
+    const { id } = await createOrder(ctx.orders);
+    const snapshot = JSON.stringify(ctx.tables);
+    const input = { lines: lineInputs(ctx, id), shipping: KEEP, orderDiscount: -1 };
+    expect((await ctx.orders.previewModification(id, input)).errors).toEqual([
+      { path: 'orderDiscount', code: 'INVALID_AMOUNT' },
+    ]);
+    expect(await issues(ctx.orders.applyModification(id, input, 'user:1', 'op-invalid-1'))).toEqual([
+      { path: 'orderDiscount', code: 'INVALID_AMOUNT' },
+    ]);
+    expect(JSON.stringify(ctx.tables)).toBe(snapshot);
+  });
+
+  it('an added line stores promotionRefs as { refs: [] }', async () => {
+    const ctx = setup();
+    const { id } = await createOrder(ctx.orders);
+    await ctx.orders.applyModification(
+      id,
+      { lines: [...lineInputs(ctx, id), { variantId: 12, quantity: 1 }], shipping: KEEP },
+      'user:1',
+      'op-refs-1'
+    );
+    expect(linesOf(ctx, id).find((l) => l.variantId === 12).promotionRefs).toEqual({ refs: [] });
+  });
+
+  it.each([
+    ['RECALCULATE', { mode: 'RECALCULATE' as const }],
+    ['MANUAL', { mode: 'MANUAL' as const, amount: 300 }],
+  ])('%s shipping drops the free-shipping promotion: SHIPPING_PROMOTION_DROPPED, promotions kept', async (_m, shipping) => {
+    const ctx = setup();
+    const promotionId = addPromotion(ctx, {
+      name: 'Free shipping',
+      benefits: { items: [{ type: 'SHIPPING_FREE', maxAmount: null }] },
+    });
+    const { id } = await createOrder(ctx.orders);
+    expect(orderRow(ctx, id)).toMatchObject({ shippingOriginal: 500, shippingDiscount: 500 });
+    const storedPromotions = JSON.stringify(orderRow(ctx, id).promotions);
+    ctx.quote.price = 700;
+    const input = { lines: lineInputs(ctx, id), shipping };
+
+    const preview = await ctx.orders.previewModification(id, input);
+    expect(preview.discountWarnings).toEqual([
+      { code: 'SHIPPING_PROMOTION_DROPPED', promotionId, name: 'Free shipping' },
+    ]);
+    expect(preview.shipping.shippingDiscount).toBe(0);
+
+    await ctx.orders.applyModification(id, input, 'user:1', `op-ship-${shipping.mode}`);
+    expect(orderRow(ctx, id).shippingDiscount).toBe(0);
+    expect(JSON.stringify(orderRow(ctx, id).promotions)).toBe(storedPromotions);
+    expect(ctx.tables[UIDS.promotion].find((p) => p.id === promotionId).redemptions).toBe(1);
+  });
+
+  it('a variant with two lines (2 + 1) needs orderLineId: without it INVALID_QUANTITY, with it applied', async () => {
+    const ctx = setup();
+    addPromotion(ctx, {
+      benefits: {
+        items: [
+          {
+            type: 'BUY_X_GET_Y',
+            buy: { target: { productIds: [], variantIds: [10] }, quantity: 2, minAmount: null },
+            get: { mode: 'IN_CART', target: { productIds: [], variantIds: [10] }, quantity: 1 },
+            reward: { kind: 'FREE' },
+          },
+        ],
+      },
+    });
+    const { id } = await createOrder(ctx.orders, [{ variantId: 10, quantity: 3 }]);
+    expect(linesOf(ctx, id).map((l) => l.quantity)).toEqual([2, 1]);
+
+    const ambiguous = { lines: [{ variantId: 10, quantity: 3 }], shipping: KEEP };
+    expect((await ctx.orders.previewModification(id, ambiguous)).errors).toContainEqual({
+      path: 'lines.0.orderLineId',
+      code: 'INVALID_QUANTITY',
+    });
+    expect(
+      await issues(ctx.orders.applyModification(id, ambiguous, 'user:1', 'op-split-1'))
+    ).toContainEqual({ path: 'lines.0.orderLineId', code: 'INVALID_QUANTITY' });
+
+    const [a, b] = lineInputs(ctx, id);
+    const res = await ctx.orders.applyModification(
+      id,
+      { lines: [{ ...a, quantity: 3 }, b], shipping: KEEP },
+      'user:1',
+      'op-split-2'
+    );
+    expect(res.order.lines.map((l: any) => l.quantity)).toEqual([3, 1]);
+  });
+});

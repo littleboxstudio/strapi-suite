@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   simulateModification,
   type ExistingLine,
@@ -6,10 +6,12 @@ import {
   type ModificationInput,
 } from '../../../../server/src/services/modules/ecommerce/domain/orderModification';
 import type { PaymentLike } from '../../../../server/src/services/modules/ecommerce/domain/orders';
+import type { AppliedPromotion } from '../../../../server/src/services/modules/ecommerce/domain/promotions';
 
 const existing = (over: Partial<ExistingLine> = {}): ExistingLine => ({
   id: 1,
   variantId: 101,
+  productId: 1,
   sku: 'SKU-101',
   name: 'Mug',
   option: 'Blue',
@@ -25,6 +27,7 @@ const existing = (over: Partial<ExistingLine> = {}): ExistingLine => ({
 
 const variant = (over: Partial<CatalogVariant> = {}): CatalogVariant => ({
   variantId: 201,
+  productId: 2,
   sku: 'SKU-201',
   name: 'Plate',
   option: '',
@@ -625,5 +628,324 @@ describe('simulateModification', () => {
       catalogOf(),
     );
     expect(ok.errors).toEqual([]);
+  });
+});
+
+/** An applied promotion as the order stored it (Task 7 snapshot). */
+const appliedPromotion = (over: Partial<AppliedPromotion> = {}): AppliedPromotion => ({
+  promotionId: 7,
+  version: 1,
+  name: '10% above 100 €',
+  displayName: {},
+  code: null,
+  method: 'AUTOMATIC',
+  classes: ['ORDER_DISCOUNT'],
+  amount: 1200,
+  benefits: [
+    {
+      index: 0,
+      type: 'ORDER_PERCENT',
+      class: 'ORDER_DISCOUNT',
+      amount: 1200,
+      params: { type: 'ORDER_PERCENT', percent: 10 } as any,
+    },
+  ],
+  snapshot: {
+    eligibility: { mode: 'ALL' },
+    conditions: {
+      type: 'GROUP',
+      operator: 'AND',
+      children: [{ type: 'SUBTOTAL', operator: 'gte', value: 10000 }],
+    },
+    stacking: { exclusive: false, withProduct: true, withOrder: true, withShipping: true },
+    priority: 0,
+    perOrderLimit: null,
+  },
+  ...over,
+});
+
+const freeShipping = (over: Partial<AppliedPromotion> = {}): AppliedPromotion =>
+  appliedPromotion({
+    promotionId: 8,
+    name: 'Free shipping',
+    classes: ['SHIPPING_DISCOUNT'],
+    amount: 500,
+    benefits: [
+      {
+        index: 0,
+        type: 'SHIPPING_FREE',
+        class: 'SHIPPING_DISCOUNT',
+        amount: 500,
+        params: { type: 'SHIPPING_FREE', maxAmount: null } as any,
+      },
+    ],
+    snapshot: { ...appliedPromotion().snapshot, conditions: { type: 'GROUP', operator: 'AND', children: [] } },
+    ...over,
+  });
+
+describe('simulateModification: promotions and the order discount (design 4.8)', () => {
+  /** 3 × 4000 = 12000 with "10% above 100 €" applied (1200 off). */
+  const promoCurrent = (over: Record<string, unknown> = {}) => ({
+    lines: [existing({ id: 1, unitPrice: 4000, quantity: 3 })],
+    orderDiscount: 1200,
+    shippingOriginal: 500,
+    shippingDiscount: 0,
+    payments: [],
+    refunds: [],
+    promotions: [appliedPromotion()],
+    email: 'ana@example.pt',
+    ...over,
+  });
+
+  it('the order drops to 80 €: PROMOTION_CONDITION_UNMET with id and name, the discount is kept', () => {
+    const r = simulateModification(
+      promoCurrent(),
+      { lines: [{ orderLineId: 1, variantId: 101, quantity: 2 }], shipping: keep },
+      catalogOf(),
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.discountWarnings).toEqual([
+      { code: 'PROMOTION_CONDITION_UNMET', promotionId: 7, name: '10% above 100 €' },
+    ]);
+    expect(r.after).toMatchObject({ subtotal: 8000, orderDiscount: 1200, total: 7300 });
+  });
+
+  it('conditions still met → no warning', () => {
+    const r = simulateModification(
+      promoCurrent(),
+      { lines: [{ orderLineId: 1, variantId: 101, quantity: 3 }, { variantId: 201, quantity: 1 }], shipping: keep },
+      catalogOf(variant()),
+    );
+    expect(r.discountWarnings).toEqual([]);
+  });
+
+  it('evaluates the non-gift lines after the modification at original price, net of returns, with the e-mail', () => {
+    const unmet = vi.fn(() => []);
+    simulateModification(
+      promoCurrent({
+        lines: [
+          existing({ id: 1, unitPrice: 4000, unitDiscount: 400, quantity: 3, returnedQuantity: 1 }),
+          existing({ id: 2, variantId: 102, productId: 5, unitPrice: 900, unitDiscount: 900, quantity: 1, isGift: true }),
+          existing({ id: 3, variantId: 103, unitPrice: 100, quantity: 1 }),
+        ],
+      }),
+      {
+        lines: [
+          { orderLineId: 1, variantId: 101, quantity: 3 },
+          { orderLineId: 2, variantId: 102, quantity: 1 },
+          { variantId: 201, quantity: 2 },
+        ],
+        shipping: keep,
+      },
+      catalogOf(variant()),
+      { unmet },
+    );
+    expect(unmet).toHaveBeenCalledTimes(1);
+    expect(unmet).toHaveBeenCalledWith([appliedPromotion()], {
+      lines: [
+        { variantId: 101, productId: 1, unitPrice: 4000, quantity: 2 },
+        { variantId: 201, productId: 2, unitPrice: 2500, quantity: 2 },
+      ],
+      email: 'ana@example.pt',
+    });
+  });
+
+  it('a fixture without promotions or e-mail works and never warns about promotions', () => {
+    const r = simulateModification(
+      {
+        lines: [existing({ id: 1, unitPrice: 4000, quantity: 3 })],
+        orderDiscount: 0,
+        shippingOriginal: 500,
+        shippingDiscount: 0,
+        payments: [],
+        refunds: [],
+      },
+      { lines: [{ orderLineId: 1, variantId: 101, quantity: 1 }], shipping: keep },
+      catalogOf(),
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.discountWarnings).toEqual([]);
+  });
+
+  it('an e-mail-restricted promotion is unmet when the order has no e-mail', () => {
+    const p = appliedPromotion({
+      snapshot: {
+        ...appliedPromotion().snapshot,
+        eligibility: { mode: 'EMAILS', emails: ['ana@example.pt'] },
+        conditions: { type: 'GROUP', operator: 'AND', children: [] },
+      },
+    });
+    const withEmail = simulateModification(
+      promoCurrent({ promotions: [p] }),
+      { lines: [{ orderLineId: 1, variantId: 101, quantity: 3 }], shipping: keep },
+      catalogOf(),
+    );
+    expect(withEmail.discountWarnings).toEqual([]);
+    const withoutEmail = simulateModification(
+      promoCurrent({ promotions: [p], email: undefined }),
+      { lines: [{ orderLineId: 1, variantId: 101, quantity: 3 }], shipping: keep },
+      catalogOf(),
+    );
+    expect(withoutEmail.discountWarnings).toEqual([
+      { code: 'PROMOTION_CONDITION_UNMET', promotionId: 7, name: '10% above 100 €' },
+    ]);
+  });
+
+  it('a malformed stored snapshot fails closed: reported as unmet', () => {
+    const broken = { ...appliedPromotion(), snapshot: null } as unknown as AppliedPromotion;
+    const r = simulateModification(
+      promoCurrent({ promotions: [broken] }),
+      { lines: [{ orderLineId: 1, variantId: 101, quantity: 3 }], shipping: keep },
+      catalogOf(),
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.discountWarnings).toEqual([
+      { code: 'PROMOTION_CONDITION_UNMET', promotionId: 7, name: '10% above 100 €' },
+    ]);
+  });
+
+  it('orderDiscount: 0 replaces the stored 1300: total rises, no capped warning', () => {
+    const r = simulateModification(
+      promoCurrent({ orderDiscount: 1300, promotions: [] }),
+      {
+        lines: [{ orderLineId: 1, variantId: 101, quantity: 3 }],
+        shipping: keep,
+        orderDiscount: 0,
+      },
+      catalogOf(),
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.before.orderDiscount).toBe(1300);
+    expect(r.after).toMatchObject({ subtotal: 12000, orderDiscount: 0, total: 12500 });
+    expect(r.difference).toBe(1300);
+    expect(r.discountWarnings).toEqual([]);
+  });
+
+  it('a manual orderDiscount above the new subtotal is capped and warned against the requested value', () => {
+    const r = simulateModification(
+      promoCurrent({ orderDiscount: 0, promotions: [] }),
+      {
+        lines: [{ orderLineId: 1, variantId: 101, quantity: 1 }],
+        shipping: keep,
+        orderDiscount: 5000,
+      },
+      catalogOf(),
+    );
+    expect(r.after.orderDiscount).toBe(4000);
+    expect(r.discountWarnings).toEqual([{ code: 'ORDER_DISCOUNT_CAPPED' }]);
+  });
+
+  it('without orderDiscount, a subtotal below the stored discount still warns ORDER_DISCOUNT_CAPPED', () => {
+    const r = simulateModification(
+      promoCurrent({ orderDiscount: 5000, promotions: [] }),
+      { lines: [{ orderLineId: 1, variantId: 101, quantity: 1 }], shipping: keep },
+      catalogOf(),
+    );
+    expect(r.after.orderDiscount).toBe(4000);
+    expect(r.discountWarnings).toEqual([{ code: 'ORDER_DISCOUNT_CAPPED' }]);
+  });
+
+  it.each([-1, 1.5, 1_000_000_001, '100', null])('orderDiscount %s → INVALID_AMOUNT', (value) => {
+    const r = simulateModification(
+      promoCurrent({ promotions: [] }),
+      {
+        lines: [{ orderLineId: 1, variantId: 101, quantity: 3 }],
+        shipping: keep,
+        orderDiscount: value as any,
+      },
+      catalogOf(),
+    );
+    expect(r.errors).toEqual([{ path: 'orderDiscount', code: 'INVALID_AMOUNT' }]);
+  });
+
+  it.each([
+    ['RECALCULATE', { mode: 'RECALCULATE', quote: 700, previousShipmentsCost: 0 }],
+    ['MANUAL', { mode: 'MANUAL', amount: 300 }],
+  ] as const)('%s shipping drops an applied free-shipping promotion: SHIPPING_PROMOTION_DROPPED', (_m, shipping) => {
+    const current = promoCurrent({
+      shippingOriginal: 500,
+      shippingDiscount: 500,
+      promotions: [appliedPromotion(), freeShipping()],
+    });
+    const r = simulateModification(
+      current,
+      { lines: [{ orderLineId: 1, variantId: 101, quantity: 3 }], shipping: shipping as any },
+      catalogOf(),
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.shipping.shippingDiscount).toBe(0);
+    expect(r.discountWarnings).toEqual([
+      { code: 'SHIPPING_PROMOTION_DROPPED', promotionId: 8, name: 'Free shipping' },
+    ]);
+    // The stored promotions are not touched.
+    expect(current.promotions).toEqual([appliedPromotion(), freeShipping()]);
+  });
+
+  it('KEEP shipping, or a shipping discount already gone, does not warn about shipping promotions', () => {
+    const lines = [{ orderLineId: 1, variantId: 101, quantity: 3 }];
+    const kept = simulateModification(
+      promoCurrent({ shippingDiscount: 500, promotions: [freeShipping()] }),
+      { lines, shipping: keep },
+      catalogOf(),
+    );
+    expect(kept.discountWarnings).toEqual([]);
+    const gone = simulateModification(
+      promoCurrent({ shippingDiscount: 0, promotions: [freeShipping()] }),
+      { lines, shipping: { mode: 'MANUAL', amount: 300 } },
+      catalogOf(),
+    );
+    expect(gone.discountWarnings).toEqual([]);
+  });
+
+  it('a variant with two non-gift lines requires orderLineId (else INVALID_QUANTITY)', () => {
+    const current = promoCurrent({
+      promotions: [],
+      orderDiscount: 0,
+      lines: [
+        existing({ id: 1, unitPrice: 2000, quantity: 2 }),
+        existing({ id: 2, unitPrice: 2000, unitDiscount: 2000, quantity: 1 }),
+      ],
+    });
+    const bad = simulateModification(
+      current,
+      { lines: [{ variantId: 101, quantity: 3 }], shipping: keep },
+      catalogOf(),
+    );
+    expect(bad.errors).toContainEqual({ path: 'lines.0.orderLineId', code: 'INVALID_QUANTITY' });
+    expect(bad.lineChanges.find((c) => c.orderLineId === 2)?.kind).not.toBe('REMOVED');
+
+    const ok = simulateModification(
+      current,
+      {
+        lines: [
+          { orderLineId: 1, variantId: 101, quantity: 3 },
+          { orderLineId: 2, variantId: 101, quantity: 1 },
+        ],
+        shipping: keep,
+      },
+      catalogOf(variant({ variantId: 101, productId: 1, stock: 10 })),
+    );
+    expect(ok.errors).toEqual([]);
+    expect(ok.after.subtotal).toBe(6000);
+  });
+
+  it('one non-gift line plus a gift line of the same variant still resolves without orderLineId', () => {
+    const r = simulateModification(
+      promoCurrent({
+        promotions: [],
+        orderDiscount: 0,
+        lines: [
+          existing({ id: 1, unitPrice: 2000, quantity: 2 }),
+          existing({ id: 2, unitPrice: 2000, unitDiscount: 2000, quantity: 1, isGift: true }),
+        ],
+      }),
+      { lines: [{ variantId: 101, quantity: 3 }], shipping: keep },
+      catalogOf(variant({ variantId: 101, productId: 1, stock: 10 })),
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.lineChanges.map((c) => [c.orderLineId, c.newQuantity])).toEqual([
+      [1, 3],
+      [2, 1],
+    ]);
   });
 });

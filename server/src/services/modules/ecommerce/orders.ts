@@ -64,6 +64,7 @@ import {
   normalizePromotionCode,
   type AppliedPromotion,
   type EvaluationInput,
+  type EvaluationLine,
   type GiftOption,
   type PricedLine,
   type PromotionCandidate,
@@ -352,6 +353,11 @@ export type OrderModificationInput = {
   shipping:
     { mode: 'KEEP' } | { mode: 'RECALCULATE' } | { mode: 'MANUAL'; amount: number; name?: string };
   addresses?: { shipping?: Address; billing?: Address };
+  /**
+   * Manual order discount in cents ([0, MAX_MONEY_CENTS], else `INVALID_AMOUNT`): replaces the
+   * stored one before the cap at the new subtotal and is recorded in the history.
+   */
+  orderDiscount?: number;
 };
 
 export type OrderModificationOutcome = Pick<ModificationResult, 'outcome' | 'difference'>;
@@ -360,6 +366,8 @@ type NormalizedModification = {
   lines: { orderLineId?: number; variantId: number; quantity: number }[];
   shipping: OrderModificationInput['shipping'];
   addresses: { shipping?: Address; billing?: Address };
+  /** As sent (validated by the simulation); absent = keep the stored discount. */
+  orderDiscount?: number;
 };
 
 const SHIPPING_MODES = ['KEEP', 'RECALCULATE', 'MANUAL'] as const;
@@ -576,7 +584,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
   const events = (): {
     collector(): { emit(e: any): void; flush(): Promise<void> };
   } => service('EcommerceEventBus');
-  /** The only way the order service reaches promotions (create, cancel, get, quote). */
+  /** The only way the order service reaches promotions (create, cancel, get, quote, modify). */
   const promotions = (): {
     evaluate(input: Omit<EvaluationInput, 'searchLimit' | 'onConditionError'>): PromotionEvaluation;
     loadCandidates(p: { codes: string[]; email: string | null }): Promise<PromotionCandidate[]>;
@@ -594,6 +602,10 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       opts: { operationId?: string }
     ): Promise<{ promotionId: number; promotionCode: string | null }[]>;
     redemptionStatuses(orderId: number): Promise<Map<number, 'RESERVED' | 'RELEASED'>>;
+    unmet(
+      applied: AppliedPromotion[],
+      ctx: { lines: EvaluationLine[]; email: string | null }
+    ): { promotionId: number; name: string }[];
   } => service('EcommercePromotionService');
   const getDefaultLocale = async (): Promise<string> =>
     strapi.plugin('i18n').service('locales').getDefaultLocale();
@@ -1949,7 +1961,12 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     if (a?.billing) addresses.billing = normalizeAddress(a.billing, 'addresses.billing', errors);
 
     if (errors.length) throw new EcommerceValidationError('Invalid modification', errors);
-    return { lines, shipping: shippingInput, addresses };
+    return {
+      lines,
+      shipping: shippingInput,
+      addresses,
+      ...(input?.orderDiscount !== undefined ? { orderDiscount: input.orderDiscount } : {}),
+    };
   };
 
   /** The order (MODIFY must be available) and the catalog of every variant involved. */
@@ -1973,6 +1990,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     lines: state.lines.map((l): ExistingLine => ({
       id: l.id,
       variantId: l.variantId,
+      productId: l.productId,
       sku: l.sku,
       name: l.name,
       option: l.option ?? '',
@@ -1989,6 +2007,11 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     shippingDiscount: num(state.order.shippingDiscount),
     payments: state.payments.map(toPaymentLike),
     refunds: state.refunds.map(toRefundLike),
+    promotions: appliedOf(state.order),
+    email:
+      typeof state.order.customerSnapshot?.email === 'string'
+        ? state.order.customerSnapshot.email
+        : null,
   });
 
   const toModificationCatalog = (catalog: Map<number, CatalogVariant>) => {
@@ -1996,6 +2019,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     for (const [id, c] of catalog) {
       out.set(id, {
         variantId: c.variantId,
+        productId: c.productId,
         sku: c.sku,
         name: c.name,
         option: c.option ?? '',
@@ -2016,8 +2040,14 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
   ): ModificationResult =>
     simulateModification(
       toModificationCurrent(ctx.state),
-      { lines: n.lines, shipping: shippingInput, addresses: n.addresses },
-      toModificationCatalog(ctx.catalog)
+      {
+        lines: n.lines,
+        shipping: shippingInput,
+        addresses: n.addresses,
+        ...(n.orderDiscount !== undefined ? { orderDiscount: n.orderDiscount } : {}),
+      },
+      toModificationCatalog(ctx.catalog),
+      { unmet: (applied, c) => promotions().unmet(applied, c) }
     );
 
   /**
@@ -2240,7 +2270,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
             returnedQuantity: 0,
             tax: c.tax,
             isGift: false,
-            promotionRefs: [],
+            promotionRefs: { refs: [] },
             position: position++,
           },
         });
@@ -2381,6 +2411,8 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       where: { order: orderId },
     });
     const previousDiscount = num(order.orderDiscount);
+    // The simulation validated it: a manual discount replaces the stored one before the cap.
+    const manualDiscount = n.orderDiscount !== undefined;
     const totals = computeTotals(
       storedLines.map((l) => ({
         unitPrice: num(l.unitPrice),
@@ -2389,15 +2421,19 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         returnedQuantity: num(l.returnedQuantity),
       })),
       {
-        orderDiscount: previousDiscount,
+        orderDiscount: manualDiscount ? num(n.orderDiscount) : previousDiscount,
         shippingOriginal: s.shippingOriginal,
         shippingDiscount: s.shippingDiscount,
       }
     );
+    // One entry per modification: the manual adjustment, or else the cap.
     if (totals.orderDiscount !== previousDiscount) {
+      const description = manualDiscount
+        ? `Order discount adjusted manually: ${previousDiscount} → ${totals.orderDiscount} cents`
+        : `Order discount capped at the new subtotal: ${previousDiscount} → ${totals.orderDiscount} cents`;
       await record({
         type: 'ORDER_DISCOUNT_CHANGED',
-        description: `Order discount capped at the new subtotal: ${previousDiscount} → ${totals.orderDiscount} cents`,
+        description,
         previousValue: { orderDiscount: previousDiscount },
         newValue: { orderDiscount: totals.orderDiscount },
       });
