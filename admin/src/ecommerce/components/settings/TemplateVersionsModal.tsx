@@ -130,7 +130,7 @@ const TemplateVersionsModal = ({ type, locale, readOnly, onClose, onRestored }: 
                 </Typography>
               </Td>
               <Td>
-                <Typography textColor="neutral800">{v.createdBy ?? '—'}</Typography>
+                <Typography textColor="neutral800">{v.authorName ?? '—'}</Typography>
               </Td>
               <Td>
                 {!readOnly && (

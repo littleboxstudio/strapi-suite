@@ -98,7 +98,8 @@ export type EmailTemplateView = TemplateContent & {
 export type EmailTemplateVersionView = TemplateContent & {
   id: number;
   version: number;
-  createdBy: string | null;
+  authorId: string | null;
+  authorName: string | null;
   createdAt: string | null;
 };
 
