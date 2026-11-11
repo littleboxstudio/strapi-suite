@@ -5,7 +5,7 @@ import config from '../../../server/src/config';
 const names: Record<string, string[]> = {
   'integration': ['providerId', 'category', 'active', 'config', 'secrets', 'editorId'],
   'store-setting': ['key', 'value'],
-  'manual-shipping-method': ['name', 'price', 'tax', 'countries', 'active', 'position'],
+  'manual-shipping-method': ['name', 'rates', 'tax', 'active', 'position'],
   'email-template': ['type', 'locale', 'subject', 'html', 'version', 'editorId'],
   'email-template-version': ['type', 'locale', 'subject', 'html', 'version', 'authorId'],
   'audit-log': ['area', 'action', 'targetId', 'userId', 'details'],
@@ -42,9 +42,10 @@ describe('ecommerce settings content-types', () => {
 
   it('manual-shipping-method defaults', () => {
     const a = get('manual-shipping-method').attributes;
-    expect(a.price).toMatchObject({ type: 'integer', min: 0 });
+    expect(a.price).toBeUndefined();
+    expect(a.countries).toBeUndefined();
+    expect(a.rates).toMatchObject({ type: 'json', default: {} });
     expect(a.tax).toMatchObject({ type: 'decimal', min: 0, max: 100, default: 23 });
-    expect(a.countries.default).toEqual(['PT']);
     expect(a.active.default).toBe(true);
   });
 

@@ -26,6 +26,7 @@ import {
   ValidationIssue,
 } from './errors';
 import type { AuditEntry } from './audit';
+import { MAX_MONEY_CENTS } from './domain/orders';
 import type { StoreLogoFile } from './images';
 
 const AREA = 'settings';
@@ -82,9 +83,9 @@ export const STORE_SETTINGS_DEFAULTS: StoreSettings = {
 export type ManualMethod = {
   id: number;
   name: Record<string, string>;
-  price: number;
+  /** Price in cents (VAT included) per shipping zone id; a zone without a key has no service. */
+  rates: Record<string, number>;
   tax: number;
-  countries: string[];
   active: boolean;
   position: number;
 };
@@ -225,9 +226,28 @@ const unwrapStoreValue = (stored: unknown): unknown =>
     ? (stored as { v: unknown }).v
     : stored;
 
+function normalizeRates(input: unknown, zoneIds: Set<number>, errors: ValidationIssue[]): Record<string, number> {
+  const rates: Record<string, number> = {};
+  if (input === undefined || input === null) return rates;
+  if (typeof input !== 'object' || Array.isArray(input)) {
+    errors.push({ path: 'rates', code: 'invalid_number' });
+    return rates;
+  }
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    const path = `rates.${key}`;
+    if (!/^[1-9]\d*$/.test(key) || !zoneIds.has(Number(key))) errors.push({ path, code: 'invalid_zone' });
+    else if (value === null || value === '') continue;
+    else if (typeof value !== 'number' || !Number.isInteger(value)) errors.push({ path, code: 'invalid_number' });
+    else if (value < 0 || value > MAX_MONEY_CENTS) errors.push({ path, code: 'out_of_range' });
+    else rates[key] = value;
+  }
+  return rates;
+}
+
 function normalizeManualMethod(
   input: ManualMethodInput,
-  defaultLocale: string
+  defaultLocale: string,
+  zoneIds: Set<number>
 ): { values: Omit<ManualMethod, 'id' | 'position'> & { position?: number }; errors: ValidationIssue[] } {
   const errors: ValidationIssue[] = [];
 
@@ -239,17 +259,11 @@ function normalizeManualMethod(
   }
   if (!name[defaultLocale]) errors.push({ path: `name.${defaultLocale}`, code: 'required' });
 
-  const price = input.price;
-  if (price === undefined || price === null) errors.push({ path: 'price', code: 'required' });
-  else if (typeof price !== 'number' || !Number.isInteger(price)) errors.push({ path: 'price', code: 'invalid_number' });
-  else if (price < 0) errors.push({ path: 'price', code: 'out_of_range' });
+  const rates = normalizeRates(input.rates, zoneIds, errors);
 
   const tax = input.tax ?? 23;
   if (typeof tax !== 'number' || !Number.isFinite(tax)) errors.push({ path: 'tax', code: 'invalid_number' });
   else if (tax < 0 || tax > 100) errors.push({ path: 'tax', code: 'out_of_range' });
-
-  const countries = input.countries ?? ['PT'];
-  validateCountries(countries, 'countries', errors);
 
   const position = input.position;
   if (position !== undefined && position !== null && (typeof position !== 'number' || !Number.isInteger(position))) {
@@ -259,9 +273,8 @@ function normalizeManualMethod(
   return {
     values: {
       name,
-      price: price as number,
+      rates,
       tax: tax as number,
-      countries: Array.isArray(countries) ? [...new Set(countries)] : [],
       active: input.active === undefined ? true : Boolean(input.active),
       ...(typeof position === 'number' ? { position } : {}),
     },
@@ -272,9 +285,8 @@ function normalizeManualMethod(
 const toManualMethod = (r: any): ManualMethod => ({
   id: r.id,
   name: r.name ?? {},
-  price: r.price ?? 0,
+  rates: r.rates && typeof r.rates === 'object' && !Array.isArray(r.rates) ? r.rates : {},
   tax: r.tax === null || r.tax === undefined ? 23 : Number(r.tax),
-  countries: r.countries ?? ['PT'],
   active: r.active ?? true,
   position: r.position ?? 0,
 });
@@ -292,6 +304,10 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
     strapi.plugin(PLUGIN_ID).service('EcommerceAuditService').log(entry);
   const getDefaultLocale = async (): Promise<string> =>
     strapi.plugin('i18n').service('locales').getDefaultLocale();
+  const zoneIds = async (): Promise<Set<number>> => {
+    const zones: { id: number }[] = await strapi.plugin(PLUGIN_ID).service('EcommerceShippingZoneService').list();
+    return new Set(zones.map((z) => z.id));
+  };
 
   const runtimeCache = new Map<string, { value: ProviderRuntime & { active: boolean }; expiresAt: number }>();
   // Bumped on every invalidation so a read that started before it cannot repopulate the cache.
@@ -666,7 +682,7 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
     },
 
     async createManualMethod(input: ManualMethodInput, userId?: string | number): Promise<ManualMethod> {
-      const { values, errors } = normalizeManualMethod(input ?? {}, await getDefaultLocale());
+      const { values, errors } = normalizeManualMethod(input ?? {}, await getDefaultLocale(), await zoneIds());
       if (errors.length) throw new EcommerceValidationError('Invalid settings', errors);
       const q = strapi.db.query(uids().manualShippingMethod);
       if (values.position === undefined) {
@@ -688,7 +704,11 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
       const existing = await q.findOne({ where: { id } });
       if (!existing) throw new EcommerceNotFoundError('Shipping method not found');
       const { id: _id, ...current } = toManualMethod(existing);
-      const { values, errors } = normalizeManualMethod({ ...current, ...(input ?? {}) }, await getDefaultLocale());
+      const { values, errors } = normalizeManualMethod(
+        { ...current, ...(input ?? {}) },
+        await getDefaultLocale(),
+        await zoneIds()
+      );
       if (errors.length) throw new EcommerceValidationError('Invalid settings', errors);
       const updated = await q.update({ where: { id }, data: values });
       await audit({

@@ -6,6 +6,7 @@ import { EcommerceCarrierError } from './errors';
 import { builtInCarrierAdapters } from './providers/carriers';
 import type { CarrierAdapter, CarrierCallOptions } from './providers/carriers/types';
 import type { ManualMethod, StoreSettings } from './settings';
+import type { ShippingZone } from './shippingZones';
 
 export type ShippingQuoteRequest = {
   country: string;
@@ -13,6 +14,8 @@ export type ShippingQuoteRequest = {
   items: { variantId: number; quantity: number; weight: number; width: number; height: number; depth: number }[];
   subtotal: number;
   locale: string;
+  /** The shipping zone of `country`; set by the service for the carriers, never by the caller. */
+  zoneId?: number;
 };
 
 export type ShippingOption = {
@@ -101,6 +104,8 @@ type Settings = {
 
 const EcommerceShippingService = ({ strapi }: { strapi: Core.Strapi }) => {
   const settings = (): Settings => strapi.plugin(PLUGIN_ID).service('EcommerceSettingsService');
+  const listZones = (): Promise<ShippingZone[]> =>
+    strapi.plugin(PLUGIN_ID).service('EcommerceShippingZoneService').list();
   const getDefaultLocale = async (): Promise<string> =>
     strapi.plugin('i18n').service('locales').getDefaultLocale();
 
@@ -115,18 +120,23 @@ const EcommerceShippingService = ({ strapi }: { strapi: Core.Strapi }) => {
     const options: ShippingOption[] = [];
     const failures: { providerId: string; code: string }[] = [];
 
+    // A country outside the markets, or a market in no zone, has no shipping (not a failure).
     if (!(store.markets ?? []).includes(req.country)) return { options, failures };
+    const zone = (await listZones()).find((z) => z.countries.includes(req.country));
+    if (!zone) return { options, failures };
+    const zoneKey = String(zone.id);
 
     if (activeCarriers.includes('manual')) {
       const defaultLocale = await getDefaultLocale();
       const methods = await svc.listManualMethods();
       for (const m of methods) {
-        if (!m.active || !(m.countries ?? []).includes(req.country)) continue;
+        const price = m.rates?.[zoneKey];
+        if (!m.active || typeof price !== 'number') continue;
         options.push({
           providerId: 'manual',
           serviceId: String(m.id),
           name: m.name?.[req.locale] || m.name?.[defaultLocale] || '',
-          price: m.price,
+          price,
           tax: m.tax,
         });
       }
@@ -141,9 +151,12 @@ const EcommerceShippingService = ({ strapi }: { strapi: Core.Strapi }) => {
             if (adapter && !adapter.quote) return { options: [], invalid: false };
             const runtime = await svc.getRuntime(providerId);
             if (!adapter || !runtime || !runtime.active) throw new EcommerceCarrierError('CARRIER_NOT_CONFIGURED');
+            // A carrier only quotes for the zones it serves.
+            const served = runtime.config.zones;
+            if (!Array.isArray(served) || !served.includes(zone.id)) return { options: [], invalid: false };
             // Explicit to the adapter (`timedFetch` assumes 10 s); the race below is the backstop.
             const result = await adapter.quote!(
-              req,
+              { ...req, zoneId: zone.id },
               { config: runtime.config, secrets: runtime.secrets },
               { timeoutMs: QUOTE_TIMEOUT_MS }
             );
