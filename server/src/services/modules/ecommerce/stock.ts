@@ -1,6 +1,7 @@
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID, LtbConfigs } from '../../../config';
 import { EcommerceNotFoundError } from './errors';
+import { isUniqueViolation } from './dbErrors';
 
 export type StockMovementType =
   | 'ORDER_DEDUCT'
@@ -29,18 +30,6 @@ const ORDER_NET_TYPES: StockMovementType[] = [
   'CANCEL_RESTOCK',
   'RETURN_RESTOCK',
 ];
-
-/** Unique / primary-key violation only (PostgreSQL, MySQL/MariaDB, SQLite). */
-const isUniqueViolation = (err: any): boolean => {
-  const code = String(err?.code ?? '');
-  return (
-    code === '23505' ||
-    code === 'ER_DUP_ENTRY' ||
-    err?.errno === 1062 ||
-    code === 'SQLITE_CONSTRAINT_UNIQUE' ||
-    code === 'SQLITE_CONSTRAINT_PRIMARYKEY'
-  );
-};
 
 /**
  * The stock ledger: every change to a variant's stock is a movement row plus an atomic
