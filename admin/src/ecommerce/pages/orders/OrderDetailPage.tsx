@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useNotification } from '@strapi/strapi/admin';
@@ -15,7 +15,7 @@ import { usePaymentPermissions } from '../../hooks/usePaymentPermissions';
 import { useInvoicingPermissions } from '../../hooks/useInvoicingPermissions';
 import { hasUninvoicedPayments } from '../../utils/invoiceForm';
 import { apiErrorMessageId, type ToolbarAction } from '../../utils/orderDetail';
-import type { RefundInitial } from '../../utils/refundForm';
+import { initialOrderModalState, orderModalReducer } from '../../utils/orderModals';
 import type { InvoiceScopeInput, ModificationApplied, Order } from '../../orderTypes';
 import OrderHeader from '../../components/orders/OrderHeader';
 import OrderSection from '../../components/orders/OrderSection';
@@ -59,16 +59,15 @@ const OrderDetailPage = () => {
 
   const [order, setOrder] = useState<Order | null>(null);
   const [loadError, setLoadError] = useState(false);
-  const [modal, setModal] = useState<ToolbarAction | null>(null);
-  // Remounts the confirm dialogs on each opening (they can close themselves on Escape).
-  const [modalKey, setModalKey] = useState(0);
+  // The open action modal; `modalKey` remounts it on each opening (new idempotency key, and the
+  // confirm dialogs can close themselves on Escape). Closes are scoped to the modal asking.
+  const [modals, dispatchModal] = useReducer(orderModalReducer, initialOrderModalState);
+  const { modal, key: modalKey, refundInitial } = modals;
   const [busy, setBusy] = useState(false);
   // Bumped on every order (re)load: refunds and notifications refetch with it.
   const [version, setVersion] = useState(0);
   // Opened after a modification leaves an amount due (requirement 16.7).
   const [supplementary, setSupplementary] = useState(false);
-  // Prefill of the refund modal when it opens from "Refund now" after a return.
-  const [refundInitial, setRefundInitial] = useState<RefundInitial | undefined>(undefined);
   // The invoice being issued (one payment or the whole order); null when the modal is closed.
   const [invoiceScope, setInvoiceScope] = useState<InvoiceScopeInput | null>(null);
   const hasOrderRef = useRef(false);
@@ -101,7 +100,7 @@ const OrderDetailPage = () => {
     hasOrderRef.current = false;
     setOrder(null);
     setLoadError(false);
-    setModal(null);
+    dispatchModal({ type: 'RESET' });
     setSupplementary(false);
     setInvoiceScope(null);
     if (!Number.isInteger(orderId) || orderId < 1) {
@@ -114,11 +113,12 @@ const OrderDetailPage = () => {
     };
   }, [orderId, load]);
 
-  const closeModal = () => setModal(null);
+  /** Closes `from` if it is still the open modal and not mid-request. */
+  const closeModal = (from: ToolbarAction) => () => dispatchModal({ type: 'CLOSE', from });
 
-  /** After an action: close the modal and refetch the order. */
-  const afterChange = async () => {
-    setModal(null);
+  /** After `from`'s action succeeded: close it and refetch the order. */
+  const afterChange = (from: ToolbarAction) => async () => {
+    dispatchModal({ type: 'DONE', from });
     await load();
   };
 
@@ -127,7 +127,7 @@ const OrderDetailPage = () => {
    * then ask for the amount due or flag the refundable excess.
    */
   const afterModification = async (result: ModificationApplied) => {
-    setModal(null);
+    dispatchModal({ type: 'DONE', from: 'MODIFY' });
     if (result.order) {
       // Supersedes any refetch still in flight.
       requestRef.current += 1;
@@ -152,7 +152,7 @@ const OrderDetailPage = () => {
     if (busy || !order) return;
     const key = action === 'CANCEL' ? 'cancel' : 'archive';
     setBusy(true);
-    setModal(null);
+    dispatchModal({ type: 'DONE', from: action });
     try {
       if (action === 'CANCEL') await new CancelOrder().execute(order.id);
       else await new ArchiveOrder().execute(order.id);
@@ -199,11 +199,7 @@ const OrderDetailPage = () => {
         back={backButton}
         permissions={permissions}
         busy={busy}
-        onAction={(action) => {
-          setModalKey((k) => k + 1);
-          setRefundInitial(undefined);
-          setModal(action);
-        }}
+        onAction={(action) => dispatchModal({ type: 'OPEN', action })}
       />
 
       <OrderSection title={t('ecommerce.orders.detail.lines.title')}>
@@ -268,7 +264,7 @@ const OrderDetailPage = () => {
       </OrderSection>
 
       {canManage && modal === 'MODIFY' && (
-        <ModifyOrderModal order={order} onClose={closeModal} onApplied={afterModification} />
+        <ModifyOrderModal order={order} onClose={closeModal('MODIFY')} onApplied={afterModification} />
       )}
       {canPay && supplementary && (
         <SupplementaryPaymentModal
@@ -291,31 +287,35 @@ const OrderDetailPage = () => {
           reference={order.reference}
           locale={order.locale}
           due={order.summary.due}
-          onClose={closeModal}
-          onSent={afterChange}
+          onClose={closeModal('SEND_PAYMENT_INSTRUCTIONS')}
+          onSent={afterChange('SEND_PAYMENT_INSTRUCTIONS')}
         />
       )}
-      {canRefund && modal === 'REFUND' && (
+      {/* Stays mounted while its request is in flight, even if a permission re-check flickers. */}
+      {(canRefund || modals.submitting) && modal === 'REFUND' && (
         <RefundModal
+          key={`refund-${modalKey}`}
           orderId={order.id}
           reference={order.reference}
           initial={refundInitial}
-          onClose={closeModal}
-          onRefunded={afterChange}
+          onClose={closeModal('REFUND')}
+          onSubmitting={(submitting) => dispatchModal({ type: 'SUBMITTING', from: 'REFUND', submitting })}
+          onRefunded={afterChange('REFUND')}
         />
       )}
       {canManage && modal === 'SHIP' && (
-        <ShipOrderModal order={order} onClose={closeModal} onShipped={afterChange} />
+        <ShipOrderModal order={order} onClose={closeModal('SHIP')} onShipped={afterChange('SHIP')} />
       )}
       {canManage && modal === 'REGISTER_RETURN' && (
         <RegisterReturnModal
+          key={`return-${modalKey}`}
           order={order}
           canRefund={canRefund}
-          onClose={(changed) => (changed ? afterChange() : closeModal())}
+          onClose={(changed) => (changed ? afterChange('REGISTER_RETURN')() : closeModal('REGISTER_RETURN')())}
           onRefundNow={(initial) => {
-            // The refund modal reads its amounts from a fresh preview; the order reloads behind it.
-            setRefundInitial(initial);
-            setModal('REFUND');
+            // Hand-off: the refund modal replaces the return modal (whose late closes are now
+            // ignored) and reads its amounts from a fresh preview; the order reloads behind it.
+            dispatchModal({ type: 'HAND_OFF_REFUND', initial });
             load();
           }}
         />
@@ -332,14 +332,19 @@ const OrderDetailPage = () => {
         />
       )}
       {canManage && modal === 'ADD_PAYMENT' && (
-        <AddPaymentModal orderId={order.id} due={order.summary.due} onClose={closeModal} onAdded={afterChange} />
+        <AddPaymentModal
+          orderId={order.id}
+          due={order.summary.due}
+          onClose={closeModal('ADD_PAYMENT')}
+          onAdded={afterChange('ADD_PAYMENT')}
+        />
       )}
       <CancelOrderModal
         key={`cancel-${modalKey}`}
         open={canManage && modal === 'CANCEL'}
         reference={order.reference}
         onConfirm={() => runTransition('CANCEL')}
-        onClose={closeModal}
+        onClose={closeModal('CANCEL')}
       />
       <ConfirmModal
         key={`archive-${modalKey}`}
@@ -358,7 +363,7 @@ const OrderDetailPage = () => {
           </Flex>
         }
         confirm={{ button: t('ecommerce.orders.detail.archive.confirm'), action: () => runTransition('ARCHIVE') }}
-        cancel={{ button: t('ecommerce.orders.detail.archive.back'), action: closeModal }}
+        cancel={{ button: t('ecommerce.orders.detail.archive.back'), action: closeModal('ARCHIVE') }}
       />
     </Flex>
   );

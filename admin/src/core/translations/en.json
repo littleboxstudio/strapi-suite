@@ -1195,6 +1195,7 @@
   "littlebox-strapi-suite.ecommerce.orders.shipments.track": "Track",
   "littlebox-strapi-suite.ecommerce.orders.shipments.showEvents": "Events ({count})",
   "littlebox-strapi-suite.ecommerce.orders.shipments.hideEvents": "Hide events",
+  "littlebox-strapi-suite.ecommerce.orders.shipments.moreActions": "Actions for shipment #{id}",
   "littlebox-strapi-suite.ecommerce.orders.shipments.eventTypes.CREATED": "Created",
   "littlebox-strapi-suite.ecommerce.orders.shipments.eventTypes.CANCELLED": "Cancelled",
   "littlebox-strapi-suite.ecommerce.orders.shipments.eventTypes.DELIVERED": "Delivered",
