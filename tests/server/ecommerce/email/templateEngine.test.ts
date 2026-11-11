@@ -24,6 +24,11 @@ describe('renderTemplate', () => {
     expect(renderTemplate('{{v}}', { v: `&"'` })).toBe('&amp;&quot;&#39;');
   });
 
+  it('HTML-escapes backtick and equals sign', () => {
+    expect(renderTemplate('{{v}}', { v: 'a=`b`' })).toBe('a&#61;&#96;b&#96;');
+    expect(renderTemplate('{{v}}', { v: 'a=`b`' }, { escape: false })).toBe('a=`b`');
+  });
+
   it('allows whitespace inside braces', () => {
     expect(renderTemplate('{{ customer.firstName }}', { customer: { firstName: 'Ana' } })).toBe(
       'Ana'
@@ -145,6 +150,25 @@ describe('validateTemplate', () => {
     '<meta http-equiv="refresh" content="0;url=https://x">',
   ])('flags unsafe HTML: %s', (html) => {
     expect(codes(validateTemplate('ORDER_CONFIRMATION', 'Subject', html))).toContain('UNSAFE_HTML');
+  });
+
+  it.each([
+    '<a href={{store.url}}>shop</a>',
+    '<img src = {{store.logoUrl}}>',
+    '<td width=\n  {{order.reference}}>x</td>',
+  ])('flags unquoted attribute interpolation: %s', (html) => {
+    const issues = validateTemplate('ORDER_CONFIRMATION', 'Subject', html);
+    expect(issues).toContainEqual({ code: 'UNSAFE_HTML', detail: expect.stringContaining('quote') });
+  });
+
+  it('does not apply the attribute rule to the plain-text subject', () => {
+    expect(validateTemplate('ORDER_CONFIRMATION', 'Total = {{order.reference}}', '<p>x</p>')).toEqual([]);
+  });
+
+  it('allows quoted attribute interpolation', () => {
+    expect(
+      validateTemplate('ORDER_CONFIRMATION', 'Subject', `<a href="{{store.url}}" title='{{store.name}}'>x</a>`)
+    ).toEqual([]);
   });
 
   it('does not flag harmless words', () => {
