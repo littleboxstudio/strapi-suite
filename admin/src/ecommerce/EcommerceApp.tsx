@@ -11,6 +11,8 @@ import { CustomerDetailPage } from './pages/customers/CustomerDetailPage';
 import { OrderListPage } from './pages/orders/OrderListPage';
 import { OrderCreatePage } from './pages/orders/OrderCreatePage';
 import { OrderDetailPage } from './pages/orders/OrderDetailPage';
+import { PromotionListPage } from './pages/promotions/PromotionListPage';
+import { StoreCreditListPage } from './pages/promotions/StoreCreditListPage';
 
 const EcommerceApp = () => (
   <EcommerceLayout>
@@ -24,7 +26,11 @@ const EcommerceApp = () => (
       <Route path="orders/:id" element={<OrderDetailPage />} />
       <Route path="customers" element={<CustomerListPage />} />
       <Route path="customers/:id" element={<CustomerDetailPage />} />
-      <Route path="promotions" element={<EcommerceComingSoon />} />
+      <Route path="promotions" element={<PromotionListPage />} />
+      <Route path="promotions/store-credits" element={<StoreCreditListPage />} />
+      {/* The promotion editor arrives with Task 12. */}
+      <Route path="promotions/new" element={<EcommerceComingSoon />} />
+      <Route path="promotions/:id" element={<EcommerceComingSoon />} />
       <Route path="settings" element={<SettingsPage />} />
       <Route path="settings/:section" element={<SettingsPage />} />
       <Route path="settings/email-templates/:type/:locale" element={<EmailTemplateEditorPage />} />
