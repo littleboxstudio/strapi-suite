@@ -94,7 +94,9 @@ export function createFakeDb(
       const value = key === 'id' ? row.id : row[key];
       if (isOp(cond)) {
         if ('$in' in cond) return cond.$in.includes(value);
-        if ('$ne' in cond) return value !== cond.$ne;
+        if ('$null' in cond) return (value === null || value === undefined) === cond.$null;
+        // SQL semantics: `<>` never matches NULL.
+        if ('$ne' in cond) return value !== null && value !== undefined && value !== cond.$ne;
         if ('$startsWith' in cond) return typeof value === 'string' && value.startsWith(cond.$startsWith);
         if ('$containsi' in cond)
           return String(value ?? '')
