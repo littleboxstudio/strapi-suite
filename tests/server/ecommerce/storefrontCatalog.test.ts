@@ -26,8 +26,22 @@ const RELATIONS: FakeRelations = {
   },
 };
 
-function setup() {
-  const { tables, query } = createFakeDb(Object.values(UIDS), RELATIONS);
+function setup(opts: { duplicateRows?: boolean } = {}) {
+  const fake = createFakeDb(Object.values(UIDS), RELATIONS);
+  const { tables } = fake;
+  const query = opts.duplicateRows
+    ? (uid: string) => {
+        const q = fake.query(uid);
+        return {
+          ...q,
+          // A join on a to-many relation can repeat a product row.
+          findMany: async (p: any) => {
+            const rows = await q.findMany(p);
+            return [...rows, ...rows];
+          },
+        };
+      }
+    : fake.query;
   const strapi: any = {
     db: { query },
     config: { get: () => ({ uuid: { modules: { ecommerce: UIDS } } }) },
@@ -228,5 +242,30 @@ describe('EcommerceStorefrontCatalogService', () => {
     const shirt = list.results.find((r) => r.name === 'Shirt')!;
     expect(shirt.image).toEqual({ url: '/uploads/sv.webp', width: 1, height: 2, alt: 'Shirt' });
     expect(Object.keys(d.images[0]).sort()).toEqual(['alt', 'height', 'url', 'width']);
+  });
+
+  it('empty pt name falls back to en', async () => {
+    const { service, addProduct, tables } = setup();
+    addProduct({ name: 'Shirt', pt: 'x', variants: [v('SH-1')] });
+    tables[UIDS.productTranslation].find((t) => t.locale === 'pt').name = '';
+    expect((await service.getProduct('shirt', 'pt')).name).toBe('Shirt');
+    expect((await service.listProducts({ locale: 'pt' })).results[0].name).toBe('Shirt');
+  });
+
+  it('search matches a name in another locale', async () => {
+    const { service, addProduct } = setup();
+    addProduct({ name: 'Pants', pt: 'Calças', variants: [v('PA-1')] });
+    addProduct({ name: 'Shirt', variants: [v('SH-1')] });
+    const res = await service.listProducts({ locale: 'en', search: 'calças' });
+    expect(res.results.map((r) => r.name)).toEqual(['Pants']);
+  });
+
+  it('dedupes product rows repeated by joins', async () => {
+    const { service, addProduct } = setup({ duplicateRows: true });
+    addProduct({ name: 'A', variants: [v('A1'), v('A2')] });
+    addProduct({ name: 'B', variants: [v('B1')] });
+    const res = await service.listProducts({ locale: 'en' });
+    expect(res.results.map((r) => r.name)).toEqual(['B', 'A']);
+    expect(res.pagination.total).toBe(2);
   });
 });
