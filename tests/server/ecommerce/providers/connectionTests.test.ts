@@ -96,3 +96,53 @@ describe('ctt-expresso testConnection', () => {
     expect(await run('ctt-expresso', {}, {})).toEqual({ ok: false, code: 'NOT_IMPLEMENTED' });
   });
 });
+
+describe('timeouts', () => {
+  afterEach(() => vi.useRealTimers());
+
+  const onAbort = (signal: AbortSignal) =>
+    new Promise<never>((_, reject) => signal.addEventListener('abort', () => reject(new Error('aborted'))));
+
+  it('stripe: header stall aborts after 10s -> UNREACHABLE', async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    stubFetch((_url: string, init: RequestInit) => {
+      signal = init.signal as AbortSignal;
+      return onAbort(signal);
+    });
+    const p = run('stripe', {}, { secretKey: 'sk_SECRET' });
+    await vi.advanceTimersByTimeAsync(10000);
+    const r = await p;
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal!.aborted).toBe(true);
+    expect(r.code).toBe('UNREACHABLE');
+  });
+
+  it('moloni: body stall aborts after 10s -> UNREACHABLE', async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    stubFetch(async (_url: string, init: RequestInit) => {
+      signal = init.signal as AbortSignal;
+      return { status: 200, ok: true, json: () => onAbort(signal!) } as unknown as Response;
+    });
+    const p = run('moloni', { clientId: 'c', username: 'u' }, { clientSecret: 's', password: 'p' });
+    await vi.advanceTimersByTimeAsync(10000);
+    const r = await p;
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal!.aborted).toBe(true);
+    expect(r.code).toBe('UNREACHABLE');
+  });
+
+  it('moloni: 5xx -> UNREACHABLE; non-JSON 4xx -> INVALID_CREDENTIALS', async () => {
+    stubFetch(async () => res(503));
+    expect((await run('moloni', { clientId: 'c', username: 'u' }, { clientSecret: 's', password: 'p' })).code).toBe('UNREACHABLE');
+    stubFetch(async () => ({ status: 400, ok: false, json: async () => { throw new SyntaxError('x'); } }) as any);
+    expect((await run('moloni', { clientId: 'c', username: 'u' }, { clientSecret: 's', password: 'p' })).code).toBe('INVALID_CREDENTIALS');
+  });
+
+  it('secrets are not trimmed', async () => {
+    const f = stubFetch(async () => res(200));
+    await run('stripe', {}, { secretKey: ' sk ' });
+    expect(f.mock.calls[0][1].headers.Authorization).toBe('Bearer  sk ');
+  });
+});
