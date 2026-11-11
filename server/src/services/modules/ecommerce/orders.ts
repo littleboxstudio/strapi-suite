@@ -3,7 +3,7 @@ import type { Core } from '@strapi/strapi';
 import { randomUUID } from 'crypto';
 import { PLUGIN_ID, LtbConfigs } from '../../../config';
 import { EcommerceNotFoundError, EcommerceValidationError, type ValidationIssue } from './errors';
-import { isUniqueViolation } from './dbErrors';
+import { isTransientTxConflict, isUniqueViolation } from './dbErrors';
 import { isValidEmail } from './customers';
 import {
   ORDER_STATUSES,
@@ -75,6 +75,8 @@ export type { Address } from './domain/orders';
 
 const PAGE_SIZE = 50;
 const MAX_CREATE_ATTEMPTS = 3;
+/** Jittered pause before running a failed creation again, so racing requests drift apart. */
+const retryPause = () => new Promise((r) => setTimeout(r, 10 + Math.floor(Math.random() * 41)));
 const FIRST_REFERENCE = 1001;
 export const MAX_PROMOTION_CODES = 5;
 
@@ -1280,14 +1282,17 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       try {
         return await attempt();
       } catch (err) {
-        if (!isUniqueViolation(err)) throw err;
+        // A unique violation (reference/publicId/idempotencyKey taken) or a transient conflict
+        // (MariaDB ER_CHECKREAD, deadlock, serialization failure): the transaction is gone, so
+        // only the whole creation is retried.
+        if (!isUniqueViolation(err) && !isTransientTxConflict(err)) throw err;
         lastError = err;
         // A concurrent request with the same key committed first: that order is the answer.
         if (v.idempotencyKey) {
           const existing = await findByIdempotencyKey(v.idempotencyKey);
           if (existing) return existing;
         }
-        // Otherwise the reference (or publicId) was taken: retry the whole creation.
+        if (i + 1 < MAX_CREATE_ATTEMPTS) await retryPause();
       }
     }
     throw lastError;

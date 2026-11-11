@@ -501,6 +501,81 @@ describe('EcommerceOrderService.create', () => {
     expect(stockOf(tables, 10)).toBe(4);
   });
 
+  /** Makes the order INSERT fail with `errors` (one per attempt), then behave normally. */
+  const failOrderInserts = (strapi: any, errors: unknown[]) => {
+    const query = strapi.db.query;
+    let calls = 0;
+    strapi.db.query = (uid: string) => {
+      const q = query(uid);
+      if (uid !== UIDS.order) return q;
+      return {
+        ...q,
+        create: async (p: any) => {
+          const e = errors[calls++];
+          if (e) throw e;
+          return q.create(p);
+        },
+      };
+    };
+    return () => calls;
+  };
+  const dbError = (props: Record<string, unknown>, message = 'db error') =>
+    Object.assign(new Error(message), props);
+
+  it.each([
+    [
+      'MariaDB ER_CHECKREAD (1020)',
+      dbError(
+        { errno: 1020, code: 'ER_CHECKREAD', sqlState: 'HY000' },
+        "Record has changed since last read in table 'ltb_st_module_ecommerce_orders'"
+      ),
+    ],
+    ['MySQL deadlock (1213)', dbError({ errno: 1213, code: 'ER_LOCK_DEADLOCK' })],
+    ['PostgreSQL serialization_failure (40001)', dbError({ code: '40001' })],
+    ['PostgreSQL deadlock_detected (40P01)', dbError({ code: '40P01' })],
+  ])('retries the whole creation after %s', async (_label, e) => {
+    const { service, tables, strapi } = setup();
+    const calls = failOrderInserts(strapi, [e]);
+    const r = await service.create(input({ lines: [{ variantId: 10, quantity: 1 }] }), ctx);
+    expect(calls()).toBe(2);
+    expect(r.reference).toBe(1001);
+    expect(tables[UIDS.order]).toHaveLength(1);
+    expect(tables[UIDS.customer]).toHaveLength(1);
+    expect(tables[UIDS.stockMovement]).toHaveLength(1);
+    expect(stockOf(tables, 10)).toBe(4);
+  });
+
+  it('propagates the last transient conflict after 3 attempts', async () => {
+    const { service, tables, strapi } = setup();
+    const last = dbError({ errno: 1020, code: 'ER_CHECKREAD' }, 'third');
+    const calls = failOrderInserts(strapi, [
+      dbError({ errno: 1213 }, 'first'),
+      dbError({ code: '40001' }, 'second'),
+      last,
+    ]);
+    const err = await service
+      .create(input({ lines: [{ variantId: 10, quantity: 1 }] }), ctx)
+      .catch((x) => x);
+    expect(err).toBe(last);
+    expect(calls()).toBe(3);
+    expect(tables[UIDS.order]).toHaveLength(0);
+    expect(tables[UIDS.stockMovement]).toHaveLength(0);
+    expect(stockOf(tables, 10)).toBe(5);
+  });
+
+  it('does not retry other database errors', async () => {
+    const { service, tables, strapi } = setup();
+    const boom = dbError({ errno: 1054, code: 'ER_BAD_FIELD_ERROR' });
+    const calls = failOrderInserts(strapi, [boom]);
+    const err = await service
+      .create(input({ lines: [{ variantId: 10, quantity: 1 }] }), ctx)
+      .catch((x) => x);
+    expect(err).toBe(boom);
+    expect(calls()).toBe(1);
+    expect(tables[UIDS.order]).toHaveLength(0);
+    expect(stockOf(tables, 10)).toBe(5);
+  });
+
   it('snapshots line texts in the order locale with fallback to the default locale', async () => {
     const { service, tables } = setup();
     await service.create(input({ locale: 'pt' }), ctx);
