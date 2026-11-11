@@ -715,7 +715,7 @@
   "littlebox-strapi-suite.ecommerce.orders.detail.addPayment.error": "Could not add the payment.",
   "littlebox-strapi-suite.ecommerce.orders.detail.addPayment.invalid_amount": "Enter an amount greater than zero and no more than 10,000,000.",
   "littlebox-strapi-suite.ecommerce.orders.detail.cancel.title": "Cancel order",
-  "littlebox-strapi-suite.ecommerce.orders.detail.cancel.text": "Cancel order #{reference}? Its stock is put back, but no refund is made automatically: refund any payment separately.",
+  "littlebox-strapi-suite.ecommerce.orders.detail.cancel.text": "Cancel order #{reference}? Its stock is put back, but no refund is made automatically: refund any payment separately. Store credit used on this order is returned to the voucher automatically.",
   "littlebox-strapi-suite.ecommerce.orders.detail.cancel.confirm": "Cancel order",
   "littlebox-strapi-suite.ecommerce.orders.detail.cancel.back": "Keep order",
   "littlebox-strapi-suite.ecommerce.orders.detail.cancel.success": "Order cancelled",

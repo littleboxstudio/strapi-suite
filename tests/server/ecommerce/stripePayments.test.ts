@@ -832,3 +832,90 @@ describe('fix round 1', () => {
     expect(e.payload.amountDue).toBe(4500);
   });
 });
+
+describe('verification fixes (plan 4, task 10)', () => {
+  const rejected401 = () =>
+    new EcommercePaymentError(
+      'STRIPE_REQUEST_FAILED',
+      'Stripe rejected the request (HTTP 401).',
+      'invalid_request_error',
+      401
+    );
+
+  /** A transient failure leaves a PENDING STRIPE payment with no session (an orphan). */
+  const withOrphan = async () => {
+    const ctx = setup();
+    const order = await createOrder(ctx.orders);
+    stripe.createCheckoutSession.mockRejectedValueOnce(
+      new EcommercePaymentError('STRIPE_UNREACHABLE', 'Could not reach Stripe.')
+    );
+    await expect(
+      ctx.stripePayments.getOrCreatePaymentLink(order.id, { purpose: 'CHECKOUT', actor })
+    ).rejects.toMatchObject({ code: 'STRIPE_UNREACHABLE' });
+    expect(ctx.tables[UIDS.payment]).toHaveLength(1);
+    expect(ctx.tables[UIDS.payment][0]).toMatchObject({
+      method: 'STRIPE',
+      status: 'PENDING',
+      externalId: null,
+    });
+    return { ...ctx, order };
+  };
+
+  it('a definitive Stripe rejection (401) cancels the reserved payment and rethrows', async () => {
+    const { orders, stripePayments, tables } = setup();
+    const order = await createOrder(orders);
+    stripe.createCheckoutSession.mockRejectedValueOnce(rejected401());
+    await expect(
+      stripePayments.getOrCreatePaymentLink(order.id, { purpose: 'CHECKOUT', actor })
+    ).rejects.toMatchObject({ code: 'STRIPE_REQUEST_FAILED', httpStatus: 401 });
+    expect(tables[UIDS.payment]).toHaveLength(1);
+    expect(tables[UIDS.payment][0]).toMatchObject({ method: 'STRIPE', status: 'CANCELLED' });
+    expect(tables[UIDS.stripeSession]).toHaveLength(0);
+    const view = await orders.get(order.id);
+    expect(view.summary.pendingPayments).toBe(0);
+  });
+
+  it.each([409, 429, 500])('HTTP %i keeps the orphan PENDING for a retry', async (status) => {
+    const { orders, stripePayments, tables } = setup();
+    const order = await createOrder(orders);
+    stripe.createCheckoutSession.mockRejectedValueOnce(
+      new EcommercePaymentError('STRIPE_REQUEST_FAILED', 'x', 'api_error', status)
+    );
+    await expect(
+      stripePayments.getOrCreatePaymentLink(order.id, { purpose: 'CHECKOUT', actor })
+    ).rejects.toMatchObject({ code: 'STRIPE_REQUEST_FAILED' });
+    expect(tables[UIDS.payment][0]).toMatchObject({ status: 'PENDING', externalId: null });
+  });
+
+  it('an order paid in full by another method cancels the STRIPE orphan', async () => {
+    const { orders, payments, tables, order } = await withOrphan();
+    await payments.addManualPayment(order.id, { amount: 4500, idempotencyKey: 'm-full' }, actor);
+    const stripeRow = tables[UIDS.payment].find((p) => p.method === 'STRIPE');
+    expect(stripeRow.status).toBe('CANCELLED');
+    const view = await orders.get(order.id);
+    expect(view.summary).toMatchObject({ due: 0, pendingPayments: 0 });
+  });
+
+  it('a partial payment keeps the orphan (debt remains)', async () => {
+    const { payments, tables, order } = await withOrphan();
+    await payments.addManualPayment(order.id, { amount: 1000, idempotencyKey: 'm-part' }, actor);
+    expect(tables[UIDS.payment].find((p) => p.method === 'STRIPE').status).toBe('PENDING');
+  });
+
+  it('cancelling the order cancels the STRIPE orphan', async () => {
+    const { orders, tables, order } = await withOrphan();
+    const view = await orders.cancel(order.id, actor);
+    expect(tables[UIDS.payment][0].status).toBe('CANCELLED');
+    expect(view.summary.pendingPayments).toBe(0);
+  });
+
+  it('a PENDING STRIPE payment with a session is not treated as an orphan', async () => {
+    const { orders, payments, stripePayments, tables } = setup();
+    const order = await createOrder(orders);
+    await stripePayments.getOrCreatePaymentLink(order.id, { purpose: 'CHECKOUT', actor });
+    // A session row without externalId on its payment (defensive: never cancelled here).
+    tables[UIDS.payment][0].externalId = null;
+    await payments.addManualPayment(order.id, { amount: 4500, idempotencyKey: 'm-full' }, actor);
+    expect(tables[UIDS.payment][0].status).toBe('PENDING');
+  });
+});
