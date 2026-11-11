@@ -158,6 +158,8 @@ export type OrderState = {
   refunds: any[];
   /** Every shipment of the order (any status), sorted by id. */
   shipments: LoadedShipment[];
+  /** The same shipments as stored rows (for the views). */
+  shipmentRows: any[];
   /** Sum of the PENDING / PROCESSING refunds. */
   inFlightRefunds: number;
   hasPendingRefunds: boolean;
@@ -468,13 +470,15 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     return order;
   };
 
-  /** Every shipment of the order (any status), sorted by id. */
-  const loadShipments = async (orderId: number): Promise<LoadedShipment[]> => {
-    const rows: any[] = await strapi.db.query(uids().shipment).findMany({
+  /** Every shipment row of the order (any status), sorted by id. */
+  const loadShipmentRows = async (orderId: number): Promise<any[]> =>
+    strapi.db.query(uids().shipment).findMany({
       where: { order: { id: orderId } },
       orderBy: { id: 'asc' },
     });
-    return rows.map((r) => ({
+
+  const toLoadedShipments = (rows: any[]): LoadedShipment[] =>
+    rows.map((r) => ({
       id: r.id,
       status: r.status,
       items: shipmentItemsOf(r).map((i) => ({ orderLineId: i.orderLineId, quantity: i.quantity })),
@@ -482,6 +486,21 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       delivered: r.deliveryStatus === 'DELIVERED',
       shippingCost: num(r.shippingCost),
     }));
+
+  /** Every shipment of the order (any status), sorted by id. */
+  const loadShipments = async (orderId: number): Promise<LoadedShipment[]> =>
+    toLoadedShipments(await loadShipmentRows(orderId));
+
+  /**
+   * A carrier shipment being created (or of uncertain outcome) reserves units the order must
+   * keep: cancelling or modifying the order waits until it is settled.
+   */
+  const assertNoPendingShipment = (shipments: LoadedShipment[]): void => {
+    if (shipments.some((s) => s.status === 'PENDING')) {
+      throw new EcommerceValidationError('Order has a pending shipment', [
+        { path: 'shipments', code: 'SHIPMENT_PENDING' },
+      ]);
+    }
   };
 
   /** Every refund of the order (any status), sorted by id. */
@@ -811,7 +830,9 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
    */
   const computeOrderState = async (orderId: number): Promise<OrderState> => {
     const order = await loadOrder(orderId);
-    const shipments = await loadShipments(orderId);
+    const shipmentRows = await loadShipmentRows(orderId);
+    const shipments = toLoadedShipments(shipmentRows);
+    const hasPendingShipment = shipments.some((s) => s.status === 'PENDING');
     const shipped = shippedQuantities(shipments);
     const reserved = reservedQuantities(shipments);
     const lines = [...(order.lines ?? [])]
@@ -838,8 +859,11 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       // Invoicing arrives in plan 4.
       hasUninvoicedCompletedPayments: false,
     }).filter(
-      // In-flight refunds already claim part of the excess.
-      (a) => a !== 'REFUND' || refundableAmount(summary, inFlightRefunds) > 0
+      (a) =>
+        // In-flight refunds already claim part of the excess.
+        (a !== 'REFUND' || refundableAmount(summary, inFlightRefunds) > 0) &&
+        // A PENDING shipment's units must stay on the order.
+        (a !== 'MODIFY' || !hasPendingShipment)
     );
     return {
       order,
@@ -847,6 +871,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       payments,
       refunds,
       shipments,
+      shipmentRows,
       inFlightRefunds,
       hasPendingRefunds,
       summary,
@@ -861,10 +886,14 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       payments: paymentRows,
       refunds: refundRows,
       shipments,
+      shipmentRows,
       summary,
       actions,
     } = await computeOrderState(id);
-    const shipmentViews: ShipmentView[] = await service('EcommerceShipmentService').listForOrder(id);
+    const shipmentViews: ShipmentView[] = await service('EcommerceShipmentService').listForOrder(
+      id,
+      shipmentRows
+    );
     const countNotifications = (status: string) =>
       strapi.db.query(uids().notification).count({ where: { order: { id }, status } });
     const [sent, failed, skipped] = await Promise.all([
@@ -1067,12 +1096,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       const state = await computeOrderState(orderId);
       const from: OrderStatus = state.order.orderStatus;
       assertAction(state, action, canTransition(from, to));
-      // A carrier shipment being created (or of uncertain outcome) must be settled first.
-      if (to === 'CANCELLED' && state.shipments.some((s) => s.status === 'PENDING')) {
-        throw new EcommerceValidationError('Order has a pending shipment', [
-          { path: 'shipments', code: 'SHIPMENT_PENDING' },
-        ]);
-      }
+      if (to === 'CANCELLED') assertNoPendingShipment(state.shipments);
 
       const now = new Date().toISOString();
       const reference = state.order.reference;
@@ -1232,6 +1256,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
   /** The order (MODIFY must be available) and the catalog of every variant involved. */
   const loadModificationContext = async (orderId: number, n: NormalizedModification) => {
     const state = await computeOrderState(orderId);
+    assertNoPendingShipment(state.shipments);
     assertAction(state, 'MODIFY');
     const ids = new Set<number>(state.lines.map((l) => l.variantId));
     for (const l of n.lines) {

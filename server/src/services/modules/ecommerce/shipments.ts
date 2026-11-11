@@ -197,7 +197,13 @@ const normalizeInput = (input: ShipmentInput): NormalizedInput => {
 
 type Collector = { emit(e: any): void; flush(): Promise<void> };
 
-type CarrierCall = { result: CarrierShipmentResult } | { error: unknown };
+/**
+ * The outcome of `createShipment`. `contacted: false` means the request never left (building it
+ * failed), so the outcome is definitive.
+ */
+type CarrierCall =
+  | { result: CarrierShipmentResult; externalId: string }
+  | { error: unknown; contacted: boolean; externalId?: undefined };
 
 /** Shipments (design 4.10): manual, or created through the order's carrier adapter. */
 const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
@@ -274,12 +280,14 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
   const viewOf = async (shipmentId: number): Promise<ShipmentView> =>
     (await toViews([await loadRow(shipmentId)]))[0];
 
-  const listForOrder = async (orderId: number): Promise<ShipmentView[]> =>
+  /** `rows`: the order's shipment rows when the caller already loaded them. */
+  const listForOrder = async (orderId: number, rows?: any[]): Promise<ShipmentView[]> =>
     toViews(
-      await strapi.db.query(uids().shipment).findMany({
-        where: { order: { id: Number(orderId) } },
-        orderBy: { id: 'asc' },
-      })
+      rows ??
+        (await strapi.db.query(uids().shipment).findMany({
+          where: { order: { id: Number(orderId) } },
+          orderBy: { id: 'asc' },
+        }))
     );
 
   // ---------------------------------------------------------------------------
@@ -417,8 +425,14 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
     order: any,
     carrier: { adapter: CarrierAdapter; runtime: ProviderRuntime }
   ): Promise<CarrierCall> => {
+    let request: CarrierShipmentRequest;
     try {
-      const request = await buildCarrierRequest(shipment, order);
+      request = await buildCarrierRequest(shipment, order);
+    } catch {
+      // Nothing reached the carrier: a definitive failure.
+      return { error: new EcommerceCarrierError('CARRIER_REQUEST_FAILED'), contacted: false };
+    }
+    try {
       const result = await withTimeout(
         carrier.adapter.createShipment!(request, carrier.runtime, {
           timeoutMs: CREATE_SHIPMENT_TIMEOUT_MS,
@@ -426,9 +440,21 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
         CREATE_SHIPMENT_TIMEOUT_MS + BACKSTOP_GRACE_MS,
         true
       );
-      return { result };
+      const externalId = typeof result?.externalId === 'string' ? clean(result.externalId) : '';
+      // A "success" without the carrier's id cannot be cancelled or tracked: its outcome is unknown.
+      if (!externalId) {
+        return {
+          error: new EcommerceCarrierError(
+            'CARRIER_REQUEST_FAILED',
+            'CARRIER_REQUEST_FAILED',
+            true
+          ),
+          contacted: true,
+        };
+      }
+      return { result, externalId };
     } catch (error) {
-      return { error };
+      return { error, contacted: true };
     }
   };
 
@@ -450,14 +476,19 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
       await orders().lockOrder(orderId);
       const order = await strapi.db.query(u.order).findOne({ where: { id: orderId } });
       const current = await loadRow(shipmentId);
-      const returnedId =
-        'result' in call && typeof call.result?.externalId === 'string'
-          ? clean(call.result.externalId) || null
-          : null;
+      const returnedId = call.externalId ?? null;
 
       if (current.status !== 'PENDING') {
         // A concurrent retry already concluded it: report the state it reached.
-        if (current.status !== 'ACTIVE') failure = invalid('order', 'ORDER_CHANGED');
+        if (current.status === 'ACTIVE') return;
+        // FAILED/CANCELLED meanwhile: keep the carrier's id so `cancel` can reach it.
+        if (returnedId && !current.externalId) {
+          await strapi.db.query(u.shipment).update({
+            where: { id: shipmentId },
+            data: { externalId: returnedId },
+          });
+        }
+        failure = invalid('status', 'SHIPMENT_STATE_CHANGED');
         return;
       }
       if (order?.orderStatus !== 'OPEN') {
@@ -500,7 +531,7 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
 
       const code = carrierCode(call.error);
       strapi.log?.warn?.(`[ecommerce] carrier shipment ${shipmentId} failed: ${code}`);
-      if (isUncertain(call.error)) {
+      if (call.contacted && isUncertain(call.error)) {
         await strapi.db.query(u.shipment).update({
           where: { id: shipmentId },
           data: { error: 'UNCERTAIN' },
@@ -689,11 +720,18 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
   ): Promise<ShipmentView> => {
     const u = uids();
     const reason = clean(input?.reason).slice(0, MAX_REASON) || null;
-    const before = await loadRow(Number(shipmentId));
-    const orderId = idOf(before.order) as number;
-    assertCancellable(before, await orders().computeOrderState(orderId));
+    const first = await loadRow(Number(shipmentId));
+    const orderId = idOf(first.order) as number;
+    // The local rules are checked under the order lock before the carrier is contacted.
+    const before = await strapi.db.transaction(async () => {
+      await orders().lockOrder(orderId);
+      const row = await loadRow(first.id);
+      assertCancellable(row, await orders().computeOrderState(orderId));
+      return row;
+    });
 
-    if (heldByCarrier(before)) {
+    const carrierCancelled = heldByCarrier(before);
+    if (carrierCancelled) {
       const carrier = await carrierWith(before.providerId, 'cancelShipment');
       await withTimeout(
         carrier.adapter.cancelShipment!(before.externalId, carrier.runtime, {
@@ -704,11 +742,34 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
       );
     }
 
+    let refusal: Error | null = null;
     await strapi.db.transaction(async () => {
       await orders().lockOrder(orderId);
       const row = await loadRow(before.id);
-      if (row.status !== before.status) throw notAvailable();
-      assertCancellable(row, await orders().computeOrderState(orderId));
+      try {
+        if (row.status !== before.status) throw notAvailable();
+        assertCancellable(row, await orders().computeOrderState(orderId));
+      } catch (err) {
+        if (!carrierCancelled) throw err;
+        // The carrier already cancelled it but the shipment changed meanwhile (delivered,
+        // returned...): leave a trace and a clear error instead of silently diverging.
+        const refusedWith =
+          err instanceof EcommerceValidationError ? String(err.errors[0]?.code) : 'UNKNOWN';
+        await strapi.db.query(u.shipment).update({
+          where: { id: row.id },
+          data: { error: 'CARRIER_CANCELLED' },
+        });
+        await history().record({
+          orderId,
+          type: 'SHIPMENT_CANCELLED',
+          description: `Shipment #${row.id} was cancelled at the carrier but not here (${refusedWith})`,
+          previousValue: { status: row.status },
+          newValue: { status: row.status, carrierCancelled: true, refusedWith, reason },
+          actor,
+        });
+        refusal = invalid('status', 'SHIPMENT_STATE_CHANGED');
+        return;
+      }
       const now = new Date().toISOString();
       await strapi.db.query(u.shipment).update({
         where: { id: row.id },
@@ -737,6 +798,7 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
       });
       await orders().recalculate(orderId, { actor });
     });
+    if (refusal) throw refusal;
     return viewOf(before.id);
   };
 
