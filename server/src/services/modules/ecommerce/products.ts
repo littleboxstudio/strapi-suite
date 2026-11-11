@@ -10,7 +10,7 @@ import {
   slugify,
   validateProductInput,
 } from './domain/catalog';
-import type { ImageRecord } from './images';
+import type { ImageRecord, StoredImage } from './images';
 import { EcommerceNotFoundError, EcommerceValidationError } from './errors';
 
 const PAGE_SIZE = 50 as const;
@@ -53,7 +53,7 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
     return config.uuid.modules.ecommerce;
   };
   const locales = () => strapi.plugin('i18n').service('locales');
-  const images = (): { remove(id: number): Promise<void> } =>
+  const images = (): { removeFiles(records: StoredImage[]): Promise<void> } =>
     strapi.plugin(PLUGIN_ID).service('EcommerceImageService');
 
   const getDefaultLocale = async (): Promise<string> => locales().getDefaultLocale();
@@ -97,7 +97,10 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
       if (!found) throw new EcommerceNotFoundError('Product not found');
     }
 
-    return strapi.db.transaction(async () => {
+    // Image files of removed variants are deleted only after the transaction commits.
+    const removedImages: StoredImage[] = [];
+
+    const savedId: number = await strapi.db.transaction(async () => {
       let id = productId;
       if (id === null) {
         const created = await strapi.db
@@ -200,16 +203,24 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
 
       for (const old of current) {
         if (keptIds.has(old.id)) continue;
-        const imgs: { id: number }[] = await strapi.db
+        const imgs: StoredImage[] = await strapi.db
           .query(u.image)
           .findMany({ where: { variant: old.id } });
-        for (const img of imgs) await images().remove(img.id);
+        if (imgs.length) {
+          await strapi.db
+            .query(u.image)
+            .deleteMany({ where: { id: { $in: imgs.map((img) => img.id) } } });
+          removedImages.push(...imgs);
+        }
         await strapi.db.query(u.variantTranslation).deleteMany({ where: { variant: old.id } });
         await strapi.db.query(u.variant).delete({ where: { id: old.id } });
       }
 
       return ownerId;
     });
+
+    if (removedImages.length) await images().removeFiles(removedImages);
+    return savedId;
   };
 
   return {

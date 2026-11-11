@@ -15,12 +15,30 @@ export type ImageRecord = {
   position: number;
 };
 
+/** Stored image row, as needed to delete its file from the upload provider. */
+export type StoredImage = {
+  id: number;
+  hash: string;
+  ext: string;
+  mime: string;
+  url: string;
+  providerMetadata?: unknown;
+};
+
 const EcommerceImageService = ({ strapi }: { strapi: Core.Strapi }) => {
   const imageUid = (): string => {
     const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
     return config.uuid.modules.ecommerce.image;
   };
   const provider = (): any => (strapi.plugin('upload') as any).provider;
+  const deleteFile = (record: StoredImage) =>
+    provider().delete({
+      hash: record.hash,
+      ext: record.ext,
+      mime: record.mime,
+      url: record.url,
+      provider_metadata: record.providerMetadata,
+    });
 
   return {
     async upload(params: {
@@ -91,14 +109,24 @@ const EcommerceImageService = ({ strapi }: { strapi: Core.Strapi }) => {
     async remove(imageId: number): Promise<void> {
       const record = await strapi.db.query(imageUid()).findOne({ where: { id: imageId } });
       if (!record) return;
-      await provider().delete({
-        hash: record.hash,
-        ext: record.ext,
-        mime: record.mime,
-        url: record.url,
-        provider_metadata: record.providerMetadata,
-      });
+      await deleteFile(record);
       await strapi.db.query(imageUid()).delete({ where: { id: imageId } });
+    },
+
+    /**
+     * Deletes provider files of images whose records are already gone. Best effort: a failure
+     * is logged and does not stop the remaining deletes (the records are committed by then).
+     */
+    async removeFiles(records: StoredImage[]): Promise<void> {
+      for (const record of records) {
+        try {
+          await deleteFile(record);
+        } catch (err) {
+          strapi.log?.warn(
+            `[ecommerce] could not delete image file ${record.hash}${record.ext}: ${String(err)}`
+          );
+        }
+      }
     },
   };
 };

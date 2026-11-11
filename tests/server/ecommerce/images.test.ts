@@ -78,4 +78,14 @@ describe('EcommerceImageService', () => {
     expect(provider.delete).toHaveBeenCalledWith(expect.objectContaining({ hash: 'a_b', ext: '.webp' }));
     expect(imageQuery.delete).toHaveBeenCalledWith({ where: { id: 7 } });
   });
+
+  it('removeFiles deletes each provider file and keeps going after a failure', async () => {
+    const del = vi.fn().mockRejectedValueOnce(new Error('boom')).mockResolvedValue(undefined);
+    const { service, imageQuery } = build({ delete: del });
+    const rec = (id: number) => ({ id, hash: `h${id}`, ext: '.webp', mime: 'image/webp', url: `/u/${id}` });
+    await service.removeFiles([rec(1), rec(2)]);
+    expect(del).toHaveBeenCalledTimes(2);
+    expect(del).toHaveBeenLastCalledWith(expect.objectContaining({ hash: 'h2', ext: '.webp' }));
+    expect(imageQuery.delete).not.toHaveBeenCalled();
+  });
 });
