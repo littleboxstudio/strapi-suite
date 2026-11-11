@@ -53,6 +53,22 @@ type StoredParams = {
   metadata: Record<string, string>;
 };
 
+/**
+ * True when Stripe definitively refused a session create: a 4xx answer other than 409 (same
+ * Idempotency-Key in flight) and 429 (rate limit), and not an `idempotency_error`. Network
+ * errors, 409, 429 and 5xx have an unknown outcome: the reserved payment is kept so a retry
+ * with the same key returns the session Stripe may have created.
+ */
+const isDefinitiveCreateRejection = (err: unknown): boolean =>
+  err instanceof EcommercePaymentError &&
+  err.code === 'STRIPE_REQUEST_FAILED' &&
+  typeof err.httpStatus === 'number' &&
+  err.httpStatus >= 400 &&
+  err.httpStatus < 500 &&
+  err.httpStatus !== 409 &&
+  err.httpStatus !== 429 &&
+  err.stripeErrorType !== 'idempotency_error';
+
 const notAvailable = () =>
   new EcommerceValidationError('Action not available', [
     { path: 'action', code: 'ACTION_NOT_AVAILABLE' },
@@ -383,17 +399,22 @@ const EcommerceStripePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
           idempotencyKey: payment.metadata.stripeIdempotencyKey,
         });
       } catch (err) {
-        // The key was used with other parameters: abandon it, the next pass uses n + 1.
-        if (err instanceof EcommercePaymentError && err.stripeErrorType === 'idempotency_error') {
-          await strapi.db.transaction(async () => {
+        const abandon = () =>
+          strapi.db.transaction(async () => {
             await orders().lockOrder(orderId);
             await strapi.db.query(u.payment).updateMany({
               where: { id: payment.id, status: 'PENDING', externalId: null },
               data: { status: 'CANCELLED' },
             });
           });
+        // The key was used with other parameters: abandon it, the next pass uses n + 1.
+        if (err instanceof EcommercePaymentError && err.stripeErrorType === 'idempotency_error') {
+          await abandon();
           continue;
         }
+        // Stripe definitively refused (e.g. 401 bad key): no session exists, so the reserved
+        // payment would only linger as an orphan. Transient outcomes keep it for a retry.
+        if (isDefinitiveCreateRejection(err)) await abandon();
         throw err;
       }
 

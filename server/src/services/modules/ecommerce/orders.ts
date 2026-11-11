@@ -892,6 +892,27 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   /**
+   * Cancels the order's STRIPE payments that never got a session (PENDING, no `externalId`, no
+   * stripe-session row): left by a create that failed transiently, they are only kept for a
+   * retry while there is a debt. Called by `recalculate` once the order is CANCELLED or nothing
+   * is due, so it runs under the caller's order lock and transaction.
+   */
+  const cancelStripeOrphans = async (payments: any[]): Promise<void> => {
+    const u = uids();
+    for (const p of payments) {
+      if (p.method !== 'STRIPE' || p.status !== 'PENDING' || p.externalId) continue;
+      const sessions = await strapi.db
+        .query(u.stripeSession)
+        .count({ where: { payment: { id: p.id } } });
+      if (sessions > 0) continue;
+      await strapi.db.query(u.payment).updateMany({
+        where: { id: p.id, status: 'PENDING', externalId: null },
+        data: { status: 'CANCELLED' },
+      });
+    }
+  };
+
+  /**
    * Internal: re-derives paymentStatus and fulfillmentStatus from the stored data and records a
    * `*_STATUS_CHANGED` history entry for each one that changed. Joins the caller's transaction.
    */
@@ -903,7 +924,11 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       const order = await loadOrder(orderId);
       const payments: PaymentLike[] = (order.payments ?? []).map(toPaymentLike);
       const refunds: RefundLike[] = (await loadRefunds(orderId)).map(toRefundLike);
-      const paymentStatus = derivePaymentStatus(summaryOf(order, payments, refunds));
+      const summary = summaryOf(order, payments, refunds);
+      const paymentStatus = derivePaymentStatus(summary);
+      if (order.orderStatus === 'CANCELLED' || summary.due <= 0) {
+        await cancelStripeOrphans(order.payments ?? []);
+      }
       const shipped = shippedQuantities(await loadShipments(orderId));
       const fulfillmentStatus = deriveFulfillmentStatus(
         (order.lines ?? []).map((l: any) => ({ id: l.id, quantity: num(l.quantity) })),

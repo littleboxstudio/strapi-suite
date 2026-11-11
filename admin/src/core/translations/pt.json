@@ -499,7 +499,7 @@
   "littlebox-strapi-suite.ecommerce.orders.detail.addPayment.error": "Não foi possível adicionar o pagamento.",
   "littlebox-strapi-suite.ecommerce.orders.detail.addPayment.invalid_amount": "Introduza um valor superior a zero e até 10 000 000.",
   "littlebox-strapi-suite.ecommerce.orders.detail.cancel.title": "Cancelar encomenda",
-  "littlebox-strapi-suite.ecommerce.orders.detail.cancel.text": "Cancelar a encomenda #{reference}? O stock é reposto, mas não é feito nenhum reembolso automático: reembolse os pagamentos à parte.",
+  "littlebox-strapi-suite.ecommerce.orders.detail.cancel.text": "Cancelar a encomenda #{reference}? O stock é reposto, mas não é feito nenhum reembolso automático: reembolse os pagamentos à parte. O crédito em loja usado nesta encomenda é devolvido ao vale automaticamente.",
   "littlebox-strapi-suite.ecommerce.orders.detail.cancel.confirm": "Cancelar encomenda",
   "littlebox-strapi-suite.ecommerce.orders.detail.cancel.back": "Manter encomenda",
   "littlebox-strapi-suite.ecommerce.orders.detail.cancel.success": "Encomenda cancelada",
