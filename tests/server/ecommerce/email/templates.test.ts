@@ -27,13 +27,13 @@ const VALID = {
   html: '<p>Hi {{customer.firstName}}, thanks for shopping at {{store.name}}.</p>',
 };
 
-function makeStrapi(opts: { runtime?: any } = {}) {
+function makeStrapi(opts: { runtime?: any; storeName?: string } = {}) {
   const db = createFakeDb(Object.values(UIDS));
   const pluginConfig: any = { uuid: { modules: { ecommerce: UIDS } } };
   const settings = {
     getStoreSettings: vi.fn(async () => ({
       ...STORE_SETTINGS_DEFAULTS,
-      storeName: 'Acme',
+      storeName: opts.storeName ?? 'Acme',
       brandColor: '#123456',
       storefrontUrl: 'https://acme.example',
       supportEmail: 'help@acme.example',
@@ -239,5 +239,60 @@ describe('EcommerceEmailTemplateService', () => {
     expect(tables[UIDS.auditLog]).toEqual([
       expect.objectContaining({ action: 'email_template.send_test', userId: '7' }),
     ]);
+  });
+
+  it('renders subjects as plain text and HTML escaped (render and preview)', async () => {
+    const { service } = makeStrapi({ storeName: 'A & B' });
+    const data = { ...getSampleData('CANCELLATION'), customer: { firstName: "O'Brien", lastName: 'X' } };
+    const tpl = {
+      subject: '{{store.name}} - {{customer.firstName}}',
+      html: '<p>{{store.name}} - {{customer.firstName}}</p>',
+    };
+    await service.save('CANCELLATION', 'en', tpl, 1);
+
+    const rendered = await service.render('CANCELLATION', 'en', data);
+    expect(rendered.subject).toBe("A & B - O'Brien");
+    expect(rendered.html).toBe('<p>A &amp; B - O&#39;Brien</p>');
+
+    const preview = await service.preview('CANCELLATION', tpl);
+    expect(preview.subject).toBe('A & B - João');
+    expect(preview.html).toBe('<p>A &amp; B - João</p>');
+  });
+
+  it('attributes each snapshot to the author of the snapshotted content', async () => {
+    const { service } = makeStrapi();
+    await service.save('CANCELLATION', 'en', VALID, 'alice');
+    await service.save('CANCELLATION', 'en', { ...VALID, subject: 'B' }, 'bob');
+    await service.restoreDefault('CANCELLATION', 'en', 'carol');
+    const versions = await service.listVersions('CANCELLATION', 'en');
+    expect(versions.map((v) => [v.version, v.createdBy])).toEqual([
+      [3, 'bob'],
+      [2, 'alice'],
+      [1, null],
+    ]);
+  });
+
+  it('render and sendTest turn a malformed stored template into a validation error', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: 'em_1' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { service, tables } = makeStrapi({
+      runtime: { config: { fromEmail: 'shop@acme.example' }, secrets: { apiKey: 'k' }, active: true },
+    });
+    tables[UIDS.emailTemplate].push({
+      id: 99,
+      type: 'CANCELLATION',
+      locale: 'en',
+      subject: 'ok',
+      html: '{{#if order.reference}}unclosed',
+      version: 2,
+      updatedBy: null,
+    });
+    const renderErr = await service.render('CANCELLATION', 'en', {}).catch((e) => e);
+    expect(renderErr).toBeInstanceOf(EcommerceValidationError);
+    expect(renderErr.errors).toEqual([expect.objectContaining({ path: 'html', code: 'SYNTAX' })]);
+
+    const sendErr = await service.sendTest('CANCELLATION', 'en', 'me@example.com', 1).catch((e) => e);
+    expect(sendErr).toBeInstanceOf(EcommerceValidationError);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
