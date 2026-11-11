@@ -79,7 +79,9 @@ const EcommerceOrderController = ({ strapi }: { strapi: Core.Strapi }) => {
         () => {
           // promotionCodes / expectedTotal / giftChoices are checked here, the rest by the service.
           const promo = promotionFields('Invalid order', asObject(input));
-          return orders().create({ ...input, ...promo }, { actor: actorOf(ctx), source: 'admin' });
+          // Store credit at creation is storefront-only: the admin adds it as a payment.
+          const { storeCreditCode: _storefrontOnly, ...admin } = input;
+          return orders().create({ ...admin, ...promo }, { actor: actorOf(ctx), source: 'admin' });
         },
         201,
         true

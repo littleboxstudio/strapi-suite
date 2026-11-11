@@ -193,6 +193,19 @@ describe('EcommerceOrderController promotions', () => {
     return ctx;
   };
 
+  it('create strips storeCreditCode (storefront only)', async () => {
+    const create = vi.fn().mockResolvedValue({ id: 1 });
+    const c = orders({ EcommerceOrderService: { create } });
+    const ctx = mkCtx({
+      request: { body: { idempotencyKey: 'k1', storeCreditCode: 'AAAA-BBBB-CCCC' } },
+    });
+    await c.create(ctx);
+    expect(create).toHaveBeenCalledWith(
+      { idempotencyKey: 'k1' },
+      { actor: 'user:7', source: 'admin' }
+    );
+  });
+
   it('create passes promotionCodes, expectedTotal and giftChoices', async () => {
     const create = vi.fn().mockResolvedValue({ id: 1 });
     const body = { promotionCodes: ['SUMMER'], expectedTotal: 1000, giftChoices: { '3': 40 } };

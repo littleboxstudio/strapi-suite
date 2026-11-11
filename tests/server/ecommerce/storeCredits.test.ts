@@ -417,7 +417,11 @@ describe('EcommercePaymentService.applyStoreCredit', () => {
     expect(movements(c).filter((m) => m.type === 'CONSUME')).toHaveLength(0);
     // Emitted into the caller's collector, never flushed by applyStoreCredit.
     expect(emitted).toEqual([
-      expect.objectContaining({ type: 'PAYMENT_COMPLETED', orderId, payload: expect.objectContaining({ amount: 3000 }) }),
+      expect.objectContaining({
+        type: 'PAYMENT_COMPLETED',
+        orderId,
+        payload: expect.objectContaining({ amount: 3000 }),
+      }),
     ]);
     expect(c.events).toHaveLength(0);
     const ops = c.tables[UIDS.orderHistory].filter((h) => h.operationId === 'op-1');
