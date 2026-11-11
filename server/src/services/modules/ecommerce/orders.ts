@@ -1789,15 +1789,47 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     }
   };
 
-  /** Moves an OPEN order to `to` after checking `action`; one transaction, events after commit. */
+  /**
+   * Moves an OPEN order to `to` after checking `action`; one transaction, events after commit.
+   * A transient conflict (MariaDB ER_CHECKREAD on a hot promotion or variant row, deadlock,
+   * serialization failure) rolls the transaction back and the whole transition runs again,
+   * as `create` does: nothing leaves the transaction before the commit.
+   */
   const transition = async (
     orderId: number,
     actor: string,
     action: 'CANCEL' | 'ARCHIVE',
     to: 'CANCELLED' | 'ARCHIVED'
   ): Promise<OrderView> => {
-    const collector = events().collector();
     const operationId = randomUUID();
+    let collector: ReturnType<ReturnType<typeof events>['collector']> | undefined;
+    let lastError: unknown;
+    for (let i = 0; i < MAX_CREATE_ATTEMPTS && !collector; i++) {
+      try {
+        collector = await transitionAttempt(orderId, actor, action, to, operationId);
+      } catch (err) {
+        if (!isTransientTxConflict(err)) throw err;
+        lastError = err;
+        if (i + 1 < MAX_CREATE_ATTEMPTS) await retryPause();
+      }
+    }
+    if (!collector) throw lastError;
+    // After the commit only: never retried.
+    await collector.flush();
+    if (to === 'CANCELLED') await expireOpenStripeSessions(orderId);
+    return get(orderId);
+  };
+
+  /** One transaction of `transition`; returns the events to deliver after the commit. */
+  const transitionAttempt = async (
+    orderId: number,
+    actor: string,
+    action: 'CANCEL' | 'ARCHIVE',
+    to: 'CANCELLED' | 'ARCHIVED',
+    operationId: string
+  ) => {
+    // One collector per attempt: a rolled-back attempt's events are dropped with it.
+    const collector = events().collector();
     await strapi.db.transaction(async () => {
       await lockOrder(orderId);
       const state = await computeOrderState(orderId);
@@ -1909,9 +1941,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         collector.emit({ type: 'ORDER_ARCHIVED', orderId, payload: { reference } });
       }
     });
-    await collector.flush();
-    if (to === 'CANCELLED') await expireOpenStripeSessions(orderId);
-    return get(orderId);
+    return collector;
   };
 
   /**
@@ -2109,7 +2139,12 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       const quantity = c.newQuantity - (line?.reserved ?? 0);
       if (quantity <= 0) continue;
       const v = catalog.get(c.variantId);
-      const unitNet = line ? line.unitPrice - line.unitDiscount : (v?.price ?? 0);
+      const source = c.sourceOrderLineId !== undefined ? linesById.get(c.sourceOrderLineId) : undefined;
+      const unitNet = line
+        ? line.unitPrice - line.unitDiscount
+        : source
+          ? source.unitPrice
+          : (v?.price ?? 0);
       subtotal += unitNet * quantity;
       items.push({
         variantId: c.variantId,
@@ -2276,7 +2311,21 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     for (const change of result.lineChanges) {
       if (change.kind === 'UNCHANGED') continue;
       if (change.kind === 'ADDED') {
-        const c = catalog.get(change.variantId)!;
+        // Extra units of a discounted line copy that line's snapshot at its full price.
+        const source =
+          change.sourceOrderLineId !== undefined ? byId.get(change.sourceOrderLineId) : undefined;
+        const c = source
+          ? {
+              variantId: source.variantId,
+              productId: source.productId,
+              sku: source.sku,
+              name: source.name,
+              option: source.option,
+              imageUrl: source.imageUrl,
+              price: source.unitPrice,
+              tax: source.tax,
+            }
+          : catalog.get(change.variantId)!;
         const created = await strapi.db.query(u.orderLine).create({
           data: {
             order: orderId,

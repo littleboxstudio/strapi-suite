@@ -80,6 +80,11 @@ export type LineChange = {
   variantId: number;
   previousQuantity: number;
   newQuantity: number;
+  /**
+   * ADDED only: the extra units asked for on this discounted line. They enter as a new line
+   * at the source line's full price, snapshot and tax (design 4.8: no promotion for them).
+   */
+  sourceOrderLineId?: number;
 };
 
 export type ModificationResult = {
@@ -148,7 +153,13 @@ const withMoney = (
   return { ...totals, paid: s.paid, due: s.due, excess: s.excess };
 };
 
-type AddedLine = { inputIndex: number; variant: CatalogVariant; quantity: number };
+type AddedLine = {
+  inputIndex: number;
+  variant: CatalogVariant;
+  quantity: number;
+  /** Extra units of a discounted existing line (see `LineChange.sourceOrderLineId`). */
+  sourceOrderLineId?: number;
+};
 
 export const simulateModification = (
   current: ModificationCurrent,
@@ -209,6 +220,30 @@ export const simulateModification = (
       }
       if (entry.quantity < target.shipped) {
         lineError(index, 'QUANTITY_BELOW_SHIPPED');
+        return;
+      }
+      // Design 4.8: units added by a modification enter without promotion. A discounted line
+      // (promotion prize, split line) keeps its discount for the units it has; the extra units
+      // become a separate line at that line's full price.
+      if (target.unitDiscount > 0 && entry.quantity > target.quantity) {
+        requested.set(target.id, target.quantity);
+        added.push({
+          inputIndex: index,
+          variant: {
+            variantId: target.variantId,
+            productId: target.productId,
+            sku: target.sku,
+            name: target.name,
+            option: target.option,
+            unitPrice: target.unitPrice,
+            tax: target.tax,
+            imageUrl: null,
+            stock: catalog.get(target.variantId)?.stock ?? 0,
+            active: true,
+          },
+          quantity: entry.quantity - target.quantity,
+          sourceOrderLineId: target.id,
+        });
         return;
       }
       requested.set(target.id, entry.quantity);
@@ -291,7 +326,13 @@ export const simulateModification = (
     return { kind, orderLineId: line.id, variantId: line.variantId, previousQuantity: line.quantity, newQuantity: q };
   });
   for (const a of added) {
-    lineChanges.push({ kind: 'ADDED', variantId: a.variant.variantId, previousQuantity: 0, newQuantity: a.quantity });
+    lineChanges.push({
+      kind: 'ADDED',
+      variantId: a.variant.variantId,
+      previousQuantity: 0,
+      newQuantity: a.quantity,
+      ...(a.sourceOrderLineId !== undefined ? { sourceOrderLineId: a.sourceOrderLineId } : {}),
+    });
   }
 
   // --- Shipping ------------------------------------------------------------

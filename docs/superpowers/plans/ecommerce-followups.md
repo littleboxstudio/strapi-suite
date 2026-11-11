@@ -87,3 +87,13 @@ Lista de itens adiados nas revisões do plano 1 (Base e Produtos), a considerar 
 - Spec 4.15: Moloni foreign-customer handling setting deferred — needs the store accountant's input (OSS / intra-EU / non-EU rules); today non-PT customers are invoiced like domestic ones.
 - P5 final review: parked (F4): a carrier deactivated while one of its shipments is PENDING/UNCERTAIN blocks the order — `retry` and `cancel` need an active runtime (`shipping.carrierFor`) and `assertNoPendingShipment` blocks MODIFY/CANCEL; shipments have no "mark failed". Add an issuing-carrier exception (like invoices) or a confirmed "mark failed" action. Low impact today: the only carrier (CTT) is NOT_IMPLEMENTED.
 - P5 final: invoice lines can be individually off (order total correct) when an invoiced payment's value sits on a line that later lost value (partial payments, return/modification after invoicing) — would need credit-and-reinvoice of that payment
+
+## Plan 6
+- P6 final review: accepted (F4): `GET /promotions/:id` returns `eligibility.emails` in full to holders of `promotions.read` alone (redemptions mask e-mails for the same permission). Accepted: the list is admin-entered configuration and is needed to edit the promotion.
+- P6 final review: parked (F5): on create, the third (final) promotion evaluation can change the gift set after the second (last) shipping quote, so the stored shipping price was quoted for a slightly different parcel. Rare and bounded by the two-quote design; add a comment or a `SHIPPING_UNAVAILABLE`-style refusal when the signatures still differ.
+- Gift lines at €0 are omitted from invoices (recorded decision). Confirm with the store accountant whether offers must appear on the invoice with a 100% discount.
+- Requirement 1.8 (extra verification for high-value or e-mail-restricted promotions) needs a verified storefront identity: plan 7.
+- Storefront (plan 7): surface `giftChoices` and the `CodeStatus` messages to the customer.
+- The quote should return the gift option names, so the admin order form does not need `promotions.read` to show them.
+- The customer-facing order view (plan 7) must expose only `displayName` + amounts of the applied promotions (never the internal name, code of other customers, conditions or snapshot).
+- `orders.ts` is ~2650 lines: split `priceCart`/`quote` (promotion pricing) into a sibling module.

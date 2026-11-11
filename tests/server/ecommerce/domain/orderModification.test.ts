@@ -949,3 +949,120 @@ describe('simulateModification: promotions and the order discount (design 4.8)',
     ]);
   });
 });
+
+describe('simulateModification: discounted lines keep their discount, extra units at full price (design 4.8)', () => {
+  const freeLine = (over: Partial<ExistingLine> = {}) =>
+    existing({ id: 2, unitPrice: 3000, unitDiscount: 3000, quantity: 1, ...over });
+  const catalog = () => catalogOf(variant({ variantId: 101, productId: 1, sku: 'SKU-101', unitPrice: 3500, stock: 10 }));
+  const current = (lines: ExistingLine[]) => ({
+    lines,
+    orderDiscount: 0,
+    shippingOriginal: 0,
+    shippingDiscount: 0,
+    payments: paid(6000),
+    refunds: [],
+  });
+
+  it('"buy 3 pay 2": the free line raised 1 → 4 stays 1 free unit, plus a new line of 3 at full price', () => {
+    const lines = [existing({ id: 1, quantity: 2 }), freeLine()];
+    const r = simulateModification(
+      current(lines),
+      {
+        lines: [
+          { orderLineId: 1, variantId: 101, quantity: 2 },
+          { orderLineId: 2, variantId: 101, quantity: 4 },
+        ],
+        shipping: keep,
+      },
+      catalog(),
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.lineChanges).toEqual([
+      { kind: 'UNCHANGED', orderLineId: 1, variantId: 101, previousQuantity: 2, newQuantity: 2 },
+      { kind: 'UNCHANGED', orderLineId: 2, variantId: 101, previousQuantity: 1, newQuantity: 1 },
+      { kind: 'ADDED', variantId: 101, previousQuantity: 0, newQuantity: 3, sourceOrderLineId: 2 },
+    ]);
+    // 2 × 30 + 1 × 0 + 3 × 30 (the line's own price, not the catalog's 35).
+    expect(r.after.subtotal).toBe(15000);
+    expect(r.after.total).toBe(15000);
+    expect(r.difference).toBe(9000);
+    expect(r.stockMovements).toEqual([{ variantId: 101, quantity: -3 }]);
+  });
+
+  it('a capped percentage line raised 2 → 5 keeps 2 discounted units', () => {
+    const lines = [existing({ id: 1, unitPrice: 1000, unitDiscount: 200, quantity: 2 })];
+    const r = simulateModification(
+      current(lines),
+      { lines: [{ orderLineId: 1, variantId: 101, quantity: 5 }], shipping: keep },
+      catalog(),
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.after.subtotal).toBe(2 * 800 + 3 * 1000);
+  });
+
+  it('without orderLineId, the single discounted line resolves and only its units stay discounted', () => {
+    const lines = [existing({ id: 1, unitPrice: 1000, unitDiscount: 200, quantity: 2 })];
+    const r = simulateModification(
+      current(lines),
+      { lines: [{ variantId: 101, quantity: 3 }], shipping: keep },
+      catalog(),
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.lineChanges.filter((c) => c.kind === 'ADDED')).toEqual([
+      { kind: 'ADDED', variantId: 101, previousQuantity: 0, newQuantity: 1, sourceOrderLineId: 1 },
+    ]);
+    expect(r.after.subtotal).toBe(2600);
+  });
+
+  it('decreasing a discounted line keeps its per-unit discount', () => {
+    const lines = [existing({ id: 1, unitPrice: 1000, unitDiscount: 200, quantity: 3 })];
+    const r = simulateModification(
+      current(lines),
+      { lines: [{ orderLineId: 1, variantId: 101, quantity: 1 }], shipping: keep },
+      catalog(),
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.lineChanges).toEqual([
+      { kind: 'QUANTITY_CHANGED', orderLineId: 1, variantId: 101, previousQuantity: 3, newQuantity: 1 },
+    ]);
+    expect(r.after.subtotal).toBe(800);
+  });
+
+  it('the extra units are checked against stock', () => {
+    const lines = [freeLine({ id: 1 })];
+    const r = simulateModification(
+      current(lines),
+      { lines: [{ orderLineId: 1, variantId: 101, quantity: 4 }], shipping: keep },
+      catalogOf(variant({ variantId: 101, productId: 1, stock: 2 })),
+    );
+    expect(r.errors).toEqual([{ path: 'lines.0.quantity', code: 'INSUFFICIENT_STOCK' }]);
+  });
+
+  it('a gift line cannot be raised', () => {
+    const lines = [existing({ id: 1, quantity: 2 }), freeLine({ isGift: true })];
+    const r = simulateModification(
+      current(lines),
+      {
+        lines: [
+          { orderLineId: 1, variantId: 101, quantity: 2 },
+          { orderLineId: 2, variantId: 101, quantity: 2 },
+        ],
+        shipping: keep,
+      },
+      catalog(),
+    );
+    expect(r.errors).toEqual([{ path: 'lines.1.quantity', code: 'INVALID_QUANTITY' }]);
+  });
+
+  it('undiscounted lines still grow in place', () => {
+    const lines = [existing({ id: 1, quantity: 1 })];
+    const r = simulateModification(
+      current(lines),
+      { lines: [{ orderLineId: 1, variantId: 101, quantity: 3 }], shipping: keep },
+      catalog(),
+    );
+    expect(r.lineChanges).toEqual([
+      { kind: 'QUANTITY_CHANGED', orderLineId: 1, variantId: 101, previousQuantity: 1, newQuantity: 3 },
+    ]);
+  });
+});

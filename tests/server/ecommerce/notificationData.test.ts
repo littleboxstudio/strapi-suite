@@ -489,7 +489,28 @@ describe('ORDER_CONFIRMATION promotions', () => {
     });
     const data = build(order);
     expect(data.order.items[1]).toMatchObject({ name: 'Free tote', unitPrice: formatMoney(0, 'en'), total: formatMoney(0, 'en') });
-    expect(spaces(html(data))).toContain('Promotions applied (already included above)');
+    const out = spaces(html(data));
+    expect(out).not.toContain('Promotions applied');
+    const title = 'Savings from promotions (already deducted above)';
+    expect(out).toContain(title);
+    // Below the Total row, so it never reads as one more discount before the total.
+    expect(out.indexOf(title)).toBeGreaterThan(out.lastIndexOf('>Total<'));
+    expect(out.indexOf(formatMoney(500, 'en'), out.indexOf(title))).toBeGreaterThan(-1);
+  });
+
+  it('an order-level promotion: the Discount row comes before the Total, the savings after it', () => {
+    const base = makeOrder();
+    const order = makeOrder({
+      promotions: [applied()],
+      totals: { ...base.totals, orderDiscount: 500, total: 4000 },
+    });
+    const out = spaces(html(build(order)));
+    const discount = out.indexOf('>Discount<');
+    const total = out.lastIndexOf('>Total<'); // the Total row (the first is the column header)
+    const title = out.indexOf('Savings from promotions');
+    expect(discount).toBeGreaterThan(-1);
+    expect(discount).toBeLessThan(total);
+    expect(total).toBeLessThan(title);
   });
 
   it('is an empty list without promotions and the template hides the block', () => {
@@ -507,6 +528,6 @@ describe('ORDER_CONFIRMATION promotions', () => {
     expect(out).not.toContain('<b>Verão');
     expect(out).not.toContain('SECRET20');
     expect(out).not.toMatch(/\/admin|\/api\/|littlebox-strapi-suite/);
-    expect(spaces(out)).toContain('Promotions');
+    expect(spaces(out)).toContain('Savings from promotions');
   });
 });

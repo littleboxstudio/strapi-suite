@@ -346,6 +346,77 @@ describe('orders with promotions: create', () => {
     expect(historyOf(order.id, 'PROMOTIONS_RELEASED')).toHaveLength(1);
   });
 
+  describe('cancel retries a transient conflict (MariaDB 1020 on the promotion counters)', () => {
+    const conflict = () =>
+      Object.assign(new Error("Record has changed since last read in table 'promotions'"), {
+        errno: 1020,
+        code: 'ER_CHECKREAD',
+        sqlState: 'HY000',
+      });
+    /** The next `n` releases of a redemption fail with 1020 (inside the cancel transaction). */
+    const failReleases = (n: number) => {
+      const query = c.strapi.db.query;
+      let calls = 0;
+      c.strapi.db.query = (uid: string) => {
+        const q = query(uid);
+        if (uid !== UIDS.promotionRedemption) return q;
+        return {
+          ...q,
+          updateMany: async (p: any) => {
+            calls++;
+            if (calls <= n) throw conflict();
+            return q.updateMany(p);
+          },
+        };
+      };
+      return () => calls;
+    };
+
+    it('runs the whole cancel again: released once, restocked once, one event after commit', async () => {
+      const id = addPromotion({ method: 'CODE', code: 'VERAO20' });
+      const order = await create({ promotionCodes: ['VERAO20'] });
+      expect(stockOf(10)).toBe(3);
+      c.events.length = 0;
+      const calls = failReleases(1);
+
+      await c.orders.cancel(order.id, 'user:2');
+      expect(calls()).toBe(2);
+      expect(orderRow(order.id).orderStatus).toBe('CANCELLED');
+      expect(promotionRow(id).redemptions).toBe(0);
+      expect(c.tables[UIDS.promotionRedemption][0].status).toBe('RELEASED');
+      expect(stockOf(10)).toBe(5);
+      expect(historyOf(order.id, 'PROMOTIONS_RELEASED')).toHaveLength(1);
+      expect(historyOf(order.id, 'ORDER_CANCELLED')).toHaveLength(1);
+      expect(historyOf(order.id, 'ORDER_STATUS_CHANGED')).toHaveLength(1);
+      expect(c.events.filter((e) => e.type === 'ORDER_CANCELLED')).toHaveLength(1);
+    });
+
+    it('propagates the conflict after 3 attempts with nothing written and no event', async () => {
+      const id = addPromotion({ method: 'CODE', code: 'VERAO20' });
+      const order = await create({ promotionCodes: ['VERAO20'] });
+      const before = JSON.stringify(c.tables);
+      c.events.length = 0;
+      const calls = failReleases(3);
+
+      const err: any = await c.orders.cancel(order.id, 'user:2').catch((e) => e);
+      expect(err.errno).toBe(1020);
+      expect(calls()).toBe(3);
+      expect(JSON.stringify(c.tables)).toBe(before);
+      expect(promotionRow(id).redemptions).toBe(1);
+      expect(c.events).toEqual([]);
+    });
+
+    it('does not retry a validation refusal', async () => {
+      const order = await create();
+      await c.orders.cancel(order.id, 'user:2');
+      const calls = failReleases(0);
+      expect((await errorsOf(c.orders.cancel(order.id, 'user:2'))).map((e) => e.code)).toEqual([
+        'ACTION_NOT_AVAILABLE',
+      ]);
+      expect(calls()).toBe(0);
+    });
+  });
+
   it('3.6 end to end: 150 € of products, 20 € product, 13 € order and 8 € free shipping → 117 €', async () => {
     addVariant(20, 2, 10000, 5, 'Coat');
     addVariant(21, 3, 5000, 5, 'Hat');

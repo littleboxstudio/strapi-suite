@@ -26,17 +26,6 @@ const items = `<table role="presentation" width="100%" border="0" cellpadding="0
     <td colspan="2" style="${CELL}">Shipping</td>
     <td align="right" style="${CELL};white-space:nowrap">{{order.shipping}}</td>
   </tr>
-{{#if order.promotions}}
-  <tr>
-    <td colspan="3" style="${HEAD}">Promotions applied (already included above)</td>
-  </tr>
-{{#each order.promotions}}
-  <tr>
-    <td colspan="2" style="${CELL}">{{this.name}}</td>
-    <td align="right" style="${CELL};white-space:nowrap">&minus;{{this.amount}}</td>
-  </tr>
-{{/each}}
-{{/if}}
 {{#if order.discount}}
   <tr>
     <td colspan="2" style="${CELL}">Discount</td>
@@ -47,6 +36,17 @@ const items = `<table role="presentation" width="100%" border="0" cellpadding="0
     <td colspan="2" style="${TOTAL}">Total</td>
     <td align="right" style="${TOTAL};white-space:nowrap">{{order.total}}</td>
   </tr>
+{{#if order.promotions}}
+  <tr>
+    <td colspan="3" style="${HEAD};padding-top:24px">Savings from promotions (already deducted above)</td>
+  </tr>
+{{#each order.promotions}}
+  <tr>
+    <td colspan="2" style="${CELL}">{{this.name}}</td>
+    <td align="right" style="${CELL};white-space:nowrap">{{this.amount}}</td>
+  </tr>
+{{/each}}
+{{/if}}
 </table>`;
 
 export default {
