@@ -13,6 +13,7 @@ import type {
   ManualMethod,
   ManualMethodInput,
   StoreSettings,
+  StorefrontApiToken,
   StripeWebhookInfo,
   TemplateContent,
 } from '../settingsTypes';
@@ -23,6 +24,7 @@ export default interface EcommerceSettingsGateway {
   fetchStore(): Promise<StoreSettings>;
   updateStore(input: Partial<StoreSettings>): Promise<StoreSettings>;
   fetchStripeWebhook(): Promise<StripeWebhookInfo>;
+  fetchApiTokens(): Promise<StorefrontApiToken[]>;
 
   fetchIntegrations(): Promise<IntegrationView[]>;
   updateIntegration(id: string, input: IntegrationInput): Promise<IntegrationView>;
@@ -80,6 +82,10 @@ export class EcommerceSettingsGatewayHttp implements EcommerceSettingsGateway {
 
   async fetchStripeWebhook(): Promise<StripeWebhookInfo> {
     return this.httpClient.get(`${this.base}/stripe-webhook`);
+  }
+
+  async fetchApiTokens(): Promise<StorefrontApiToken[]> {
+    return this.httpClient.get(`${this.base}/storefront/api-tokens`);
   }
 
   async updateStore(input: Partial<StoreSettings>): Promise<StoreSettings> {

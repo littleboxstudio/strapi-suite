@@ -189,3 +189,23 @@ describe('EcommerceSettingsController — real services', () => {
     expect(ctx.badRequest).toHaveBeenCalledWith(expect.any(String), { errors: [{ path: 'to', code: 'invalid_email' }] });
   });
 });
+
+describe('EcommerceSettingsController - listApiTokens', () => {
+  it('lists the tokens of the calling admin without secrets or permissions', async () => {
+    const list = vi.fn().mockResolvedValue([
+      { id: 1, name: 'BFF', type: 'custom', expiresAt: null, accessKey: 'secret', permissions: ['x'], description: 'd', lastUsedAt: null },
+      { id: 2, name: 'Site', type: 'read-only', expiresAt: '2030-01-01T00:00:00.000Z', accessKey: 'secret2' },
+    ]);
+    const c = createController({
+      strapi: { plugin: () => ({ service: () => ({}) }), service: (n: string) => (n === 'admin::api-token' ? { list } : undefined) } as any,
+    });
+    const ctx = mkCtx();
+    await c.listApiTokens(ctx);
+    expect(list).toHaveBeenCalledWith({ id: 7 });
+    expect(ctx.body).toEqual([
+      { id: 1, name: 'BFF', type: 'custom', expiresAt: null },
+      { id: 2, name: 'Site', type: 'read-only', expiresAt: '2030-01-01T00:00:00.000Z' },
+    ]);
+    expect(JSON.stringify(ctx.body)).not.toContain('secret');
+  });
+});

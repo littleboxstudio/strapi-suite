@@ -46,6 +46,17 @@ const EcommerceSettingsController = ({ strapi }: { strapi: Core.Strapi }) => {
       };
     },
 
+    /** Tokens the calling admin may see (the service filters by user); never the key or permissions. */
+    listApiTokens: async (ctx: any) => {
+      const tokens: any[] = await (strapi as any).service('admin::api-token').list(ctx.state?.user);
+      ctx.body = (tokens ?? []).map((t) => ({
+        id: t.id,
+        name: t.name,
+        type: t.type,
+        expiresAt: t.expiresAt ?? null,
+      }));
+    },
+
     getStore: (ctx: any) => respond(ctx, () => settings().getStoreSettings()),
     updateStore: (ctx: any) =>
       respond(ctx, () => settings().updateStoreSettings(body(ctx), userId(ctx))),
