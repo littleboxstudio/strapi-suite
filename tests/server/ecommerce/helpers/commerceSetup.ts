@@ -15,6 +15,7 @@ import EcommerceReturnService from '../../../../server/src/services/modules/ecom
 import EcommerceInvoiceService from '../../../../server/src/services/modules/ecommerce/invoices';
 import EcommerceAuditService from '../../../../server/src/services/modules/ecommerce/audit';
 import EcommercePromotionService from '../../../../server/src/services/modules/ecommerce/promotions';
+import EcommerceStorefrontSessionService from '../../../../server/src/services/modules/ecommerce/storefrontSessions';
 import { createEventBus } from '../../../../server/src/services/modules/ecommerce/events';
 import { createFakeDb, type FakeRelations } from './fakeDb';
 
@@ -113,7 +114,9 @@ const RELATIONS: FakeRelations = {
 };
 
 /** Full e-commerce service graph over the fake DB. Stripe is whatever the test file mocks. */
-export function setupCommerce(opts: { stripeActive?: boolean; resendActive?: boolean } = {}) {
+export function setupCommerce(
+  opts: { stripeActive?: boolean; resendActive?: boolean; checkoutSessionTtlHours?: number } = {}
+) {
   const db = createFakeDb(Object.values(UIDS), RELATIONS, {
     enforceUnique: [
       UIDS.stockMovement,
@@ -178,6 +181,7 @@ export function setupCommerce(opts: { stripeActive?: boolean; resendActive?: boo
       storefrontUrl: 'https://shop.example/',
       paymentSuccessPath: '/checkout/success',
       paymentCancelPath: '/checkout/cancel',
+      checkoutSessionTtlHours: opts.checkoutSessionTtlHours ?? 168,
     }),
     getActiveProviders: async () => [],
     getRuntime: async (id: string) =>
@@ -214,6 +218,7 @@ export function setupCommerce(opts: { stripeActive?: boolean; resendActive?: boo
   services.EcommerceNotificationService = EcommerceNotificationService({ strapi });
   services.EcommerceAuditService = EcommerceAuditService({ strapi });
   services.EcommercePromotionService = EcommercePromotionService({ strapi });
+  services.EcommerceStorefrontSessionService = EcommerceStorefrontSessionService({ strapi });
 
   const t = db.tables;
   t[UIDS.product].push({ id: 1, active: true });
