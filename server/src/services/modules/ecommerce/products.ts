@@ -223,6 +223,23 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
         if (blocked.length) throw new EcommerceValidationError('Invalid product', blocked);
       }
 
+      // A stock set from the admin is sent as a difference plus the stock the admin saw: if the
+      // stock moved since (an order, another admin), applying the difference would miss the typed
+      // value, so the save is refused. A replay of an already applied adjustment is not a change.
+      const stockChanged: FieldError[] = [];
+      for (let i = 0; i < variants.length; i += 1) {
+        const v = variants[i];
+        if (!v.id || !currentIds.has(v.id) || !v.stockAdjustment) continue;
+        if (typeof v.stockExpected !== 'number') continue;
+        const row: any = current.find((c) => c.id === v.id);
+        if ((row?.stock ?? 0) === v.stockExpected) continue;
+        const applied = await strapi.db.query(u.stockMovement).findOne({
+          where: { operationKey: `adjust:${v.id}:${adjustmentKey(v.stockAdjustmentKey)}` },
+        });
+        if (!applied) stockChanged.push({ path: `variants.${i}.stock`, code: 'STOCK_CHANGED' });
+      }
+      if (stockChanged.length) throw new EcommerceValidationError('Invalid product', stockChanged);
+
       // Removed variants go first, so a new variant may reuse a removed one's SKU.
       for (const old of current) {
         if (keptIds.has(old.id)) continue;

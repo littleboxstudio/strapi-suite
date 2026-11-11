@@ -11,6 +11,8 @@ export type VariantInput = {
   stockAdjustment?: number;
   /** Idempotency key minted when the adjustment is confirmed. */
   stockAdjustmentKey?: string;
+  /** The stock the admin saw when setting a new value (the server refuses if it moved since). */
+  stockExpected?: number;
   weight: number;
   width: number;
   height: number;
@@ -37,7 +39,8 @@ export type FieldError = {
     | 'invalid_number'
     | 'out_of_range'
     | 'VARIANT_IN_ORDERS'
-    | 'PRODUCT_IN_ORDERS';
+    | 'PRODUCT_IN_ORDERS'
+    | 'STOCK_CHANGED';
 };
 
 export type ImageRecord = {

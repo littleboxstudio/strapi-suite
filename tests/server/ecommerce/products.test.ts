@@ -375,6 +375,49 @@ describe('EcommerceProductService', () => {
       expect(tables[UIDS.stockMovement]).toHaveLength(1); // only the initial stock
     });
 
+    describe('setting the stock from the admin (stockExpected)', () => {
+      const KEY = '11111111-2222-4333-8444-555555555555';
+
+      it('applies the difference when the stock is still the one the admin saw', async () => {
+        const { service, tables } = makeStrapi();
+        const { id } = await service.create(input('Camisa', [variant('A', { stock: 3 })]));
+        const [v] = (await service.get(id)).variants;
+        // the admin typed 10 over the 3 it saw
+        await service.update(
+          id,
+          input('Camisa', [{ ...v, stockAdjustment: 7, stockAdjustmentKey: KEY, stockExpected: 3 }])
+        );
+        expect(tables[UIDS.variant][0].stock).toBe(10);
+      });
+
+      it('refuses with STOCK_CHANGED when the stock moved meanwhile, and changes nothing', async () => {
+        const { service, tables } = makeStrapi();
+        const { id } = await service.create(input('Camisa', [variant('A', { stock: 3 })]));
+        const [v] = (await service.get(id)).variants;
+        tables[UIDS.variant][0].stock = 1; // an order took two units
+        const err: any = await service
+          .update(
+            id,
+            input('Camisa', [{ ...v, price: 999, stockAdjustment: 7, stockAdjustmentKey: KEY, stockExpected: 3 }])
+          )
+          .catch((e) => e);
+        expect(err).toBeInstanceOf(EcommerceValidationError);
+        expect(err.errors).toEqual([{ path: 'variants.0.stock', code: 'STOCK_CHANGED' }]);
+        expect(tables[UIDS.variant][0].stock).toBe(1);
+        expect(tables[UIDS.variant][0].price).toBe(1000);
+      });
+
+      it('accepts a replay of an adjustment that was already applied', async () => {
+        const { service, tables } = makeStrapi();
+        const { id } = await service.create(input('Camisa', [variant('A', { stock: 3 })]));
+        const [v] = (await service.get(id)).variants;
+        const body = input('Camisa', [{ ...v, stockAdjustment: 7, stockAdjustmentKey: KEY, stockExpected: 3 }]);
+        await service.update(id, body);
+        await service.update(id, body); // the first response was lost
+        expect(tables[UIDS.variant][0].stock).toBe(10);
+      });
+    });
+
     it('rejects a non-integer stockAdjustment', async () => {
       const { service } = makeStrapi();
       const { id } = await service.create(input('Camisa', [variant('A')]));

@@ -12,10 +12,13 @@ export type VariantDraft = {
   images: ImageRecord[];
   active: boolean;
   sku: string;
-  /** Editable only for a new variant; read-only current stock otherwise. */
+  /**
+   * The stock as the admin wants it: the initial stock of a new variant, or the new current stock of
+   * an existing one (sent as a difference from `savedStock`).
+   */
   stock: string;
-  /** Signed adjustment for an existing variant ('' = none). */
-  stockAdjustment: string;
+  /** Existing variants: the stock stored on the server when the product was loaded. */
+  savedStock?: number;
   price: string;
   taxChoice: string;
   taxOther: string;
@@ -35,7 +38,6 @@ export function emptyVariantDraft(localeCodes: string[], key: string): VariantDr
     active: true,
     sku: '',
     stock: '0',
-    stockAdjustment: '',
     price: '',
     taxChoice: String(TAX_PRESETS[0]),
     taxOther: '',
@@ -66,8 +68,9 @@ export function variantToDraft(
     images: variant.images,
     active: variant.active,
     sku: variant.sku,
-    stock: String(variant.stock),
-    stockAdjustment: variant.stockAdjustment ? String(variant.stockAdjustment) : '',
+    // A pending (confirmed, not yet saved) change shows as the stock it will become.
+    stock: String(variant.stock + (variant.stockAdjustment ?? 0)),
+    ...(variant.id !== undefined ? { savedStock: variant.stock } : {}),
     price: centsToText(variant.price, uiLocale),
     taxChoice: preset ? String(variant.tax) : TAX_OTHER,
     taxOther: preset ? '' : String(variant.tax),
@@ -103,19 +106,16 @@ export function draftToVariant(
 
   const isNew = draft.id === undefined;
   const stockText = draft.stock.trim();
-  let stock = 0;
+  let typedStock = 0;
   if (stockText === '') errors.stock = 'required';
   else if (!/^-?\d+$/.test(stockText)) errors.stock = 'invalid_number';
-  else stock = Number(stockText);
+  else typedStock = Number(stockText);
 
-  let stockAdjustment = 0;
-  if (!isNew) {
-    const adjustText = draft.stockAdjustment.trim();
-    if (adjustText !== '') {
-      if (/^[+-]?\d+$/.test(adjustText)) stockAdjustment = Number(adjustText);
-      else errors.stockAdjustment = 'invalid_number';
-    }
-  }
+  // An existing variant keeps its stored stock and moves to the typed value through a ledger
+  // adjustment; the server refuses it if the stock changed since it was loaded.
+  const savedStock = draft.savedStock ?? 0;
+  const stock = isNew ? typedStock : savedStock;
+  const stockAdjustment = isNew ? 0 : typedStock - savedStock;
 
   let price = 0;
   if (draft.price.trim() === '') errors.price = 'required';
@@ -152,7 +152,7 @@ export function draftToVariant(
       price,
       tax: tax as number,
       stock,
-      ...(stockAdjustment !== 0 ? { stockAdjustment } : {}),
+      ...(stockAdjustment !== 0 ? { stockAdjustment, stockExpected: savedStock } : {}),
       ...dims,
       active: draft.active,
       translations: Object.fromEntries(

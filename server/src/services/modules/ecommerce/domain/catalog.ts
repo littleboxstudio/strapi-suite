@@ -11,6 +11,11 @@ export type VariantInput = {
   stockAdjustment?: number;
   /** Client-minted idempotency key for `stockAdjustment` (one per confirmed adjustment). */
   stockAdjustmentKey?: string;
+  /**
+   * The stock the admin saw when setting the new value. With `stockAdjustment`, the save is refused
+   * (`STOCK_CHANGED`) if the stock moved since (e.g. an order), so the typed value is never missed.
+   */
+  stockExpected?: number;
   weight: number;
   width: number;
   height: number;
@@ -37,7 +42,8 @@ export type FieldError = {
     | 'invalid_number'
     | 'out_of_range'
     | 'VARIANT_IN_ORDERS'
-    | 'PRODUCT_IN_ORDERS';
+    | 'PRODUCT_IN_ORDERS'
+    | 'STOCK_CHANGED';
 };
 
 export function slugify(text: string): string {
@@ -142,6 +148,13 @@ export function validateProductInput(input: ProductInput, defaultLocale: string)
       !(typeof v.stockAdjustment === 'number' && Number.isInteger(v.stockAdjustment))
     ) {
       errors.push({ path: `${base}.stockAdjustment`, code: 'invalid_number' });
+    }
+    if (
+      v.stockExpected !== undefined &&
+      v.stockExpected !== null &&
+      !(typeof v.stockExpected === 'number' && Number.isInteger(v.stockExpected))
+    ) {
+      errors.push({ path: `${base}.stock`, code: 'invalid_number' });
     }
   });
 

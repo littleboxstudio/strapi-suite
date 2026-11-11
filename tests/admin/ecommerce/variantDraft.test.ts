@@ -34,7 +34,6 @@ describe('variant drafts', () => {
       active: true,
       sku: '',
       stock: '0',
-      stockAdjustment: '',
       price: '',
       taxChoice: '23',
       taxOther: '',
@@ -54,6 +53,7 @@ describe('variant drafts', () => {
       active: false,
       sku: 'TS-BLK',
       stock: '5',
+      savedStock: 5,
       price: '29,90',
       taxChoice: '13',
       taxOther: '',
@@ -129,32 +129,41 @@ describe('variant drafts', () => {
       expect(draftToVariant(draft, 'en').variant).not.toHaveProperty('stockAdjustment');
     });
 
-    it('keeps the stock of an existing variant and sends a signed adjustment', () => {
-      const draft = { ...variantToDraft(saved, LOCALES, 'en'), stockAdjustment: ' -3 ' };
-      expect(draftToVariant(draft, 'en').variant).toMatchObject({ stock: 5, stockAdjustment: -3 });
-      const plus = { ...draft, stockAdjustment: '+5' };
-      expect(draftToVariant(plus, 'en').variant).toMatchObject({ stock: 5, stockAdjustment: 5 });
+    it('sends the typed current stock of an existing variant as a difference from the saved one', () => {
+      const down = { ...variantToDraft(saved, LOCALES, 'en'), stock: ' 2 ' };
+      expect(draftToVariant(down, 'en').variant).toMatchObject({
+        stock: 5,
+        stockAdjustment: -3,
+        stockExpected: 5,
+      });
+      const up = { ...variantToDraft(saved, LOCALES, 'en'), stock: '10' };
+      expect(draftToVariant(up, 'en').variant).toMatchObject({ stock: 5, stockAdjustment: 5, stockExpected: 5 });
+      const negative = { ...variantToDraft(saved, LOCALES, 'en'), stock: '-1' };
+      expect(draftToVariant(negative, 'en').variant).toMatchObject({ stockAdjustment: -6 });
     });
 
-    it('omits a blank or zero adjustment', () => {
-      for (const stockAdjustment of ['', '0', ' ']) {
-        const draft = { ...variantToDraft(saved, LOCALES, 'en'), stockAdjustment };
-        expect(draftToVariant(draft, 'en').variant).not.toHaveProperty('stockAdjustment');
+    it('sends no adjustment when the stock is unchanged', () => {
+      const draft = variantToDraft(saved, LOCALES, 'en');
+      const variant = draftToVariant(draft, 'en').variant;
+      expect(variant).not.toHaveProperty('stockAdjustment');
+      expect(variant).not.toHaveProperty('stockExpected');
+    });
+
+    it('rejects an empty or non-integer stock', () => {
+      expect(draftToVariant({ ...variantToDraft(saved, LOCALES, 'en'), stock: '' }, 'en').errors).toEqual({
+        stock: 'required',
+      });
+      for (const stock of ['1.5', 'abc', '--1']) {
+        const draft = { ...variantToDraft(saved, LOCALES, 'en'), stock };
+        expect(draftToVariant(draft, 'en').errors).toEqual({ stock: 'invalid_number' });
       }
     });
 
-    it('rejects a non-integer adjustment', () => {
-      for (const stockAdjustment of ['1.5', 'abc', '--1']) {
-        const draft = { ...variantToDraft(saved, LOCALES, 'en'), stockAdjustment };
-        expect(draftToVariant(draft, 'en').errors).toEqual({ stockAdjustment: 'invalid_number' });
-      }
-    });
-
-    it('reopens a variant with its pending adjustment', () => {
-      expect(variantToDraft({ ...saved, stockAdjustment: 4 }, LOCALES, 'en').stockAdjustment).toBe(
-        '4'
-      );
-      expect(variantToDraft(saved, LOCALES, 'en').stockAdjustment).toBe('');
+    it('reopens a variant showing the stock its pending change will give', () => {
+      const pending = variantToDraft({ ...saved, stockAdjustment: 4 }, LOCALES, 'en');
+      expect(pending).toMatchObject({ stock: '9', savedStock: 5 });
+      // confirming it again keeps the same difference
+      expect(draftToVariant(pending, 'en').variant).toMatchObject({ stockAdjustment: 4, stockExpected: 5 });
     });
 
     it('mints an idempotency key per confirmed adjustment', () => {

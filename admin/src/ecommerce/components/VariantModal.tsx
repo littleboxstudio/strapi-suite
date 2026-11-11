@@ -9,7 +9,6 @@ import {
   Modal,
   SingleSelect,
   SingleSelectOption,
-  Switch,
   TextInput,
   Typography,
 } from '@strapi/design-system';
@@ -47,7 +46,6 @@ type Props = {
 type TextField =
   | 'sku'
   | 'stock'
-  | 'stockAdjustment'
   | 'price'
   | 'weight'
   | 'width'
@@ -103,9 +101,12 @@ const VariantModal = ({
     onConfirm(withAdjustmentKey(result.variant, variant));
   };
 
-  const textField = (field: TextField, opts: { required?: boolean; hint?: string } = {}) => (
+  const textField = (
+    field: TextField,
+    opts: { required?: boolean; hint?: string; label?: string } = {}
+  ) => (
     <Field.Root name={field} error={errorText(field)} required={opts.required} hint={opts.hint}>
-      <Field.Label>{t(`ecommerce.product.variant.${field}`)}</Field.Label>
+      <Field.Label>{opts.label ?? t(`ecommerce.product.variant.${field}`)}</Field.Label>
       <TextInput value={draft[field]} onChange={(e: any) => setField(field, e.target.value)} />
       <Field.Error />
       <Field.Hint />
@@ -126,7 +127,7 @@ const VariantModal = ({
         </Modal.Header>
         <Modal.Body>
           <Flex direction="column" alignItems="stretch" gap={5}>
-            <Flex direction="column" alignItems="stretch" gap={2}>
+            <Flex direction="column" alignItems="stretch" gap={4}>
               <LocaleSwitcher
                 locales={locales}
                 defaultLocale={defaultLocale}
@@ -155,42 +156,19 @@ const VariantModal = ({
               </Field.Root>
             </Flex>
 
-            <Field.Root name="active">
-              <Flex gap={3}>
-                <Switch
-                  checked={draft.active}
-                  onCheckedChange={(checked: boolean) =>
-                    setDraft((d) => ({ ...d, active: checked }))
-                  }
-                  aria-label={t('ecommerce.product.variant.active')}
-                />
-                <Typography variant="omega">{t('ecommerce.product.variant.active')}</Typography>
-              </Flex>
-            </Field.Root>
-
             <Grid.Root gap={4}>
               <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
                 {textField('sku', { required: true })}
               </Grid.Item>
-              {draft.id === undefined ? (
-                <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
-                  {textField('stock', { required: true })}
-                </Grid.Item>
-              ) : (
-                <>
-                  <Grid.Item col={3} s={6} direction="column" alignItems="stretch">
-                    <Field.Root name="currentStock">
-                      <Field.Label>{t('ecommerce.product.variant.currentStock')}</Field.Label>
-                      <TextInput value={draft.stock} disabled />
-                    </Field.Root>
-                  </Grid.Item>
-                  <Grid.Item col={3} s={6} direction="column" alignItems="stretch">
-                    {textField('stockAdjustment', {
-                      hint: t('ecommerce.product.variant.stockAdjustment.hint'),
+              <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
+                {draft.id === undefined
+                  ? textField('stock', { required: true })
+                  : textField('stock', {
+                      required: true,
+                      label: t('ecommerce.product.variant.currentStock'),
+                      hint: t('ecommerce.product.variant.currentStock.hint'),
                     })}
-                  </Grid.Item>
-                </>
-              )}
+              </Grid.Item>
               <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
                 {textField('price', {
                   required: true,
@@ -278,9 +256,19 @@ const VariantModal = ({
           </Flex>
         </Modal.Body>
         <Modal.Footer>
-          <Button variant="tertiary" onClick={onClose}>
-            {t('ecommerce.product.variant.cancel')}
-          </Button>
+          <Flex gap={2}>
+            <Button variant="tertiary" onClick={onClose}>
+              {t('ecommerce.product.variant.cancel')}
+            </Button>
+            {/* Same look as the product's button; stored when the product is saved. */}
+            <Button
+              variant={draft.active ? 'default' : 'danger'}
+              onClick={() => setDraft((d) => ({ ...d, active: !d.active }))}
+              aria-pressed={draft.active}
+            >
+              {formatMessage({ id: getTranslation(draft.active ? 'app.enabled' : 'app.disabled') })}
+            </Button>
+          </Flex>
           <Button onClick={confirm}>{t('ecommerce.product.variant.confirm')}</Button>
         </Modal.Footer>
       </Modal.Content>
