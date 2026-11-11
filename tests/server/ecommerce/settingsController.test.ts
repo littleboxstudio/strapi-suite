@@ -55,6 +55,8 @@ describe('EcommerceSettingsController — store logo', () => {
     const ctx = mkCtx({ request: { body: {}, files: { file: { size: 1, filepath } } } });
     await c.uploadStoreLogo(ctx);
     expect(ctx.badRequest).toHaveBeenCalledWith(expect.any(String), { code: 'INVALID_IMAGE' });
+    // The uploaded original is never kept.
+    expect(fs.existsSync(filepath)).toBe(false);
     fs.rmSync(dir, { recursive: true, force: true });
   });
 

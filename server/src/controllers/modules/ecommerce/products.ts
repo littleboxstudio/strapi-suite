@@ -2,6 +2,7 @@ import fs from 'fs';
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID } from '../../../config';
 import { handleDomainError as handleSharedDomainError } from './errors';
+import { removeTempUploads } from './uploads';
 import { MAX_UPLOAD_BYTES } from '../../../services/modules/ecommerce/domain/imageProcessing';
 
 const EcommerceProductController = ({ strapi }: { strapi: Core.Strapi }) => {
@@ -83,41 +84,46 @@ const EcommerceProductController = ({ strapi }: { strapi: Core.Strapi }) => {
 
     async uploadImage(ctx: any) {
       const file = ctx.request.files?.file;
-      const body = ctx.request.body || {};
-      if (!file) return ctx.badRequest('A file is required');
-      if (file.size > MAX_UPLOAD_BYTES) return ctx.badRequest('The image exceeds 15 MB');
-
-      const productId = body.productId ? Number(body.productId) : undefined;
-      const variantId = body.variantId ? Number(body.variantId) : undefined;
-      if (!productId && !variantId) {
-        return ctx.badRequest('productId or variantId is required');
-      }
-
-      let transform;
       try {
-        transform = typeof body.transform === 'string' ? JSON.parse(body.transform) : body.transform;
-      } catch {
-        return ctx.badRequest('transform must be valid JSON');
-      }
-      if (!transform || typeof transform !== 'object') {
-        return ctx.badRequest('transform is required');
-      }
+        const body = ctx.request.body || {};
+        if (!file || Array.isArray(file)) return ctx.badRequest('A file is required');
+        if (file.size > MAX_UPLOAD_BYTES) return ctx.badRequest('The image exceeds 15 MB');
 
-      const buffer = await fs.promises.readFile(file.filepath);
-      try {
-        const record = await images().upload({
-          buffer,
-          originalName: file.originalFilename || 'image',
-          transform,
-          owner: { productId, variantId },
-        });
-        ctx.status = 201;
-        ctx.body = record;
-      } catch (error: any) {
-        if (error?.message === 'INVALID_IMAGE') {
-          return ctx.badRequest('Invalid image', { error: { code: 'INVALID_IMAGE' } });
+        const productId = body.productId ? Number(body.productId) : undefined;
+        const variantId = body.variantId ? Number(body.variantId) : undefined;
+        if (!productId && !variantId) {
+          return ctx.badRequest('productId or variantId is required');
         }
-        throw error;
+
+        let transform;
+        try {
+          transform = typeof body.transform === 'string' ? JSON.parse(body.transform) : body.transform;
+        } catch {
+          return ctx.badRequest('transform must be valid JSON');
+        }
+        if (!transform || typeof transform !== 'object') {
+          return ctx.badRequest('transform is required');
+        }
+
+        const buffer = await fs.promises.readFile(file.filepath);
+        try {
+          const record = await images().upload({
+            buffer,
+            originalName: file.originalFilename || 'image',
+            transform,
+            owner: { productId, variantId },
+          });
+          ctx.status = 201;
+          ctx.body = record;
+        } catch (error: any) {
+          if (error?.message === 'INVALID_IMAGE') {
+            return ctx.badRequest('Invalid image', { error: { code: 'INVALID_IMAGE' } });
+          }
+          throw error;
+        }
+      } finally {
+        // Only the processed WebP is stored; the uploaded original is always discarded.
+        await removeTempUploads(ctx.request.files?.file);
       }
     },
 

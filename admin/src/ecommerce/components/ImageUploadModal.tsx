@@ -16,6 +16,7 @@ import {
 import { Link } from '@strapi/icons';
 import { getTranslation } from '../../core/utils/getTranslation';
 import UploadProductImage from '../usecases/uploadProductImage';
+import { ImageDropzone } from './ImageDropzone';
 import { lockedHeight, toPixelCrop } from '../utils/cropMath';
 import {
   MAX_IMAGE_BYTES,
@@ -54,7 +55,6 @@ const ImageUploadModal = ({ owner, onClose, onUploaded }: Props) => {
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
 
-  const fileInput = useRef<HTMLInputElement>(null);
   /** The file being probed; a slower probe of an earlier pick is ignored. */
   const pending = useRef<File | null>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -95,7 +95,6 @@ const ImageUploadModal = ({ owner, onClose, onUploaded }: Props) => {
     setPreviewUrl(null);
     setNatural(null);
     setCropArea(null);
-    if (fileInput.current) fileInput.current.value = '';
   };
 
   const chooseFile = (chosen: File | undefined) => {
@@ -239,26 +238,23 @@ const ImageUploadModal = ({ owner, onClose, onUploaded }: Props) => {
         </Modal.Header>
         <Modal.Body>
           <Flex direction="column" alignItems="stretch" gap={4}>
-            <Field.Root name="file" hint={t('ecommerce.image.upload.fileHint')}>
-              <Field.Label>{t('ecommerce.image.upload.file')}</Field.Label>
-              <input
-                ref={fileInput}
-                type="file"
-                accept="image/*"
-                disabled={uploading}
-                onChange={(e) => chooseFile(e.target.files?.[0])}
-              />
-              <Field.Hint />
-            </Field.Root>
+            {!(file && natural && previewUrl) && (
+              <ImageDropzone onFile={chooseFile} disabled={uploading} />
+            )}
 
             {file && natural && previewUrl && (
               <>
-                <Typography variant="pi" textColor="neutral600">
-                  {t('ecommerce.image.upload.original', {
-                    width: natural.width,
-                    height: natural.height,
-                  })}
-                </Typography>
+                <Flex justifyContent="space-between" alignItems="center" gap={4} wrap="wrap">
+                  <Typography variant="pi" textColor="neutral600">
+                    {t('ecommerce.image.upload.original', {
+                      width: natural.width,
+                      height: natural.height,
+                    })}
+                  </Typography>
+                  <Button variant="tertiary" size="S" onClick={resetFile} disabled={uploading}>
+                    {t('ecommerce.image.upload.change')}
+                  </Button>
+                </Flex>
                 <Tabs.Root
                   variant="simple"
                   value={mode}
