@@ -6,6 +6,7 @@ import {
   Button,
   Field,
   Flex,
+  IconButton,
   Modal,
   MultiSelect,
   MultiSelectOption,
@@ -15,6 +16,7 @@ import {
   TextInput,
   Typography,
 } from '@strapi/design-system';
+import { Information } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import UpdateIntegration from '../../usecases/settings/updateIntegration';
 import { extractFieldErrors } from '../../utils/productForm';
@@ -29,6 +31,7 @@ import {
   showsAsRequired,
 } from '../../utils/integrationForm';
 import type { IntegrationView, ProviderField, ShippingZone } from '../../settingsTypes';
+import { FieldHelpModal } from './FieldHelpModal';
 
 /** Mount it only while open: the form is initialised once, from the props. */
 type Props = {
@@ -60,6 +63,8 @@ const IntegrationConfigModal = ({
   const [saving, setSaving] = useState(false);
   /** Stored optional secrets the user chose to delete on save. */
   const [clearedSecrets, setClearedSecrets] = useState<string[]>([]);
+  /** The field whose "how to find this" help is open. */
+  const [helpField, setHelpField] = useState<ProviderField | null>(null);
 
   const name = t(
     `ecommerce.settings.providers.${integration.id}.name`,
@@ -265,7 +270,24 @@ const IntegrationConfigModal = ({
                 }
                 hint={secretHint(field)}
               >
-                <Field.Label>{t(field.label, undefined, field.key)}</Field.Label>
+                <Field.Label
+                  action={
+                    field.help ? (
+                      <IconButton
+                        variant="ghost"
+                        size="XS"
+                        label={t('ecommerce.settings.integrations.help.open', {
+                          field: t(field.label, undefined, field.key),
+                        })}
+                        onClick={() => setHelpField(field)}
+                      >
+                        <Information />
+                      </IconButton>
+                    ) : undefined
+                  }
+                >
+                  {t(field.label, undefined, field.key)}
+                </Field.Label>
                 {fieldInput(field)}
                 <Field.Error />
                 <Field.Hint />
@@ -282,6 +304,13 @@ const IntegrationConfigModal = ({
           </Button>
         </Modal.Footer>
       </Modal.Content>
+      {helpField?.help && (
+        <FieldHelpModal
+          title={t(helpField.label, undefined, helpField.key)}
+          textKey={helpField.help}
+          onClose={() => setHelpField(null)}
+        />
+      )}
     </Modal.Root>
   );
 };

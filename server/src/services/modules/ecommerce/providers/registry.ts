@@ -17,6 +17,8 @@ export type ProviderField = {
   format?: 'email' | 'path';
   /** Admin i18n key */
   label: string;
+  /** Admin i18n key of a plain-text "how to find this value" explanation (paragraphs split by blank lines). */
+  help?: string;
 };
 
 export type ProviderRuntime = {
