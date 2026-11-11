@@ -13,6 +13,22 @@ const stripe: ProviderDefinition = {
     { key: 'secretKey', type: 'secret', required: true, label: `${L}.secretKey` },
     { key: 'webhookSecret', type: 'secret', required: false, label: `${L}.webhookSecret` },
     { key: 'publishableKey', type: 'string', required: false, label: `${L}.publishableKey` },
+    {
+      key: 'paymentSuccessPath',
+      type: 'string',
+      format: 'path',
+      required: true,
+      default: '/checkout/success',
+      label: `${L}.paymentSuccessPath`,
+    },
+    {
+      key: 'paymentCancelPath',
+      type: 'string',
+      format: 'path',
+      required: true,
+      default: '/checkout/cancel',
+      label: `${L}.paymentCancelPath`,
+    },
   ],
   async testConnection(rt) {
     const key = str(rt, 'secretKey');

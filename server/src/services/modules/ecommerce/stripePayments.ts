@@ -11,7 +11,7 @@ import {
 import { coverageFor } from './payments';
 import type { OrderHistoryEntry } from './orderHistory';
 import type { OrderState } from './orders';
-import type { ProviderRuntime } from './providers/registry';
+import { PATH_RE, type ProviderRuntime } from './providers/registry';
 import type { StoreSettings } from './settings';
 
 export type StripeLinkPurpose = 'CHECKOUT' | 'SUPPLEMENTARY';
@@ -82,6 +82,27 @@ const notAvailable = () =>
  * after, and a call interrupted between them is reconciled by the next one (the pending payment
  * and its deterministic Idempotency-Key are reused, so Stripe returns the same session).
  */
+const DEFAULT_SUCCESS_PATH = '/checkout/success';
+const DEFAULT_CANCEL_PATH = '/checkout/cancel';
+
+/** Where Stripe sends the customer back to: the configured paths (or the defaults) on the storefront. */
+export function stripeReturnUrls(
+  storefrontUrl: string,
+  runtime: ProviderRuntime,
+  publicId: string
+): { successUrl: string; cancelUrl: string } {
+  const base = storefrontUrl.replace(/\/+$/, '');
+  const pathOf = (key: string, fallback: string): string => {
+    const value = runtime.config[key];
+    return typeof value === 'string' && PATH_RE.test(value.trim()) ? value.trim() : fallback;
+  };
+  const query = `?order=${encodeURIComponent(publicId)}`;
+  return {
+    successUrl: `${base}${pathOf('paymentSuccessPath', DEFAULT_SUCCESS_PATH)}${query}`,
+    cancelUrl: `${base}${pathOf('paymentCancelPath', DEFAULT_CANCEL_PATH)}${query}`,
+  };
+}
+
 const EcommerceStripePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
   const uids = () => {
     const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
@@ -102,13 +123,14 @@ const EcommerceStripePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
   const events = (): { collector(): { emit(e: any): void; flush(): Promise<void> } } =>
     service('EcommerceEventBus');
 
-  const stripeClient = async (): Promise<StripeClient> => {
+  const loadStripe = async (): Promise<{ client: StripeClient; runtime: ProviderRuntime }> => {
     const rt = await settings().getRuntime('stripe');
     if (!rt || !rt.active || !str(rt, 'secretKey')) {
       throw new EcommercePaymentError('STRIPE_NOT_CONFIGURED', 'Stripe is not configured.');
     }
-    return createStripeClient(rt);
+    return { client: createStripeClient(rt), runtime: rt };
   };
+  const stripeClient = async (): Promise<StripeClient> => (await loadStripe()).client;
 
   const sessionsOf = (orderId: number, status?: string): Promise<any[]> =>
     strapi.db.query(uids().stripeSession).findMany({
@@ -300,7 +322,7 @@ const EcommerceStripePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
   ): Promise<PaymentLink> => {
     const orderId = Number(rawOrderId);
     const actor = opts?.actor ?? 'system';
-    const client = await stripeClient();
+    const { client, runtime } = await loadStripe();
     const store = await settings().getStoreSettings();
     const u = uids();
 
@@ -412,16 +434,15 @@ const EcommerceStripePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
           // The exact create parameters are stored: a retry with the same Idempotency-Key must
           // send identical ones, or Stripe rejects it.
           const { order } = fresh;
-          const base = String(store.storefrontUrl).replace(/\/+$/, '');
-          const query = `?order=${encodeURIComponent(order.publicId)}`;
+          const { successUrl, cancelUrl } = stripeReturnUrls(String(store.storefrontUrl), runtime, order.publicId);
           const email = order.customerSnapshot?.email;
           const stripeParams: StoredParams = {
             amount: due,
             currency: 'EUR',
             description: `Order #${order.reference}`,
             customerEmail: typeof email === 'string' && email ? email : null,
-            successUrl: `${base}${store.paymentSuccessPath}${query}`,
-            cancelUrl: `${base}${store.paymentCancelPath}${query}`,
+            successUrl,
+            cancelUrl,
             expiresAt: Math.floor(Date.now() / 1000) + SESSION_TTL_SEC,
             metadata: { orderId: String(orderId), paymentId: String(created.id), purpose },
           };

@@ -399,6 +399,41 @@ describe('EcommerceSettingsService — integrations', () => {
   });
 });
 
+describe('EcommerceSettingsService — Stripe return paths', () => {
+  afterEach(() => __resetRegistryForTests());
+
+  it('rejects an invalid path and shows the defaults without anything stored', async () => {
+    const { service } = makeStrapi();
+    const err: any = await service
+      .updateIntegration('stripe', { config: { paymentSuccessPath: '//evil.com' } }, '1')
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(EcommerceValidationError);
+    expect(err.errors).toContainEqual({ path: 'config.paymentSuccessPath', code: 'invalid_path' });
+    const stripe = (await service.listIntegrations()).find((i) => i.id === 'stripe')!;
+    expect(stripe.config).toMatchObject({
+      paymentSuccessPath: '/checkout/success',
+      paymentCancelPath: '/checkout/cancel',
+    });
+  });
+
+  it('an empty path falls back to the default in the runtime', async () => {
+    const { service } = makeStrapi();
+    await service.updateIntegration('stripe', { config: { paymentSuccessPath: '/obrigado' } }, '1');
+    expect((await service.getRuntime('stripe'))!.config.paymentSuccessPath).toBe('/obrigado');
+    await service.updateIntegration('stripe', { config: { paymentSuccessPath: '' } }, '1');
+    expect((await service.getRuntime('stripe'))!.config.paymentSuccessPath).toBe('/checkout/success');
+  });
+
+  it('activation fails with a stored invalid path', async () => {
+    const { service, tables } = makeStrapi();
+    await service.updateIntegration('stripe', { secrets: { secretKey: STRIPE_KEY } }, '1');
+    tables[UIDS.integration][0].config = { paymentCancelPath: 'no-slash' };
+    const err: any = await service.setActive('stripe', true, '1').catch((e) => e);
+    expect(err).toBeInstanceOf(EcommerceValidationError);
+    expect(err.errors).toContainEqual({ path: 'config.paymentCancelPath', code: 'invalid_path' });
+  });
+});
+
 describe('EcommerceSettingsService — store settings', () => {
   it('returns defaults when nothing is stored', async () => {
     const { service } = makeStrapi();
@@ -407,8 +442,6 @@ describe('EcommerceSettingsService — store settings', () => {
       logo: null,
       brandColor: '#4945ff',
       storefrontUrl: null,
-      paymentSuccessPath: '/checkout/success',
-      paymentCancelPath: '/checkout/cancel',
       timezone: 'Europe/Lisbon',
       shippingCountries: ['PT'],
       supportEmail: null,

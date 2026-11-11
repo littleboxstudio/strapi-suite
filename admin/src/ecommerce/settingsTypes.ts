@@ -5,8 +5,6 @@ export type StoreSettings = {
   logo: { url: string; width: number; height: number } | null;
   brandColor: string;
   storefrontUrl: string | null;
-  paymentSuccessPath: string;
-  paymentCancelPath: string;
   timezone: string;
   shippingCountries: string[];
   supportEmail: string | null;
@@ -34,7 +32,7 @@ export type ProviderField = {
   default?: unknown;
   options?: string[];
   /** Extra validation for `string` fields (checked by the server). */
-  format?: 'email';
+  format?: 'email' | 'path';
   /** Admin i18n key */
   label: string;
 };

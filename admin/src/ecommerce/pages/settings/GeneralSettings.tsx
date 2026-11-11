@@ -269,20 +269,6 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
               hint: t('ecommerce.settings.store.storefrontUrl.hint'),
             })}
           </Grid.Item>
-          <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
-            {textField('paymentSuccessPath', {
-              required: true,
-              placeholder: '/checkout/success',
-              hint: t('ecommerce.settings.store.path.hint'),
-            })}
-          </Grid.Item>
-          <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
-            {textField('paymentCancelPath', {
-              required: true,
-              placeholder: '/checkout/cancel',
-              hint: t('ecommerce.settings.store.path.hint'),
-            })}
-          </Grid.Item>
         </Grid.Root>
       </Section>
 

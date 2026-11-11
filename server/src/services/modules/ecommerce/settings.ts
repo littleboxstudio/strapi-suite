@@ -59,8 +59,6 @@ export type StoreSettings = {
   logo: StoreLogo | null;
   brandColor: string;
   storefrontUrl: string | null;
-  paymentSuccessPath: string;
-  paymentCancelPath: string;
   timezone: string;
   shippingCountries: string[];
   supportEmail: string | null;
@@ -73,8 +71,6 @@ export const STORE_SETTINGS_DEFAULTS: StoreSettings = {
   logo: null,
   brandColor: '#4945ff',
   storefrontUrl: null,
-  paymentSuccessPath: '/checkout/success',
-  paymentCancelPath: '/checkout/cancel',
   timezone: 'Europe/Lisbon',
   shippingCountries: ['PT'],
   supportEmail: null,
@@ -178,14 +174,6 @@ function normalizeStorePatch(patch: Record<string, unknown>): {
     const v = str(patch[key]);
     if (isBlank(v)) values[key] = null;
     else if (typeof v !== 'string' || !isHttpUrl(v)) errors.push({ path: key, code: 'invalid_url' });
-    else values[key] = v;
-  }
-  for (const key of ['paymentSuccessPath', 'paymentCancelPath'] as const) {
-    if (!has(key)) continue;
-    const v = str(patch[key]);
-    if (isBlank(v)) errors.push({ path: key, code: 'required' });
-    else if (typeof v !== 'string' || !v.startsWith('/') || v.startsWith('//'))
-      errors.push({ path: key, code: 'invalid_url' });
     else values[key] = v;
   }
   if (has('brandColor')) {

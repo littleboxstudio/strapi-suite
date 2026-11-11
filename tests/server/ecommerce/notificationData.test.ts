@@ -19,8 +19,6 @@ const store: any = {
   logo: null,
   brandColor: '#111111',
   storefrontUrl: 'https://shop.example',
-  paymentSuccessPath: '/s',
-  paymentCancelPath: '/c',
   timezone: 'Europe/Lisbon',
   shippingCountries: ['PT'],
   supportEmail: 'help@shop.example',

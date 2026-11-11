@@ -70,3 +70,21 @@ export function integrationErrorMap(errors: SettingsFieldError[]): Record<string
   });
   return map;
 }
+
+/** A storefront path: one leading `/`, no spaces or backslashes (same rule as the server). */
+const isStorefrontPath = (text: string) => /^\/(?!\/)[^\s\\]*$/.test(text);
+
+/** Client-side checks keyed by field key, with the server's error codes. Blank values are not errors here. */
+export function validateIntegrationForm(
+  fields: ProviderField[],
+  values: IntegrationFormValues
+): Record<string, string> {
+  const errors: Record<string, string> = {};
+  fields.forEach((field) => {
+    if (field.type !== 'string' || field.format !== 'path') return;
+    const value = values[field.key];
+    const text = typeof value === 'string' ? value.trim() : '';
+    if (text !== '' && !isStorefrontPath(text)) errors[field.key] = 'invalid_path';
+  });
+  return errors;
+}

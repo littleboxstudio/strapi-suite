@@ -28,7 +28,10 @@ describe('provider registry', () => {
   it('exposes the exact fields', () => {
     const f = (id: string) =>
       getProviderDefinition(id)!.fields.map((x) => `${x.key}:${x.type}:${x.required ? '*' : ''}`);
-    expect(f('stripe')).toEqual(['secretKey:secret:*', 'webhookSecret:secret:', 'publishableKey:string:']);
+    expect(f('stripe')).toEqual([
+      'secretKey:secret:*', 'webhookSecret:secret:', 'publishableKey:string:',
+      'paymentSuccessPath:string:*', 'paymentCancelPath:string:*',
+    ]);
     expect(f('moloni')).toEqual([
       'clientId:string:*', 'clientSecret:secret:*', 'username:string:*', 'password:secret:*',
       'companyId:number:*', 'documentType:select:', 'documentSetId:number:', 'exemptionReason:string:',
@@ -64,12 +67,13 @@ describe('validateProviderInput', () => {
   const moloni = () => getProviderDefinition('moloni')!;
 
   it('requires a required secret only when none is stored', () => {
-    expect(validateProviderInput(stripe(), {}, () => false)).toEqual([
+    const config = { paymentSuccessPath: '/ok', paymentCancelPath: '/no' };
+    expect(validateProviderInput(stripe(), { config }, () => false)).toEqual([
       { path: 'secrets.secretKey', code: 'required' },
     ]);
-    expect(validateProviderInput(stripe(), {}, (k) => k === 'secretKey')).toEqual([]);
-    expect(validateProviderInput(stripe(), { secrets: { secretKey: 'sk' } }, () => false)).toEqual([]);
-    expect(validateProviderInput(stripe(), { secrets: { secretKey: '' } }, () => false)).toHaveLength(1);
+    expect(validateProviderInput(stripe(), { config }, (k) => k === 'secretKey')).toEqual([]);
+    expect(validateProviderInput(stripe(), { config, secrets: { secretKey: 'sk' } }, () => false)).toEqual([]);
+    expect(validateProviderInput(stripe(), { config, secrets: { secretKey: '' } }, () => false)).toHaveLength(1);
   });
 
   it('validates email-format string fields (resend fromEmail)', () => {
@@ -83,6 +87,29 @@ describe('validateProviderInput', () => {
         { path: 'config.fromEmail', code: 'invalid_email' },
       ]);
     }
+  });
+
+  it('validates path-format string fields', () => {
+    const def: any = {
+      id: 'p', category: 'payment', name: 'P', exclusive: false, verified: true,
+      fields: [{ key: 'back', type: 'string', format: 'path', required: false, label: 'x' }],
+    };
+    for (const bad of ['checkout/ok', '//evil.com', '/a b', '/a\\b', 42]) {
+      expect(validateProviderInput(def, { config: { back: bad } }, () => false)).toEqual([
+        { path: 'config.back', code: 'invalid_path' },
+      ]);
+    }
+    expect(validateProviderInput(def, { config: { back: '/obrigado' } }, () => false)).toEqual([]);
+  });
+
+  it('the stripe definition carries the return paths with defaults', () => {
+    const fields = getProviderDefinition('stripe')!.fields;
+    expect(fields.find((f) => f.key === 'paymentSuccessPath')).toMatchObject({
+      type: 'string', format: 'path', required: true, default: '/checkout/success',
+    });
+    expect(fields.find((f) => f.key === 'paymentCancelPath')).toMatchObject({
+      type: 'string', format: 'path', required: true, default: '/checkout/cancel',
+    });
   });
 
   it('requires plain fields and validates numbers and options', () => {

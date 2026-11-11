@@ -27,8 +27,6 @@ export type StoreForm = {
   storeName: string;
   brandColor: string;
   storefrontUrl: string;
-  paymentSuccessPath: string;
-  paymentCancelPath: string;
   supportEmail: string;
   timezone: string;
   shippingCountries: string[];
@@ -92,15 +90,11 @@ const isTimezone = (value: string) => {
 
 export const isEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
-const isRelativePath = (value: string) => value.startsWith('/') && !value.startsWith('//');
-
 export function storeFormFromSettings(settings: StoreSettings): StoreForm {
   return {
     storeName: settings.storeName,
     brandColor: settings.brandColor,
     storefrontUrl: settings.storefrontUrl ?? '',
-    paymentSuccessPath: settings.paymentSuccessPath,
-    paymentCancelPath: settings.paymentCancelPath,
     supportEmail: settings.supportEmail ?? '',
     timezone: settings.timezone,
     shippingCountries: [...settings.shippingCountries],
@@ -117,8 +111,6 @@ export function buildStoreSettingsInput(form: StoreForm): StoreSettingsInput {
     storeName: form.storeName.trim(),
     brandColor: form.brandColor.trim(),
     storefrontUrl: optional(form.storefrontUrl),
-    paymentSuccessPath: form.paymentSuccessPath.trim(),
-    paymentCancelPath: form.paymentCancelPath.trim(),
     supportEmail: optional(form.supportEmail),
     timezone: form.timezone,
     shippingCountries: normalizeCountries(form.shippingCountries),
@@ -137,17 +129,10 @@ export function validateStoreForm(form: StoreForm): SettingsFieldError[] {
     const value = form[path].trim();
     if (value !== '' && !isValidHttpUrl(value)) push(path, 'invalid_url');
   };
-  const requiredPath = (path: 'paymentSuccessPath' | 'paymentCancelPath') => {
-    const value = form[path].trim();
-    if (value === '') push(path, 'required');
-    else if (!isRelativePath(value)) push(path, 'invalid_url');
-  };
 
   if (form.storeName.trim() === '') push('storeName', 'required');
   if (!isValidHexColor(form.brandColor.trim())) push('brandColor', 'invalid_color');
   optionalUrl('storefrontUrl');
-  requiredPath('paymentSuccessPath');
-  requiredPath('paymentCancelPath');
   const email = form.supportEmail.trim();
   if (email !== '' && !isEmail(email)) push('supportEmail', 'invalid_email');
   if (form.timezone === '' || !isTimezone(form.timezone)) push('timezone', 'invalid_timezone');

@@ -107,7 +107,9 @@ const RELATIONS: FakeRelations = {
 const HOUR = 3600;
 const nowSec = () => Math.floor(Date.now() / 1000);
 
-function setup(opts: { storefrontUrl?: string | null; stripeActive?: boolean } = {}) {
+function setup(
+  opts: { storefrontUrl?: string | null; stripeActive?: boolean; stripeConfig?: Record<string, unknown> } = {}
+) {
   const db = createFakeDb(Object.values(UIDS), RELATIONS, {
     enforceUnique: [UIDS.stockMovement, UIDS.order, UIDS.payment, UIDS.stripeSession],
   });
@@ -155,12 +157,17 @@ function setup(opts: { storefrontUrl?: string | null; stripeActive?: boolean } =
       shippingCountries: ['PT'],
       storefrontUrl:
         opts.storefrontUrl === undefined ? 'https://shop.example/' : opts.storefrontUrl,
-      paymentSuccessPath: '/checkout/success',
-      paymentCancelPath: '/checkout/cancel',
     }),
     getRuntime: async (id: string) =>
       id === 'stripe'
-        ? { config: {}, secrets: { secretKey: 'sk_test_x' }, active: opts.stripeActive ?? true }
+        ? {
+            config: opts.stripeConfig ?? {
+              paymentSuccessPath: '/checkout/success',
+              paymentCancelPath: '/checkout/cancel',
+            },
+            secrets: { secretKey: 'sk_test_x' },
+            active: opts.stripeActive ?? true,
+          }
         : null,
   };
   services.EcommerceEventBus = { collector: bus.collector, subscribe: bus.subscribe };
@@ -254,6 +261,26 @@ beforeEach(() => {
 const actor = 'user:1';
 
 describe('getOrCreatePaymentLink', () => {
+  it('returns to the paths set on the Stripe integration, falling back to the defaults', async () => {
+    const custom = setup({
+      stripeConfig: { paymentSuccessPath: '/obrigado', paymentCancelPath: '/carrinho' },
+    });
+    const a = await createOrder(custom.orders);
+    await custom.stripePayments.getOrCreatePaymentLink(a.id, { purpose: 'CHECKOUT', actor });
+    expect(stripe.createCheckoutSession.mock.calls.at(-1)![0]).toMatchObject({
+      successUrl: `https://shop.example/obrigado?order=${a.publicId}`,
+      cancelUrl: `https://shop.example/carrinho?order=${a.publicId}`,
+    });
+
+    const bare = setup({ stripeConfig: {} });
+    const b = await createOrder(bare.orders);
+    await bare.stripePayments.getOrCreatePaymentLink(b.id, { purpose: 'CHECKOUT', actor });
+    expect(stripe.createCheckoutSession.mock.calls.at(-1)![0]).toMatchObject({
+      successUrl: `https://shop.example/checkout/success?order=${b.publicId}`,
+      cancelUrl: `https://shop.example/checkout/cancel?order=${b.publicId}`,
+    });
+  });
+
   it('creates a Stripe session, a PENDING payment and history', async () => {
     const { orders, stripePayments, tables } = setup();
     const order = await createOrder(orders);
