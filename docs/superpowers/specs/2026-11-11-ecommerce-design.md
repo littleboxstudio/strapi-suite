@@ -360,10 +360,19 @@ Os valores por defeito são FR, a série por defeito do Moloni e nenhum motivo d
 falha com uma mensagem clara se existirem linhas a 0% sem motivo configurado). O contabilista da
 loja escolhe os valores.
 
-### 4.16 Elegibilidade dos métodos manuais **[Escolha técnica]**
-Cada método manual tem uma lista de países permitidos (por defeito, PT). Portes grátis acima de um
-valor fazem-se com Promoções. A loja tem também a definição `shippingCountries`, que valida as
-moradas no checkout.
+### 4.16 Mercados, zonas de envio e métodos **[Escolha técnica]**
+A elegibilidade dos métodos é definida em três níveis:
+- **Mercados:** a definição da loja `markets` lista os países a que a loja vende. Valida as moradas
+  no checkout e nas encomendas do admin.
+- **Zonas de envio:** grupos de países. Cada país está em, no máximo, uma zona, e todos os países
+  de uma zona pertencem aos mercados. Retirar um país dos mercados enquanto uma zona o usa é
+  recusado (`MARKET_IN_USE`).
+- **Preço por zona em cada método:** nos métodos manuais, o preço é definido por zona; uma zona sem
+  preço significa que o método não serve essa zona. Os métodos de transportadora via API (por
+  exemplo, o CTT) escolhem as zonas que servem e o preço vem da cotação da API (a reavaliar quando
+  chegar a documentação da API do CTT).
+
+Portes grátis acima de um valor fazem-se com Promoções.
 
 ## 5. Clientes
 Implementar o capítulo 17 com esta simplificação **[Decisão]**:

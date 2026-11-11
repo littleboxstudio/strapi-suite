@@ -78,6 +78,9 @@ const EcommerceSettingsController = ({ strapi }: { strapi: Core.Strapi }) => {
         if (err?.message === 'INVALID_IMAGE') {
           return ctx.badRequest('Invalid image', { code: 'INVALID_IMAGE' });
         }
+        if (err?.message === 'UPLOAD_FAILED') {
+          return ctx.badRequest('Upload failed', { code: 'UPLOAD_FAILED' });
+        }
         return handleDomainError(ctx, err);
       }
     },

@@ -57,6 +57,19 @@ describe('EcommerceSettingsController — store logo', () => {
     expect(ctx.badRequest).toHaveBeenCalledWith(expect.any(String), { code: 'INVALID_IMAGE' });
     fs.rmSync(dir, { recursive: true, force: true });
   });
+
+  it('maps UPLOAD_FAILED to 400 with details.code', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'logo-'));
+    const filepath = path.join(dir, 'x.png');
+    fs.writeFileSync(filepath, 'x');
+    const c = mocked({
+      EcommerceSettingsService: { uploadStoreLogo: vi.fn().mockRejectedValue(new Error('UPLOAD_FAILED')) },
+    });
+    const ctx = mkCtx({ request: { body: {}, files: { file: { size: 1, filepath } } } });
+    await c.uploadStoreLogo(ctx);
+    expect(ctx.badRequest).toHaveBeenCalledWith(expect.any(String), { code: 'UPLOAD_FAILED' });
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
 });
 
 describe('EcommerceSettingsController — domain errors', () => {

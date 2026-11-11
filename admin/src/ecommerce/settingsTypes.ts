@@ -156,7 +156,8 @@ export type SettingsErrorCode =
   | 'SECRET_UNREADABLE'
   | 'EMAIL_NOT_CONFIGURED'
   | 'EMAIL_SEND_FAILED'
-  | 'INVALID_IMAGE';
+  | 'INVALID_IMAGE'
+  | 'UPLOAD_FAILED';
 
 /** Where Stripe must send its webhooks: `path` is relative to the Strapi origin. */
 export type StripeWebhookInfo = { path: string; events: string[] };
