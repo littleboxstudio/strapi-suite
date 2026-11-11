@@ -1,7 +1,12 @@
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID, LtbConfigs } from '../../../config';
 import { storeCreditUsable, toPublicStoreCreditError } from './domain/storeCredit';
-import { normalizePromotionCode, type AppliedPromotion } from './domain/promotions';
+import {
+  normalizePromotionCode,
+  promotionStatus,
+  type AppliedPromotion,
+  type CodeStatus,
+} from './domain/promotions';
 import {
   codeStatusMessage,
   toPublicOrderStatus,
@@ -245,6 +250,9 @@ const appliedOf = (order: any): AppliedPromotion[] =>
     ? order.promotions.applied.filter(isRecord)
     : [];
 
+/** A validation issue plus, for a refused promotion, its raw reason (never sent as is). */
+export type StorefrontIssue = ValidationIssue & { reason?: CodeStatus };
+
 /** Refusals of a store credit from `create` (path `code`) on the storefront path, masked. */
 const toStorefrontIssues = (errors: ValidationIssue[]): ValidationIssue[] =>
   errors.map((e) =>
@@ -397,6 +405,45 @@ const EcommerceStorefrontCheckoutService = ({ strapi }: { strapi: Core.Strapi })
     return { balance: num(credit.balance), expiresAt: isoOrNull(credit.expiresAt) };
   };
 
+  /**
+   * Why a promotion refused the order: the order service reports only `PROMOTION_UNAVAILABLE`
+   * on `promotions.<id>` (global or per-customer limit, or no longer active). Read after the
+   * rollback, so the counters are those the order met. Internal: `storefrontErrors.ts` turns it
+   * into the public status (only a reached global limit stays a 409).
+   */
+  const refusalReason = async (promotionId: number): Promise<CodeStatus> => {
+    try {
+      const row = await strapi.db.query(uids().promotion).findOne({
+        where: { id: promotionId },
+        select: ['id', 'active', 'startsAt', 'endsAt', 'usageLimit', 'redemptions'],
+      });
+      if (!row) return 'INACTIVE';
+      const status = promotionStatus(
+        {
+          active: row.active === true,
+          startsAt: isoOrNull(row.startsAt) ?? '',
+          endsAt: isoOrNull(row.endsAt),
+        },
+        new Date()
+      );
+      if (status !== 'ACTIVE') return status;
+      if (row.usageLimit !== null && row.usageLimit !== undefined) {
+        if (num(row.redemptions) >= num(row.usageLimit)) return 'USAGE_LIMIT_REACHED';
+      }
+      return 'CUSTOMER_LIMIT_REACHED';
+    } catch {
+      return 'USAGE_LIMIT_REACHED';
+    }
+  };
+
+  const withRefusalReasons = (errors: ValidationIssue[]): Promise<StorefrontIssue[]> =>
+    Promise.all(
+      errors.map(async (e): Promise<StorefrontIssue> => {
+        const m = e.code === 'PROMOTION_UNAVAILABLE' ? /^promotions\.(\d+)$/.exec(e.path) : null;
+        return m ? { ...e, reason: await refusalReason(Number(m[1])) } : e;
+      })
+    );
+
   /** The session must still be ACTIVE and unexpired right before the order is created. */
   const assertSessionLive = async (s: CheckoutSession): Promise<void> => {
     const row = await strapi.db
@@ -452,7 +499,10 @@ const EcommerceStorefrontCheckoutService = ({ strapi }: { strapi: Core.Strapi })
       );
     } catch (err) {
       if (err instanceof EcommerceValidationError) {
-        throw new EcommerceValidationError(err.message, toStorefrontIssues(err.errors));
+        throw new EcommerceValidationError(
+          err.message,
+          await withRefusalReasons(toStorefrontIssues(err.errors))
+        );
       }
       throw err;
     }

@@ -19,6 +19,7 @@ import EcommerceReturnController from './modules/ecommerce/returns';
 import EcommerceInvoiceController from './modules/ecommerce/invoices';
 import EcommercePromotionController from './modules/ecommerce/promotions';
 import EcommerceStripeWebhookController from './modules/ecommerce/stripeWebhook';
+import EcommerceStorefrontController from './modules/ecommerce/storefront';
 
 export default {
   SettingAppController,
@@ -42,4 +43,5 @@ export default {
   EcommerceInvoiceController,
   EcommercePromotionController,
   EcommerceStripeWebhookController,
+  EcommerceStorefrontController,
 };
