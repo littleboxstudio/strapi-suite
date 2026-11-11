@@ -12,7 +12,6 @@ import {
   mapServerFieldErrors,
   resolveDeliveredAt,
   shipmentActions,
-  STUCK_PENDING_SHIPMENT_MS,
   validateShipForm,
   validateTrackingForm,
   type ShipForm,
@@ -57,6 +56,7 @@ const shipment = (overrides: Partial<ShipmentView> = {}): ShipmentView => ({
   cancelledAt: null,
   error: null,
   createdAt: '2026-11-10T10:00:00.000Z',
+  retryable: false,
   events: [],
   ...overrides,
 });
@@ -244,20 +244,19 @@ describe('shipmentActions', () => {
   });
 
   it('uncertain pending: retry only (the server refuses to cancel it)', () => {
-    const s = shipment({ status: 'PENDING', providerId: 'ctt', error: 'UNCERTAIN', deliveryStatus: null });
+    const s = shipment({ status: 'PENDING', providerId: 'ctt', error: 'UNCERTAIN', deliveryStatus: null, retryable: true });
     expect(isUncertainShipment(s)).toBe(true);
     expect(shipmentActions(s, ctx)).toEqual(['RETRY']);
   });
 
-  it('pending without outcome: nothing while recent, retry once stale (process died mid-create)', () => {
-    const now = Date.parse('2026-11-11T10:00:00.000Z');
-    const recent = shipment({ status: 'PENDING', providerId: 'ctt', error: null, createdAt: '2026-11-11T09:59:30.000Z' });
-    const stale = shipment({ status: 'PENDING', providerId: 'ctt', error: null, createdAt: '2026-11-11T09:57:00.000Z' });
-    expect(isStuckPendingShipment(recent, now)).toBe(false);
-    expect(shipmentActions(recent, { ...ctx, now })).toEqual([]);
-    expect(isStuckPendingShipment(stale, now)).toBe(true);
-    expect(shipmentActions(stale, { ...ctx, now })).toEqual(['RETRY']);
-    expect(STUCK_PENDING_SHIPMENT_MS).toBe(120_000);
+  it('pending without outcome: retry follows the server flag, never the browser clock', () => {
+    // Created long ago by the browser clock, but the server says it is not stale yet.
+    const recent = shipment({ status: 'PENDING', providerId: 'ctt', error: null, createdAt: '2000-01-01T00:00:00.000Z', retryable: false });
+    const stale = shipment({ status: 'PENDING', providerId: 'ctt', error: null, createdAt: '2999-01-01T00:00:00.000Z', retryable: true });
+    expect(isStuckPendingShipment(recent)).toBe(false);
+    expect(shipmentActions(recent, ctx)).toEqual([]);
+    expect(isStuckPendingShipment(stale)).toBe(true);
+    expect(shipmentActions(stale, ctx)).toEqual(['RETRY']);
   });
 
   it('failed: cancel only', () => {

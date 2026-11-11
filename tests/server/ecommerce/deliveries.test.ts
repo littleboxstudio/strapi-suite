@@ -172,6 +172,16 @@ describe('confirmDelivery', () => {
     expect(delivered(c)).toHaveLength(0);
   });
 
+  it('a date moments before the shipment (browser clock behind) is clamped to shippedAt', async () => {
+    const { c, ships } = setup();
+    const { id, lineId } = await paidOrder(c, 1);
+    const a = await ships.create(id, manual(lineId, 1, 's1'), 'user:1');
+    const shippedAt = c.tables[UIDS.shipment].find((s) => s.id === a.id).shippedAt as string;
+    const behind = new Date(new Date(shippedAt).getTime() - 2 * 60 * 1000).toISOString();
+    const view = await ships.confirmDelivery(a.id, { deliveredAt: behind, notifyCustomer: false }, 'u');
+    expect(view.deliveredAt).toBe(new Date(shippedAt).toISOString());
+  });
+
   it('refuses a cancelled shipment and an archived order; notify is false on a non-OPEN order', async () => {
     const { c, ships } = setup();
     const { id, lineId } = await paidOrder(c, 2);

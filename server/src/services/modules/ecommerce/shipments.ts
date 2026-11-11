@@ -13,6 +13,7 @@ import {
   orderDeliveryStatus,
   reservedQuantities,
   validateDeliveryDate,
+  normalizeDeliveryDate,
   validateShipmentRequest,
 } from './domain/fulfillment';
 import type {
@@ -79,6 +80,8 @@ export type ShipmentView = {
   cancelledAt: string | null;
   error: string | null;
   createdAt: string | null;
+  /** "Retry" is available (uncertain, or stuck PENDING), by the server clock. */
+  retryable: boolean;
   events: {
     type: string;
     description: string | null;
@@ -273,6 +276,7 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
       populate: { shipment: { select: ['id'] } },
       orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
     });
+    const now = Date.now();
     return rows.map((r) => ({
       id: r.id,
       status: r.status,
@@ -291,6 +295,7 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
       cancelledAt: r.cancelledAt ?? null,
       error: r.error ?? null,
       createdAt: r.createdAt ?? null,
+      retryable: isRetryable(r, now),
       events: eventRows
         .filter((e) => idOf(e.shipment) === r.id)
         .map((e) => ({
@@ -956,7 +961,7 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
         new Date()
       );
       if (issues.length) throw new EcommerceValidationError('Invalid delivery', issues);
-      const deliveredAt = new Date(input.deliveredAt).toISOString();
+      const deliveredAt = normalizeDeliveryDate(input.deliveredAt, row.shippedAt ?? row.createdAt);
       const done = await markDelivered(row, orderId, {
         deliveredAt,
         source: 'MANUAL',

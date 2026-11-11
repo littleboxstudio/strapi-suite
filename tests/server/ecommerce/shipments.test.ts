@@ -337,7 +337,7 @@ describe('EcommerceShipmentService.create (CARRIER)', () => {
       new EcommerceCarrierError('TIMEOUT', 'TIMEOUT', true)
     );
     const s = await ships.create(id, carrier(lineId, 2, 'k'), 'user:1');
-    expect(s).toMatchObject({ status: 'PENDING', error: 'UNCERTAIN' });
+    expect(s).toMatchObject({ status: 'PENDING', error: 'UNCERTAIN', retryable: true });
     expect(shipEvents(c)).toHaveLength(0);
     // The units stay reserved meanwhile.
     expect(await codesOf(ships.create(id, carrier(lineId, 1, 'k2'), 'user:1'))).toContain(
@@ -370,8 +370,11 @@ describe('EcommerceShipmentService.create (CARRIER)', () => {
     row.error = null;
     row.createdAt = new Date(Date.now() - 30_000).toISOString();
     expect(await codesOf(ships.retry(s.id, 'user:1'))).toEqual(['ACTION_NOT_AVAILABLE']);
+    // The view says so with the server clock (the admin never compares against its own).
+    expect((await ships.listForOrder(id))[0].retryable).toBe(false);
 
     row.createdAt = new Date(Date.now() - STUCK_PENDING_SHIPMENT_MS - 1000).toISOString();
+    expect((await ships.listForOrder(id))[0].retryable).toBe(true);
     const retried = await ships.retry(s.id, 'user:1');
     expect(retried).toMatchObject({ id: s.id, status: 'ACTIVE', error: null });
     expect(adapter.createShipment).toHaveBeenLastCalledWith(
@@ -389,6 +392,7 @@ describe('EcommerceShipmentService.create (CARRIER)', () => {
     const { c, ships } = setup();
     const { id, lineId } = await paidOrder(c, 2, 'acme');
     const s = await ships.create(id, carrier(lineId, 2, 'k'), 'user:1');
+    expect(s.retryable).toBe(false);
     expect(await codesOf(ships.retry(s.id, 'user:1'))).toEqual(['ACTION_NOT_AVAILABLE']);
   });
 

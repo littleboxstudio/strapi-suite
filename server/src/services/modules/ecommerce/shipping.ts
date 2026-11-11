@@ -4,7 +4,7 @@ import type { ProviderRuntime } from './providers/registry';
 import { MAX_MONEY_CENTS } from './domain/orders';
 import { EcommerceCarrierError } from './errors';
 import { builtInCarrierAdapters } from './providers/carriers';
-import type { CarrierAdapter } from './providers/carriers/types';
+import type { CarrierAdapter, CarrierCallOptions } from './providers/carriers/types';
 import type { ManualMethod, StoreSettings } from './settings';
 
 export type ShippingQuoteRequest = {
@@ -24,7 +24,11 @@ export type ShippingOption = {
   estimatedDays?: number;
 };
 
-export type CarrierQuoter = (req: ShippingQuoteRequest, runtime: ProviderRuntime) => Promise<ShippingOption[]>;
+export type CarrierQuoter = (
+  req: ShippingQuoteRequest,
+  runtime: ProviderRuntime,
+  opts?: CarrierCallOptions
+) => Promise<ShippingOption[]>;
 
 export const QUOTE_TIMEOUT_MS = 8000;
 
@@ -137,7 +141,12 @@ const EcommerceShippingService = ({ strapi }: { strapi: Core.Strapi }) => {
             if (adapter && !adapter.quote) return { options: [], invalid: false };
             const runtime = await svc.getRuntime(providerId);
             if (!adapter || !runtime || !runtime.active) throw new EcommerceCarrierError('CARRIER_NOT_CONFIGURED');
-            const result = await adapter.quote!(req, { config: runtime.config, secrets: runtime.secrets });
+            // Explicit to the adapter (`timedFetch` assumes 10 s); the race below is the backstop.
+            const result = await adapter.quote!(
+              req,
+              { config: runtime.config, secrets: runtime.secrets },
+              { timeoutMs: QUOTE_TIMEOUT_MS }
+            );
             if (!Array.isArray(result)) throw new EcommerceCarrierError('INVALID_QUOTE');
             const valid = result
               .map((o) => pickOption(o, providerId))

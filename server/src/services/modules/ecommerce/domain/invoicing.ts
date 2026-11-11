@@ -324,7 +324,7 @@ export const invoiceCustomer = (
 // Credit notes
 // ---------------------------------------------------------------------------
 
-const lineKey = (l: InvoiceLine): number | 'SHIPPING' =>
+const lineKey = (l: Pick<InvoiceLine, 'kind' | 'orderLineId'>): number | 'SHIPPING' =>
   l.kind === 'SHIPPING' || l.orderLineId === null ? 'SHIPPING' : l.orderLineId;
 
 /**
@@ -358,6 +358,85 @@ export const overInvoiced = (
     if (over > 0) out.set(key, over);
   }
   return out;
+};
+
+/**
+ * Per payment with an active allocation (`invoiced`): the part of its amount that its invoice does
+ * not keep invoiced once every over-invoiced value is credited — value excluded at issue, value
+ * already credited, and over-invoiced value still to credit. Per line (and shipping), what the
+ * invoices lose (`invoiced − min(invoiced − credited, due)`; everything on a cancelled order) is
+ * shared among the payments that invoiced it in proportion to their value.
+ *
+ * Held refunds are attributed here first (`refundedByPayment`): money a credit note takes off an
+ * invoice is then never also taken off a payment not invoiced yet.
+ */
+export const uninvoicedByPayment = (
+  order: CoverageOrderState & { status: OrderStatus },
+  payments: { id: number; amount: number }[],
+  invoiced: Map<number, InvoicedCoverage>,
+  creditNoteLines: Pick<InvoiceLine, 'orderLineId' | 'kind' | 'total'>[]
+): Map<number, number> => {
+  const { lineDue, shippingDue } = coverageDues(order);
+  const due = new Map<number | 'SHIPPING', number>();
+  if (order.status !== 'CANCELLED') {
+    order.lines.forEach((l, i) => due.set(l.id, lineDue[i]));
+    due.set('SHIPPING', shippingDue);
+  }
+  const credited = new Map<number | 'SHIPPING', number>();
+  for (const l of creditNoteLines) {
+    const key = lineKey(l);
+    credited.set(key, (credited.get(key) ?? 0) + cents(l.total));
+  }
+
+  // key → [paymentId, value][]
+  const byKey = new Map<number | 'SHIPPING', [number, number][]>();
+  const add = (key: number | 'SHIPPING', paymentId: number, value: number) => {
+    if (value <= 0) return;
+    const list = byKey.get(key) ?? [];
+    list.push([paymentId, value]);
+    byKey.set(key, list);
+  };
+  for (const [paymentId, c] of invoiced) {
+    for (const l of c.lines) add(l.orderLineId, paymentId, l.value);
+    add('SHIPPING', paymentId, c.shipping);
+  }
+
+  const kept = new Map<number, number>();
+  for (const [key, list] of byKey) {
+    const total = list.reduce((s, [, v]) => s + v, 0);
+    const final = Math.max(0, Math.min(total - (credited.get(key) ?? 0), due.get(key) ?? 0));
+    const lost = allocateProportionally(
+      total - final,
+      list.map(([, v]) => v)
+    );
+    list.forEach(([paymentId, v], i) =>
+      kept.set(paymentId, (kept.get(paymentId) ?? 0) + v - lost[i])
+    );
+  }
+
+  const out = new Map<number, number>();
+  for (const p of payments) {
+    if (!invoiced.has(p.id)) continue;
+    out.set(p.id, Math.max(0, p.amount - (kept.get(p.id) ?? 0)));
+  }
+  return out;
+};
+
+/**
+ * The most the credit-note suggestions may take off the order's invoices, so that what stays
+ * invoiced plus what is still to invoice never falls below what the order keeps for its current
+ * lines: max(0, invoiced − credited + invoiceable − min(kept, Σ due)), where `kept` is paid minus
+ * held refunds. Every due is 0 on a cancelled order. Line-level over-invoicing whose value a
+ * refund already removed from a payment's invoiceable value is not suggested again.
+ */
+export const creditNoteBudget = (
+  order: CoverageOrderState & { status: OrderStatus },
+  totals: { invoiced: number; credited: number; invoiceable: number; kept: number }
+): number => {
+  const { lineDue, shippingDue } = coverageDues(order);
+  const due = order.status === 'CANCELLED' ? 0 : lineDue.reduce((s, d) => s + d, 0) + shippingDue;
+  const keeps = Math.min(Math.max(0, totals.kept), due);
+  return Math.max(0, totals.invoiced - totals.credited + totals.invoiceable - keeps);
 };
 
 /** Suggested credit per invoice line: min(total − credited, remaining over-invoiced). */

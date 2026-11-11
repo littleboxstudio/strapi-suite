@@ -10,6 +10,7 @@ import { isUniqueViolation } from './dbErrors';
 import { allocateProportionally, type OrderActionKey, type OrderStatus } from './domain/orders';
 import {
   buildInvoiceLines,
+  creditNoteBudget,
   invoiceCustomer,
   overInvoiced,
   suggestCreditNote,
@@ -849,7 +850,9 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
    * Suggestions are carved out of the over-invoiced value (net of credit notes, decremented across
    * invoices so nothing is suggested twice). Returns not yet linked to a credit note come first,
    * with their stored amounts (item values less their share of the discount, up to the return's
-   * refundable value); the rest of the over-invoiced value follows (`suggestCreditNote`).
+   * refundable value); the rest of the over-invoiced value follows (`suggestCreditNote`). The total
+   * is capped by `creditNoteBudget`, computed after held refunds were attributed to payments
+   * (`refundedByPayment`): a credit note never removes value a refund already removed.
    */
   const creditPosition = async (state: OrderState) => {
     const rows = state.invoicing.invoices;
@@ -876,6 +879,19 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
       ]
     );
     const remaining = new Map(over);
+    // Order-level cap: never suggest value a refund already took off a payment not yet invoiced.
+    const sum = (values: Iterable<number>) => [...values].reduce((s, v) => s + v, 0);
+    let budget = creditNoteBudget(
+      { ...state.invoicing.coverageOrder, status: state.order.orderStatus as OrderStatus },
+      {
+        invoiced: sum(rows.filter((r) => r.kind === 'INVOICE').map((r) => num(r.total))),
+        credited: sum(creditNotes.map((r) => num(r.total))),
+        invoiceable: sum(state.invoicing.invoiceable.values()),
+        kept:
+          sum(state.invoicing.completedPayments.map((p) => num(p.amount))) -
+          sum(state.invoicing.refunded.values()),
+      }
+    );
     const suggested = new Map<number, number[]>(
       invoices.map((r) => [r.id, lines.get(r.id)!.map(() => 0)])
     );
@@ -886,10 +902,11 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
       const key = lineKey(line);
       const sug = suggested.get(invoiceId)!;
       const room = line.total - credited.get(invoiceId)![i] - sug[i];
-      const t = Math.max(0, Math.min(want, room, remaining.get(key) ?? 0));
+      const t = Math.max(0, Math.min(want, room, remaining.get(key) ?? 0, budget));
       if (t > 0) {
         sug[i] += t;
         remaining.set(key, (remaining.get(key) ?? 0) - t);
+        budget -= t;
       }
       return t;
     };
@@ -944,9 +961,11 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
       const sug = suggested.get(inv.id)!;
       const already = credited.get(inv.id)!.map((v, i) => v + sug[i]);
       const extra = suggestCreditNote({ lines: lines.get(inv.id)! }, already, remaining);
-      extra.forEach((v, i) => {
+      extra.forEach((want, i) => {
+        const v = Math.min(want, budget);
         if (v <= 0) return;
         sug[i] += v;
+        budget -= v;
         const key = lineKey(lines.get(inv.id)![i]);
         remaining.set(key, (remaining.get(key) ?? 0) - v);
       });

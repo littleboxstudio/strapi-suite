@@ -119,9 +119,17 @@ export const validateDeliveryDate = (deliveredAt: unknown, shippedAt: string, no
   if (Number.isNaN(at)) return [{ path, code: 'invalid_date' }];
   const shipped = new Date(shippedAt).getTime();
   if (Number.isNaN(shipped)) return [{ path: 'shippedAt', code: 'invalid_shipped_at' }];
-  if (at < shipped) return [{ path, code: 'before_shipment' }];
+  // Up to FUTURE_TOLERANCE_MS before the shipment is clock skew (`normalizeDeliveryDate` clamps it).
+  if (at < shipped - FUTURE_TOLERANCE_MS) return [{ path, code: 'before_shipment' }];
   if (at > now.getTime() + FUTURE_TOLERANCE_MS) return [{ path, code: 'in_future' }];
   return [];
+};
+
+/** A delivery date that passed `validateDeliveryDate`, as stored: never before the shipment. */
+export const normalizeDeliveryDate = (deliveredAt: string | Date, shippedAt: string): string => {
+  const at = new Date(deliveredAt).getTime();
+  const shipped = new Date(shippedAt).getTime();
+  return new Date(Number.isNaN(shipped) ? at : Math.max(at, shipped)).toISOString();
 };
 
 // ---------------------------------------------------------------------------

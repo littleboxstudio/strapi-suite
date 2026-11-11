@@ -6,6 +6,7 @@ import {
   previousShipmentsCost,
   orderDeliveryStatus,
   validateDeliveryDate,
+  normalizeDeliveryDate,
   returnableQuantities,
   validateReturnRequest,
   computeReturn,
@@ -111,6 +112,12 @@ describe('validateDeliveryDate', () => {
   });
   it('before_shipment', () => {
     expect(codes(validateDeliveryDate('2026-06-01T10:00:00.000Z', shippedAt, now))).toEqual(['before_shipment']);
+  });
+  it('a date up to 5 minutes before the shipment is accepted (clock skew) and clamped to it', () => {
+    expect(codes(validateDeliveryDate('2026-06-05T09:56:00.000Z', shippedAt, now))).toEqual([]);
+    expect(codes(validateDeliveryDate('2026-06-05T09:54:00.000Z', shippedAt, now))).toEqual(['before_shipment']);
+    expect(normalizeDeliveryDate('2026-06-05T09:56:00.000Z', shippedAt)).toBe(shippedAt);
+    expect(normalizeDeliveryDate('2026-06-08T10:00:00Z', shippedAt)).toBe('2026-06-08T10:00:00.000Z');
   });
   it('in_future with 5 minute tolerance', () => {
     expect(codes(validateDeliveryDate('2026-06-10T12:04:00.000Z', shippedAt, now))).toEqual([]);

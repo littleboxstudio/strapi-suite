@@ -28,13 +28,17 @@ export type CarrierTrackingEvent = {
 };
 
 /**
- * Passed by the services on every shipment call: adapters hand `timeoutMs` to `timedFetch`
- * (which assumes 10 s otherwise). A timed-out write must be thrown as `uncertain`.
+ * Passed by the services on every carrier call, quotes included: adapters hand `timeoutMs` to
+ * `timedFetch` (which assumes 10 s otherwise). A timed-out write must be thrown as `uncertain`.
  */
 export type CarrierCallOptions = { timeoutMs: number };
 
 export type CarrierAdapter = {
-  quote?(req: ShippingQuoteRequest, rt: ProviderRuntime): Promise<ShippingOption[]>;
+  quote?(
+    req: ShippingQuoteRequest,
+    rt: ProviderRuntime,
+    opts?: CarrierCallOptions
+  ): Promise<ShippingOption[]>;
   /** Carriers deduplicate by `ourReference`, so a retry after an uncertain outcome is safe. */
   createShipment?(
     req: CarrierShipmentRequest,

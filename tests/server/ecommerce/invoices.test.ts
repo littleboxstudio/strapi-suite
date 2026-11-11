@@ -965,6 +965,146 @@ describe('EcommerceInvoiceService credit notes', () => {
     expect(preview.suggested.reduce((s: number, v: number) => s + v, 0)).toBe(6500 - 2000);
   });
 
+  describe('a refund and a credit note never both remove the same value', () => {
+    /**
+     * Two lines of 5000 (A, B) + 500 shipping. P1 (5000) paid A and is invoiced; P2 (5500) paid B
+     * and shipping and is not. 3 units of A (3000) are returned and refunded.
+     */
+    const scenario = async (refundPayment: 'none' | 'P2') => {
+      const s = setup();
+      const { c, inv } = s;
+      for (const [id, sku] of [
+        [12, 'A'],
+        [13, 'B'],
+      ] as const) {
+        c.tables[UIDS.variant].push({ id, product: 1, sku, price: 1000, tax: 23, stock: 50, active: true });
+      }
+      const o = await c.orders.create(
+        {
+          customer: { firstName: 'Ana', lastName: 'Silva', email: 'ana@example.pt' },
+          shippingAddress: address,
+          billingAddress: address,
+          locale: 'pt',
+          lines: [
+            { variantId: 12, quantity: 5 },
+            { variantId: 13, quantity: 5 },
+          ],
+          shipping: { providerId: 'manual', serviceId: 'express' },
+        },
+        { actor: 'user:1', source: 'admin' }
+      );
+      const id = o.id as number;
+      const a = lineIdOf(c, id, 12);
+      const b = lineIdOf(c, id, 13);
+      await c.payments.addManualPayment(id, { amount: 5000, idempotencyKey: 'pa' }, 'user:1');
+      await c.payments.addManualPayment(id, { amount: 5500, idempotencyKey: 'pb' }, 'user:1');
+      const [p1, p2] = paymentRows(c, id);
+      p1.completedAt = '2025-01-01T00:00:00.000Z';
+      p2.completedAt = '2025-01-02T00:00:00.000Z';
+      p1.coverage = { lines: [{ orderLineId: a, value: 5000 }], shipping: { value: 0, tax: 23 } };
+      p2.coverage = { lines: [{ orderLineId: b, value: 5000 }], shipping: { value: 500, tax: 23 } };
+
+      const invoiceA = await inv.issue(id, paymentScope(p1.id), { idempotencyKey: 'k1' }, 'user:1');
+      expect(invoiceA.total).toBe(5000);
+      await c.services.EcommerceShipmentService.create(
+        id,
+        {
+          lines: [{ orderLineId: a, quantity: 5 }],
+          method: { mode: 'MANUAL', carrierName: 'CTT' },
+          shippingCost: 0,
+          notifyCustomer: false,
+          idempotencyKey: 's1',
+        },
+        'user:1'
+      );
+      const r = await c.services.EcommerceReturnService.register(
+        id,
+        { lines: [{ orderLineId: a, quantity: 3, restock: true }], reason: 'Damaged', idempotencyKey: 'r1' },
+        'user:1'
+      );
+      expect(r.return.refundableValue).toBe(3000);
+      c.tables[UIDS.refund].push({
+        id: 1,
+        order: id,
+        payment: refundPayment === 'P2' ? p2.id : null,
+        method: refundPayment === 'P2' ? 'STRIPE' : 'MANUAL_TRANSFER',
+        kind: 'MONEY',
+        status: 'COMPLETED',
+        amount: 3000,
+      });
+      return { ...s, id, a, b, p1, p2, invoiceA };
+    };
+
+    for (const variant of ['none', 'P2'] as const) {
+      const label = variant === 'none' ? 'a transfer refund' : 'a Stripe refund on the later payment';
+      it(`${label}: after the suggested credit note, invoiced = kept (7500) and B is fully invoiced`, async () => {
+        const { c, inv, id, b, p1, p2, invoiceA } = await scenario(variant);
+        const state = await c.orders.computeOrderState(id);
+        expect(state.invoicing.refunded.get(p1.id)).toBe(3000);
+        expect(state.invoicing.refunded.get(p2.id)).toBe(0);
+        expect(state.invoicing.invoiceable.get(p2.id)).toBe(5500);
+
+        const preview = await inv.creditNotePreview(invoiceA.id);
+        expect(preview.suggested).toEqual([3000]);
+        await inv.issueCreditNote(
+          invoiceA.id,
+          { lines: [{ index: 0, value: 3000 }], reason: 'Return', idempotencyKey: 'cn1' },
+          'user:1'
+        );
+        const invoiceB = await inv.issue(id, paymentScope(p2.id), { idempotencyKey: 'k2' }, 'user:1');
+        expect(invoiceB.total).toBe(5500);
+        expect(invoiceB.lines).toEqual([
+          expect.objectContaining({ orderLineId: b, total: 5000, partial: false }),
+          expect.objectContaining({ kind: 'SHIPPING', total: 500 }),
+        ]);
+        const live = invoiceRows(c).filter((x) => x.status === 'ISSUED');
+        const net = live.reduce((s, x) => s + (x.kind === 'CREDIT_NOTE' ? -x.total : x.total), 0);
+        expect(net).toBe(10500 - 3000);
+        // Nothing left to credit after that.
+        expect((await inv.creditNotePreview(invoiceA.id)).suggested).toEqual([0]);
+      });
+    }
+
+    it('credit after the refund was already netted from an invoiced payment: no second removal', async () => {
+      const { c, inv, id, b, p2, invoiceA } = await scenario('none');
+      // As issued before this rule: P2 invoiced net of the refund (2500 on B).
+      const invoiceB = await inv.issue(id, paymentScope(p2.id), { idempotencyKey: 'k2' }, 'user:1');
+      const rowB = invoiceRows(c).find((x) => x.id === invoiceB.id);
+      rowB.total = 2500;
+      rowB.lines = {
+        lines: [{ ...rowB.lines.lines[0], orderLineId: b, kind: 'ITEM', total: 2500, quantity: 1, partial: true }],
+      };
+      const alloc = allocations(c).find((x) => x.payment === p2.id || x.payment?.id === p2.id);
+      alloc.amount = 2500;
+      alloc.coverage = { paymentId: p2.id, lines: [{ orderLineId: b, value: 2500 }], shipping: 0, value: 2500, excluded: 0 };
+      // Invoiced 5000 + 2500 = 7500 = kept: a credit note would leave B under-invoiced for good.
+      expect((await inv.creditNotePreview(invoiceA.id)).suggested).toEqual([0]);
+    });
+
+    it('a credit note issued before the refund: the refund still goes to the credited payment', async () => {
+      const { c, inv, id, p1, p2, invoiceA } = await scenario('none');
+      c.tables[UIDS.refund].length = 0;
+      expect((await inv.creditNotePreview(invoiceA.id)).suggested).toEqual([3000]);
+      await inv.issueCreditNote(
+        invoiceA.id,
+        { lines: [{ index: 0, value: 3000 }], reason: 'Return', idempotencyKey: 'cn1' },
+        'user:1'
+      );
+      c.tables[UIDS.refund].push({
+        id: 1,
+        order: id,
+        payment: null,
+        method: 'MANUAL_TRANSFER',
+        kind: 'MONEY',
+        status: 'COMPLETED',
+        amount: 3000,
+      });
+      const state = await c.orders.computeOrderState(id);
+      expect(state.invoicing.refunded.get(p1.id)).toBe(3000);
+      expect(state.invoicing.invoiceable.get(p2.id)).toBe(5500);
+    });
+  });
+
   it('suggestions over two invoices on the same line are not doubled', async () => {
     const { c, inv } = setup();
     const id = await order(c, [2000, 2500]);
