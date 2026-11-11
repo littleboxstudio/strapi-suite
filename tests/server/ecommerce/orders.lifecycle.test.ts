@@ -64,8 +64,23 @@ function setup() {
   const bus = createEventBus(() => undefined);
   // Simulates a concurrent request: the next idempotencyKey lookup on payments misses.
   let missPaymentLookups = 0;
+  // Simulates a concurrent transition that committed first: the next conditional order
+  // update matches no row.
+  let loseOrderUpdates = 0;
   const query = (uid: string) => {
     const q = db.query(uid);
+    if (uid === UIDS.order) {
+      return {
+        ...q,
+        updateMany: async (p: any) => {
+          if (loseOrderUpdates > 0) {
+            loseOrderUpdates--;
+            return { count: 0 };
+          }
+          return q.updateMany(p);
+        },
+      };
+    }
     if (uid !== UIDS.payment) return q;
     return {
       ...q,
@@ -123,6 +138,9 @@ function setup() {
     missNextPaymentLookup: () => {
       missPaymentLookups = 1;
     },
+    loseNextOrderUpdate: () => {
+      loseOrderUpdates = 1;
+    },
   };
 }
 
@@ -165,8 +183,8 @@ const ACTION_NOT_AVAILABLE = [{ path: 'action', code: 'ACTION_NOT_AVAILABLE' }];
 
 beforeEach(() => __resetEventHandlersForTests());
 
-describe('computeCoverage', () => {
-  const line = (id: number, quantity: number, unitPrice = 2000, extra = {}) => ({
+describe('computeCoverage (value-based, design 4.4)', () => {
+  const line = (id: number, quantity: number, unitPrice: number, extra = {}) => ({
     id,
     unitPrice,
     unitDiscount: 0,
@@ -175,73 +193,102 @@ describe('computeCoverage', () => {
     tax: 23,
     ...extra,
   });
+  // The test order: 2 × 2000 + 1 × 2500 + 500 shipping = 7000.
+  const base = (
+    extra: Partial<{ lines: any[]; shippingTotal: number; orderDiscount: number }> = {}
+  ) => ({
+    lines: [line(1, 2, 2000), line(2, 1, 2500)],
+    orderDiscount: 0,
+    shippingTotal: 500,
+    shippingTax: 23,
+    ...extra,
+  });
+  // After a modification: +1 line of 1500 and shipping 500 → 900.
+  const modified = () =>
+    base({ lines: [line(1, 2, 2000), line(2, 1, 2500), line(3, 1, 1500)], shippingTotal: 900 });
+  const sum = (c: any) => c.lines.reduce((s: number, l: any) => s + l.value, 0) + c.shipping.value;
 
-  it('the first payment covers every line and the shipping of the moment', () => {
-    const c = computeCoverage(
-      {
-        lines: [line(1, 2), line(2, 1, 2500, { unitDiscount: 100 })],
-        shippingTotal: 500,
-        shippingTax: 23,
-      },
-      [],
-      6400
-    );
-    expect(c).toEqual({
+  it('pays 3500 then 3500: each payment covers half of every item', () => {
+    const first = computeCoverage(base(), [], 3500);
+    expect(first).toEqual({
       lines: [
-        { orderLineId: 1, quantity: 2, unitPrice: 2000, unitDiscount: 0, tax: 23 },
-        { orderLineId: 2, quantity: 1, unitPrice: 2500, unitDiscount: 100, tax: 23 },
+        { orderLineId: 1, value: 2000, unitPrice: 2000, unitDiscount: 0, tax: 23 },
+        { orderLineId: 2, value: 1250, unitPrice: 2500, unitDiscount: 0, tax: 23 },
       ],
-      shipping: { amount: 500, tax: 23 },
-      amount: 6400,
+      shipping: { value: 250, tax: 23 },
+      amount: 3500,
+      coveredValue: 3500,
     });
+    const second = computeCoverage(base(), [{ coverage: first }], 3500);
+    expect(second).toEqual(first);
+    expect(sum(first)).toBe(3500);
+    expect(sum(second)).toBe(3500);
   });
 
-  it('after a modification (+1 line, +400 shipping) the second payment covers only the delta', () => {
-    const first = computeCoverage(
-      { lines: [line(1, 2)], shippingTotal: 500, shippingTax: 23 },
-      [],
-      4500
-    );
-    const second = computeCoverage(
-      { lines: [line(1, 2), line(2, 1, 1500)], shippingTotal: 900, shippingTax: 23 },
-      [{ coverage: first }],
-      1900
-    );
+  it('pays 7000, modification (+1500 line, +400 shipping), pays 1900: covers only the new items', () => {
+    const first = computeCoverage(base(), [], 7000);
+    expect(first.coveredValue).toBe(7000);
+    const second = computeCoverage(modified(), [{ coverage: first }], 1900);
     expect(second).toEqual({
-      lines: [{ orderLineId: 2, quantity: 1, unitPrice: 1500, unitDiscount: 0, tax: 23 }],
-      shipping: { amount: 400, tax: 23 },
+      lines: [{ orderLineId: 3, value: 1500, unitPrice: 1500, unitDiscount: 0, tax: 23 }],
+      shipping: { value: 400, tax: 23 },
       amount: 1900,
+      coveredValue: 1900,
     });
   });
 
-  it('covers quantity increases, ignores decreases, returns and malformed coverages', () => {
-    const c = computeCoverage(
-      {
-        lines: [line(1, 5), line(2, 1, 1000, { returnedQuantity: 1 }), line(3, 1)],
-        shippingTotal: 300,
-        shippingTax: 23,
-      },
-      [
-        {
-          coverage: {
-            lines: [
-              { orderLineId: 1, quantity: 3, unitPrice: 2000, unitDiscount: 0, tax: 23 },
-              { orderLineId: 3, quantity: 2, unitPrice: 2000, unitDiscount: 0, tax: 23 },
-            ],
-            shipping: { amount: 500, tax: 23 },
-            amount: 10500,
-          },
-        },
-        { coverage: null },
-        { coverage: { garbage: true } },
+  it('pays 3500, modification (+1500, +400), pays 5400: covers the remaining half and the new items', () => {
+    const first = computeCoverage(base(), [], 3500);
+    const second = computeCoverage(modified(), [{ coverage: first }], 5400);
+    expect(second).toEqual({
+      lines: [
+        { orderLineId: 1, value: 2000, unitPrice: 2000, unitDiscount: 0, tax: 23 },
+        { orderLineId: 2, value: 1250, unitPrice: 2500, unitDiscount: 0, tax: 23 },
+        { orderLineId: 3, value: 1500, unitPrice: 1500, unitDiscount: 0, tax: 23 },
       ],
-      4000
-    );
-    expect(c).toEqual({
-      lines: [{ orderLineId: 1, quantity: 2, unitPrice: 2000, unitDiscount: 0, tax: 23 }],
-      shipping: { amount: 0, tax: 23 },
-      amount: 4000,
+      shipping: { value: 650, tax: 23 },
+      amount: 5400,
+      coveredValue: 5400,
     });
+  });
+
+  it('overpaying 8000 on 7000 covers 7000; the excess stays uncovered', () => {
+    const c = computeCoverage(base(), [], 8000);
+    expect(c.coveredValue).toBe(7000);
+    expect(c.amount).toBe(8000);
+    expect(sum(c)).toBe(7000);
+    expect(c.shipping.value).toBe(500);
+  });
+
+  it('spreads the order discount by net value so lines + shipping equal the total exactly', () => {
+    // Discount 1000 over 4000/2500: 615.38 → 615, 384.62 → 385 (largest remainder).
+    const c = computeCoverage(base({ orderDiscount: 1000 }), [], 6000);
+    expect(c.lines.map((l) => l.value)).toEqual([3385, 2115]);
+    expect(c.shipping.value).toBe(500);
+    expect(c.coveredValue).toBe(6000);
+    // A later payment has nothing left to cover.
+    expect(computeCoverage(base({ orderDiscount: 1000 }), [{ coverage: c }], 100)).toMatchObject({
+      lines: [],
+      shipping: { value: 0 },
+      coveredValue: 0,
+    });
+  });
+
+  it('breaks ties by line position, shipping last; ignores returns and malformed coverages', () => {
+    const order = base({
+      lines: [line(1, 1, 100), line(2, 1, 100), line(9, 1, 700, { returnedQuantity: 1 })],
+      shippingTotal: 100,
+    });
+    const junk = [{ coverage: null }, { coverage: { garbage: true } }, {}];
+    expect(computeCoverage(order, junk, 1).lines).toEqual([
+      { orderLineId: 1, value: 1, unitPrice: 100, unitDiscount: 0, tax: 23 },
+    ]);
+    const two = computeCoverage(order, junk, 2);
+    expect(two.lines.map((l) => [l.orderLineId, l.value])).toEqual([
+      [1, 1],
+      [2, 1],
+    ]);
+    expect(two.shipping.value).toBe(0);
   });
 });
 
@@ -284,11 +331,12 @@ describe('EcommercePaymentService.addManualPayment', () => {
     const [l1, l2] = tables[UIDS.orderLine];
     expect(row.coverage).toEqual({
       lines: [
-        { orderLineId: l1.id, quantity: 2, unitPrice: 2000, unitDiscount: 0, tax: 23 },
-        { orderLineId: l2.id, quantity: 1, unitPrice: 2500, unitDiscount: 0, tax: 23 },
+        { orderLineId: l1.id, value: 4000, unitPrice: 2000, unitDiscount: 0, tax: 23 },
+        { orderLineId: l2.id, value: 2500, unitPrice: 2500, unitDiscount: 0, tax: 23 },
       ],
-      shipping: { amount: 500, tax: 23 },
+      shipping: { value: 500, tax: 23 },
       amount: 7000,
+      coveredValue: 7000,
     });
 
     const order = await orders.get(id);
@@ -327,6 +375,36 @@ describe('EcommercePaymentService.addManualPayment', () => {
     expect(order.summary).toMatchObject({ paid: 3000, due: 4000 });
     expect(order.availableActions).toContain('ADD_PAYMENT');
     expect(order.availableActions).not.toContain('SHIP');
+  });
+
+  it('two payments of 3500 on the 7000 order each cover half of every item', async () => {
+    const { orders, payments, tables } = setup();
+    const { id } = await createOrder(orders);
+    await payments.addManualPayment(id, { amount: 3500, idempotencyKey: 'a' }, 'user:1');
+    await payments.addManualPayment(id, { amount: 3500, idempotencyKey: 'b' }, 'user:1');
+    const [a, b] = tables[UIDS.payment].map((p) => p.coverage);
+    expect(a.lines.map((l: any) => l.value)).toEqual([2000, 1250]);
+    expect(a.shipping.value).toBe(250);
+    expect(b).toEqual(a);
+    expect((await orders.get(id)).paymentStatus).toBe('PAID');
+  });
+
+  it('accepts a string orderId (route param) for replays and new payments', async () => {
+    const { orders, payments, tables } = setup();
+    const { id } = await createOrder(orders);
+    const a = await payments.addManualPayment(
+      String(id) as any,
+      { amount: 1000, idempotencyKey: 's' },
+      'user:1'
+    );
+    const b = await payments.addManualPayment(
+      String(id) as any,
+      { amount: 1000, idempotencyKey: 's' },
+      'user:1'
+    );
+    expect(b).toEqual(a);
+    expect(tables[UIDS.payment]).toHaveLength(1);
+    expect(tables[UIDS.payment][0].order).toBe(id);
   });
 
   it('Review Focus 3: the same idempotencyKey twice (double click) keeps a single payment', async () => {
@@ -458,6 +536,40 @@ describe('EcommerceOrderService.cancel', () => {
     expect(tables[UIDS.stockMovement]).toHaveLength(movements);
     expect(tables[UIDS.orderHistory]).toHaveLength(history);
     expect(events).toHaveLength(1);
+  });
+
+  it('a concurrent cancel that committed first makes this one fail with no effects', async () => {
+    const { orders, tables, bus, loseNextOrderUpdate } = setup();
+    const { id } = await createOrder(orders);
+    const events: any[] = [];
+    bus.subscribe('*', async (e) => {
+      events.push(e);
+    });
+    const movements = tables[UIDS.stockMovement].length;
+    const history = tables[UIDS.orderHistory].length;
+    loseNextOrderUpdate();
+    expect(await issues(orders.cancel(id, 'user:1'))).toEqual(ACTION_NOT_AVAILABLE);
+    expect(tables[UIDS.stockMovement]).toHaveLength(movements);
+    expect(tables[UIDS.orderHistory]).toHaveLength(history);
+    expect(stockOf(tables, 10)).toBe(3);
+    expect(events).toHaveLength(0);
+  });
+
+  it('records only the restocks actually applied', async () => {
+    const { orders, tables } = setup();
+    const { id } = await createOrder(orders);
+    // A crashed earlier attempt already wrote variant 11's restock key.
+    tables[UIDS.stockMovement].push({
+      id: 98,
+      variantId: 11,
+      order: null,
+      type: 'MANUAL_ADJUST',
+      quantity: 0,
+      operationKey: `cancel:${id}:11`,
+    });
+    await orders.cancel(id, 'user:1');
+    const entry = tables[UIDS.orderHistory].find((h) => h.type === 'ORDER_CANCELLED');
+    expect(entry.newValue.restocked).toEqual([{ variantId: 10, quantity: 2 }]);
   });
 
   it('cancelled and paid: REFUND is available and excess equals paid', async () => {

@@ -831,13 +831,16 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       const now = new Date().toISOString();
       const reference = state.order.reference;
       const u = uids();
-      await strapi.db.query(u.order).update({
-        where: { id: orderId },
+      // Conditional on OPEN: a concurrent transition that committed first leaves 0 rows here,
+      // and throwing rolls this one back before any history, stock move or event.
+      const { count } = await strapi.db.query(u.order).updateMany({
+        where: { id: orderId, orderStatus: 'OPEN' },
         data:
           to === 'CANCELLED'
             ? { orderStatus: to, cancelledAt: now }
             : { orderStatus: to, archivedAt: now },
       });
+      assertAction(state, action, count > 0);
 
       if (to === 'CANCELLED') {
         // Restock only what the order still holds (net of earlier restocks and returns).
@@ -846,7 +849,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         const restocked: { variantId: number; quantity: number }[] = [];
         for (const [variantId, units] of held) {
           if (units <= 0) continue;
-          await stock().move({
+          const { applied } = await stock().move({
             variantId,
             quantity: units,
             type: 'CANCEL_RESTOCK',
@@ -855,7 +858,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
             reason: `Order #${reference} cancelled`,
             actor,
           });
-          restocked.push({ variantId, quantity: units });
+          if (applied) restocked.push({ variantId, quantity: units });
         }
         await history().record({
           orderId,
@@ -889,11 +892,11 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       await recalculate(orderId, { actor, operationId });
 
       if (to === 'CANCELLED') {
-        const after = await computeOrderState(orderId);
+        // Cancelling does not change what was paid.
         collector.emit({
           type: 'ORDER_CANCELLED',
           orderId,
-          payload: { reference, amountPaid: after.summary.paid },
+          payload: { reference, amountPaid: state.summary.paid },
         });
       } else {
         collector.emit({ type: 'ORDER_ARCHIVED', orderId, payload: { reference } });

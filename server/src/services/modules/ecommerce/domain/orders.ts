@@ -273,21 +273,28 @@ export const availableActions = (input: AvailableActionsInput): OrderActionKey[]
 
 export type CoverageLine = {
   orderLineId: number;
-  quantity: number;
+  /** Cents of this line this payment covers. */
+  value: number;
   unitPrice: number;
   unitDiscount: number;
   tax: number;
 };
 
 export type PaymentCoverage = {
+  /** Lines with a non-zero covered value, in line order. */
   lines: CoverageLine[];
-  shipping: { amount: number; tax: number };
-  /** The amount the payment actually paid (may differ from the covered value). */
+  /** Always present; `value` is 0 when the payment covers no shipping. */
+  shipping: { value: number; tax: number };
+  /** The amount the payment actually paid. */
   amount: number;
+  /** min(amount, outstanding value): the uncovered excess stays uncovered. */
+  coveredValue: number;
 };
 
 export type CoverageOrderState = {
+  /** In display (position) order; the order breaks allocation ties. */
   lines: (LineAmounts & { id: number; tax: number })[];
+  orderDiscount: number;
   shippingTotal: number;
   shippingTax: number;
 };
@@ -298,16 +305,48 @@ const finiteOr0 = (v: unknown): number => {
 };
 
 /**
- * What a new payment covers: the lines (effective quantity) and shipping added since the
- * previous coverages. Only positive deltas count; malformed previous coverages are ignored.
- * The first payment therefore covers every line and the shipping of the moment.
+ * Splits the integer `total` across non-negative integer `weights` proportionally, with the
+ * largest-remainder method; ties go to the lower index. Σ result === total when Σ weights > 0.
+ */
+export const allocateProportionally = (total: number, weights: number[]): number[] => {
+  const sum = weights.reduce((s, w) => s + w, 0);
+  if (sum <= 0 || total <= 0) return weights.map(() => 0);
+  const parts = weights.map((w, index) => ({
+    index,
+    base: Math.floor((total * w) / sum),
+    rest: (total * w) % sum,
+  }));
+  let left = total - parts.reduce((s, p) => s + p.base, 0);
+  const byRest = [...parts].sort((a, b) => b.rest - a.rest || a.index - b.index);
+  for (const p of byRest) {
+    if (left <= 0) break;
+    p.base += 1;
+    left -= 1;
+  }
+  return parts.map((p) => p.base);
+};
+
+/**
+ * What a new payment covers, by value (design 4.4). Each line is worth its net amount minus
+ * its share of the (clamped) order discount, so Σ lines + shipping === order total. The payment
+ * covers min(amount, outstanding) spread over the outstanding items in proportion; shipping is
+ * one item, last in the tie-break. Malformed previous coverages are ignored.
  */
 export const computeCoverage = (
   order: CoverageOrderState,
   previousPayments: { coverage?: unknown }[],
   amount: number
 ): PaymentCoverage => {
-  const coveredQty = new Map<number, number>();
+  const nets = order.lines.map((l) =>
+    Math.max(0, (l.quantity - l.returnedQuantity) * (l.unitPrice - l.unitDiscount))
+  );
+  const subtotal = nets.reduce((s, n) => s + n, 0);
+  const discount = Math.max(0, Math.min(finiteOr0(order.orderDiscount), subtotal));
+  const shares = allocateProportionally(discount, nets);
+  const lineDue = nets.map((n, i) => n - shares[i]);
+  const shippingDue = Math.max(0, finiteOr0(order.shippingTotal));
+
+  const coveredLine = new Map<number, number>();
   let coveredShipping = 0;
   for (const p of previousPayments) {
     const c = p?.coverage as Partial<PaymentCoverage> | null | undefined;
@@ -316,32 +355,36 @@ export const computeCoverage = (
       for (const l of c.lines) {
         const id = Number(l?.orderLineId);
         if (!Number.isFinite(id)) continue;
-        coveredQty.set(id, (coveredQty.get(id) ?? 0) + finiteOr0(l?.quantity));
+        coveredLine.set(id, (coveredLine.get(id) ?? 0) + finiteOr0(l?.value));
       }
     }
-    if (c.shipping && typeof c.shipping === 'object')
-      coveredShipping += finiteOr0(c.shipping.amount);
+    if (c.shipping && typeof c.shipping === 'object') coveredShipping += finiteOr0(c.shipping.value);
   }
 
+  const outstanding = [
+    ...order.lines.map((l, i) => Math.max(0, lineDue[i] - (coveredLine.get(l.id) ?? 0))),
+    Math.max(0, shippingDue - coveredShipping),
+  ];
+  const totalOutstanding = outstanding.reduce((s, o) => s + o, 0);
+  const coveredValue = Math.max(0, Math.min(Math.floor(finiteOr0(amount)), totalOutstanding));
+  const alloc = allocateProportionally(coveredValue, outstanding);
+
   const lines: CoverageLine[] = [];
-  for (const l of order.lines) {
-    const delta = l.quantity - l.returnedQuantity - (coveredQty.get(l.id) ?? 0);
-    if (delta > 0) {
+  order.lines.forEach((l, i) => {
+    if (alloc[i] > 0) {
       lines.push({
         orderLineId: l.id,
-        quantity: delta,
+        value: alloc[i],
         unitPrice: l.unitPrice,
         unitDiscount: l.unitDiscount,
         tax: l.tax,
       });
     }
-  }
+  });
   return {
     lines,
-    shipping: {
-      amount: Math.max(0, order.shippingTotal - coveredShipping),
-      tax: order.shippingTax,
-    },
+    shipping: { value: alloc[order.lines.length], tax: order.shippingTax },
     amount,
+    coveredValue,
   };
 };

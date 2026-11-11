@@ -12,7 +12,10 @@ export type ManualPaymentInput = {
   amount: number;
   reference?: string;
   methodLabel?: string;
-  /** Required: a repeated key returns the stored payment without side effects. */
+  /**
+   * Required. A repeated key returns the stored payment without side effects, even when the
+   * other fields (amount, reference, label) differ: the first request wins.
+   */
   idempotencyKey: string;
 };
 
@@ -70,7 +73,7 @@ const EcommercePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
     if (!row) return null;
     const owner = row.order && typeof row.order === 'object' ? row.order.id : row.order;
     // A key reused on another order is a client bug, never a replay.
-    if (owner !== undefined && owner !== null && owner !== orderId) {
+    if (owner !== undefined && owner !== null && Number(owner) !== Number(orderId)) {
       throw new EcommerceValidationError('Invalid payment', [
         { path: 'idempotencyKey', code: 'IDEMPOTENCY_KEY_CONFLICT' },
       ]);
@@ -79,10 +82,12 @@ const EcommercePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   const addManualPayment = async (
-    orderId: number,
+    rawOrderId: number | string,
     input: ManualPaymentInput,
     actor: string
   ): Promise<PaymentView> => {
+    // Route params arrive as strings.
+    const orderId = Number(rawOrderId);
     const amount = input?.amount;
     const idempotencyKey = clean(input?.idempotencyKey);
     if (!idempotencyKey) {
@@ -122,6 +127,7 @@ const EcommercePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
               returnedQuantity: l.returnedQuantity,
               tax: l.tax,
             })),
+            orderDiscount: num(order.orderDiscount),
             shippingTotal: num(order.shippingTotal),
             shippingTax: num(order.shippingTax),
           },
