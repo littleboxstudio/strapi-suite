@@ -141,7 +141,11 @@ export const promotionFields = (
     if (entries.length > MAX_GIFT_CHOICES) return fail(message, 'giftChoices', 'too_many');
     out.giftChoices = {};
     for (const [key, value] of entries) {
-      if (!Number.isInteger(toInt(key)) || toInt(key) < 1) return fail(message, `giftChoices.${key}`, 'invalid');
+      // Canonical decimal ids only: no leading zeros, no signs, no whitespace.
+      const id = toInt(key);
+      if (!Number.isInteger(id) || id < 1 || String(id) !== key) {
+        return fail(message, `giftChoices.${key}`, 'invalid');
+      }
       out.giftChoices[key] = positiveInt(message, `giftChoices.${key}`, value);
     }
   }

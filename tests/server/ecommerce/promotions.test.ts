@@ -264,12 +264,15 @@ describe('EcommercePromotionService admin', () => {
   it('lists redemptions with the order reference', async () => {
     const id = addPromotion({ method: 'CODE', code: 'VERAO20' });
     addOrder(7, 1007);
+    c.tables[UIDS.customer].push({ id: 3 });
     await svc.reserve([applied(id, 'VERAO20', 450)], { orderId: 7, customerId: 3, email: 'Ana@Example.pt', actor: 'user:1' });
     const page = await svc.listRedemptions(id, {});
     expect(page.results).toEqual([
-      expect.objectContaining({ orderId: 7, orderReference: 1007, email: 'ana@example.pt', amount: 450, status: 'RESERVED', releasedAt: null }),
+      expect.objectContaining({ orderId: 7, orderReference: 1007, customerId: 3, maskedEmail: 'a***@example.pt', amount: 450, status: 'RESERVED', releasedAt: null }),
     ]);
     expect(page.pagination).toMatchObject({ total: 1 });
+    expect(JSON.stringify(page)).not.toContain('ana@example.pt');
+    expect(page.results[0]).not.toHaveProperty('email');
   });
 });
 

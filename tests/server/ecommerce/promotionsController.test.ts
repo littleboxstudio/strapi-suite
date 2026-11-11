@@ -29,13 +29,25 @@ describe('EcommercePromotionController', () => {
     await c.list(ctx);
     expect(list).toHaveBeenCalledWith({ page: 3, search: 'summer' });
     expect(ctx.body).toEqual({ results: [], pagination: {} });
-    const odd = mkCtx({ query: { page: '2abc' } });
-    await c.list(odd);
+    const none = mkCtx();
+    await c.list(none);
     expect(list).toHaveBeenLastCalledWith({ page: 1, search: undefined });
     const long = mkCtx({ query: { search: 'x'.repeat(101) } });
     await c.list(long);
     expect(long.badRequest).toHaveBeenCalledWith('Invalid promotion', expect.objectContaining({ code: 'too_long' }));
     expect(list).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['2abc', '0', '-1', '1.5', '', ' 2', '9'.repeat(16)])('rejects page=%s with 400 Invalid page', async (page) => {
+    const svc = { list: vi.fn(), listRedemptions: vi.fn() };
+    const c = promos(svc);
+    for (const [fn, params] of [[c.list, {}], [c.listRedemptions, { id: '4' }]] as const) {
+      const ctx = mkCtx({ params, query: { page } });
+      await fn(ctx);
+      expect(ctx.badRequest).toHaveBeenCalledWith('Invalid page');
+    }
+    expect(svc.list).not.toHaveBeenCalled();
+    expect(svc.listRedemptions).not.toHaveBeenCalled();
   });
 
   it('create passes the body and the actor and answers 201', async () => {

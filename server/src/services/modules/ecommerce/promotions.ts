@@ -65,7 +65,9 @@ export type PromotionRedemptionView = {
   id: number;
   orderId: number | null;
   orderReference: number | null;
-  email: string | null;
+  customerId: number | null;
+  /** `a***@example.com`: promotions.read holders never get the full address. */
+  maskedEmail: string | null;
   amount: number;
   status: 'RESERVED' | 'RELEASED';
   createdAt: string | null;
@@ -88,6 +90,12 @@ const intOrNull = (v: unknown): number | null =>
   v === null || v === undefined || v === '' ? null : Number.isFinite(Number(v)) ? Number(v) : null;
 const idOf = (v: any): number | null =>
   v === null || v === undefined ? null : Number(typeof v === 'object' ? v.id : v);
+const maskEmail = (v: unknown): string | null => {
+  if (typeof v !== 'string' || !v) return null;
+  const at = v.lastIndexOf('@');
+  if (at < 1) return '***';
+  return `${v[0]}***${v.slice(at)}`;
+};
 const isObj = (v: unknown): v is Record<string, any> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 const iso = (v: unknown): string | null => {
@@ -474,7 +482,7 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
       q.count({ where }),
       q.findMany({
         where,
-        populate: { order: true },
+        populate: { order: true, customer: { select: ['id'] } },
         orderBy: { id: 'desc' },
         offset: (page - 1) * PAGE_SIZE,
         limit: PAGE_SIZE,
@@ -484,7 +492,8 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
       id: r.id,
       orderId: idOf(r.order),
       orderReference: r.order && typeof r.order === 'object' ? (r.order.reference ?? null) : null,
-      email: r.emailNormalized ?? null,
+      customerId: idOf(r.customer),
+      maskedEmail: maskEmail(r.emailNormalized),
       amount: num(r.amount),
       status: r.status ?? 'RESERVED',
       createdAt: iso(r.createdAt),

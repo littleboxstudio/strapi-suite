@@ -212,9 +212,13 @@ describe('EcommerceOrderController promotions', () => {
     ['negative total', { expectedTotal: -1 }, 'expectedTotal', 'invalid_amount'],
     ['fractional total', { expectedTotal: 1.5 }, 'expectedTotal', 'invalid_amount'],
     ['total above the cap', { expectedTotal: 1e9 + 1 }, 'expectedTotal', 'invalid_amount'],
+    ['total as string', { expectedTotal: '10' }, 'expectedTotal', 'invalid_amount'],
     ['gift choices as list', { giftChoices: [1] }, 'giftChoices', 'invalid'],
     ['eleven gift choices', { giftChoices: Object.fromEntries(Array.from({ length: 11 }, (_, i) => [i + 1, 1])) }, 'giftChoices', 'too_many'],
     ['gift key not an id', { giftChoices: { a: 1 } }, 'giftChoices.a', 'invalid'],
+    ['gift key with leading zero', { giftChoices: { '01': 1 } }, 'giftChoices.01', 'invalid'],
+    ['gift key zero', { giftChoices: { '0': 1 } }, 'giftChoices.0', 'invalid'],
+    ['gift key signed', { giftChoices: { '-1': 1 } }, 'giftChoices.-1', 'invalid'],
     ['gift value zero', { giftChoices: { '1': 0 } }, 'giftChoices.1', 'invalid'],
   ])('create and quote reject %s with 400 before the service', async (_n, extra, path, code) => {
     const create = vi.fn();
