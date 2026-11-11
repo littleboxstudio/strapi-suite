@@ -227,10 +227,123 @@ const EcommercePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   /**
-   * Pays the order with a store credit: `min(due, balance)` as a COMPLETED `STORE_CREDIT`
-   * payment (value coverage) and the matching conditional consumption, in one transaction. The
-   * credit must belong to the order's snapshot e-mail; any refusal leaves the balance and the
-   * payments untouched.
+   * Pays the order with a store credit inside the CALLER's transaction (it joins the ambient
+   * one, under the order lock): `min(due, balance)` as a COMPLETED `STORE_CREDIT` payment
+   * (value coverage), the matching conditional consumption, history, `recalculate` and a
+   * `PAYMENT_COMPLETED` event emitted into `collector` (never flushed here: the caller flushes
+   * after its commit). The credit must belong to the order's snapshot e-mail; any refusal
+   * throws, and the caller's rollback leaves the balance and the payments untouched.
+   */
+  const applyStoreCredit = async (p: {
+    orderId: number;
+    code: string;
+    idempotencyKey: string;
+    actor: string;
+    operationId: string;
+    collector: { emit(e: any): void };
+  }): Promise<PaymentView> => {
+    const { orderId, idempotencyKey, actor, operationId, collector } = p;
+    const code = normalizeStoreCreditCode(p.code);
+    const storeCredits: { consume(i: ConsumeStoreCreditInput): Promise<unknown> } =
+      service('EcommerceStoreCreditService');
+    const refuse = (c: string) =>
+      new EcommerceValidationError('Invalid payment', [{ path: 'code', code: c }]);
+
+    const created = await strapi.db.transaction(async () => {
+      await orders().lockOrder(orderId);
+      const state = await orders().computeOrderState(orderId);
+      orders().assertAction(state, 'ADD_PAYMENT');
+      const { order } = state;
+      const email = String(order.customerSnapshot?.email ?? '');
+
+      const credit = code
+        ? await strapi.db.query(uids().storeCredit).findOne({ where: { code } })
+        : null;
+      if (!credit) throw refuse('STORE_CREDIT_NOT_FOUND');
+      const usable = storeCreditUsable(
+        {
+          status: credit.status,
+          balance: Number(credit.balance) || 0,
+          expiresAt: credit.expiresAt ?? null,
+          emailNormalized: credit.emailNormalized ?? '',
+        },
+        email,
+        new Date()
+      );
+      if ('code' in usable) throw refuse(usable.code);
+      const amount = Math.min(state.summary.due, Number(credit.balance) || 0);
+
+      const payment = await strapi.db.query(uids().payment).create({
+        data: {
+          order: orderId,
+          method: 'STORE_CREDIT',
+          status: 'COMPLETED',
+          amount,
+          currency: 'EUR',
+          reference: credit.code,
+          externalId: null,
+          idempotencyKey,
+          coverage: coverageFor(state, amount),
+          completedAt: new Date().toISOString(),
+          actor,
+          metadata: { storeCreditId: credit.id, code: credit.code },
+        },
+      });
+      // Strict conditional decrement: a concurrent consumption makes this throw and roll back.
+      await storeCredits.consume({
+        code: credit.code,
+        email,
+        amount,
+        orderId,
+        paymentId: payment.id,
+        operationKey: `consume:${payment.id}`,
+        actor,
+      });
+
+      const value = {
+        paymentId: payment.id,
+        method: 'STORE_CREDIT',
+        amount,
+        storeCreditId: credit.id,
+        code: maskStoreCreditCode(credit.code),
+      };
+      await history().record({
+        orderId,
+        type: 'PAYMENT_CREATED',
+        description: `Store credit payment of ${amount} cents registered`,
+        previousValue: null,
+        newValue: value,
+        actor,
+        operationId,
+      });
+      await history().record({
+        orderId,
+        type: 'PAYMENT_COMPLETED',
+        description: `Store credit payment of ${amount} cents completed`,
+        previousValue: null,
+        newValue: value,
+        actor,
+        operationId,
+      });
+      await orders().recalculate(orderId, { actor, operationId });
+      collector.emit({
+        type: 'PAYMENT_COMPLETED',
+        orderId,
+        payload: {
+          paymentId: payment.id,
+          amount,
+          method: 'STORE_CREDIT',
+          reference: order.reference,
+        },
+      });
+      return payment;
+    });
+    return toPaymentView(created);
+  };
+
+  /**
+   * Pays the order with a store credit in its own transaction (see `applyStoreCredit`); events
+   * are delivered after the commit. A repeated key returns the stored payment.
    */
   const addStoreCreditPayment = async (
     rawOrderId: number | string,
@@ -250,103 +363,15 @@ const EcommercePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
     if (!code) {
       throw new EcommerceValidationError('Invalid payment', [{ path: 'code', code: 'required' }]);
     }
-    const storeCredits: { consume(i: ConsumeStoreCreditInput): Promise<unknown> } =
-      service('EcommerceStoreCreditService');
-    const refuse = (c: string) =>
-      new EcommerceValidationError('Invalid payment', [{ path: 'code', code: c }]);
 
     const collector = events().collector();
     const operationId = randomUUID();
     try {
-      const created = await strapi.db.transaction(async () => {
-        await orders().lockOrder(orderId);
-        const state = await orders().computeOrderState(orderId);
-        orders().assertAction(state, 'ADD_PAYMENT');
-        const { order } = state;
-        const email = String(order.customerSnapshot?.email ?? '');
-
-        const credit = await strapi.db.query(uids().storeCredit).findOne({ where: { code } });
-        if (!credit) throw refuse('STORE_CREDIT_NOT_FOUND');
-        const usable = storeCreditUsable(
-          {
-            status: credit.status,
-            balance: Number(credit.balance) || 0,
-            expiresAt: credit.expiresAt ?? null,
-            emailNormalized: credit.emailNormalized ?? '',
-          },
-          email,
-          new Date()
-        );
-        if ('code' in usable) throw refuse(usable.code);
-        const amount = Math.min(state.summary.due, Number(credit.balance) || 0);
-
-        const payment = await strapi.db.query(uids().payment).create({
-          data: {
-            order: orderId,
-            method: 'STORE_CREDIT',
-            status: 'COMPLETED',
-            amount,
-            currency: 'EUR',
-            reference: credit.code,
-            externalId: null,
-            idempotencyKey,
-            coverage: coverageFor(state, amount),
-            completedAt: new Date().toISOString(),
-            actor,
-            metadata: { storeCreditId: credit.id, code: credit.code },
-          },
-        });
-        // Strict conditional decrement: a concurrent consumption makes this throw and roll back.
-        await storeCredits.consume({
-          code: credit.code,
-          email,
-          amount,
-          orderId,
-          paymentId: payment.id,
-          operationKey: `consume:${payment.id}`,
-          actor,
-        });
-
-        const value = {
-          paymentId: payment.id,
-          method: 'STORE_CREDIT',
-          amount,
-          storeCreditId: credit.id,
-          code: maskStoreCreditCode(credit.code),
-        };
-        await history().record({
-          orderId,
-          type: 'PAYMENT_CREATED',
-          description: `Store credit payment of ${amount} cents registered`,
-          previousValue: null,
-          newValue: value,
-          actor,
-          operationId,
-        });
-        await history().record({
-          orderId,
-          type: 'PAYMENT_COMPLETED',
-          description: `Store credit payment of ${amount} cents completed`,
-          previousValue: null,
-          newValue: value,
-          actor,
-          operationId,
-        });
-        await orders().recalculate(orderId, { actor, operationId });
-        collector.emit({
-          type: 'PAYMENT_COMPLETED',
-          orderId,
-          payload: {
-            paymentId: payment.id,
-            amount,
-            method: 'STORE_CREDIT',
-            reference: order.reference,
-          },
-        });
-        return payment;
-      });
+      const view = await strapi.db.transaction(() =>
+        applyStoreCredit({ orderId, code, idempotencyKey, actor, operationId, collector })
+      );
       await collector.flush();
-      return toPaymentView(created);
+      return view;
     } catch (err) {
       if (isUniqueViolation(err)) {
         const winner = await findByKey(orderId, idempotencyKey);
@@ -446,7 +471,7 @@ const EcommercePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
     return link ? { url: link.url, expiresAt: link.expiresAt } : {};
   };
 
-  return { addManualPayment, addStoreCreditPayment, sendPaymentInstructions };
+  return { addManualPayment, applyStoreCredit, addStoreCreditPayment, sendPaymentInstructions };
 };
 
 export default EcommercePaymentService;
