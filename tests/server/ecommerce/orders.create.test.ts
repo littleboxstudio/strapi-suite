@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import EcommerceOrderService from '../../../server/src/services/modules/ecommerce/orders';
 import EcommerceShipmentService from '../../../server/src/services/modules/ecommerce/shipments';
 import EcommerceReturnService from '../../../server/src/services/modules/ecommerce/returns';
+import EcommerceInvoiceService from '../../../server/src/services/modules/ecommerce/invoices';
 import EcommerceOrderHistoryService from '../../../server/src/services/modules/ecommerce/orderHistory';
 import EcommerceStockService from '../../../server/src/services/modules/ecommerce/stock';
 import EcommerceCustomerService from '../../../server/src/services/modules/ecommerce/customers';
@@ -30,6 +31,8 @@ const UIDS = {
   shipment: `${P}shipment`,
   shipmentEvent: `${P}shipment-event`,
   orderReturn: `${P}order-return`,
+  invoice: `${P}invoice`,
+  invoiceAllocation: `${P}invoice-allocation`,
 };
 
 const RELATIONS: FakeRelations = {
@@ -51,6 +54,15 @@ const RELATIONS: FakeRelations = {
   },
   [UIDS.shipment]: { order: [UIDS.order, 'order', 'manyToOne'] },
   [UIDS.orderReturn]: { order: [UIDS.order, 'order', 'manyToOne'] },
+  [UIDS.invoice]: {
+    order: [UIDS.order, 'order', 'manyToOne'],
+    creditedInvoice: [UIDS.invoice, 'creditedInvoice', 'manyToOne'],
+  },
+  [UIDS.invoiceAllocation]: {
+    invoice: [UIDS.invoice, 'invoice', 'manyToOne'],
+    payment: [UIDS.payment, 'payment', 'manyToOne'],
+    order: [UIDS.order, 'order', 'manyToOne'],
+  },
   [UIDS.shipmentEvent]: {
     shipment: [UIDS.shipment, 'shipment', 'manyToOne'],
     order: [UIDS.order, 'order', 'manyToOne'],
@@ -93,6 +105,7 @@ function setup(opts: { shippingPrice?: number | null } = {}) {
   services.EcommerceOrderHistoryService = EcommerceOrderHistoryService({ strapi });
   services.EcommerceShippingService = shipping;
   services.EcommerceSettingsService = {
+    getActiveProviders: async () => [],
     getStoreSettings: async () => ({ shippingCountries: settings.countries }),
   };
   services.EcommerceEventBus = { collector: bus.collector, subscribe: bus.subscribe };
@@ -100,6 +113,7 @@ function setup(opts: { shippingPrice?: number | null } = {}) {
   services.EcommerceOrderService = service;
   services.EcommerceShipmentService = EcommerceShipmentService({ strapi });
   services.EcommerceReturnService = EcommerceReturnService({ strapi });
+  services.EcommerceInvoiceService = EcommerceInvoiceService({ strapi });
 
   const t = db.tables;
   t[UIDS.product].push({ id: 1, active: true }, { id: 2, active: false });
@@ -597,7 +611,8 @@ describe('EcommerceOrderService.list / get', () => {
       newValue: { paymentStatus: 'PAID' },
       actor: 'user:2',
     });
-    expect(view.availableActions).toEqual(['SHIP', 'MODIFY', 'CANCEL']);
+    // The settled payment is not invoiced yet.
+    expect(view.availableActions).toEqual(['SHIP', 'MODIFY', 'CANCEL', 'INVOICE_TOTAL']);
     // No change → no new entry.
     await service.recalculate(id);
     expect(tables[UIDS.orderHistory]).toHaveLength(2);

@@ -36,6 +36,14 @@ import {
 } from './domain/orderModification';
 import { refundableAmount } from './domain/refunds';
 import {
+  invoiceableByPayment,
+  reconcileCoverages,
+  toInvoicedCoverage,
+  type InvoiceOrderState,
+  type InvoicedCoverage,
+  type ReconciledCoverage,
+} from './domain/invoicing';
+import {
   orderDeliveryStatus,
   previousShipmentsCost,
   remainingShippingCost,
@@ -45,6 +53,7 @@ import {
 } from './domain/fulfillment';
 import { shipmentItemsOf, type ShipmentView } from './shipments';
 import type { ReturnView } from './returns';
+import type { InvoiceView } from './invoices';
 import type { ShippingOption, ShippingQuoteRequest } from './shipping';
 import type { StockMoveInput } from './stock';
 import type { OrderHistoryEntry } from './orderHistory';
@@ -137,10 +146,12 @@ export type OrderView = {
     total: number;
   };
   lines: OrderLineView[];
+  /** Each payment carries `invoice: { invoiceable, invoiceId, status }` (its active invoice). */
   payments: Record<string, unknown>[];
   refunds: OrderRefundView[];
   notificationsSummary: { sent: number; failed: number; skipped: number };
-  invoices: unknown[];
+  invoices: InvoiceView[];
+  billing: { active: boolean; providerId: string | null };
   shipments: ShipmentView[];
   returns: ReturnView[];
   shipping: { remainingCost: number; deliveryStatus: OrderDeliveryStatus };
@@ -167,9 +178,62 @@ export type OrderState = {
   hasPendingRefunds: boolean;
   summary: FinancialSummary;
   actions: OrderActionKey[];
+  invoicing: OrderInvoicing;
+};
+
+/** The order's invoicing position (design 4.4), part of `OrderState`. */
+export type OrderInvoicing = {
+  /** The current lines as invoice reconciliation reads them. */
+  coverageOrder: InvoiceOrderState;
+  /** COMPLETED payments in settlement order (`completedAt`, then id). */
+  completedPayments: any[];
+  /** Per payment: refunds COMPLETED/PROCESSING/PENDING (see `refundedByPayment`). */
+  refunded: Map<number, number>;
+  /** Active allocations (`uniqueKey` not null), sorted by id. */
+  allocations: { id: number; invoiceId: number | null; paymentId: number; amount: number; coverage: unknown }[];
+  /** Invoice and credit-note rows ISSUED, PENDING or UNCERTAIN, sorted by id. */
+  invoices: any[];
+  reconciled: Map<number, ReconciledCoverage>;
+  /** Per COMPLETED payment: value left to invoice (0 on orders that are not OPEN). */
+  invoiceable: Map<number, number>;
 };
 
 const IN_FLIGHT_REFUND = ['PENDING', 'PROCESSING'];
+/** Refunds that hold (or will hold) the money back: never invoiced. */
+const HELD_REFUND = ['PENDING', 'PROCESSING', 'COMPLETED'];
+const ACTIVE_INVOICE = ['ISSUED', 'PENDING', 'UNCERTAIN'];
+
+const idOf = (v: any): number | null =>
+  v && typeof v === 'object' ? (v.id ?? null) : v == null ? null : Number(v);
+
+/**
+ * Σ refunds COMPLETED/PROCESSING/PENDING per COMPLETED payment (any method, store credit
+ * included). A refund without a payment (a manual transfer or a new store credit) is attributed to
+ * the latest payments first, up to what each has left, so refunded money is never invoiced.
+ */
+export const refundedByPayment = (
+  completed: { id: number; amount: number }[],
+  refunds: { status: string; amount: number; paymentId: number | null }[]
+): Map<number, number> => {
+  const out = new Map<number, number>(completed.map((p) => [p.id, 0]));
+  let unlinked = 0;
+  for (const r of refunds) {
+    if (!HELD_REFUND.includes(r.status)) continue;
+    if (r.paymentId !== null && out.has(r.paymentId)) {
+      out.set(r.paymentId, out.get(r.paymentId)! + r.amount);
+    } else if (r.paymentId === null) {
+      unlinked += r.amount;
+    }
+  }
+  for (const p of [...completed].reverse()) {
+    if (unlinked <= 0) break;
+    const room = Math.max(0, p.amount - out.get(p.id)!);
+    const take = Math.min(room, unlinked);
+    out.set(p.id, out.get(p.id)! + take);
+    unlinked -= take;
+  }
+  return out;
+};
 
 /** A stored shipment as the order rules need it. */
 export type LoadedShipment = ShipmentLike & {
@@ -826,6 +890,103 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   /**
+   * The invoicing position: active allocations, live invoices and, per COMPLETED payment, its
+   * reconciled coverage and what is left to invoice (design 4.4). Every payment with an active
+   * allocation takes part in the reconciliation; amounts are net of held refunds.
+   */
+  const loadInvoicing = async (
+    order: any,
+    lines: OrderLineView[],
+    payments: any[],
+    refunds: any[]
+  ): Promise<OrderInvoicing> => {
+    const u = uids();
+    const [allocationRows, invoices] = await Promise.all([
+      strapi.db.query(u.invoiceAllocation).findMany({
+        where: { order: { id: order.id }, uniqueKey: { $null: false } },
+        populate: { invoice: { select: ['id'] }, payment: { select: ['id'] } },
+        orderBy: { id: 'asc' },
+      }) as Promise<any[]>,
+      strapi.db.query(u.invoice).findMany({
+        where: { order: { id: order.id }, status: { $in: ACTIVE_INVOICE } },
+        populate: { creditedInvoice: { select: ['id'] } },
+        orderBy: { id: 'asc' },
+      }) as Promise<any[]>,
+    ]);
+    const allocations = allocationRows
+      .map((a) => ({
+        id: a.id as number,
+        invoiceId: idOf(a.invoice),
+        paymentId: idOf(a.payment) as number,
+        amount: num(a.amount),
+        coverage: a.coverage,
+      }))
+      .filter((a) => a.paymentId !== null);
+    const coverageOrder: InvoiceOrderState = {
+      lines: lines.map((l) => ({
+        id: l.id,
+        unitPrice: l.unitPrice,
+        unitDiscount: l.unitDiscount,
+        quantity: l.quantity,
+        returnedQuantity: l.returnedQuantity,
+        tax: l.tax,
+        sku: l.sku,
+        name: l.name,
+        option: l.option,
+      })),
+      orderDiscount: num(order.orderDiscount),
+      shippingTotal: num(order.shippingTotal),
+      shippingTax: num(order.shippingTax),
+    };
+    const time = (v: unknown) => {
+      const t = v ? new Date(v as string).getTime() : NaN;
+      return Number.isFinite(t) ? t : Number.MAX_SAFE_INTEGER;
+    };
+    const completedPayments = payments
+      .filter((p) => p.status === 'COMPLETED')
+      .sort((a, b) => time(a.completedAt) - time(b.completedAt) || a.id - b.id);
+    const refunded = refundedByPayment(
+      completedPayments.map((p) => ({ id: p.id, amount: num(p.amount) })),
+      refunds.map((r) => ({ status: r.status, amount: num(r.amount), paymentId: idOf(r.payment) }))
+    );
+    const invoiced = new Map<number, InvoicedCoverage>(
+      allocations.map((a) => [a.paymentId, toInvoicedCoverage(a.coverage)])
+    );
+
+    let reconciled = new Map<number, ReconciledCoverage>();
+    let invoiceable = new Map<number, number>();
+    try {
+      reconciled = reconcileCoverages(
+        coverageOrder,
+        completedPayments.map((p) => ({
+          id: p.id,
+          amount: Math.max(0, Math.round(num(p.amount))),
+          refunded: Math.max(0, Math.round(refunded.get(p.id) ?? 0)),
+          coverage: p.coverage,
+        })),
+        invoiced
+      );
+      invoiceable = invoiceableByPayment(reconciled, new Set(invoiced.keys()));
+    } catch (err) {
+      // Never block the order over its invoicing position: nothing is invoiceable meanwhile.
+      const name = err instanceof Error ? err.name : typeof err;
+      strapi.log?.warn?.(`[ecommerce] invoice reconciliation failed for order ${order.id}: ${name}`);
+    }
+    if (order.orderStatus !== 'OPEN') {
+      invoiceable = new Map([...invoiceable.keys()].map((id) => [id, 0]));
+    }
+    return {
+      coverageOrder,
+      completedPayments,
+      refunded,
+      allocations,
+      invoices,
+      reconciled,
+      invoiceable,
+    };
+  };
+
+  /**
    * Internal: the order with its lines, payments, financial summary and available actions.
    * The single source of truth for `get()` and for every action precondition.
    * Joins the caller's transaction when there is one.
@@ -846,6 +1007,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     const inFlight = refunds.filter((r) => IN_FLIGHT_REFUND.includes(r.status));
     const inFlightRefunds = inFlight.reduce((s, r) => s + num(r.amount), 0);
     const hasPendingRefunds = inFlight.length > 0;
+    const invoicing = await loadInvoicing(order, lines, payments, refunds);
     const actions = availableActions({
       orderStatus: order.orderStatus,
       paymentStatus: order.paymentStatus,
@@ -858,8 +1020,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         .every((s) => s.delivered),
       hasPendingPayments: payments.some((p) => p.status === 'PENDING'),
       hasPendingRefunds,
-      // Invoicing arrives in plan 4.
-      hasUninvoicedCompletedPayments: false,
+      hasUninvoicedCompletedPayments: [...invoicing.invoiceable.values()].some((v) => v > 0),
     }).filter(
       (a) =>
         // In-flight refunds already claim part of the excess.
@@ -878,6 +1039,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       hasPendingRefunds,
       summary,
       actions,
+      invoicing,
     };
   };
 
@@ -891,12 +1053,22 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       shipmentRows,
       summary,
       actions,
+      invoicing,
     } = await computeOrderState(id);
     const shipmentViews: ShipmentView[] = await service('EcommerceShipmentService').listForOrder(
       id,
       shipmentRows
     );
     const returns: ReturnView[] = await service('EcommerceReturnService').listForOrder(id);
+    const invoiceService = service('EcommerceInvoiceService');
+    const [invoices, billing]: [InvoiceView[], OrderView['billing']] = await Promise.all([
+      invoiceService.listForOrder(id),
+      invoiceService.billingStatus(),
+    ]);
+    const statusOfInvoice = new Map(invoices.map((v) => [v.id, v.status]));
+    const activeInvoiceOf = new Map(
+      invoicing.allocations.map((a) => [a.paymentId, a.invoiceId] as const)
+    );
     const countNotifications = (status: string) =>
       strapi.db.query(uids().notification).count({ where: { order: { id }, status } });
     const [sent, failed, skipped] = await Promise.all([
@@ -949,6 +1121,11 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         completedAt: p.completedAt ?? null,
         actor: p.actor ?? null,
         createdAt: p.createdAt,
+        invoice: {
+          invoiceable: invoicing.invoiceable.get(p.id) ?? 0,
+          invoiceId: activeInvoiceOf.get(p.id) ?? null,
+          status: statusOfInvoice.get(activeInvoiceOf.get(p.id) ?? -1) ?? null,
+        },
       })),
       refunds: [...refundRows]
         .sort((a, b) => b.id - a.id)
@@ -965,7 +1142,8 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
           completedAt: r.completedAt ?? null,
         })),
       notificationsSummary: { sent, failed, skipped },
-      invoices: [],
+      invoices,
+      billing,
       shipments: shipmentViews,
       returns,
       shipping: {
