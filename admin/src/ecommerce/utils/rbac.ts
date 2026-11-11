@@ -12,3 +12,8 @@ export function rbacKey(action: string): string {
   const last = action.split('.').slice(-1)[0] ?? '';
   return `can${capitalise(last.split('-').map(capitalise).join(''))}`;
 }
+
+export const CUSTOMERS_READ_ACTION = 'plugin::littlebox-strapi-suite.ecommerce.customers.read';
+export const CUSTOMERS_MANAGE_ACTION = 'plugin::littlebox-strapi-suite.ecommerce.customers.manage';
+export const ORDERS_READ_ACTION = 'plugin::littlebox-strapi-suite.ecommerce.orders.read';
+export const ORDERS_MANAGE_ACTION = 'plugin::littlebox-strapi-suite.ecommerce.orders.manage';
