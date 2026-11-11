@@ -246,6 +246,12 @@ export type ShippingOption = {
   estimatedDays?: number;
 };
 
+/** `failures` lists the carriers whose quote failed; their options are missing. */
+export type ShippingQuote = {
+  options: ShippingOption[];
+  failures: { providerId: string; code: string }[];
+};
+
 export type VariantSearchResult = {
   variantId: number;
   productId: number;
