@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import checkStorefrontToken from '../../../server/src/policies/check-storefront-token';
+import checkStorefrontToken, { touchLastUsedAt } from '../../../server/src/policies/check-storefront-token';
 import policies from '../../../server/src/policies';
 
-type Token = { id: number | string; kind?: string | null; type?: string; expiresAt?: unknown };
+type Token = { id: number | string; kind?: string | null; type?: string; expiresAt?: unknown; lastUsedAt?: unknown };
 
 /** Strapi stub: `strapi.service('admin::api-token')` and the store settings. */
 const setup = (opts: { tokens?: Record<string, Token>; chosen?: number | null } = {}) => {
@@ -116,5 +116,57 @@ describe('check-storefront-token policy', () => {
   it('no storefrontApiTokenId in the settings → false', async () => {
     const { run } = setup({ chosen: null, tokens: { abc: { id: 7, kind: 'content-api' } } });
     expect(await run('Bearer abc')).toBe(false);
+  });
+});
+
+describe('check-storefront-token policy — lastUsedAt', () => {
+  const withDb = (tokens: Record<string, Token>, update = vi.fn(async () => ({}))) => {
+    const ctx = setup({ tokens });
+    ctx.strapi.db = { query: vi.fn(() => ({ update })) };
+    ctx.strapi.log = { warn: vi.fn() };
+    return { ...ctx, update };
+  };
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  it('stamps lastUsedAt of an accepted token that was never used', async () => {
+    const { run, update, strapi } = withDb({ abc: { id: 7, kind: 'content-api', lastUsedAt: null } });
+    expect(await run('Bearer abc')).toBe(true);
+    await flush();
+    expect(strapi.db.query).toHaveBeenCalledWith('admin::api-token');
+    expect(update).toHaveBeenCalledWith({ where: { id: 7 }, data: { lastUsedAt: expect.any(Date) } });
+  });
+
+  it('stamps it again only after an hour (string or Date)', async () => {
+    const recent = new Date(Date.now() - 30 * 60_000);
+    const old = new Date(Date.now() - 61 * 60_000);
+    const a = withDb({ abc: { id: 7, kind: 'content-api', lastUsedAt: recent.toISOString() } });
+    await a.run('Bearer abc');
+    await flush();
+    expect(a.update).not.toHaveBeenCalled();
+    const b = withDb({ abc: { id: 7, kind: 'content-api', lastUsedAt: old } });
+    await b.run('Bearer abc');
+    await flush();
+    expect(b.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('never stamps a refused token', async () => {
+    const { run, update } = withDb({ other: { id: 8, kind: 'content-api', lastUsedAt: null } });
+    expect(await run('Bearer other')).toBe(false);
+    await flush();
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('a failing update never fails the request', async () => {
+    const update = vi.fn(async () => {
+      throw new Error('db down');
+    });
+    const { run, strapi } = withDb({ abc: { id: 7, kind: 'content-api', lastUsedAt: null } }, update);
+    expect(await run('Bearer abc')).toBe(true);
+    await flush();
+    expect(strapi.log.warn).toHaveBeenCalled();
+  });
+
+  it('touchLastUsedAt resolves even without a database', async () => {
+    await expect(touchLastUsedAt({} as any, { id: 7, lastUsedAt: null })).resolves.toBeUndefined();
   });
 });

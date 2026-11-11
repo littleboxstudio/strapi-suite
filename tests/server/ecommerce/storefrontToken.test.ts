@@ -187,7 +187,7 @@ describe('EcommerceSettingsService — regenerateStorefrontToken', () => {
     const { service, apiTokens, tables } = setup();
     storeTokenId(tables, 42);
     const res = await service.regenerateStorefrontToken();
-    expect(apiTokens.service.revoke).toHaveBeenCalledWith(42);
+    expect(apiTokens.service.revoke).not.toHaveBeenCalled();
     expect(res.previousTokenDeleted).toBe(true);
     expect(res.token).not.toBeNull();
   });
@@ -232,6 +232,46 @@ describe('EcommerceSettingsService — regenerateStorefrontToken', () => {
     expect(res.previousTokenDeleted).toBe(false);
     expect((await service.getStoreSettings()).storefrontApiTokenId).toBe(res.token!.id);
     expect(strapi.log.warn).toHaveBeenCalled();
+  });
+});
+
+describe('EcommerceSettingsService — storefront token audit and old-token safety', () => {
+  const failAudit = (strapi: any) => {
+    const audit = strapi.plugin('littlebox-strapi-suite').service('EcommerceAuditService');
+    audit.log = vi.fn().mockRejectedValue(new Error('audit down'));
+  };
+
+  it('generate still returns the key when the audit write fails', async () => {
+    const { service, strapi, apiTokens } = setup();
+    failAudit(strapi);
+    const res = await service.generateStorefrontToken('3');
+    expect(res.accessKey).toBe([...apiTokens.rows.values()][0].accessKey);
+    expect((await service.getStoreSettings()).storefrontApiTokenId).toBe(res.token!.id);
+    expect(strapi.log.warn).toHaveBeenCalled();
+    expect(JSON.stringify(strapi.log.warn.mock.calls)).not.toContain(res.accessKey);
+  });
+
+  it('regenerate still returns the key when the audit write fails', async () => {
+    const { service, strapi, apiTokens, tables } = setup();
+    const old = apiTokens.seed({ name: 'Old BFF' });
+    storeTokenId(tables, old.id);
+    failAudit(strapi);
+    const res = await service.regenerateStorefrontToken('3');
+    expect(res.accessKey).toBeTruthy();
+    expect(apiTokens.rows.has(old.id)).toBe(false);
+    expect(strapi.log.warn).toHaveBeenCalled();
+  });
+
+  it('regenerate never deletes a previous id that is not a content-API token', async () => {
+    const { service, apiTokens, tables } = setup();
+    const adminToken = apiTokens.seed({ name: 'Someone admin token' });
+    storeTokenId(tables, adminToken.id);
+    // The content-API scoped lookup does not see admin-kind tokens.
+    apiTokens.service.getById.mockImplementation(async () => null);
+    const res = await service.regenerateStorefrontToken();
+    expect(apiTokens.service.revoke).not.toHaveBeenCalled();
+    expect(apiTokens.rows.has(adminToken.id)).toBe(true);
+    expect(res.previousTokenDeleted).toBe(true);
   });
 });
 

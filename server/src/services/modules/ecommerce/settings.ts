@@ -531,6 +531,15 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
     }
   };
 
+  /** The token is committed: an audit failure must not lose the one-time key. */
+  const auditStorefrontToken = async (entry: AuditEntry): Promise<void> => {
+    try {
+      await audit(entry);
+    } catch {
+      strapi.log.warn(`[ecommerce] Could not write the audit entry for the storefront API token (${entry.details?.storefrontToken}).`);
+    }
+  };
+
   return {
     getStorefrontToken,
 
@@ -544,7 +553,7 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
       }
       const created = await createStorefrontApiToken();
       await saveStorefrontTokenId(created.id);
-      await audit({
+      await auditStorefrontToken({
         area: AREA,
         action: 'store.update',
         userId: userId === undefined ? undefined : String(userId),
@@ -564,14 +573,15 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
       let previousTokenDeleted = true;
       if (typeof previousId === 'number' && previousId !== created.id) {
         try {
-          // A token that no longer exists returns null: not an error.
-          await apiTokens().revoke(previousId);
+          // Only a content-API token is deleted (the scoped lookup never sees admin tokens);
+          // one that no longer exists is not an error.
+          if (await apiTokens().getById(previousId)) await apiTokens().revoke(previousId);
         } catch {
           previousTokenDeleted = false;
           strapi.log.warn(`[ecommerce] Could not delete the previous storefront API token ${previousId}.`);
         }
       }
-      await audit({
+      await auditStorefrontToken({
         area: AREA,
         action: 'store.update',
         userId: userId === undefined ? undefined : String(userId),

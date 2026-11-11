@@ -11,7 +11,7 @@ type Props = {
   onClose: () => void;
 };
 
-/** Shows a freshly generated storefront token once, with a copy button. */
+/** Shows a freshly generated storefront token once, with a copy button; only Done closes it. */
 const StorefrontTokenKeyModal = ({ accessKey, previousTokenDeleted, onClose }: Props) => {
   const { formatMessage } = useIntl();
   const { toggleNotification } = useNotification();
@@ -27,11 +27,16 @@ const StorefrontTokenKeyModal = ({ accessKey, previousTokenDeleted, onClose }: P
   };
 
   return (
-    <Modal.Root open onOpenChange={(next: boolean) => !next && onClose()}>
-      <Modal.Content>
-        <Modal.Header>
+    // Closes only through Done: Esc, an outside click and a header close button would lose the key.
+    <Modal.Root open onOpenChange={() => undefined}>
+      <Modal.Content
+        onEscapeKeyDown={(e: Event) => e.preventDefault()}
+        onPointerDownOutside={(e: Event) => e.preventDefault()}
+        onInteractOutside={(e: Event) => e.preventDefault()}
+      >
+        <Box paddingTop={4} paddingBottom={4} paddingLeft={5} paddingRight={5} borderColor="neutral150" background="neutral100" style={{ borderWidth: '0 0 1px 0', borderStyle: 'solid' }}>
           <Modal.Title>{t('ecommerce.settings.storefrontApi.key.title')}</Modal.Title>
-        </Modal.Header>
+        </Box>
         <Modal.Body>
           <Flex direction="column" alignItems="stretch" gap={4}>
             <Box background="warning100" borderColor="warning200" hasRadius padding={3} role="note">

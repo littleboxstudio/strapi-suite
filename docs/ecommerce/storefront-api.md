@@ -21,10 +21,13 @@ The e-commerce module creates and manages the BFF token itself.
    named `Littlebox storefront BFF <date>`: type **Custom**, **no permissions**, unlimited
    duration. Its description says it is managed by the e-commerce module; do not edit or delete
    it in *Settings → API Tokens*.
-2. Copy the token from the dialog: it is shown **once**. Put it in the BFF environment (for
-   example `STRAPI_STOREFRONT_TOKEN`) and send it as `Authorization: Bearer <token>`.
+2. Copy the token from the dialog right away: the e-commerce settings show it **once**. Put it in
+   the BFF environment (for example `STRAPI_STOREFRONT_TOKEN`) and send it as
+   `Authorization: Bearer <token>`. (Admins with access to Strapi's *Settings → API Tokens* can
+   still view it there when Strapi has an encryption key configured.)
 
-Settings → API then shows the token's name, creation date and last use, never its value.
+Settings → API then shows the token's name, creation date and last use (updated at most once an
+hour while the BFF calls the API), never its value.
 
 Only that token passes the `check-storefront-token` policy. Any other token is refused with
 `403`, including the *read-only* token that the other modules (menus, pages…) accept, an admin
