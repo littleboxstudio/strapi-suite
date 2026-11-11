@@ -1,3 +1,4 @@
+import { paymentReferenceOf, storeCreditIdOf } from './paymentMask';
 import type { Core } from '@strapi/strapi';
 import { randomUUID } from 'crypto';
 import { PLUGIN_ID, LtbConfigs } from '../../../config';
@@ -847,7 +848,8 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         status: p.status,
         amount: num(p.amount),
         currency: p.currency ?? 'EUR',
-        reference: p.reference ?? null,
+        reference: paymentReferenceOf(p),
+        storeCreditId: storeCreditIdOf(p),
         externalId: p.externalId ?? null,
         coverage: p.coverage ?? null,
         methodLabel: p.metadata?.methodLabel ?? null,

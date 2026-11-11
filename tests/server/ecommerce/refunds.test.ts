@@ -1004,3 +1004,23 @@ describe('refund list and view policies', () => {
     expect(((await c.orders.get(orderId)) as any).refunds[0].failureReason).toBe('MARKED_FAILED');
   });
 });
+
+describe('store credit payments never expose the voucher code', () => {
+  it('OrderView and the payment view show a masked reference and the credit id', async () => {
+    const c = setupCommerce();
+    const orderId = await createOrder(c);
+    const { credit, payment } = await issueAndPay(c, orderId, 3000);
+    const masked = `••••${credit.code.slice(-4)}`;
+    const view: any = await c.orders.get(orderId);
+    const p = view.payments.find((x: any) => x.method === 'STORE_CREDIT');
+    expect(p.reference).toBe(masked);
+    expect(p.storeCreditId).toBe(credit.id);
+    expect(JSON.stringify(view.payments)).not.toContain(credit.code);
+    expect(payment.reference).toBe(masked);
+    expect(payment.storeCreditId).toBe(credit.id);
+    expect(JSON.stringify(payment)).not.toContain(credit.code);
+    // a manual payment keeps its reference
+    const m: any = await payManual(c, orderId, 100, 'keep');
+    expect(m.storeCreditId).toBeNull();
+  });
+});

@@ -131,7 +131,9 @@ export type OrderPayment = {
   status: 'PENDING' | 'COMPLETED' | 'CANCELLED' | 'FAILED';
   amount: number;
   currency: string;
+  /** Masked (`••••ABCD`) for a store credit payment. */
   reference: string | null;
+  storeCreditId?: number | null;
   externalId: string | null;
   coverage: unknown;
   methodLabel: string | null;

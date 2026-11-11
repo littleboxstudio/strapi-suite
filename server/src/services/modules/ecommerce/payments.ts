@@ -21,12 +21,16 @@ export type ManualPaymentInput = {
   idempotencyKey: string;
 };
 
+import { paymentReferenceOf, storeCreditIdOf } from './paymentMask';
+
 export type PaymentView = {
   id: number;
   method: string;
   status: string;
   amount: number;
+  /** Masked (`••••ABCD`) for a STORE_CREDIT payment. */
   reference: string | null;
+  storeCreditId: number | null;
   externalId: string | null;
   completedAt: string | null;
   createdAt: string | null;
@@ -44,7 +48,8 @@ export const toPaymentView = (p: any): PaymentView => ({
   method: p.method,
   status: p.status,
   amount: num(p.amount),
-  reference: p.reference ?? null,
+  reference: paymentReferenceOf(p),
+  storeCreditId: storeCreditIdOf(p),
   externalId: p.externalId ?? null,
   completedAt: p.completedAt ?? null,
   createdAt: p.createdAt ?? null,
