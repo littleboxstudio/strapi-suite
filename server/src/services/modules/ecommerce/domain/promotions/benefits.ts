@@ -147,19 +147,32 @@ const applyBuyXGetY = (
   let total = 0;
   let repetitions = 0;
   while (ob.perOrderLimit === null || repetitions < ob.perOrderLimit) {
-    const buyUnits = units
-      .filter((u) => !u.claim && !u.buyReserved && targetMatches(buy.target, u))
-      .sort(byPriceDesc)
+    const available = units.filter((u) => !u.claim && !u.buyReserved);
+    const inGet = (u: Unit) => get.mode === 'IN_CART' && targetMatches(get.target, u);
+    let prizeUnits: Unit[] = [];
+    if (get.mode === 'IN_CART') {
+      // Overlapping targets: keep for the purchase the most expensive shared units it cannot do
+      // without, then take the cheapest remaining prize-target units as the prize.
+      const buyOnly = available.filter((u) => targetMatches(buy.target, u) && !inGet(u)).length;
+      const shared = available
+        .filter((u) => targetMatches(buy.target, u) && inGet(u))
+        .sort(byPriceDesc);
+      const keepForBuy = new Set(shared.slice(0, Math.max(buy.quantity - buyOnly, 0)));
+      prizeUnits = available
+        .filter((u) => inGet(u) && !keepForBuy.has(u))
+        .sort(byPriceAsc)
+        .slice(0, get.quantity);
+      if (prizeUnits.length < get.quantity) break;
+    }
+    const prizes = new Set(prizeUnits);
+    // Buy units: most expensive first, sparing units that could be a later prize.
+    const buyUnits = available
+      .filter((u) => !prizes.has(u) && targetMatches(buy.target, u))
+      .sort((a, b) => Number(inGet(a)) - Number(inGet(b)) || byPriceDesc(a, b))
       .slice(0, buy.quantity);
     if (buyUnits.length < buy.quantity) break;
 
     if (get.mode === 'IN_CART') {
-      const taken = new Set(buyUnits);
-      const prizeUnits = units
-        .filter((u) => !u.claim && !u.buyReserved && !taken.has(u) && targetMatches(get.target, u))
-        .sort(byPriceAsc)
-        .slice(0, get.quantity);
-      if (prizeUnits.length < get.quantity) break;
       for (const u of buyUnits) u.buyReserved = true;
       for (const u of prizeUnits) {
         const amount = rewardPerUnit(reward, u.price);
