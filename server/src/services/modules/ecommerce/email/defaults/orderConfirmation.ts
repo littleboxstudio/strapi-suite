@@ -28,7 +28,7 @@ const items = `<table role="presentation" width="100%" border="0" cellpadding="0
   </tr>
 {{#if order.promotions}}
   <tr>
-    <td colspan="3" style="${HEAD}">Promotions applied</td>
+    <td colspan="3" style="${HEAD}">Promotions applied (already included above)</td>
   </tr>
 {{#each order.promotions}}
   <tr>
