@@ -754,8 +754,9 @@ describe('fix round 1', () => {
         ])
       );
       const issued = c.tables[UIDS.orderHistory].find((h) => h.type === 'STORE_CREDIT_ISSUED');
-      expect(issued.description).toContain(credit.code);
-      expect(issued.description).toContain(fresh.code);
+      expect(issued.description).toContain(`••••${credit.code.slice(-4)}`);
+      expect(issued.description).not.toContain(credit.code);
+      expect(issued.description).toContain(`••••${fresh.code.slice(-4)}`);
       expect(c.events.map((e) => e.type)).toEqual(expect.arrayContaining(['STORE_CREDIT_ISSUED']));
       // Idempotent: a second release does nothing.
       await c.refunds.releaseStoreCreditOnCancel(orderId, actor);
@@ -1022,5 +1023,59 @@ describe('store credit payments never expose the voucher code', () => {
     // a manual payment keeps its reference
     const m: any = await payManual(c, orderId, 100, 'keep');
     expect(m.storeCreditId).toBeNull();
+  });
+});
+
+describe('voucher codes in the order history', () => {
+  const historyText = (c: Commerce) => JSON.stringify(c.tables[UIDS.orderHistory]);
+
+  it('payment with a credit, a credit refund and a reissue write only masked codes', async () => {
+    const c = setupCommerce();
+    const orderId = await createOrder(c);
+    const { credit, payment } = await issueAndPay(c, orderId, 3000);
+    await payManual(c, orderId, 2500); // excess 1000
+    // MANUAL issue of a new credit by a STORE_CREDIT refund without a source payment
+    const [r] = await c.refunds.create(
+      orderId,
+      { method: 'STORE_CREDIT', amount: 400, reason: 'OTHER', idempotencyKey: 'h-new' },
+      actor
+    );
+    const newCode = c.tables[UIDS.storeCredit].find((x) => x.id === (r as any).storeCredit.id).code;
+    // reissue: the credit paid with is VOID, refunding to its payment issues a new one
+    c.tables[UIDS.storeCredit].find((x) => x.id === credit.id).status = 'VOID';
+    await c.refunds.create(
+      orderId,
+      { method: 'STORE_CREDIT', amount: 300, reason: 'OTHER', paymentId: payment.id, idempotencyKey: 'h-re' },
+      actor
+    );
+    const text = historyText(c);
+    expect(text).not.toContain(credit.code);
+    expect(text).not.toContain(newCode);
+    for (const x of c.tables[UIDS.storeCredit]) expect(text).not.toContain(x.code);
+    expect(text).toContain(`••••${credit.code.slice(-4)}`);
+    expect(c.tables[UIDS.orderHistory].some((h) => h.newValue?.storeCreditId === credit.id)).toBe(true);
+  });
+
+  it('OrderView redacts codes in rows already stored (description, previousValue, newValue)', async () => {
+    const c = setupCommerce();
+    const orderId = await createOrder(c);
+    c.tables[UIDS.orderHistory].push({
+      id: 5001,
+      order: orderId,
+      type: 'STORE_CREDIT_ISSUED',
+      description: 'Store credit AB12-CD34-EF56 issued, original GH78-JK90-LM12 void',
+      previousValue: { storeCreditId: 1, code: 'GH78-JK90-LM12' },
+      newValue: { storeCreditId: 2, nested: { code: 'AB12-CD34-EF56' }, code: 'AB12-CD34-EF56' },
+      actor,
+      operationId: null,
+      createdAt: '2026-11-11T10:00:00.000Z',
+    });
+    const view: any = await c.orders.get(orderId);
+    const h = view.history.find((x: any) => x.id === 5001);
+    const text = JSON.stringify(h);
+    expect(text).not.toMatch(/[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}/);
+    expect(h.description).toBe('Store credit ••••EF56 issued, original ••••LM12 void');
+    expect(h.previousValue).toEqual({ storeCreditId: 1, code: '••••LM12' });
+    expect(h.newValue).toMatchObject({ storeCreditId: 2, code: '••••EF56', nested: { code: '••••EF56' } });
   });
 });

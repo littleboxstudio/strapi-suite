@@ -1,4 +1,4 @@
-import { paymentReferenceOf, storeCreditIdOf } from './paymentMask';
+import { paymentReferenceOf, redactHistoryValue, redactVoucherCodes, storeCreditIdOf } from './paymentMask';
 import type { Core } from '@strapi/strapi';
 import { randomUUID } from 'crypto';
 import { PLUGIN_ID, LtbConfigs } from '../../../config';
@@ -880,9 +880,10 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       history: historyRows.map((h) => ({
         id: h.id,
         type: h.type,
-        description: h.description,
-        previousValue: h.previousValue ?? null,
-        newValue: h.newValue ?? null,
+        // Voucher codes never leave through the history (rows written before masking included).
+        description: typeof h.description === 'string' ? redactVoucherCodes(h.description) : h.description,
+        previousValue: redactHistoryValue(h.previousValue),
+        newValue: redactHistoryValue(h.newValue),
         actor: h.actor ?? null,
         operationId: h.operationId ?? null,
         createdAt: h.createdAt,
