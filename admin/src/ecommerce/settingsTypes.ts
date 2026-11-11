@@ -79,7 +79,6 @@ export type IntegrationView = {
   category: ProviderCategory;
   name: string;
   active: boolean;
-  verified: boolean;
   fields: ProviderField[];
   config: Record<string, unknown>;
   /** Masked values; null when not set or unreadable. */

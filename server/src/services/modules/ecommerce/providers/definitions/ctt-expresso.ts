@@ -7,7 +7,6 @@ const cttExpresso: ProviderDefinition = {
   category: 'carrier',
   name: 'CTT Expresso',
   exclusive: false,
-  verified: false,
   fields: [
     { key: 'clientId', type: 'string', required: true, label: `${L}.clientId` },
     { key: 'contractNumber', type: 'string', required: true, label: `${L}.contractNumber` },

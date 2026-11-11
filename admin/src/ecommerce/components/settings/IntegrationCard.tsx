@@ -42,7 +42,7 @@ const IntegrationCard = ({
   const t = (id: string, values?: Record<string, any>, defaultMessage?: string) =>
     formatMessage({ id: getTranslation(id), defaultMessage }, values);
 
-  const { id, active, verified, fields, secretsStatus } = integration;
+  const { id, active, fields, secretsStatus } = integration;
   const name = t(`ecommerce.settings.providers.${id}.name`, undefined, integration.name);
   const description = t(`ecommerce.settings.providers.${id}.description`, undefined, ' ').trim();
   const configurable = fields.length > 0;
@@ -105,11 +105,6 @@ const IntegrationCard = ({
                 </Badge>
               ) : (
                 <Badge>{t('ecommerce.settings.integrations.inactive')}</Badge>
-              )}
-              {!verified && (
-                <Badge backgroundColor="warning100" textColor="warning700">
-                  {t('ecommerce.settings.integrations.notVerified')}
-                </Badge>
               )}
             </Flex>
             {description && (

@@ -16,9 +16,7 @@ describe('provider registry', () => {
     expect(byId.stripe.category).toBe('payment');
     expect(byId.moloni.category).toBe('billing');
     expect(byId.moloni.exclusive).toBe(true);
-    expect(byId.moloni.verified).toBe(false);
     expect(byId['ctt-expresso'].category).toBe('carrier');
-    expect(byId['ctt-expresso'].verified).toBe(false);
     expect(byId.manual.category).toBe('carrier');
     expect(byId.manual.fields).toEqual([]);
     expect(byId.manual.testConnection).toBeUndefined();
@@ -92,7 +90,7 @@ describe('validateProviderInput', () => {
 
   it('validates path-format string fields', () => {
     const def: any = {
-      id: 'p', category: 'payment', name: 'P', exclusive: false, verified: true,
+      id: 'p', category: 'payment', name: 'P', exclusive: false,
       fields: [{ key: 'back', type: 'string', format: 'path', required: false, label: 'x' }],
     };
     for (const bad of ['checkout/ok', '//evil.com', '/a b', '/a\\b', 42]) {
@@ -135,7 +133,7 @@ describe('validateProviderInput', () => {
   });
   it('validates zones fields: an empty list is empty, items are zone ids', () => {
     const def = {
-      id: 'z', category: 'carrier' as const, name: 'Z', exclusive: false, verified: true,
+      id: 'z', category: 'carrier' as const, name: 'Z', exclusive: false,
       fields: [{ key: 'zones', type: 'zones' as const, required: true, label: 'x' }],
     };
     const run = (zones: unknown) => validateProviderInput(def, { config: { zones } }, () => false);
