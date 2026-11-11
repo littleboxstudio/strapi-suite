@@ -1,0 +1,76 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_store_credit_movements",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-store-credit-movement",
+    "pluralName": "ltb-st-module-ecommerce-store-credit-movements",
+    "displayName": "Littlebox Strapi Suite - E-commerce Store Credit Movement",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Store Credit Movement"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "storeCredit": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-store-credit"
+    },
+    "type": {
+      "type": "enumeration",
+      "enum": [
+        "ISSUE",
+        "CONSUME",
+        "RESTORE",
+        "ADJUST"
+      ]
+    },
+    "amount": {
+      "type": "integer"
+    },
+    "order": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-order"
+    },
+    "payment": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-payment"
+    },
+    "refund": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-refund"
+    },
+    "operationKey": {
+      "type": "string",
+      "required": true,
+      "unique": true
+    },
+    "actor": {
+      "type": "string"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_sc_movement_operation_key_unique",
+      "columns": [
+        "operation_key"
+      ],
+      "type": "unique"
+    }
+  ]
+}

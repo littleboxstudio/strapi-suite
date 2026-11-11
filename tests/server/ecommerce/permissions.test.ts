@@ -30,6 +30,11 @@ describe('registerEcommercePermissions', () => {
     expect(ECOMMERCE_PERMISSIONS.customersManage).toBe('plugin::littlebox-strapi-suite.ecommerce.customers.manage');
   });
 
+  it('exposes the refunds and payments action uids', () => {
+    expect(ECOMMERCE_PERMISSIONS.refundsManage).toBe('plugin::littlebox-strapi-suite.ecommerce.refunds.manage');
+    expect(ECOMMERCE_PERMISSIONS.paymentsManage).toBe('plugin::littlebox-strapi-suite.ecommerce.payments.manage');
+  });
+
   it('registers read and manage actions', async () => {
     const registerMany = vi.fn().mockResolvedValue(undefined);
     const strapi = {
@@ -40,7 +45,7 @@ describe('registerEcommercePermissions', () => {
 
     expect(registerMany).toHaveBeenCalledTimes(1);
     const actions = registerMany.mock.calls[0][0];
-    expect(actions).toHaveLength(8);
+    expect(actions).toHaveLength(10);
     expect(actions).toEqual([
       expect.objectContaining({
         section: 'plugins',
@@ -97,6 +102,14 @@ describe('registerEcommercePermissions', () => {
         subCategory: 'ecommerce',
         uid: 'ecommerce.customers.manage',
         displayName: 'Manage customers',
+      }),
+      expect.objectContaining({
+        uid: 'ecommerce.refunds.manage',
+        displayName: 'Manage refunds and store credit',
+      }),
+      expect.objectContaining({
+        uid: 'ecommerce.payments.manage',
+        displayName: 'Manage payment links and instructions',
       }),
     ]);
   });

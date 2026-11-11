@@ -1,0 +1,58 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_webhook_events",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-webhook-event",
+    "pluralName": "ltb-st-module-ecommerce-webhook-events",
+    "displayName": "Littlebox Strapi Suite - E-commerce Webhook Event",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Webhook Event"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "provider": {
+      "type": "string"
+    },
+    "eventId": {
+      "type": "string",
+      "required": true,
+      "unique": true
+    },
+    "type": {
+      "type": "string"
+    },
+    "status": {
+      "type": "enumeration",
+      "enum": [
+        "PROCESSED",
+        "IGNORED",
+        "FAILED"
+      ]
+    },
+    "error": {
+      "type": "text"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_webhook_event_event_id_unique",
+      "columns": [
+        "event_id"
+      ],
+      "type": "unique"
+    }
+  ]
+}

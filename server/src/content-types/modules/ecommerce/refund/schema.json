@@ -1,0 +1,109 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_refunds",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-refund",
+    "pluralName": "ltb-st-module-ecommerce-refunds",
+    "displayName": "Littlebox Strapi Suite - E-commerce Refund",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Refund"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "order": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-order"
+    },
+    "payment": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-payment"
+    },
+    "method": {
+      "type": "enumeration",
+      "enum": [
+        "MANUAL_TRANSFER",
+        "STORE_CREDIT",
+        "STRIPE"
+      ]
+    },
+    "kind": {
+      "type": "enumeration",
+      "enum": [
+        "MONEY",
+        "STORE_CREDIT"
+      ]
+    },
+    "status": {
+      "type": "enumeration",
+      "enum": [
+        "PENDING",
+        "PROCESSING",
+        "COMPLETED",
+        "FAILED",
+        "CANCELLED"
+      ],
+      "default": "PENDING"
+    },
+    "amount": {
+      "type": "integer",
+      "required": true
+    },
+    "currency": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "description": {
+      "type": "text"
+    },
+    "reference": {
+      "type": "string"
+    },
+    "externalId": {
+      "type": "string"
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "unique": true
+    },
+    "storeCredit": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-store-credit"
+    },
+    "actor": {
+      "type": "string"
+    },
+    "completedAt": {
+      "type": "datetime"
+    },
+    "metadata": {
+      "type": "json"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_refund_idempotency_key_unique",
+      "columns": [
+        "idempotency_key"
+      ],
+      "type": "unique"
+    }
+  ]
+}

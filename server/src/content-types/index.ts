@@ -23,6 +23,12 @@ import EcommerceOrderLineSchema from './modules/ecommerce/order-line';
 import EcommercePaymentSchema from './modules/ecommerce/payment';
 import EcommerceStockMovementSchema from './modules/ecommerce/stock-movement';
 import EcommerceOrderHistorySchema from './modules/ecommerce/order-history';
+import EcommerceRefundSchema from './modules/ecommerce/refund';
+import EcommerceStoreCreditSchema from './modules/ecommerce/store-credit';
+import EcommerceStoreCreditMovementSchema from './modules/ecommerce/store-credit-movement';
+import EcommerceStripeSessionSchema from './modules/ecommerce/stripe-session';
+import EcommerceNotificationSchema from './modules/ecommerce/notification';
+import EcommerceWebhookEventSchema from './modules/ecommerce/webhook-event';
 
 export default {
   "ltb-st-app-setting": SettingsAppSchema,
@@ -49,5 +55,11 @@ export default {
   "ltb-st-module-ecommerce-order-line": EcommerceOrderLineSchema,
   "ltb-st-module-ecommerce-payment": EcommercePaymentSchema,
   "ltb-st-module-ecommerce-stock-movement": EcommerceStockMovementSchema,
-  "ltb-st-module-ecommerce-order-history": EcommerceOrderHistorySchema
+  "ltb-st-module-ecommerce-order-history": EcommerceOrderHistorySchema,
+  "ltb-st-module-ecommerce-refund": EcommerceRefundSchema,
+  "ltb-st-module-ecommerce-store-credit": EcommerceStoreCreditSchema,
+  "ltb-st-module-ecommerce-store-credit-movement": EcommerceStoreCreditMovementSchema,
+  "ltb-st-module-ecommerce-stripe-session": EcommerceStripeSessionSchema,
+  "ltb-st-module-ecommerce-notification": EcommerceNotificationSchema,
+  "ltb-st-module-ecommerce-webhook-event": EcommerceWebhookEventSchema
 };

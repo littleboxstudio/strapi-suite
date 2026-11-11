@@ -1,0 +1,82 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_notifications",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-notification",
+    "pluralName": "ltb-st-module-ecommerce-notifications",
+    "displayName": "Littlebox Strapi Suite - E-commerce Notification",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Notification"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "order": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-order"
+    },
+    "type": {
+      "type": "string"
+    },
+    "eventId": {
+      "type": "string"
+    },
+    "uniqueKey": {
+      "type": "string",
+      "required": true,
+      "unique": true
+    },
+    "recipient": {
+      "type": "string"
+    },
+    "locale": {
+      "type": "string"
+    },
+    "status": {
+      "type": "enumeration",
+      "enum": [
+        "SENT",
+        "FAILED",
+        "SKIPPED"
+      ]
+    },
+    "providerMessageId": {
+      "type": "string"
+    },
+    "error": {
+      "type": "text"
+    },
+    "attempts": {
+      "type": "integer",
+      "default": 0
+    },
+    "sentAt": {
+      "type": "datetime"
+    },
+    "payload": {
+      "type": "json"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_notification_unique_key_unique",
+      "columns": [
+        "unique_key"
+      ],
+      "type": "unique"
+    }
+  ]
+}
