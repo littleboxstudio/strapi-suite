@@ -1,3 +1,6 @@
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import { describe, it, expect, vi } from 'vitest';
 import {
   EcommerceNotFoundError,
@@ -46,6 +49,47 @@ describe('EcommerceProductController', () => {
     await controller.uploadImage(ctx);
     expect(ctx.badRequest).toHaveBeenCalled();
     expect(upload).not.toHaveBeenCalled();
+  });
+
+  describe('uploadImage discards the uploaded original', () => {
+    const tempFile = () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ltb-upload-'));
+      const filepath = path.join(dir, 'original.png');
+      fs.writeFileSync(filepath, 'original bytes');
+      return { dir, filepath };
+    };
+
+    it('after a successful upload', async () => {
+      const { dir, filepath } = tempFile();
+      const upload = vi.fn().mockResolvedValue({ id: 1, url: '/uploads/x.webp' });
+      const controller = setup({ EcommerceImageService: { upload } });
+      const ctx: any = {
+        request: { files: { file: { size: 10, filepath, originalFilename: 'a.png' } }, body: { productId: '1', transform: '{"mode":"resize","width":1,"height":1}' } },
+        badRequest: vi.fn(),
+      };
+      await controller.uploadImage(ctx);
+      expect(ctx.status).toBe(201);
+      expect(fs.existsSync(filepath)).toBe(false);
+      fs.rmSync(dir, { recursive: true, force: true });
+    });
+
+    it('after a rejected request or a failed processing', async () => {
+      const a = tempFile();
+      const controller = setup({ EcommerceImageService: { upload: vi.fn().mockRejectedValue(new Error('INVALID_IMAGE')) } });
+      const invalid: any = {
+        request: { files: { file: { size: 10, filepath: a.filepath } }, body: { productId: '1', transform: '{"mode":"resize","width":1,"height":1}' } },
+        badRequest: vi.fn(),
+      };
+      await controller.uploadImage(invalid);
+      expect(invalid.badRequest).toHaveBeenCalled();
+      expect(fs.existsSync(a.filepath)).toBe(false);
+
+      const b = tempFile();
+      const noOwner: any = { request: { files: { file: { size: 10, filepath: b.filepath } }, body: { transform: '{}' } }, badRequest: vi.fn() };
+      await controller.uploadImage(noOwner);
+      expect(fs.existsSync(b.filepath)).toBe(false);
+      [a, b].forEach((t) => fs.rmSync(t.dir, { recursive: true, force: true }));
+    });
   });
 
   it('uploadImage rejects when no productId or variantId', async () => {

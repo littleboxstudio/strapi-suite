@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { removeTempUploads } from './uploads';
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID } from '../../../config';
 import { STRIPE_WEBHOOK_EVENTS } from '../../../services/modules/ecommerce/stripeWebhooks';
@@ -66,8 +67,16 @@ const EcommerceSettingsController = ({ strapi }: { strapi: Core.Strapi }) => {
 
     uploadStoreLogo: async (ctx: any) => {
       const file = ctx.request?.files?.file;
-      if (!file || Array.isArray(file)) return ctx.badRequest('A file is required');
-      if (file.size > MAX_LOGO_BYTES) return ctx.badRequest('The logo exceeds 400 KB');
+      // The uploaded original is always discarded; only the processed PNG is stored.
+      const cleanup = () => removeTempUploads(ctx.request?.files?.file);
+      if (!file || Array.isArray(file)) {
+        await cleanup();
+        return ctx.badRequest('A file is required');
+      }
+      if (file.size > MAX_LOGO_BYTES) {
+        await cleanup();
+        return ctx.badRequest('The logo exceeds 400 KB');
+      }
       try {
         const buffer = await fs.promises.readFile(file.filepath);
         ctx.body = await settings().uploadStoreLogo(
@@ -82,6 +91,8 @@ const EcommerceSettingsController = ({ strapi }: { strapi: Core.Strapi }) => {
           return ctx.badRequest('Upload failed', { code: 'UPLOAD_FAILED' });
         }
         return handleDomainError(ctx, err);
+      } finally {
+        await cleanup();
       }
     },
     removeStoreLogo: (ctx: any) => respond(ctx, () => settings().removeStoreLogo(userId(ctx))),
