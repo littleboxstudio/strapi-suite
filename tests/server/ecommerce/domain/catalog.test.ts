@@ -24,7 +24,7 @@ const variant = (over: Partial<VariantInput> = {}): VariantInput => ({
 
 const product = (over: Partial<ProductInput> = {}): ProductInput => ({
   active: true,
-  translations: { en: { name: 'Mug', description: '' } },
+  translations: { en: { name: 'Mug', description: '<p>A mug</p>' } },
   variants: [variant()],
   ...over,
 });
@@ -73,7 +73,10 @@ describe('validateProductInput', () => {
     expect(errs).toContainEqual({ path: 'translations.en.name', code: 'required' });
     const errs2 = validateProductInput(
       product({
-        translations: { en: { name: 'Mug', description: '' }, pt: { name: '', description: '' } },
+        translations: {
+          en: { name: 'Mug', description: '<p>A mug</p>' },
+          pt: { name: '', shortDescription: ' ', description: '<p><br></p>' },
+        },
       }),
       'en'
     );
@@ -106,5 +109,37 @@ describe('validateProductInput', () => {
     expect(
       validateProductInput(product({ variants: [variant({ translations: {} })] }), 'en')
     ).toContainEqual({ path: 'variants.0.translations.en.option', code: 'required' });
+  });
+  it('requires visible default-locale description', () => {
+    for (const description of ['', '<p></p>', '<p><br></p>', '<p> &nbsp; </p>']) {
+      expect(
+        validateProductInput(product({ translations: { en: { name: 'Mug', description } } }), 'en')
+      ).toContainEqual({ path: 'translations.en.description', code: 'required' });
+    }
+    expect(
+      validateProductInput(product({ translations: { en: { name: 'Mug', description: '<p>x</p>' } } }), 'en')
+    ).toEqual([]);
+  });
+  it('requires a name in a non-default locale that has other content', () => {
+    const withShort = validateProductInput(
+      product({
+        translations: {
+          en: { name: 'Mug', description: '<p>A mug</p>' },
+          pt: { name: ' ', shortDescription: 'Caneca bonita', description: '' },
+        },
+      }),
+      'en'
+    );
+    expect(withShort).toEqual([{ path: 'translations.pt.name', code: 'required' }]);
+    const withDescription = validateProductInput(
+      product({
+        translations: {
+          en: { name: 'Mug', description: '<p>A mug</p>' },
+          pt: { name: '', description: '<p>Caneca</p>' },
+        },
+      }),
+      'en'
+    );
+    expect(withDescription).toEqual([{ path: 'translations.pt.name', code: 'required' }]);
   });
 });
