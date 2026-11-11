@@ -334,9 +334,12 @@ const finiteOr0 = (v: unknown): number => {
  * Splits the integer `total` across non-negative integer `weights` proportionally, with the
  * largest-remainder method; ties go to the lower index. Σ result === total when Σ weights > 0.
  * The products `total × weight` can pass 2^53 near MAX_MONEY_CENTS, so they are computed in BigInt.
+ * Any input that is not a non-negative safe integer yields all zeros (corrupt data never throws).
  */
 export const allocateProportionally = (total: number, weights: number[]): number[] => {
+  const valid = (n: number) => Number.isSafeInteger(n) && n >= 0;
   const sum = weights.reduce((s, w) => s + w, 0);
+  if (!valid(total) || !weights.every(valid) || !valid(sum)) return weights.map(() => 0);
   if (sum <= 0 || total <= 0) return weights.map(() => 0);
   const bigSum = BigInt(sum);
   const bigTotal = BigInt(total);

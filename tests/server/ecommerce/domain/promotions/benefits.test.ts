@@ -417,6 +417,79 @@ describe('applyCombination: Buy X Get Y', () => {
     checkInvariants(r, lines);
   });
 
+  it('maximises repetitions: "buy 1 A, get 1 of {A,B,C}", A 1 € x2, B 2 € x2, C 3 € x2', () => {
+    const lines = [line(1, 100, 2), line(2, 200, 2), line(3, 300, 2)];
+    const b: Benefit = {
+      type: 'BUY_X_GET_Y',
+      buy: { target: A, quantity: 1, minAmount: null },
+      get: { mode: 'IN_CART', target: T(1, 2, 3), quantity: 1 },
+      reward: { kind: 'FREE' },
+    };
+    const r = run([promo(1, [b])], lines);
+    expect(r.productDiscount).toBe(400);
+    expect(r.lines.find((l) => l.sourceIndex === 1)).toMatchObject({
+      quantity: 2,
+      unitDiscount: 200,
+    });
+    checkInvariants(r, lines);
+  });
+
+  it('matches a brute-force oracle on random small carts (most repetitions, then cheapest prizes)', () => {
+    let seed = 20261111;
+    const rnd = (n: number) => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return Math.floor((seed / 2147483648) * n);
+    };
+    const subset = () => {
+      const ids = [1, 2, 3].filter(() => rnd(2) === 1);
+      return ids.length ? ids : [1 + rnd(3)];
+    };
+    for (let trial = 0; trial < 400; trial += 1) {
+      const lines = [1, 2, 3]
+        .map((v) => line(v, 100 * (1 + rnd(5)), rnd(4)))
+        .filter((l) => l.quantity > 0);
+      if (lines.length === 0) continue;
+      const buyIds = subset();
+      const getIds = subset();
+      const bq = 1 + rnd(2);
+      const gq = 1 + rnd(2);
+      const limit = rnd(3) === 0 ? 1 + rnd(3) : null;
+      const benefit: Benefit = {
+        type: 'BUY_X_GET_Y',
+        buy: { target: T(...buyIds), quantity: bq, minAmount: null },
+        get: { mode: 'IN_CART', target: T(...getIds), quantity: gq },
+        reward: { kind: 'FREE' },
+      };
+
+      // Oracle: every assignment of each unit to none / buy / prize allowed by the targets.
+      const units = lines.flatMap((l) => Array.from({ length: l.quantity }, () => l));
+      let best = { reps: 0, value: 0 };
+      const walk = (i: number, nb: number, ng: number, value: number) => {
+        if (i === units.length) {
+          if (nb % bq !== 0 || ng % gq !== 0 || nb / bq !== ng / gq) return;
+          const reps = nb / bq;
+          if (limit !== null && reps > limit) return;
+          if (reps > best.reps || (reps === best.reps && value < best.value))
+            best = { reps, value };
+          return;
+        }
+        const u = units[i];
+        walk(i + 1, nb, ng, value);
+        if (buyIds.includes(u.variantId)) walk(i + 1, nb + 1, ng, value);
+        if (getIds.includes(u.variantId)) walk(i + 1, nb, ng + 1, value + u.unitPrice);
+      };
+      walk(0, 0, 0, 0);
+
+      const r = run([promo(1, [benefit], { perOrderLimit: limit })], lines);
+      const prizeUnits = r.lines
+        .filter((l) => l.refs.some((x) => x.promotionId === 1))
+        .reduce((sum, l) => sum + l.quantity, 0);
+      const context = JSON.stringify({ lines, buyIds, getIds, bq, gq, limit });
+      expect({ reps: prizeUnits / gq, value: r.productDiscount }, context).toEqual(best);
+      checkInvariants(r, lines);
+    }
+  });
+
   it('the same units cannot be the prize of two Buy X Get Y', () => {
     const lines = [line(1, 1000, 6)];
     const r = run([promo(1, [buy3pay2]), promo(2, [buy3pay2])], lines);

@@ -17,14 +17,7 @@ import {
   type ShipmentLike,
 } from '../../../../server/src/services/modules/ecommerce/domain/orders';
 
-const line = (
-  over: Partial<{
-    unitPrice: number;
-    unitDiscount: number;
-    quantity: number;
-    returnedQuantity: number;
-  }> = {}
-) => ({
+const line = (over: Partial<{ unitPrice: number; unitDiscount: number; quantity: number; returnedQuantity: number }> = {}) => ({
   unitPrice: 5000,
   unitDiscount: 0,
   quantity: 1,
@@ -76,14 +69,11 @@ describe('computeTotals', () => {
   });
 
   it('counts only the non-returned quantity', () => {
-    const t = computeTotals(
-      [line({ unitPrice: 5000, unitDiscount: 500, quantity: 2, returnedQuantity: 1 })],
-      {
-        orderDiscount: 0,
-        shippingOriginal: 0,
-        shippingDiscount: 0,
-      }
-    );
+    const t = computeTotals([line({ unitPrice: 5000, unitDiscount: 500, quantity: 2, returnedQuantity: 1 })], {
+      orderDiscount: 0,
+      shippingOriginal: 0,
+      shippingDiscount: 0,
+    });
     expect(t.itemsOriginal).toBe(5000);
     expect(t.productDiscount).toBe(500);
     expect(t.subtotal).toBe(4500);
@@ -99,7 +89,7 @@ describe('financialSummary / derivePaymentStatus', () => {
         { status: 'COMPLETED', amount: 10000 },
         { status: 'PENDING', amount: 2500 },
       ],
-      []
+      [],
     );
     expect(s.paid).toBe(10000);
     expect(s.pendingPayments).toBe(2500);
@@ -115,7 +105,7 @@ describe('financialSummary / derivePaymentStatus', () => {
         { status: 'CANCELLED', amount: 1000 },
         { status: 'FAILED', amount: 1000 },
       ],
-      []
+      [],
     );
     expect(s.paid).toBe(0);
     expect(s.pendingPayments).toBe(0);
@@ -123,11 +113,9 @@ describe('financialSummary / derivePaymentStatus', () => {
   });
 
   it('REFUNDED when fully refunded', () => {
-    const s = financialSummary(
-      10000,
-      [{ status: 'COMPLETED', amount: 10000 }],
-      [{ status: 'COMPLETED', amount: 10000, kind: 'MONEY' }]
-    );
+    const s = financialSummary(10000, [{ status: 'COMPLETED', amount: 10000 }], [
+      { status: 'COMPLETED', amount: 10000, kind: 'MONEY' },
+    ]);
     expect(s.refunded).toBe(10000);
     expect(s.net).toBe(0);
     expect(derivePaymentStatus(s)).toBe('REFUNDED');
@@ -135,56 +123,42 @@ describe('financialSummary / derivePaymentStatus', () => {
 
   it('F4: a refund promoted from FAILED beyond the excess is over-refunded, never an amount due', () => {
     // total 7000, paid 10000 (excess 3000), refunded 3000 by transfer + 3000 Stripe promoted.
-    const s = financialSummary(
-      7000,
-      [{ status: 'COMPLETED', amount: 10000 }],
-      [
-        { status: 'COMPLETED', amount: 3000, kind: 'MONEY' },
-        { status: 'COMPLETED', amount: 3000, kind: 'MONEY', promoted: true },
-      ]
-    );
+    const s = financialSummary(7000, [{ status: 'COMPLETED', amount: 10000 }], [
+      { status: 'COMPLETED', amount: 3000, kind: 'MONEY' },
+      { status: 'COMPLETED', amount: 3000, kind: 'MONEY', promoted: true },
+    ]);
     expect(s.refunded).toBe(6000);
     expect(s.net).toBe(4000);
     expect(s.overRefunded).toBe(3000);
     expect(s.due).toBe(0);
     expect(s.excess).toBe(0);
     // A promotion within the excess is not an over-refund.
-    const ok = financialSummary(
-      7000,
-      [{ status: 'COMPLETED', amount: 10000 }],
-      [{ status: 'COMPLETED', amount: 3000, kind: 'MONEY', promoted: true }]
-    );
+    const ok = financialSummary(7000, [{ status: 'COMPLETED', amount: 10000 }], [
+      { status: 'COMPLETED', amount: 3000, kind: 'MONEY', promoted: true },
+    ]);
     expect(ok.overRefunded).toBe(0);
     // Without a promotion a refund followed by a total increase is a real amount due.
-    const due = financialSummary(
-      9000,
-      [{ status: 'COMPLETED', amount: 10000 }],
-      [{ status: 'COMPLETED', amount: 3000, kind: 'MONEY' }]
-    );
+    const due = financialSummary(9000, [{ status: 'COMPLETED', amount: 10000 }], [
+      { status: 'COMPLETED', amount: 3000, kind: 'MONEY' },
+    ]);
     expect(due.overRefunded).toBe(0);
     expect(due.due).toBe(2000);
   });
 
   it('PARTIALLY_REFUNDED with due 0', () => {
-    const s = financialSummary(
-      7000,
-      [{ status: 'COMPLETED', amount: 10000 }],
-      [{ status: 'COMPLETED', amount: 3000, kind: 'MONEY' }]
-    );
+    const s = financialSummary(7000, [{ status: 'COMPLETED', amount: 10000 }], [
+      { status: 'COMPLETED', amount: 3000, kind: 'MONEY' },
+    ]);
     expect(s.due).toBe(0);
     expect(s.excess).toBe(0);
     expect(derivePaymentStatus(s)).toBe('PARTIALLY_REFUNDED');
   });
 
   it('store-credit refunds count; non-completed refunds do not', () => {
-    const s = financialSummary(
-      10000,
-      [{ status: 'COMPLETED', amount: 10000 }],
-      [
-        { status: 'COMPLETED', amount: 2000, kind: 'STORE_CREDIT' },
-        { status: 'PENDING', amount: 5000, kind: 'MONEY' },
-      ]
-    );
+    const s = financialSummary(10000, [{ status: 'COMPLETED', amount: 10000 }], [
+      { status: 'COMPLETED', amount: 2000, kind: 'STORE_CREDIT' },
+      { status: 'PENDING', amount: 5000, kind: 'MONEY' },
+    ]);
     expect(s.refunded).toBe(2000);
     expect(s.net).toBe(8000);
     expect(derivePaymentStatus(s)).toBe('PARTIALLY_REFUNDED');
@@ -262,8 +236,8 @@ describe('fulfillment', () => {
           { id: 1, quantity: 10 },
           { id: 2, quantity: 1 },
         ],
-        shipped
-      )
+        shipped,
+      ),
     ).toBe('PARTIALLY_FULFILLED');
   });
 
@@ -302,9 +276,7 @@ describe('canTransition', () => {
   for (const from of ORDER_STATUSES) {
     for (const to of ORDER_STATUSES) {
       it(`${from} -> ${to}`, () => {
-        expect(canTransition(from as OrderStatus, to as OrderStatus)).toBe(
-          allowed[`${from}->${to}`]
-        );
+        expect(canTransition(from as OrderStatus, to as OrderStatus)).toBe(allowed[`${from}->${to}`]);
       });
     }
   }
@@ -376,10 +348,10 @@ describe('availableActions', () => {
 
   it('no ARCHIVE with pending payments or refunds', () => {
     expect(
-      availableActions({ ...fulfilled, allShipmentsDelivered: true, hasPendingPayments: true })
+      availableActions({ ...fulfilled, allShipmentsDelivered: true, hasPendingPayments: true }),
     ).not.toContain('ARCHIVE');
     expect(
-      availableActions({ ...fulfilled, allShipmentsDelivered: true, hasPendingRefunds: true })
+      availableActions({ ...fulfilled, allShipmentsDelivered: true, hasPendingRefunds: true }),
     ).not.toContain('ARCHIVE');
   });
 
@@ -407,7 +379,7 @@ describe('availableActions', () => {
         orderStatus: 'ARCHIVED',
         allShipmentsDelivered: true,
         hasUninvoicedCompletedPayments: true,
-      })
+      }),
     ).toEqual([]);
   });
 });
@@ -436,11 +408,9 @@ describe('fix round 1', () => {
   });
 
   it('SHIP available when PARTIALLY_REFUNDED with due 0', () => {
-    const summary = financialSummary(
-      5000,
-      [{ status: 'COMPLETED', amount: 10000 }],
-      [{ status: 'COMPLETED', amount: 5000, kind: 'MONEY' }]
-    );
+    const summary = financialSummary(5000, [{ status: 'COMPLETED', amount: 10000 }], [
+      { status: 'COMPLETED', amount: 5000, kind: 'MONEY' },
+    ]);
     expect(derivePaymentStatus(summary)).toBe('PARTIALLY_REFUNDED');
     expect(summary.due).toBe(0);
     expect(availableActions(withSummary(summary))).toContain('SHIP');
@@ -455,7 +425,7 @@ describe('fix round 1', () => {
   it('no SHIP without unshipped quantity', () => {
     const summary = financialSummary(0, [], []);
     expect(
-      availableActions({ ...withSummary(summary), hasUnshippedQuantity: false })
+      availableActions({ ...withSummary(summary), hasUnshippedQuantity: false }),
     ).not.toContain('SHIP');
   });
 
@@ -467,8 +437,8 @@ describe('fix round 1', () => {
           { id: 1, quantity: 2 },
           { id: 2, quantity: 0 },
         ],
-        new Map([[1, 2]])
-      )
+        new Map([[1, 2]]),
+      ),
     ).toBe('FULFILLED');
   });
 
@@ -493,7 +463,7 @@ describe('fix round 1', () => {
   it('returns do not pro-rate the stored order discount; it is only clamped (return 1 of 2)', () => {
     const t = computeTotals(
       [{ unitPrice: 5000, unitDiscount: 1000, quantity: 2, returnedQuantity: 1 }],
-      order
+      order,
     );
     expect(t.subtotal).toBe(4000);
     expect(t.orderDiscount).toBe(1300);
@@ -503,7 +473,7 @@ describe('fix round 1', () => {
   it('returning everything clamps the order discount to 0', () => {
     const t = computeTotals(
       [{ unitPrice: 5000, unitDiscount: 1000, quantity: 2, returnedQuantity: 2 }],
-      order
+      order,
     );
     expect(t.subtotal).toBe(0);
     expect(t.orderDiscount).toBe(0);
@@ -516,7 +486,7 @@ describe('fix round 1', () => {
         { unitPrice: 3000, unitDiscount: 0, quantity: 1, returnedQuantity: 1 },
         { unitPrice: 2000, unitDiscount: 0, quantity: 3, returnedQuantity: 3 },
       ],
-      { orderDiscount: 1000, shippingOriginal: 500, shippingDiscount: 0 }
+      { orderDiscount: 1000, shippingOriginal: 500, shippingDiscount: 0 },
     );
     expect(t.subtotal).toBe(0);
     expect(t.orderDiscount).toBe(0);
@@ -524,11 +494,9 @@ describe('fix round 1', () => {
   });
 
   it('negative net (over-refund) yields due greater than total (documented; caps in plan 4)', () => {
-    const s = financialSummary(
-      5000,
-      [{ status: 'COMPLETED', amount: 1000 }],
-      [{ status: 'COMPLETED', amount: 3000, kind: 'MONEY' }]
-    );
+    const s = financialSummary(5000, [{ status: 'COMPLETED', amount: 1000 }], [
+      { status: 'COMPLETED', amount: 3000, kind: 'MONEY' },
+    ]);
     expect(s.net).toBe(-2000);
     expect(s.due).toBe(7000);
     expect(s.due).toBeGreaterThan(s.total);
@@ -542,28 +510,20 @@ describe('orderDiscountShareForReturn', () => {
   ];
 
   it('returning 1 of 2 units → share 650 of 1300', () => {
-    expect(orderDiscountShareForReturn(twoUnits(0), 1300, [{ orderLineId: 1, quantity: 1 }])).toBe(
-      650
-    );
+    expect(orderDiscountShareForReturn(twoUnits(0), 1300, [{ orderLineId: 1, quantity: 1 }])).toBe(650);
   });
 
   it('a second return of the last unit, with the discount now 650 → share 650', () => {
-    expect(orderDiscountShareForReturn(twoUnits(1), 650, [{ orderLineId: 1, quantity: 1 }])).toBe(
-      650
-    );
+    expect(orderDiscountShareForReturn(twoUnits(1), 650, [{ orderLineId: 1, quantity: 1 }])).toBe(650);
   });
 
   it('rounds half-up to integer cents', () => {
     // 1001 × 4000 / 8000 = 500.5 → 501
-    expect(orderDiscountShareForReturn(twoUnits(0), 1001, [{ orderLineId: 1, quantity: 1 }])).toBe(
-      501
-    );
+    expect(orderDiscountShareForReturn(twoUnits(0), 1001, [{ orderLineId: 1, quantity: 1 }])).toBe(501);
   });
 
   it('is 0 when the subtotal is 0 or nothing is returned', () => {
-    expect(orderDiscountShareForReturn(twoUnits(2), 1300, [{ orderLineId: 1, quantity: 1 }])).toBe(
-      0
-    );
+    expect(orderDiscountShareForReturn(twoUnits(2), 1300, [{ orderLineId: 1, quantity: 1 }])).toBe(0);
     expect(orderDiscountShareForReturn(twoUnits(0), 1300, [])).toBe(0);
   });
 
@@ -576,7 +536,7 @@ describe('orderDiscountShareForReturn', () => {
       orderDiscountShareForReturn(lines, 500, [
         { orderLineId: 1, quantity: 5 },
         { orderLineId: 99, quantity: 1 },
-      ])
+      ]),
     ).toBe(500);
     expect(orderDiscountShareForReturn(lines, 1000, [{ orderLineId: 2, quantity: 1 }])).toBe(250);
   });
@@ -594,5 +554,15 @@ describe('allocateProportionally', () => {
     // Exact tie between the two remainders: the extra cent goes to index 0.
     expect(allocateProportionally(499999500, [999998999, 1])).toEqual([499999500, 0]);
     expect(allocateProportionally(999999999, [1_000_000_000, 7])).toEqual([999999992, 7]);
+  });
+
+  it('returns zeros, never throws, when an input is not a non-negative safe integer', () => {
+    expect(allocateProportionally(10.5, [1, 1])).toEqual([0, 0]);
+    expect(allocateProportionally(10, [1.5, 1])).toEqual([0, 0]);
+    expect(allocateProportionally(10, [Number.NaN, 1])).toEqual([0, 0]);
+    expect(allocateProportionally(10, [-1, 3])).toEqual([0, 0]);
+    expect(allocateProportionally(10, [Number.POSITIVE_INFINITY, 1])).toEqual([0, 0]);
+    expect(allocateProportionally(Number.NaN, [1, 1])).toEqual([0, 0]);
+    expect(allocateProportionally(10, [Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER])).toEqual([0, 0]);
   });
 });
