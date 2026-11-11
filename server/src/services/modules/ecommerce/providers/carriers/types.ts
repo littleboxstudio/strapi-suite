@@ -27,13 +27,29 @@ export type CarrierTrackingEvent = {
   delivered: boolean;
 };
 
+/**
+ * Passed by the services on every shipment call: adapters hand `timeoutMs` to `timedFetch`
+ * (which assumes 10 s otherwise). A timed-out write must be thrown as `uncertain`.
+ */
+export type CarrierCallOptions = { timeoutMs: number };
+
 export type CarrierAdapter = {
   quote?(req: ShippingQuoteRequest, rt: ProviderRuntime): Promise<ShippingOption[]>;
-  createShipment?(req: CarrierShipmentRequest, rt: ProviderRuntime): Promise<CarrierShipmentResult>;
-  cancelShipment?(externalId: string, rt: ProviderRuntime): Promise<void>;
-  getLabel?(externalId: string, rt: ProviderRuntime): Promise<{ filename: string; content: Buffer }>;
+  /** Carriers deduplicate by `ourReference`, so a retry after an uncertain outcome is safe. */
+  createShipment?(
+    req: CarrierShipmentRequest,
+    rt: ProviderRuntime,
+    opts?: CarrierCallOptions
+  ): Promise<CarrierShipmentResult>;
+  cancelShipment?(externalId: string, rt: ProviderRuntime, opts?: CarrierCallOptions): Promise<void>;
+  getLabel?(
+    externalId: string,
+    rt: ProviderRuntime,
+    opts?: CarrierCallOptions
+  ): Promise<{ filename: string; content: Buffer }>;
   track?(
     s: { externalId: string; trackingCode: string | null },
-    rt: ProviderRuntime
+    rt: ProviderRuntime,
+    opts?: CarrierCallOptions
   ): Promise<CarrierTrackingEvent[]>;
 };

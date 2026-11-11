@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import EcommerceOrderService from '../../../server/src/services/modules/ecommerce/orders';
+import EcommerceShipmentService from '../../../server/src/services/modules/ecommerce/shipments';
 import EcommerceStoreCreditService from '../../../server/src/services/modules/ecommerce/storeCredits';
 import EcommerceRefundService from '../../../server/src/services/modules/ecommerce/refunds';
 import EcommercePaymentService from '../../../server/src/services/modules/ecommerce/payments';
@@ -32,6 +33,8 @@ const UIDS = {
   storeCredit: `${P}store-credit`,
   storeCreditMovement: `${P}store-credit-movement`,
   stripeSession: `${P}stripe-session`,
+  shipment: `${P}shipment`,
+  shipmentEvent: `${P}shipment-event`,
 };
 
 const RELATIONS: FakeRelations = {
@@ -52,6 +55,11 @@ const RELATIONS: FakeRelations = {
     customer: [UIDS.customer, 'customer', 'manyToOne'],
   },
   [UIDS.payment]: { order: [UIDS.order, 'order', 'manyToOne'] },
+  [UIDS.shipment]: { order: [UIDS.order, 'order', 'manyToOne'] },
+  [UIDS.shipmentEvent]: {
+    shipment: [UIDS.shipment, 'shipment', 'manyToOne'],
+    order: [UIDS.order, 'order', 'manyToOne'],
+  },
 };
 
 function setup() {
@@ -139,6 +147,7 @@ function setup() {
   services.EcommerceEventBus = { collector: bus.collector, subscribe: bus.subscribe };
   const orders = EcommerceOrderService({ strapi });
   services.EcommerceOrderService = orders;
+  services.EcommerceShipmentService = EcommerceShipmentService({ strapi });
   services.EcommerceStoreCreditService = EcommerceStoreCreditService({ strapi });
   services.EcommerceRefundService = EcommerceRefundService({ strapi });
   const payments = EcommercePaymentService({ strapi });
