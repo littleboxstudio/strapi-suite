@@ -52,3 +52,23 @@ Lista de itens adiados nas revisões do plano 1 (Base e Produtos), a considerar 
 - Task 9: minor (deferred): unknown test code shows raw i18n id; delete confirm doesn't name method; switch label shows 'Active' even when off (browser)
 - Task 10: minor (deferred, SHOULD FIX in final wave): no unsaved-changes guard on back/route leave/tab close in template editor (useBlocker + beforeunload)
 - Task 10: minor (deferred): stale preview on locale switch (bump counter); test email sends saved version (warn if dirty)
+
+## Plano 3 (Clientes e Encomendas): pendentes
+- **Corrida rara:** uma gravação de produto que apaga uma variante ao mesmo tempo que uma encomenda é criada pode registar um ORDER_DEDUCT sem desconto (com aviso no log).
+- **Cobertura de pagamentos:** substituir uma linha paga por outra do mesmo preço deixa a nova sem cobertura (a 'fatura total' do plano 5 tem de tratar isto).
+- **Pesquisa por e-mail:** a pesquisa de encomendas usa o e-mail atual do cliente e não o snapshot da encomenda.
+- **Eventos:** são entregues em memória depois do commit, sem outbox; uma falha do processo entre o commit e o envio pode perder um e-mail.
+- Task 1: minor (deferred): monetary integers/payment enums without defaults — services must always set them
+- Task 3: minor (deferred): two non-gift lines of same variant ambiguity; unknown orderLineId uses INVALID_QUANTITY code
+- Task 4: minor (deferred): SKU swap between two existing variants in one save hits unique index; PG nested unique race aborts outer trx (fail-safe)
+- Task 5: minor (deferred): ordersCount loads ids per page; update is full replace
+- Task 6: minor (deferred, SHOULD FIX in final wave): carriers quoted sequentially without timeout (allSettled + per-quoter timeout → TIMEOUT failure); validate quoter output (integer price ≥0, force providerId); active carrier without quoter/runtime → NOT_CONFIGURED failure; handler error.message logging may leak personal data (log name/code only)
+- Task 6: minor (deferred): manual method with empty name; test gaps
+- Task 8: minor (deferred): float overflow in allocation beyond ~€950k orders
+- Task 9: minor (deferred): quote subtotal is full order subtotal (revisit with shipments); line errors hidden by quote failure in apply (preview fixed)
+- Task 10: minor (deferred, SHOULD FIX in final wave): quoteForLines accepts inactive variants (check c.active); page=-1 passes through
+- Task 10: minor (deferred): LIKE wildcards in search term; replay returns 201; test gaps
+- Task 11: minor (deferred): RBAC isLoading flash; CustomerOrdersSection state not reset on customer change (key=); noResults key reuse; no gateway test
+- Task 12: minor (deferred): postalCode not in quote signature; addLine no stock cap; quote error map merge; OrderCreatePage 481 lines
+- Task 13: minor (deferred): ConfirmModal lacks onOpenChange (remount workaround); ACTION_NOT_AVAILABLE in AddPayment doesn't refetch; server history descriptions in English with 'cents'
+- Task 14: minor (deferred): supplementary modal may show stale order if refetch fails; modal width not set explicitly; INVALID_AMOUNT on shipping.quote message wording
