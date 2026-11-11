@@ -86,10 +86,16 @@ export function draftToManualMethodInput(
 }
 
 /** Server errors keyed like the draft errors (`rates.<zoneId>` kept per zone); first error wins. */
-export function manualMethodErrorMap(errors: SettingsFieldError[]): ManualMethodErrors {
+export function manualMethodErrorMap(
+  errors: SettingsFieldError[],
+  zones?: Pick<ShippingZone, 'id'>[]
+): ManualMethodErrors {
+  const shown = zones ? new Set(zones.map((z) => `rates.${z.id}`)) : null;
   const map: ManualMethodErrors = {};
   errors.forEach(({ path, code }) => {
-    if (!(path in map)) map[path] = code;
+    // A zone the form does not show (deleted meanwhile) reports on the rates as a whole.
+    const key = shown && path.startsWith('rates.') && !shown.has(path) ? 'rates' : path;
+    if (!(key in map)) map[key] = code;
   });
   return map;
 }

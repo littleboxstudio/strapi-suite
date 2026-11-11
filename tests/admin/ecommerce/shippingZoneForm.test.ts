@@ -3,6 +3,7 @@ import {
   draftToZoneInput,
   emptyZoneDraft,
   zoneCountriesSummary,
+  zoneCountryChoices,
   zoneErrorMap,
   zoneToDraft,
 } from '../../../admin/src/ecommerce/utils/shippingZoneForm';
@@ -50,5 +51,18 @@ describe('shipping zone form', () => {
 
   it('lists the country names of a zone', () => {
     expect(zoneCountriesSummary({ countries: ['PT', 'ES'] }, 'en')).toBe('Portugal, Spain');
+  });
+});
+
+describe('zoneCountryChoices', () => {
+  const zones = [
+    { id: 1, countries: ['PT'] },
+    { id: 2, countries: ['ES', 'AD'] },
+  ];
+  it('offers the markets not held by another zone', () => {
+    expect([...zoneCountryChoices(['PT', 'ES', 'FR'], null, zones)]).toEqual(['FR']);
+  });
+  it('keeps the zone own countries, even outside the markets', () => {
+    expect([...zoneCountryChoices(['PT', 'ES', 'FR'], zones[1], zones)].sort()).toEqual(['AD', 'ES', 'FR']);
   });
 });

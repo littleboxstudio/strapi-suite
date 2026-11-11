@@ -108,7 +108,7 @@ const ManualMethodModal = ({ method, locales, defaultLocale, zones, onClose, onS
     } catch (err) {
       const fieldErrors = extractFieldErrors(err);
       if (fieldErrors) {
-        showErrors(manualMethodErrorMap(fieldErrors));
+        showErrors(manualMethodErrorMap(fieldErrors, zones));
         toggleNotification({ type: 'warning', message: t('ecommerce.settings.errors.fix') });
       } else {
         toggleNotification({ type: 'danger', message: t('ecommerce.settings.saveError') });

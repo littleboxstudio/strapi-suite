@@ -26,6 +26,7 @@ import {
   isIntegerText,
   type IntegrationFormValues,
   validateIntegrationForm,
+  showsAsRequired,
 } from '../../utils/integrationForm';
 import type { IntegrationView, ProviderField, ShippingZone } from '../../settingsTypes';
 
@@ -78,7 +79,7 @@ const IntegrationConfigModal = ({
 
   const save = async () => {
     if (saving) return;
-    const local = validateIntegrationForm(integration.fields, values);
+    const local = validateIntegrationForm(integration.fields, values, integration.active);
     if (Object.keys(local).length) {
       setErrors(local);
       toggleNotification({ type: 'warning', message: t('ecommerce.settings.errors.fix') });
@@ -214,6 +215,7 @@ const IntegrationConfigModal = ({
         return (
           <TextInput
             type={field.format === 'email' ? 'email' : 'text'}
+            placeholder={typeof field.default === 'string' ? field.default : undefined}
             value={typeof value === 'string' ? value : ''}
             hasError={hasError}
             onChange={(e: any) => setValue(field.key, e.target.value)}
@@ -254,7 +256,7 @@ const IntegrationConfigModal = ({
               <Field.Root
                 key={field.key}
                 name={field.key}
-                required={field.required}
+                required={showsAsRequired(field)}
                 error={
                   errors[field.key]
                     ? t(`ecommerce.settings.errors.${errors[field.key]}`)

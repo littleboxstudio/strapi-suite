@@ -155,6 +155,7 @@ const ShippingZonesSection = ({ zones, markets, readOnly, onChange }: Props) => 
         <ShippingZoneModal
           zone={editing.zone}
           markets={markets}
+          zones={zones}
           onClose={() => setEditing(null)}
           onSaved={onSaved}
         />
