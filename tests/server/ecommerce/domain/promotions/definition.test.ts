@@ -137,6 +137,26 @@ describe('validatePromotionInput', () => {
     };
     expect(codes(valid({ benefits: [b] }))).toContain('benefits.0.get.variantIds:required');
   });
+  it('allows at most one GIFT benefit per promotion (duplicate_gift on the second)', () => {
+    const gift = (variantIds: number[]) => ({
+      type: 'BUY_X_GET_Y',
+      buy: { target: { productIds: [1], variantIds: [] }, quantity: 2, minAmount: null },
+      get: { mode: 'GIFT', variantIds, quantity: 1 },
+      reward: { kind: 'FREE' },
+    });
+    const inCart = {
+      type: 'BUY_X_GET_Y',
+      buy: { target: { productIds: [1], variantIds: [] }, quantity: 2, minAmount: null },
+      get: { mode: 'IN_CART', target: { productIds: [1], variantIds: [] }, quantity: 1 },
+      reward: { kind: 'FREE' },
+    };
+    expect(codes(valid({ benefits: [gift([5]), inCart, gift([6, 7])] }))).toEqual(['benefits.2:duplicate_gift']);
+    expect(codes(valid({ benefits: [gift([5]), gift([6]), gift([7])] }))).toEqual([
+      'benefits.1:duplicate_gift',
+      'benefits.2:duplicate_gift',
+    ]);
+    expect(codes(valid({ benefits: [gift([5]), inCart, { type: 'ORDER_PERCENT', percent: 10 }] }))).toEqual([]);
+  });
   it('is strict about boolean flags', () => {
     expect(codes(valid({ active: 'yes' }))).toContain('active:invalid');
     expect(codes(valid({ stacking: { exclusive: 'true' } }))).toContain('stacking.exclusive:invalid');

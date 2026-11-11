@@ -241,8 +241,15 @@ const OrderQuotePanel = ({
                       }
                     >
                       {s.variants.map((v) => (
-                        <SingleSelectOption key={v.variantId} value={String(v.variantId)}>
-                          {variantLabel(v.variantId)}
+                        // The engine skips an unavailable gift (inactive or short of stock).
+                        <SingleSelectOption
+                          key={v.variantId}
+                          value={String(v.variantId)}
+                          disabled={!v.available}
+                        >
+                          {v.available
+                            ? variantLabel(v.variantId)
+                            : t('ecommerce.orders.quote.giftUnavailable', { name: variantLabel(v.variantId) })}
                         </SingleSelectOption>
                       ))}
                     </SingleSelect>

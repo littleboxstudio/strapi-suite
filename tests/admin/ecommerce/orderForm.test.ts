@@ -518,6 +518,7 @@ describe('order quote', () => {
       'ecommerce.orders.quote.codeErrors.too_many',
       'ecommerce.orders.quote.codeErrors.required',
       'ecommerce.orders.quote.gift',
+      'ecommerce.orders.quote.giftUnavailable',
       'ecommerce.orders.quote.error',
       'ecommerce.orders.quote.loading',
       'ecommerce.orders.quote.awaitingShipping',

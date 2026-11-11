@@ -71,6 +71,7 @@ import {
 import { createOrderPricing } from './orderPricing';
 import {
   MAX_PROMOTION_CODES,
+  isRecord,
   normalizeLines,
   normalizePromotionFields,
   quantitiesByVariant,
@@ -108,6 +109,7 @@ export type CreateOrderInput = {
   emailVerified?: boolean;
 };
 
+/** An applied promotion as the order stored it, with the state of its redemption. */
 export type OrderPromotionView = AppliedPromotion & {
   redemptionStatus: 'RESERVED' | 'RELEASED' | null;
 };
@@ -367,9 +369,6 @@ const toPage = (page: unknown): number => {
 };
 const byPosition = (a: any, b: any) =>
   (a.position ?? 0) - (b.position ?? 0) || (a.id ?? 0) - (b.id ?? 0);
-
-const isRecord = (v: unknown): v is Record<string, any> =>
-  !!v && typeof v === 'object' && !Array.isArray(v);
 
 /** The promotions an order stored (`{ applied, … }`); a legacy `[]` reads as none. */
 const appliedOf = (order: any): AppliedPromotion[] =>

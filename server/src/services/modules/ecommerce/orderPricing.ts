@@ -111,6 +111,10 @@ export type PricingPromotions = {
   ): Promise<Map<number, GiftOption>>;
 };
 
+/**
+ * `strapi`, `service` and `getDefaultLocale` are not used by the current pricing code: they are
+ * part of the plan-7 interface (C16), reserved for the storefront callers.
+ */
 export type OrderPricingDeps = {
   strapi: Core.Strapi;
   loadCatalog(variantIds: number[], locale: string): Promise<Map<number, CatalogVariant>>;
