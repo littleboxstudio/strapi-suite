@@ -37,6 +37,8 @@ const MarketsTable = ({ value, countries, readOnly, error, onChange }: Props) =>
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(`ecommerce.settings.${id}`) }, values);
   const [pick, setPick] = useState<string>('');
+  /** Remounts the picker after an add so its typed text is cleared too. */
+  const [pickerKey, setPickerKey] = useState(0);
 
   const rows = useMemo(() => marketRows(value, countries, locale), [value, countries, locale]);
   const available = useMemo(
@@ -47,6 +49,7 @@ const MarketsTable = ({ value, countries, readOnly, error, onChange }: Props) =>
   const add = () => {
     onChange(addMarket(value, pick));
     setPick('');
+    setPickerKey((k) => k + 1);
   };
 
   return (
@@ -58,6 +61,7 @@ const MarketsTable = ({ value, countries, readOnly, error, onChange }: Props) =>
           <Flex gap={2} alignItems="flex-end" wrap="wrap">
             <Box style={{ flex: 1, minWidth: 240 }}>
               <Combobox
+                key={pickerKey}
                 aria-label={t('markets.select')}
                 placeholder={t('markets.select')}
                 value={pick}
