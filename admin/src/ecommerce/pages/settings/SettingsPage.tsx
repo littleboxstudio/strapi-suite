@@ -11,6 +11,7 @@ import { EmailTemplatesSection } from './EmailTemplatesSection';
 import { SETTINGS_SECTIONS, type SettingsSection } from '../../utils/settingsSections';
 import { StorefrontSettings } from './StorefrontSettings';
 import StripeWebhookInfo from '../../components/settings/StripeWebhookInfo';
+import StickyTabs from '../../components/StickyTabs';
 
 export { SETTINGS_SECTIONS };
 export type { SettingsSection };
@@ -46,19 +47,21 @@ const SettingsPage = () => {
         {t('ecommerce.settings.title')}
       </Typography>
 
-      <Tabs.Root
-        variant="simple"
-        value={section}
-        onValueChange={(value: string) => navigate(`${basePath}/${value}`)}
-      >
-        <Tabs.List aria-label={t('ecommerce.settings.title')}>
-          {SETTINGS_SECTIONS.map((key) => (
-            <Tabs.Trigger key={key} value={key}>
-              {t(`ecommerce.settings.sections.${key}`)}
-            </Tabs.Trigger>
-          ))}
-        </Tabs.List>
-      </Tabs.Root>
+      <StickyTabs>
+        <Tabs.Root
+          variant="simple"
+          value={section}
+          onValueChange={(value: string) => navigate(`${basePath}/${value}`)}
+        >
+          <Tabs.List aria-label={t('ecommerce.settings.title')}>
+            {SETTINGS_SECTIONS.map((key) => (
+              <Tabs.Trigger key={key} value={key}>
+                {t(`ecommerce.settings.sections.${key}`)}
+              </Tabs.Trigger>
+            ))}
+          </Tabs.List>
+        </Tabs.Root>
+      </StickyTabs>
 
       {isLoading ? (
         <Flex justifyContent="center" padding={8}>
@@ -73,7 +76,9 @@ const SettingsPage = () => {
           )}
           {section === 'general' && <GeneralSettings readOnly={!canUpdate} />}
           {section === 'storefront' && <StorefrontSettings readOnly={!canUpdate} />}
-          {category && <IntegrationsSection key={category} category={category} readOnly={!canUpdate} />}
+          {category && (
+            <IntegrationsSection key={category} category={category} readOnly={!canUpdate} />
+          )}
           {section === 'payments' && <StripeWebhookInfo />}
           {section === 'email-templates' && <EmailTemplatesSection />}
         </>

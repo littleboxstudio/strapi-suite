@@ -2,7 +2,16 @@ import { ReactNode } from 'react';
 import { useIntl } from 'react-intl';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
-import { Main, Box, Flex, Button, Typography, Breadcrumbs, Crumb, CrumbLink } from '@strapi/design-system';
+import {
+  Main,
+  Box,
+  Flex,
+  Button,
+  Typography,
+  Breadcrumbs,
+  Crumb,
+  CrumbLink,
+} from '@strapi/design-system';
 import { PriceTag, ShoppingCart, User, Gift, Cog } from '@strapi/icons';
 import config from '../core/config';
 import UpdateSetting from '../core/usecases/updateSetting';
@@ -31,6 +40,7 @@ const TopBar = styled.header`
   align-items: center;
   gap: 24px;
   box-sizing: border-box;
+  flex-shrink: 0;
   height: ${TOP_BAR_HEIGHT}px;
   padding: 12px 12px 12px 20px;
   background: ${({ theme }) => theme.colors.neutral0};
@@ -52,15 +62,43 @@ const LogoSlot = styled.div`
   }
 `;
 
-/** Left menu: flush with the left edge, from the top bar to the bottom of the page. */
+/** Fills the viewport; only the side menu and the content scroll, the top bar stays put. */
+const Shell = styled(Main)`
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100vh;
+  padding: 0;
+  overflow: hidden;
+`;
+
+/** Everything below the top bar. */
+const Body = styled.div`
+  display: flex;
+  flex: 1;
+  min-height: 0;
+`;
+
+/** Left menu: flush with the left edge, from the top bar to the bottom of the page; scrolls on its own if needed. */
 const SideNav = styled.nav`
   box-sizing: border-box;
   width: 220px;
   flex-shrink: 0;
-  min-height: calc(100vh - ${TOP_BAR_HEIGHT}px);
+  overflow-y: auto;
   padding: 12px 8px;
   background: ${({ theme }) => theme.colors.neutral0};
   border-right: 1px solid ${({ theme }) => theme.colors.neutral150};
+`;
+
+/**
+ * The only scrolling area for page content. Sticky children (`top: 0`) stop right under the top bar —
+ * see `StickyTabs` in `components/StickyTabs.tsx`.
+ */
+const Content = styled.div`
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 32px 40px;
 `;
 
 const NavItem = styled(Link)<{ $active: boolean }>`
@@ -130,7 +168,7 @@ const EcommerceLayout = ({ children }: { children: ReactNode }) => {
   );
 
   return (
-    <Main style={{ width: '100%', padding: 0, minHeight: '100vh' }}>
+    <Shell>
       <TopBar>
         <LogoSlot>
           <Logo />
@@ -156,7 +194,7 @@ const EcommerceLayout = ({ children }: { children: ReactNode }) => {
       </TopBar>
 
       {!active && (
-        <Box padding={10}>
+        <Box padding={10} style={{ flex: 1, overflowY: 'auto' }}>
           <Flex
             direction="column"
             alignItems="center"
@@ -183,7 +221,7 @@ const EcommerceLayout = ({ children }: { children: ReactNode }) => {
       )}
 
       {active && (
-        <Flex alignItems="stretch">
+        <Body>
           <SideNav aria-label={formatMessage({ id: getTranslation(`module.${module}.name`) })}>
             <Flex direction="column" alignItems="stretch" gap={1}>
               {menu.map(({ key, icon: Icon }) => (
@@ -199,10 +237,10 @@ const EcommerceLayout = ({ children }: { children: ReactNode }) => {
               ))}
             </Flex>
           </SideNav>
-          <Box style={{ flex: 1, minWidth: 0, padding: '32px 40px' }}>{children}</Box>
-        </Flex>
+          <Content>{children}</Content>
+        </Body>
       )}
-    </Main>
+    </Shell>
   );
 };
 
