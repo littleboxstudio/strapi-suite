@@ -356,7 +356,7 @@ const ProductEditPage = () => {
           </Flex>
           {productId !== undefined && (
             <Button
-              variant="danger"
+              variant="danger-light"
               onClick={askDelete}
               loading={deleting}
               disabled={saving || translating}
