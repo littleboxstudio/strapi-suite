@@ -466,6 +466,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     status: r.status,
     amount: num(r.amount),
     kind: r.kind === 'STORE_CREDIT' ? 'STORE_CREDIT' : 'MONEY',
+    promoted: r.metadata?.promotedFromFailed === true,
   });
 
   const create = async (input: CreateOrderInput, ctx: CreateOrderContext) => {

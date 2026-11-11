@@ -158,11 +158,16 @@ const EcommerceStoreCreditService = ({ strapi }: { strapi: Core.Strapi }) => {
       populate: { storeCredit: true },
     });
 
-  /** Atomic `balance = balance + delta`, guarded by `balance >= -delta` when decrementing. */
-  const changeBalance = async (trx: any, id: number, delta: number): Promise<number> => {
+  /** Atomic `balance = balance + delta`, guarded by `balance >= -delta` when decrementing and by `guard` (column values). */
+  const changeBalance = async (
+    trx: any,
+    id: number,
+    delta: number,
+    guard: Record<string, unknown> = {}
+  ): Promise<number> => {
     const { tableName } = strapi.db.metadata.get(uids().storeCredit);
     // getConnection applies the configured `connection.schema` (PostgreSQL non-default schema).
-    const q = strapi.db.getConnection(tableName).where({ id });
+    const q = strapi.db.getConnection(tableName).where({ ...guard, id });
     const affected =
       delta < 0
         ? await q.where('balance', '>=', -delta).decrement('balance', -delta).transacting(trx)
@@ -375,8 +380,8 @@ const EcommerceStoreCreditService = ({ strapi }: { strapi: Core.Strapi }) => {
           .query(u.storeCredit)
           .findOne({ where: { id: input.storeCreditId } });
         if (!credit) throw new EcommerceNotFoundError('Store credit not found');
-        const expired = !!credit.expiresAt && Date.parse(credit.expiresAt) <= Date.now();
-        if (credit.status !== 'ACTIVE' || expired) {
+        // A VOID or expired credit is never topped up: a new credit carries the value instead.
+        const reissue = async (): Promise<RestoreStoreCreditResult> => {
           const row = await createCredit(
             {
               customerId: idOf(credit.customer),
@@ -398,8 +403,16 @@ const EcommerceStoreCreditService = ({ strapi }: { strapi: Core.Strapi }) => {
             code: row.code,
             reissuedFrom: { id: credit.id, code: credit.code },
           };
+        };
+        const expired = !!credit.expiresAt && Date.parse(credit.expiresAt) <= Date.now();
+        if (credit.status !== 'ACTIVE' || expired) return reissue();
+        // Conditional on ACTIVE: a void committed after the read leaves 0 rows, and the value
+        // goes to a new credit instead of a dead balance.
+        if ((await changeBalance(trx, credit.id, input.amount, { status: 'ACTIVE' })) === 0) {
+          return reissue();
         }
-        // The movement first: a concurrent restore with the same key fails on the index.
+        // The movement after the guarded increment, in the same transaction: a concurrent
+        // restore with the same key fails on the index and rolls the increment back.
         // (Pre-checked above and serialized by the order lock; on PostgreSQL a violation here
         // would abort a caller's transaction.)
         await strapi.db.query(u.storeCreditMovement).create({
@@ -414,9 +427,6 @@ const EcommerceStoreCreditService = ({ strapi }: { strapi: Core.Strapi }) => {
             actor: input.actor ?? null,
           },
         });
-        if ((await changeBalance(trx, credit.id, input.amount)) === 0) {
-          throw new EcommerceNotFoundError('Store credit not found');
-        }
         return { applied: true, storeCreditId: credit.id, code: credit.code, reissuedFrom: null };
       });
     } catch (err) {

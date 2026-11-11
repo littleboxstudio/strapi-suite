@@ -38,6 +38,8 @@ const SYSTEM = 'system';
 const IN_PROGRESS = 'IN_PROGRESS';
 /** The template data could not be built (order/settings load failed); resend rebuilds it. */
 const PREPARE_FAILED = 'PREPARE_FAILED';
+/** `REFUND_FAILED` sources that never e-mail the customer. */
+const SILENT_REFUND_FAILURES = ['ADMIN_MARKED', 'STRIPE_REVERSED'];
 /** Payload key holding the source event of a PREPARE_FAILED row. */
 const SOURCE_EVENT = 'sourceEvent';
 
@@ -321,8 +323,11 @@ const EcommerceNotificationService = ({ strapi }: { strapi: Core.Strapi }) => {
 
   const handle = async (event: DomainEvent): Promise<void> => {
     try {
-      // An admin marked a refund failed: what the customer is told is the admin's call.
-      if (event?.type === 'REFUND_FAILED' && (event.payload as any)?.source === 'ADMIN_MARKED') return;
+      // An admin marked a refund failed, or Stripe reversed a completed one: what the customer
+      // is told is the admin's call.
+      if (event?.type === 'REFUND_FAILED' && SILENT_REFUND_FAILURES.includes((event.payload as any)?.source)) {
+        return;
+      }
       const type = templateForEvent(event);
       if (!type) return;
       const uniqueKey = notificationKey(event.id, type);
@@ -414,7 +419,18 @@ const EcommerceNotificationService = ({ strapi }: { strapi: Core.Strapi }) => {
 let queue: Promise<void> = Promise.resolve();
 
 const enqueue = (task: () => Promise<void>, onError: (err: unknown) => void): void => {
-  queue = queue.then(task).catch(onError);
+  // The chain must never stay rejected (every later e-mail would be skipped): `onError` is
+  // guarded, and a trailing catch absorbs anything else.
+  queue = queue
+    .then(task)
+    .catch((err) => {
+      try {
+        onError(err);
+      } catch {
+        // A failing error handler must not stall the queue.
+      }
+    })
+    .catch(() => undefined);
 };
 
 /** Test helper: resolves once every queued notification (including ones queued meanwhile) ran. */

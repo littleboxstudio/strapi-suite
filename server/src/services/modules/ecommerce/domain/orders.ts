@@ -112,6 +112,8 @@ export type RefundLike = {
   status: 'COMPLETED' | string;
   amount: number;
   kind: 'MONEY' | 'STORE_CREDIT';
+  /** Completed by Stripe after being held FAILED (its amount may have been refunded again). */
+  promoted?: boolean;
 };
 
 export type FinancialSummary = {
@@ -125,6 +127,11 @@ export type FinancialSummary = {
   net: number;
   due: number;
   excess: number;
+  /**
+   * Refunded beyond what was received over the total, because a refund held FAILED was later
+   * completed by Stripe after its amount had been refunded again. Never turned into `due`.
+   */
+  overRefunded: number;
 };
 
 export const financialSummary = (
@@ -140,11 +147,20 @@ export const financialSummary = (
     else if (p.status === 'PENDING') pendingPayments += p.amount;
   }
   let refunded = 0;
+  let promoted = 0;
   for (const r of refunds) {
-    if (r.status === 'COMPLETED') refunded += r.amount;
+    if (r.status !== 'COMPLETED') continue;
+    refunded += r.amount;
+    if (r.promoted) promoted += r.amount;
   }
   const net = paid - refunded;
   const effectiveTotal = opts.orderCancelled ? 0 : total;
+  // Only a promoted refund can over-refund: any other refund was capped by the excess when it
+  // was made (a later total increase is a real amount due).
+  const overRefunded = Math.max(
+    0,
+    Math.min(promoted, refunded - Math.max(0, paid - effectiveTotal))
+  );
   return {
     orderTotal: total,
     total: effectiveTotal,
@@ -152,8 +168,9 @@ export const financialSummary = (
     pendingPayments,
     refunded,
     net,
-    due: Math.max(0, effectiveTotal - net),
+    due: Math.max(0, effectiveTotal - (net + overRefunded)),
     excess: Math.max(0, net - effectiveTotal),
+    overRefunded,
   };
 };
 

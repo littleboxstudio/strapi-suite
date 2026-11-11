@@ -300,7 +300,14 @@ describe('financialSummaryRows', () => {
     net: 10000,
     due: 1700,
     excess: 0,
+    overRefunded: 0,
   };
+
+  it('F4: shows an over-refunded row only when > 0', () => {
+    expect(financialSummaryRows(totals, summary).some((r) => r.key === 'overRefunded')).toBe(false);
+    const rows = financialSummaryRows(totals, { ...summary, refunded: 2000, net: 8000, due: 0, overRefunded: 1000 });
+    expect(rows.find((r) => r.key === 'overRefunded')).toEqual({ key: 'overRefunded', amount: 1000 });
+  });
 
   it('lists every amount of the requirement example, discounts as negatives', () => {
     expect(financialSummaryRows(totals, summary)).toEqual([

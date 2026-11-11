@@ -76,6 +76,7 @@ export default interface EcommerceOrdersGateway {
   fetchRefunds(orderId: number): Promise<RefundView[]>;
   createRefund(orderId: number, input: CreateRefundInput): Promise<RefundView[]>;
   resumeRefund(refundId: number): Promise<RefundView>;
+  refreshRefund(refundId: number): Promise<RefundView>;
   markRefundFailed(refundId: number, note?: string): Promise<RefundView>;
 
   // Notifications (read: orders.read; resend: orders.manage)
@@ -195,6 +196,10 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
 
   async resumeRefund(refundId: number): Promise<RefundView> {
     return this.httpClient.post(`${this.base}/refunds/${refundId}/resume`, {});
+  }
+
+  async refreshRefund(refundId: number): Promise<RefundView> {
+    return this.httpClient.post(`${this.base}/refunds/${refundId}/refresh`, {});
   }
 
   async markRefundFailed(refundId: number, note?: string): Promise<RefundView> {

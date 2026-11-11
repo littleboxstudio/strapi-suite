@@ -22,10 +22,11 @@ import { getTranslation } from '../../../core/utils/getTranslation';
 import ConfirmModal from '../../../components/ConfirmModal';
 import FetchRefunds from '../../usecases/orders/fetchRefunds';
 import ResumeRefund from '../../usecases/orders/resumeRefund';
+import RefreshRefund from '../../usecases/orders/refreshRefund';
 import MarkRefundFailed from '../../usecases/orders/markRefundFailed';
 import { formatCents } from '../../utils/money';
 import { actorLabel, apiErrorMessageId } from '../../utils/orderDetail';
-import { MAX_LONG_TEXT, isStuckStripeRefund } from '../../utils/refundForm';
+import { MAX_LONG_TEXT, isRefreshableStripeRefund, isStuckStripeRefund } from '../../utils/refundForm';
 import type { OrderRefund, RefundView } from '../../orderTypes';
 
 type Props = {
@@ -34,7 +35,7 @@ type Props = {
   summaries: OrderRefund[];
   /** Changes whenever the order was reloaded: the list is fetched again. */
   refreshKey: number;
-  /** `refunds.manage`: resume / mark as failed. */
+  /** `refunds.manage`: resume / mark as failed / refresh status. */
   canRefund: boolean;
   /** After resume / mark as failed (the order changed). */
   onChanged: () => void;
@@ -110,6 +111,13 @@ const RefundsTable = ({ orderId, summaries, refreshKey, canRefund, onChanged }: 
       () => new ResumeRefund().execute(r.id),
       'ecommerce.orders.refunds.stuck.resumed',
       'ecommerce.orders.refunds.stuck.resumeError'
+    );
+
+  const refreshStatus = (r: RefundView) =>
+    run(
+      () => new RefreshRefund().execute(r.id),
+      'ecommerce.orders.refunds.refreshed',
+      'ecommerce.orders.refunds.refreshError'
     );
 
   const markFailed = (r: RefundView) =>
@@ -197,6 +205,7 @@ const RefundsTable = ({ orderId, summaries, refreshKey, canRefund, onChanged }: 
         <Tbody>
           {refunds.map((r) => {
             const stuck = isStuckStripeRefund(r);
+            const refreshable = isRefreshableStripeRefund(r);
             const failure = r.status === 'FAILED' ? failureOf(r.id) : null;
             return (
               <Tr key={r.id}>
@@ -257,6 +266,11 @@ const RefundsTable = ({ orderId, summaries, refreshKey, canRefund, onChanged }: 
                           {t('ecommerce.orders.refunds.markFailed')}
                         </Button>
                       </>
+                    )}
+                    {refreshable && canRefund && (
+                      <Button size="S" variant="secondary" disabled={busy} onClick={() => refreshStatus(r)}>
+                        {t('ecommerce.orders.refunds.refresh')}
+                      </Button>
                     )}
                     <Button size="S" variant="tertiary" onClick={() => setViewing(r)}>
                       {t('ecommerce.orders.refunds.view')}

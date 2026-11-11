@@ -6,6 +6,8 @@ const stripe = vi.hoisted(() => ({
   retrieveCheckoutSession: vi.fn(),
   expireCheckoutSession: vi.fn(),
   createRefund: vi.fn(),
+  retrievePaymentIntent: vi.fn(),
+  retrieveRefund: vi.fn(),
 }));
 vi.mock('../../../server/src/services/modules/ecommerce/providers/payments/stripeClient', async (importOriginal) => {
   const actual: any = await importOriginal();
@@ -30,6 +32,7 @@ beforeEach(() => {
   stripe.createRefund.mockReset();
   stripe.expireCheckoutSession.mockReset();
   stripe.retrieveCheckoutSession.mockReset();
+  stripe.retrieveRefund.mockReset();
 });
 
 const actor = 'user:1';
@@ -342,6 +345,49 @@ describe('EcommerceRefundService.create', () => {
     expect(order(c2, o2).paymentStatus).toBe('PARTIALLY_REFUNDED');
   });
 
+  it('F2: an excess funded by store credit is never refunded as money', async () => {
+    const c = setupCommerce();
+    const orderId = await createOrder(c); // 4500
+    await issueAndPay(c, orderId, 4500);
+    order(c, orderId).total = 2500; // modified down: 2000 of excess, all voucher value
+    expect(await c.refunds.preview(orderId)).toMatchObject({ refundable: 2000, moneyRefundable: 0 });
+    expect(
+      await codesOf(
+        c.refunds.create(orderId, { method: 'MANUAL_TRANSFER', amount: 100, reason: 'OTHER', idempotencyKey: 'm' }, actor)
+      )
+    ).toEqual(['exceeds_money_refundable']);
+    expect(refundsOf(c)).toHaveLength(0);
+    const [r] = await c.refunds.create(
+      orderId,
+      { method: 'STORE_CREDIT', amount: 2000, reason: 'OTHER', idempotencyKey: 's' },
+      actor
+    );
+    expect(r).toMatchObject({ kind: 'STORE_CREDIT', status: 'COMPLETED', amount: 2000 });
+  });
+
+  it('F2: money refunds are capped by the money received minus money refunds already made', async () => {
+    const c = setupCommerce();
+    const orderId = await createOrder(c); // 4500
+    await issueAndPay(c, orderId, 3000);
+    await payManual(c, orderId, 1500);
+    order(c, orderId).total = 2500; // excess 2000; money received 1500
+    expect(await c.refunds.preview(orderId)).toMatchObject({ refundable: 2000, moneyRefundable: 1500 });
+    expect(
+      await codesOf(
+        c.refunds.create(orderId, { method: 'MANUAL_TRANSFER', amount: 1600, reason: 'OTHER', idempotencyKey: 'm1' }, actor)
+      )
+    ).toEqual(['exceeds_money_refundable']);
+    await c.refunds.create(orderId, { method: 'MANUAL_TRANSFER', amount: 1500, reason: 'OTHER', idempotencyKey: 'm2' }, actor);
+    expect(await c.refunds.preview(orderId)).toMatchObject({ refundable: 500, moneyRefundable: 0 });
+    expect(
+      await codesOf(
+        c.refunds.create(orderId, { method: 'MANUAL_TRANSFER', amount: 100, reason: 'OTHER', idempotencyKey: 'm3' }, actor)
+      )
+    ).toEqual(['exceeds_money_refundable']);
+    await c.refunds.create(orderId, { method: 'STORE_CREDIT', amount: 500, reason: 'OTHER', idempotencyKey: 's1' }, actor);
+    expect((await c.refunds.preview(orderId)).refundable).toBe(0);
+  });
+
   it('a refund never creates stock movements', async () => {
     const c = setupCommerce();
     const orderId = await createOrder(c);
@@ -518,6 +564,7 @@ describe('preview and list', () => {
       refunded: 0,
       inFlight: 0,
       refundable: 1000,
+      moneyRefundable: 1000,
       stripeRefundable: 1000,
       hasStripe: true,
     });
@@ -650,16 +697,87 @@ describe('fix round 1', () => {
       expect((await c.refunds.preview(orderId)).refundable).toBe(2000);
     });
 
-    it('a COMPLETED refund is never downgraded by a later failure event', async () => {
+    it('F1 (supersedes "never downgraded"): a COMPLETED refund Stripe later fails is reversed and refundable again', async () => {
       const c = setupCommerce();
       const orderId = await stripeOrder(c);
       stripe.createRefund.mockResolvedValueOnce({ id: 're_ok', status: 'succeeded' });
       await c.refunds.create(orderId, { method: 'STRIPE', amount: 1000, reason: 'OTHER', idempotencyKey: 'ok' }, actor);
+      const before = (await c.refunds.preview(orderId)).refundable;
       expect(await deliver(c, 'evt_late', 'refund.failed', { id: 're_ok', status: 'failed' })).toEqual({
+        duplicate: false,
+        status: 'PROCESSED',
+      });
+      expect(refundsOf(c)[0].status).toBe('FAILED');
+      expect((await c.refunds.preview(orderId)).refundable).toBe(before + 1000);
+      // A canceled event never applies to a COMPLETED refund.
+      const c2 = setupCommerce();
+      const o2 = await stripeOrder(c2);
+      stripe.createRefund.mockResolvedValueOnce({ id: 're_ok2', status: 'succeeded' });
+      await c2.refunds.create(o2, { method: 'STRIPE', amount: 1000, reason: 'OTHER', idempotencyKey: 'ok' }, actor);
+      expect(await deliver(c2, 'evt_cx', 'refund.updated', { id: 're_ok2', status: 'canceled' })).toEqual({
         duplicate: false,
         status: 'IGNORED',
       });
-      expect(refundsOf(c)[0].status).toBe('COMPLETED');
+    });
+  });
+
+  describe('F5 refunds.refresh', () => {
+    const pendingRefund = async (c: Commerce, orderId: number) => {
+      stripe.createRefund.mockResolvedValueOnce({ id: 're_mb', status: 'pending' });
+      const [r] = await c.refunds.create(
+        orderId,
+        { method: 'STRIPE', amount: 1000, reason: 'OTHER', idempotencyKey: 'rf' },
+        actor
+      );
+      expect(r).toMatchObject({ status: 'PROCESSING', externalId: 're_mb' });
+      return r;
+    };
+
+    it('reads a PROCESSING Stripe refund back from Stripe and applies its status', async () => {
+      const c = setupCommerce();
+      const orderId = await stripeOrder(c);
+      const r = await pendingRefund(c, orderId);
+
+      stripe.retrieveRefund.mockResolvedValueOnce({ id: 're_mb', status: 'requires_action', failureReason: null });
+      expect(await c.refunds.refresh(r.id, 'user:2')).toMatchObject({ id: r.id, status: 'PROCESSING' });
+      expect(stripe.retrieveRefund).toHaveBeenCalledWith('re_mb');
+
+      stripe.retrieveRefund.mockResolvedValueOnce({ id: 're_mb', status: 'succeeded', failureReason: null });
+      expect(await c.refunds.refresh(r.id, 'user:2')).toMatchObject({ status: 'COMPLETED' });
+      expect(order(c, orderId).paymentStatus).toBe('PARTIALLY_REFUNDED');
+      const h = c.tables[UIDS.orderHistory].filter((x) => x.type === 'REFUND_COMPLETED');
+      expect(h).toHaveLength(1);
+      expect(h[0].actor).toBe('user:2');
+    });
+
+    it('a failed Stripe refund becomes FAILED with Stripe failure_reason and releases its amount', async () => {
+      const c = setupCommerce();
+      const orderId = await stripeOrder(c);
+      const r = await pendingRefund(c, orderId);
+      const before = (await c.refunds.preview(orderId)).refundable;
+      stripe.retrieveRefund.mockResolvedValueOnce({ id: 're_mb', status: 'failed', failureReason: 'lost_or_stolen_card' });
+      expect(await c.refunds.refresh(r.id, 'user:2')).toMatchObject({ status: 'FAILED' });
+      expect(refundsOf(c)[0].metadata).toMatchObject({ failureReason: 'lost_or_stolen_card', stripeFailed: true });
+      expect((await c.refunds.preview(orderId)).refundable).toBe(before + 1000);
+    });
+
+    it('only a PROCESSING Stripe refund with a Stripe id can be refreshed', async () => {
+      const c = setupCommerce();
+      const orderId = await stripeOrder(c);
+      stripe.createRefund.mockRejectedValueOnce(new EcommercePaymentError('STRIPE_UNREACHABLE'));
+      await expect(
+        c.refunds.create(orderId, { method: 'STRIPE', amount: 500, reason: 'OTHER', idempotencyKey: 'u' }, actor)
+      ).rejects.toMatchObject({ code: 'STRIPE_UNREACHABLE' });
+      const noId = refundsOf(c)[0].id;
+      expect(await codesOf(c.refunds.refresh(noId, actor))).toEqual(['REFUND_NOT_REFRESHABLE']);
+      const [manual] = await c.refunds.create(
+        orderId,
+        { method: 'MANUAL_TRANSFER', amount: 500, reason: 'OTHER', idempotencyKey: 'm' },
+        actor
+      );
+      expect(await codesOf(c.refunds.refresh(manual.id, actor))).toEqual(['REFUND_NOT_REFRESHABLE']);
+      await expect(c.refunds.refresh(99999, actor)).rejects.toMatchObject({ name: 'EcommerceNotFoundError' });
+      expect(stripe.retrieveRefund).not.toHaveBeenCalled();
     });
   });
 

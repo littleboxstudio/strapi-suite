@@ -25,7 +25,7 @@ const FinancialSummary = ({ totals, summary }: { totals: OrderTotals; summary: S
               {formatMessage({ id: getTranslation(`ecommerce.orders.detail.summary.${row.key}`) })}
             </Typography>
             <Typography
-              textColor={row.key === 'excess' ? 'success600' : 'neutral800'}
+              textColor={row.key === 'excess' ? 'success600' : row.key === 'overRefunded' ? 'danger600' : 'neutral800'}
               fontWeight={row.strong ? 'bold' : undefined}
               style={{ whiteSpace: 'nowrap' }}
             >

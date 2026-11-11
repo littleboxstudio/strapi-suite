@@ -63,6 +63,8 @@ const EcommerceRefundController = ({ strapi }: { strapi: Core.Strapi }) => {
 
     resume: (ctx: any) => run(ctx, (id) => refunds().resume(id, actorOf(ctx))),
 
+    refresh: (ctx: any) => run(ctx, (id) => refunds().refresh(id, actorOf(ctx))),
+
     markFailed: (ctx: any) =>
       run(ctx, (id) => {
         const b = asObject(ctx.request?.body);

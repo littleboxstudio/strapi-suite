@@ -78,3 +78,6 @@ Lista de itens adiados nas revisões do plano 1 (Base e Produtos), a considerar 
 - P4 Task 6: minor (deferred): with Stripe disabled, cancel can't expire open checkout sessions; their PENDING payments stay on the cancelled order
 - P4 Task 6: minor (deferred): stock.ts (plan 3) uses strapi.db.connection instead of a schema-aware connection (PostgreSQL non-default schema)
 - P4 Task 6: note: refunds.resume after Stripe's ~24h idempotency window can double-refund if the first call reached Stripe — UI warns the admin
+- P4 final review: parked (F6/M3): an order modification can raise the total while a Stripe refund is PROCESSING; when it completes a `due` reappears for money being refunded (block MODIFY while hasPendingRefunds, or require after.excess >= inFlight)
+- P4 final review: parked (F10/M7): sendPaymentInstructions has no idempotency key; a double submit / network retry sends two e-mails and two history entries (UI ref guard exists; the Stripe link itself is reused)
+- P4 final review: note: refunds made directly in the Stripe dashboard (`charge.refunded` for refunds we didn't create) are ignored by design

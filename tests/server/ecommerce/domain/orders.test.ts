@@ -120,6 +120,30 @@ describe('financialSummary / derivePaymentStatus', () => {
     expect(derivePaymentStatus(s)).toBe('REFUNDED');
   });
 
+  it('F4: a refund promoted from FAILED beyond the excess is over-refunded, never an amount due', () => {
+    // total 7000, paid 10000 (excess 3000), refunded 3000 by transfer + 3000 Stripe promoted.
+    const s = financialSummary(7000, [{ status: 'COMPLETED', amount: 10000 }], [
+      { status: 'COMPLETED', amount: 3000, kind: 'MONEY' },
+      { status: 'COMPLETED', amount: 3000, kind: 'MONEY', promoted: true },
+    ]);
+    expect(s.refunded).toBe(6000);
+    expect(s.net).toBe(4000);
+    expect(s.overRefunded).toBe(3000);
+    expect(s.due).toBe(0);
+    expect(s.excess).toBe(0);
+    // A promotion within the excess is not an over-refund.
+    const ok = financialSummary(7000, [{ status: 'COMPLETED', amount: 10000 }], [
+      { status: 'COMPLETED', amount: 3000, kind: 'MONEY', promoted: true },
+    ]);
+    expect(ok.overRefunded).toBe(0);
+    // Without a promotion a refund followed by a total increase is a real amount due.
+    const due = financialSummary(9000, [{ status: 'COMPLETED', amount: 10000 }], [
+      { status: 'COMPLETED', amount: 3000, kind: 'MONEY' },
+    ]);
+    expect(due.overRefunded).toBe(0);
+    expect(due.due).toBe(2000);
+  });
+
   it('PARTIALLY_REFUNDED with due 0', () => {
     const s = financialSummary(7000, [{ status: 'COMPLETED', amount: 10000 }], [
       { status: 'COMPLETED', amount: 3000, kind: 'MONEY' },

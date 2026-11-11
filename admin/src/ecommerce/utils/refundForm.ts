@@ -75,13 +75,16 @@ export type RefundForm = {
 
 export type RefundDraft = Omit<CreateRefundInput, 'idempotencyKey'>;
 
-/** Defaults: the maximum refundable, a manual transfer, a store credit valid for 12 months. */
+/**
+ * Defaults: the maximum refundable, a manual transfer (store credit when nothing can go back as
+ * money), a store credit valid for 12 months.
+ */
 export function emptyRefundForm(preview: RefundPreview, locale: string, now = new Date()): RefundForm {
   return {
     amount: formatAmountInput(preview.refundable, locale),
     reason: '',
     description: '',
-    method: 'MANUAL_TRANSFER',
+    method: preview.moneyRefundable > 0 ? 'MANUAL_TRANSFER' : 'STORE_CREDIT',
     reference: '',
     expiresAt: addMonthsDate(now),
     conditions: '',
@@ -100,12 +103,16 @@ export function validateRefundForm(
   const errors: FieldError[] = [];
   const cents = parseMoneyToCents(form.amount);
   const stripe = form.method === 'STRIPE';
+  // Store-credit value never goes back as money (design 4.7).
+  const money = stripe || form.method === 'MANUAL_TRANSFER';
 
   if (stripe && !preview.hasStripe) errors.push({ path: 'method', code: 'stripe_unavailable' });
   if (cents === null || cents <= 0 || cents > MAX_MONEY_CENTS) {
     errors.push({ path: 'amount', code: 'invalid_amount' });
   } else if (cents > preview.refundable) {
     errors.push({ path: 'amount', code: 'exceeds_refundable' });
+  } else if (money && cents > preview.moneyRefundable) {
+    errors.push({ path: 'amount', code: 'exceeds_money_refundable' });
   } else if (stripe && preview.hasStripe && cents > preview.stripeRefundable) {
     errors.push({ path: 'amount', code: 'exceeds_stripe_refundable' });
   }
@@ -147,6 +154,14 @@ export function validateRefundForm(
  */
 export function isStuckStripeRefund(r: { method: string; status: string; externalId: string | null }): boolean {
   return r.method === 'STRIPE' && r.status === 'PROCESSING' && !r.externalId;
+}
+
+/**
+ * A Stripe refund Stripe has (PROCESSING with a Stripe id) whose final answer has not arrived:
+ * the admin can read its status back from Stripe.
+ */
+export function isRefreshableStripeRefund(r: { method: string; status: string; externalId: string | null }): boolean {
+  return r.method === 'STRIPE' && r.status === 'PROCESSING' && !!r.externalId;
 }
 
 // ---------------------------------------------------------------------------

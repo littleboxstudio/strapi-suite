@@ -176,6 +176,15 @@ describe('EcommerceNotificationService.handle', () => {
       payload: { source: 'ADMIN_MARKED', kind: 'MONEY', method: 'STRIPE' },
     });
     expect(notifs(c)).toHaveLength(0);
+    // F1: a refund Stripe reversed after completion is not e-mailed either.
+    await c.notifications.handle({
+      id: 'e-reversed',
+      type: 'REFUND_FAILED',
+      orderId: 1,
+      occurredAt: '',
+      payload: { source: 'STRIPE_REVERSED', kind: 'MONEY', method: 'STRIPE' },
+    });
+    expect(notifs(c)).toHaveLength(0);
   });
 
   it('ignores events without a template (store-credit refunds, modifications)', async () => {
@@ -444,5 +453,26 @@ describe('subscribeNotifications', () => {
     await __drainNotificationsForTests();
     expect(handle).toHaveBeenCalledTimes(2);
     expect(strapi.log.error).toHaveBeenCalled();
+  });
+
+  it('F8: an error handler that throws never stalls the queue', async () => {
+    __resetEventHandlersForTests();
+    const { strapi, bus, handle } = fakeStrapi('true');
+    handle.mockRejectedValueOnce(new Error('x'));
+    strapi.log.error = vi.fn(() => {
+      throw new Error('logger down');
+    });
+    subscribeNotifications(strapi);
+    const col = bus.collector();
+    col.emit({ ...event, id: 'a' });
+    col.emit({ ...event, id: 'b' });
+    await col.flush();
+    await expect(__drainNotificationsForTests()).resolves.toBeUndefined();
+    expect(handle).toHaveBeenCalledTimes(2);
+    // Later events still go through.
+    col.emit({ ...event, id: 'c' });
+    await col.flush();
+    await __drainNotificationsForTests();
+    expect(handle).toHaveBeenCalledTimes(3);
   });
 });

@@ -10,6 +10,7 @@ import {
 } from './providers/payments/stripeClient';
 import type { ProviderRuntime } from './providers/registry';
 import type { OrderHistoryEntry } from './orderHistory';
+import type { OrderState } from './orders';
 
 /** The Stripe event types `dispatch` handles (shown in the admin so the webhook can be set up). */
 export const STRIPE_WEBHOOK_EVENTS = [
@@ -81,6 +82,7 @@ const EcommerceStripeWebhookService = ({ strapi }: { strapi: Core.Strapi }) => {
     getRuntime(id: string): Promise<(ProviderRuntime & { active: boolean }) | null>;
   } => service('EcommerceSettingsService');
   const orders = (): {
+    computeOrderState(orderId: number): Promise<OrderState>;
     recalculate(orderId: number, opts: { actor?: string; operationId?: string }): Promise<unknown>;
     lockOrder(orderId: number): Promise<void>;
   } => service('EcommerceOrderService');
@@ -224,33 +226,77 @@ const EcommerceStripeWebhookService = ({ strapi }: { strapi: Core.Strapi }) => {
     if (orderId === null) return false;
     await orders().lockOrder(orderId);
     // Stripe is the truth for money that left: `succeeded` also completes a refund we marked
-    // FAILED (e.g. an indeterminate answer). A COMPLETED refund is never downgraded.
-    const from = target === 'COMPLETED' ? ['PENDING', 'PROCESSING', 'FAILED'] : ['PENDING', 'PROCESSING'];
+    // FAILED ourselves (an indeterminate answer, an admin's attestation), never one Stripe
+    // itself reported failed (final at Stripe; a late `succeeded` is an out-of-order event).
+    // A COMPLETED refund Stripe reports `failed` (e.g. the card was closed) is reversed: the
+    // money came back to the merchant. A `canceled` never applies to a COMPLETED refund.
+    const from =
+      target === 'COMPLETED'
+        ? ['PENDING', 'PROCESSING', 'FAILED']
+        : status === 'failed'
+          ? ['PENDING', 'PROCESSING', 'COMPLETED']
+          : ['PENDING', 'PROCESSING'];
     const current = await strapi.db.query(u.refund).findOne({ where: { id: row.id } });
     if (!current || !from.includes(current.status)) return false;
     if (current.status === 'FAILED' && current.method !== 'STRIPE') return false;
+    if (current.status === 'FAILED' && current.metadata?.stripeFailed === true) return false;
+    if (current.status === 'COMPLETED' && current.method !== 'STRIPE') return false;
+    const reversed = current.status === 'COMPLETED';
+    const promoted = current.status === 'FAILED';
+    const existingMeta =
+      current.metadata && typeof current.metadata === 'object' ? current.metadata : {};
     const { count } = await strapi.db.query(u.refund).updateMany({
       where: { id: row.id, status: current.status },
       data:
         target === 'COMPLETED'
-          ? { status: 'COMPLETED', completedAt: new Date().toISOString(), externalId }
+          ? {
+              status: 'COMPLETED',
+              completedAt: new Date().toISOString(),
+              externalId,
+              ...(promoted ? { metadata: { ...existingMeta, promotedFromFailed: true } } : {}),
+            }
           : { status: 'FAILED', externalId, metadata: failureMetadata(current.metadata, stripeRefund) },
     });
     if (!count) return false;
     const operationId = randomUUID();
+    const failureReason =
+      target === 'FAILED' ? ((failureMetadata(null, stripeRefund) as any).failureReason ?? null) : null;
     await history().record({
       orderId,
       type: target === 'COMPLETED' ? 'REFUND_COMPLETED' : 'REFUND_FAILED',
       description:
         target === 'COMPLETED'
           ? `Stripe refund of ${num(row.amount)} cents completed`
-          : `Stripe refund of ${num(row.amount)} cents failed`,
+          : reversed
+            ? `Refund failed at Stripe after completion: ${num(row.amount)} cents returned to the merchant balance${failureReason ? ` (${failureReason})` : ''}`
+            : `Stripe refund of ${num(row.amount)} cents failed`,
       previousValue: { refundId: row.id, status: current.status },
-      newValue: { refundId: row.id, status: target, externalId },
+      newValue: { refundId: row.id, status: target, externalId, ...(failureReason ? { failureReason } : {}) },
       actor: ACTOR,
       operationId,
     });
-    if (target === 'COMPLETED') await orders().recalculate(orderId, { actor: ACTOR, operationId });
+    // A completion or a reversal changes the refunded amount.
+    if (target === 'COMPLETED' || reversed) {
+      await orders().recalculate(orderId, { actor: ACTOR, operationId });
+    }
+    if (promoted) {
+      // Its amount may have been refunded again meanwhile: the customer got it twice.
+      const { summary } = await orders().computeOrderState(orderId);
+      if (summary.overRefunded > 0) {
+        strapi.log?.warn(
+          `[ecommerce] order ${orderId} over-refunded by ${summary.overRefunded} cents (refund ${row.id} completed after failing)`
+        );
+        await history().record({
+          orderId,
+          type: 'REFUND_OVER_REFUNDED',
+          description: `Stripe completed refund ${row.id} after it was held as failed: the order is over-refunded by ${summary.overRefunded} cents`,
+          previousValue: null,
+          newValue: { refundId: row.id, overRefunded: summary.overRefunded, refunded: summary.refunded },
+          actor: ACTOR,
+          operationId,
+        });
+      }
+    }
     collector.emit({
       type: target === 'COMPLETED' ? 'REFUND_COMPLETED' : 'REFUND_FAILED',
       orderId,
@@ -260,14 +306,19 @@ const EcommerceStripeWebhookService = ({ strapi }: { strapi: Core.Strapi }) => {
         method: row.method ?? 'STRIPE',
         kind: row.kind ?? 'MONEY',
         externalId,
+        // Notifications ignore this source: the customer already got "refund completed".
+        ...(reversed ? { source: 'STRIPE_REVERSED' } : {}),
       },
     });
     return true;
   };
 
-  /** Keeps the row's metadata and adds Stripe's `failure_reason` (an enum string, never free text). */
+  /**
+   * Keeps the row's metadata, flags the failure as Stripe's own (`stripeFailed`: final, never
+   * promoted back) and adds Stripe's `failure_reason` (an enum string, never free text).
+   */
   const failureMetadata = (existing: unknown, stripeRefund: any): object => {
-    const base = existing && typeof existing === 'object' ? (existing as object) : {};
+    const base = { ...(existing && typeof existing === 'object' ? (existing as object) : {}), stripeFailed: true };
     const reason = stripeRefund?.failure_reason;
     return typeof reason === 'string' && /^[a-z_]{1,64}$/.test(reason)
       ? { ...base, failureReason: reason }

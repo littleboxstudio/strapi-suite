@@ -15,6 +15,8 @@ const stripe = vi.hoisted(() => ({
   retrieveCheckoutSession: vi.fn(),
   expireCheckoutSession: vi.fn(),
   createRefund: vi.fn(),
+  retrievePaymentIntent: vi.fn(),
+  retrieveRefund: vi.fn(),
 }));
 vi.mock('../../../server/src/services/modules/ecommerce/providers/payments/stripeClient', () => ({
   createStripeClient: () => stripe,
@@ -211,6 +213,51 @@ describe('EcommerceStoreCreditService.consume / restore', () => {
     expect(movements(c).filter((m) => m.type === 'RESTORE')).toEqual([
       expect.objectContaining({ amount: 2000, operationKey: 'r:1' }),
     ]);
+  });
+
+  it('F7: a credit voided between the read and the increment is never topped up: a new credit is issued', async () => {
+    const c = setupCommerce();
+    const orderId = await createOrder(c);
+    const issued = await issueFor(c, orderId, 2500);
+    await c.storeCredits.consume({
+      code: issued.code,
+      email: 'ana@example.pt',
+      amount: 2000,
+      orderId,
+      paymentId: null,
+      operationKey: 'consume:1',
+    });
+    // A concurrent void commits right after `restore` read the credit as ACTIVE.
+    const original = c.strapi.db.query;
+    c.strapi.db.query = (uid: string) => {
+      const q = original(uid);
+      if (uid !== UIDS.storeCredit) return q;
+      return {
+        ...q,
+        findOne: async (args: any) => {
+          const row = await q.findOne(args);
+          const snapshot = row ? { ...row } : row;
+          if (row && row.id === issued.id) {
+            const stored = credit(c, issued.id);
+            stored.status = 'VOID';
+          }
+          return snapshot;
+        },
+      };
+    };
+    const res = await c.storeCredits.restore({
+      storeCreditId: issued.id,
+      amount: 2000,
+      refundId: null,
+      operationKey: 'r:void-race',
+    });
+    c.strapi.db.query = original;
+    expect(res.applied).toBe(true);
+    expect(res.reissuedFrom).toMatchObject({ id: issued.id });
+    expect(res.storeCreditId).not.toBe(issued.id);
+    expect(credit(c, issued.id)).toMatchObject({ status: 'VOID', balance: 500 });
+    expect(credit(c, res.storeCreditId)).toMatchObject({ status: 'ACTIVE', balance: 2000 });
+    expect(movements(c).filter((m) => m.type === 'RESTORE')).toHaveLength(0);
   });
 });
 

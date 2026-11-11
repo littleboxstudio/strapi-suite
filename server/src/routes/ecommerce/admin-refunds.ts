@@ -28,6 +28,7 @@ export default [
   route('POST', '/orders/:id/refunds', `${R}.create`, ref),
   route('POST', '/refunds/:id/resume', `${R}.resume`, ref),
   route('POST', '/refunds/:id/mark-failed', `${R}.markFailed`, ref),
+  route('POST', '/refunds/:id/refresh', `${R}.refresh`, ref),
   route('GET', '/orders/:id/notifications', `${N}.listForOrder`, oRead),
   route('POST', '/notifications/:id/resend', `${N}.resend`, oManage),
   route('GET', '/store-credits', `${S}.list`, cRead),
