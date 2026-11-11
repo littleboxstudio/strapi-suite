@@ -15,6 +15,7 @@ vi.mock('../../../server/src/services/modules/ecommerce/providers/payments/strip
 import EcommerceOrderService from '../../../server/src/services/modules/ecommerce/orders';
 import EcommerceShipmentService from '../../../server/src/services/modules/ecommerce/shipments';
 import EcommerceReturnService from '../../../server/src/services/modules/ecommerce/returns';
+import EcommerceInvoiceService from '../../../server/src/services/modules/ecommerce/invoices';
 import EcommerceStoreCreditService from '../../../server/src/services/modules/ecommerce/storeCredits';
 import EcommerceRefundService from '../../../server/src/services/modules/ecommerce/refunds';
 import EcommercePaymentService from '../../../server/src/services/modules/ecommerce/payments';
@@ -53,6 +54,8 @@ const UIDS = {
   shipment: `${P}shipment`,
   shipmentEvent: `${P}shipment-event`,
   orderReturn: `${P}order-return`,
+  invoice: `${P}invoice`,
+  invoiceAllocation: `${P}invoice-allocation`,
 };
 
 const RELATIONS: FakeRelations = {
@@ -79,6 +82,15 @@ const RELATIONS: FakeRelations = {
   },
   [UIDS.shipment]: { order: [UIDS.order, 'order', 'manyToOne'] },
   [UIDS.orderReturn]: { order: [UIDS.order, 'order', 'manyToOne'] },
+  [UIDS.invoice]: {
+    order: [UIDS.order, 'order', 'manyToOne'],
+    creditedInvoice: [UIDS.invoice, 'creditedInvoice', 'manyToOne'],
+  },
+  [UIDS.invoiceAllocation]: {
+    invoice: [UIDS.invoice, 'invoice', 'manyToOne'],
+    payment: [UIDS.payment, 'payment', 'manyToOne'],
+    order: [UIDS.order, 'order', 'manyToOne'],
+  },
   [UIDS.shipmentEvent]: {
     shipment: [UIDS.shipment, 'shipment', 'manyToOne'],
     order: [UIDS.order, 'order', 'manyToOne'],
@@ -131,6 +143,7 @@ function setup(opts: { storefrontUrl?: string | null; stripeActive?: boolean } =
     }),
   };
   services.EcommerceSettingsService = {
+    getActiveProviders: async () => [],
     getStoreSettings: async () => ({
       shippingCountries: ['PT'],
       storefrontUrl:
@@ -147,6 +160,7 @@ function setup(opts: { storefrontUrl?: string | null; stripeActive?: boolean } =
   services.EcommerceOrderService = EcommerceOrderService({ strapi });
   services.EcommerceShipmentService = EcommerceShipmentService({ strapi });
   services.EcommerceReturnService = EcommerceReturnService({ strapi });
+  services.EcommerceInvoiceService = EcommerceInvoiceService({ strapi });
   services.EcommerceStoreCreditService = EcommerceStoreCreditService({ strapi });
   services.EcommerceRefundService = EcommerceRefundService({ strapi });
   services.EcommercePaymentService = EcommercePaymentService({ strapi });

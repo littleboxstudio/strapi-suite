@@ -8,6 +8,7 @@ import EcommerceStockService from '../../../server/src/services/modules/ecommerc
 import EcommerceCustomerService from '../../../server/src/services/modules/ecommerce/customers';
 import EcommerceShipmentService from '../../../server/src/services/modules/ecommerce/shipments';
 import EcommerceReturnService from '../../../server/src/services/modules/ecommerce/returns';
+import EcommerceInvoiceService from '../../../server/src/services/modules/ecommerce/invoices';
 import {
   createEventBus,
   __resetEventHandlersForTests,
@@ -33,6 +34,8 @@ const UIDS = {
   shipment: `${P}shipment`,
   shipmentEvent: `${P}shipment-event`,
   orderReturn: `${P}order-return`,
+  invoice: `${P}invoice`,
+  invoiceAllocation: `${P}invoice-allocation`,
 };
 
 const RELATIONS: FakeRelations = {
@@ -55,6 +58,15 @@ const RELATIONS: FakeRelations = {
   [UIDS.payment]: { order: [UIDS.order, 'order', 'manyToOne'] },
   [UIDS.shipment]: { order: [UIDS.order, 'order', 'manyToOne'] },
   [UIDS.orderReturn]: { order: [UIDS.order, 'order', 'manyToOne'] },
+  [UIDS.invoice]: {
+    order: [UIDS.order, 'order', 'manyToOne'],
+    creditedInvoice: [UIDS.invoice, 'creditedInvoice', 'manyToOne'],
+  },
+  [UIDS.invoiceAllocation]: {
+    invoice: [UIDS.invoice, 'invoice', 'manyToOne'],
+    payment: [UIDS.payment, 'payment', 'manyToOne'],
+    order: [UIDS.order, 'order', 'manyToOne'],
+  },
   [UIDS.shipmentEvent]: {
     shipment: [UIDS.shipment, 'shipment', 'manyToOne'],
     order: [UIDS.order, 'order', 'manyToOne'],
@@ -109,6 +121,7 @@ function setup() {
   services.EcommerceOrderHistoryService = EcommerceOrderHistoryService({ strapi });
   services.EcommerceShippingService = { findOption };
   services.EcommerceSettingsService = {
+    getActiveProviders: async () => [],
     getStoreSettings: async () => ({ shippingCountries: ['PT', 'ES'] }),
   };
   services.EcommerceEventBus = { collector: bus.collector, subscribe: bus.subscribe };
@@ -118,6 +131,7 @@ function setup() {
   services.EcommerceRefundService = EcommerceRefundService({ strapi });
   services.EcommerceShipmentService = EcommerceShipmentService({ strapi });
   services.EcommerceReturnService = EcommerceReturnService({ strapi });
+  services.EcommerceInvoiceService = EcommerceInvoiceService({ strapi });
   const payments = EcommercePaymentService({ strapi });
   services.EcommercePaymentService = payments;
 
