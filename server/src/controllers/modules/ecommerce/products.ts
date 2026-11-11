@@ -1,6 +1,10 @@
 import fs from 'fs';
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID } from '../../../config';
+import {
+  EcommerceNotFoundError,
+  EcommerceValidationError,
+} from '../../../services/modules/ecommerce/errors';
 
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 
@@ -10,6 +14,16 @@ const EcommerceProductController = ({ strapi }: { strapi: Core.Strapi }) => {
   const images = () => service('EcommerceImageService');
   const ai = () => service('AiTranslationModuleService');
   const toId = (ctx: any) => Number(ctx.params.id);
+
+  const handleDomainError = (ctx: any, err: unknown) => {
+    if (err instanceof EcommerceValidationError) {
+      return ctx.badRequest('Invalid product', { errors: err.errors });
+    }
+    if (err instanceof EcommerceNotFoundError) {
+      return ctx.notFound('Product not found');
+    }
+    throw err;
+  };
 
   return {
     async getLocales(ctx: any) {
@@ -31,18 +45,30 @@ const EcommerceProductController = ({ strapi }: { strapi: Core.Strapi }) => {
     },
 
     async get(ctx: any) {
-      ctx.body = await products().get(toId(ctx));
+      try {
+        ctx.body = await products().get(toId(ctx));
+      } catch (err) {
+        return handleDomainError(ctx, err);
+      }
     },
 
     async create(ctx: any) {
-      const result = await products().create(ctx.request.body);
-      ctx.status = 201;
-      ctx.body = { id: result.id };
+      try {
+        const result = await products().create(ctx.request.body);
+        ctx.status = 201;
+        ctx.body = { id: result.id };
+      } catch (err) {
+        return handleDomainError(ctx, err);
+      }
     },
 
     async update(ctx: any) {
-      await products().update(toId(ctx), ctx.request.body);
-      ctx.status = 204;
+      try {
+        await products().update(toId(ctx), ctx.request.body);
+        ctx.status = 204;
+      } catch (err) {
+        return handleDomainError(ctx, err);
+      }
     },
 
     async uploadImage(ctx: any) {

@@ -1,4 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
+import {
+  EcommerceNotFoundError,
+  EcommerceValidationError,
+} from '../../../server/src/services/modules/ecommerce/errors';
 import createController from '../../../server/src/controllers/modules/ecommerce/products';
 
 function setup(services: Record<string, any>) {
@@ -54,5 +58,29 @@ describe('EcommerceProductController', () => {
     await controller.uploadImage(ctx);
     expect(ctx.badRequest).toHaveBeenCalled();
     expect(upload).not.toHaveBeenCalled();
+  });
+
+  it.each(['create', 'update'] as const)('%s maps validation errors to badRequest with details.errors', async (method) => {
+    const fieldErrors = [{ path: 'variants.0.sku', code: 'duplicate_sku' }];
+    const fail = vi.fn().mockRejectedValue(new EcommerceValidationError('Invalid product', fieldErrors));
+    const controller = setup({ EcommerceProductService: { create: fail, update: fail } });
+    const ctx: any = { params: { id: '1' }, request: { body: {} }, badRequest: vi.fn(), notFound: vi.fn() };
+    await controller[method](ctx);
+    expect(ctx.badRequest).toHaveBeenCalledWith('Invalid product', { errors: fieldErrors });
+  });
+
+  it.each(['get', 'update'] as const)('%s maps not-found to ctx.notFound', async (method) => {
+    const fail = vi.fn().mockRejectedValue(new EcommerceNotFoundError('Product not found'));
+    const controller = setup({ EcommerceProductService: { get: fail, update: fail } });
+    const ctx: any = { params: { id: '1' }, request: { body: {} }, badRequest: vi.fn(), notFound: vi.fn() };
+    await controller[method](ctx);
+    expect(ctx.notFound).toHaveBeenCalledWith('Product not found');
+  });
+
+  it('rethrows unknown errors', async () => {
+    const boom = new Error('boom');
+    const controller = setup({ EcommerceProductService: { get: vi.fn().mockRejectedValue(boom) } });
+    const ctx: any = { params: { id: '1' }, badRequest: vi.fn(), notFound: vi.fn() };
+    await expect(controller.get(ctx)).rejects.toBe(boom);
   });
 });
