@@ -43,7 +43,7 @@ export function emptyVariantDraft(localeCodes: string[], key: string): VariantDr
   };
 }
 
-const centsToText = (cents: number, uiLocale: string) =>
+export const centsToText = (cents: number, uiLocale: string) =>
   new Intl.NumberFormat(uiLocale, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -77,7 +77,7 @@ export function variantToDraft(
 }
 
 /** Non-negative decimal accepting a comma or a dot; null when invalid. */
-function parseDecimal(text: string): number | null {
+export function parseDecimal(text: string): number | null {
   const s = text.trim().replace(',', '.');
   return /^\d+(\.\d+)?$/.test(s) ? Number(s) : null;
 }
