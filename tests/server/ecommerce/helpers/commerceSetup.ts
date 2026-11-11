@@ -11,6 +11,7 @@ import EcommerceStoreCreditService from '../../../../server/src/services/modules
 import EcommerceRefundService from '../../../../server/src/services/modules/ecommerce/refunds';
 import EcommerceNotificationService from '../../../../server/src/services/modules/ecommerce/notifications';
 import EcommerceShipmentService from '../../../../server/src/services/modules/ecommerce/shipments';
+import EcommerceReturnService from '../../../../server/src/services/modules/ecommerce/returns';
 import { createEventBus } from '../../../../server/src/services/modules/ecommerce/events';
 import { createFakeDb, type FakeRelations } from './fakeDb';
 
@@ -176,6 +177,7 @@ export function setupCommerce(opts: { stripeActive?: boolean; resendActive?: boo
   services.EcommerceStoreCreditService = EcommerceStoreCreditService({ strapi });
   services.EcommerceRefundService = EcommerceRefundService({ strapi });
   services.EcommerceShipmentService = EcommerceShipmentService({ strapi });
+  services.EcommerceReturnService = EcommerceReturnService({ strapi });
   services.EcommerceEmailTemplateService = {
     render: vi.fn(async (type: string, locale: string, data: Record<string, unknown>) => ({
       subject: `${type}:${locale}`,

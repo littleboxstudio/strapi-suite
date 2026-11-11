@@ -3,6 +3,7 @@ import { createHmac } from 'node:crypto';
 
 import EcommerceOrderService from '../../../server/src/services/modules/ecommerce/orders';
 import EcommerceShipmentService from '../../../server/src/services/modules/ecommerce/shipments';
+import EcommerceReturnService from '../../../server/src/services/modules/ecommerce/returns';
 import EcommerceStoreCreditService from '../../../server/src/services/modules/ecommerce/storeCredits';
 import EcommerceRefundService from '../../../server/src/services/modules/ecommerce/refunds';
 import EcommercePaymentService from '../../../server/src/services/modules/ecommerce/payments';
@@ -42,6 +43,7 @@ const UIDS = {
   storeCreditMovement: `${P}store-credit-movement`,
   shipment: `${P}shipment`,
   shipmentEvent: `${P}shipment-event`,
+  orderReturn: `${P}order-return`,
 };
 
 const RELATIONS: FakeRelations = {
@@ -72,6 +74,7 @@ const RELATIONS: FakeRelations = {
     storeCredit: [UIDS.storeCredit, 'storeCredit', 'manyToOne'],
   },
   [UIDS.shipment]: { order: [UIDS.order, 'order', 'manyToOne'] },
+  [UIDS.orderReturn]: { order: [UIDS.order, 'order', 'manyToOne'] },
   [UIDS.shipmentEvent]: {
     shipment: [UIDS.shipment, 'shipment', 'manyToOne'],
     order: [UIDS.order, 'order', 'manyToOne'],
@@ -141,6 +144,7 @@ function setup(opts: { webhookSecret?: string | null } = {}) {
   services.EcommerceEventBus = { collector: bus.collector, subscribe: bus.subscribe };
   services.EcommerceOrderService = EcommerceOrderService({ strapi });
   services.EcommerceShipmentService = EcommerceShipmentService({ strapi });
+  services.EcommerceReturnService = EcommerceReturnService({ strapi });
   services.EcommerceStoreCreditService = EcommerceStoreCreditService({ strapi });
   services.EcommerceRefundService = EcommerceRefundService({ strapi });
   services.EcommercePaymentService = EcommercePaymentService({ strapi });

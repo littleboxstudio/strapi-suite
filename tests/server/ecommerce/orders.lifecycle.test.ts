@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import EcommerceOrderService from '../../../server/src/services/modules/ecommerce/orders';
 import EcommerceShipmentService from '../../../server/src/services/modules/ecommerce/shipments';
+import EcommerceReturnService from '../../../server/src/services/modules/ecommerce/returns';
 import EcommerceStoreCreditService from '../../../server/src/services/modules/ecommerce/storeCredits';
 import EcommerceRefundService from '../../../server/src/services/modules/ecommerce/refunds';
 import EcommercePaymentService from '../../../server/src/services/modules/ecommerce/payments';
@@ -35,6 +36,7 @@ const UIDS = {
   stripeSession: `${P}stripe-session`,
   shipment: `${P}shipment`,
   shipmentEvent: `${P}shipment-event`,
+  orderReturn: `${P}order-return`,
 };
 
 const RELATIONS: FakeRelations = {
@@ -56,6 +58,7 @@ const RELATIONS: FakeRelations = {
   },
   [UIDS.payment]: { order: [UIDS.order, 'order', 'manyToOne'] },
   [UIDS.shipment]: { order: [UIDS.order, 'order', 'manyToOne'] },
+  [UIDS.orderReturn]: { order: [UIDS.order, 'order', 'manyToOne'] },
   [UIDS.shipmentEvent]: {
     shipment: [UIDS.shipment, 'shipment', 'manyToOne'],
     order: [UIDS.order, 'order', 'manyToOne'],
@@ -148,6 +151,7 @@ function setup() {
   const orders = EcommerceOrderService({ strapi });
   services.EcommerceOrderService = orders;
   services.EcommerceShipmentService = EcommerceShipmentService({ strapi });
+  services.EcommerceReturnService = EcommerceReturnService({ strapi });
   services.EcommerceStoreCreditService = EcommerceStoreCreditService({ strapi });
   services.EcommerceRefundService = EcommerceRefundService({ strapi });
   const payments = EcommercePaymentService({ strapi });

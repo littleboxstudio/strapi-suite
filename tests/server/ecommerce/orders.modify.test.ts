@@ -7,6 +7,7 @@ import EcommerceOrderHistoryService from '../../../server/src/services/modules/e
 import EcommerceStockService from '../../../server/src/services/modules/ecommerce/stock';
 import EcommerceCustomerService from '../../../server/src/services/modules/ecommerce/customers';
 import EcommerceShipmentService from '../../../server/src/services/modules/ecommerce/shipments';
+import EcommerceReturnService from '../../../server/src/services/modules/ecommerce/returns';
 import {
   createEventBus,
   __resetEventHandlersForTests,
@@ -31,6 +32,7 @@ const UIDS = {
   notification: `${P}notification`,
   shipment: `${P}shipment`,
   shipmentEvent: `${P}shipment-event`,
+  orderReturn: `${P}order-return`,
 };
 
 const RELATIONS: FakeRelations = {
@@ -52,6 +54,7 @@ const RELATIONS: FakeRelations = {
   },
   [UIDS.payment]: { order: [UIDS.order, 'order', 'manyToOne'] },
   [UIDS.shipment]: { order: [UIDS.order, 'order', 'manyToOne'] },
+  [UIDS.orderReturn]: { order: [UIDS.order, 'order', 'manyToOne'] },
   [UIDS.shipmentEvent]: {
     shipment: [UIDS.shipment, 'shipment', 'manyToOne'],
     order: [UIDS.order, 'order', 'manyToOne'],
@@ -114,6 +117,7 @@ function setup() {
   services.EcommerceStoreCreditService = EcommerceStoreCreditService({ strapi });
   services.EcommerceRefundService = EcommerceRefundService({ strapi });
   services.EcommerceShipmentService = EcommerceShipmentService({ strapi });
+  services.EcommerceReturnService = EcommerceReturnService({ strapi });
   const payments = EcommercePaymentService({ strapi });
   services.EcommercePaymentService = payments;
 

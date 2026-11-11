@@ -245,7 +245,7 @@ describe('EcommerceStockService', () => {
     expect(tables[UIDS.stockMovement]).toHaveLength(0);
   });
 
-  it('netDeductedForOrder sums deductions and restocks, ignoring RETURN_NO_RESTOCK', async () => {
+  it('netDeductedForOrder sums deductions, restocks and returns (with or without restock)', async () => {
     const { service } = makeStrapi();
     const base = { orderId: 9, actor: 'system' };
     await service.move({ ...base, variantId: 1, quantity: -3, type: 'ORDER_DEDUCT', operationKey: 'a' });
@@ -257,11 +257,9 @@ describe('EcommerceStockService', () => {
     await service.move({ ...base, orderId: 10, variantId: 1, quantity: -4, type: 'ORDER_DEDUCT', operationKey: 'f' });
     await service.move({ variantId: 1, quantity: 7, type: 'MANUAL_ADJUST', operationKey: 'g', actor: 'user:1' });
 
+    // A unit returned without restock is no longer held by the order either.
     const net = await service.netDeductedForOrder(9);
-    expect([...net.entries()].sort()).toEqual([
-      [1, 2],
-      [2, 1],
-    ]);
+    expect([...net.entries()].sort()).toEqual([[1, 2]]);
   });
 
   it('available returns current stock per variant', async () => {
