@@ -10,6 +10,7 @@ import {
   validateReturnRequest,
   computeReturn,
 } from '../../../../server/src/services/modules/ecommerce/domain/fulfillment';
+import { EcommerceValidationError } from '../../../../server/src/services/modules/ecommerce/errors';
 
 const sh = (status: any, qty: number, over: any = {}) => ({
   status,
@@ -186,5 +187,79 @@ describe('returns', () => {
     expect(r.grossValue).toBe(1800);
     expect(r.discountShare).toBe(0);
     expect(r.refundableValue).toBe(1800);
+  });
+});
+
+describe('input hardening', () => {
+  const lines = [{ id: 1, quantity: 10 }];
+
+  it('malformed request entries and non-integer orderLineId become issues, not TypeErrors', () => {
+    expect(validateShipmentRequest(lines, new Map(), [null as any])).toEqual([
+      { path: 'lines.0', code: 'invalid_line' },
+    ]);
+    expect(validateShipmentRequest(lines, new Map(), ['x' as any])).toEqual([
+      { path: 'lines.0', code: 'invalid_line' },
+    ]);
+    expect(codes(validateShipmentRequest(lines, new Map(), [{ orderLineId: '1' as any, quantity: 1 }]))).toEqual([
+      'unknown_line',
+    ]);
+    expect(codes(validateShipmentRequest(lines, new Map(), [{ orderLineId: 1.5, quantity: 1 }]))).toEqual([
+      'unknown_line',
+    ]);
+    expect(validateReturnRequest(new Map([[1, 3]]), [null as any])).toEqual([
+      { path: 'lines.0', code: 'invalid_line' },
+    ]);
+  });
+
+  it('invalid shippedAt is an explicit issue', () => {
+    expect(codes(validateDeliveryDate('2026-06-08T10:00:00.000Z', 'garbage', new Date('2026-06-10T12:00:00Z')))).toEqual([
+      'invalid_shipped_at',
+    ]);
+  });
+
+  it('accepts a Date instance for deliveredAt', () => {
+    const now = new Date('2026-06-10T12:00:00.000Z');
+    expect(validateDeliveryDate(new Date('2026-06-08T10:00:00.000Z'), '2026-06-05T10:00:00.000Z', now)).toEqual([]);
+    expect(codes(validateDeliveryDate(new Date('invalid'), '2026-06-05T10:00:00.000Z', now))).toEqual([
+      'invalid_date',
+    ]);
+  });
+
+  it('EXCEPTION counts as undelivered', () => {
+    expect(orderDeliveryStatus('FULFILLED', [{ status: 'ACTIVE', deliveryStatus: 'EXCEPTION' }])).toBe('IN_TRANSIT');
+    expect(
+      orderDeliveryStatus('FULFILLED', [
+        { status: 'ACTIVE', deliveryStatus: 'DELIVERED' },
+        { status: 'ACTIVE', deliveryStatus: 'EXCEPTION' },
+      ]),
+    ).toBe('PARTIALLY_DELIVERED');
+  });
+
+  it('computeReturn throws on an unknown orderLineId', () => {
+    expect(() =>
+      computeReturn([{ id: 1, unitPrice: 100, unitDiscount: 0, quantity: 1, returnedQuantity: 0 }], 0, [
+        { orderLineId: 9, quantity: 1 },
+      ]),
+    ).toThrow(EcommerceValidationError);
+  });
+
+  it('computeReturn rounds the discount share half-up across multiple lines', () => {
+    // net subtotal 3000 (1000 + 2000), discount 100, returning 1000 net -> 100*1000/3000 = 33.33 -> 33
+    const lns = [
+      { id: 1, unitPrice: 1000, unitDiscount: 0, quantity: 1, returnedQuantity: 0 },
+      { id: 2, unitPrice: 1000, unitDiscount: 0, quantity: 2, returnedQuantity: 0 },
+    ];
+    const a = computeReturn(lns, 100, [{ orderLineId: 1, quantity: 1 }]);
+    expect(a.discountShare).toBe(33);
+    expect(a.refundableValue).toBe(967);
+    // returning 2000 net -> 66.67 -> 67 ; plus multi-line request 1000+1000 = 2000
+    const b = computeReturn(lns, 100, [
+      { orderLineId: 1, quantity: 1 },
+      { orderLineId: 2, quantity: 1 },
+    ]);
+    expect(b.items.map((i) => i.value)).toEqual([1000, 1000]);
+    expect(b.grossValue).toBe(2000);
+    expect(b.discountShare).toBe(67);
+    expect(b.refundableValue).toBe(1933);
   });
 });
