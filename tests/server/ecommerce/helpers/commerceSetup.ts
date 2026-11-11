@@ -13,6 +13,8 @@ import EcommerceNotificationService from '../../../../server/src/services/module
 import EcommerceShipmentService from '../../../../server/src/services/modules/ecommerce/shipments';
 import EcommerceReturnService from '../../../../server/src/services/modules/ecommerce/returns';
 import EcommerceInvoiceService from '../../../../server/src/services/modules/ecommerce/invoices';
+import EcommerceAuditService from '../../../../server/src/services/modules/ecommerce/audit';
+import EcommercePromotionService from '../../../../server/src/services/modules/ecommerce/promotions';
 import { createEventBus } from '../../../../server/src/services/modules/ecommerce/events';
 import { createFakeDb, type FakeRelations } from './fakeDb';
 
@@ -43,6 +45,7 @@ export const UIDS = {
   promotion: `${P}promotion`,
   promotionRedemption: `${P}promotion-redemption`,
   promotionCustomerUsage: `${P}promotion-customer-usage`,
+  auditLog: `${P}audit-log`,
 };
 
 const RELATIONS: FakeRelations = {
@@ -145,7 +148,12 @@ export function setupCommerce(opts: { stripeActive?: boolean; resendActive?: boo
     config: { get: () => ({ uuid: { modules: { ecommerce: UIDS } } }) },
     plugin: (id: string) =>
       id === 'i18n'
-        ? { service: () => ({ getDefaultLocale: async () => 'en' }) }
+        ? {
+            service: () => ({
+              getDefaultLocale: async () => 'en',
+              find: async () => [{ code: 'en' }, { code: 'pt' }],
+            }),
+          }
         : { service: (name: string) => services[name] },
   };
   services.EcommerceStockService = EcommerceStockService({ strapi });
@@ -201,6 +209,8 @@ export function setupCommerce(opts: { stripeActive?: boolean; resendActive?: boo
     })),
   };
   services.EcommerceNotificationService = EcommerceNotificationService({ strapi });
+  services.EcommerceAuditService = EcommerceAuditService({ strapi });
+  services.EcommercePromotionService = EcommercePromotionService({ strapi });
 
   const t = db.tables;
   t[UIDS.product].push({ id: 1, active: true });
