@@ -17,7 +17,10 @@ const stripe: ProviderDefinition = {
   async testConnection(rt) {
     const key = str(rt, 'secretKey');
     if (!key) return missingFields(['secretKey']);
-    return bearerCheck('https://api.stripe.com/v1/account', key, [401]);
+    // A restricted key (rk_…) authenticates but may not read the account: 403 means the key is valid.
+    return bearerCheck('https://api.stripe.com/v1/account', key, [401], async (res) =>
+      res.status === 403 ? { ok: true, message: 'Restricted key' } : null
+    );
   },
 };
 

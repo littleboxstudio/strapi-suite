@@ -73,10 +73,12 @@ const IntegrationCard = ({
       );
     }
     if (test.status !== 'done') return null;
-    const { ok, code } = test.result;
+    const { ok, code, message } = test.result;
+    const label = t(`ecommerce.settings.integrations.test.${ok ? 'ok' : (code ?? 'failed')}`);
     return (
       <Typography variant="pi" textColor={ok ? 'success600' : 'danger600'} role="status">
-        {t(`ecommerce.settings.integrations.test.${ok ? 'ok' : (code ?? 'failed')}`)}
+        {/* A successful test may carry a qualifier (e.g. a restricted / sending-only key). */}
+        {ok && message ? `${label} (${message})` : label}
       </Typography>
     );
   };

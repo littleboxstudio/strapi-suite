@@ -56,15 +56,22 @@ export function str(rt: ProviderRuntime, key: string): string {
   return typeof v === 'string' ? v.trim() : v == null ? '' : String(v);
 }
 
+/**
+ * GETs `url` with a bearer token: 200 → ok, `invalidStatuses` → INVALID_CREDENTIALS. `classify` runs
+ * first and may read the body; returning null falls through to the default mapping.
+ */
 export async function bearerCheck(
   url: string,
   token: string,
-  invalidStatuses: number[]
+  invalidStatuses: number[],
+  classify?: (res: Response) => Promise<ConnectionResult | null>
 ): Promise<ConnectionResult> {
   const result = await timedFetch<ConnectionResult>(
     url,
     { method: 'GET', headers: { Authorization: `Bearer ${token}` } },
     async (res) => {
+      const special = classify ? await classify(res) : null;
+      if (special) return special;
       await res.body?.cancel().catch(() => undefined);
       if (res.status === 200) return { ok: true };
       if (invalidStatuses.includes(res.status)) return INVALID_CREDENTIALS;
