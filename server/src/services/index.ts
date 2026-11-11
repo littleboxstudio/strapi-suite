@@ -10,6 +10,7 @@ import EcommerceImageService from './modules/ecommerce/images';
 import EcommerceProductService from './modules/ecommerce/products';
 import EcommerceSettingsService from './modules/ecommerce/settings';
 import EcommerceAuditService from './modules/ecommerce/audit';
+import EcommerceEmailTemplateService from './modules/ecommerce/email/templates';
 
 export default {
   SettingAppService,
@@ -24,4 +25,5 @@ export default {
   EcommerceProductService,
   EcommerceSettingsService,
   EcommerceAuditService,
+  EcommerceEmailTemplateService,
 };
