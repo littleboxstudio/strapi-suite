@@ -16,6 +16,17 @@ const invalid = () => new Error('INVALID_IMAGE');
 const validDimension = (n: number) =>
   Number.isInteger(n) && n > 0 && n <= MAX_IMAGE_DIMENSION;
 
+// Size as displayed by browsers, i.e. after applying the EXIF orientation.
+function orientedSize(metadata: Metadata): { width: number; height: number } | null {
+  const auto: Partial<Metadata['autoOrient']> | undefined = metadata.autoOrient;
+  if (auto?.width && auto?.height) return { width: auto.width, height: auto.height };
+  if (!metadata.width || !metadata.height) return null;
+  const swap = (metadata.orientation ?? 1) >= 5;
+  return swap
+    ? { width: metadata.height, height: metadata.width }
+    : { width: metadata.width, height: metadata.height };
+}
+
 export async function processImage(
   input: Buffer,
   t: ImageTransform
@@ -28,9 +39,11 @@ export async function processImage(
   } catch {
     throw invalid();
   }
-  if (!metadata.width || !metadata.height) throw invalid();
+  const size = orientedSize(metadata);
+  if (!size) throw invalid();
 
-  let pipeline = sharp(input);
+  // Auto-orient first so crop coordinates refer to the frame the browser showed.
+  let pipeline = sharp(input).rotate();
   if (t.mode === 'crop') {
     const { x, y, width, height } = t.crop;
     const ints = [x, y, width, height].every(Number.isInteger);
@@ -40,8 +53,8 @@ export async function processImage(
       y < 0 ||
       width <= 0 ||
       height <= 0 ||
-      x + width > metadata.width ||
-      y + height > metadata.height
+      x + width > size.width ||
+      y + height > size.height
     ) {
       throw invalid();
     }
