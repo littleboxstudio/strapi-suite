@@ -14,7 +14,12 @@ import {
 } from './types';
 
 /** Customer lines only (no gifts), and the customer e-mail when known. */
-export type ConditionContext = { lines: EvaluationLine[]; email: string | null };
+export type ConditionContext = {
+  lines: EvaluationLine[];
+  email: string | null;
+  /** Called when an evaluator throws (the condition then counts as false). */
+  onError?: (type: string, err: unknown) => void;
+};
 
 /** Distributes over the union, so a member with a union `type` serves each of its types. */
 type ConditionOf<K extends Condition['type']> = Condition extends infer C
@@ -59,6 +64,7 @@ export const CONDITION_EVALUATORS: {
     return subtotal >= c.min && subtotal <= c.max;
   },
   CART_CONTAINS: (c, ctx) => {
+    if (!c.target.variantIds.length && !c.target.productIds.length) return false;
     const items = [
       ...c.target.variantIds.map((id) => ctx.lines.some((l) => l.variantId === id)),
       ...c.target.productIds.map((id) => ctx.lines.some((l) => l.productId === id)),
@@ -80,6 +86,7 @@ export const CONDITION_EVALUATORS: {
     if (ctx.email === null) return false;
     const email = normalizeEmail(ctx.email);
     const value = normalizeEmail(c.value);
+    if (!value) return false;
     switch (c.operator) {
       case 'eq':
         return email === value;
@@ -95,16 +102,21 @@ export const CONDITION_EVALUATORS: {
   },
 };
 
+type AnyEvaluator = (c: Condition, ctx: ConditionContext) => boolean;
+
+/** Fail closed: a null, malformed or unknown condition, or a throwing evaluator, is false. */
 const evaluateCondition = (c: Condition, ctx: ConditionContext): boolean => {
-  const evaluator = Object.prototype.hasOwnProperty.call(CONDITION_EVALUATORS, c?.type)
-    ? (CONDITION_EVALUATORS as Record<string, (c: Condition, ctx: ConditionContext) => boolean>)[
-        c.type
-      ]
-    : undefined;
-  if (!evaluator) return false; // unknown type never matches and never throws
   try {
-    return evaluator(c, ctx);
-  } catch {
+    const type = (c as { type?: unknown } | null)?.type;
+    if (typeof type !== 'string') return false;
+    if (!Object.prototype.hasOwnProperty.call(CONDITION_EVALUATORS, type)) return false;
+    return (CONDITION_EVALUATORS as unknown as Record<string, AnyEvaluator>)[type](c, ctx);
+  } catch (err) {
+    try {
+      ctx.onError?.(String((c as { type?: unknown } | null)?.type), err);
+    } catch {
+      // a failing hook must not break evaluation
+    }
     return false;
   }
 };
@@ -113,15 +125,20 @@ const evaluateCondition = (c: Condition, ctx: ConditionContext): boolean => {
 export const conditionsMet = (group: ConditionGroup, ctx: ConditionContext): boolean => {
   const children = Array.isArray(group?.children) ? group.children : [];
   if (children.length === 0) return true;
-  const test = (child: ConditionGroup | Condition): boolean =>
-    child.type === 'GROUP' ? conditionsMet(child, ctx) : evaluateCondition(child, ctx);
-  return group.operator === 'OR' ? children.some(test) : children.every(test);
+  const test = (child: ConditionGroup | Condition): boolean => {
+    if (!child || typeof child !== 'object') return false;
+    return child.type === 'GROUP' ? conditionsMet(child, ctx) : evaluateCondition(child, ctx);
+  };
+  if (group.operator === 'OR') return children.some(test);
+  if (group.operator === 'AND') return children.every(test);
+  return false;
 };
 
 export const eligibilityMet = (e: Eligibility, email: string | null): boolean => {
   if (e.mode === 'ALL') return true;
   if (email === null) return false;
-  return e.emails.includes(normalizeEmail(email));
+  const normalized = normalizeEmail(email);
+  return e.emails.some((stored) => normalizeEmail(stored) === normalized);
 };
 
 /** Applied promotions whose stored eligibility/conditions no longer hold for the new context. */
