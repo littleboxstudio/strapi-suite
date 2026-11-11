@@ -64,6 +64,13 @@
         "token_hash"
       ],
       "type": "unique"
+    },
+    {
+      "name": "ecommerce_checkout_session_status_expires",
+      "columns": [
+        "status",
+        "expires_at"
+      ]
     }
   ]
 }

@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createHash } from 'node:crypto';
 import { setupCommerce, createOrder, UIDS, type Commerce } from './helpers/commerceSetup';
-import { EMPTY_CART } from '../../../server/src/services/modules/ecommerce/storefrontSessions';
+import {
+  EMPTY_CART,
+  emptyCart,
+} from '../../../server/src/services/modules/ecommerce/storefrontSessions';
 
 const NOW = new Date('2026-11-11T10:00:00.000Z');
 const HOUR = 3_600_000;
@@ -10,14 +13,14 @@ const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 const svc = (c: Commerce) => c.services.EcommerceStorefrontSessionService;
 const sessions = (c: Commerce) => c.tables[UIDS.checkoutSession];
 
-/** Inserts an expired ACTIVE session directly (the service never creates expired rows). */
+/** Inserts an ACTIVE session expired 2 h ago (past the 1 h purge grace) directly. */
 const addExpired = async (c: Commerce, i: number, extra: Record<string, unknown> = {}) =>
   c.strapi.db.query(UIDS.checkoutSession).create({
     data: {
       tokenHash: sha(`expired-${i}`),
       status: 'ACTIVE',
-      expiresAt: new Date(NOW.getTime() - HOUR - i),
-      cart: { ...EMPTY_CART, email: `p${i}@example.pt` },
+      expiresAt: new Date(NOW.getTime() - 2 * HOUR - i),
+      cart: { ...emptyCart(), email: `p${i}@example.pt` },
       emailVerification: { codeHash: 'abc' },
       verifiedEmail: `p${i}@example.pt`,
       verificationAttempts: 2,
@@ -133,6 +136,37 @@ describe('EcommerceStorefrontSessionService', () => {
       expect(await svc(c).purgeExpired()).toBe(0);
     });
 
+    it('leaves sessions expired less than an hour ago (grace period)', async () => {
+      const c = setupCommerce();
+      await addExpired(c, 0, { expiresAt: new Date(NOW.getTime() - 30 * 60_000) });
+      await addExpired(c, 1, { expiresAt: new Date(NOW.getTime() - HOUR) });
+      await addExpired(c, 2, { expiresAt: new Date(NOW.getTime() - HOUR - 1) });
+      expect(await svc(c).purgeExpired()).toBe(1);
+      expect(sessions(c).map((x) => x.tokenHash)).toEqual([sha('expired-0'), sha('expired-1')]);
+    });
+
+    it('counts only the rows it actually changed', async () => {
+      const c = setupCommerce();
+      for (let i = 0; i < 3; i++) await addExpired(c, i);
+      const realQuery = c.strapi.db.query;
+      c.strapi.db.query = (uid: string) => {
+        const q = realQuery(uid);
+        if (uid !== UIDS.checkoutSession) return q;
+        return {
+          ...q,
+          // A concurrent purge removes one row between the select and the delete.
+          findMany: async (p: any) => {
+            const rows = await q.findMany(p);
+            c.tables[UIDS.checkoutSession] = c.tables[UIDS.checkoutSession].filter(
+              (r) => r.id !== rows[0].id
+            );
+            return rows;
+          },
+        };
+      };
+      expect(await svc(c).purgeExpired()).toBe(2);
+    });
+
     it('does not touch sessions that are still valid', async () => {
       const c = setupCommerce();
       const valid = await svc(c).open(null);
@@ -178,16 +212,28 @@ describe('EcommerceStorefrontSessionService', () => {
       });
     });
 
-    it('returns null for an expired token, marks it EXPIRED and scrubs it', async () => {
+    it('returns null for an expired token without orders and deletes the row', async () => {
+      const c = setupCommerce({ checkoutSessionTtlHours: 1 });
+      const { token } = await svc(c).open(null);
+      vi.setSystemTime(new Date(NOW.getTime() + HOUR));
+      expect(await svc(c).resolve(token)).toBeNull();
+      expect(sessions(c)).toHaveLength(0);
+    });
+
+    it('returns null for an expired token with an order, marks it EXPIRED and scrubs it', async () => {
       const c = setupCommerce({ checkoutSessionTtlHours: 1 });
       const { token } = await svc(c).open(null);
       await svc(c).saveCart(sessions(c)[0].id, {
-        ...EMPTY_CART,
+        ...emptyCart(),
         email: 'a@b.pt',
         lines: [{ variantId: 10, quantity: 1 }],
       });
       sessions(c)[0].verifiedEmail = 'a@b.pt';
       sessions(c)[0].emailVerification = { codeHash: 'x' };
+      const orderId = await createOrder(c);
+      const order = c.tables[UIDS.order].find((o) => o.id === orderId);
+      order.checkoutSession = sessions(c)[0].id;
+      const before = JSON.stringify(c.tables[UIDS.order]);
       vi.setSystemTime(new Date(NOW.getTime() + HOUR));
       expect(await svc(c).resolve(token)).toBeNull();
       expect(sessions(c)[0]).toMatchObject({
@@ -196,6 +242,7 @@ describe('EcommerceStorefrontSessionService', () => {
         emailVerification: {},
         verifiedEmail: null,
       });
+      expect(JSON.stringify(c.tables[UIDS.order])).toBe(before);
       // Still null once marked.
       vi.setSystemTime(NOW);
       expect(await svc(c).resolve(token)).toBeNull();
@@ -252,6 +299,26 @@ describe('EcommerceStorefrontSessionService', () => {
   });
 
   describe('cart', () => {
+    it('saveCart does not write to a session past its expiry', async () => {
+      const c = setupCommerce({ checkoutSessionTtlHours: 1 });
+      const { token } = await svc(c).open(null);
+      const s = await svc(c).resolve(token);
+      vi.setSystemTime(new Date(NOW.getTime() + HOUR));
+      await svc(c).saveCart(s.id, { ...emptyCart(), email: 'late@example.pt' });
+      expect(sessions(c)[0].cart).toEqual(emptyCart());
+    });
+
+    it('EMPTY_CART is deeply frozen and emptyCart() returns fresh objects', () => {
+      expect(Object.isFrozen(EMPTY_CART)).toBe(true);
+      expect(Object.isFrozen(EMPTY_CART.lines)).toBe(true);
+      expect(Object.isFrozen(EMPTY_CART.promotionCodes)).toBe(true);
+      expect(Object.isFrozen(EMPTY_CART.giftChoices)).toBe(true);
+      const a = emptyCart();
+      expect(a).toEqual(EMPTY_CART);
+      expect(a.lines).not.toBe(emptyCart().lines);
+      expect(Object.isFrozen(a.lines)).toBe(false);
+    });
+
     it('saveCart stores an object', async () => {
       const c = setupCommerce();
       const { token } = await svc(c).open(null);
@@ -286,7 +353,7 @@ describe('EcommerceStorefrontSessionService', () => {
       });
       await svc(c).clearCart(s.id);
       expect(sessions(c)[0].cart).toEqual({
-        ...EMPTY_CART,
+        ...emptyCart(),
         email: 'ana@example.pt',
         destination: { country: 'PT' },
         locale: 'pt',
@@ -298,7 +365,7 @@ describe('EcommerceStorefrontSessionService', () => {
       const { token } = await svc(c).open(null);
       sessions(c)[0].cart = { lines: [{ variantId: 10, quantity: 1 }] };
       expect((await svc(c).resolve(token)).cart).toEqual({
-        ...EMPTY_CART,
+        ...emptyCart(),
         lines: [{ variantId: 10, quantity: 1 }],
       });
       sessions(c)[0].cart = null;
@@ -346,6 +413,27 @@ describe('EcommerceStorefrontSessionService', () => {
       const msg = String(c.log.warn.mock.calls[0][0]);
       expect(msg).toBe('[ecommerce:storefront] ORDER_ACCESS_DENIED');
       expect(JSON.stringify(c.log.warn.mock.calls)).not.toContain(otherOrder.publicId);
+    });
+
+    it('accepts an upper-case publicId by lower-casing it before the lookup', async () => {
+      const { c, mine, myOrder } = await setupOrders();
+      const wheres: any[] = [];
+      const realQuery = c.strapi.db.query;
+      c.strapi.db.query = (uid: string) => {
+        const q = realQuery(uid);
+        return {
+          ...q,
+          findOne: async (p: any) => {
+            wheres.push(p.where);
+            return q.findOne(p);
+          },
+        };
+      };
+      expect(await svc(c).findOwnedOrder(mine, myOrder.publicId.toUpperCase())).toEqual({
+        id: myOrder.id,
+        publicId: myOrder.publicId,
+      });
+      expect(wheres[0].publicId).toBe(myOrder.publicId.toLowerCase());
     });
 
     it('treats an unknown publicId the same way', async () => {

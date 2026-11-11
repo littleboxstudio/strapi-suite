@@ -32,6 +32,8 @@ describe('ecommerce storefront content-types', () => {
     expect(s.indexes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: 'ecommerce_checkout_session_token_unique', columns: ['token_hash'], type: 'unique' }),
+        // The purge on every new session filters by status and sorts by expiry.
+        { name: 'ecommerce_checkout_session_status_expires', columns: ['status', 'expires_at'] },
       ])
     );
     for (const i of s.indexes) expect(i.name.length).toBeLessThanOrEqual(60);
