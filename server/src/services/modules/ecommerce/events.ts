@@ -34,11 +34,11 @@ export function createEventBus(getStrapi: () => Core.Strapi | undefined) {
       try {
         await handler(event);
       } catch (error) {
-        // Never log the payload (personal data): only ids and the error message.
+        // Never log the payload or the error message (either may carry personal data):
+        // only the event type, its id and the error class.
+        const name = error instanceof Error ? error.name : typeof error;
         getStrapi()?.log?.error(
-          `[ecommerce] event handler failed for ${event.type} (event ${event.id}): ${
-            error instanceof Error ? error.message : String(error)
-          }`
+          `[ecommerce] event handler failed for ${event.type} (event ${event.id}): ${name}`
         );
       }
     }
