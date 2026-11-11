@@ -344,6 +344,28 @@ describe('tie-breaks', () => {
     expect(appliedIds(r)).toEqual([3]);
   });
 
+  it('a code member realising 0 does not win the entered-code tie-break', () => {
+    // A and B are both free shipping (only one shipping discount applies); the code adds 0
+    // next to either, so {A, code} must not beat {B} (higher priority) on entered codes.
+    const r = evaluate(
+      [
+        promo(1, [{ type: 'SHIPPING_FREE', maxAmount: null }]),
+        // B does not stack with the code, so only {A, code} contains it.
+        promo(2, [{ type: 'SHIPPING_FREE', maxAmount: null }], {
+          priority: 5,
+          stacking: { ...ALL, withShipping: false },
+        }),
+        coded(3, 'SHIP1', [{ type: 'SHIPPING_FIXED', amount: 100 }]),
+      ],
+      [line(1, 10000, 1)],
+      { shipping: 500, codes: ['SHIP1'] }
+    );
+    expect(appliedIds(r)).toEqual([2]);
+    expect(reasonOf(r, 1)).toBe('CONFLICT');
+    expect(r.codes[0]).toEqual({ code: 'SHIP1', status: 'CONFLICT', promotionId: 3 });
+    checkMoney(r);
+  });
+
   it('shuffled candidates give the same result', () => {
     const cands = [
       fixed(1, { priority: 1 }),
@@ -393,6 +415,47 @@ describe('search limit', () => {
       for (const b of chosen) if (a !== b) expect(compatible(a, b)).toBe(true);
     expect(chosen.length).toBeGreaterThan(0);
   };
+
+  const two = () => [
+    promo(1, [{ type: 'ORDER_FIXED', amount: 100 }]),
+    promo(2, [{ type: 'ORDER_FIXED', amount: 200 }]),
+  ];
+
+  it('searchLimit 0 -> greedy; NaN and 1.5 -> the default 12', () => {
+    expect(evaluate(two(), [line(1, 10000, 1)], { searchLimit: 0 }).exhaustive).toBe(false);
+    expect(evaluate(two(), [line(1, 10000, 1)], { searchLimit: NaN }).exhaustive).toBe(true);
+    expect(evaluate(two(), [line(1, 10000, 1)], { searchLimit: 1.5 }).exhaustive).toBe(true);
+    for (const searchLimit of [0, NaN, 1.5]) {
+      const r = evaluate(two(), [line(1, 10000, 1)], { searchLimit });
+      expect(appliedIds(r)).toEqual([1, 2]);
+      expect(r.total).toBe(9700);
+    }
+  });
+
+  it('greedy never adds a promotion that raises the cost', () => {
+    // P2 (priority 10) is processed first and takes a unit with 10%, blocking P1's 50% there.
+    const p1 = promo(1, [
+      { type: 'PRODUCT_PERCENT', target: T(1), percent: 50, maxQuantity: null },
+    ]);
+    const p2 = promo(
+      2,
+      [
+        {
+          type: 'BUY_X_GET_Y',
+          buy: { target: T(1), quantity: 1, minAmount: null },
+          get: { mode: 'IN_CART', target: T(1), quantity: 1 },
+          reward: { kind: 'PERCENT', percent: 10 },
+        },
+      ],
+      { priority: 10 }
+    );
+    const r = evaluate([p1, p2], [line(1, 1000, 2)], { searchLimit: 0 });
+    expect(r.exhaustive).toBe(false);
+    expect(appliedIds(r)).toEqual([1]);
+    expect(r.total).toBe(1000);
+    expect(reasonOf(r, 2)).toBe('CONFLICT');
+    checkMoney(r);
+  });
 
   it('13 candidates over limit 12 -> greedy, exhaustive false, compatible combination', () => {
     const cands = many(13);
@@ -501,6 +564,24 @@ describe('code statuses', () => {
     expect(r.shippingOriginal).toBeNull();
   });
 
+  it('order + shipping benefits with shipping null -> evaluated on the order part', () => {
+    const r = evaluate(
+      [
+        coded(1, 'MIXED', [
+          { type: 'ORDER_FIXED', amount: 300 },
+          { type: 'SHIPPING_FREE', maxAmount: null },
+        ]),
+      ],
+      cart,
+      { codes: ['MIXED'], shipping: null }
+    );
+    expect(r.codes[0].status).toBe('APPLIED');
+    expect(r.applied[0].amount).toBe(300);
+    expect(r.applied[0].benefits.map((b) => b.amount)).toEqual([300, 0]);
+    expect(r.total).toBe(9700);
+    checkMoney(r);
+  });
+
   it('a failing condition fails closed and is reported through onConditionError', () => {
     const errors: { promotionId: number; type: string }[] = [];
     const p = promo(1, benefit, {
@@ -590,6 +671,66 @@ describe('gifts and cart changes (2.18 / 2.24)', () => {
     );
     expect(appliedIds(r)).toEqual([1]);
     expect(reasonOf(r, 2)).toBe('CONFLICT');
+  });
+});
+
+describe('paid gifts (GIFT with a PERCENT reward)', () => {
+  const giftB: GiftOption = {
+    variantId: 2,
+    productId: 200,
+    unitPrice: 700,
+    available: 5,
+    active: true,
+  };
+  const paidGift = (id: number, percent: number, extra: Benefit[] = []) =>
+    promo(id, [
+      {
+        type: 'BUY_X_GET_Y',
+        buy: { target: T(1), quantity: 2, minAmount: null },
+        get: { mode: 'GIFT', variantIds: [2], quantity: 1 },
+        reward: { kind: 'PERCENT', percent },
+      },
+      ...extra,
+    ]);
+  const cart = [line(1, 1000, 2)];
+
+  it('a 50% gift alone is not applied (it would raise the total from 2000 to 2350)', () => {
+    const r = evaluate([paidGift(1, 50)], cart, { gifts: [giftB] });
+    expect(r.applied).toEqual([]);
+    expect(r.lines.some((l) => l.isGift)).toBe(false);
+    expect(r.total).toBe(2000);
+    expect(reasonOf(r, 1)).toBe('NO_BENEFIT');
+  });
+
+  it('a 75% gift alone is not applied either (2175 > 2000)', () => {
+    const r = evaluate([paidGift(1, 75)], cart, { gifts: [giftB] });
+    expect(r.applied).toEqual([]);
+    expect(r.total).toBe(2000);
+  });
+
+  it('a paid gift is not stacked with a 10% order discount when it raises the total', () => {
+    // {10%} = 1800; {gift + 100 off, 10%} = 2350 - 100 - 235 = 2015.
+    const r = evaluate(
+      [
+        paidGift(1, 50, [{ type: 'ORDER_FIXED', amount: 100 }]),
+        promo(2, [{ type: 'ORDER_PERCENT', percent: 10 }]),
+      ],
+      cart,
+      { gifts: [giftB] }
+    );
+    expect(appliedIds(r)).toEqual([2]);
+    expect(r.total).toBe(1800);
+    expect(r.lines.some((l) => l.isGift)).toBe(false);
+  });
+
+  it('a paid gift whose promotion still lowers the total applies', () => {
+    // gift 50% (350 to pay) + 500 off: 2000 + 350 - 500 = 1850 < 2000.
+    const r = evaluate([paidGift(1, 50, [{ type: 'ORDER_FIXED', amount: 500 }])], cart, {
+      gifts: [giftB],
+    });
+    expect(appliedIds(r)).toEqual([1]);
+    expect(r.total).toBe(1850);
+    checkMoney(r);
   });
 });
 

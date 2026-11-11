@@ -27,6 +27,12 @@ import {
 } from './types';
 
 export const PROMOTION_SEARCH_LIMIT_DEFAULT = 12;
+/**
+ * Exhaustive search evaluates up to 2^limit subsets. Measured per evaluation with mutually
+ * compatible candidates on a small cart (dev laptop): ~20 ms at 12, ~100–450 ms at 16
+ * (65 536 applyCombination calls; grows with the number of cart units). A quote followed by a
+ * create evaluates twice.
+ */
 export const PROMOTION_SEARCH_LIMIT_MAX = 16;
 
 export const classesOf = (p: PromotionDefinition): Set<DiscountClass> =>
@@ -118,7 +124,7 @@ export type PromotionEvaluation = {
 type Scored = {
   members: PromotionCandidate[];
   result: CombinationResult;
-  /** What the customer pays measured against the cart (a gift counts as its discount). */
+  /** See costOf. */
   cost: number;
   codeCount: number;
   prioritySum: number;
@@ -127,6 +133,21 @@ type Scored = {
 
 const discountOf = (r: CombinationResult): number =>
   r.productDiscount + r.orderDiscount + r.shippingDiscount;
+
+/**
+ * What the customer pays, minus the retail value of the gifts they get for free. A free gift is
+ * a saving worth its price (otherwise it never changes `total` and could never win); a gift the
+ * customer has to pay for, even in part, is measured as a purchase: its paid part raises the
+ * cost and its partial discount is not a saving, so a paid gift never raises the amount to pay
+ * on its own. Consequence (intended, merchant-configured): an expensive free gift can beat a
+ * smaller cash discount, and the customer cannot trade the gift for the cash.
+ */
+const costOf = (r: CombinationResult): number =>
+  r.total -
+  r.lines.reduce(
+    (s, l) => (l.isGift && l.unitDiscount >= l.unitPrice ? s + l.unitPrice * l.quantity : s),
+    0
+  );
 
 /** Requirements 2.13 / 2.14: lowest cost, entered codes, priority sum, fewer, lowest ids. */
 const better = (a: Scored, b: Scored): boolean => {
@@ -203,19 +224,24 @@ export const evaluatePromotions = (input: EvaluationInput): PromotionEvaluation 
       reasons.set(c.id, 'AWAITING_SHIPPING');
       continue;
     }
-    const value = discountOf(applyCombination([c], ctx));
+    const value = baseCost - costOf(applyCombination([c], ctx));
     isolated.set(c.id, value);
     if (value <= 0) reasons.set(c.id, 'NO_BENEFIT');
     else pool.push(c);
   }
 
-  // Step 3: search.
-  const score = (members: PromotionCandidate[]): Scored => {
+  // Step 3: search. A combination where a member realises 0 is not a candidate (the same set
+  // without that member is), so ties are compared between combinations that really apply.
+  const score = (members: PromotionCandidate[]): Scored | null => {
     const result = applyCombination(members, ctx);
+    for (const m of members) {
+      const realised = (result.benefitAmounts.get(m.id) ?? []).reduce((s, v) => s + v, 0);
+      if (realised <= 0) return null;
+    }
     return {
       members,
       result,
-      cost: baseCost - discountOf(result),
+      cost: costOf(result),
       codeCount: members.filter((m) => enteredIds.has(m.id)).length,
       prioritySum: members.reduce((s, m) => s + m.priority, 0),
       ids: members.map((m) => m.id),
@@ -227,7 +253,7 @@ export const evaluatePromotions = (input: EvaluationInput): PromotionEvaluation 
     : PROMOTION_SEARCH_LIMIT_DEFAULT;
   const n = pool.length;
   const exhaustive = n <= limit;
-  let best = score([]);
+  let best = score([]) as Scored;
   if (exhaustive) {
     const compat = pool.map((a, i) =>
       pool.reduce((mask, b, j) => (i !== j && compatible(a, b) ? mask | (1 << j) : mask), 0)
@@ -240,7 +266,7 @@ export const evaluatePromotions = (input: EvaluationInput): PromotionEvaluation 
       if (!valid[rest] || (compat[low] & rest) !== rest) continue;
       valid[mask] = 1;
       const candidate = score(pool.filter((_, i) => mask & (1 << i)));
-      if (better(candidate, best)) best = candidate;
+      if (candidate && better(candidate, best)) best = candidate;
     }
   } else {
     const order = [...pool].sort(
@@ -252,15 +278,11 @@ export const evaluatePromotions = (input: EvaluationInput): PromotionEvaluation 
     for (const p of order) {
       if (!best.members.every((m) => compatible(m, p))) continue;
       const candidate = score([...best.members, p].sort((a, b) => a.id - b.id));
-      if (candidate.cost < best.cost) best = candidate;
+      if (candidate && candidate.cost < best.cost) best = candidate;
     }
   }
 
-  // Step 5: members that realised nothing leave the combination.
-  const realised = (id: number) =>
-    (best.result.benefitAmounts.get(id) ?? []).reduce((s, v) => s + v, 0);
-  const idle = best.members.filter((m) => realised(m.id) <= 0);
-  if (idle.length) best = score(best.members.filter((m) => realised(m.id) > 0));
+  // Step 5: eligible promotions outside the chosen combination.
   const chosen = new Set(best.ids);
   for (const c of eligible) {
     if (chosen.has(c.id) || reasons.has(c.id)) continue;
