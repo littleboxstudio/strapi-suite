@@ -15,6 +15,7 @@ import {
 } from '../../../server/src/services/modules/ecommerce/events';
 import { EcommerceValidationError } from '../../../server/src/services/modules/ecommerce/errors';
 import { createFakeDb, type FakeRelations } from './helpers/fakeDb';
+import { computeTotals } from '../../../server/src/services/modules/ecommerce/domain/orders';
 import {
   PROMOTION_UIDS,
   promotionRelations,
@@ -1023,5 +1024,62 @@ describe('modification with promotions (design 4.8)', () => {
       'op-split-2'
     );
     expect(res.order.lines.map((l: any) => l.quantity)).toEqual([3, 1]);
+  });
+
+  it('"buy 3 pay 2": raising the free line 1 → 4 keeps 1 free unit and adds 3 at full price', async () => {
+    const ctx = setup();
+    ctx.tables[UIDS.variant].find((v) => v.id === 10).stock = 10;
+    addPromotion(ctx, {
+      benefits: {
+        items: [
+          {
+            type: 'BUY_X_GET_Y',
+            buy: { target: { productIds: [], variantIds: [10] }, quantity: 2, minAmount: null },
+            get: { mode: 'IN_CART', target: { productIds: [], variantIds: [10] }, quantity: 1 },
+            reward: { kind: 'FREE' },
+          },
+        ],
+      },
+    });
+    const { id } = await createOrder(ctx.orders, [{ variantId: 10, quantity: 3 }]);
+    const [a, b] = lineInputs(ctx, id);
+    expect(linesOf(ctx, id).find((l) => l.id === b.orderLineId)).toMatchObject({
+      quantity: 1,
+      unitDiscount: 2000,
+    });
+    const input = { lines: [a, { ...b, quantity: 4 }], shipping: KEEP };
+
+    const preview = await ctx.orders.previewModification(id, input);
+    expect(preview.errors).toEqual([]);
+    expect(preview.after.subtotal).toBe(10000);
+
+    const res = await ctx.orders.applyModification(id, input, 'user:1', 'op-bxgy-raise');
+    const lines = linesOf(ctx, id);
+    expect(
+      lines.map((l) => ({
+        quantity: l.quantity,
+        unitPrice: l.unitPrice,
+        unitDiscount: l.unitDiscount,
+        isGift: l.isGift,
+      }))
+    ).toEqual([
+      { quantity: 2, unitPrice: 2000, unitDiscount: 0, isGift: false },
+      { quantity: 1, unitPrice: 2000, unitDiscount: 2000, isGift: false },
+      { quantity: 3, unitPrice: 2000, unitDiscount: 0, isGift: false },
+    ]);
+    const added = lines[2];
+    expect(added).toMatchObject({ variantId: 10, sku: 'SH-M', promotionRefs: { refs: [] } });
+    // The stored totals are the plan-3 formula over the stored lines.
+    const row = orderRow(ctx, id);
+    const expected = computeTotals(lines, row);
+    expect(res.order.totals).toMatchObject({
+      subtotal: expected.subtotal,
+      orderDiscount: expected.orderDiscount,
+      total: expected.total,
+    });
+    expect(row).toMatchObject({ subtotal: 10000, total: expected.total });
+    expect(stockOf(ctx, 10)).toBe(10 - 3 - 3);
+    expect(historyOf(ctx, id, 'LINE_ADDED')).toHaveLength(1);
+    expect(historyOf(ctx, id, 'LINE_QUANTITY_CHANGED')).toEqual([]);
   });
 });
