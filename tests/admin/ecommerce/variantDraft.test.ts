@@ -3,6 +3,8 @@ import {
   draftToVariant,
   emptyVariantDraft,
   variantToDraft,
+  withAdjustmentKey,
+  mintUuid,
 } from '../../../admin/src/ecommerce/utils/variantDraft';
 import type { FormVariant } from '../../../admin/src/ecommerce/utils/productForm';
 
@@ -153,6 +155,35 @@ describe('variant drafts', () => {
         '4'
       );
       expect(variantToDraft(saved, LOCALES, 'en').stockAdjustment).toBe('');
+    });
+
+    it('mints an idempotency key per confirmed adjustment', () => {
+      const mint = () => 'new-key';
+      expect(withAdjustmentKey({ ...saved, stockAdjustment: 3 }, saved, mint)).toMatchObject({
+        stockAdjustment: 3,
+        stockAdjustmentKey: 'new-key',
+      });
+      // Reconfirming the same pending adjustment keeps its key.
+      const pending = { ...saved, stockAdjustment: 3, stockAdjustmentKey: 'k1' };
+      expect(withAdjustmentKey({ ...saved, stockAdjustment: 3 }, pending, mint).stockAdjustmentKey).toBe('k1');
+      // A changed amount is a new adjustment.
+      expect(withAdjustmentKey({ ...saved, stockAdjustment: 4 }, pending, mint).stockAdjustmentKey).toBe(
+        'new-key'
+      );
+      // No adjustment, no key.
+      expect(withAdjustmentKey(saved, pending, mint)).not.toHaveProperty('stockAdjustmentKey');
+    });
+
+    it('mints v4 uuids even without crypto.randomUUID', () => {
+      const re = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+      expect(mintUuid()).toMatch(re);
+      const original = crypto.randomUUID;
+      try {
+        (crypto as any).randomUUID = undefined;
+        expect(mintUuid()).toMatch(re);
+      } finally {
+        (crypto as any).randomUUID = original;
+      }
     });
   });
 });

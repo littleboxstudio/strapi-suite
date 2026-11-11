@@ -17,6 +17,10 @@ import { EcommerceNotFoundError, EcommerceValidationError } from './errors';
 
 const PAGE_SIZE = 50 as const;
 
+/** The client's idempotency key when it looks sane, else a fresh one. */
+const adjustmentKey = (key: unknown): string =>
+  typeof key === 'string' && /^[A-Za-z0-9-]{1,64}$/.test(key) ? key : randomUUID();
+
 export type ProductListItem = {
   id: number;
   name: string;
@@ -57,9 +61,8 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
   const locales = () => strapi.plugin('i18n').service('locales');
   const images = (): { removeFiles(records: StoredImage[]): Promise<void> } =>
     strapi.plugin(PLUGIN_ID).service('EcommerceImageService');
-  const stock = (): {
-    move(input: StockMoveInput, opts?: { trx?: any }): Promise<{ applied: boolean }>;
-  } => strapi.plugin(PLUGIN_ID).service('EcommerceStockService');
+  const stock = (): { move(input: StockMoveInput): Promise<{ applied: boolean }> } =>
+    strapi.plugin(PLUGIN_ID).service('EcommerceStockService');
 
   const getDefaultLocale = async (): Promise<string> => locales().getDefaultLocale();
 
@@ -109,7 +112,7 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
     // Image files of removed variants are deleted only after the transaction commits.
     const removedImages: StoredImage[] = [];
 
-    const savedId: number = await strapi.db.transaction(async ({ trx }: { trx: any }) => {
+    const savedId: number = await strapi.db.transaction(async () => {
       let id = productId;
       if (id === null) {
         const created = await strapi.db
@@ -162,7 +165,25 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
           ? []
           : await strapi.db.query(u.variant).findMany({ where: { product: ownerId } });
       const currentIds = new Set(current.map((v) => v.id));
-      const keptIds = new Set<number>();
+      const keptIds = new Set(
+        variants.map((v) => v.id).filter((id): id is number => !!id && currentIds.has(id))
+      );
+
+      // Removed variants go first, so a new variant may reuse a removed one's SKU.
+      for (const old of current) {
+        if (keptIds.has(old.id)) continue;
+        const imgs: StoredImage[] = await strapi.db
+          .query(u.image)
+          .findMany({ where: { variant: old.id } });
+        if (imgs.length) {
+          await strapi.db
+            .query(u.image)
+            .deleteMany({ where: { id: { $in: imgs.map((img) => img.id) } } });
+          removedImages.push(...imgs);
+        }
+        await strapi.db.query(u.variantTranslation).deleteMany({ where: { variant: old.id } });
+        await strapi.db.query(u.variant).delete({ where: { id: old.id } });
+      }
 
       for (let i = 0; i < variants.length; i += 1) {
         const v = variants[i];
@@ -189,10 +210,9 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
                 variantId,
                 quantity: v.stockAdjustment,
                 type: 'MANUAL_ADJUST',
-                operationKey: `adjust:${variantId}:${randomUUID()}`,
+                operationKey: `adjust:${variantId}:${adjustmentKey(v.stockAdjustmentKey)}`,
                 actor,
-              },
-              { trx }
+              }
             );
           }
         } else {
@@ -204,15 +224,13 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
                 variantId,
                 quantity: v.stock,
                 type: 'MANUAL_ADJUST',
-                operationKey: `initial:${variantId}`,
+                operationKey: `initial:${variantId}:${randomUUID()}`,
                 reason: 'initial stock',
                 actor,
-              },
-              { trx }
+              }
             );
           }
         }
-        keptIds.add(variantId);
 
         for (const [locale, vt] of Object.entries(v.translations ?? {})) {
           if (isBlank(vt?.option)) {
@@ -233,21 +251,6 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
             await strapi.db.query(u.variantTranslation).create({ data: tData });
           }
         }
-      }
-
-      for (const old of current) {
-        if (keptIds.has(old.id)) continue;
-        const imgs: StoredImage[] = await strapi.db
-          .query(u.image)
-          .findMany({ where: { variant: old.id } });
-        if (imgs.length) {
-          await strapi.db
-            .query(u.image)
-            .deleteMany({ where: { id: { $in: imgs.map((img) => img.id) } } });
-          removedImages.push(...imgs);
-        }
-        await strapi.db.query(u.variantTranslation).deleteMany({ where: { variant: old.id } });
-        await strapi.db.query(u.variant).delete({ where: { id: old.id } });
       }
 
       return ownerId;

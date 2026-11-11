@@ -31,7 +31,7 @@ function makeStrapi() {
   const { tables, query, transaction, connection, metadata } = createFakeDb(
     Object.values(UIDS),
     RELATIONS,
-    { enforceUnique: [UIDS.stockMovement] }
+    { enforceUnique: [UIDS.stockMovement, UIDS.variant] }
   );
 
   const imageService = { remove: vi.fn(), removeFiles: vi.fn(async () => undefined) };
@@ -321,7 +321,7 @@ describe('EcommerceProductService', () => {
           variantId: a.id,
           type: 'MANUAL_ADJUST',
           quantity: 4,
-          operationKey: `initial:${a.id}`,
+          operationKey: expect.stringMatching(new RegExp(`^initial:${a.id}:[0-9a-f-]{36}$`)),
           reason: 'initial stock',
           actor: 'system',
         }),
@@ -360,5 +360,27 @@ describe('EcommerceProductService', () => {
       expect(err).toBeInstanceOf(EcommerceValidationError);
       expect(err.errors).toEqual([{ path: 'variants.0.stockAdjustment', code: 'invalid_number' }]);
     });
+
+    it('uses the client key so a repeated adjustment applies once', async () => {
+      const { service, tables } = makeStrapi();
+      const { id } = await service.create(input('Camisa', [variant('A', { stock: 3 })]));
+      const [v] = (await service.get(id)).variants;
+      const key = '0b9c1d4e-5f60-4a7b-8c9d-0e1f2a3b4c5d';
+      const body = input('Camisa', [{ ...v, stockAdjustment: 5, stockAdjustmentKey: key }]);
+      await service.update(id, body, 'user:1');
+      await service.update(id, body, 'user:1');
+      expect(tables[UIDS.variant][0].stock).toBe(8);
+      const adjust = tables[UIDS.stockMovement].filter((m) => m.actor === 'user:1');
+      expect(adjust.map((m) => m.operationKey)).toEqual([`adjust:${v.id}:${key}`]);
+    });
+  });
+
+  it('update can re-create a removed variant SKU on a new variant', async () => {
+    const { service, tables } = makeStrapi();
+    const { id } = await service.create(input('Camisa', [variant('A'), variant('B')]));
+    const [a, b] = (await service.get(id)).variants;
+    await service.update(id, input('Camisa', [{ ...b }, variant('A', { stock: 2 })]));
+    expect(tables[UIDS.variant].map((v) => v.sku)).toEqual(['B', 'A']);
+    expect(tables[UIDS.variant].find((v) => v.sku === 'A').id).not.toBe(a.id);
   });
 });
