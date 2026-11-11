@@ -1,0 +1,55 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_integrations",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-integration",
+    "pluralName": "ltb-st-module-ecommerce-integrations",
+    "displayName": "Littlebox Strapi Suite - Ecommerce Integration",
+    "description": "Model for managing Littlebox Strapi Suite Ecommerce Integration"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "providerId": {
+      "type": "string",
+      "required": true,
+      "unique": true
+    },
+    "category": {
+      "type": "enumeration",
+      "enum": [
+        "payment",
+        "billing",
+        "carrier",
+        "email"
+      ],
+      "required": true
+    },
+    "active": {
+      "type": "boolean",
+      "default": false
+    },
+    "config": {
+      "type": "json"
+    },
+    "secrets": {
+      "type": "json"
+    },
+    "updatedBy": {
+      "type": "string"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  }
+}

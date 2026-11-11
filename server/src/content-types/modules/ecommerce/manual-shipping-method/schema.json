@@ -1,0 +1,54 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_manual_shipping_methods",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-manual-shipping-method",
+    "pluralName": "ltb-st-module-ecommerce-manual-shipping-methods",
+    "displayName": "Littlebox Strapi Suite - Ecommerce Manual Shipping Method",
+    "description": "Model for managing Littlebox Strapi Suite Ecommerce Manual Shipping Method"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "name": {
+      "type": "json",
+      "required": true
+    },
+    "price": {
+      "type": "integer",
+      "min": 0
+    },
+    "tax": {
+      "type": "decimal",
+      "min": 0,
+      "max": 100,
+      "default": 23
+    },
+    "countries": {
+      "type": "json",
+      "default": [
+        "PT"
+      ]
+    },
+    "active": {
+      "type": "boolean",
+      "default": true
+    },
+    "position": {
+      "type": "integer"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  }
+}

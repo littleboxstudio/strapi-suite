@@ -31,6 +31,12 @@ export interface LtbConfigs {
         variant: UID.ContentType;
         variantTranslation: UID.ContentType;
         image: UID.ContentType;
+        integration: UID.ContentType;
+        storeSetting: UID.ContentType;
+        manualShippingMethod: UID.ContentType;
+        emailTemplate: UID.ContentType;
+        emailTemplateVersion: UID.ContentType;
+        auditLog: UID.ContentType;
       },
     },
     customFields: {
@@ -61,6 +67,12 @@ export default {
           variant: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-variant`,
           variantTranslation: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-variant-translation`,
           image: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-image`,
+          integration: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-integration`,
+          storeSetting: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-store-setting`,
+          manualShippingMethod: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-manual-shipping-method`,
+          emailTemplate: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-email-template`,
+          emailTemplateVersion: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-email-template-version`,
+          auditLog: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-audit-log`,
         },
       },
       customFields: {

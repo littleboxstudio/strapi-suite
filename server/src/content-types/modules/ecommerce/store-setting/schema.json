@@ -1,0 +1,35 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_store_settings",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-store-setting",
+    "pluralName": "ltb-st-module-ecommerce-store-settings",
+    "displayName": "Littlebox Strapi Suite - Ecommerce Store Setting",
+    "description": "Model for managing Littlebox Strapi Suite Ecommerce Store Setting"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "key": {
+      "type": "string",
+      "required": true,
+      "unique": true
+    },
+    "value": {
+      "type": "json"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  }
+}
