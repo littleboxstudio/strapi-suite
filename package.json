@@ -53,6 +53,7 @@
     "@strapi/icons": "^2.0.0-rc.16",
     "@types/koa": "^2.15.0",
     "lucide-react": "^0.486.0",
+    "react-easy-crop": "^5.0.8",
     "react-hook-form": "^7.55.0",
     "react-intl": "^7.1.6",
     "reflect-metadata": "^0.2.2",

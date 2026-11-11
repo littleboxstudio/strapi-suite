@@ -15,8 +15,9 @@ import {
 } from '@strapi/design-system';
 import { getTranslation } from '../../core/utils/getTranslation';
 import { LocaleSwitcher } from './LocaleSwitcher';
-import { GallerySlot } from './GallerySlot';
+import { Gallery } from './Gallery';
 import type { ErrorMap, FormVariant } from '../utils/productForm';
+import type { ImageRecord } from '../types';
 import {
   TAX_OTHER,
   TAX_PRESETS,
@@ -38,6 +39,8 @@ type Props = {
   serverErrors: ErrorMap;
   onClose: () => void;
   onConfirm: (variant: FormVariant) => void;
+  /** Uploads and deletes are saved at once, so the page must learn of them even on Cancel. */
+  onImagesChange: (variantId: number, images: ImageRecord[]) => void;
 };
 
 type TextField = 'sku' | 'stock' | 'price' | 'weight' | 'width' | 'height' | 'depth';
@@ -51,6 +54,7 @@ const VariantModal = ({
   serverErrors,
   onClose,
   onConfirm,
+  onImagesChange,
 }: Props) => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const t = (id: string, values?: Record<string, any>) =>
@@ -232,10 +236,13 @@ const VariantModal = ({
                 {t('ecommerce.product.variant.gallery.hint')}
               </Typography>
               {draft.id !== undefined ? (
-                <GallerySlot
+                <Gallery
                   owner={{ variantId: draft.id }}
                   images={draft.images}
-                  onChange={(images) => setDraft((d) => ({ ...d, images }))}
+                  onChange={(images) => {
+                    setDraft((d) => ({ ...d, images }));
+                    if (draft.id !== undefined) onImagesChange(draft.id, images);
+                  }}
                 />
               ) : (
                 <Typography variant="pi" textColor="neutral500">
