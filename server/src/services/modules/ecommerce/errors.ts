@@ -43,7 +43,14 @@ export class EcommercePaymentError extends Error {
   name = 'EcommercePaymentError';
 
   constructor(
-    public code: 'STRIPE_NOT_CONFIGURED' | 'STRIPE_REQUEST_FAILED' | 'STRIPE_UNREACHABLE',
+    public code:
+      | 'STRIPE_NOT_CONFIGURED'
+      | 'STRIPE_REQUEST_FAILED'
+      | 'STRIPE_UNREACHABLE'
+      | 'NOTHING_DUE'
+      | 'STOREFRONT_URL_MISSING'
+      /** A Stripe payment (e.g. Multibanco) awaits confirmation: no new link meanwhile. */
+      | 'PAYMENT_PENDING',
     message: string = code
   ) {
     super(message);

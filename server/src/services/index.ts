@@ -18,6 +18,7 @@ import EcommerceEventBus from './modules/ecommerce/events';
 import EcommerceOrderHistoryService from './modules/ecommerce/orderHistory';
 import EcommerceOrderService from './modules/ecommerce/orders';
 import EcommercePaymentService from './modules/ecommerce/payments';
+import EcommerceStripePaymentService from './modules/ecommerce/stripePayments';
 
 export default {
   SettingAppService,
@@ -40,4 +41,5 @@ export default {
   EcommerceOrderHistoryService,
   EcommerceOrderService,
   EcommercePaymentService,
+  EcommerceStripePaymentService,
 };

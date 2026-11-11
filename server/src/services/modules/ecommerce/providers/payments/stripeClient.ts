@@ -76,6 +76,18 @@ export function createStripeClient(rt: ProviderRuntime) {
     return res.body;
   }
 
+  async function retrieveCheckoutSession(id: string) {
+    const b = await ok(request('GET', `/checkout/sessions/${encodeURIComponent(id)}`));
+    return {
+      id: b.id as string,
+      status: b.status as 'open' | 'complete' | 'expired',
+      paymentStatus: b.payment_status as 'paid' | 'unpaid' | 'no_payment_required',
+      paymentIntentId: typeof b.payment_intent === 'string' ? (b.payment_intent as string) : null,
+      amountTotal: (b.amount_total ?? null) as number | null,
+      metadata: (b.metadata ?? {}) as Record<string, string>,
+    };
+  }
+
   return {
     async createCheckoutSession(p: CheckoutSessionParams) {
       const form: Record<string, unknown> = {
@@ -95,6 +107,8 @@ export function createStripeClient(rt: ProviderRuntime) {
           },
         ],
         metadata: p.metadata,
+        // Copied to the PaymentIntent so refunds and charge events carry the same references.
+        payment_intent_data: { metadata: p.metadata },
       };
       const b = await ok(request('POST', '/checkout/sessions', form, p.idempotencyKey));
       return {
@@ -106,24 +120,24 @@ export function createStripeClient(rt: ProviderRuntime) {
       };
     },
 
-    async retrieveCheckoutSession(id: string) {
-      const b = await ok(request('GET', `/checkout/sessions/${encodeURIComponent(id)}`));
-      return {
-        id: b.id as string,
-        status: b.status as 'open' | 'complete' | 'expired',
-        paymentStatus: b.payment_status as 'paid' | 'unpaid' | 'no_payment_required',
-        paymentIntentId: typeof b.payment_intent === 'string' ? (b.payment_intent as string) : null,
-        amountTotal: (b.amount_total ?? null) as number | null,
-        metadata: (b.metadata ?? {}) as Record<string, string>,
-      };
-    },
+    retrieveCheckoutSession,
 
-    /** Resolves also when the session is already expired or complete. */
-    async expireCheckoutSession(id: string): Promise<void> {
+    /**
+     * Expires an open session and returns the resulting status. Stripe answers 400 when the
+     * session is no longer open: its current status (`expired` or `complete`) is then read
+     * back, so a session paid in the meantime is never mistaken for an expired one.
+     */
+    async expireCheckoutSession(id: string): Promise<'expired' | 'complete'> {
       const res = await request('POST', `/checkout/sessions/${encodeURIComponent(id)}/expire`, {});
-      if (res.status >= 200 && res.status < 300) return;
-      const message = String(res.body?.error?.message ?? '');
-      if (res.status === 400 && /expired|complete|status in \(open\)/i.test(message)) return;
+      if (res.status >= 200 && res.status < 300 && res.body) {
+        const status = res.body.status as string;
+        if (status === 'expired' || status === 'complete') return status;
+        throw failed(res.status);
+      }
+      if (res.status === 400) {
+        const current = await retrieveCheckoutSession(id);
+        if (current.status === 'expired' || current.status === 'complete') return current.status;
+      }
       throw failed(res.status);
     },
 
@@ -174,3 +188,6 @@ export function verifyStripeSignature(
     return timingSafeEqual(Buffer.from(s, 'hex'), expected);
   });
 }
+
+export type StripeClient = ReturnType<typeof createStripeClient>;
+export type RetrievedCheckoutSession = Awaited<ReturnType<StripeClient['retrieveCheckoutSession']>>;
