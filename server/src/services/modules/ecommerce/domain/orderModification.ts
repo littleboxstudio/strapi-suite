@@ -3,6 +3,7 @@
  * Design 4.8 and requirements 16.
  */
 import {
+  MAX_MONEY_CENTS,
   computeTotals,
   financialSummary,
   type Address,
@@ -102,6 +103,9 @@ export type ModificationCurrent = {
 
 const isNonNegativeInt = (n: unknown): n is number =>
   typeof n === 'number' && Number.isInteger(n) && n >= 0;
+
+/** Integer cents in [0, MAX_MONEY_CENTS]. */
+const isMoneyAmount = (n: unknown): n is number => isNonNegativeInt(n) && n <= MAX_MONEY_CENTS;
 
 const withMoney = (
   totals: OrderTotals,
@@ -258,8 +262,8 @@ export const simulateModification = (
   };
   if (input.shipping.mode === 'RECALCULATE') {
     const { quote, previousShipmentsCost } = input.shipping;
-    const quoteOk = isNonNegativeInt(quote);
-    const costOk = isNonNegativeInt(previousShipmentsCost);
+    const quoteOk = isMoneyAmount(quote);
+    const costOk = isMoneyAmount(previousShipmentsCost);
     if (!quoteOk) errors.push({ path: 'shipping.quote', code: 'INVALID_AMOUNT' });
     if (!costOk) errors.push({ path: 'shipping.previousShipmentsCost', code: 'INVALID_AMOUNT' });
     shipping.previousShipmentsCost = previousShipmentsCost;
@@ -270,7 +274,7 @@ export const simulateModification = (
     }
   } else if (input.shipping.mode === 'MANUAL') {
     const { amount } = input.shipping;
-    if (isNonNegativeInt(amount)) {
+    if (isMoneyAmount(amount)) {
       Object.assign(shipping, { newCharged: amount, shippingOriginal: amount, shippingDiscount: 0 });
     } else {
       errors.push({ path: 'shipping.amount', code: 'INVALID_AMOUNT' });

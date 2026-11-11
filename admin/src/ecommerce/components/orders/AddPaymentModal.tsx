@@ -6,7 +6,7 @@ import { getTranslation } from '../../../core/utils/getTranslation';
 import AddOrderPayment from '../../usecases/orders/addOrderPayment';
 import { extractFieldErrors } from '../../utils/productForm';
 import { mintUuid } from '../../utils/variantDraft';
-import { parseMoneyToCents } from '../../utils/money';
+import { MAX_MONEY_CENTS, parseMoneyToCents } from '../../utils/money';
 import { isActionUnavailable } from '../../utils/orderDetail';
 
 type Props = {
@@ -53,7 +53,7 @@ const AddPaymentModal = ({ orderId, due, onClose, onAdded }: Props) => {
   const submit = async () => {
     if (saving) return;
     const cents = parseMoneyToCents(amount);
-    if (cents === null || cents <= 0) {
+    if (cents === null || cents <= 0 || cents > MAX_MONEY_CENTS) {
       setErrors({ amount: codeText('invalid_amount') });
       return;
     }

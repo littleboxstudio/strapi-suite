@@ -17,6 +17,9 @@ export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
 export const FULFILLMENT_STATUSES = ['UNFULFILLED', 'PARTIALLY_FULFILLED', 'FULFILLED'] as const;
 export type FulfillmentStatus = (typeof FULFILLMENT_STATUSES)[number];
 
+/** Upper bound for any money amount an admin enters (10 million in major units, in cents). */
+export const MAX_MONEY_CENTS = 1_000_000_000;
+
 export const PAYMENT_RECORD_STATUSES = ['PENDING', 'COMPLETED', 'CANCELLED', 'FAILED'] as const;
 export type PaymentRecordStatus = (typeof PAYMENT_RECORD_STATUSES)[number];
 

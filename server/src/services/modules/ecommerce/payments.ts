@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import { PLUGIN_ID, LtbConfigs } from '../../../config';
 import { EcommerceValidationError } from './errors';
 import { isUniqueViolation } from './dbErrors';
-import { computeCoverage, type OrderActionKey } from './domain/orders';
+import { MAX_MONEY_CENTS, computeCoverage, type OrderActionKey } from './domain/orders';
 import type { OrderHistoryEntry } from './orderHistory';
 import type { OrderState } from './orders';
 
@@ -102,7 +102,12 @@ const EcommercePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
     const existing = await findByKey(orderId, idempotencyKey);
     if (existing) return existing;
 
-    if (typeof amount !== 'number' || !Number.isSafeInteger(amount) || amount <= 0) {
+    if (
+      typeof amount !== 'number' ||
+      !Number.isSafeInteger(amount) ||
+      amount <= 0 ||
+      amount > MAX_MONEY_CENTS
+    ) {
       throw new EcommerceValidationError('Invalid payment', [
         { path: 'amount', code: 'invalid_amount' },
       ]);

@@ -466,7 +466,10 @@ describe('simulateModification', () => {
     const set = simulateModification(current, { lines, shipping: { mode: 'MANUAL', amount: 450 } }, catalogOf());
     expect(set.after.shippingTotal).toBe(450);
 
-    for (const amount of [-1, 1.5, Number.NaN]) {
+    const max = simulateModification(current, { lines, shipping: { mode: 'MANUAL', amount: 1_000_000_000 } }, catalogOf());
+    expect(max.errors).toEqual([]);
+
+    for (const amount of [-1, 1.5, Number.NaN, 1_000_000_001]) {
       const bad = simulateModification(current, { lines, shipping: { mode: 'MANUAL', amount } }, catalogOf());
       expect(bad.errors).toEqual([{ path: 'shipping.amount', code: 'INVALID_AMOUNT' }]);
     }
@@ -595,5 +598,32 @@ describe('simulateModification', () => {
     ]);
     expect(r.shipping.newCharged).toBe(1000);
     expect(r.after.shippingTotal).toBe(1000);
+  });
+
+  it('RECALCULATE rejects quote and previousShipmentsCost above 1_000_000_000 cents', () => {
+    const current = {
+      lines: [existing({ id: 1 })],
+      orderDiscount: 0,
+      shippingOriginal: 1000,
+      shippingDiscount: 0,
+      payments: [],
+      refunds: [],
+    };
+    const lines = [{ orderLineId: 1, variantId: 101, quantity: 1 }];
+    const r = simulateModification(
+      current,
+      { lines, shipping: { mode: 'RECALCULATE', quote: 1_000_000_001, previousShipmentsCost: 1_000_000_001 } },
+      catalogOf(),
+    );
+    expect(r.errors).toEqual([
+      { path: 'shipping.quote', code: 'INVALID_AMOUNT' },
+      { path: 'shipping.previousShipmentsCost', code: 'INVALID_AMOUNT' },
+    ]);
+    const ok = simulateModification(
+      current,
+      { lines, shipping: { mode: 'RECALCULATE', quote: 1_000_000_000, previousShipmentsCost: 0 } },
+      catalogOf(),
+    );
+    expect(ok.errors).toEqual([]);
   });
 });

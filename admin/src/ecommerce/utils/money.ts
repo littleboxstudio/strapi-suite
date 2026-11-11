@@ -1,3 +1,6 @@
+/** Upper bound for any money amount an admin enters, in cents (mirrors the server). */
+export const MAX_MONEY_CENTS = 1_000_000_000;
+
 export function formatCents(cents: number, locale: string): string {
   return new Intl.NumberFormat(locale, { style: 'currency', currency: 'EUR' }).format(cents / 100);
 }
