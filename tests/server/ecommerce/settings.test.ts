@@ -412,6 +412,11 @@ describe('EcommerceSettingsService — store settings', () => {
       errors: [{ path: 'storefrontApiTokenId', code: 'invalid_token' }],
     });
     expect(apiTokenGetById).toHaveBeenCalledWith(99);
+    for (const v of [1.5, '7']) {
+      await expect(service.updateStoreSettings({ storefrontApiTokenId: v } as any)).rejects.toMatchObject({
+        errors: [{ path: 'storefrontApiTokenId', code: 'invalid_token' }],
+      });
+    }
     await expect(service.updateStoreSettings({ storefrontApiTokenId: 0 })).rejects.toMatchObject({
       errors: [{ path: 'storefrontApiTokenId', code: 'invalid_token' }],
     });

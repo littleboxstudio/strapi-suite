@@ -35,7 +35,6 @@ export type FieldError = {
     | 'min_variants'
     | 'duplicate_sku'
     | 'invalid_number'
-    | 'invalid_token'
     | 'out_of_range'
     | 'VARIANT_IN_OPEN_ORDERS';
 };
