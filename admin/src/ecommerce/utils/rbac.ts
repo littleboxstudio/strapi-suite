@@ -20,3 +20,22 @@ export const ORDERS_MANAGE_ACTION = 'plugin::littlebox-strapi-suite.ecommerce.or
 export const REFUNDS_MANAGE_ACTION = 'plugin::littlebox-strapi-suite.ecommerce.refunds.manage';
 export const PAYMENTS_MANAGE_ACTION = 'plugin::littlebox-strapi-suite.ecommerce.payments.manage';
 export const INVOICING_MANAGE_ACTION = 'plugin::littlebox-strapi-suite.ecommerce.invoicing.manage';
+export const PROMOTIONS_READ_ACTION = 'plugin::littlebox-strapi-suite.ecommerce.promotions.read';
+export const PROMOTIONS_MANAGE_ACTION = 'plugin::littlebox-strapi-suite.ecommerce.promotions.manage';
+
+/** The menu entries that need a permission to be shown (design 9.2: hide what the user cannot do). */
+const MENU_PERMISSIONS: Record<string, string> = { promotions: PROMOTIONS_READ_ACTION };
+
+/**
+ * Menu items the user may see: those without a required action, and those whose action is in
+ * `allowedActions` (the action uids the user holds). Order is kept.
+ */
+export function filterMenu<T extends { key: string }>(
+  menu: readonly T[],
+  allowedActions: readonly string[]
+): T[] {
+  return menu.filter((item) => {
+    const required = MENU_PERMISSIONS[item.key];
+    return !required || allowedActions.includes(required);
+  });
+}

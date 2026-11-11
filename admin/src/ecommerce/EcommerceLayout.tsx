@@ -10,6 +10,8 @@ import { getTranslation } from '../core/utils/getTranslation';
 import { useSettings } from '../contexts/settings';
 import HeaderLayout from '../components/HeaderLayout';
 import EmptyProducts from './illustrations/EmptyProducts';
+import { usePromotionPermissions } from './hooks/usePromotionPermissions';
+import { PROMOTIONS_READ_ACTION, filterMenu } from './utils/rbac';
 
 const MENU = [
   { key: 'products', icon: PriceTag },
@@ -59,6 +61,8 @@ const EcommerceLayout = ({ children }: { children: ReactNode }) => {
   const settings = useSettings();
   const active = settings.provide(module).active;
   const section = activeSection(pathname);
+  const { canRead: canReadPromotions } = usePromotionPermissions();
+  const menu = filterMenu(MENU, canReadPromotions ? [PROMOTIONS_READ_ACTION] : []);
   const basePath = `/plugins/${config.pluginId}/ecommerce`;
 
   async function toggleState(value: boolean) {
@@ -130,7 +134,7 @@ const EcommerceLayout = ({ children }: { children: ReactNode }) => {
             style={{ width: '220px', flexShrink: 0 }}
           >
             <Flex direction="column" alignItems="stretch" gap={1}>
-              {MENU.map(({ key, icon: Icon }) => (
+              {menu.map(({ key, icon: Icon }) => (
                 <NavItem
                   key={key}
                   to={`${basePath}/${key}`}
