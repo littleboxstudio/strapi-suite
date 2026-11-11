@@ -46,13 +46,28 @@ export const computeTotals = (
 ): OrderTotals => {
   let itemsOriginal = 0;
   let productDiscount = 0;
+  let subtotalBeforeReturns = 0;
+  let hasReturns = false;
   for (const l of lines) {
     const effectiveQty = l.quantity - l.returnedQuantity;
     itemsOriginal += l.unitPrice * effectiveQty;
     productDiscount += l.unitDiscount * effectiveQty;
+    subtotalBeforeReturns += (l.unitPrice - l.unitDiscount) * l.quantity;
+    if (l.returnedQuantity > 0) hasReturns = true;
   }
   const subtotal = itemsOriginal - productDiscount;
-  const orderDiscount = Math.max(0, Math.min(order.orderDiscount, subtotal));
+  // Design 4.5: returns pro-rate the order discount (integer, half-up).
+  let storedDiscount = order.orderDiscount;
+  if (hasReturns) {
+    storedDiscount =
+      subtotalBeforeReturns > 0 && subtotal > 0
+        ? Math.floor(
+            (2 * order.orderDiscount * subtotal + subtotalBeforeReturns) /
+              (2 * subtotalBeforeReturns),
+          )
+        : 0;
+  }
+  const orderDiscount = Math.max(0, Math.min(storedDiscount, subtotal));
   const shippingTotal = order.shippingOriginal - order.shippingDiscount;
   const total = subtotal - orderDiscount + shippingTotal;
   return { itemsOriginal, productDiscount, subtotal, orderDiscount, shippingTotal, total };
@@ -112,10 +127,12 @@ export const financialSummary = (
   };
 };
 
+/** Rules 4/5 compare against the real `orderTotal` (not the effective total),
+ * so a cancelled, partially paid order stays PARTIALLY_PAID. */
 export const derivePaymentStatus = (
-  summary: Pick<FinancialSummary, 'paid' | 'refunded' | 'net' | 'total'>,
+  summary: Pick<FinancialSummary, 'paid' | 'refunded' | 'net' | 'orderTotal'>,
 ): PaymentStatus => {
-  const { paid, refunded, net, total } = summary;
+  const { paid, refunded, net, orderTotal: total } = summary;
   if (refunded > 0 && net <= 0) return 'REFUNDED';
   if (refunded > 0) return 'PARTIALLY_REFUNDED';
   if (paid === 0) return 'PENDING';
@@ -148,10 +165,11 @@ export const deriveFulfillmentStatus = (
   lines: { id: number; quantity: number }[],
   shipped: Map<number, number>,
 ): FulfillmentStatus => {
-  if (lines.length === 0) return 'UNFULFILLED';
+  const relevant = lines.filter((l) => l.quantity > 0);
+  if (relevant.length === 0) return 'UNFULFILLED';
   let anyShipped = false;
   let allShipped = true;
-  for (const l of lines) {
+  for (const l of relevant) {
     const q = shipped.get(l.id) ?? 0;
     if (q > 0) anyShipped = true;
     if (q < l.quantity) allShipped = false;
@@ -183,7 +201,7 @@ export type AvailableActionsInput = {
   paymentStatus: PaymentStatus;
   fulfillmentStatus: FulfillmentStatus;
   /** For cancelled orders, pass the summary computed with `orderCancelled: true`. */
-  summary: Pick<FinancialSummary, 'due' | 'excess'>;
+  summary: Pick<FinancialSummary, 'due' | 'excess' | 'paid' | 'orderTotal'>;
   hasUnshippedQuantity: boolean;
   hasShippedUnreturned: boolean;
   allShipmentsDelivered: boolean;
@@ -198,7 +216,10 @@ export const availableActions = (input: AvailableActionsInput): OrderActionKey[]
   const open = input.orderStatus === 'OPEN';
   const { due, excess } = input.summary;
   const actions: OrderActionKey[] = [];
-  if (open && input.paymentStatus === 'PAID' && input.hasUnshippedQuantity) actions.push('SHIP');
+  // Shipping is gated on the settled balance, not on the PAID label (which a
+  // partial refund or a zero-total order would never reach).
+  const settled = due === 0 && (input.summary.paid > 0 || input.summary.orderTotal === 0);
+  if (open && settled && input.hasUnshippedQuantity) actions.push('SHIP');
   if (open && input.fulfillmentStatus !== 'FULFILLED') actions.push('MODIFY');
   if (open) actions.push('CANCEL');
   if (excess > 0) actions.push('REFUND');
