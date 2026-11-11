@@ -3,11 +3,12 @@ import { PLUGIN_ID, LtbConfigs } from '../../../config';
 import { EcommerceNotFoundError, EcommerceValidationError, type ValidationIssue } from './errors';
 import { isEmail } from './settings';
 import type { AuditEntry } from './audit';
+import { normalizeEmail } from './domain/email';
 
 const AREA = 'customers';
 const PAGE_SIZE = 50;
 
-export const normalizeEmail = (email: string): string => String(email ?? '').trim().toLowerCase();
+export { normalizeEmail };
 export const isValidEmail = (email: unknown): boolean =>
   typeof email === 'string' && isEmail(email.trim());
 
