@@ -78,6 +78,20 @@ export type OrderLineView = {
   pending: number;
 };
 
+/** A refund as the order shows it (newest first). No Stripe ids or store credit codes. */
+export type OrderRefundView = {
+  id: number;
+  status: string;
+  method: string;
+  kind: string;
+  amount: number;
+  reason: string | null;
+  hasStripeRefundId: boolean;
+  failureReason: string | null;
+  createdAt: string | null;
+  completedAt: string | null;
+};
+
 export type OrderView = {
   id: number;
   reference: number;
@@ -107,7 +121,8 @@ export type OrderView = {
   };
   lines: OrderLineView[];
   payments: Record<string, unknown>[];
-  refunds: unknown[];
+  refunds: OrderRefundView[];
+  notificationsSummary: { sent: number; failed: number; skipped: number };
   invoices: unknown[];
   shipments: unknown[];
   promotions: unknown[];
@@ -780,7 +795,21 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   const get = async (id: number): Promise<OrderView> => {
-    const { order, lines, payments: paymentRows, summary, actions } = await computeOrderState(id);
+    const {
+      order,
+      lines,
+      payments: paymentRows,
+      refunds: refundRows,
+      summary,
+      actions,
+    } = await computeOrderState(id);
+    const countNotifications = (status: string) =>
+      strapi.db.query(uids().notification).count({ where: { order: { id }, status } });
+    const [sent, failed, skipped] = await Promise.all([
+      countNotifications('SENT'),
+      countNotifications('FAILED'),
+      countNotifications('SKIPPED'),
+    ]);
 
     const historyRows: any[] = [...(order.history ?? [])].sort((a, b) => b.id - a.id);
 
@@ -826,7 +855,21 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         actor: p.actor ?? null,
         createdAt: p.createdAt,
       })),
-      refunds: [],
+      refunds: [...refundRows]
+        .sort((a, b) => b.id - a.id)
+        .map((r) => ({
+          id: r.id,
+          status: r.status,
+          method: r.method,
+          kind: r.kind,
+          amount: num(r.amount),
+          reason: r.reason ?? null,
+          hasStripeRefundId: !!r.externalId,
+          failureReason: r.metadata?.failureReason ?? null,
+          createdAt: r.createdAt ?? null,
+          completedAt: r.completedAt ?? null,
+        })),
+      notificationsSummary: { sent, failed, skipped },
       invoices: [],
       shipments: [],
       promotions: Array.isArray(order.promotions) ? order.promotions : [],

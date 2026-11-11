@@ -879,3 +879,97 @@ describe('fix round 1', () => {
     });
   });
 });
+
+describe('markFailed', () => {
+  const stripeOrder = async (c: Commerce) => {
+    const orderId = await createOrder(c);
+    seedStripePayment(c, orderId, 801, 2000, 'pi_old', '2026-11-01T10:00:00.000Z');
+    await payManual(c, orderId, 3500);
+    return orderId;
+  };
+  /** A Stripe refund whose outcome is unknown: PROCESSING without a Stripe id. */
+  const unknownRefund = async (c: Commerce, orderId: number) => {
+    stripe.createRefund.mockRejectedValueOnce(
+      new EcommercePaymentError('STRIPE_UNREACHABLE')
+    );
+    await expect(
+      c.refunds.create(orderId, { method: 'STRIPE', amount: 1000, reason: 'OTHER', idempotencyKey: 'mf' }, actor)
+    ).rejects.toBeDefined();
+    return refundsOf(c)[0];
+  };
+
+  it('FAILED, releases the reserved amount, writes history and keeps the note', async () => {
+    const c = setupCommerce();
+    const orderId = await stripeOrder(c);
+    const row = await unknownRefund(c, orderId);
+    expect((await c.refunds.preview(orderId)).inFlight).toBe(1000);
+
+    const view = await c.refunds.markFailed(row.id, 'user:9', { note: 'Not in the dashboard' });
+    expect(view.status).toBe('FAILED');
+    expect((await c.refunds.preview(orderId)).inFlight).toBe(0);
+    expect(refundsOf(c)[0].metadata).toMatchObject({ failureReason: 'MARKED_FAILED', failureNote: 'Not in the dashboard' });
+    const h = c.tables[UIDS.orderHistory].filter((x) => x.type === 'REFUND_FAILED');
+    expect(h).toHaveLength(1);
+    expect(h[0]).toMatchObject({ actor: 'user:9' });
+    expect(c.events.filter((e) => e.type === 'REFUND_FAILED')).toHaveLength(1);
+  });
+
+  it('a later Stripe success still promotes it (existing FAILED to COMPLETED rule)', async () => {
+    const c = setupCommerce();
+    const orderId = await stripeOrder(c);
+    const row = await unknownRefund(c, orderId);
+    await c.refunds.markFailed(row.id, actor, {});
+    // the webhook promotion is covered in stripeWebhooks tests; here the row must stay promotable
+    expect(refundsOf(c)[0]).toMatchObject({ status: 'FAILED', externalId: null, method: 'STRIPE' });
+  });
+
+  it('rejects other states with REFUND_NOT_MARKABLE', async () => {
+    const c = setupCommerce();
+    const orderId = await stripeOrder(c);
+    const row = await unknownRefund(c, orderId);
+    await c.refunds.markFailed(row.id, actor, {});
+    expect(await codesOf(c.refunds.markFailed(row.id, actor, {}))).toEqual(['REFUND_NOT_MARKABLE']);
+
+    refundsOf(c).push({ id: 9001, order: orderId, method: 'MANUAL_TRANSFER', kind: 'MONEY', status: 'PROCESSING', amount: 5, externalId: null, idempotencyKey: 'seed', actor, metadata: null });
+    const m = { id: 9001 };
+    expect(await codesOf(c.refunds.markFailed(m.id, actor, {}))).toEqual(['REFUND_NOT_MARKABLE']);
+  });
+
+  it('rejects a Stripe refund that already has a Stripe id, and an unknown id', async () => {
+    const c = setupCommerce();
+    const orderId = await stripeOrder(c);
+    stripe.createRefund.mockResolvedValueOnce({ id: 're_9', status: 'pending' });
+    const [r] = await c.refunds.create(
+      orderId,
+      { method: 'STRIPE', amount: 1000, reason: 'OTHER', idempotencyKey: 'has-id' },
+      actor
+    );
+    expect(await codesOf(c.refunds.markFailed(r.id, actor, {}))).toEqual(['REFUND_NOT_MARKABLE']);
+    await expect(c.refunds.markFailed(9999, actor, {})).rejects.toThrow('Refund not found');
+  });
+});
+
+describe('OrderView refunds and notificationsSummary', () => {
+  it('shows real refunds newest first (no codes, no Stripe ids) and the notification counts', async () => {
+    const c = setupCommerce();
+    const orderId = await createOrder(c);
+    const p = await payManual(c, orderId, 6000);
+    for (const key of ['a', 'b']) {
+      await c.refunds.create(
+        orderId,
+        { method: 'MANUAL_TRANSFER', amount: 500, reason: 'OTHER', reference: key, paymentId: p.id, idempotencyKey: key },
+        actor
+      );
+    }
+    refundsOf(c)[0].externalId = 're_secret';
+    for (const status of ['SENT', 'SENT', 'FAILED', 'SKIPPED']) {
+      c.tables[UIDS.notification].push({ id: c.tables[UIDS.notification].length + 1, order: orderId, status });
+    }
+    const view: any = await c.orders.get(orderId);
+    expect(view.refunds.map((r: any) => r.id)).toEqual([refundsOf(c)[1].id, refundsOf(c)[0].id]);
+    expect(view.refunds[0]).toMatchObject({ status: 'COMPLETED', amount: 500, method: 'MANUAL_TRANSFER', kind: 'MONEY', hasStripeRefundId: false, failureReason: null });
+    expect(view.refunds[1].hasStripeRefundId).toBe(true);
+    expect(JSON.stringify(view.refunds)).not.toContain('re_secret');
+    expect(view.notificationsSummary).toEqual({ sent: 2, failed: 1, skipped: 1 });
+  });
+});

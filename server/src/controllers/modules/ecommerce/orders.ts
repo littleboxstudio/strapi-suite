@@ -1,32 +1,50 @@
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID } from '../../../config';
 import { handleDomainError as handleSharedDomainError } from './errors';
+import { asObject, fail, optionalString, requiredString } from './validation';
 
 const EcommerceOrderController = ({ strapi }: { strapi: Core.Strapi }) => {
   const orders = (): any => strapi.plugin(PLUGIN_ID).service('EcommerceOrderService');
   const payments = (): any => strapi.plugin(PLUGIN_ID).service('EcommercePaymentService');
+  const stripePayments = (): any =>
+    strapi.plugin(PLUGIN_ID).service('EcommerceStripePaymentService');
   const actorOf = (ctx: any): string => `user:${ctx.state?.user?.id}`;
   const body = (ctx: any) => ctx.request?.body ?? {};
   const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
 
-  const handleDomainError = (ctx: any, err: unknown) =>
-    handleSharedDomainError(ctx, err, { invalid: 'Invalid order', notFound: 'Order not found' });
+  const handleDomainError = (ctx: any, err: unknown, withCode = false) =>
+    handleSharedDomainError(ctx, err, {
+      invalid: 'Invalid order',
+      notFound: 'Order not found',
+      withCode,
+    });
 
-  const respond = async (ctx: any, fn: () => Promise<unknown>, status?: number) => {
+  /** `withCode`: validation errors also carry the first code as `details.code`. */
+  const respond = async (
+    ctx: any,
+    fn: () => Promise<unknown>,
+    status?: number,
+    withCode = false
+  ) => {
     try {
       const result = await fn();
       if (status) ctx.status = status;
       ctx.body = result;
     } catch (err) {
-      return handleDomainError(ctx, err);
+      return handleDomainError(ctx, err, withCode);
     }
   };
 
   /** Validates `:id` (NaN → 400) before running `fn`. */
-  const withId = (ctx: any, fn: (id: number) => Promise<unknown>, status?: number) => {
+  const withId = (
+    ctx: any,
+    fn: (id: number) => Promise<unknown>,
+    status?: number,
+    withCode = false
+  ) => {
     const id = Number(ctx.params?.id);
     if (!Number.isInteger(id) || id < 1) return ctx.badRequest('Invalid id');
-    return respond(ctx, () => fn(id), status);
+    return respond(ctx, () => fn(id), status, withCode);
   };
 
   return {
@@ -81,6 +99,55 @@ const EcommerceOrderController = ({ strapi }: { strapi: Core.Strapi }) => {
           );
         },
         201
+      ),
+
+    /** Gets or creates the Stripe payment link for what is due. Never settles anything. */
+    createPaymentLink: (ctx: any) =>
+      withId(ctx, async (id) => {
+        const state = await orders().computeOrderState(id);
+        const supplementary = state.payments.some((p: any) => p.status === 'COMPLETED');
+        const link = await stripePayments().getOrCreatePaymentLink(id, {
+          purpose: supplementary ? 'SUPPLEMENTARY' : 'CHECKOUT',
+          actor: actorOf(ctx),
+        });
+        const { url, expiresAt, amount, reused } = link;
+        return { url, expiresAt, amount, reused };
+      }, undefined, true),
+
+    sendPaymentInstructions: (ctx: any) =>
+      withId(ctx, (id) => {
+        const msg = 'Invalid payment instructions';
+        const b = asObject(body(ctx));
+        if (b.mode === 'STRIPE') {
+          return payments().sendPaymentInstructions(id, { mode: 'STRIPE' }, actorOf(ctx));
+        }
+        if (b.mode !== 'MANUAL') return fail(msg, 'mode', 'invalid');
+        const instructions = requiredString(msg, 'instructions', b.instructions, 5000);
+        const methodLabel = optionalString(msg, 'methodLabel', b.methodLabel);
+        return payments().sendPaymentInstructions(
+          id,
+          { mode: 'MANUAL', instructions, ...(methodLabel ? { methodLabel } : {}) },
+          actorOf(ctx)
+        );
+      }, undefined, true),
+
+    addStoreCreditPayment: (ctx: any) =>
+      withId(
+        ctx,
+        (id) => {
+          const msg = 'Invalid payment';
+          const b = asObject(body(ctx));
+          return payments().addStoreCreditPayment(
+            id,
+            {
+              code: requiredString(msg, 'code', b.code, 64),
+              idempotencyKey: requiredString(msg, 'idempotencyKey', b.idempotencyKey),
+            },
+            actorOf(ctx)
+          );
+        },
+        201,
+        true
       ),
 
     cancel: (ctx: any) => withId(ctx, (id) => orders().cancel(id, actorOf(ctx))),

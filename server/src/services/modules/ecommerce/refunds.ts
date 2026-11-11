@@ -440,6 +440,64 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   /**
+   * The admin attests (after checking the Stripe dashboard) that Stripe never created the
+   * refund of a PROCESSING Stripe refund that has no Stripe id: it becomes FAILED and its
+   * reserved amount is released. A later webhook reporting it succeeded still promotes it.
+   */
+  const markFailed = async (
+    rawRefundId: number | string,
+    actor: string,
+    input: { note?: string } = {}
+  ): Promise<RefundView> => {
+    const id = Number(rawRefundId);
+    const note = clean(input?.note);
+    if (note.length > MAX_TEXT) throw invalid('note', 'too_long');
+    const first = await rowById(id);
+    if (!first) throw new EcommerceNotFoundError('Refund not found');
+    const orderId = idOf(first.order);
+    if (orderId === null) throw new EcommerceNotFoundError('Order not found');
+    await strapi.db.transaction(async () => {
+      await orders().lockOrder(orderId);
+      const row = await rowById(id);
+      if (!row || row.method !== 'STRIPE' || row.status !== 'PROCESSING' || row.externalId) {
+        throw new EcommerceValidationError('Refund cannot be marked as failed', [
+          { path: 'status', code: 'REFUND_NOT_MARKABLE' },
+        ]);
+      }
+      const metadata = {
+        ...(row.metadata && typeof row.metadata === 'object' ? row.metadata : {}),
+        failureReason: 'MARKED_FAILED',
+        ...(note ? { failureNote: note } : {}),
+      };
+      const { count } = await strapi.db
+        .query(uids().refund)
+        .updateMany({ where: { id, status: 'PROCESSING', externalId: null }, data: { status: 'FAILED', metadata } });
+      if (!count) {
+        throw new EcommerceValidationError('Refund cannot be marked as failed', [
+          { path: 'status', code: 'REFUND_NOT_MARKABLE' },
+        ]);
+      }
+      await history().record({
+        orderId,
+        type: 'REFUND_FAILED',
+        description: `Stripe refund of ${num(row.amount)} cents marked as failed by an admin${note ? `: ${note}` : ''}`,
+        previousValue: { refundId: id, status: 'PROCESSING' },
+        newValue: { ...historyValue({ ...row, status: 'FAILED' }), note: note || null },
+        actor,
+        operationId: randomUUID(),
+      });
+    });
+    const collector = events().collector();
+    collector.emit({
+      type: 'REFUND_FAILED',
+      orderId,
+      payload: eventPayload({ ...first, status: 'FAILED' }),
+    });
+    await collector.flush();
+    return toRefundView(await rowById(id));
+  };
+
+  /**
    * Gives `amount` of a STORE_CREDIT payment back as a COMPLETED STORE_CREDIT refund: onto the
    * credit it spent or, when that credit is VOID or expired, onto a new credit for the same
    * e-mail. Records the history and emits `REFUND_COMPLETED`; the caller recalculates.
@@ -820,7 +878,7 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
     return released.map(toRefundView);
   };
 
-  return { preview, list, create, resume, releaseStoreCreditOnCancel };
+  return { preview, list, create, resume, markFailed, releaseStoreCreditOnCancel };
 };
 
 export default EcommerceRefundService;

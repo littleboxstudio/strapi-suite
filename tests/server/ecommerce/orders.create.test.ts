@@ -24,6 +24,7 @@ const UIDS = {
   stockMovement: `${P}stock-movement`,
   orderHistory: `${P}order-history`,
   refund: `${P}refund`,
+  notification: `${P}notification`,
 };
 
 const RELATIONS: FakeRelations = {

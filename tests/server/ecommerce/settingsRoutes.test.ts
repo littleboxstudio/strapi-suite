@@ -9,6 +9,7 @@ const expected: [string, string, string, string][] = [
   ['GET', `${B}/locales`, 'getLocales', P.settingsRead],
   ['GET', `${B}/store`, 'getStore', P.settingsRead],
   ['PUT', `${B}/store`, 'updateStore', P.settingsManage],
+  ['GET', `${B}/stripe-webhook`, 'getStripeWebhook', P.settingsRead],
   ['GET', `${B}/integrations`, 'listIntegrations', P.settingsRead],
   ['PUT', `${B}/integrations/:id`, 'updateIntegration', P.settingsManage],
   ['POST', `${B}/integrations/:id/activate`, 'setIntegrationActive', P.settingsManage],

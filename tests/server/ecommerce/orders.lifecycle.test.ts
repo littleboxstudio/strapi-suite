@@ -28,6 +28,7 @@ const UIDS = {
   stockMovement: `${P}stock-movement`,
   orderHistory: `${P}order-history`,
   refund: `${P}refund`,
+  notification: `${P}notification`,
   storeCredit: `${P}store-credit`,
   storeCreditMovement: `${P}store-credit-movement`,
   stripeSession: `${P}stripe-session`,

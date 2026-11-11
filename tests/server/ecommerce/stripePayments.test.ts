@@ -43,6 +43,7 @@ const UIDS = {
   orderHistory: `${P}order-history`,
   stripeSession: `${P}stripe-session`,
   refund: `${P}refund`,
+  notification: `${P}notification`,
   storeCredit: `${P}store-credit`,
   storeCreditMovement: `${P}store-credit-movement`,
 };
