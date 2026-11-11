@@ -25,14 +25,14 @@ type MenuKey = (typeof MENU)[number]['key'];
 
 const TOP_BAR_HEIGHT = 56;
 
-/** E-commerce top bar: 56px high, 12px padding — logo, breadcrumbs, then the module switch. */
+/** E-commerce top bar: 56px high, 12px padding (20px on the left) — logo, breadcrumbs, then the module switch. */
 const TopBar = styled.header`
   display: flex;
   align-items: center;
   gap: 24px;
   box-sizing: border-box;
   height: ${TOP_BAR_HEIGHT}px;
-  padding: 12px;
+  padding: 12px 12px 12px 20px;
   background: ${({ theme }) => theme.colors.neutral0};
   border-bottom: 1px solid ${({ theme }) => theme.colors.neutral150};
 `;
