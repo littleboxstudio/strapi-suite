@@ -8,6 +8,9 @@ import { SettingsPage } from './pages/settings/SettingsPage';
 import { EmailTemplateEditorPage } from './pages/settings/EmailTemplateEditorPage';
 import { CustomerListPage } from './pages/customers/CustomerListPage';
 import { CustomerDetailPage } from './pages/customers/CustomerDetailPage';
+import { OrderListPage } from './pages/orders/OrderListPage';
+import { OrderCreatePage } from './pages/orders/OrderCreatePage';
+import { OrderDetailPage } from './pages/orders/OrderDetailPage';
 
 const EcommerceApp = () => (
   <EcommerceLayout>
@@ -16,7 +19,9 @@ const EcommerceApp = () => (
       <Route path="products" element={<ProductListPage />} />
       <Route path="products/new" element={<ProductEditPage />} />
       <Route path="products/:id" element={<ProductEditPage />} />
-      <Route path="orders" element={<EcommerceComingSoon />} />
+      <Route path="orders" element={<OrderListPage />} />
+      <Route path="orders/new" element={<OrderCreatePage />} />
+      <Route path="orders/:id" element={<OrderDetailPage />} />
       <Route path="customers" element={<CustomerListPage />} />
       <Route path="customers/:id" element={<CustomerDetailPage />} />
       <Route path="promotions" element={<EcommerceComingSoon />} />

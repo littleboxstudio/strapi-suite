@@ -23,7 +23,7 @@ import type {
   OrderModificationInput,
   Paginated,
   PaymentView,
-  ShippingOption,
+  ShippingQuote,
   ShippingQuoteInput,
   VariantSearchResult,
 } from '../orderTypes';
@@ -45,7 +45,7 @@ export default interface EcommerceOrdersGateway {
   fetchOrder(id: number): Promise<Order>;
   createOrder(input: CreateOrderInput): Promise<CreatedOrder>;
   fetchOrderLocales(): Promise<OrderLocales>;
-  quoteShipping(input: ShippingQuoteInput): Promise<ShippingOption[]>;
+  quoteShipping(input: ShippingQuoteInput): Promise<ShippingQuote>;
   searchVariants(q: string, locale?: string): Promise<VariantSearchResult[]>;
   addPayment(orderId: number, input: ManualPaymentInput): Promise<PaymentView>;
   cancelOrder(id: number): Promise<Order>;
@@ -103,7 +103,7 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
     return this.httpClient.get(`${this.orders}/locales`);
   }
 
-  async quoteShipping(input: ShippingQuoteInput): Promise<ShippingOption[]> {
+  async quoteShipping(input: ShippingQuoteInput): Promise<ShippingQuote> {
     return this.httpClient.post(`${this.orders}/shipping-quote`, input);
   }
 
