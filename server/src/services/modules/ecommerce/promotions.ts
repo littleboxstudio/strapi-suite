@@ -714,6 +714,23 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
     });
   };
 
+  /** Per promotion id, the status of the order's redemption (the order view reads it). */
+  const redemptionStatuses = async (orderId: number): Promise<Map<number, 'RESERVED' | 'RELEASED'>> => {
+    const rows: any[] = await strapi.db.query(uids().promotionRedemption).findMany({
+      where: { order: { id: orderId } },
+      populate: { promotion: { select: ['id'] } },
+      orderBy: { id: 'asc' },
+    });
+    const out = new Map<number, 'RESERVED' | 'RELEASED'>();
+    for (const r of rows) {
+      const promotionId = idOf(r.promotion);
+      if (promotionId !== null && (r.status === 'RESERVED' || r.status === 'RELEASED')) {
+        out.set(promotionId, r.status);
+      }
+    }
+    return out;
+  };
+
   return {
     list,
     get,
@@ -728,6 +745,7 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
     giftOptions,
     reserve,
     releaseForOrder,
+    redemptionStatuses,
   };
 };
 

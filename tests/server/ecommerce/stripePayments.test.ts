@@ -32,6 +32,11 @@ import {
   EcommerceValidationError,
 } from '../../../server/src/services/modules/ecommerce/errors';
 import { createFakeDb, type FakeRelations } from './helpers/fakeDb';
+import {
+  PROMOTION_UIDS,
+  promotionRelations,
+  registerPromotionService,
+} from './helpers/promotionFakes';
 
 const P = 'plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-';
 const UIDS = {
@@ -56,6 +61,7 @@ const UIDS = {
   orderReturn: `${P}order-return`,
   invoice: `${P}invoice`,
   invoiceAllocation: `${P}invoice-allocation`,
+  ...PROMOTION_UIDS,
 };
 
 const RELATIONS: FakeRelations = {
@@ -95,6 +101,7 @@ const RELATIONS: FakeRelations = {
     shipment: [UIDS.shipment, 'shipment', 'manyToOne'],
     order: [UIDS.order, 'order', 'manyToOne'],
   },
+  ...promotionRelations({ order: UIDS.order, customer: UIDS.customer }),
 };
 
 const HOUR = 3600;
@@ -158,6 +165,7 @@ function setup(opts: { storefrontUrl?: string | null; stripeActive?: boolean } =
   };
   services.EcommerceEventBus = { collector: bus.collector, subscribe: bus.subscribe };
   services.EcommerceOrderService = EcommerceOrderService({ strapi });
+  registerPromotionService(strapi, services);
   services.EcommerceShipmentService = EcommerceShipmentService({ strapi });
   services.EcommerceReturnService = EcommerceReturnService({ strapi });
   services.EcommerceInvoiceService = EcommerceInvoiceService({ strapi });

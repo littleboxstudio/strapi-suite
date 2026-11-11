@@ -12,6 +12,11 @@ import {
 } from '../../../server/src/services/modules/ecommerce/events';
 import { EcommerceValidationError } from '../../../server/src/services/modules/ecommerce/errors';
 import { createFakeDb, type FakeRelations } from './helpers/fakeDb';
+import {
+  PROMOTION_UIDS,
+  promotionRelations,
+  registerPromotionService,
+} from './helpers/promotionFakes';
 
 const P = 'plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-';
 const UIDS = {
@@ -33,6 +38,7 @@ const UIDS = {
   orderReturn: `${P}order-return`,
   invoice: `${P}invoice`,
   invoiceAllocation: `${P}invoice-allocation`,
+  ...PROMOTION_UIDS,
 };
 
 const RELATIONS: FakeRelations = {
@@ -67,6 +73,7 @@ const RELATIONS: FakeRelations = {
     shipment: [UIDS.shipment, 'shipment', 'manyToOne'],
     order: [UIDS.order, 'order', 'manyToOne'],
   },
+  ...promotionRelations({ order: UIDS.order, customer: UIDS.customer }),
 };
 
 function setup(opts: { shippingPrice?: number | null } = {}) {
@@ -111,6 +118,7 @@ function setup(opts: { shippingPrice?: number | null } = {}) {
   services.EcommerceEventBus = { collector: bus.collector, subscribe: bus.subscribe };
   const service = EcommerceOrderService({ strapi });
   services.EcommerceOrderService = service;
+  registerPromotionService(strapi, services);
   services.EcommerceShipmentService = EcommerceShipmentService({ strapi });
   services.EcommerceReturnService = EcommerceReturnService({ strapi });
   services.EcommerceInvoiceService = EcommerceInvoiceService({ strapi });
@@ -240,7 +248,7 @@ describe('EcommerceOrderService.create', () => {
         tax: 23,
       },
       customerSnapshot: { firstName: 'Ana', lastName: 'Silva', email: 'Ana@Example.pt' },
-      promotions: [],
+      promotions: { applied: [], codes: [], exhaustive: true },
     });
     expect(order.customer).toBe(1);
     expect(tables[UIDS.customer][0]).toMatchObject({ emailNormalized: 'ana@example.pt' });
