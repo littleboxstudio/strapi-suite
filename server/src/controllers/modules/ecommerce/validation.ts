@@ -102,3 +102,48 @@ export const toInt = (v: unknown): number => {
   if (typeof v !== 'string' || !/^\d{1,15}$/.test(v)) return NaN;
   return Number(v);
 };
+
+export const MAX_PROMOTION_CODES = 5;
+export const MAX_PROMOTION_CODE_LENGTH = 40;
+export const MAX_GIFT_CHOICES = 10;
+
+/**
+ * The promotion fields shared by order creation and quotes. Absent fields stay absent:
+ * `promotionCodes` (<= 5 strings of <= 40 characters), `expectedTotal` (cents) and
+ * `giftChoices` (<= 10 `promotionId → variantId` pairs of integers >= 1).
+ */
+export const promotionFields = (
+  message: string,
+  b: Record<string, unknown>
+): {
+  promotionCodes?: string[];
+  expectedTotal?: number;
+  giftChoices?: Record<string, number>;
+} => {
+  const out: ReturnType<typeof promotionFields> = {};
+  if (b.promotionCodes !== undefined) {
+    const codes = b.promotionCodes;
+    if (!Array.isArray(codes)) return fail(message, 'promotionCodes', 'invalid');
+    if (codes.length > MAX_PROMOTION_CODES) return fail(message, 'promotionCodes', 'too_many');
+    out.promotionCodes = codes.map((c, i) => {
+      if (typeof c !== 'string') return fail(message, `promotionCodes.${i}`, 'invalid');
+      if (c.length > MAX_PROMOTION_CODE_LENGTH) return fail(message, `promotionCodes.${i}`, 'too_long');
+      return c;
+    });
+  }
+  if (b.expectedTotal !== undefined) {
+    out.expectedTotal = nonNegativeCents(message, 'expectedTotal', b.expectedTotal);
+  }
+  if (b.giftChoices !== undefined) {
+    const raw = b.giftChoices;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return fail(message, 'giftChoices', 'invalid');
+    const entries = Object.entries(raw as Record<string, unknown>);
+    if (entries.length > MAX_GIFT_CHOICES) return fail(message, 'giftChoices', 'too_many');
+    out.giftChoices = {};
+    for (const [key, value] of entries) {
+      if (!Number.isInteger(toInt(key)) || toInt(key) < 1) return fail(message, `giftChoices.${key}`, 'invalid');
+      out.giftChoices[key] = positiveInt(message, `giftChoices.${key}`, value);
+    }
+  }
+  return out;
+};

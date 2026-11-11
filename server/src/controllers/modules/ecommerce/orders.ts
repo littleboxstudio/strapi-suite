@@ -1,7 +1,7 @@
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID } from '../../../config';
 import { handleDomainError as handleSharedDomainError } from './errors';
-import { MAX_KEY, asObject, fail, optionalString, requiredString } from './validation';
+import { MAX_KEY, asObject, fail, optionalString, promotionFields, requiredString } from './validation';
 
 const EcommerceOrderController = ({ strapi }: { strapi: Core.Strapi }) => {
   const orders = (): any => strapi.plugin(PLUGIN_ID).service('EcommerceOrderService');
@@ -74,8 +74,30 @@ const EcommerceOrderController = ({ strapi }: { strapi: Core.Strapi }) => {
       if (typeof input.idempotencyKey !== 'string' || !input.idempotencyKey.trim()) {
         return ctx.badRequest('idempotencyKey is required');
       }
-      return respond(ctx, () => orders().create(input, { actor: actorOf(ctx), source: 'admin' }), 201);
+      return respond(
+        ctx,
+        () => {
+          // promotionCodes / expectedTotal / giftChoices are checked here, the rest by the service.
+          const promo = promotionFields('Invalid order', asObject(input));
+          return orders().create({ ...input, ...promo }, { actor: actorOf(ctx), source: 'admin' });
+        },
+        201,
+        true
+      );
     },
+
+    /** Prices a cart with promotions and gifts. Writes nothing: no reservation, no stock. */
+    quote: (ctx: any) =>
+      respond(
+        ctx,
+        () => {
+          const input = body(ctx);
+          const promo = promotionFields('Invalid order', asObject(input));
+          return orders().quote({ ...input, ...promo });
+        },
+        undefined,
+        true
+      ),
 
     shippingQuote: (ctx: any) => {
       const { country, postalCode, lines, locale } = body(ctx);
