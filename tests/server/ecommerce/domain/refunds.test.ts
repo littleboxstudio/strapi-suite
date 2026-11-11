@@ -64,6 +64,26 @@ describe('allocateStripeRefund', () => {
     expect(r.allocations).toEqual([]);
     expect(r.unallocated).toBe(1000);
   });
+  it('treats an unparseable completedAt as 0 without throwing', () => {
+    const r = allocateStripeRefund(500, [
+      src({ paymentId: 1, completedAt: 'garbage' }),
+      src({ paymentId: 2, completedAt: '2026-01-01T00:00:00.000Z' }),
+    ]);
+    expect(r.allocations.map((a) => a.paymentId)).toEqual([2]);
+  });
+  it('guards invalid amounts', () => {
+    expect(allocateStripeRefund(NaN, [src({ paymentId: 1 })])).toEqual({ allocations: [], unallocated: 0 });
+    expect(allocateStripeRefund(-5, [src({ paymentId: 1 })])).toEqual({ allocations: [], unallocated: 0 });
+    expect(allocateStripeRefund(10.5, [src({ paymentId: 1 })])).toEqual({ allocations: [], unallocated: 10 });
+  });
+  it('ignores sources with negative or over-full refundedOrInFlight', () => {
+    const r = allocateStripeRefund(500, [
+      src({ paymentId: 1, refundedOrInFlight: 5000 }),
+      src({ paymentId: 2, refundedOrInFlight: -100, completedAt: '2025-01-01T00:00:00.000Z' }),
+    ]);
+    expect(r.allocations.map((a) => a.paymentId)).toEqual([2]);
+    expect(r.allocations[0].amount).toBe(500);
+  });
   it('reports the unallocated remainder', () => {
     const r = allocateStripeRefund(5000, [src({ paymentId: 1 })]);
     expect(r.unallocated).toBe(3000);
@@ -86,6 +106,9 @@ describe('validateRefundRequest', () => {
   });
   it('required reason', () => {
     expect(validateRefundRequest({ ...ok, reason: '   ' }, ctx)).toEqual([{ path: 'reason', code: 'required' }]);
+  });
+  it('accepts stripeAvailable equal to the amount', () => {
+    expect(validateRefundRequest(ok, { refundable: 5000, stripeAvailable: 1000 })).toEqual([]);
   });
   it('stripe_unavailable when no balance or not enough', () => {
     expect(validateRefundRequest({ ...ok, amount: 4000 }, ctx)).toEqual([

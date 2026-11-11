@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   generateStoreCreditCode,
+  toPublicStoreCreditError,
   storeCreditUsable,
 } from '../../../../server/src/services/modules/ecommerce/domain/storeCredit';
 
@@ -44,5 +45,28 @@ describe('storeCreditUsable', () => {
       ok: false,
       code: 'STORE_CREDIT_VOID',
     });
+  });
+  it('reports email mismatch before void, expired or empty', () => {
+    const bad = [
+      { ...base, status: 'VOID' },
+      { ...base, expiresAt: '2026-01-01T00:00:00Z' },
+      { ...base, balance: 0 },
+    ];
+    for (const c of bad) {
+      expect(storeCreditUsable(c, 'x@b.pt', now)).toEqual({ ok: false, code: 'STORE_CREDIT_EMAIL_MISMATCH' });
+    }
+  });
+  it('is expired at exactly now', () => {
+    expect(storeCreditUsable({ ...base, expiresAt: now.toISOString() }, 'a@b.pt', now)).toEqual({
+      ok: false,
+      code: 'STORE_CREDIT_EXPIRED',
+    });
+  });
+});
+
+describe('toPublicStoreCreditError', () => {
+  it('hides email mismatch as not found', () => {
+    expect(toPublicStoreCreditError('STORE_CREDIT_EMAIL_MISMATCH')).toBe('STORE_CREDIT_NOT_FOUND');
+    expect(toPublicStoreCreditError('STORE_CREDIT_VOID')).toBe('STORE_CREDIT_VOID');
   });
 });

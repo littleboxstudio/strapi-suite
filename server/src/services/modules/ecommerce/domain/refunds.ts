@@ -17,19 +17,22 @@ export type RefundAllocation = { paymentId: number; paymentIntentId: string; amo
 
 const stripeCapacity = (s: RefundSource): number =>
   s.method === 'STRIPE' && s.status === 'COMPLETED' && s.paymentIntentId
-    ? Math.max(0, s.amount - s.refundedOrInFlight)
+    ? Math.min(s.amount, Math.max(0, s.amount - s.refundedOrInFlight))
     : 0;
 
-/** Allocates a Stripe refund newest payment first, capped per payment. */
+/** Allocates a Stripe refund newest payment first, capped per payment. Callers validate the amount first. */
 export const allocateStripeRefund = (
   amount: number,
   sources: RefundSource[]
 ): { allocations: RefundAllocation[]; unallocated: number } => {
+  if (!Number.isInteger(amount) || amount <= 0) {
+    return { allocations: [], unallocated: Math.max(0, Math.floor(amount) || 0) };
+  }
   const ordered = sources
     .filter((s) => stripeCapacity(s) > 0)
     .sort((a, b) => {
-      const ta = Date.parse(a.completedAt);
-      const tb = Date.parse(b.completedAt);
+      const ta = Date.parse(a.completedAt) || 0;
+      const tb = Date.parse(b.completedAt) || 0;
       if (ta !== tb) return tb - ta;
       return b.paymentId - a.paymentId;
     });
