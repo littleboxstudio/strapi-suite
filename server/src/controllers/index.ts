@@ -7,6 +7,7 @@ import ParameterModuleController from './modules/parameter';
 import TranslationModuleController from './modules/translation';
 import LocalesModuleController from './modules/locales';
 import AiTranslationModuleController from './modules/ai-translation';
+import EcommerceProductController from './modules/ecommerce/products';
 
 export default {
   SettingAppController,
@@ -17,5 +18,6 @@ export default {
   ParameterModuleController,
   TranslationModuleController,
   LocalesModuleController,
-  AiTranslationModuleController
+  AiTranslationModuleController,
+  EcommerceProductController
 };

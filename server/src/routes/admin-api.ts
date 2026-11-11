@@ -1,3 +1,5 @@
+import ecommerceProductRoutes from './ecommerce/admin-products';
+
 export default [
   {
     method: 'GET',
@@ -215,4 +217,5 @@ export default [
       policies: ['admin::isAuthenticatedAdmin'],
     },
   },
+  ...ecommerceProductRoutes,
 ];
