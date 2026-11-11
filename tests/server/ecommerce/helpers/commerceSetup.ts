@@ -16,6 +16,8 @@ import EcommerceInvoiceService from '../../../../server/src/services/modules/eco
 import EcommerceAuditService from '../../../../server/src/services/modules/ecommerce/audit';
 import EcommercePromotionService from '../../../../server/src/services/modules/ecommerce/promotions';
 import EcommerceStorefrontSessionService from '../../../../server/src/services/modules/ecommerce/storefrontSessions';
+import EcommerceStorefrontCatalogService from '../../../../server/src/services/modules/ecommerce/storefrontCatalog';
+import EcommerceStorefrontCheckoutService from '../../../../server/src/services/modules/ecommerce/storefrontCheckout';
 import { createEventBus } from '../../../../server/src/services/modules/ecommerce/events';
 import { createFakeDb, type FakeRelations } from './fakeDb';
 
@@ -173,6 +175,14 @@ export function setupCommerce(
       price: 500,
       tax: 23,
     }),
+    /** Carrier quote for a destination (storefront `quoteForLines`); one failing carrier. */
+    quote: vi.fn(async () => ({
+      options: [
+        { providerId: 'manual', serviceId: '1', name: 'Standard', price: 500, tax: 23, estimatedDays: 2 },
+        { providerId: 'manual', serviceId: '2', name: 'Express', price: 900, tax: 23 },
+      ],
+      failures: [{ providerId: 'ctt', code: 'CARRIER_UNREACHABLE' }],
+    })),
   };
   services.EcommerceSettingsService = {
     getStoreSettings: async () => ({
@@ -219,6 +229,8 @@ export function setupCommerce(
   services.EcommerceAuditService = EcommerceAuditService({ strapi });
   services.EcommercePromotionService = EcommercePromotionService({ strapi });
   services.EcommerceStorefrontSessionService = EcommerceStorefrontSessionService({ strapi });
+  services.EcommerceStorefrontCatalogService = EcommerceStorefrontCatalogService({ strapi });
+  services.EcommerceStorefrontCheckoutService = EcommerceStorefrontCheckoutService({ strapi });
 
   const t = db.tables;
   t[UIDS.product].push({ id: 1, active: true });
