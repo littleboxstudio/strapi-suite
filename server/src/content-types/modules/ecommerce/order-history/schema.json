@@ -36,6 +36,10 @@
     },
     "operationId": {
       "type": "string"
+    },
+    "uniqueKey": {
+      "type": "string",
+      "unique": true
     }
   },
   "pluginOptions": {
@@ -48,5 +52,14 @@
     "i18n": {
       "localized": false
     }
-  }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_order_history_unique_key_unique",
+      "columns": [
+        "unique_key"
+      ],
+      "type": "unique"
+    }
+  ]
 }

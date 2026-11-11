@@ -29,6 +29,8 @@ export type OrderHistoryEntry = {
   /** `user:<id>` | `system` | `storefront` | `webhook:<provider>` */
   actor: string;
   operationId?: string;
+  /** Globally unique (DB index): makes a once-only entry, e.g. `modify:<operationId>`. */
+  uniqueKey?: string;
 };
 
 /** Insert-only order history. Writes join the caller's transaction when there is one. */
@@ -52,6 +54,7 @@ const EcommerceOrderHistoryService = ({ strapi }: { strapi: Core.Strapi }) => {
           newValue: json(entry.newValue),
           actor: entry.actor,
           operationId: entry.operationId ?? null,
+          uniqueKey: entry.uniqueKey ?? null,
         },
       });
     },

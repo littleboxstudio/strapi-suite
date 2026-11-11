@@ -48,13 +48,29 @@ const RELATIONS: FakeRelations = {
 
 function setup() {
   const db = createFakeDb(Object.values(UIDS), RELATIONS, {
-    enforceUnique: [UIDS.stockMovement, UIDS.order, UIDS.payment],
+    enforceUnique: [UIDS.stockMovement, UIDS.order, UIDS.payment, UIDS.orderHistory],
   });
   const services: Record<string, any> = {};
+  // Simulates a concurrent request: the next N history lookups by uniqueKey miss.
+  const misses = { uniqueKeyLookups: 0 };
+  const query = (uid: string) => {
+    const q = db.query(uid);
+    if (uid !== UIDS.orderHistory) return q;
+    return {
+      ...q,
+      findOne: async (p: any) => {
+        if (misses.uniqueKeyLookups > 0 && p?.where?.uniqueKey) {
+          misses.uniqueKeyLookups--;
+          return null;
+        }
+        return q.findOne(p);
+      },
+    };
+  };
   const bus = createEventBus(() => undefined);
   const strapi: any = {
     db: {
-      query: db.query,
+      query,
       transaction: db.transaction,
       connection: db.connection,
       metadata: db.metadata,
@@ -111,7 +127,7 @@ function setup() {
     { id: 1, product: 1, url: '/p1.jpg', position: 0 },
     { id: 2, variant: 12, url: '/v12.jpg', position: 0 }
   );
-  return { orders, payments, tables: t, bus, findOption, quote };
+  return { orders, payments, tables: t, bus, findOption, quote, misses };
 }
 
 const address = {
@@ -219,6 +235,34 @@ describe('EcommerceOrderService.previewModification', () => {
       shippingOriginal: 700,
       shippingDiscount: 0,
     });
+  });
+
+  it('RECALCULATE with invalid lines returns their errors without quoting', async () => {
+    const ctx = setup();
+    const { id } = await createOrder(ctx.orders);
+    ctx.findOption.mockClear();
+    ctx.quote.price = null; // a quote would fail: it must not be requested
+    const result = await ctx.orders.previewModification(id, {
+      lines: [...lineInputs(ctx, id), { variantId: 12, quantity: 50 }],
+      shipping: { mode: 'RECALCULATE' },
+    });
+    expect(ctx.findOption).not.toHaveBeenCalled();
+    expect(result.errors).toEqual([{ path: 'lines.2.quantity', code: 'INSUFFICIENT_STOCK' }]);
+    expect(result.shipping.mode).toBe('RECALCULATE');
+    expect(
+      await issues(
+        ctx.orders.applyModification(
+          id,
+          {
+            lines: [...lineInputs(ctx, id), { variantId: 12, quantity: 50 }],
+            shipping: { mode: 'RECALCULATE' },
+          },
+          'user:1',
+          'op-invalid-1'
+        )
+      )
+    ).toEqual([{ path: 'lines.2.quantity', code: 'INSUFFICIENT_STOCK' }]);
+    expect(ctx.findOption).not.toHaveBeenCalled();
   });
 
   it('a failed quote is SHIPPING_QUOTE_FAILED', async () => {
@@ -500,6 +544,48 @@ describe('EcommerceOrderService.applyModification', () => {
     expect(b.order.totals).toEqual(a.order.totals);
     expect(stockOf(ctx, 12)).toBe(9);
     expect(historyOf(ctx, id, 'ORDER_MODIFIED')).toHaveLength(1);
+  });
+
+  it('a concurrent duplicate without stock moves loses on the unique key and replays the winner', async () => {
+    const ctx = setup();
+    const { id } = await createOrder(ctx.orders);
+    const events: any[] = [];
+    ctx.bus.subscribe('ORDER_MODIFIED', async (e) => {
+      events.push(e);
+    });
+    const input = {
+      lines: lineInputs(ctx, id),
+      shipping: KEEP,
+      addresses: { shipping: { ...address, line1: 'Rua C 3' } },
+    };
+    const a = await ctx.orders.applyModification(id, input, 'user:1', 'op-race-0001');
+    const snapshot = JSON.stringify(ctx.tables);
+    // The second request started before the first committed: both of its lookups miss.
+    ctx.misses.uniqueKeyLookups = 2;
+    const b = await ctx.orders.applyModification(id, input, 'user:1', 'op-race-0001');
+
+    expect(ctx.misses.uniqueKeyLookups).toBe(0);
+    expect(JSON.stringify(ctx.tables)).toBe(snapshot);
+    expect(historyOf(ctx, id, 'ORDER_MODIFIED')).toHaveLength(1);
+    expect(historyOf(ctx, id, 'ADDRESS_CHANGED')).toHaveLength(1);
+    expect(historyOf(ctx, id, 'ORDER_MODIFIED')[0].uniqueKey).toBe('modify:op-race-0001');
+    expect(events).toHaveLength(1);
+    expect(b.outcome).toBe(a.outcome);
+    expect(b.difference).toBe(a.difference);
+    expect(b.order).toEqual(a.order);
+  });
+
+  it('only the ORDER_MODIFIED entry carries the unique key', async () => {
+    const ctx = setup();
+    const { id } = await createOrder(ctx.orders);
+    await ctx.orders.applyModification(
+      id,
+      { lines: [...lineInputs(ctx, id), { variantId: 12, quantity: 1 }], shipping: KEEP },
+      'user:1',
+      'op-keys-0001'
+    );
+    const keyed = historyOf(ctx, id).filter((h) => h.uniqueKey);
+    expect(keyed.map((h) => h.type)).toEqual(['ORDER_MODIFIED']);
   });
 
   it('rejects an operationId already used on another order', async () => {
