@@ -93,7 +93,7 @@ function setup(opts: { caps?: { creditNotes: boolean; findByReference: boolean }
   const baseRuntime = settings.getRuntime;
   settings.getRuntime = async (id: string) => runtimes[id] ?? baseRuntime(id);
   settings.getStoreSettings = async () => ({
-    shippingCountries: ['PT'],
+    markets: ['PT'],
     storefrontUrl: 'https://shop.example/',
     timezone: 'Europe/Lisbon',
   });
@@ -573,7 +573,7 @@ describe('EcommerceInvoiceService.issue', () => {
   it('logs and falls back to UTC on an invalid store time zone', async () => {
     const { c, inv, provider } = setup();
     c.services.EcommerceSettingsService.getStoreSettings = async () => ({
-      shippingCountries: ['PT'],
+      markets: ['PT'],
       timezone: 'Mars/Olympus',
     });
     const id = await order(c);

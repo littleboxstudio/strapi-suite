@@ -118,7 +118,7 @@ function setup(opts: { shippingPrice?: number | null } = {}) {
   services.EcommerceShippingService = shipping;
   services.EcommerceSettingsService = {
     getActiveProviders: async () => [],
-    getStoreSettings: async () => ({ shippingCountries: settings.countries }),
+    getStoreSettings: async () => ({ markets: settings.countries }),
   };
   services.EcommerceEventBus = { collector: bus.collector, subscribe: bus.subscribe };
   const service = EcommerceOrderService({ strapi });
@@ -351,6 +351,14 @@ describe('EcommerceOrderService.create', () => {
     }
     expect(stockOf(tables, 11)).toBe(1);
     expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('rejects a shipping address outside the markets', async () => {
+    const { service, settings } = setup();
+    settings.countries = ['PT'];
+    expect(
+      await codes(service.create(input({ shippingAddress: address({ country: 'ES' }) }), ctx))
+    ).toEqual([{ path: 'shippingAddress.country', code: 'invalid_country' }]);
   });
 
   it('validates fields, quantities, availability and shipping', async () => {

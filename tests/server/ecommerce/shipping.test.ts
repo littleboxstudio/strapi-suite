@@ -16,7 +16,7 @@ function setup(
 ) {
   const settings = {
     listManualMethods: async () => opts.methods ?? [],
-    getStoreSettings: async () => ({ shippingCountries: opts.countries ?? ['PT', 'ES'] }),
+    getStoreSettings: async () => ({ markets: opts.countries ?? ['PT', 'ES'] }),
     getActiveProviders: async () => opts.carriers ?? ['manual'],
     getRuntime: async (id: string) =>
       opts.runtime ? opts.runtime(id) : { config: {}, secrets: {}, active: true },

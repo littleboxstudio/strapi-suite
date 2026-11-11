@@ -148,6 +148,51 @@ describe('EcommerceSettingsController — domain errors', () => {
   });
 });
 
+describe('EcommerceSettingsController — shipping zones', () => {
+  it('lists, creates (201), updates and deletes (204) through the zone service', async () => {
+    const zoneService = {
+      list: vi.fn().mockResolvedValue([{ id: 1 }]),
+      create: vi.fn().mockResolvedValue({ id: 2 }),
+      update: vi.fn().mockResolvedValue({ id: 2, name: 'B' }),
+      remove: vi.fn().mockResolvedValue(undefined),
+    };
+    const c = mocked({ EcommerceShippingZoneService: zoneService });
+    const list = mkCtx();
+    await c.listShippingZones(list);
+    expect(list.body).toEqual([{ id: 1 }]);
+    const create = mkCtx({ request: { body: { name: 'A', countries: ['PT'] } } });
+    await c.createShippingZone(create);
+    expect(create.status).toBe(201);
+    expect(zoneService.create).toHaveBeenCalledWith({ name: 'A', countries: ['PT'] }, '7');
+    const update = mkCtx({ params: { id: '2' }, request: { body: { name: 'B' } } });
+    await c.updateShippingZone(update);
+    expect(zoneService.update).toHaveBeenCalledWith(2, { name: 'B' }, '7');
+    expect(update.body).toEqual({ id: 2, name: 'B' });
+    const del = mkCtx({ params: { id: '2' } });
+    await c.deleteShippingZone(del);
+    expect(zoneService.remove).toHaveBeenCalledWith(2, '7');
+    expect(del.status).toBe(204);
+  });
+
+  it('maps ZONE_COUNTRY_CONFLICT and MARKET_IN_USE to 409 ConflictError with details.code', async () => {
+    for (const [code, call] of [
+      ['ZONE_COUNTRY_CONFLICT', 'createShippingZone'],
+      ['MARKET_IN_USE', 'updateStore'],
+    ] as const) {
+      const errors = [{ path: code === 'MARKET_IN_USE' ? 'markets' : 'countries.0', code, detail: 'Ibéria' }];
+      const rejected = vi.fn().mockRejectedValue(new EcommerceValidationError('x', errors));
+      const c = mocked({
+        EcommerceShippingZoneService: { create: rejected },
+        EcommerceSettingsService: { updateStoreSettings: rejected },
+      });
+      const ctx = mkCtx();
+      await (c as any)[call](ctx);
+      expect(ctx.status).toBe(409);
+      expect(ctx.body.error).toMatchObject({ status: 409, name: 'ConflictError', details: { code, errors } });
+    }
+  });
+});
+
 const P = 'plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-';
 const UIDS = {
   integration: `${P}integration`,

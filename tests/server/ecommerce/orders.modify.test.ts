@@ -130,7 +130,7 @@ function setup() {
   services.EcommerceShippingService = { findOption };
   services.EcommerceSettingsService = {
     getActiveProviders: async () => [],
-    getStoreSettings: async () => ({ shippingCountries: ['PT', 'ES'] }),
+    getStoreSettings: async () => ({ markets: ['PT', 'ES'] }),
   };
   services.EcommerceEventBus = { collector: bus.collector, subscribe: bus.subscribe };
   const orders = EcommerceOrderService({ strapi });
@@ -442,6 +442,15 @@ describe('EcommerceOrderService.previewModification', () => {
         })
       )
     ).toEqual([{ path: 'addresses.shipping.city', code: 'required' }]);
+    expect(
+      await issues(
+        ctx.orders.previewModification(id, {
+          lines: lineInputs(ctx, id),
+          shipping: KEEP,
+          addresses: { shipping: { ...address, country: 'FR' } },
+        })
+      )
+    ).toEqual([{ path: 'addresses.shipping.country', code: 'invalid_country' }]);
   });
 });
 

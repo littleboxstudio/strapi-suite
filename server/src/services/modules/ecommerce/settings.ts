@@ -60,7 +60,8 @@ export type StoreSettings = {
   brandColor: string;
   storefrontUrl: string | null;
   timezone: string;
-  shippingCountries: string[];
+  /** Countries where the store sells; shipping zones group them. */
+  markets: string[];
   supportEmail: string | null;
   storefrontApiTokenId: number | null;
   checkoutSessionTtlHours: number;
@@ -72,7 +73,7 @@ export const STORE_SETTINGS_DEFAULTS: StoreSettings = {
   brandColor: '#4945ff',
   storefrontUrl: null,
   timezone: 'Europe/Lisbon',
-  shippingCountries: ['PT'],
+  markets: ['PT'],
   supportEmail: null,
   storefrontApiTokenId: null,
   checkoutSessionTtlHours: 168,
@@ -128,7 +129,7 @@ const isTimezone = (v: string) => {
 // CLDR region codes that are not countries (groupings, pseudo-locales, "Unknown Region").
 const NON_COUNTRY_REGIONS = new Set(['EU', 'EZ', 'UN', 'QO', 'XA', 'XB', 'ZZ']);
 let regionNames: Intl.DisplayNames | null = null;
-const isCountry = (v: unknown): boolean => {
+export const isCountry = (v: unknown): boolean => {
   if (typeof v !== 'string' || !/^[A-Z]{2}$/.test(v) || NON_COUNTRY_REGIONS.has(v)) return false;
   regionNames ??= new Intl.DisplayNames(['en'], { type: 'region', fallback: 'none' });
   try {
@@ -143,7 +144,7 @@ const isMaskShaped = (v: string) => maskSecret(v) === v || /^.{0,3}\*{8}.{0,4}$/
 
 export const isEmail = (v: string) => isValidEmailFormat(v);
 
-function validateCountries(value: unknown, path: string, errors: ValidationIssue[]): void {
+export function validateCountries(value: unknown, path: string, errors: ValidationIssue[]): void {
   if (!Array.isArray(value)) {
     errors.push({ path, code: 'invalid_country' });
     return;
@@ -186,10 +187,10 @@ function normalizeStorePatch(patch: Record<string, unknown>): {
     if (typeof v !== 'string' || v === '' || !isTimezone(v)) errors.push({ path: 'timezone', code: 'invalid_timezone' });
     else values.timezone = v;
   }
-  if (has('shippingCountries')) {
+  if (has('markets')) {
     const before = errors.length;
-    validateCountries(patch.shippingCountries, 'shippingCountries', errors);
-    if (errors.length === before) values.shippingCountries = [...new Set(patch.shippingCountries as string[])];
+    validateCountries(patch.markets, 'markets', errors);
+    if (errors.length === before) values.markets = [...new Set(patch.markets as string[])];
   }
   if (has('supportEmail')) {
     const v = str(patch.supportEmail);
@@ -602,6 +603,25 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
         const token = await strapi.service('admin::api-token').getById(values.storefrontApiTokenId);
         if (!token) {
           throw new EcommerceValidationError('Invalid settings', [{ path: 'storefrontApiTokenId', code: 'invalid_token' }]);
+        }
+      }
+
+      if (values.markets) {
+        // A market still grouped in a shipping zone cannot go: nothing of this patch is saved.
+        const kept = new Set(values.markets);
+        const removed = (await getStoreSettings()).markets.filter((c) => !kept.has(c));
+        if (removed.length) {
+          const zones: { name: string; countries: string[] }[] = await strapi
+            .plugin(PLUGIN_ID)
+            .service('EcommerceShippingZoneService')
+            .list();
+          const inUse = zones.filter((z) => z.countries.some((c) => removed.includes(c)));
+          if (inUse.length) {
+            throw new EcommerceValidationError(
+              'Invalid settings',
+              inUse.map((z) => ({ path: 'markets', code: 'MARKET_IN_USE', detail: z.name }))
+            );
+          }
         }
       }
 

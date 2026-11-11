@@ -186,7 +186,7 @@ export function setupCommerce(
   };
   services.EcommerceSettingsService = {
     getStoreSettings: async () => ({
-      shippingCountries: ['PT'],
+      markets: ['PT'],
       timezone: 'Europe/Lisbon',
       storefrontUrl: 'https://shop.example/',
       checkoutSessionTtlHours: opts.checkoutSessionTtlHours ?? 168,
