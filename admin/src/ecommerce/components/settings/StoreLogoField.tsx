@@ -53,7 +53,7 @@ const StoreLogoField = ({ logo, readOnly, onChange }: Props) => {
       toggleNotification({ type: 'success', message: t('store.logo.uploaded') });
     } catch (err) {
       const code = extractErrorCode(err);
-      if (code === 'INVALID_IMAGE') fail('INVALID_IMAGE');
+      if (code === 'INVALID_IMAGE' || code === 'UPLOAD_FAILED') fail(code);
       else toggleNotification({ type: 'danger', message: t('saveError') });
     } finally {
       setBusy(false);

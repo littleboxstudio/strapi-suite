@@ -378,6 +378,7 @@
   "littlebox-strapi-suite.ecommerce.settings.store.logo.errors.too_large": "The logo exceeds 400 KB.",
   "littlebox-strapi-suite.ecommerce.settings.store.logo.errors.invalid_type": "Choose a PNG, JPG, WebP, GIF or SVG image.",
   "littlebox-strapi-suite.ecommerce.settings.store.logo.errors.INVALID_IMAGE": "This file is not a valid image.",
+  "littlebox-strapi-suite.ecommerce.settings.store.logo.errors.UPLOAD_FAILED": "The upload provider did not return a file URL. Check the upload provider settings.",
   "littlebox-strapi-suite.ecommerce.settings.store.logo.uploaded": "Logo saved.",
   "littlebox-strapi-suite.ecommerce.settings.store.logo.removed": "Logo removed.",
   "littlebox-strapi-suite.ecommerce.settings.store.logoPreview": "Logo preview",

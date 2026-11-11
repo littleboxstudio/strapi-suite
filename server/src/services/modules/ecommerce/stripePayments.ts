@@ -76,12 +76,6 @@ const notAvailable = () =>
     { path: 'action', code: 'ACTION_NOT_AVAILABLE' },
   ]);
 
-/**
- * Stripe Checkout payment links (design 4.6): one active session per amount due. Stripe calls
- * always happen outside database transactions; DB writes run in short transactions before and
- * after, and a call interrupted between them is reconciled by the next one (the pending payment
- * and its deterministic Idempotency-Key are reused, so Stripe returns the same session).
- */
 const DEFAULT_SUCCESS_PATH = '/checkout/success';
 const DEFAULT_CANCEL_PATH = '/checkout/cancel';
 
@@ -103,6 +97,12 @@ export function stripeReturnUrls(
   };
 }
 
+/**
+ * Stripe Checkout payment links (design 4.6): one active session per amount due. Stripe calls
+ * always happen outside database transactions; DB writes run in short transactions before and
+ * after, and a call interrupted between them is reconciled by the next one (the pending payment
+ * and its deterministic Idempotency-Key are reused, so Stripe returns the same session).
+ */
 const EcommerceStripePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
   const uids = () => {
     const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
