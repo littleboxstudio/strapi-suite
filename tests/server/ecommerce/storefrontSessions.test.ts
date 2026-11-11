@@ -5,6 +5,14 @@ import {
   EMPTY_CART,
   emptyCart,
 } from '../../../server/src/services/modules/ecommerce/storefrontSessions';
+import {
+  deriveVerificationSecret,
+  verificationCodeHash,
+} from '../../../server/src/services/modules/ecommerce/domain/storefront/session';
+import {
+  EcommerceEmailError,
+  EcommerceValidationError,
+} from '../../../server/src/services/modules/ecommerce/errors';
 
 const NOW = new Date('2026-11-11T10:00:00.000Z');
 const HOUR = 3_600_000;
@@ -450,6 +458,315 @@ describe('EcommerceStorefrontSessionService', () => {
         expect(await svc(c).findOwnedOrder(mine, p)).toBeNull();
       }
       expect(spy).not.toHaveBeenCalled();
+    });
+  });
+  describe('e-mail verification', () => {
+    const KEY = 'test-encryption-key-for-verification';
+    const MIN = 60_000;
+
+    const resendOk = () =>
+      vi.fn(
+        async (..._args: any[]) => new Response(JSON.stringify({ id: 'em_1' }), { status: 200 })
+      );
+
+    /** The setup's template render mock puts the data as JSON in the HTML. */
+    const sent = (fetchMock: ReturnType<typeof resendOk>, i = fetchMock.mock.calls.length - 1) => {
+      const init = fetchMock.mock.calls[i][1] as RequestInit;
+      const body = JSON.parse(String(init.body));
+      return {
+        body,
+        headers: init.headers as Record<string, string>,
+        code: JSON.parse(body.html).verification.code as string,
+      };
+    };
+
+    const setup = async (opts: { resendActive?: boolean } = { resendActive: true }) => {
+      const c = setupCommerce(opts);
+      const s = await svc(c).resolve((await svc(c).open(null)).token);
+      const fetchMock = resendOk();
+      vi.stubGlobal('fetch', fetchMock);
+      return { c, s, fetchMock, row: () => sessions(c)[0] };
+    };
+
+    const failure = async (p: Promise<unknown>) => {
+      const err: any = await p.then(
+        () => null,
+        (e) => e
+      );
+      expect(err).toBeInstanceOf(EcommerceValidationError);
+      return err.errors[0];
+    };
+    const INVALID = { path: 'code', code: 'VERIFICATION_CODE_INVALID' };
+    const LOCKED = { path: 'code', code: 'VERIFICATION_LOCKED' };
+    const wrong = (code: string) => (code === '000000' ? '000001' : '000000');
+
+    beforeEach(() => {
+      vi.stubEnv('LTB_ECOMMERCE_ENCRYPTION_KEY', KEY);
+    });
+    afterEach(() => {
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    });
+
+    it('sends one e-mail with the code and stores only its HMAC', async () => {
+      const { c, s, fetchMock, row } = await setup();
+      const r = await svc(c).requestEmailVerification(s, { email: ' Ana@X.pt ', locale: 'pt' });
+      expect(r).toEqual({ expiresAt: new Date(NOW.getTime() + 10 * MIN).toISOString() });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const { body, headers, code } = sent(fetchMock);
+      expect(code).toMatch(/^\d{6}$/);
+      expect(body.to).toEqual(['ana@x.pt']);
+      expect(body.html).toContain(code);
+      const render = c.services.EcommerceEmailTemplateService.render;
+      expect(render).toHaveBeenCalledWith('EMAIL_VERIFICATION', 'pt', {
+        customer: { email: 'ana@x.pt' },
+        verification: { code, validMinutes: '10' },
+      });
+      const codeHash = verificationCodeHash(deriveVerificationSecret(KEY), s.id, 'ana@x.pt', code);
+      expect(row().emailVerification).toEqual({
+        emailNormalized: 'ana@x.pt',
+        codeHash,
+        expiresAt: r.expiresAt,
+      });
+      expect(row().verificationAttempts).toBe(0);
+      expect(headers['Idempotency-Key']).toBe(`verify:${s.id}:${codeHash}`);
+      expect(JSON.stringify(row())).not.toContain(code);
+      expect(c.tables[UIDS.notification]).toHaveLength(0);
+      const logged = JSON.stringify([
+        c.log.warn.mock.calls,
+        c.log.error.mock.calls,
+        c.log.info.mock.calls,
+      ]);
+      expect(logged).not.toContain(code);
+    });
+
+    it('stores an HMAC with the derived secret, not a plain SHA-256', async () => {
+      const { c, s, fetchMock, row } = await setup();
+      await svc(c).requestEmailVerification(s, { email: 'ana@x.pt', locale: 'en' });
+      const { code } = sent(fetchMock);
+      expect(row().emailVerification.codeHash).not.toBe(sha(`${s.id}:ana@x.pt:${code}`));
+      vi.stubEnv('LTB_ECOMMERCE_ENCRYPTION_KEY', 'another-key');
+      expect(
+        await failure(svc(c).confirmEmailVerification(s, { email: 'ana@x.pt', code }))
+      ).toEqual(INVALID);
+      expect(row().verifiedEmail ?? null).toBeNull();
+    });
+
+    it('rejects an invalid e-mail before anything else', async () => {
+      const { c, s, fetchMock, row } = await setup();
+      for (const email of ['', 'ana', 'ana@x', 7, null, 'a b@x.pt']) {
+        expect(await failure(svc(c).requestEmailVerification(s, { email, locale: 'en' }))).toEqual({
+          path: 'email',
+          code: 'invalid_email',
+        });
+      }
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(row().emailVerification).toEqual({});
+    });
+
+    it.each([
+      ['inactive', false],
+      ['not set up', undefined],
+    ])('Resend %s → EMAIL_NOT_CONFIGURED and nothing stored', async (_l, resendActive) => {
+      const { c, s, fetchMock, row } = await setup({ resendActive });
+      const err: any = await svc(c)
+        .requestEmailVerification(s, { email: 'ana@x.pt', locale: 'en' })
+        .catch((e) => e);
+      expect(err).toBeInstanceOf(EcommerceEmailError);
+      expect(err.code).toBe('EMAIL_NOT_CONFIGURED');
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(row().emailVerification).toEqual({});
+    });
+
+    it('a failed send → EMAIL_SEND_FAILED and the pending verification is cleared', async () => {
+      const { c, s, row } = await setup();
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => new Response('{}', { status: 500 }))
+      );
+      const err: any = await svc(c)
+        .requestEmailVerification(s, { email: 'ana@x.pt', locale: 'en' })
+        .catch((e) => e);
+      expect(err).toBeInstanceOf(EcommerceEmailError);
+      expect(err.code).toBe('EMAIL_SEND_FAILED');
+      expect(row().emailVerification).toEqual({});
+    });
+
+    it('the right code verifies the normalised e-mail', async () => {
+      const { c, s, fetchMock, row } = await setup();
+      await svc(c).requestEmailVerification(s, { email: ' Ana@X.pt ', locale: 'en' });
+      const { code } = sent(fetchMock);
+      expect(await svc(c).confirmEmailVerification(s, { email: 'ANA@x.pt ', code })).toEqual({
+        verified: true,
+      });
+      expect(row()).toMatchObject({
+        verifiedEmail: 'ana@x.pt',
+        emailVerification: {},
+        verificationAttempts: 0,
+      });
+      const again = { ...s, verifiedEmail: row().verifiedEmail };
+      expect(svc(c).isEmailVerified(again, ' Ana@X.pt ')).toBe(true);
+      // The code is single-use.
+      expect(
+        await failure(svc(c).confirmEmailVerification(s, { email: 'ana@x.pt', code }))
+      ).toEqual(INVALID);
+    });
+
+    it('5 wrong codes lock: the 6th attempt fails even with the right code', async () => {
+      const { c, s, fetchMock, row } = await setup();
+      await svc(c).requestEmailVerification(s, { email: 'ana@x.pt', locale: 'en' });
+      const { code } = sent(fetchMock);
+      for (let i = 0; i < 5; i++) {
+        expect(
+          await failure(
+            svc(c).confirmEmailVerification(s, { email: 'ana@x.pt', code: wrong(code) })
+          )
+        ).toEqual(INVALID);
+      }
+      expect(row().verificationAttempts).toBe(5);
+      expect(c.log.warn).not.toHaveBeenCalled();
+      expect(
+        await failure(svc(c).confirmEmailVerification(s, { email: 'ana@x.pt', code }))
+      ).toEqual(LOCKED);
+      expect(row().verifiedEmail ?? null).toBeNull();
+      expect(row().verificationAttempts).toBe(5);
+      expect(c.log.warn).toHaveBeenCalledWith('[ecommerce:storefront] VERIFICATION_LOCKED');
+      expect(JSON.stringify(c.log.warn.mock.calls)).not.toMatch(/ana@x\.pt|\d{6}/);
+    });
+
+    it('a new code for the same e-mail within the TTL keeps the attempts (and the lock)', async () => {
+      const { c, s, fetchMock, row } = await setup();
+      await svc(c).requestEmailVerification(s, { email: 'ana@x.pt', locale: 'en' });
+      const first = sent(fetchMock).code;
+      for (let i = 0; i < 3; i++) {
+        await failure(
+          svc(c).confirmEmailVerification(s, { email: 'ana@x.pt', code: wrong(first) })
+        );
+      }
+      vi.setSystemTime(new Date(NOW.getTime() + 5 * MIN));
+      await svc(c).requestEmailVerification(s, { email: ' ANA@x.pt', locale: 'en' });
+      const second = sent(fetchMock).code;
+      expect(row().verificationAttempts).toBe(3);
+      for (let i = 0; i < 2; i++) {
+        expect(
+          await failure(
+            svc(c).confirmEmailVerification(s, { email: 'ana@x.pt', code: wrong(second) })
+          )
+        ).toEqual(INVALID);
+      }
+      expect(
+        await failure(svc(c).confirmEmailVerification(s, { email: 'ana@x.pt', code: second }))
+      ).toEqual(LOCKED);
+      expect(row().verificationAttempts).toBe(5);
+
+      // Asking again for the same e-mail does not unlock either.
+      await svc(c).requestEmailVerification(s, { email: 'ana@x.pt', locale: 'en' });
+      expect(row().verificationAttempts).toBe(5);
+      expect(
+        await failure(
+          svc(c).confirmEmailVerification(s, { email: 'ana@x.pt', code: sent(fetchMock).code })
+        )
+      ).toEqual(LOCKED);
+
+      // Another e-mail starts at 0.
+      await svc(c).requestEmailVerification(s, { email: 'rui@x.pt', locale: 'en' });
+      expect(row().verificationAttempts).toBe(0);
+      expect(
+        await svc(c).confirmEmailVerification(s, { email: 'rui@x.pt', code: sent(fetchMock).code })
+      ).toEqual({ verified: true });
+    });
+
+    it('a request after the previous code expired starts at 0', async () => {
+      const { c, s, fetchMock, row } = await setup();
+      await svc(c).requestEmailVerification(s, { email: 'ana@x.pt', locale: 'en' });
+      const { code } = sent(fetchMock);
+      for (let i = 0; i < 5; i++) {
+        await failure(svc(c).confirmEmailVerification(s, { email: 'ana@x.pt', code: wrong(code) }));
+      }
+      vi.setSystemTime(new Date(NOW.getTime() + 10 * MIN));
+      await svc(c).requestEmailVerification(s, { email: 'ana@x.pt', locale: 'en' });
+      expect(row().verificationAttempts).toBe(0);
+      expect(
+        await svc(c).confirmEmailVerification(s, { email: 'ana@x.pt', code: sent(fetchMock).code })
+      ).toEqual({ verified: true });
+    });
+
+    it('parallel wrong confirmations at 4 attempts: one counted, the other locked', async () => {
+      const { c, s, fetchMock, row } = await setup();
+      await svc(c).requestEmailVerification(s, { email: 'ana@x.pt', locale: 'en' });
+      const { code } = sent(fetchMock);
+      row().verificationAttempts = 4;
+      const results = await Promise.all(
+        [0, 1].map((i) =>
+          failure(
+            svc(c).confirmEmailVerification(s, { email: 'ana@x.pt', code: wrong(code) })
+          ).then(
+            (e) => e.code,
+            () => i
+          )
+        )
+      );
+      expect([...results].sort()).toEqual(['VERIFICATION_CODE_INVALID', 'VERIFICATION_LOCKED']);
+      expect(row().verificationAttempts).toBe(5);
+    });
+
+    it('counts the attempt with a conditional update before comparing, and retries on a lost race', async () => {
+      const { c, s, fetchMock, row } = await setup();
+      await svc(c).requestEmailVerification(s, { email: 'ana@x.pt', locale: 'en' });
+      const { code } = sent(fetchMock);
+      row().verificationAttempts = 3;
+      const q = c.strapi.db.query;
+      const updates: any[] = [];
+      let raced = false;
+      c.strapi.db.query = (uid: string) => {
+        const inner = q(uid);
+        if (uid !== UIDS.checkoutSession) return inner;
+        return {
+          ...inner,
+          updateMany: async (p: any) => {
+            updates.push(structuredClone(p));
+            if (!raced && 'verificationAttempts' in (p.where ?? {})) {
+              raced = true;
+              row().verificationAttempts = 4; // a concurrent confirmation won the first round
+            }
+            return inner.updateMany(p);
+          },
+        };
+      };
+      expect(
+        await failure(svc(c).confirmEmailVerification(s, { email: 'ana@x.pt', code: wrong(code) }))
+      ).toEqual(INVALID);
+      const counted = updates.filter((u) => 'verificationAttempts' in u.where);
+      expect(
+        counted.map((u) => [u.where.verificationAttempts, u.data.verificationAttempts])
+      ).toEqual([
+        [3, 4],
+        [4, 5],
+      ]);
+      expect(counted[0].where.id).toBe(s.id);
+      expect(row().verificationAttempts).toBe(5);
+    });
+
+    it('expired code, another e-mail, no pending code or a malformed code → VERIFICATION_CODE_INVALID', async () => {
+      const { c, s, fetchMock, row } = await setup();
+      expect(
+        await failure(svc(c).confirmEmailVerification(s, { email: 'ana@x.pt', code: '123456' }))
+      ).toEqual(INVALID);
+      await svc(c).requestEmailVerification(s, { email: 'ana@x.pt', locale: 'en' });
+      const { code } = sent(fetchMock);
+      expect(
+        await failure(svc(c).confirmEmailVerification(s, { email: 'rui@x.pt', code }))
+      ).toEqual(INVALID);
+      for (const bad of [null, 123456, '12345', 'abcdef']) {
+        expect(
+          await failure(svc(c).confirmEmailVerification(s, { email: 'ana@x.pt', code: bad }))
+        ).toEqual(INVALID);
+      }
+      vi.setSystemTime(new Date(NOW.getTime() + 10 * MIN));
+      expect(
+        await failure(svc(c).confirmEmailVerification(s, { email: 'ana@x.pt', code }))
+      ).toEqual(INVALID);
+      expect(row().verifiedEmail ?? null).toBeNull();
     });
   });
 });

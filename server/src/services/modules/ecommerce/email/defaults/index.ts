@@ -11,6 +11,7 @@ import refundStarted from './refundStarted';
 import refundCompleted from './refundCompleted';
 import invoiceAvailable from './invoiceAvailable';
 import storeCreditIssued from './storeCreditIssued';
+import emailVerification from './emailVerification';
 
 export type DefaultTemplate = { subject: string; html: string };
 
@@ -28,4 +29,5 @@ export const DEFAULT_TEMPLATES: Record<EmailTemplateType, DefaultTemplate> = {
   REFUND_COMPLETED: refundCompleted,
   INVOICE_AVAILABLE: invoiceAvailable,
   STORE_CREDIT_ISSUED: storeCreditIssued,
+  EMAIL_VERIFICATION: emailVerification,
 };

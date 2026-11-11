@@ -14,6 +14,7 @@ export const EMAIL_TEMPLATE_TYPES: EmailTemplateType[] = [
   'REFUND_COMPLETED',
   'INVOICE_AVAILABLE',
   'STORE_CREDIT_ISSUED',
+  'EMAIL_VERIFICATION',
 ];
 
 export const isEmailTemplateType = (value: string | undefined): value is EmailTemplateType =>

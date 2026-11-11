@@ -14,9 +14,14 @@ function clean(value: unknown): string | null {
   return typeof value === 'string' && value.trim() !== '' ? value : null;
 }
 
-export function resolveEncryptionKey(strapi: any): Buffer | null {
+/** The configured key as written (plugin config first, then LTB_ECOMMERCE_ENCRYPTION_KEY). */
+export function resolveEncryptionKeySource(strapi: any): string | null {
   const config: any = strapi.config.get('plugin::littlebox-strapi-suite');
-  const raw = clean(config?.ecommerce?.encryptionKey) ?? clean(process.env.LTB_ECOMMERCE_ENCRYPTION_KEY);
+  return clean(config?.ecommerce?.encryptionKey) ?? clean(process.env.LTB_ECOMMERCE_ENCRYPTION_KEY);
+}
+
+export function resolveEncryptionKey(strapi: any): Buffer | null {
+  const raw = resolveEncryptionKeySource(strapi);
   if (!raw) return null;
   return createHash('sha256').update(raw).digest();
 }

@@ -309,6 +309,8 @@
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.types.INVOICE_AVAILABLE.description": "Enviado quando a fatura de uma encomenda é emitida.",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.types.STORE_CREDIT_ISSUED.name": "Crédito em loja emitido",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.types.STORE_CREDIT_ISSUED.description": "Enviado quando é atribuído crédito em loja ao cliente.",
+  "littlebox-strapi-suite.ecommerce.settings.emailTemplates.types.EMAIL_VERIFICATION.name": "Verificação de e-mail",
+  "littlebox-strapi-suite.ecommerce.settings.emailTemplates.types.EMAIL_VERIFICATION.description": "Enviado no checkout com o código que confirma o e-mail do cliente.",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.editor.back": "Voltar aos modelos de e-mail",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.editor.locale": "Idioma",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.editor.default": "Padrão",
