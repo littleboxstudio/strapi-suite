@@ -306,9 +306,12 @@ const EmailTemplateEditorPage = () => {
           >
             {t('ecommerce.settings.emailTemplates.editor.versions')}
           </Button>
-          <Button variant="tertiary" startIcon={<Mail />} onClick={() => setTestOpen(true)}>
-            {t('ecommerce.settings.emailTemplates.editor.sendTest')}
-          </Button>
+          {/* Sending a test needs the manage permission. */}
+          {!readOnly && (
+            <Button variant="tertiary" startIcon={<Mail />} onClick={() => setTestOpen(true)}>
+              {t('ecommerce.settings.emailTemplates.editor.sendTest')}
+            </Button>
+          )}
           {!readOnly && template.isCustom && (
             <Button
               variant="danger-light"
@@ -435,7 +438,7 @@ const EmailTemplateEditorPage = () => {
       )}
       {body()}
 
-      {testOpen && (
+      {testOpen && !readOnly && (
         <TestEmailModal
           type={type}
           locale={locale}
