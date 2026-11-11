@@ -677,16 +677,75 @@ describe('shipment, delivery and invoice e-mails', () => {
     expect((await c.notifications.resend(row.id, actor)).status).toBe('SKIPPED');
   });
 
-  it('shipment e-mails are not sent for an order that is no longer OPEN', async () => {
+  it('a late event for an order that is no longer OPEN leaves a SKIPPED ORDER_NOT_OPEN row; resend still skips', async () => {
     const { c, ships } = fulfilmentSetup();
     const { id, lineId } = await paid(c, 1);
     const orderRow = c.tables[UIDS.order].find((o) => o.id === id);
     await ships.create(id, ship(lineId, 1, 's1'), actor);
     notifs(c).length = 0;
+    resend.sendWithResend.mockClear();
     orderRow.orderStatus = 'CANCELLED';
     const event = c.events.find((e) => e.type === 'SHIPMENT_CREATED');
     await c.notifications.handle({ ...event, id: 'late-1' });
-    expect(notifs(c)).toHaveLength(0);
+    expect(notifs(c)).toHaveLength(1);
+    expect(notifs(c)[0]).toMatchObject({ status: 'SKIPPED', error: 'ORDER_NOT_OPEN' });
+    expect((await c.notifications.resend(notifs(c)[0].id, actor)).error).toBe('ORDER_NOT_OPEN');
+    // notify false: no row at all
+    await c.notifications.handle({ ...event, id: 'late-2', payload: { ...event.payload, notify: false } });
+    expect(notifs(c)).toHaveLength(1);
+    expect(resend.sendWithResend).not.toHaveBeenCalled();
+  });
+
+  it('resend after the order was cancelled skips a FAILED shipment e-mail', async () => {
+    const { c, ships } = fulfilmentSetup();
+    const { id, lineId } = await paid(c, 1);
+    resend.sendWithResend.mockRejectedValueOnce(new EcommerceEmailError('EMAIL_SEND_FAILED'));
+    await ships.create(id, ship(lineId, 1, 's1'), actor);
+    expect(notifs(c)[0].status).toBe('FAILED');
+    c.tables[UIDS.order].find((o) => o.id === id).orderStatus = 'CANCELLED';
+    resend.sendWithResend.mockClear();
+    const view = await c.notifications.resend(notifs(c)[0].id, actor);
+    expect(view).toMatchObject({ status: 'SKIPPED', error: 'ORDER_NOT_OPEN' });
+    expect(resend.sendWithResend).not.toHaveBeenCalled();
+  });
+
+  it('an invoice that is no longer ISSUED is SKIPPED INVOICE_NOT_ISSUED, not a failure loop', async () => {
+    const { c, inv } = fulfilmentSetup();
+    const { id } = await paid(c, 2);
+    const payment = c.tables[UIDS.payment].find((p) => p.order === id);
+    const view = await inv.issue(id, { type: 'PAYMENT', paymentId: payment.id }, { idempotencyKey: 'i1' }, actor);
+    const row = notifs(c)[0];
+    c.tables[UIDS.invoice].find((i) => i.id === view.id).status = 'UNCERTAIN';
+    row.status = 'FAILED';
+    row.error = 'INVOICE_PDF_UNAVAILABLE';
+    resend.sendWithResend.mockClear();
+    expect(await c.notifications.resend(row.id, actor)).toMatchObject({
+      status: 'SKIPPED',
+      error: 'INVOICE_NOT_ISSUED',
+    });
+    expect(resend.sendWithResend).not.toHaveBeenCalled();
+  });
+
+  it('hostile carrier name and tracking code are HTML-escaped in the rendered e-mail', () => {
+    const store: any = { storeName: 'Loja', brandColor: '#111', storefrontUrl: 'https://shop.example', timezone: 'UTC' };
+    const order: any = { reference: 1, locale: 'en', customer: { firstName: 'A', lastName: 'B', email: 'a@b.pt' }, lines: [] };
+    const hostile = (n: number) => ({
+      id: n,
+      carrierName: '<script>alert(1)</script>',
+      trackingCode: '"><img src=x onerror=alert(1)>',
+      trackingUrl: 'https://www.ctt.pt/t',
+      items: { lines: [] },
+    });
+    const data = buildTemplateData('FULL_SHIPMENT', {
+      order,
+      store,
+      event: { id: 'e', type: 'SHIPMENT_CREATED', orderId: 1, occurredAt: '', payload: { full: true } },
+      extra: { shipment: hostile(1), shipments: [hostile(1), hostile(2)] },
+    });
+    const html = renderTemplate(DEFAULT_TEMPLATES.FULL_SHIPMENT.html, data);
+    expect(html).not.toContain('<script>');
+    expect(html).not.toContain('<img src=x');
+    expect(html).toContain('&lt;script&gt;');
   });
 
   it('the rendered e-mails of this plan carry no Strapi URL; links go to the store, the carrier or Stripe', () => {
@@ -731,12 +790,12 @@ describe('shipment, delivery and invoice e-mails', () => {
       expect(html, type).not.toMatch(/\/admin|\/api\/|\/uploads|littlebox-strapi-suite/);
       const urls = [...html.matchAll(/\b(?:href|src)="([^"]*)"/g)].map((m) => m[1]);
       for (const u of urls) {
-        const ok =
-          u.startsWith('https://shop.example') ||
-          u.startsWith('https://www.ctt.pt/') ||
-          u.startsWith('https://checkout.stripe.com') ||
-          u.startsWith('mailto:') ||
-          u === store.logoUrl;
+        let ok = u === store.logoUrl;
+        if (!ok && u.startsWith('mailto:')) ok = true;
+        if (!ok) {
+          const origin = new URL(u).origin;
+          ok = ['https://shop.example', 'https://www.ctt.pt', 'https://checkout.stripe.com'].includes(origin);
+        }
         expect(ok, `${type}: ${u}`).toBe(true);
       }
       if (type === 'INVOICE_AVAILABLE') {

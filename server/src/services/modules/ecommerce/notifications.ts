@@ -43,7 +43,7 @@ const SILENT_REFUND_FAILURES = ['ADMIN_MARKED', 'STRIPE_REVERSED'];
 /** Payload key holding the source event of a PREPARE_FAILED row. */
 const SOURCE_EVENT = 'sourceEvent';
 /** E-mails about a shipment: only sent while the order is OPEN. */
-const SHIPMENT_TEMPLATES: NotificationTemplateType[] = [
+const SHIPMENT_TEMPLATES: string[] = [
   'PARTIAL_SHIPMENT',
   'FULL_SHIPMENT',
   'DELIVERY_CONFIRMATION',
@@ -156,16 +156,12 @@ const EcommerceNotificationService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   /** Loads what the template needs: the order, the store and the refund / credit rows. */
-  const prepare = async (
-    event: DomainEvent,
-    type: NotificationTemplateType
-  ): Promise<Prepared | null> => {
+  const prepare = async (event: DomainEvent, type: NotificationTemplateType): Promise<Prepared> => {
     const u = uids();
     const p = event.payload ?? {};
     const orderId = event.orderId ?? null;
     const order: OrderView | null =
       orderId === null ? null : await service('EcommerceOrderService').get(orderId);
-    if (order && SHIPMENT_TEMPLATES.includes(type) && order.orderStatus !== 'OPEN') return null;
     const extra: NotificationExtra = {};
     if (type === 'PARTIAL_SHIPMENT' || type === 'FULL_SHIPMENT') {
       const shipmentId = idOf(p.shipmentId);
@@ -241,6 +237,14 @@ const EcommerceNotificationService = ({ strapi }: { strapi: Core.Strapi }) => {
       const invoice = invoiceId === null ? null : await strapi.db.query(uids().invoice).findOne({ where: { id: invoiceId } });
       const warnings = invoice?.metadata?.warnings;
       if (Array.isArray(warnings) && warnings.includes(DUPLICATE_INVOICE)) return skip(DUPLICATE_INVOICE);
+      // Nothing to attach and nothing to retry: only an ISSUED invoice is e-mailed.
+      if (invoice && invoice.status !== 'ISSUED') return skip('INVOICE_NOT_ISSUED');
+    }
+    if (SHIPMENT_TEMPLATES.includes(row.type)) {
+      const orderId = idOf(row.order);
+      const current: OrderView | null =
+        orderId === null ? null : await service('EcommerceOrderService').get(orderId);
+      if (current && current.orderStatus !== 'OPEN') return skip('ORDER_NOT_OPEN');
     }
     if (!isEmail(row.recipient)) return skip('NO_RECIPIENT');
     const rt = await settings().getRuntime('resend');
@@ -368,7 +372,6 @@ const EcommerceNotificationService = ({ strapi }: { strapi: Core.Strapi }) => {
       payload: src.payload && typeof src.payload === 'object' ? src.payload : {},
     };
     const prepared = await prepare(event, row.type);
-    if (!prepared) return null;
     return rows().update({
       where: { id: row.id },
       data: {
@@ -410,7 +413,6 @@ const EcommerceNotificationService = ({ strapi }: { strapi: Core.Strapi }) => {
         await recordPrepareFailure(event, type, uniqueKey);
         return;
       }
-      if (!prepared) return; // not sent for this order (no longer OPEN)
       const row = await claimRow(event, uniqueKey, prepared);
       if (!row) return; // another handler owns this key
       await deliver(row, SYSTEM);
