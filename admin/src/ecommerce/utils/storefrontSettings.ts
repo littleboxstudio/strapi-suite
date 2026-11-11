@@ -9,22 +9,36 @@ const SOON_DAYS = 14;
 
 export type TokenWarning = 'FULL_ACCESS' | 'READ_ONLY' | 'EXPIRES_SOON' | 'EXPIRED';
 
-/** What is wrong with the chosen BFF token, if anything (most serious first). */
+/** Everything wrong with the chosen BFF token (expiry first, then access type). */
+export function tokenWarnings(
+  token: Pick<StorefrontApiToken, 'type' | 'expiresAt'> | null,
+  now: Date
+): TokenWarning[] {
+  if (!token) return [];
+  const list: TokenWarning[] = [];
+  if (token.expiresAt) {
+    const at = new Date(token.expiresAt).getTime();
+    if (!Number.isNaN(at)) {
+      if (at <= now.getTime()) list.push('EXPIRED');
+      else if (at - now.getTime() < SOON_DAYS * 86400000) list.push('EXPIRES_SOON');
+    }
+  }
+  if (token.type === 'full-access') list.push('FULL_ACCESS');
+  if (token.type === 'read-only') list.push('READ_ONLY');
+  return list;
+}
+
+/** The most serious warning, or null. */
 export function tokenWarning(
   token: Pick<StorefrontApiToken, 'type' | 'expiresAt'> | null,
   now: Date
 ): TokenWarning | null {
-  if (!token) return null;
-  if (token.expiresAt) {
-    const at = new Date(token.expiresAt).getTime();
-    if (!Number.isNaN(at)) {
-      if (at <= now.getTime()) return 'EXPIRED';
-      if (at - now.getTime() < SOON_DAYS * 86400000) return 'EXPIRES_SOON';
-    }
-  }
-  if (token.type === 'full-access') return 'FULL_ACCESS';
-  if (token.type === 'read-only') return 'READ_ONLY';
-  return null;
+  return tokenWarnings(token, now)[0] ?? null;
+}
+
+/** The saved token id is not among the tokens the admin can see. */
+export function isTokenMissing(tokenId: number | null, tokens: Pick<StorefrontApiToken, 'id'>[]): boolean {
+  return tokenId !== null && !tokens.some((t) => t.id === tokenId);
 }
 
 /** Whole hours from 1 to 720. */
