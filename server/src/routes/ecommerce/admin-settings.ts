@@ -29,6 +29,7 @@ export default [
   route('GET', '/store', 'getStore', read),
   route('PUT', '/store', 'updateStore', manage),
   route('GET', '/stripe-webhook', 'getStripeWebhook', read),
+  route('GET', '/storefront/api-tokens', 'listApiTokens', read),
   route('GET', '/integrations', 'listIntegrations', read),
   route('PUT', '/integrations/:id', 'updateIntegration', manage),
   route('POST', '/integrations/:id/activate', 'setIntegrationActive', manage),

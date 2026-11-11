@@ -33,6 +33,9 @@ export type StoreForm = {
   supportEmail: string;
   timezone: string;
   shippingCountries: string[];
+  /** Carried through untouched so saving another section never loses the storefront settings. */
+  storefrontApiTokenId?: number | null;
+  checkoutSessionTtlHours?: number;
 };
 
 export function isValidHttpUrl(value: string): boolean {
@@ -103,6 +106,10 @@ export function storeFormFromSettings(settings: StoreSettings): StoreForm {
     supportEmail: settings.supportEmail ?? '',
     timezone: settings.timezone,
     shippingCountries: [...settings.shippingCountries],
+    ...(settings.storefrontApiTokenId !== undefined && { storefrontApiTokenId: settings.storefrontApiTokenId }),
+    ...(settings.checkoutSessionTtlHours !== undefined && {
+      checkoutSessionTtlHours: settings.checkoutSessionTtlHours,
+    }),
   };
 }
 
@@ -118,6 +125,10 @@ export function buildStoreSettingsInput(form: StoreForm): StoreSettings {
     supportEmail: optional(form.supportEmail),
     timezone: form.timezone,
     shippingCountries: normalizeCountries(form.shippingCountries),
+    ...(form.storefrontApiTokenId !== undefined && { storefrontApiTokenId: form.storefrontApiTokenId }),
+    ...(form.checkoutSessionTtlHours !== undefined && {
+      checkoutSessionTtlHours: form.checkoutSessionTtlHours,
+    }),
   };
 }
 

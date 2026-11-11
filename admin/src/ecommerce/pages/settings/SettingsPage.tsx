@@ -8,18 +8,12 @@ import { useSettingsPermissions } from './useSettingsPermissions';
 import { GeneralSettings } from './GeneralSettings';
 import { IntegrationsSection } from './IntegrationsSection';
 import { EmailTemplatesSection } from './EmailTemplatesSection';
+import { SETTINGS_SECTIONS, type SettingsSection } from '../../utils/settingsSections';
+import { StorefrontSettings } from './StorefrontSettings';
 import StripeWebhookInfo from '../../components/settings/StripeWebhookInfo';
 
-export const SETTINGS_SECTIONS = [
-  'general',
-  'payments',
-  'billing',
-  'shipping',
-  'email-service',
-  'email-templates',
-] as const;
-
-export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
+export { SETTINGS_SECTIONS };
+export type { SettingsSection };
 
 /** Provider category shown by each integrations section. */
 const SECTION_CATEGORY: Partial<Record<SettingsSection, ProviderCategory>> = {
@@ -78,6 +72,7 @@ const SettingsPage = () => {
             </Typography>
           )}
           {section === 'general' && <GeneralSettings readOnly={!canUpdate} />}
+          {section === 'storefront' && <StorefrontSettings readOnly={!canUpdate} />}
           {category && <IntegrationsSection key={category} category={category} readOnly={!canUpdate} />}
           {section === 'payments' && <StripeWebhookInfo />}
           {section === 'email-templates' && <EmailTemplatesSection />}

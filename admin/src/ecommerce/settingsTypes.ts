@@ -10,6 +10,16 @@ export type StoreSettings = {
   timezone: string;
   shippingCountries: string[];
   supportEmail: string | null;
+  /** Storefront (BFF) API; optional here so older payloads and fixtures still type-check. */
+  storefrontApiTokenId?: number | null;
+  checkoutSessionTtlHours?: number;
+};
+
+export type StorefrontApiToken = {
+  id: number;
+  name: string;
+  type: 'read-only' | 'full-access' | 'custom';
+  expiresAt: string | null;
 };
 
 export type ProviderCategory = 'payment' | 'billing' | 'carrier' | 'email';
