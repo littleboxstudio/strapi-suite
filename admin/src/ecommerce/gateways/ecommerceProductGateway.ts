@@ -21,6 +21,7 @@ export default interface EcommerceProductGateway {
   updateProduct(id: number, input: ProductInput): Promise<void>;
   deleteProduct(id: number): Promise<void>;
   setProductActive(id: number, active: boolean): Promise<{ active: boolean }>;
+  setVariantActive(id: number, active: boolean): Promise<{ active: boolean }>;
   uploadImage(form: FormData): Promise<ImageRecord>;
   deleteImage(id: number): Promise<void>;
   translate(input: TranslateInput): Promise<TranslateOutput>;
@@ -57,6 +58,10 @@ export class EcommerceProductGatewayHttp implements EcommerceProductGateway {
 
   async setProductActive(id: number, active: boolean): Promise<{ active: boolean }> {
     return this.httpClient.put(`${this.base}/products/${id}/active`, { active });
+  }
+
+  async setVariantActive(id: number, active: boolean): Promise<{ active: boolean }> {
+    return this.httpClient.put(`${this.base}/variants/${id}/active`, { active });
   }
 
   async deleteProduct(id: number): Promise<void> {

@@ -335,6 +335,11 @@ const ProductEditPage = () => {
     setModal(null);
   };
 
+  const setVariantActive = (variantId: number, active: boolean) =>
+    setForm((f) =>
+      f ? { ...f, variants: f.variants.map((v) => (v.id === variantId ? { ...v, active } : v)) } : f
+    );
+
   const setVariantImages = (variantId: number, images: ImageRecord[]) =>
     setForm((f) =>
       f ? { ...f, variants: f.variants.map((v) => (v.id === variantId ? { ...v, images } : v)) } : f
@@ -532,6 +537,7 @@ const ProductEditPage = () => {
           onClose={() => setModal(null)}
           onConfirm={confirmVariant}
           onImagesChange={setVariantImages}
+          onActiveChange={setVariantActive}
         />
       )}
     </Flex>
