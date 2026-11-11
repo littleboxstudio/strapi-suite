@@ -553,6 +553,131 @@ describe('orders with promotions: create', () => {
   });
 });
 
+describe('orders with promotions: review fixes', () => {
+  const giftPromotion = () =>
+    addPromotion({
+      benefits: {
+        items: [
+          {
+            type: 'BUY_X_GET_Y',
+            buy: { target: T([10]), quantity: 1, minAmount: null },
+            get: { mode: 'GIFT', variantIds: [30], quantity: 1 },
+            reward: { kind: 'FREE' },
+          },
+        ],
+      },
+    });
+
+  it('gifts that change once shipping is known are quoted again; the third evaluation is final', async () => {
+    addVariant(30, 4, 300, 5, 'Socks');
+    giftPromotion();
+    const ship = addPromotion({
+      stacking: { ...STACK_ALL, exclusive: true },
+      benefits: { items: [{ type: 'SHIPPING_FREE', maxAmount: null }] },
+    });
+    const findOption = setShippingPrice(1000);
+
+    const order = await create({ lines: [{ variantId: 10, quantity: 1 }] });
+
+    expect(findOption).toHaveBeenCalledTimes(2);
+    const items = (i: number) =>
+      findOption.mock.calls[i][0].items.map((x: any) => [x.variantId, x.quantity]);
+    expect(items(0)).toEqual([
+      [10, 1],
+      [30, 1],
+    ]);
+    expect(items(1)).toEqual([[10, 1]]);
+    expect(linesOf(order.id).map((l) => [l.variantId, l.isGift])).toEqual([[10, false]]);
+    expect(orderRow(order.id)).toMatchObject({ shippingDiscount: 1000, total: 2000 });
+    expect(orderRow(order.id).promotions.applied.map((a: any) => a.promotionId)).toEqual([ship]);
+    expect(c.tables[UIDS.stockMovement].map((m) => [m.variantId, m.quantity])).toEqual([[10, -1]]);
+    expectTotalsConsistent(order.id);
+  });
+
+  it('NO_BENEFIT code → created without it', async () => {
+    addVariant(20, 2, 10000, 5, 'Coat');
+    const id = addPromotion({
+      method: 'CODE',
+      code: 'COAT',
+      benefits: {
+        items: [{ type: 'PRODUCT_PERCENT', target: T([20]), percent: 10, maxQuantity: null }],
+      },
+    });
+    const order = await create({ promotionCodes: ['COAT'] });
+    expect(orderRow(order.id).promotions.codes).toEqual([
+      { code: 'COAT', status: 'NO_BENEFIT', promotionId: id },
+    ]);
+    expect(orderRow(order.id).promotions.applied).toEqual([]);
+    expect(c.tables[UIDS.promotionRedemption]).toEqual([]);
+  });
+
+  it('CUSTOMER_LIMIT_REACHED code → 409 PROMOTION_UNAVAILABLE', async () => {
+    const id = addPromotion({ method: 'CODE', code: 'ONCE', perCustomerLimit: 1 });
+    c.tables[UIDS.promotionCustomerUsage].push({
+      id: 1,
+      promotion: id,
+      emailNormalized: 'ana@example.pt',
+      uses: 1,
+      uniqueKey: usageKey(id, 'ana@example.pt'),
+    });
+    expect(await errorsOf(create({ promotionCodes: ['ONCE'] }))).toEqual([
+      { path: `promotions.${id}`, code: 'PROMOTION_UNAVAILABLE', detail: 'ONCE' },
+    ]);
+    expect(c.tables[UIDS.order]).toHaveLength(0);
+  });
+
+  it('EMAIL_NOT_ELIGIBLE code → 400 PROMOTION_CODE_INVALID', async () => {
+    addPromotion({
+      method: 'CODE',
+      code: 'VIP',
+      eligibility: { mode: 'EMAILS', emails: ['bob@example.pt'] },
+    });
+    expect(await errorsOf(create({ promotionCodes: ['VIP'] }))).toEqual([
+      { path: 'promotionCodes.0', code: 'PROMOTION_CODE_INVALID', detail: 'EMAIL_NOT_ELIGIBLE' },
+    ]);
+  });
+
+  it('an entered code the evaluation does not report is NOT_FOUND', async () => {
+    const real = promoSvc.evaluate;
+    vi.spyOn(promoSvc, 'evaluate').mockImplementation((input: any) => ({
+      ...real(input),
+      codes: [],
+    }));
+    expect(await errorsOf(create({ promotionCodes: ['GHOST'] }))).toEqual([
+      { path: 'promotionCodes.0', code: 'PROMOTION_CODE_INVALID', detail: 'NOT_FOUND' },
+    ]);
+  });
+
+  it('evaluatedAt is the time of the evaluation, not of the write', async () => {
+    addPromotion();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-11-11T10:00:00.000Z'));
+      c.services.EcommerceShippingService = {
+        findOption: async (_req: any, providerId: string, serviceId: string) => {
+          vi.setSystemTime(new Date('2026-11-11T10:05:00.000Z'));
+          return { providerId, serviceId, name: 'Standard', price: 500, tax: 23 };
+        },
+      };
+      const order = await create();
+      expect(orderRow(order.id).promotions.evaluatedAt).toBe('2026-11-11T10:00:00.000Z');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('replaying a create with promotions keeps one order and one redemption', async () => {
+    const id = addPromotion({ method: 'CODE', code: 'VERAO20' });
+    const first = await create({ promotionCodes: ['VERAO20'], idempotencyKey: 'key-promo-1' });
+    const again = await create({ promotionCodes: ['VERAO20'], idempotencyKey: 'key-promo-1' });
+    expect(again.id).toBe(first.id);
+    expect(c.tables[UIDS.order]).toHaveLength(1);
+    expect(promotionRow(id).redemptions).toBe(1);
+    expect(c.tables[UIDS.promotionRedemption]).toHaveLength(1);
+    expect(historyOf(first.id, 'PROMOTIONS_APPLIED')).toHaveLength(1);
+  });
+});
+
 describe('orders with promotions: quote', () => {
   it('without shipping: shippingOriginal null, shipping-only promotions AWAITING_SHIPPING, nothing written', async () => {
     const order = addPromotion();

@@ -830,6 +830,8 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
 
   type PricedCart = {
     evaluation: PromotionEvaluation;
+    /** The instant every evaluation of this cart used (stored as `evaluatedAt`). */
+    evaluatedAt: Date;
     option: ShippingOption | null;
     /** The cart's variants and every gift variant on offer. */
     catalog: Map<number, CatalogVariant>;
@@ -886,7 +888,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
 
     const first = evaluate(null);
     const destination = p.destination;
-    if (!destination) return { evaluation: first, option: null, catalog };
+    if (!destination) return { evaluation: first, evaluatedAt: now, option: null, catalog };
 
     const quoteFor = async (e: PromotionEvaluation): Promise<ShippingOption> => {
       const option = await shipping().findOption(
@@ -924,7 +926,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       option = await quoteFor(evaluation);
       evaluation = evaluate(num(option.price));
     }
-    return { evaluation, option, catalog };
+    return { evaluation, evaluatedAt: now, option, catalog };
   };
 
   /**
@@ -941,7 +943,11 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       if (!code || seen.has(code)) return;
       seen.add(code);
       const s = statusOf.get(code);
-      if (!s) return;
+      // The engine reports every entered code; a missing one is treated as unknown.
+      if (!s) {
+        issues.push({ path: `promotionCodes.${i}`, code: 'PROMOTION_CODE_INVALID', detail: 'NOT_FOUND' });
+        return;
+      }
       switch (s.status) {
         case 'APPLIED':
         case 'CONFLICT':
@@ -1095,7 +1101,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       applied,
       codes: evaluation.codes,
       exhaustive: evaluation.exhaustive,
-      evaluatedAt: new Date().toISOString(),
+      evaluatedAt: priced.evaluatedAt.toISOString(),
     };
     const paymentStatus = derivePaymentStatus(financialSummary(totals.total, [], []));
     const units = v.lines.reduce((s, l) => s + l.quantity, 0);
