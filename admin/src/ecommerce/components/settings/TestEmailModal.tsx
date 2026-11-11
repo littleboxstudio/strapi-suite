@@ -14,12 +14,14 @@ type Props = {
   locale: string;
   /** Pre-filled recipient: the current admin user's e-mail. */
   defaultTo: string;
+  /** The editor has unsaved changes: the saved version (not the edited one) is sent. */
+  unsaved?: boolean;
   onClose: () => void;
 };
 
 type Result = { status: 'ok' } | { status: 'error'; code: string | null };
 
-const TestEmailModal = ({ type, locale, defaultTo, onClose }: Props) => {
+const TestEmailModal = ({ type, locale, defaultTo, unsaved = false, onClose }: Props) => {
   const { formatMessage } = useIntl();
   const t = (id: string) => formatMessage({ id: getTranslation(id) });
 
@@ -54,6 +56,13 @@ const TestEmailModal = ({ type, locale, defaultTo, onClose }: Props) => {
         </Modal.Header>
         <Modal.Body>
           <Flex direction="column" alignItems="stretch" gap={4}>
+            {unsaved && (
+              <Box background="warning100" borderColor="warning200" hasRadius padding={3} role="note">
+                <Typography textColor="warning700">
+                  {t('ecommerce.settings.emailTemplates.test.unsavedHint')}
+                </Typography>
+              </Box>
+            )}
             <Field.Root
               name="to"
               required

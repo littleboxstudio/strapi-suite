@@ -555,6 +555,7 @@
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.test.title": "Send test email",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.test.to": "Recipient",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.test.hint": "Sends the saved version of this template, filled with sample data.",
+  "littlebox-strapi-suite.ecommerce.settings.emailTemplates.test.unsavedHint": "You have unsaved changes. The saved version will be sent.",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.test.send": "Send",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.test.sent": "Test email sent.",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.test.failed": "Could not send the test email.",
