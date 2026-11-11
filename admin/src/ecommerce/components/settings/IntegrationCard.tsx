@@ -21,6 +21,8 @@ type Props = {
   onConfigure: () => void;
   onTest: () => void;
   onToggleActive: (active: boolean) => void;
+  /** Extra buttons after Configure / Test (e.g. Stripe's Webhook); shown even when read-only. */
+  extraActions?: ReactNode;
   /** Extra content inside the card, after the actions (e.g. the manual shipping methods). */
   children?: ReactNode;
 };
@@ -33,6 +35,7 @@ const IntegrationCard = ({
   onConfigure,
   onTest,
   onToggleActive,
+  extraActions,
   children,
 }: Props) => {
   const { formatMessage } = useIntl();
@@ -127,20 +130,27 @@ const IntegrationCard = ({
           </Flex>
         </Flex>
 
-        {configurable && !readOnly && (
+        {((configurable && !readOnly) || extraActions) && (
           <Flex gap={2} alignItems="center" wrap="wrap">
-            <Button variant="secondary" startIcon={<Cog />} onClick={onConfigure}>
-              {t('ecommerce.settings.integrations.configure')}
-            </Button>
-            <Button
-              variant="tertiary"
-              startIcon={<Play />}
-              onClick={onTest}
-              loading={test.status === 'testing'}
-            >
-              {t('ecommerce.settings.integrations.test')}
-            </Button>
-            {testResult()}
+            {configurable && !readOnly && (
+              <Button variant="secondary" startIcon={<Cog />} onClick={onConfigure}>
+                {t('ecommerce.settings.integrations.configure')}
+              </Button>
+            )}
+            {extraActions}
+            {configurable && !readOnly && (
+              <>
+                <Button
+                  variant="tertiary"
+                  startIcon={<Play />}
+                  onClick={onTest}
+                  loading={test.status === 'testing'}
+                >
+                  {t('ecommerce.settings.integrations.test')}
+                </Button>
+                {testResult()}
+              </>
+            )}
           </Flex>
         )}
 

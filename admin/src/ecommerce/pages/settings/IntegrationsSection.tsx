@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
-import { Flex, Loader, Typography } from '@strapi/design-system';
+import { Button, Flex, Loader, Typography } from '@strapi/design-system';
+import { Link as LinkIcon } from '@strapi/icons';
 import ConfirmModal from '../../../components/ConfirmModal';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchIntegrations from '../../usecases/settings/fetchIntegrations';
@@ -10,6 +11,7 @@ import TestIntegration from '../../usecases/settings/testIntegration';
 import { IntegrationCard, type TestState } from '../../components/settings/IntegrationCard';
 import { IntegrationConfigModal } from '../../components/settings/IntegrationConfigModal';
 import { ManualMethodsTable } from '../../components/settings/ManualMethodsTable';
+import StripeWebhookModal from '../../components/settings/StripeWebhookModal';
 import { extractFieldErrors } from '../../utils/productForm';
 import { extractErrorCode } from '../../utils/settingsForm';
 import { integrationErrorMap } from '../../utils/integrationForm';
@@ -38,6 +40,7 @@ const IntegrationsSection = ({ category, readOnly, zones }: Props) => {
   const [loadError, setLoadError] = useState(false);
   const [tests, setTests] = useState<Record<string, TestState>>({});
   const [toggling, setToggling] = useState<string | null>(null);
+  const [webhookOpen, setWebhookOpen] = useState(false);
   const [configuring, setConfiguring] = useState<{
     id: string;
     errors?: Record<string, string>;
@@ -164,6 +167,13 @@ const IntegrationsSection = ({ category, readOnly, zones }: Props) => {
           onConfigure={() => setConfiguring({ id: integration.id })}
           onTest={() => runTest(integration.id)}
           onToggleActive={(active) => onToggleActive(integration, active)}
+          extraActions={
+            integration.id === 'stripe' ? (
+              <Button variant="secondary" startIcon={<LinkIcon />} onClick={() => setWebhookOpen(true)}>
+                {t('ecommerce.settings.stripeWebhook.open')}
+              </Button>
+            ) : undefined
+          }
         >
           {integration.id === 'manual' && (
             <ManualMethodsTable readOnly={readOnly} zones={zones ?? NO_ZONES} />
@@ -185,6 +195,8 @@ const IntegrationsSection = ({ category, readOnly, zones }: Props) => {
           }}
         />
       )}
+
+      {webhookOpen && <StripeWebhookModal onClose={() => setWebhookOpen(false)} />}
 
       <ConfirmModal
         open={!!toActivate}
