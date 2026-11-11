@@ -162,6 +162,7 @@ const IntegrationConfigModal = ({
             {clearable && (
               <Button
                 variant="tertiary"
+                size="L"
                 onClick={() => {
                   setValue(field.key, '');
                   setClearedSecrets((keys) =>
