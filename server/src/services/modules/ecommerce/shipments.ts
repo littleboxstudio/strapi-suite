@@ -8,9 +8,16 @@ import {
 } from './errors';
 import { isUniqueViolation } from './dbErrors';
 import { MAX_MONEY_CENTS, type FulfillmentStatus, type OrderActionKey } from './domain/orders';
-import { reservedQuantities, validateShipmentRequest } from './domain/fulfillment';
+import { randomUUID } from 'crypto';
+import {
+  orderDeliveryStatus,
+  reservedQuantities,
+  validateDeliveryDate,
+  validateShipmentRequest,
+} from './domain/fulfillment';
 import type {
   CarrierAdapter,
+  CarrierTrackingEvent,
   CarrierShipmentRequest,
   CarrierShipmentResult,
 } from './providers/carriers/types';
@@ -368,7 +375,7 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
   /** The order's carrier adapter, refusing up front when it cannot `method`. */
   const carrierWith = async (
     providerId: string,
-    method: 'createShipment' | 'cancelShipment' | 'getLabel'
+    method: 'createShipment' | 'cancelShipment' | 'getLabel' | 'track'
   ) => {
     if (!providerId || providerId === 'manual')
       throw new EcommerceCarrierError('CARRIER_NOT_CONFIGURED');
@@ -830,7 +837,270 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
     return { filename: label.filename, content: label.content };
   };
 
-  return { create, retry, cancel, getLabel, listForOrder };
+  // ---------------------------------------------------------------------------
+  // Deliveries and tracking
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Marks `row` delivered under the caller's transaction and order lock. The conditional
+   * `updateMany` is the guard: with 0 rows another request already delivered it. Returns whether
+   * this call did it. Does not touch FulfillmentStatus or OrderStatus.
+   */
+  const markDelivered = async (
+    row: any,
+    orderId: number,
+    ctx: {
+      deliveredAt: string;
+      source: 'MANUAL' | 'CARRIER';
+      actor: string;
+      description: string;
+      notifyCustomer: boolean;
+      collector: Collector;
+    }
+  ): Promise<boolean> => {
+    const u = uids();
+    const res = await strapi.db.query(u.shipment).updateMany({
+      where: { id: row.id, deliveryStatus: { $ne: 'DELIVERED' } },
+      data: {
+        deliveryStatus: 'DELIVERED',
+        deliveredAt: ctx.deliveredAt,
+        deliverySource: ctx.source,
+      },
+    });
+    if (!res?.count) return false;
+    await strapi.db.query(u.shipmentEvent).create({
+      data: {
+        shipment: row.id,
+        order: orderId,
+        type: 'DELIVERED',
+        code: 'DELIVERED',
+        description: ctx.description,
+        occurredAt: ctx.deliveredAt,
+        source: ctx.source === 'MANUAL' ? 'ADMIN' : 'CARRIER',
+        actor: ctx.actor,
+        uniqueKey: `shp:${row.id}:delivered`,
+      },
+    });
+    await history().record({
+      orderId,
+      type: 'SHIPMENT_DELIVERED',
+      description: `${ctx.description} (shipment #${row.id}, ${ctx.deliveredAt})`,
+      previousValue: { deliveryStatus: row.deliveryStatus ?? null },
+      newValue: {
+        shipmentId: row.id,
+        deliveryStatus: 'DELIVERED',
+        deliveredAt: ctx.deliveredAt,
+        deliverySource: ctx.source,
+      },
+      actor: ctx.actor,
+    });
+    const state = await orders().computeOrderState(orderId);
+    ctx.collector.emit({
+      type: 'SHIPMENT_DELIVERED',
+      orderId,
+      payload: {
+        shipmentId: row.id,
+        deliveredAt: ctx.deliveredAt,
+        allDelivered:
+          orderDeliveryStatus(state.order.fulfillmentStatus, state.shipments) === 'DELIVERED',
+        notify: ctx.notifyCustomer && state.order.orderStatus === 'OPEN',
+      },
+    });
+    return true;
+  };
+
+  const confirmDelivery = async (
+    shipmentId: number | string,
+    input: { deliveredAt: string; notifyCustomer?: boolean },
+    actor: string
+  ): Promise<ShipmentView> => {
+    const first = await loadRow(Number(shipmentId));
+    const orderId = idOf(first.order) as number;
+    const notifyCustomer = input?.notifyCustomer === undefined ? true : input.notifyCustomer;
+    if (typeof notifyCustomer !== 'boolean') {
+      throw new EcommerceValidationError('Invalid delivery', [
+        { path: 'notifyCustomer', code: 'invalid' },
+      ]);
+    }
+    const collector = events().collector();
+    await strapi.db.transaction(async () => {
+      await orders().lockOrder(orderId);
+      const row = await loadRow(first.id);
+      const state = await orders().computeOrderState(orderId);
+      if (state.order.orderStatus === 'ARCHIVED' || row.status !== 'ACTIVE') throw notAvailable();
+      if (row.deliveryStatus === 'DELIVERED') throw invalid('status', 'ALREADY_DELIVERED');
+      const issues = validateDeliveryDate(
+        input?.deliveredAt,
+        row.shippedAt ?? row.createdAt,
+        new Date()
+      );
+      if (issues.length) throw new EcommerceValidationError('Invalid delivery', issues);
+      const deliveredAt = new Date(input.deliveredAt).toISOString();
+      const done = await markDelivered(row, orderId, {
+        deliveredAt,
+        source: 'MANUAL',
+        actor,
+        description: 'Delivery confirmed manually',
+        notifyCustomer,
+        collector,
+      });
+      if (!done) throw invalid('status', 'ALREADY_DELIVERED');
+    });
+    await collector.flush();
+    return viewOf(first.id);
+  };
+
+  const updateTracking = async (
+    shipmentId: number | string,
+    input: { trackingCode?: string | null; trackingUrl?: string | null },
+    actor: string
+  ): Promise<ShipmentView> => {
+    const u = uids();
+    const raw = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
+    const errors: ValidationIssue[] = [];
+    const data: Record<string, string | null> = {};
+    if (raw.trackingCode !== undefined) {
+      const code = clean(raw.trackingCode) || null;
+      if (code && code.length > MAX_TEXT) errors.push({ path: 'trackingCode', code: 'too_long' });
+      data.trackingCode = code;
+    }
+    if (raw.trackingUrl !== undefined) {
+      const url = clean(raw.trackingUrl) || null;
+      if (url && !isHttpUrl(url)) errors.push({ path: 'trackingUrl', code: 'invalid_url' });
+      data.trackingUrl = url;
+    }
+    if (!Object.keys(data).length) errors.push({ path: 'trackingCode', code: 'required' });
+    if (errors.length) throw new EcommerceValidationError('Invalid tracking', errors);
+
+    const first = await loadRow(Number(shipmentId));
+    const orderId = idOf(first.order) as number;
+    await strapi.db.transaction(async () => {
+      await orders().lockOrder(orderId);
+      const row = await loadRow(first.id);
+      if (row.status === 'CANCELLED') throw notAvailable();
+      const now = new Date().toISOString();
+      await strapi.db.query(u.shipment).update({ where: { id: row.id }, data });
+      await strapi.db.query(u.shipmentEvent).create({
+        data: {
+          shipment: row.id,
+          order: orderId,
+          type: 'TRACKING_UPDATED',
+          code: 'TRACKING_UPDATED',
+          description: 'Tracking updated',
+          occurredAt: now,
+          source: 'ADMIN',
+          actor,
+          uniqueKey: `shp:${row.id}:tracking:${randomUUID()}`,
+        },
+      });
+      await history().record({
+        orderId,
+        type: 'SHIPMENT_TRACKING_UPDATED',
+        description: `Shipment #${row.id} tracking updated`,
+        previousValue: {
+          trackingCode: row.trackingCode ?? null,
+          trackingUrl: row.trackingUrl ?? null,
+        },
+        newValue: { shipmentId: row.id, ...data },
+        actor,
+      });
+    });
+    return viewOf(first.id);
+  };
+
+  /** Events the adapter returned, malformed ones dropped. */
+  const validTrackingEvents = (raw: unknown): CarrierTrackingEvent[] => {
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter(
+        (e: any) =>
+          e &&
+          typeof e.code === 'string' &&
+          e.code.trim() &&
+          typeof e.occurredAt === 'string' &&
+          !Number.isNaN(new Date(e.occurredAt).getTime())
+      )
+      .map((e: any) => ({
+        code: e.code.trim().slice(0, MAX_TEXT),
+        description: typeof e.description === 'string' ? e.description : '',
+        occurredAt: new Date(e.occurredAt).toISOString(),
+        delivered: e.delivered === true,
+      }))
+      .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt));
+  };
+
+  /** Manual action only (no cron): fetches the carrier events and marks the delivery. */
+  const refreshTracking = async (
+    shipmentId: number | string,
+    actor: string
+  ): Promise<ShipmentView> => {
+    const u = uids();
+    const first = await loadRow(Number(shipmentId));
+    const orderId = idOf(first.order) as number;
+    if (first.providerId === 'manual') throw invalid('shipment', 'NOT_SUPPORTED');
+    if (first.status !== 'ACTIVE' || !first.externalId) throw notAvailable();
+    const carrier = await carrierWith(first.providerId, 'track');
+    // Never inside a transaction: the carrier may be slow.
+    const fetched = await withTimeout(
+      carrier.adapter.track!(
+        { externalId: first.externalId, trackingCode: first.trackingCode ?? null },
+        carrier.runtime,
+        { timeoutMs: CARRIER_CALL_TIMEOUT_MS }
+      ),
+      CARRIER_CALL_TIMEOUT_MS + BACKSTOP_GRACE_MS,
+      false
+    );
+    const trackingEvents = validTrackingEvents(fetched);
+
+    const collector = events().collector();
+    await strapi.db.transaction(async () => {
+      await orders().lockOrder(orderId);
+      const row = await loadRow(first.id);
+      if (row.status !== 'ACTIVE') throw invalid('status', 'SHIPMENT_STATE_CHANGED');
+      for (const e of trackingEvents) {
+        const uniqueKey = `trk:${row.id}:${e.code}:${e.occurredAt}`;
+        const dup = await strapi.db.query(u.shipmentEvent).findOne({ where: { uniqueKey } });
+        if (dup) continue;
+        await strapi.db.query(u.shipmentEvent).create({
+          data: {
+            shipment: row.id,
+            order: orderId,
+            type: 'TRACKING',
+            code: e.code,
+            description: e.description || null,
+            occurredAt: e.occurredAt,
+            source: 'CARRIER',
+            actor: `carrier:${row.providerId}`,
+            uniqueKey,
+          },
+        });
+      }
+      const delivered = trackingEvents.find((e) => e.delivered);
+      if (delivered && row.deliveryStatus !== 'DELIVERED') {
+        await markDelivered(row, orderId, {
+          deliveredAt: delivered.occurredAt,
+          source: 'CARRIER',
+          actor: `carrier:${row.providerId}`,
+          description: 'Delivery confirmed by the carrier',
+          notifyCustomer: true,
+          collector,
+        });
+      }
+    });
+    await collector.flush();
+    return viewOf(first.id);
+  };
+
+  return {
+    create,
+    retry,
+    cancel,
+    getLabel,
+    listForOrder,
+    confirmDelivery,
+    updateTracking,
+    refreshTracking,
+  };
 };
 
 export default EcommerceShipmentService;
