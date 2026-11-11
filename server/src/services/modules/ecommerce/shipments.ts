@@ -860,7 +860,10 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
   ): Promise<boolean> => {
     const u = uids();
     const res = await strapi.db.query(u.shipment).updateMany({
-      where: { id: row.id, deliveryStatus: { $ne: 'DELIVERED' } },
+      where: {
+        id: row.id,
+        $or: [{ deliveryStatus: { $null: true } }, { deliveryStatus: { $ne: 'DELIVERED' } }],
+      },
       data: {
         deliveryStatus: 'DELIVERED',
         deliveredAt: ctx.deliveredAt,
@@ -1057,6 +1060,14 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
       await orders().lockOrder(orderId);
       const row = await loadRow(first.id);
       if (row.status !== 'ACTIVE') throw invalid('status', 'SHIPMENT_STATE_CHANGED');
+      // Carrier timestamps are normalised, never rejected: never in the future, never before
+      // the shipment. The dedup key keeps the carrier's own value so it stays stable.
+      const shippedMs = new Date(row.shippedAt ?? row.createdAt).getTime();
+      const clamp = (iso: string): string => {
+        let ms = Math.min(new Date(iso).getTime(), Date.now());
+        if (!Number.isNaN(shippedMs)) ms = Math.max(ms, shippedMs);
+        return new Date(ms).toISOString();
+      };
       for (const e of trackingEvents) {
         const uniqueKey = `trk:${row.id}:${e.code}:${e.occurredAt}`;
         const dup = await strapi.db.query(u.shipmentEvent).findOne({ where: { uniqueKey } });
@@ -1068,7 +1079,7 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
             type: 'TRACKING',
             code: e.code,
             description: e.description || null,
-            occurredAt: e.occurredAt,
+            occurredAt: clamp(e.occurredAt),
             source: 'CARRIER',
             actor: `carrier:${row.providerId}`,
             uniqueKey,
@@ -1077,8 +1088,9 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
       }
       const delivered = trackingEvents.find((e) => e.delivered);
       if (delivered && row.deliveryStatus !== 'DELIVERED') {
+        // A false result means a concurrent confirmation won under the order lock: nothing to add.
         await markDelivered(row, orderId, {
-          deliveredAt: delivered.occurredAt,
+          deliveredAt: clamp(delivered.occurredAt),
           source: 'CARRIER',
           actor: `carrier:${row.providerId}`,
           description: 'Delivery confirmed by the carrier',

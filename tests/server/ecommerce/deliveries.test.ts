@@ -184,9 +184,27 @@ describe('confirmDelivery', () => {
     orderRow(c, id).orderStatus = 'CANCELLED';
     await ships.confirmDelivery(b.id, { deliveredAt: past(), notifyCustomer: true }, 'u');
     expect(delivered(c)[0].payload.notify).toBe(false);
+  });
+
+  it('refuses an archived order', async () => {
+    const { c, ships } = setup();
+    const { id, lineId } = await paidOrder(c, 1);
+    const a = await ships.create(id, manual(lineId, 1, 's1'), 'user:1');
     orderRow(c, id).orderStatus = 'ARCHIVED';
-    const other = await ships.listForOrder(id);
-    expect(other).toHaveLength(2);
+    expect(
+      await codesOf(ships.confirmDelivery(a.id, { deliveredAt: past(), notifyCustomer: true }, 'u'))
+    ).toEqual(['ACTION_NOT_AVAILABLE']);
+    expect(delivered(c)).toHaveLength(0);
+    expect(c.tables[UIDS.shipment][0].deliveryStatus).toBe('IN_TRANSIT');
+  });
+
+  it('a NULL deliveryStatus can still be confirmed (SQL <> skips NULL)', async () => {
+    const { c, ships } = setup();
+    const { id, lineId } = await paidOrder(c, 1);
+    const a = await ships.create(id, manual(lineId, 1, 's1'), 'user:1');
+    c.tables[UIDS.shipment][0].deliveryStatus = null;
+    const v = await ships.confirmDelivery(a.id, { deliveredAt: past(), notifyCustomer: true }, 'u');
+    expect(v.deliveryStatus).toBe('DELIVERED');
   });
 });
 
@@ -228,6 +246,15 @@ describe('updateTracking', () => {
     ]);
     expect(evRows(c, 'TRACKING_UPDATED')).toHaveLength(0);
   });
+
+  it('null clears the code and the link', async () => {
+    const { c, ships } = setup();
+    const { id, lineId } = await paidOrder(c, 1);
+    const a = await ships.create(id, manual(lineId, 1, 's1'), 'user:1');
+    await ships.updateTracking(a.id, { trackingUrl: 'https://t.example/x' }, 'u');
+    const v = await ships.updateTracking(a.id, { trackingCode: null, trackingUrl: null }, 'u');
+    expect(v).toMatchObject({ trackingCode: null, trackingUrl: null });
+  });
 });
 
 describe('refreshTracking', () => {
@@ -264,7 +291,7 @@ describe('refreshTracking', () => {
     expect(view).toMatchObject({
       deliveryStatus: 'DELIVERED',
       deliverySource: 'CARRIER',
-      deliveredAt: t1,
+      deliveredAt: c.tables[UIDS.shipment].find((r) => r.id === shipmentId).shippedAt, // t1 predates the shipment: clamped
     });
     expect(evRows(c, 'DELIVERED')).toHaveLength(1);
     expect(evRows(c, 'DELIVERED')[0]).toMatchObject({
@@ -304,5 +331,67 @@ describe('refreshTracking', () => {
     });
     await ships.refreshTracking(shipmentId, 'u');
     expect(during).toBe(0);
+  });
+
+  it('an adapter without track gives NOT_SUPPORTED', async () => {
+    const { c, ships, adapter } = setup();
+    const { shipmentId } = await carrierOrder(c, ships);
+    delete adapter.track;
+    expect(await codesOf(ships.refreshTracking(shipmentId, 'u'))).toEqual(['NOT_SUPPORTED']);
+  });
+
+  it('refuses a non-ACTIVE shipment without calling the carrier', async () => {
+    const { c, ships, adapter } = setup();
+    const { shipmentId } = await carrierOrder(c, ships);
+    c.tables[UIDS.shipment].find((r) => r.id === shipmentId).status = 'CANCELLED';
+    expect(await codesOf(ships.refreshTracking(shipmentId, 'u'))).toEqual(['ACTION_NOT_AVAILABLE']);
+    expect(adapter.track).not.toHaveBeenCalled();
+  });
+
+  it('drops malformed events and handles unsorted ones', async () => {
+    const { c, ships, adapter } = setup();
+    const { shipmentId } = await carrierOrder(c, ships);
+    const t0 = new Date(Date.now() - 3600_000).toISOString();
+    const t1 = new Date(Date.now() - 1800_000).toISOString();
+    adapter.track.mockResolvedValue([
+      { code: 'B', description: 'b', occurredAt: t1, delivered: true },
+      null,
+      { code: '', description: 'x', occurredAt: t0, delivered: false },
+      { code: 'BAD', description: 'x', occurredAt: 'nope', delivered: false },
+      { code: 'A', description: 'a', occurredAt: t0, delivered: false },
+    ]);
+    const v = await ships.refreshTracking(shipmentId, 'u');
+    expect(evRows(c, 'TRACKING').map((e) => e.code)).toEqual(['A', 'B']);
+    expect(v.deliveryStatus).toBe('DELIVERED');
+  });
+
+  it('a non-array result is ignored', async () => {
+    const { c, ships, adapter } = setup();
+    const { shipmentId } = await carrierOrder(c, ships);
+    adapter.track.mockResolvedValue({ events: [] });
+    await ships.refreshTracking(shipmentId, 'u');
+    expect(evRows(c, 'TRACKING')).toHaveLength(0);
+  });
+
+  it('clamps carrier timestamps into [shippedAt, now] without throwing', async () => {
+    const { c, ships, adapter } = setup();
+    const { shipmentId } = await carrierOrder(c, ships);
+    const shippedAt = c.tables[UIDS.shipment].find((r) => r.id === shipmentId).shippedAt;
+    const before = Date.now();
+    adapter.track.mockResolvedValue([
+      { code: 'OLD', description: '', occurredAt: '2000-01-01T00:00:00Z', delivered: false },
+      { code: 'D', description: '', occurredAt: '2999-01-01T00:00:00Z', delivered: true },
+    ]);
+    const v = await ships.refreshTracking(shipmentId, 'u');
+    const rows = evRows(c, 'TRACKING');
+    expect(rows.find((r) => r.code === 'OLD').occurredAt).toBe(shippedAt);
+    expect(new Date(rows.find((r) => r.code === 'D').occurredAt).getTime()).toBeLessThanOrEqual(
+      Date.now()
+    );
+    expect(new Date(v.deliveredAt!).getTime()).toBeGreaterThanOrEqual(before);
+    expect(new Date(v.deliveredAt!).getTime()).toBeLessThanOrEqual(Date.now());
+    // Same carrier data again: dedup key is the carrier's own value, no duplicates.
+    await ships.refreshTracking(shipmentId, 'u');
+    expect(evRows(c, 'TRACKING')).toHaveLength(2);
   });
 });
