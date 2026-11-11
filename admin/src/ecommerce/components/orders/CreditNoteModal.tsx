@@ -23,7 +23,7 @@ import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchCreditNotePreview from '../../usecases/orders/fetchCreditNotePreview';
 import IssueCreditNote from '../../usecases/orders/issueCreditNote';
 import { formatCents } from '../../utils/money';
-import { apiErrorMessageId } from '../../utils/orderDetail';
+import { apiErrorMessageId, shouldRenewIdempotencyKey } from '../../utils/orderDetail';
 import { extractFieldErrors } from '../../utils/productForm';
 import { mintUuid } from '../../utils/variantDraft';
 import {
@@ -32,6 +32,9 @@ import {
   creditNoteTotal,
   emptyCreditNoteForm,
   invoiceFailureMessageId,
+  isFailedReplay,
+  isUncertainResult,
+  issuedWarnings,
   validateCreditNoteForm,
   type CreditNoteForm,
 } from '../../utils/invoiceForm';
@@ -135,22 +138,32 @@ const CreditNoteModal = ({ invoice, onClose, onIssued }: Props) => {
     setFormError(null);
     try {
       const note = await new IssueCreditNote().execute(invoice.id, input);
-      if (note.status === 'FAILED') {
+      if (isFailedReplay(note)) {
         setIdempotencyKey(mintUuid());
         const id = note.error ? invoiceFailureMessageId(note.error) : null;
         setFormError(t(id ?? 'ecommerce.orders.invoices.creditNote.error'));
         return;
       }
-      if (note.status === 'UNCERTAIN' || note.status === 'PENDING') {
+      if (isUncertainResult(note)) {
         setUncertain(true);
         return;
       }
-      toggleNotification({ type: 'success', message: t('ecommerce.orders.invoices.creditNote.success') });
+      const warnings = issuedWarnings(note);
+      toggleNotification(
+        warnings.length
+          ? {
+              type: 'warning',
+              message: t('ecommerce.orders.invoices.issue.warnings', {
+                warnings: warnings.map((w) => t(`ecommerce.orders.invoices.warnings.${w}`)).join(' '),
+              }),
+            }
+          : { type: 'success', message: t('ecommerce.orders.invoices.creditNote.success') }
+      );
       onIssued();
     } catch (err) {
-      // Only a server answer allows a new key: without one, a retry must replay this request
-      // (nothing else stops a second credit note).
-      if ((err as any)?.response) setIdempotencyKey(mintUuid());
+      // Only a 4xx allows a new key: on a 5xx or without an answer a retry must replay this
+      // request (nothing else stops a second credit note).
+      if (shouldRenewIdempotencyKey(err)) setIdempotencyKey(mintUuid());
       showServerErrors(err, input.lines);
     } finally {
       setSaving(false);

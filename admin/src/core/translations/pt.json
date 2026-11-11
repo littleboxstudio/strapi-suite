@@ -1128,6 +1128,8 @@
   "littlebox-strapi-suite.ecommerce.orders.invoices.warnings.DUPLICATE_INVOICE": "Existe um documento duplicado no fornecedor de faturação — anule-o lá.",
   "littlebox-strapi-suite.ecommerce.orders.invoices.failure.MARKED_FAILED": "Marcado como falhado por um administrador.",
   "littlebox-strapi-suite.ecommerce.orders.invoices.failure.NOT_FOUND_AT_PROVIDER": "Não encontrado no fornecedor de faturação: não foi emitido.",
+  "littlebox-strapi-suite.ecommerce.orders.invoices.failure.unknown": "O fornecedor de faturação recusou o documento.",
+  "littlebox-strapi-suite.ecommerce.orders.invoices.issue.warnings": "Emitido com avisos: {warnings}",
   "littlebox-strapi-suite.ecommerce.orders.invoices.actions.PDF": "Descarregar PDF",
   "littlebox-strapi-suite.ecommerce.orders.invoices.actions.RECONCILE": "Reconciliar",
   "littlebox-strapi-suite.ecommerce.orders.invoices.actions.MARK_FAILED": "Marcar como falhada",

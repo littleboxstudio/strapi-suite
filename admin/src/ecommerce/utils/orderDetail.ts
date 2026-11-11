@@ -369,3 +369,15 @@ export function apiErrorMessageId(err: unknown, fallback: string): string {
     ? `ecommerce.orders.errors.${code}`
     : fallback;
 }
+
+/**
+ * Whether the next attempt of a keyed request needs a new idempotency key: only after a 4xx answer
+ * (the server refused or recorded a definitive failure). 408 / 429, any 5xx (a proxy may hide a
+ * recorded document) and no answer at all keep the key, so a retry replays the first request.
+ */
+export function shouldRenewIdempotencyKey(err: unknown): boolean {
+  const e = err as any;
+  const status = typeof e?.status === 'number' ? e.status : e?.response?.data?.error?.status;
+  if (typeof status !== 'number') return false;
+  return status >= 400 && status < 500 && status !== 408 && status !== 429;
+}

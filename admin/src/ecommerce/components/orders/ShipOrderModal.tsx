@@ -21,7 +21,7 @@ import {
 } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import CreateShipment from '../../usecases/orders/createShipment';
-import { apiErrorCode, apiErrorMessageId } from '../../utils/orderDetail';
+import { apiErrorCode, apiErrorMessageId, shouldRenewIdempotencyKey } from '../../utils/orderDetail';
 import { extractFieldErrors } from '../../utils/productForm';
 import { mintUuid } from '../../utils/variantDraft';
 import {
@@ -133,8 +133,11 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
     } catch (err) {
       const code = apiErrorCode(err);
       const hasFieldErrors = !!extractFieldErrors(err)?.length;
-      // A carrier refusal (400 with a code, no field errors) left a FAILED row behind.
-      if (code && !hasFieldErrors && input.method.mode === 'CARRIER') setIdempotencyKey(mintUuid());
+      // A carrier refusal (4xx with a code, no field errors) left a FAILED row behind. A 5xx or no
+      // answer keeps the key: the shipment may exist, and a retry replays it.
+      if (code && !hasFieldErrors && input.method.mode === 'CARRIER' && shouldRenewIdempotencyKey(err)) {
+        setIdempotencyKey(mintUuid());
+      }
       showServerErrors(err, input.lines);
     } finally {
       setSaving(false);

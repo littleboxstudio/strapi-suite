@@ -1344,6 +1344,8 @@
   "littlebox-strapi-suite.ecommerce.orders.invoices.warnings.DUPLICATE_INVOICE": "A duplicate document exists at the billing provider — cancel it there.",
   "littlebox-strapi-suite.ecommerce.orders.invoices.failure.MARKED_FAILED": "Marked as failed by an admin.",
   "littlebox-strapi-suite.ecommerce.orders.invoices.failure.NOT_FOUND_AT_PROVIDER": "Not found at the billing provider: it was not issued.",
+  "littlebox-strapi-suite.ecommerce.orders.invoices.failure.unknown": "The billing provider refused the document.",
+  "littlebox-strapi-suite.ecommerce.orders.invoices.issue.warnings": "Issued with warnings: {warnings}",
   "littlebox-strapi-suite.ecommerce.orders.invoices.actions.PDF": "Download PDF",
   "littlebox-strapi-suite.ecommerce.orders.invoices.actions.RECONCILE": "Reconcile",
   "littlebox-strapi-suite.ecommerce.orders.invoices.actions.MARK_FAILED": "Mark as failed",

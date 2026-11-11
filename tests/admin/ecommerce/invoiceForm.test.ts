@@ -8,6 +8,10 @@ import {
   invoiceActions,
   invoiceFailureMessageId,
   invoiceStatusTone,
+  isFailedReplay,
+  isUncertainResult,
+  issuedWarnings,
+  canMarkFailed,
   validateCreditNoteForm,
   type CreditNoteForm,
 } from '../../../admin/src/ecommerce/utils/invoiceForm';
@@ -169,6 +173,40 @@ describe('hasUninvoicedPayments', () => {
   });
 });
 
+describe('issue results', () => {
+  it('a FAILED row returned by a replay is a failure, not a success', () => {
+    expect(isFailedReplay({ status: 'FAILED' })).toBe(true);
+    expect(isFailedReplay({ status: 'ISSUED' })).toBe(false);
+    expect(isFailedReplay({ status: 'UNCERTAIN' })).toBe(false);
+  });
+
+  it('UNCERTAIN and PENDING results are uncertain', () => {
+    expect(isUncertainResult({ status: 'UNCERTAIN' })).toBe(true);
+    expect(isUncertainResult({ status: 'PENDING' })).toBe(true);
+    expect(isUncertainResult({ status: 'ISSUED' })).toBe(false);
+    expect(isUncertainResult({ status: 'FAILED' })).toBe(false);
+  });
+
+  it('issuedWarnings keeps the warnings the admin must act on after issuing', () => {
+    expect(issuedWarnings({ warnings: ['TOTAL_MISMATCH', 'RECEIPT_FAILED', 'OTHER'] })).toEqual([
+      'TOTAL_MISMATCH',
+      'RECEIPT_FAILED',
+    ]);
+    expect(issuedWarnings({ warnings: [] })).toEqual([]);
+  });
+});
+
+describe('canMarkFailed', () => {
+  const uncertain = { status: 'UNCERTAIN' as const, reconcilable: true };
+  it('needs a reconcilable row and the explicit confirmation', () => {
+    expect(canMarkFailed(uncertain, true)).toBe(true);
+    expect(canMarkFailed(uncertain, false)).toBe(false);
+    expect(canMarkFailed({ status: 'PENDING', reconcilable: false }, true)).toBe(false);
+    expect(canMarkFailed({ status: 'PENDING', reconcilable: true }, true)).toBe(true);
+    expect(canMarkFailed({ status: 'ISSUED', reconcilable: true }, true)).toBe(false);
+  });
+});
+
 describe('invoiceFailureMessageId', () => {
   it('translates stored failure codes and API codes; null for unknown codes', () => {
     expect(invoiceFailureMessageId('MARKED_FAILED')).toBe('ecommerce.orders.invoices.failure.MARKED_FAILED');
@@ -178,6 +216,11 @@ describe('invoiceFailureMessageId', () => {
     expect(invoiceFailureMessageId('BILLING_TAX_NOT_FOUND')).toBe('ecommerce.orders.errors.BILLING_TAX_NOT_FOUND');
     expect(invoiceFailureMessageId('coverage_mismatch')).toBe('ecommerce.orders.errors.coverage_mismatch');
     expect(invoiceFailureMessageId('WHATEVER')).toBeNull();
+  });
+
+  it('the fallback for unknown codes has an en and a pt message', () => {
+    expect(en[`${P}ecommerce.orders.invoices.failure.unknown`]).toEqual(expect.any(String));
+    expect(pt[`${P}ecommerce.orders.invoices.failure.unknown`]).toEqual(expect.any(String));
   });
 
   it.each(['MARKED_FAILED', 'NOT_FOUND_AT_PROVIDER'])('%s has an en and a pt message', (code) => {
