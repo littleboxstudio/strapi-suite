@@ -7,6 +7,7 @@ import ParameterModuleService from './modules/parameter';
 import TranslationModuleService from './modules/translation';
 import AiTranslationModuleService from './modules/ai-translation';
 import EcommerceImageService from './modules/ecommerce/images';
+import EcommerceProductService from './modules/ecommerce/products';
 
 export default {
   SettingAppService,
@@ -18,4 +19,5 @@ export default {
   TranslationModuleService,
   AiTranslationModuleService,
   EcommerceImageService,
+  EcommerceProductService,
 };
