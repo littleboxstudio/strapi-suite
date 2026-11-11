@@ -1,4 +1,4 @@
-import { button, details, greeting, heading, itemList, layout, paragraph } from './layout';
+import { allTrackingList, button, details, greeting, heading, itemList, layout, paragraph } from './layout';
 
 export default {
   subject: 'Your order {{order.reference}} is on its way - {{store.name}}',
@@ -14,6 +14,9 @@ export default {
         { label: 'Tracking code', value: '{{shipment.trackingCode}}', when: 'shipment.trackingCode' },
       ]),
       button('shipment.trackingUrl', 'Track your package'),
+      `{{#if shipment.allTracking}}`,
+      allTrackingList(),
+      `{{/if}}`,
     ].join('\n')
   ),
 };

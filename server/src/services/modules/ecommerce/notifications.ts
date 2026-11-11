@@ -42,6 +42,14 @@ const PREPARE_FAILED = 'PREPARE_FAILED';
 const SILENT_REFUND_FAILURES = ['ADMIN_MARKED', 'STRIPE_REVERSED'];
 /** Payload key holding the source event of a PREPARE_FAILED row. */
 const SOURCE_EVENT = 'sourceEvent';
+/** E-mails about a shipment: only sent while the order is OPEN. */
+const SHIPMENT_TEMPLATES: NotificationTemplateType[] = [
+  'PARTIAL_SHIPMENT',
+  'FULL_SHIPMENT',
+  'DELIVERY_CONFIRMATION',
+];
+/** A duplicated invoice (late success after a re-invoice) is never e-mailed. */
+const DUPLICATE_INVOICE = 'DUPLICATE_INVOICE';
 
 const idOf = (v: any): number | null =>
   v === null || v === undefined ? null : typeof v === 'object' ? (v.id ?? null) : Number(v);
@@ -148,13 +156,37 @@ const EcommerceNotificationService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   /** Loads what the template needs: the order, the store and the refund / credit rows. */
-  const prepare = async (event: DomainEvent, type: NotificationTemplateType): Promise<Prepared> => {
+  const prepare = async (
+    event: DomainEvent,
+    type: NotificationTemplateType
+  ): Promise<Prepared | null> => {
     const u = uids();
     const p = event.payload ?? {};
     const orderId = event.orderId ?? null;
     const order: OrderView | null =
       orderId === null ? null : await service('EcommerceOrderService').get(orderId);
+    if (order && SHIPMENT_TEMPLATES.includes(type) && order.orderStatus !== 'OPEN') return null;
     const extra: NotificationExtra = {};
+    if (type === 'PARTIAL_SHIPMENT' || type === 'FULL_SHIPMENT') {
+      const shipmentId = idOf(p.shipmentId);
+      if (shipmentId !== null) {
+        extra.shipment = await strapi.db.query(u.shipment).findOne({ where: { id: shipmentId } });
+      }
+      if (orderId !== null) {
+        const all = await strapi.db.query(u.shipment).findMany({
+          where: { order: { id: orderId }, status: 'ACTIVE' },
+          orderBy: [{ id: 'asc' }],
+        });
+        extra.shipments = all;
+      }
+    }
+    if (type === 'INVOICE_AVAILABLE') {
+      const invoiceId = idOf(p.invoiceId);
+      const invoice =
+        invoiceId === null ? null : await strapi.db.query(u.invoice).findOne({ where: { id: invoiceId } });
+      if (!invoice || invoice.kind !== 'INVOICE') throw new EcommerceNotFoundError('Invoice not found');
+      extra.invoice = { id: invoice.id, number: invoice.number ?? null };
+    }
     if (type === 'REFUND_STARTED' || type === 'REFUND_COMPLETED') {
       const refundId = idOf(p.refundId);
       if (refundId !== null) extra.refund = await strapi.db.query(u.refund).findOne({ where: { id: refundId } });
@@ -200,6 +232,16 @@ const EcommerceNotificationService = ({ strapi }: { strapi: Core.Strapi }) => {
     const skip = async (error: string) =>
       q.update({ where: { id: row.id }, data: { status: 'SKIPPED', error } });
 
+    const attachment = row.payload?.attachment;
+    const invoiceId =
+      row.type === 'INVOICE_AVAILABLE' && attachment?.kind === 'INVOICE_PDF'
+        ? Number(attachment.invoiceId)
+        : null;
+    if (row.type === 'INVOICE_AVAILABLE') {
+      const invoice = invoiceId === null ? null : await strapi.db.query(uids().invoice).findOne({ where: { id: invoiceId } });
+      const warnings = invoice?.metadata?.warnings;
+      if (Array.isArray(warnings) && warnings.includes(DUPLICATE_INVOICE)) return skip(DUPLICATE_INVOICE);
+    }
     if (!isEmail(row.recipient)) return skip('NO_RECIPIENT');
     const rt = await settings().getRuntime('resend');
     if (!rt || !rt.active) return skip('EMAIL_NOT_CONFIGURED');
@@ -215,10 +257,26 @@ const EcommerceNotificationService = ({ strapi }: { strapi: Core.Strapi }) => {
     try {
       const payload = row.payload && typeof row.payload === 'object' ? row.payload : {};
       const message = await templates().render(row.type, row.locale, payload);
+      let attachments: { filename: string; content: Buffer; contentType: string }[] | undefined;
+      if (invoiceId !== null) {
+        try {
+          const pdf = await service('EcommerceInvoiceService').getPdf(invoiceId);
+          attachments = [{ filename: pdf.filename, content: pdf.content, contentType: 'application/pdf' }];
+        } catch (err) {
+          logError('invoice pdf', err);
+          updated = await q.update({
+            where: { id: row.id },
+            data: { status: 'FAILED', error: 'INVOICE_PDF_UNAVAILABLE' },
+          });
+          await recordHistory(updated, 'FAILED', actor);
+          return updated;
+        }
+      }
       const { id } = await sendWithResend(rt, {
         to: row.recipient,
         subject: message.subject,
         html: message.html,
+        ...(attachments ? { attachments } : {}),
         idempotencyKey: row.uniqueKey,
       });
       updated = await q.update({
@@ -310,6 +368,7 @@ const EcommerceNotificationService = ({ strapi }: { strapi: Core.Strapi }) => {
       payload: src.payload && typeof src.payload === 'object' ? src.payload : {},
     };
     const prepared = await prepare(event, row.type);
+    if (!prepared) return null;
     return rows().update({
       where: { id: row.id },
       data: {
@@ -351,6 +410,7 @@ const EcommerceNotificationService = ({ strapi }: { strapi: Core.Strapi }) => {
         await recordPrepareFailure(event, type, uniqueKey);
         return;
       }
+      if (!prepared) return; // not sent for this order (no longer OPEN)
       const row = await claimRow(event, uniqueKey, prepared);
       if (!row) return; // another handler owns this key
       await deliver(row, SYSTEM);

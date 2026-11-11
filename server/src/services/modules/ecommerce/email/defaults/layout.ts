@@ -116,3 +116,15 @@ ${body}
 </table>
 </body>
 </html>`;
+
+/** Tracking references of every shipment of the order (several shipments only). */
+export const allTrackingList = (): string =>
+  `<p style="margin:0 0 8px;${FONT};font-size:14px;line-height:20px;font-weight:700;color:#111827">Tracking for each shipment</p>
+<table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="margin:0 0 24px">
+{{#each shipment.allTracking}}
+  <tr>
+    <td style="${CELL}">{{this.carrier}}</td>
+    <td align="right" style="${CELL}">{{#if this.trackingUrl}}<a href="{{this.trackingUrl}}" target="_blank" style="color:#374151;text-decoration:underline">{{this.trackingCode}}</a>{{else}}{{this.trackingCode}}{{/if}}</td>
+  </tr>
+{{/each}}
+</table>`;

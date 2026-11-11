@@ -18,6 +18,14 @@ import {
   __drainNotificationsForTests,
 } from '../../../server/src/services/modules/ecommerce/notifications';
 import { UIDS, setupCommerce, createOrder, type Commerce } from './helpers/commerceSetup';
+import {
+  __resetBillingProvidersForTests,
+  registerBillingProvider,
+  type InvoiceDraft,
+} from '../../../server/src/services/modules/ecommerce/providers/billing';
+import { buildTemplateData } from '../../../server/src/services/modules/ecommerce/notificationData';
+import { renderTemplate } from '../../../server/src/services/modules/ecommerce/email/templateEngine';
+import { DEFAULT_TEMPLATES } from '../../../server/src/services/modules/ecommerce/email/defaults';
 
 beforeEach(() => {
   __resetEventHandlersForTests();
@@ -474,5 +482,270 @@ describe('subscribeNotifications', () => {
     await col.flush();
     await __drainNotificationsForTests();
     expect(handle).toHaveBeenCalledTimes(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Shipment, delivery and invoice e-mails (plan 5, Task 10)
+// ---------------------------------------------------------------------------
+
+const address = {
+  firstName: 'Ana',
+  lastName: 'Silva',
+  line1: 'Rua A 1',
+  postalCode: '1000-001',
+  city: 'Lisboa',
+  country: 'PT',
+  nif: '123456789',
+};
+
+let docSeq = 0;
+
+function fulfilmentSetup() {
+  __resetBillingProvidersForTests();
+  const c = setup();
+  const provider: any = {
+    id: 'fakebill',
+    capabilities: { creditNotes: true, findByReference: true },
+    maxIssueDurationMs: 300000,
+    issue: vi.fn(async (draft: InvoiceDraft) => {
+      docSeq += 1;
+      return {
+        externalId: `ext-${docSeq}`,
+        number: draft.kind === 'CREDIT_NOTE' ? `NC 2026/${docSeq}` : `FR 2026/${docSeq}`,
+        series: '2026',
+        documentType: draft.kind === 'CREDIT_NOTE' ? 'NC' : 'FR',
+        total: draft.total,
+        issuedAt: '2026-03-01T10:00:00.000Z',
+        warnings: [] as string[],
+      };
+    }),
+    getDocument: vi.fn(),
+    getPdf: vi.fn(async () => Buffer.from('%PDF-1.4 fake')),
+    findByReference: vi.fn(async () => null),
+  };
+  registerBillingProvider(provider);
+  const settings = c.services.EcommerceSettingsService;
+  const baseRuntime = settings.getRuntime;
+  settings.getActiveProviders = async (cat: string) => (cat === 'billing' ? ['fakebill'] : []);
+  settings.getRuntime = async (id: string) =>
+    id === 'fakebill' ? { config: {}, secrets: {}, active: true } : baseRuntime(id);
+  settings.getStoreSettings = async () => ({
+    shippingCountries: ['PT'],
+    storefrontUrl: 'https://shop.example/',
+    timezone: 'Europe/Lisbon',
+  });
+  c.tables[UIDS.variant].find((v) => v.id === 10).stock = 50;
+  return { c, provider, ships: c.services.EcommerceShipmentService, inv: c.services.EcommerceInvoiceService };
+}
+
+const paid = async (c: Commerce, quantity = 2) => {
+  const order = await c.orders.create(
+    {
+      customer: { firstName: 'Ana', lastName: 'Silva', email: 'ana@example.pt' },
+      shippingAddress: address,
+      billingAddress: address,
+      locale: 'en',
+      lines: [{ variantId: 10, quantity }],
+      shipping: { providerId: 'manual', serviceId: 'express' },
+    },
+    { actor: 'user:1', source: 'admin' }
+  );
+  await c.payments.addManualPayment(
+    order.id,
+    { amount: quantity * 2000 + 500, idempotencyKey: `pay-${order.id}` },
+    actor
+  );
+  const lineId = c.tables[UIDS.orderLine].find((l) => l.order === order.id).id as number;
+  resend.sendWithResend.mockClear();
+  c.tables[UIDS.notification].length = 0; // only what the test provokes from here on
+  return { id: order.id as number, lineId };
+};
+
+const ship = (lineId: number, quantity: number, key: string, extra: Record<string, unknown> = {}) => ({
+  lines: [{ orderLineId: lineId, quantity }],
+  method: { mode: 'MANUAL' as const, carrierName: 'CTT', trackingCode: `RR-${key}`, trackingUrl: `https://ctt.pt/${key}` },
+  shippingCost: 0,
+  notifyCustomer: true,
+  idempotencyKey: key,
+  ...extra,
+});
+
+const types = (c: Commerce) => notifs(c).map((n) => n.type);
+
+describe('shipment, delivery and invoice e-mails', () => {
+  it('two partial shipments send two PARTIAL_SHIPMENT; the one that completes sends FULL_SHIPMENT', async () => {
+    const { c, ships } = fulfilmentSetup();
+    const { id, lineId } = await paid(c, 3);
+    await ships.create(id, ship(lineId, 1, 's1'), actor);
+    await ships.create(id, ship(lineId, 1, 's2'), actor);
+    expect(types(c)).toEqual(['PARTIAL_SHIPMENT', 'PARTIAL_SHIPMENT']);
+    expect(new Set(notifs(c).map((n) => n.eventId)).size).toBe(2);
+    await ships.create(id, ship(lineId, 1, 's3'), actor);
+    expect(types(c)).toEqual(['PARTIAL_SHIPMENT', 'PARTIAL_SHIPMENT', 'FULL_SHIPMENT']);
+    const full = notifs(c)[2];
+    expect(full).toMatchObject({ status: 'SENT', recipient: 'ana@example.pt' });
+    expect(full.payload.shipment.allTracking).toHaveLength(3);
+    expect(notifs(c)[0].payload.shipment.pendingItems).toEqual([
+      { name: 'Shirt', option: '', sku: 'SH-M', quantity: 2 },
+    ]);
+  });
+
+  it('notify: false sends no shipment e-mail and no delivery e-mail', async () => {
+    const { c, ships } = fulfilmentSetup();
+    const { id, lineId } = await paid(c, 1);
+    const s = await ships.create(id, ship(lineId, 1, 's1', { notifyCustomer: false }), actor);
+    await ships.confirmDelivery(s.id, { deliveredAt: new Date().toISOString(), notifyCustomer: false }, actor);
+    expect(notifs(c)).toHaveLength(0);
+  });
+
+  it('delivery: not everything delivered sends nothing; the last delivery sends DELIVERY_CONFIRMATION', async () => {
+    const { c, ships } = fulfilmentSetup();
+    const { id, lineId } = await paid(c, 2);
+    const a = await ships.create(id, ship(lineId, 1, 's1'), actor);
+    const b = await ships.create(id, ship(lineId, 1, 's2'), actor);
+    const at = new Date().toISOString();
+    await ships.confirmDelivery(a.id, { deliveredAt: at, notifyCustomer: true }, actor);
+    expect(types(c)).not.toContain('DELIVERY_CONFIRMATION');
+    await ships.confirmDelivery(b.id, { deliveredAt: at, notifyCustomer: true }, actor);
+    expect(types(c).filter((t) => t === 'DELIVERY_CONFIRMATION')).toHaveLength(1);
+    expect(notifs(c).at(-1)).toMatchObject({ status: 'SENT' });
+  });
+
+  it('tracking edits never send an e-mail', async () => {
+    const { c, ships } = fulfilmentSetup();
+    const { id, lineId } = await paid(c, 1);
+    const s = await ships.create(id, ship(lineId, 1, 's1'), actor);
+    const before = notifs(c).length;
+    await ships.updateTracking(s.id, { trackingCode: 'NEW', trackingUrl: 'https://ctt.pt/NEW' }, actor);
+    expect(notifs(c)).toHaveLength(before);
+  });
+
+  it('the invoice e-mail carries the PDF fetched with getPdf; the credit note sends nothing', async () => {
+    const { c, inv, provider } = fulfilmentSetup();
+    const { id } = await paid(c, 2);
+    const payment = c.tables[UIDS.payment].find((p) => p.order === id);
+    const view = await inv.issue(id, { type: 'PAYMENT', paymentId: payment.id }, { idempotencyKey: 'i1' }, actor);
+    expect(notifs(c)).toHaveLength(1);
+    expect(notifs(c)[0]).toMatchObject({ type: 'INVOICE_AVAILABLE', status: 'SENT' });
+    const msg = resend.sendWithResend.mock.calls[0][1];
+    expect(msg.attachments).toEqual([
+      { filename: expect.stringMatching(/\.pdf$/), content: Buffer.from('%PDF-1.4 fake'), contentType: 'application/pdf' },
+    ]);
+    expect(provider.getPdf).toHaveBeenCalledTimes(1);
+    expect(notifs(c)[0].payload.invoice.number).toBe(view.number);
+    expect(JSON.stringify(notifs(c)[0].payload)).not.toContain('PDF-1.4');
+
+    await inv.issueCreditNote(view.id, { idempotencyKey: 'c1', reason: 'x', lines: [{ index: 0, value: 1000 }] }, actor);
+    expect(c.events.some((e) => e.type === 'INVOICE_ISSUED' && e.payload.kind === 'CREDIT_NOTE')).toBe(true);
+    expect(notifs(c)).toHaveLength(1);
+  });
+
+  it('Review Focus 5: PDF unavailable at notification time leaves the invoice ISSUED, the e-mail FAILED, and resend attaches the PDF', async () => {
+    const { c, inv, provider } = fulfilmentSetup();
+    const { id } = await paid(c, 2);
+    const payment = c.tables[UIDS.payment].find((p) => p.order === id);
+    provider.getPdf.mockRejectedValueOnce(new Error('down'));
+    const view = await inv.issue(id, { type: 'PAYMENT', paymentId: payment.id }, { idempotencyKey: 'i1' }, actor);
+    expect(c.tables[UIDS.invoice].find((i) => i.id === view.id).status).toBe('ISSUED');
+    const row = notifs(c)[0];
+    expect(row).toMatchObject({ type: 'INVOICE_AVAILABLE', status: 'FAILED', error: 'INVOICE_PDF_UNAVAILABLE' });
+    expect(resend.sendWithResend).not.toHaveBeenCalled();
+    expect(historyTypes(c, id)).toContain('NOTIFICATION_FAILED');
+
+    const resent = await c.notifications.resend(row.id, actor);
+    expect(resent).toMatchObject({ status: 'SENT', error: null });
+    expect(resend.sendWithResend.mock.calls[0][1].attachments).toHaveLength(1);
+    expect(resend.sendWithResend.mock.calls[0][1].idempotencyKey).toBe(row.uniqueKey);
+  });
+
+  it('an invoice with DUPLICATE_INVOICE is never sent, not even on resend', async () => {
+    const { c, inv } = fulfilmentSetup();
+    const { id } = await paid(c, 2);
+    const payment = c.tables[UIDS.payment].find((p) => p.order === id);
+    const view = await inv.issue(id, { type: 'PAYMENT', paymentId: payment.id }, { idempotencyKey: 'i1' }, actor);
+    const row = notifs(c)[0];
+    // Reset to a not-yet-sent state and flag the invoice as duplicated.
+    const invRow = c.tables[UIDS.invoice].find((i) => i.id === view.id);
+    invRow.metadata = { ...(invRow.metadata ?? {}), warnings: ['DUPLICATE_INVOICE'] };
+    row.status = 'FAILED';
+    row.error = 'INVOICE_PDF_UNAVAILABLE';
+    resend.sendWithResend.mockClear();
+    const resent = await c.notifications.resend(row.id, actor);
+    expect(resent).toMatchObject({ status: 'SKIPPED', error: 'DUPLICATE_INVOICE' });
+    expect(resend.sendWithResend).not.toHaveBeenCalled();
+    expect((await c.notifications.resend(row.id, actor)).status).toBe('SKIPPED');
+  });
+
+  it('shipment e-mails are not sent for an order that is no longer OPEN', async () => {
+    const { c, ships } = fulfilmentSetup();
+    const { id, lineId } = await paid(c, 1);
+    const orderRow = c.tables[UIDS.order].find((o) => o.id === id);
+    await ships.create(id, ship(lineId, 1, 's1'), actor);
+    notifs(c).length = 0;
+    orderRow.orderStatus = 'CANCELLED';
+    const event = c.events.find((e) => e.type === 'SHIPMENT_CREATED');
+    await c.notifications.handle({ ...event, id: 'late-1' });
+    expect(notifs(c)).toHaveLength(0);
+  });
+
+  it('the rendered e-mails of this plan carry no Strapi URL; links go to the store, the carrier or Stripe', () => {
+    const store: any = {
+      storeName: 'Loja',
+      // Admin-configured, accepted as it is (the only URL we do not control).
+      logoUrl: 'https://cdn.example.com/logo.png',
+      brandColor: '#111111',
+      storefrontUrl: 'https://shop.example',
+      supportEmail: 'help@shop.example',
+      timezone: 'Europe/Lisbon',
+    };
+    const order: any = {
+      reference: 1042,
+      locale: 'en',
+      createdAt: '2026-11-11T10:00:00.000Z',
+      customer: { firstName: 'Ana', lastName: 'Silva', email: 'ana@example.pt' },
+      lines: [{ id: 1, sku: 'SH-M', name: 'Shirt', option: 'M', quantity: 2 }],
+    };
+    const row = (n: number) => ({
+      id: n,
+      carrierName: 'CTT',
+      trackingCode: `RR${n}`,
+      trackingUrl: `https://www.ctt.pt/track?code=RR${n}`,
+      items: { lines: [{ orderLineId: 1, sku: 'SH-M', name: 'Shirt', option: 'M', quantity: 1 }] },
+    });
+    const ev = (type: any, payload: any) => ({ id: 'e', type, orderId: 1, occurredAt: '2026-11-12T10:00:00.000Z', payload });
+    const cases: [any, any][] = [
+      ['PARTIAL_SHIPMENT', ev('SHIPMENT_CREATED', { full: false, pending: [{ orderLineId: 1, quantity: 1 }] })],
+      ['FULL_SHIPMENT', ev('SHIPMENT_CREATED', { full: true, pending: [] })],
+      ['DELIVERY_CONFIRMATION', ev('SHIPMENT_DELIVERED', { deliveredAt: '2026-11-12T10:00:00.000Z' })],
+      ['INVOICE_AVAILABLE', ev('INVOICE_ISSUED', { invoiceId: 9, kind: 'INVOICE' })],
+    ];
+    for (const [type, event] of cases) {
+      const data = buildTemplateData(type, {
+        order,
+        store,
+        event,
+        extra: { shipment: row(1), shipments: [row(1), row(2)], invoice: { id: 9, number: 'FR 2026/1' } },
+      });
+      const html = renderTemplate(DEFAULT_TEMPLATES[type as 'FULL_SHIPMENT'].html, data);
+      expect(html, type).not.toMatch(/\/admin|\/api\/|\/uploads|littlebox-strapi-suite/);
+      const urls = [...html.matchAll(/\b(?:href|src)="([^"]*)"/g)].map((m) => m[1]);
+      for (const u of urls) {
+        const ok =
+          u.startsWith('https://shop.example') ||
+          u.startsWith('https://www.ctt.pt/') ||
+          u.startsWith('https://checkout.stripe.com') ||
+          u.startsWith('mailto:') ||
+          u === store.logoUrl;
+        expect(ok, `${type}: ${u}`).toBe(true);
+      }
+      if (type === 'INVOICE_AVAILABLE') {
+        expect(urls.filter((u) => u !== store.logoUrl && !u.startsWith('mailto:'))).toEqual(['https://shop.example']);
+      }
+      if (type === 'FULL_SHIPMENT') {
+        expect(html).toContain('RR1');
+        expect(html).toContain('RR2');
+      }
+    }
   });
 });
