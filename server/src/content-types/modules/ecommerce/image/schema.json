@@ -1,0 +1,73 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_images",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-image",
+    "pluralName": "ltb-st-module-ecommerce-images",
+    "displayName": "Littlebox Strapi Suite - E-commerce Image",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Image"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "product": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-product",
+      "inversedBy": "images"
+    },
+    "variant": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-variant",
+      "inversedBy": "images"
+    },
+    "position": {
+      "type": "integer"
+    },
+    "name": {
+      "type": "string"
+    },
+    "width": {
+      "type": "integer"
+    },
+    "height": {
+      "type": "integer"
+    },
+    "sizeBytes": {
+      "type": "integer"
+    },
+    "mime": {
+      "type": "string"
+    },
+    "ext": {
+      "type": "string"
+    },
+    "hash": {
+      "type": "string",
+      "unique": true
+    },
+    "url": {
+      "type": "string"
+    },
+    "provider": {
+      "type": "string"
+    },
+    "providerMetadata": {
+      "type": "json"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  }
+}

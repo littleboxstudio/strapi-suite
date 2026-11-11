@@ -1,0 +1,41 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_variant_translations",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-variant-translation",
+    "pluralName": "ltb-st-module-ecommerce-variant-translations",
+    "displayName": "Littlebox Strapi Suite - E-commerce Variant Translation",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Variant Translation"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "variant": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-variant",
+      "inversedBy": "translations"
+    },
+    "locale": {
+      "type": "string",
+      "required": true
+    },
+    "option": {
+      "type": "string",
+      "required": true
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  }
+}

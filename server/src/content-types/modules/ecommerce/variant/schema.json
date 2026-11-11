@@ -1,0 +1,90 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_variants",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-variant",
+    "pluralName": "ltb-st-module-ecommerce-variants",
+    "displayName": "Littlebox Strapi Suite - E-commerce Variant",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Variant"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "product": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-product",
+      "inversedBy": "variants"
+    },
+    "sku": {
+      "type": "string",
+      "required": true,
+      "unique": true
+    },
+    "price": {
+      "type": "integer",
+      "required": true,
+      "min": 0
+    },
+    "tax": {
+      "type": "decimal",
+      "required": true,
+      "min": 0,
+      "max": 100
+    },
+    "stock": {
+      "type": "integer",
+      "required": true,
+      "default": 0
+    },
+    "weight": {
+      "type": "decimal",
+      "default": 0
+    },
+    "width": {
+      "type": "decimal",
+      "default": 0
+    },
+    "height": {
+      "type": "decimal",
+      "default": 0
+    },
+    "depth": {
+      "type": "decimal",
+      "default": 0
+    },
+    "active": {
+      "type": "boolean",
+      "default": true
+    },
+    "position": {
+      "type": "integer",
+      "default": 0
+    },
+    "translations": {
+      "type": "relation",
+      "relation": "oneToMany",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-variant-translation",
+      "mappedBy": "variant"
+    },
+    "images": {
+      "type": "relation",
+      "relation": "oneToMany",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-image",
+      "mappedBy": "variant"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  }
+}
