@@ -72,3 +72,9 @@ Lista de itens adiados nas revisões do plano 1 (Base e Produtos), a considerar 
 - Task 12: minor (deferred): postalCode not in quote signature; addLine no stock cap; quote error map merge; OrderCreatePage 481 lines
 - Task 13: minor (deferred): ConfirmModal lacks onOpenChange (remount workaround); ACTION_NOT_AVAILABLE in AddPayment doesn't refetch; server history descriptions in English with 'cents'
 - Task 14: minor (deferred): supplementary modal may show stale order if refetch fails; modal width not set explicitly; INVALID_AMOUNT on shipping.quote message wording
+
+## Plan 4
+- P4 Task 6: minor (deferred): dup-key retry inside a caller transaction would abort it on PostgreSQL (guarded by pre-check + order lock)
+- P4 Task 6: minor (deferred): with Stripe disabled, cancel can't expire open checkout sessions; their PENDING payments stay on the cancelled order
+- P4 Task 6: minor (deferred): stock.ts (plan 3) uses strapi.db.connection instead of a schema-aware connection (PostgreSQL non-default schema)
+- P4 Task 6: note: refunds.resume after Stripe's ~24h idempotency window can double-refund if the first call reached Stripe — UI warns the admin
