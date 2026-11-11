@@ -1,4 +1,444 @@
-// Placeholder: replaced by the product editor in Task 11.
-const ProductEditPage = () => null;
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useIntl } from 'react-intl';
+import { useNavigate, useParams } from 'react-router-dom';
+import { useNotification } from '@strapi/strapi/admin';
+import {
+  Box,
+  Button,
+  Field,
+  Flex,
+  IconButton,
+  Loader,
+  Switch,
+  Textarea,
+  TextInput,
+  Tooltip,
+  Typography,
+} from '@strapi/design-system';
+import { ArrowLeft, Sparkle } from '@strapi/icons';
+import config from '../../core/config';
+import { getTranslation } from '../../core/utils/getTranslation';
+import { convertToSlug } from '../../core/utils/convertToSlug';
+import FetchEcommerceLocales from '../usecases/fetchEcommerceLocales';
+import FetchProduct from '../usecases/fetchProduct';
+import SaveProduct from '../usecases/saveProduct';
+import TranslateProductStrings from '../usecases/translateProductStrings';
+import { LocaleSwitcher } from '../components/LocaleSwitcher';
+import { DescriptionEditor } from '../components/DescriptionEditor';
+import { VariantsTable } from '../components/VariantsTable';
+import { VariantModal } from '../components/VariantModal';
+import { GallerySlot } from '../components/GallerySlot';
+import {
+  applyTranslations,
+  buildProductInput,
+  buildTranslationRequest,
+  emptyProductForm,
+  extractFieldErrors,
+  productFormFromDetail,
+  scopedErrors,
+  toErrorMap,
+  validateProductForm,
+  type ErrorMap,
+  type FormVariant,
+  type ProductForm,
+  type ProductTranslation,
+} from '../utils/productForm';
+import type { EcommerceLocales, ImageRecord, ProductDetail } from '../types';
+
+type ModalState = { index: number | null; newKey: string };
+
+const Section = ({
+  title,
+  actions,
+  children,
+}: {
+  title: string;
+  actions?: ReactNode;
+  children: ReactNode;
+}) => (
+  <Box background="neutral0" shadow="tableShadow" hasRadius padding={6}>
+    <Flex direction="column" alignItems="stretch" gap={5}>
+      <Flex justifyContent="space-between" alignItems="center" gap={4} wrap="wrap">
+        <Typography variant="delta" tag="h2">
+          {title}
+        </Typography>
+        {actions}
+      </Flex>
+      {children}
+    </Flex>
+  </Box>
+);
+
+const ProductEditPage = () => {
+  const { formatMessage } = useIntl();
+  const navigate = useNavigate();
+  const { toggleNotification } = useNotification();
+  const params = useParams<{ id: string }>();
+  const productId = params.id ? Number(params.id) : undefined;
+  const basePath = `/plugins/${config.pluginId}/ecommerce/products`;
+  const t = (id: string, values?: Record<string, any>) =>
+    formatMessage({ id: getTranslation(id) }, values);
+
+  const [info, setInfo] = useState<EcommerceLocales | null>(null);
+  const [form, setForm] = useState<ProductForm | null>(null);
+  const [savedSlugs, setSavedSlugs] = useState<Record<string, { name: string; slug: string }>>({});
+  const [productImages, setProductImages] = useState<ImageRecord[]>([]);
+  const [activeLocale, setActiveLocale] = useState('');
+  const [errors, setErrors] = useState<ErrorMap>({});
+  const [loadError, setLoadError] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [translating, setTranslating] = useState(false);
+  const [modal, setModal] = useState<ModalState | null>(null);
+  const newKeyCounter = useRef(0);
+
+  const codes = info?.locales.map((l) => l.code) ?? [];
+
+  const applyProduct = useCallback((detail: ProductDetail, localeCodes: string[]) => {
+    const next = productFormFromDetail(detail, localeCodes);
+    setForm(next);
+    setProductImages(detail.images);
+    setSavedSlugs(
+      Object.fromEntries(
+        Object.entries(next.translations)
+          .filter(([, tr]) => tr.slug)
+          .map(([code, tr]) => [code, { name: tr.name, slug: tr.slug as string }])
+      )
+    );
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadError(false);
+    setErrors({});
+    (async () => {
+      try {
+        const locales = info ?? (await new FetchEcommerceLocales().execute());
+        if (cancelled) return;
+        if (!info) {
+          setInfo(locales);
+          setActiveLocale(locales.defaultLocale);
+        }
+        const localeCodes = locales.locales.map((l) => l.code);
+        if (productId === undefined) {
+          setForm(emptyProductForm(localeCodes));
+          setProductImages([]);
+          setSavedSlugs({});
+        } else {
+          const detail = await new FetchProduct().execute(productId);
+          if (!cancelled) applyProduct(detail, localeCodes);
+        }
+      } catch {
+        if (!cancelled) setLoadError(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // `info` is only read to avoid fetching the locales twice.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productId, applyProduct]);
+
+  if (loadError) {
+    return <Typography textColor="danger600">{t('ecommerce.product.loadError')}</Typography>;
+  }
+
+  if (!info || !form) {
+    return (
+      <Flex justifyContent="center" padding={8}>
+        <Loader />
+      </Flex>
+    );
+  }
+
+  const { defaultLocale, locales, aiAvailable } = info;
+  const current: ProductTranslation = form.translations[activeLocale] ?? {
+    name: '',
+    shortDescription: '',
+    description: '',
+  };
+  const title = form.translations[defaultLocale]?.name.trim() || t('ecommerce.product.new');
+  const isDefault = activeLocale === defaultLocale;
+
+  const saved = savedSlugs[activeLocale];
+  const slugPreview =
+    saved && saved.name === current.name.trim() ? saved.slug : convertToSlug(current.name);
+
+  const clearErrors = (predicate: (path: string) => boolean) =>
+    setErrors((map) => {
+      const paths = Object.keys(map).filter(predicate);
+      if (paths.length === 0) return map;
+      const next = { ...map };
+      paths.forEach((path) => delete next[path]);
+      return next;
+    });
+
+  const setTranslationField = (
+    field: 'name' | 'shortDescription' | 'description',
+    value: string
+  ) => {
+    setForm((f) =>
+      f
+        ? {
+            ...f,
+            translations: {
+              ...f.translations,
+              [activeLocale]: { ...current, ...f.translations[activeLocale], [field]: value },
+            },
+          }
+        : f
+    );
+    const path = `translations.${activeLocale}.${field}`;
+    clearErrors((p) => p === path);
+  };
+
+  const errorText = (path: string) =>
+    errors[path] ? t(`ecommerce.product.errors.${errors[path]}`) : undefined;
+
+  const showErrors = (map: ErrorMap) => {
+    setErrors(map);
+    if (Object.keys(map).some((path) => path.startsWith(`translations.${defaultLocale}.`))) {
+      setActiveLocale(defaultLocale);
+    }
+    toggleNotification({ type: 'warning', message: t('ecommerce.product.errors.fix') });
+  };
+
+  const save = async () => {
+    if (saving) return;
+    const local = validateProductForm(form, defaultLocale);
+    if (local.length) {
+      showErrors(toErrorMap(local));
+      return;
+    }
+    setSaving(true);
+    try {
+      const id = await new SaveProduct().execute(productId, buildProductInput(form));
+      setErrors({});
+      toggleNotification({ type: 'success', message: t('ecommerce.product.saved') });
+      if (productId === undefined) {
+        navigate(`${basePath}/${id}`, { replace: true });
+      } else {
+        // Reload to pick up ids of new variants and the slugs generated by the server.
+        await new FetchProduct()
+          .execute(id)
+          .then((detail) => applyProduct(detail, codes))
+          .catch(() => setLoadError(true));
+      }
+    } catch (err) {
+      const fieldErrors = extractFieldErrors(err);
+      if (fieldErrors) showErrors(toErrorMap(fieldErrors));
+      else toggleNotification({ type: 'danger', message: t('ecommerce.product.saveError') });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const translateWithAi = async () => {
+    const request = buildTranslationRequest(form, defaultLocale, codes);
+    if (!request) {
+      toggleNotification({ type: 'info', message: t('ecommerce.product.ai.nothing') });
+      return;
+    }
+    setTranslating(true);
+    try {
+      const result = await new TranslateProductStrings().execute(request);
+      setForm((f) => (f ? applyTranslations(f, result.translations) : f));
+      const failed = Number(result.failed) || 0;
+      toggleNotification(
+        failed > 0
+          ? { type: 'warning', message: t('ecommerce.product.ai.partial', { failed }) }
+          : { type: 'success', message: t('ecommerce.product.ai.done') }
+      );
+    } catch {
+      toggleNotification({ type: 'danger', message: t('ecommerce.product.ai.error') });
+    } finally {
+      setTranslating(false);
+    }
+  };
+
+  const openNewVariant = () => {
+    newKeyCounter.current += 1;
+    setModal({ index: null, newKey: `new-${newKeyCounter.current}` });
+  };
+
+  const confirmVariant = (variant: FormVariant) => {
+    if (!modal) return;
+    const index = modal.index ?? form.variants.length;
+    setForm((f) => {
+      if (!f) return f;
+      const variants = [...f.variants];
+      variants[index] = variant;
+      return { ...f, variants };
+    });
+    clearErrors((p) => p === 'variants' || p.startsWith(`variants.${index}.`));
+    setModal(null);
+  };
+
+  const removeVariant = (index: number) => {
+    setForm((f) => (f ? { ...f, variants: f.variants.filter((_, i) => i !== index) } : f));
+    // Row indexes shift, so per-variant server errors no longer point at the right rows.
+    clearErrors((p) => p.startsWith('variants.'));
+  };
+
+  const aiButton = (
+    <Button
+      variant="secondary"
+      size="S"
+      startIcon={<Sparkle />}
+      onClick={translateWithAi}
+      loading={translating}
+      disabled={!aiAvailable || translating || saving}
+    >
+      {t('ecommerce.product.ai.translate')}
+    </Button>
+  );
+
+  return (
+    <Flex direction="column" alignItems="stretch" gap={6}>
+      <Flex justifyContent="space-between" alignItems="center" gap={4}>
+        <Flex gap={3} alignItems="center" style={{ minWidth: 0 }}>
+          <IconButton label={t('ecommerce.product.back')} onClick={() => navigate(basePath)}>
+            <ArrowLeft />
+          </IconButton>
+          <Typography variant="beta" tag="h1" ellipsis>
+            {title}
+          </Typography>
+        </Flex>
+        <Flex gap={4} alignItems="center">
+          <Flex gap={2} alignItems="center">
+            <Switch
+              checked={form.active}
+              onCheckedChange={(checked: boolean) =>
+                setForm((f) => (f ? { ...f, active: checked } : f))
+              }
+              aria-label={t('ecommerce.product.active')}
+            />
+            <Typography variant="omega">{t('ecommerce.product.active')}</Typography>
+          </Flex>
+          <Button onClick={save} loading={saving} disabled={translating}>
+            {t('ecommerce.product.save')}
+          </Button>
+        </Flex>
+      </Flex>
+
+      <Section
+        title={t('ecommerce.product.information')}
+        actions={
+          aiAvailable ? (
+            aiButton
+          ) : (
+            <Tooltip label={t('ecommerce.product.ai.unavailable')}>
+              <span>{aiButton}</span>
+            </Tooltip>
+          )
+        }
+      >
+        <LocaleSwitcher
+          locales={locales}
+          defaultLocale={defaultLocale}
+          value={activeLocale}
+          onChange={setActiveLocale}
+          isFilled={(code) => !!form.translations[code]?.name.trim()}
+          label={t('ecommerce.product.locale')}
+        />
+
+        <Field.Root
+          name="name"
+          required={isDefault}
+          error={errorText(`translations.${activeLocale}.name`)}
+          hint={
+            isDefault ? undefined : t('ecommerce.product.fallbackHint', { locale: defaultLocale })
+          }
+        >
+          <Field.Label>{t('ecommerce.product.name')}</Field.Label>
+          <TextInput
+            value={current.name}
+            onChange={(e: any) => setTranslationField('name', e.target.value)}
+          />
+          <Field.Error />
+          <Field.Hint />
+        </Field.Root>
+
+        <Field.Root name="slug" hint={t('ecommerce.product.slug.hint')}>
+          <Field.Label>{t('ecommerce.product.slug')}</Field.Label>
+          <TextInput value={slugPreview} readOnly disabled />
+          <Field.Hint />
+        </Field.Root>
+
+        <Field.Root name="shortDescription">
+          <Field.Label>{t('ecommerce.product.shortDescription')}</Field.Label>
+          <Textarea
+            value={current.shortDescription}
+            onChange={(e: any) => setTranslationField('shortDescription', e.target.value)}
+          />
+        </Field.Root>
+
+        <Field.Root
+          name="description"
+          id="ecommerce-product-description"
+          required={isDefault}
+          error={errorText(`translations.${activeLocale}.description`)}
+        >
+          <Field.Label id="ecommerce-product-description-label">
+            {t('ecommerce.product.description')}
+          </Field.Label>
+          <DescriptionEditor
+            key={activeLocale}
+            id="ecommerce-product-description"
+            ariaLabelledBy="ecommerce-product-description-label"
+            value={current.description}
+            onChange={(html) => setTranslationField('description', html)}
+            hasError={!!errors[`translations.${activeLocale}.description`]}
+            labels={{
+              bold: t('ecommerce.product.editor.bold'),
+              italic: t('ecommerce.product.editor.italic'),
+              underline: t('ecommerce.product.editor.underline'),
+            }}
+          />
+          <Field.Error />
+        </Field.Root>
+      </Section>
+
+      <Section title={t('ecommerce.product.gallery')}>
+        {productId !== undefined ? (
+          <GallerySlot owner={{ productId }} images={productImages} onChange={setProductImages} />
+        ) : (
+          <Typography variant="omega" textColor="neutral600">
+            {t('ecommerce.product.gallery.saveFirst')}
+          </Typography>
+        )}
+      </Section>
+
+      <Section title={t('ecommerce.product.variants')}>
+        {errors.variants && (
+          <Typography variant="omega" textColor="danger600" role="alert">
+            {t(`ecommerce.product.errors.${errors.variants}`)}
+          </Typography>
+        )}
+        <VariantsTable
+          variants={form.variants}
+          locale={activeLocale}
+          defaultLocale={defaultLocale}
+          errors={errors}
+          onAdd={openNewVariant}
+          onEdit={(index) => setModal({ index, newKey: form.variants[index].key })}
+          onRemove={removeVariant}
+        />
+      </Section>
+
+      {modal && (
+        <VariantModal
+          variant={modal.index === null ? null : form.variants[modal.index]}
+          newKey={modal.newKey}
+          locales={locales}
+          defaultLocale={defaultLocale}
+          initialLocale={activeLocale}
+          serverErrors={modal.index === null ? {} : scopedErrors(errors, `variants.${modal.index}`)}
+          onClose={() => setModal(null)}
+          onConfirm={confirmVariant}
+        />
+      )}
+    </Flex>
+  );
+};
 
 export { ProductEditPage };
