@@ -969,6 +969,8 @@
   "littlebox-strapi-suite.ecommerce.settings.stripeWebhook.copied": "URL copiado",
   "littlebox-strapi-suite.ecommerce.settings.stripeWebhook.copyError": "Não foi possível copiar o URL.",
   "littlebox-strapi-suite.ecommerce.settings.stripeWebhook.loadError": "Não foi possível carregar os dados do webhook.",
+  "littlebox-strapi-suite.ecommerce.settings.stripeWebhook.close": "Fechar",
+  "littlebox-strapi-suite.ecommerce.settings.stripeWebhook.open": "Webhook",
   "littlebox-strapi-suite.ecommerce.orders.detail.actions.SHIP": "Expedir",
   "littlebox-strapi-suite.ecommerce.orders.detail.actions.REGISTER_RETURN": "Registar devolução",
   "littlebox-strapi-suite.ecommerce.orders.detail.lines.inProgress": "{count, plural, one {# unidade} other {# unidades}} em expedição",

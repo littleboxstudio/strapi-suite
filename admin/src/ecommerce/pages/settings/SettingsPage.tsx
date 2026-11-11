@@ -11,7 +11,6 @@ import { ShippingSettings } from './ShippingSettings';
 import { EmailTemplatesSection } from './EmailTemplatesSection';
 import { SETTINGS_SECTIONS, type SettingsSection } from '../../utils/settingsSections';
 import { StorefrontSettings } from './StorefrontSettings';
-import StripeWebhookInfo from '../../components/settings/StripeWebhookInfo';
 import StickyTabs from '../../components/StickyTabs';
 
 export { SETTINGS_SECTIONS };
@@ -80,7 +79,6 @@ const SettingsPage = () => {
           {category && (
             <IntegrationsSection key={category} category={category} readOnly={!canUpdate} />
           )}
-          {section === 'payments' && <StripeWebhookInfo />}
           {section === 'email-templates' && <EmailTemplatesSection />}
         </>
       )}
