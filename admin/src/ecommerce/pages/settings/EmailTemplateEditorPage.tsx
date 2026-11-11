@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
-import { Navigate, useNavigate, useParams } from 'react-router-dom';
+import { Navigate, useBlocker, useNavigate, useParams } from 'react-router-dom';
 import styled from 'styled-components';
 import { useAuth, useNotification } from '@strapi/strapi/admin';
 import {
@@ -30,7 +30,11 @@ import PreviewEmailTemplate from '../../usecases/settings/previewEmailTemplate';
 import RestoreDefaultEmailTemplate from '../../usecases/settings/restoreDefaultEmailTemplate';
 import FetchSettingsLocales from '../../usecases/settings/fetchSettingsLocales';
 import { extractFieldErrors } from '../../utils/productForm';
-import { insertAtCursor, isEmailTemplateType } from '../../utils/emailTemplateEditor';
+import {
+  insertAtCursor,
+  isEmailTemplateType,
+  shouldBlockNavigation,
+} from '../../utils/emailTemplateEditor';
 import { useSettingsPermissions } from './useSettingsPermissions';
 import type {
   EmailPreview as EmailPreviewData,
@@ -87,7 +91,6 @@ const EmailTemplateEditorPage = () => {
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [confirmRestore, setConfirmRestore] = useState(false);
   const [restoring, setRestoring] = useState(false);
-  const [pendingLocale, setPendingLocale] = useState<string | null>(null);
 
   const editorRef = useRef<HtmlCodeEditorHandle>(null);
   const subjectRef = useRef<HTMLInputElement>(null);
@@ -127,7 +130,7 @@ const EmailTemplateEditorPage = () => {
         if (!cancelled) setLocales(info);
       })
       .catch(() => {
-        // Needs the products read permission; without it only the current locale is offered.
+        // Without the locales only the current locale is offered.
         if (!cancelled) setLocales({ defaultLocale: '', locales: [] });
       });
     return () => {
@@ -168,16 +171,30 @@ const EmailTemplateEditorPage = () => {
     []
   );
 
-  if (!type) return <Navigate to={settingsPath} replace />;
-
   const dirty = !!template && (subject !== template.subject || html !== template.html);
 
-  const goToLocale = (code: string) => navigate(`${settingsPath}/${type}/${encodeURIComponent(code)}`);
+  // The Strapi admin runs on a data router, so every in-app navigation (back button, settings tabs,
+  // locale switch, menu) goes through this blocker and its confirmation.
+  const blocker = useBlocker(({ currentLocation, nextLocation }) =>
+    shouldBlockNavigation(dirty, currentLocation, nextLocation)
+  );
+
+  // Reloading or closing the tab: the browser shows its own confirmation.
+  useEffect(() => {
+    if (!dirty) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [dirty]);
+
+  if (!type) return <Navigate to={settingsPath} replace />;
 
   const onLocaleChange = (code: string) => {
     if (code === locale) return;
-    if (dirty) setPendingLocale(code);
-    else goToLocale(code);
+    navigate(`${settingsPath}/${type}/${encodeURIComponent(code)}`);
   };
 
   const save = async () => {
@@ -458,19 +475,16 @@ const EmailTemplateEditorPage = () => {
       />
 
       <ConfirmModal
-        open={pendingLocale !== null}
+        open={blocker.state === 'blocked'}
         title={t('ecommerce.settings.emailTemplates.editor.discardConfirm.title')}
         text={t('ecommerce.settings.emailTemplates.editor.discardConfirm.text')}
         confirm={{
           button: t('ecommerce.settings.emailTemplates.editor.discardConfirm.confirm'),
-          action: () => {
-            if (pendingLocale !== null) goToLocale(pendingLocale);
-            setPendingLocale(null);
-          },
+          action: () => blocker.proceed?.(),
         }}
         cancel={{
           button: t('ecommerce.settings.cancel'),
-          action: () => setPendingLocale(null),
+          action: () => blocker.reset?.(),
         }}
       />
     </Flex>
