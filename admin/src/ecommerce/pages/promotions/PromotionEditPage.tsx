@@ -39,6 +39,7 @@ import { apiErrorCode } from '../../utils/orderDetail';
 import { statusTone } from '../../utils/promotionList';
 import {
   clearErrorsUnder,
+  deactivationInput,
   describeBenefit,
   emptyBenefit,
   emptyPromotionForm,
@@ -47,8 +48,10 @@ import {
   promotionFormFromView,
   toBenefit,
   toPromotionInput,
+  unmappedErrors,
   validatePromotionForm,
   wallTimeNow,
+  type FormSection,
   type PromotionErrors,
   type PromotionForm,
 } from '../../utils/promotionForm';
@@ -91,10 +94,13 @@ const PromotionEditPage = () => {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
-  const applyView = useCallback((promotion: Promotion) => {
-    setView(promotion);
-    setForm(promotionFormFromView(promotion));
-  }, []);
+  const applyView = useCallback(
+    (promotion: Promotion) => {
+      setView(promotion);
+      setForm(promotionFormFromView(promotion, locale));
+    },
+    [locale]
+  );
 
   useEffect(() => {
     if (!canRead) return undefined;
@@ -149,10 +155,33 @@ const PromotionEditPage = () => {
   }
 
   const readOnly = !canManage;
+  // Saving disables the controls; only a read-only admin has them hidden (stable layout).
   const disabled = readOnly || saving;
   const timezone = view?.timezone ?? context.timezone;
+  const localeCodes = context.locales.map((l) => l.code);
   const money = (cents: number) => formatCents(cents, locale);
   const errorText = (path: string) => (errors[path] ? t(`${p}.errors.${errors[path]}`) : undefined);
+  const unmapped = unmappedErrors(errors);
+  /** Server errors no field shows (e.g. `stacking.withOrder`), listed in their section. */
+  const sectionErrors = (section: FormSection) => {
+    const list = unmapped.filter((e) => e.section === section);
+    if (!list.length) return null;
+    return (
+      <Flex direction="column" alignItems="flex-start" gap={1} role="alert">
+        {list.map((e) => (
+          <Typography key={e.path} variant="pi" textColor="danger600">
+            {t(`${p}.errors.unmapped`, {
+              path: e.path,
+              message: formatMessage({
+                id: getTranslation(`${p}.errors.${e.code}`),
+                defaultMessage: e.code,
+              }),
+            })}
+          </Typography>
+        ))}
+      </Flex>
+    );
+  };
 
   const update = (patch: Partial<PromotionForm>, clear: string[] = []) => {
     setForm((f) => (f ? { ...f, ...patch } : f));
@@ -168,21 +197,18 @@ const PromotionEditPage = () => {
 
   const save = async (next: PromotionForm = form) => {
     if (saving || readOnly) return;
-    const local = validatePromotionForm(next);
+    const local = validatePromotionForm(next, timezone);
     if (Object.keys(local).length) {
       showErrors(local);
       return;
     }
     setSaving(true);
     try {
-      const body = { ...toPromotionInput(next), ...(view ? { version: view.version } : {}) };
+      const body = { ...toPromotionInput(next, localeCodes), ...(view ? { version: view.version } : {}) };
       const saved = await new SavePromotion().execute(body, view?.id);
       setErrors({});
       setInUse(false);
-      toggleNotification({
-        type: 'success',
-        message: t(next.active || !view?.active ? `${p}.saved` : `${p}.deactivated`),
-      });
+      toggleNotification({ type: 'success', message: t(`${p}.saved`) });
       if (!view) navigate(`${basePath}/${saved.id}`, { replace: true });
       else applyView(saved);
     } catch (err) {
@@ -212,10 +238,25 @@ const PromotionEditPage = () => {
     }
   };
 
-  const deactivate = () => {
-    const next = { ...form, active: false };
-    setForm(next);
-    save(next);
+  /**
+   * Saves only the deactivation: the stored definition with `active: false` and the loaded
+   * version. Unsaved edits stay in the form (not saved) and the next Save uses the new version.
+   */
+  const deactivate = async () => {
+    if (!view || saving || readOnly) return;
+    setSaving(true);
+    try {
+      const saved = await new SavePromotion().execute(deactivationInput(view, localeCodes), view.id);
+      setView(saved);
+      setForm((f) => (f ? { ...f, active: false } : f));
+      setInUse(false);
+      toggleNotification({ type: 'success', message: t(`${p}.deactivated`) });
+    } catch (err) {
+      if (apiErrorCode(err) === 'PROMOTION_VERSION_CONFLICT') setConflict(true);
+      else toggleNotification({ type: 'danger', message: t(`${p}.saveError`) });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const title = form.name.trim() || view?.name || t(`${p}.new`);
@@ -281,7 +322,7 @@ const PromotionEditPage = () => {
           closeLabel={t(`${p}.close`)}
           onClose={() => setInUse(false)}
           action={
-            form.active ? (
+            view?.active ? (
               <Button variant="secondary" size="S" loading={saving} onClick={deactivate}>
                 {t(`${p}.inUse.deactivate`)}
               </Button>
@@ -291,6 +332,8 @@ const PromotionEditPage = () => {
           {t(`${p}.inUse.text`)}
         </Alert>
       )}
+
+      {sectionErrors('other')}
 
       {/* 1. General information */}
       <Section title={t(`${p}.sections.general`)}>
@@ -340,6 +383,8 @@ const PromotionEditPage = () => {
           />
           <Field.Error />
         </Field.Root>
+
+        {sectionErrors('general')}
 
         <Flex direction="column" alignItems="stretch" gap={3}>
           <LocaleSwitcher
@@ -394,6 +439,7 @@ const PromotionEditPage = () => {
             </Radio.Item>
           ))}
         </Radio.Group>
+        {sectionErrors('method')}
         <Box style={{ maxWidth: 420 }}>
           <Field.Root
             name="code"
@@ -446,6 +492,7 @@ const PromotionEditPage = () => {
         <Typography variant="pi" textColor="neutral600">
           {t(`${p}.timezone`, { timezone })}
         </Typography>
+        {sectionErrors('validity')}
         {errors.timeZone && (
           <Typography variant="pi" textColor="danger600" role="alert">
             {t(`${p}.errors.${errors.timeZone}`)}
@@ -462,6 +509,7 @@ const PromotionEditPage = () => {
           disabled={disabled}
           onChange={(patch) => update(patch, ['eligibility'])}
         />
+        {sectionErrors('eligibility')}
       </Section>
 
       {/* 5. Conditions */}
@@ -476,7 +524,9 @@ const PromotionEditPage = () => {
           onLabels={(labels) => update({ labels })}
           errors={errors}
           disabled={disabled}
+          readOnly={readOnly}
         />
+        {sectionErrors('conditions')}
       </Section>
 
       {/* 6. Benefits */}
@@ -486,6 +536,7 @@ const PromotionEditPage = () => {
             {t(`${p}.benefits.count`)}
           </Typography>
         )}
+        {sectionErrors('benefits')}
         {form.benefits.map((benefit, index) => (
           <BenefitEditor
             key={benefit.key}
@@ -495,6 +546,7 @@ const PromotionEditPage = () => {
             onLabels={(labels) => update({ labels })}
             errors={errors}
             disabled={disabled}
+            readOnly={readOnly}
             summary={describeBenefit(toBenefit(benefit), money, t)}
             onChange={(next) =>
               update({ benefits: form.benefits.map((b, i) => (i === index ? next : b)) }, [`benefits.${index}`])
@@ -502,12 +554,12 @@ const PromotionEditPage = () => {
             onRemove={() => update({ benefits: form.benefits.filter((_, i) => i !== index) }, ['benefits'])}
           />
         ))}
-        {!disabled && (
+        {!readOnly && (
           <Box>
             <Button
               variant="secondary"
               startIcon={<Plus />}
-              disabled={form.benefits.length >= MAX_BENEFITS}
+              disabled={saving || form.benefits.length >= MAX_BENEFITS}
               onClick={() => update({ benefits: [...form.benefits, emptyBenefit()] }, ['benefits'])}
             >
               {t(`${p}.benefits.add`)}
@@ -528,6 +580,7 @@ const PromotionEditPage = () => {
           disabled={disabled}
           onChange={(key, value) => update({ [key]: value } as Partial<PromotionForm>, [key])}
         />
+        {sectionErrors('limits')}
       </Section>
 
       {/* 8. Stacking */}
@@ -537,6 +590,7 @@ const PromotionEditPage = () => {
           disabled={disabled}
           onChange={(stacking) => update({ stacking }, ['stacking'])}
         />
+        {sectionErrors('stacking')}
       </Section>
 
       {/* 9. Summary */}

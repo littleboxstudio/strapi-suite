@@ -40,14 +40,17 @@ type Props = {
   labels: PromotionLabels;
   onLabels: (labels: PromotionLabels) => void;
   errors: PromotionErrors;
+  /** Disables the controls (e.g. while saving) without hiding them. */
   disabled?: boolean;
+  /** Hides the add/remove controls (no promotions.manage). */
+  readOnly?: boolean;
 };
 
 const MATCHES = ['ANY', 'ALL', 'NONE'] as const;
 const LEVEL_BACKGROUND = ['neutral0', 'neutral100', 'neutral0'] as const;
 
 /** Visual AND/OR condition tree, up to 3 levels; error paths mirror `conditions.children.<i>…`. */
-const ConditionGroupEditor = ({ tree, path = [], onChange, labels, onLabels, errors, disabled }: Props) => {
+const ConditionGroupEditor = ({ tree, path = [], onChange, labels, onLabels, errors, disabled, readOnly }: Props) => {
   const { formatMessage } = useIntl();
   const t = (id: string, values?: Record<string, any>) => formatMessage({ id: getTranslation(id) }, values);
   const p = 'ecommerce.promotions.form.conditions';
@@ -147,8 +150,8 @@ const ConditionGroupEditor = ({ tree, path = [], onChange, labels, onLabels, err
             )}
             {['SUBTOTAL', 'PRODUCT_QUANTITY', 'TOTAL_QUANTITY', 'DISTINCT_PRODUCTS', 'EMAIL'].includes(node.type) &&
               textField('value', money ? t(`${p}.amount`) : t(`${p}.value`))}
-            {!disabled && (
-              <IconButton label={t(`${p}.remove`)} variant="ghost" onClick={() => onChange(removeNode(tree, nodePath) ?? tree)}>
+            {!readOnly && (
+              <IconButton label={t(`${p}.remove`)} variant="ghost" disabled={disabled} onClick={() => onChange(removeNode(tree, nodePath) ?? tree)}>
                 <Trash />
               </IconButton>
             )}
@@ -171,6 +174,7 @@ const ConditionGroupEditor = ({ tree, path = [], onChange, labels, onLabels, err
               onChange={(target) => set({ target })}
               error={errorText(errorUnder(errors, `${base}.target`), t('ecommerce.promotions.form.target.required'))}
               disabled={disabled}
+              readOnly={readOnly}
             />
           )}
         </Flex>
@@ -202,9 +206,10 @@ const ConditionGroupEditor = ({ tree, path = [], onChange, labels, onLabels, err
               </SingleSelect>
             </Field.Root>
           </Box>
-          {!isRoot && !disabled && (
+          {!isRoot && !readOnly && (
             <Button
               variant="danger-light"
+              disabled={disabled}
               size="S"
               startIcon={<Trash />}
               onClick={() => onChange(removeNode(tree, path) ?? tree)}
@@ -237,22 +242,23 @@ const ConditionGroupEditor = ({ tree, path = [], onChange, labels, onLabels, err
               onLabels={onLabels}
               errors={errors}
               disabled={disabled}
+              readOnly={readOnly}
             />
           ) : (
             conditionRow(child, [...path, i])
           )
         )}
 
-        {!disabled && (
+        {!readOnly && (
           <Flex gap={2} wrap="wrap" alignItems="center">
-            <Button variant="secondary" size="S" startIcon={<Plus />} onClick={() => onChange(addCondition(tree, path))}>
+            <Button variant="secondary" size="S" startIcon={<Plus />} disabled={disabled} onClick={() => onChange(addCondition(tree, path))}>
               {t(`${p}.add`)}
             </Button>
             <Button
               variant="tertiary"
               size="S"
               startIcon={<Plus />}
-              disabled={!canAddGroup(path)}
+              disabled={disabled || !canAddGroup(path)}
               onClick={() => onChange(addGroup(tree, path) ?? tree)}
             >
               {t(`${p}.addGroup`)}
