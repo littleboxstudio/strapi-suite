@@ -16,21 +16,15 @@
       "type": "json",
       "required": true
     },
-    "price": {
-      "type": "integer",
-      "min": 0
+    "rates": {
+      "type": "json",
+      "default": {}
     },
     "tax": {
       "type": "decimal",
       "min": 0,
       "max": 100,
       "default": 23
-    },
-    "countries": {
-      "type": "json",
-      "default": [
-        "PT"
-      ]
     },
     "active": {
       "type": "boolean",

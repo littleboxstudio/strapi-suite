@@ -528,55 +528,86 @@ describe('EcommerceSettingsService — store settings', () => {
 describe('EcommerceSettingsService — manual shipping methods', () => {
   const method = (extra: any = {}) => ({
     name: { en: 'Pickup', pt: 'Levantamento' },
-    price: 350,
+    rates: {},
     tax: 23,
-    countries: ['PT'],
     active: true,
     ...extra,
   });
 
+  /** Markets PT and ES, zone 1 = PT, zone 2 = ES. */
+  const withZones = async () => {
+    const ctx = makeStrapi();
+    await ctx.service.updateStoreSettings({ markets: ['PT', 'ES'] });
+    const z1 = await ctx.zones.create({ name: 'PT', countries: ['PT'] });
+    const z2 = await ctx.zones.create({ name: 'ES', countries: ['ES'] });
+    expect([z1.id, z2.id]).toEqual([1, 2]);
+    return ctx;
+  };
+
   it('creates, lists ordered by position, updates and deletes', async () => {
     const { service, tables } = makeStrapi();
     const a = await service.createManualMethod(method());
-    const b = await service.createManualMethod(method({ name: { en: 'Courier' }, price: 0 }));
+    const b = await service.createManualMethod(method({ name: { en: 'Courier' } }));
     expect(b.position).toBeGreaterThan(a.position);
     await service.updateManualMethod(a.id, { position: 10 });
     expect((await service.listManualMethods()).map((m) => m.id)).toEqual([b.id, a.id]);
-    const updated = await service.updateManualMethod(b.id, { price: 500 });
-    expect(updated).toMatchObject({ price: 500, name: { en: 'Courier' } });
+    const updated = await service.updateManualMethod(b.id, { tax: 6 });
+    expect(updated).toMatchObject({ tax: 6, name: { en: 'Courier' } });
     await service.deleteManualMethod(a.id);
     expect(tables[UIDS.manualShippingMethod]).toHaveLength(1);
     await expect(service.deleteManualMethod(999)).rejects.toBeInstanceOf(EcommerceNotFoundError);
     await expect(service.updateManualMethod(999, {})).rejects.toBeInstanceOf(EcommerceNotFoundError);
   });
 
-  it('applies defaults for tax and countries', async () => {
+  it('applies defaults for tax and rates; no price or countries', async () => {
     const { service } = makeStrapi();
-    const m = await service.createManualMethod({ name: { en: 'X' }, price: 0 });
-    expect(m).toMatchObject({ tax: 23, countries: ['PT'], active: true });
+    const m = await service.createManualMethod({ name: { en: 'X' } });
+    expect(m).toMatchObject({ tax: 23, rates: {}, active: true });
+    expect(m).not.toHaveProperty('price');
+    expect(m).not.toHaveProperty('countries');
   });
 
-  it('validates name in the default locale, price, tax and countries', async () => {
+  it('stores a price per zone', async () => {
+    const { service, tables } = await withZones();
+    const m = await service.createManualMethod({ name: { en: 'Mail', pt: 'Correio' }, rates: { '1': 495, '2': 995 }, tax: 23 });
+    expect(m.rates).toEqual({ '1': 495, '2': 995 });
+    expect(tables[UIDS.manualShippingMethod][0].rates).toEqual({ '1': 495, '2': 995 });
+  });
+
+  it('validates the rates', async () => {
+    const { service, tables } = await withZones();
+    const issues = async (rates: unknown) =>
+      ((await service.createManualMethod(method({ rates })).catch((e) => e)) as any).errors;
+    expect(await issues({ '9': 100 })).toEqual([{ path: 'rates.9', code: 'invalid_zone' }]);
+    expect(await issues({ '1': -1 })).toEqual([{ path: 'rates.1', code: 'out_of_range' }]);
+    expect(await issues({ '1': 100_000_000_000 })).toEqual([{ path: 'rates.1', code: 'out_of_range' }]);
+    expect(await issues({ '1': 4.5 })).toEqual([{ path: 'rates.1', code: 'invalid_number' }]);
+    expect(await issues({ '1': '450' })).toEqual([{ path: 'rates.1', code: 'invalid_number' }]);
+    expect(await issues([])).toEqual([{ path: 'rates', code: 'invalid_number' }]);
+    expect(await issues('x')).toEqual([{ path: 'rates', code: 'invalid_number' }]);
+    expect(tables[UIDS.manualShippingMethod]).toHaveLength(0);
+  });
+
+  it('a null or empty rate removes the zone; a partial update keeps the stored rates', async () => {
+    const { service } = await withZones();
+    const m = await service.createManualMethod(method({ rates: { '1': null, '2': 300 } }));
+    expect(m.rates).toEqual({ '2': 300 });
+    expect((await service.updateManualMethod(m.id, { tax: 6 })).rates).toEqual({ '2': 300 });
+    expect((await service.updateManualMethod(m.id, { rates: { '1': 100, '2': '' } as any })).rates).toEqual({ '1': 100 });
+  });
+
+  it('validates name in the default locale and tax', async () => {
     const { service, tables } = makeStrapi();
-    const err: any = await service
-      .createManualMethod(method({ name: { pt: 'Só PT' }, price: -1, tax: 101, countries: ['PRT'] }))
-      .catch((e) => e);
+    const err: any = await service.createManualMethod(method({ name: { pt: 'Só PT' }, tax: 101 })).catch((e) => e);
     expect(err).toBeInstanceOf(EcommerceValidationError);
     expect(err.errors).toEqual(
       expect.arrayContaining([
         { path: 'name.en', code: 'required' },
-        { path: 'price', code: 'out_of_range' },
         { path: 'tax', code: 'out_of_range' },
-        { path: 'countries.0', code: 'invalid_country' },
       ])
     );
-    const err2: any = await service.createManualMethod(method({ price: 1.5, tax: 'x' })).catch((e) => e);
-    expect(err2.errors).toEqual(
-      expect.arrayContaining([
-        { path: 'price', code: 'invalid_number' },
-        { path: 'tax', code: 'invalid_number' },
-      ])
-    );
+    const err2: any = await service.createManualMethod(method({ tax: 'x' })).catch((e) => e);
+    expect(err2.errors).toEqual([{ path: 'tax', code: 'invalid_number' }]);
     expect(tables[UIDS.manualShippingMethod]).toHaveLength(0);
   });
 });
