@@ -172,6 +172,14 @@ describe('financialSummary / derivePaymentStatus', () => {
     expect(derivePaymentStatus(s)).toBe('PENDING');
   });
 
+  it('zero-total order with nothing refunded is PAID (nothing to pay)', () => {
+    const s = financialSummary(0, [], []);
+    expect(s.due).toBe(0);
+    expect(derivePaymentStatus(s)).toBe('PAID');
+    // Cancelled zero-total order: still nothing owed.
+    expect(derivePaymentStatus(financialSummary(0, [], [], { orderCancelled: true }))).toBe('PAID');
+  });
+
   it('non-cancelled: orderTotal equals total', () => {
     const s = financialSummary(5000, [], []);
     expect(s.orderTotal).toBe(5000);
@@ -361,7 +369,7 @@ describe('fix round 1', () => {
 
   it('SHIP available for a zero-total order', () => {
     const summary = financialSummary(0, [], []);
-    expect(derivePaymentStatus(summary)).toBe('PENDING');
+    expect(derivePaymentStatus(summary)).toBe('PAID');
     expect(availableActions(withSummary(summary))).toContain('SHIP');
   });
 
