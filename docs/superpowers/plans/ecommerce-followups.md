@@ -86,3 +86,4 @@ Lista de itens adiados nas revisões do plano 1 (Base e Produtos), a considerar 
 ## Plan 5
 - Spec 4.15: Moloni foreign-customer handling setting deferred — needs the store accountant's input (OSS / intra-EU / non-EU rules); today non-PT customers are invoiced like domestic ones.
 - P5 final review: parked (F4): a carrier deactivated while one of its shipments is PENDING/UNCERTAIN blocks the order — `retry` and `cancel` need an active runtime (`shipping.carrierFor`) and `assertNoPendingShipment` blocks MODIFY/CANCEL; shipments have no "mark failed". Add an issuing-carrier exception (like invoices) or a confirmed "mark failed" action. Low impact today: the only carrier (CTT) is NOT_IMPLEMENTED.
+- P5 final: invoice lines can be individually off (order total correct) when an invoiced payment's value sits on a line that later lost value (partial payments, return/modification after invoicing) — would need credit-and-reinvoice of that payment
