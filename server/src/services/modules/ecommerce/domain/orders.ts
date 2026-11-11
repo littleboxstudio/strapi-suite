@@ -58,7 +58,7 @@ export type OrderTotals = {
 
 export const computeTotals = (
   lines: LineAmounts[],
-  order: { orderDiscount: number; shippingOriginal: number; shippingDiscount: number },
+  order: { orderDiscount: number; shippingOriginal: number; shippingDiscount: number }
 ): OrderTotals => {
   let itemsOriginal = 0;
   let productDiscount = 0;
@@ -85,7 +85,7 @@ export const computeTotals = (
 export const orderDiscountShareForReturn = (
   lines: (LineAmounts & { id: number })[],
   orderDiscount: number,
-  returned: { orderLineId: number; quantity: number }[],
+  returned: { orderLineId: number; quantity: number }[]
 ): number => {
   let subtotal = 0;
   const byId = new Map<number, LineAmounts & { id: number }>();
@@ -138,7 +138,7 @@ export const financialSummary = (
   total: number,
   payments: PaymentLike[],
   refunds: RefundLike[],
-  opts: { orderCancelled?: boolean } = {},
+  opts: { orderCancelled?: boolean } = {}
 ): FinancialSummary => {
   let paid = 0;
   let pendingPayments = 0;
@@ -177,7 +177,7 @@ export const financialSummary = (
 /** Rules 4/5 compare against the real `orderTotal` (not the effective total),
  * so a cancelled, partially paid order stays PARTIALLY_PAID. */
 export const derivePaymentStatus = (
-  summary: Pick<FinancialSummary, 'paid' | 'refunded' | 'net' | 'orderTotal'>,
+  summary: Pick<FinancialSummary, 'paid' | 'refunded' | 'net' | 'orderTotal'>
 ): PaymentStatus => {
   const { paid, refunded, net, orderTotal: total } = summary;
   if (refunded > 0 && net <= 0) return 'REFUNDED';
@@ -215,7 +215,7 @@ export const shippedQuantities = (shipments: ShipmentLike[]): Map<number, number
 
 export const deriveFulfillmentStatus = (
   lines: { id: number; quantity: number }[],
-  shipped: Map<number, number>,
+  shipped: Map<number, number>
 ): FulfillmentStatus => {
   const relevant = lines.filter((l) => l.quantity > 0);
   if (relevant.length === 0) return 'UNFULFILLED';
@@ -287,7 +287,8 @@ export const availableActions = (input: AvailableActionsInput): OrderActionKey[]
   ) {
     actions.push('ARCHIVE');
   }
-  if (input.hasShippedUnreturned && input.orderStatus !== 'ARCHIVED') actions.push('REGISTER_RETURN');
+  if (input.hasShippedUnreturned && input.orderStatus !== 'ARCHIVED')
+    actions.push('REGISTER_RETURN');
   if (open && input.hasUninvoicedCompletedPayments) actions.push('INVOICE_TOTAL');
   return actions;
 };
@@ -352,6 +353,25 @@ export const allocateProportionally = (total: number, weights: number[]): number
 };
 
 /**
+ * What each line is worth for coverage: its net amount minus its share of the (clamped) order
+ * discount, in line order; and the shipping due. Σ lineDue + shippingDue === order total.
+ */
+export const coverageDues = (
+  order: CoverageOrderState
+): { lineDue: number[]; shippingDue: number } => {
+  const nets = order.lines.map((l) =>
+    Math.max(0, (l.quantity - l.returnedQuantity) * (l.unitPrice - l.unitDiscount))
+  );
+  const subtotal = nets.reduce((s, n) => s + n, 0);
+  const discount = Math.max(0, Math.min(finiteOr0(order.orderDiscount), subtotal));
+  const shares = allocateProportionally(discount, nets);
+  return {
+    lineDue: nets.map((n, i) => n - shares[i]),
+    shippingDue: Math.max(0, finiteOr0(order.shippingTotal)),
+  };
+};
+
+/**
  * What a new payment covers, by value (design 4.4). Each line is worth its net amount minus
  * its share of the (clamped) order discount, so Σ lines + shipping === order total. The payment
  * covers min(amount, outstanding) spread over the outstanding items in proportion; shipping is
@@ -362,14 +382,7 @@ export const computeCoverage = (
   previousPayments: { coverage?: unknown }[],
   amount: number
 ): PaymentCoverage => {
-  const nets = order.lines.map((l) =>
-    Math.max(0, (l.quantity - l.returnedQuantity) * (l.unitPrice - l.unitDiscount))
-  );
-  const subtotal = nets.reduce((s, n) => s + n, 0);
-  const discount = Math.max(0, Math.min(finiteOr0(order.orderDiscount), subtotal));
-  const shares = allocateProportionally(discount, nets);
-  const lineDue = nets.map((n, i) => n - shares[i]);
-  const shippingDue = Math.max(0, finiteOr0(order.shippingTotal));
+  const { lineDue, shippingDue } = coverageDues(order);
 
   const coveredLine = new Map<number, number>();
   let coveredShipping = 0;
@@ -383,7 +396,8 @@ export const computeCoverage = (
         coveredLine.set(id, (coveredLine.get(id) ?? 0) + finiteOr0(l?.value));
       }
     }
-    if (c.shipping && typeof c.shipping === 'object') coveredShipping += finiteOr0(c.shipping.value);
+    if (c.shipping && typeof c.shipping === 'object')
+      coveredShipping += finiteOr0(c.shipping.value);
   }
 
   const outstanding = [
