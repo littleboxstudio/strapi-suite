@@ -17,6 +17,7 @@ import {
   computeCoverage,
   type CoverageOrderState,
 } from '../../../../server/src/services/modules/ecommerce/domain/orders';
+import { EcommerceValidationError } from '../../../../server/src/services/modules/ecommerce/errors';
 
 type Line = CoverageOrderState['lines'][number] & {
   sku: string;
@@ -193,7 +194,9 @@ describe('reconcileCoverages', () => {
       before,
       SHIPPING
     );
-    expect(overInvoiced(after, [{ kind: 'INVOICE', lines: issued }])).toEqual(new Map([[1, 1000]]));
+    expect(
+      overInvoiced({ ...after, status: 'OPEN' }, [{ kind: 'INVOICE', lines: issued }])
+    ).toEqual(new Map([[1, 1000]]));
   });
 
   it('null coverage → the whole payment is reallocated', () => {
@@ -238,6 +241,75 @@ describe('reconcileCoverages', () => {
       value: 1800,
       excluded: 200,
     });
+  });
+});
+
+describe('reconcileCoverages on net payment amounts', () => {
+  it('refunded excess is never invoiced; a later payment for the new line reconciles onto it', () => {
+    const coverage = computeCoverage(order([line(1, 1000, 3)]), [], 3000);
+    const after = order([line(1, 1000, 1), line(2, 2000, 1)]);
+    const c2 = computeCoverage(
+      after,
+      [{ coverage: { lines: [{ orderLineId: 1, value: 1000 }], shipping: { value: 0, tax: 23 } } }],
+      2000
+    );
+    const r = reconcileCoverages(
+      after,
+      [
+        { id: 1, amount: 3000, refunded: 2000, coverage },
+        { id: 2, amount: 2000, coverage: c2 },
+      ],
+      new Map()
+    );
+    expect(r.get(1)).toEqual({
+      paymentId: 1,
+      lines: [{ orderLineId: 1, value: 1000 }],
+      shipping: 0,
+      value: 1000,
+      excluded: 0,
+    });
+    expect(r.get(2)).toMatchObject({
+      lines: [{ orderLineId: 2, value: 2000 }],
+      value: 2000,
+      excluded: 0,
+    });
+  });
+
+  it('value + excluded = net amount; refunds above the amount cap the net at 0', () => {
+    const o = order([line(1, 1000, 1)]);
+    const r = reconcileCoverages(
+      o,
+      [
+        { id: 1, amount: 1500, refunded: 200, coverage: null },
+        { id: 2, amount: 500, refunded: 900, coverage: null },
+      ],
+      new Map()
+    );
+    expect(r.get(1)).toMatchObject({ value: 1000, excluded: 300 });
+    expect(r.get(2)).toMatchObject({ lines: [], value: 0, excluded: 0 });
+  });
+
+  it('invoiced coverages consume capacity even when their payment is not in the list', () => {
+    const o = order([line(1, 1000, 1)]);
+    const invoiced = new Map<number, InvoicedCoverage>([
+      [1, { lines: [{ orderLineId: 1, value: 1000 }], shipping: 0 }],
+    ]);
+    const r = reconcileCoverages(o, [{ id: 2, amount: 1000, coverage: null }], invoiced);
+    expect([...r.keys()]).toEqual([2]);
+    expect(r.get(2)).toMatchObject({ lines: [], value: 0, excluded: 1000 });
+  });
+
+  it('negative, NaN or non-integer amounts (or refunds) are a domain error', () => {
+    const o = order([line(1, 1000, 1)]);
+    for (const bad of [
+      { id: 1, amount: -1, coverage: null },
+      { id: 1, amount: NaN, coverage: null },
+      { id: 1, amount: 10.5, coverage: null },
+      { id: 1, amount: 100, refunded: -5, coverage: null },
+      { id: 1, amount: 100, refunded: NaN, coverage: null },
+    ]) {
+      expect(() => reconcileCoverages(o, [bad], new Map())).toThrow(EcommerceValidationError);
+    }
   });
 });
 
@@ -345,7 +417,7 @@ describe('buildInvoiceLines', () => {
     });
   });
 
-  it('skips lineDue = 0 and value = 0 lines without NaN/Infinity', () => {
+  it('skips value = 0 entries and lineDue = 0 lines without NaN/Infinity', () => {
     const o = order([line(1, 0, 1), line(2, 1000, 1), line(3, 500, 2, { returnedQuantity: 2 })]);
     const lines = buildInvoiceLines(
       [
@@ -354,10 +426,10 @@ describe('buildInvoiceLines', () => {
           lines: [
             { orderLineId: 1, value: 0 },
             { orderLineId: 2, value: 0 },
-            { orderLineId: 3, value: 100 },
+            { orderLineId: 3, value: 0 },
           ],
           shipping: 0,
-          value: 100,
+          value: 0,
           excluded: 0,
         },
       ],
@@ -365,6 +437,27 @@ describe('buildInvoiceLines', () => {
       SHIPPING
     );
     expect(lines).toEqual([]);
+  });
+
+  it('value landing on a lineDue = 0 or missing line is a domain error (never silently dropped)', () => {
+    const o = order([line(2, 1000, 1), line(3, 500, 2, { returnedQuantity: 2 })]);
+    const cov = (orderLineId: number) => ({
+      paymentId: 1,
+      lines: [{ orderLineId, value: 100 }],
+      shipping: 0,
+      value: 100,
+      excluded: 0,
+    });
+    for (const id of [3, 99]) {
+      expect(() => buildInvoiceLines([cov(id)], o, SHIPPING)).toThrow(EcommerceValidationError);
+      try {
+        buildInvoiceLines([cov(id)], o, SHIPPING);
+      } catch (e) {
+        expect((e as EcommerceValidationError).errors).toEqual([
+          { path: 'coverage', code: 'coverage_mismatch' },
+        ]);
+      }
+    }
   });
 });
 
@@ -432,7 +525,7 @@ const invLine = (
 
 describe('overInvoiced', () => {
   it('invoiced 2000, credited 500, current lineDue 1000 → 500', () => {
-    const o = order([line(1, 1000, 1)]);
+    const o = { ...order([line(1, 1000, 1)]), status: 'OPEN' as const };
     expect(
       overInvoiced(o, [
         { kind: 'INVOICE', lines: [invLine(1, 2000)] },
@@ -460,7 +553,7 @@ describe('overInvoiced', () => {
   });
 
   it('shipping over-invoiced when shipping total drops; removed lines count fully', () => {
-    const o = order([line(1, 1000, 1)], { shippingTotal: 100 });
+    const o = { ...order([line(1, 1000, 1)], { shippingTotal: 100 }), status: 'OPEN' as const };
     expect(
       overInvoiced(o, [
         { kind: 'INVOICE', lines: [invLine(1, 1000), invLine(9, 800), invLine(null, 400)] },
@@ -494,7 +587,7 @@ describe('credit notes', () => {
       SHIPPING
     );
     const afterReturn = order([line(1, 1000, 2, { returnedQuantity: 1 }), line(2, 500, 1)]);
-    const over = overInvoiced(afterReturn, [{ kind: 'INVOICE', lines }]);
+    const over = overInvoiced({ ...afterReturn, status: 'OPEN' }, [{ kind: 'INVOICE', lines }]);
     expect(suggestCreditNote({ lines }, [0, 0], over)).toEqual([1000, 0]);
     expect(suggestCreditNote({ lines }, [600, 0], over)).toEqual([1000, 0]);
     expect(suggestCreditNote({ lines }, [1500, 0], over)).toEqual([500, 0]);
