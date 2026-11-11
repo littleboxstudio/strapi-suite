@@ -750,6 +750,16 @@ describe('fix round 1', () => {
       expect(h[0].actor).toBe('user:2');
     });
 
+    it('refreshing a still-pending refund never re-emits REFUND_STARTED', async () => {
+      const c = setupCommerce();
+      const orderId = await stripeOrder(c);
+      const r = await pendingRefund(c, orderId);
+      stripe.retrieveRefund.mockResolvedValue({ id: 're_mb', status: 'pending', failureReason: null });
+      await c.refunds.refresh(r.id, 'user:2');
+      await c.refunds.refresh(r.id, 'user:2');
+      expect(c.events.filter((e) => e.type === 'REFUND_STARTED')).toHaveLength(1);
+    });
+
     it('a failed Stripe refund becomes FAILED with Stripe failure_reason and releases its amount', async () => {
       const c = setupCommerce();
       const orderId = await stripeOrder(c);
