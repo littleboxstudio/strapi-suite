@@ -40,6 +40,7 @@ const RELATIONS: FakeRelations = {
     lines: [UIDS.orderLine, 'order'],
     payments: [UIDS.payment, 'order'],
     history: [UIDS.orderHistory, 'order'],
+    customer: [UIDS.customer, 'customer', 'manyToOne'],
   },
 };
 
@@ -57,6 +58,7 @@ function setup(opts: { shippingPrice?: number | null } = {}) {
     }
   });
   const services: Record<string, any> = {};
+  const settings = { countries: ['PT', 'ES'] };
   const bus = createEventBus(() => undefined);
   const shipping = {
     findOption: vi.fn(async (_req: any, providerId: string, serviceId: string) =>
@@ -78,7 +80,7 @@ function setup(opts: { shippingPrice?: number | null } = {}) {
   services.EcommerceOrderHistoryService = EcommerceOrderHistoryService({ strapi });
   services.EcommerceShippingService = shipping;
   services.EcommerceSettingsService = {
-    getStoreSettings: async () => ({ shippingCountries: ['PT', 'ES'] }),
+    getStoreSettings: async () => ({ shippingCountries: settings.countries }),
   };
   services.EcommerceEventBus = { collector: bus.collector, subscribe: bus.subscribe };
   const service = EcommerceOrderService({ strapi });
@@ -130,7 +132,7 @@ function setup(opts: { shippingPrice?: number | null } = {}) {
     { id: 2, product: 1, position: 0, url: '/p1.jpg' },
     { id: 3, variant: 11, position: 0, url: '/v11.jpg' }
   );
-  return { service, tables: t, bus, shipping, transaction, strapi, depth: () => depth };
+  return { service, tables: t, bus, shipping, transaction, strapi, depth: () => depth, settings };
 }
 
 const address = (extra = {}) => ({
@@ -335,6 +337,17 @@ describe('EcommerceOrderService.create', () => {
         { path: 'lines.1.quantity', code: 'INVALID_QUANTITY' },
       ])
     );
+    expect(
+      await codes(
+        service.create(
+          input({
+            shippingAddress: address({ country: 'pt' }),
+            billingAddress: address({ country: 'PRT' }),
+          }),
+          ctx
+        )
+      )
+    ).toEqual([{ path: 'billingAddress.country', code: 'invalid_country' }]);
     expect(await codes(service.create(input({ lines: [] }), ctx))).toEqual([
       { path: 'lines', code: 'required' },
     ]);
@@ -371,6 +384,16 @@ describe('EcommerceOrderService.create', () => {
     expect(tables[UIDS.order]).toHaveLength(1);
     expect(tables[UIDS.stockMovement]).toHaveLength(2);
     expect(stockOf(tables, 10)).toBe(3);
+  });
+
+  it('replays an idempotencyKey before validation, even after settings changed', async () => {
+    const { service, tables, settings, shipping } = setup();
+    const a = await service.create(input({ idempotencyKey: 'k-r' }), ctx);
+    settings.countries = ['ES'];
+    shipping.findOption.mockClear();
+    expect(await service.create(input({ idempotencyKey: 'k-r' }), ctx)).toEqual(a);
+    expect(shipping.findOption).not.toHaveBeenCalled();
+    expect(tables[UIDS.order]).toHaveLength(1);
   });
 
   it('returns the existing order when a concurrent duplicate wins the idempotencyKey', async () => {
@@ -473,7 +496,6 @@ describe('EcommerceOrderService.list / get', () => {
       paymentStatus: 'PENDING',
       fulfillmentStatus: 'UNFULFILLED',
       total: 2500,
-      createdAt: undefined,
       customerName: 'Rui Costa',
     });
 
@@ -489,6 +511,26 @@ describe('EcommerceOrderService.list / get', () => {
     expect((await service.list({ search: 'nobody@x.pt' })).results).toEqual([]);
     expect((await service.list({ paymentStatus: 'PAID' })).results).toEqual([]);
     expect((await service.list({ orderStatus: 'OPEN' })).results).toHaveLength(2);
+  });
+
+  it('a numeric search matches the reference or a customer e-mail containing it', async () => {
+    const { service } = setup();
+    const one = { lines: [{ variantId: 10, quantity: 1 }] };
+    await service.create(input(one), ctx);
+    await service.create(
+      input({ ...one, customer: { firstName: 'F', lastName: 'N', email: 'fan1001@x.pt' } }),
+      ctx
+    );
+    await service.create(
+      input({ ...one, customer: { firstName: 'O', lastName: 'T', email: 'other@x.pt' } }),
+      ctx
+    );
+    expect((await service.list({ search: '1001' })).results.map((r: any) => r.reference)).toEqual([
+      1002, 1001,
+    ]);
+    expect((await service.list({ search: '#1003' })).results.map((r: any) => r.reference)).toEqual([
+      1003,
+    ]);
   });
 
   it('get returns the order view with lines, summary, actions and history', async () => {

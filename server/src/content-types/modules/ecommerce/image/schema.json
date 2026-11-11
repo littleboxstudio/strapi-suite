@@ -69,5 +69,14 @@
     "i18n": {
       "localized": false
     }
-  }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_image_hash_unique",
+      "columns": [
+        "hash"
+      ],
+      "type": "unique"
+    }
+  ]
 }

@@ -75,5 +75,14 @@
     "i18n": {
       "localized": false
     }
-  }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_payment_idempotency_key_unique",
+      "columns": [
+        "idempotency_key"
+      ],
+      "type": "unique"
+    }
+  ]
 }
