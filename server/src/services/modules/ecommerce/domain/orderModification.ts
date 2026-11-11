@@ -251,8 +251,16 @@ export const simulateModification = (
   };
   if (input.shipping.mode === 'RECALCULATE') {
     const { quote, previousShipmentsCost } = input.shipping;
-    const newCharged = previousShipmentsCost + quote;
-    Object.assign(shipping, { previousShipmentsCost, quote, newCharged, shippingOriginal: newCharged, shippingDiscount: 0 });
+    const quoteOk = isNonNegativeInt(quote);
+    const costOk = isNonNegativeInt(previousShipmentsCost);
+    if (!quoteOk) errors.push({ path: 'shipping.quote', code: 'INVALID_AMOUNT' });
+    if (!costOk) errors.push({ path: 'shipping.previousShipmentsCost', code: 'INVALID_AMOUNT' });
+    shipping.previousShipmentsCost = previousShipmentsCost;
+    shipping.quote = quote;
+    if (quoteOk && costOk) {
+      const newCharged = previousShipmentsCost + quote;
+      Object.assign(shipping, { newCharged, shippingOriginal: newCharged, shippingDiscount: 0 });
+    }
   } else if (input.shipping.mode === 'MANUAL') {
     const { amount } = input.shipping;
     if (isNonNegativeInt(amount)) {
@@ -283,7 +291,7 @@ export const simulateModification = (
   const after = withMoney(afterTotals, current.payments, current.refunds);
 
   const discountWarnings: ModificationResult['discountWarnings'] =
-    current.orderDiscount > afterTotals.subtotal ? [{ code: 'ORDER_DISCOUNT_CAPPED' }] : [];
+    afterTotals.orderDiscount < current.orderDiscount ? [{ code: 'ORDER_DISCOUNT_CAPPED' }] : [];
 
   const outcome: ModificationResult['outcome'] =
     after.due > before.due

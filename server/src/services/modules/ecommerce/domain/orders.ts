@@ -59,31 +59,45 @@ export const computeTotals = (
 ): OrderTotals => {
   let itemsOriginal = 0;
   let productDiscount = 0;
-  let subtotalBeforeReturns = 0;
-  let hasReturns = false;
   for (const l of lines) {
     const effectiveQty = l.quantity - l.returnedQuantity;
     itemsOriginal += l.unitPrice * effectiveQty;
     productDiscount += l.unitDiscount * effectiveQty;
-    subtotalBeforeReturns += (l.unitPrice - l.unitDiscount) * l.quantity;
-    if (l.returnedQuantity > 0) hasReturns = true;
   }
   const subtotal = itemsOriginal - productDiscount;
-  // Design 4.5: returns pro-rate the order discount (integer, half-up).
-  let storedDiscount = order.orderDiscount;
-  if (hasReturns) {
-    storedDiscount =
-      subtotalBeforeReturns > 0 && subtotal > 0
-        ? Math.floor(
-            (2 * order.orderDiscount * subtotal + subtotalBeforeReturns) /
-              (2 * subtotalBeforeReturns),
-          )
-        : 0;
-  }
-  const orderDiscount = Math.max(0, Math.min(storedDiscount, subtotal));
+  // The stored order discount keeps its euro value; it is only clamped to the
+  // subtotal. Returns reduce the stored value via `orderDiscountShareForReturn`.
+  const orderDiscount = Math.max(0, Math.min(order.orderDiscount, subtotal));
   const shippingTotal = order.shippingOriginal - order.shippingDiscount;
   const total = subtotal - orderDiscount + shippingTotal;
   return { itemsOriginal, productDiscount, subtotal, orderDiscount, shippingTotal, total };
+};
+
+/**
+ * Share of the order discount that a return takes back (design 4.5):
+ * round half-up of `orderDiscount × returnedNet / subtotalBeforeThisReturn`,
+ * capped at `orderDiscount`; 0 when the subtotal is 0. `lines` reflect the
+ * state before this return. The caller subtracts it from the stored discount.
+ */
+export const orderDiscountShareForReturn = (
+  lines: (LineAmounts & { id: number })[],
+  orderDiscount: number,
+  returned: { orderLineId: number; quantity: number }[],
+): number => {
+  let subtotal = 0;
+  const byId = new Map<number, LineAmounts & { id: number }>();
+  for (const l of lines) {
+    subtotal += (l.unitPrice - l.unitDiscount) * (l.quantity - l.returnedQuantity);
+    byId.set(l.id, l);
+  }
+  let returnedNet = 0;
+  for (const r of returned) {
+    const l = byId.get(r.orderLineId);
+    if (l) returnedNet += (l.unitPrice - l.unitDiscount) * r.quantity;
+  }
+  if (subtotal <= 0 || returnedNet <= 0 || orderDiscount <= 0) return 0;
+  const share = Math.floor((2 * orderDiscount * returnedNet + subtotal) / (2 * subtotal));
+  return Math.min(share, orderDiscount);
 };
 
 // ---------------------------------------------------------------------------
