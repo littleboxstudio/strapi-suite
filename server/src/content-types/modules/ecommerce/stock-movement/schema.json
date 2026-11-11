@@ -1,0 +1,65 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_stock_movements",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-stock-movement",
+    "pluralName": "ltb-st-module-ecommerce-stock-movements",
+    "displayName": "Littlebox Strapi Suite - E-commerce Stock Movement",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Stock Movement"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "variant": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-variant"
+    },
+    "variantId": {
+      "type": "integer"
+    },
+    "order": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-order"
+    },
+    "type": {
+      "type": "enumeration",
+      "enum": [
+        "ORDER_DEDUCT",
+        "ORDER_RESTOCK",
+        "CANCEL_RESTOCK",
+        "RETURN_RESTOCK",
+        "RETURN_NO_RESTOCK",
+        "MANUAL_ADJUST"
+      ]
+    },
+    "quantity": {
+      "type": "integer"
+    },
+    "operationKey": {
+      "type": "string",
+      "required": true,
+      "unique": true
+    },
+    "reason": {
+      "type": "string"
+    },
+    "actor": {
+      "type": "string"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  }
+}

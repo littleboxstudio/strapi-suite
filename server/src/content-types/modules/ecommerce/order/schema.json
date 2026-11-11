@@ -1,0 +1,161 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_orders",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-order",
+    "pluralName": "ltb-st-module-ecommerce-orders",
+    "displayName": "Littlebox Strapi Suite - E-commerce Order",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Order"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "reference": {
+      "type": "integer",
+      "required": true,
+      "unique": true
+    },
+    "publicId": {
+      "type": "string",
+      "required": true,
+      "unique": true
+    },
+    "customer": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-customer",
+      "inversedBy": "orders"
+    },
+    "locale": {
+      "type": "string",
+      "required": true
+    },
+    "orderStatus": {
+      "type": "enumeration",
+      "enum": [
+        "OPEN",
+        "ARCHIVED",
+        "CANCELLED"
+      ],
+      "default": "OPEN"
+    },
+    "paymentStatus": {
+      "type": "enumeration",
+      "enum": [
+        "PENDING",
+        "PARTIALLY_PAID",
+        "PAID",
+        "PARTIALLY_REFUNDED",
+        "REFUNDED"
+      ],
+      "default": "PENDING"
+    },
+    "fulfillmentStatus": {
+      "type": "enumeration",
+      "enum": [
+        "UNFULFILLED",
+        "PARTIALLY_FULFILLED",
+        "FULFILLED"
+      ],
+      "default": "UNFULFILLED"
+    },
+    "customerSnapshot": {
+      "type": "json"
+    },
+    "shippingAddress": {
+      "type": "json"
+    },
+    "billingAddress": {
+      "type": "json"
+    },
+    "currency": {
+      "type": "string",
+      "default": "EUR"
+    },
+    "itemsOriginal": {
+      "type": "integer"
+    },
+    "productDiscount": {
+      "type": "integer"
+    },
+    "subtotal": {
+      "type": "integer"
+    },
+    "orderDiscount": {
+      "type": "integer"
+    },
+    "shippingOriginal": {
+      "type": "integer"
+    },
+    "shippingDiscount": {
+      "type": "integer"
+    },
+    "shippingTotal": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "shippingTax": {
+      "type": "decimal"
+    },
+    "shippingMethod": {
+      "type": "json"
+    },
+    "promotions": {
+      "type": "json",
+      "default": []
+    },
+    "source": {
+      "type": "enumeration",
+      "enum": [
+        "admin",
+        "storefront"
+      ]
+    },
+    "notes": {
+      "type": "text"
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "unique": true
+    },
+    "cancelledAt": {
+      "type": "datetime"
+    },
+    "archivedAt": {
+      "type": "datetime"
+    },
+    "lines": {
+      "type": "relation",
+      "relation": "oneToMany",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-order-line",
+      "mappedBy": "order"
+    },
+    "payments": {
+      "type": "relation",
+      "relation": "oneToMany",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-payment",
+      "mappedBy": "order"
+    },
+    "history": {
+      "type": "relation",
+      "relation": "oneToMany",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-order-history",
+      "mappedBy": "order"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  }
+}

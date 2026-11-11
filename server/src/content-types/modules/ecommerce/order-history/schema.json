@@ -1,0 +1,52 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_order_historys",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-order-history",
+    "pluralName": "ltb-st-module-ecommerce-order-historys",
+    "displayName": "Littlebox Strapi Suite - E-commerce Order History",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Order History"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "order": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-order",
+      "inversedBy": "history"
+    },
+    "type": {
+      "type": "string",
+      "required": true
+    },
+    "description": {
+      "type": "text"
+    },
+    "previousValue": {
+      "type": "json"
+    },
+    "newValue": {
+      "type": "json"
+    },
+    "actor": {
+      "type": "string"
+    },
+    "operationId": {
+      "type": "string"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  }
+}
