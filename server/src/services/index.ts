@@ -13,6 +13,8 @@ import EcommerceAuditService from './modules/ecommerce/audit';
 import EcommerceEmailTemplateService from './modules/ecommerce/email/templates';
 import EcommerceStockService from './modules/ecommerce/stock';
 import EcommerceCustomerService from './modules/ecommerce/customers';
+import EcommerceShippingService from './modules/ecommerce/shipping';
+import EcommerceEventBus from './modules/ecommerce/events';
 
 export default {
   SettingAppService,
@@ -30,4 +32,6 @@ export default {
   EcommerceEmailTemplateService,
   EcommerceStockService,
   EcommerceCustomerService,
+  EcommerceShippingService,
+  EcommerceEventBus,
 };
