@@ -35,6 +35,7 @@ const UIDS = {
   orderHistory: `${P}order-history`,
   stripeSession: `${P}stripe-session`,
   refund: `${P}refund`,
+  notification: `${P}notification`,
   webhookEvent: `${P}webhook-event`,
   storeCredit: `${P}store-credit`,
   storeCreditMovement: `${P}store-credit-movement`,
@@ -521,7 +522,12 @@ describe('EcommerceStripeWebhookService.handle', () => {
       const h = s.tables[UIDS.orderHistory].filter((x) => x.type === 'REFUND_COMPLETED');
       expect(h).toHaveLength(1);
       expect(h[0].previousValue).toMatchObject({ refundId: 70, status: 'FAILED' });
-      expect(s.tables[UIDS.order].find((o) => o.id === orderId)).toBeDefined();
+      // recalculation ran: the refund counts in the order's financial state
+      const order = s.tables[UIDS.order].find((o) => o.id === orderId);
+      expect(order.paymentStatus).toBe('PARTIALLY_REFUNDED');
+      const view: any = await s.orders.get(orderId);
+      expect(view.summary.refunded).toBe(1000);
+      expect(view.refunds[0]).toMatchObject({ id: 70, status: 'COMPLETED', amount: 1000, failureReason: null });
     });
 
     it('stores Stripe failure_reason on a failed refund', async () => {

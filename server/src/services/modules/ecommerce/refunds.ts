@@ -2,6 +2,7 @@ import type { Core } from '@strapi/strapi';
 import { randomUUID } from 'crypto';
 import { PLUGIN_ID, LtbConfigs } from '../../../config';
 import { EcommerceNotFoundError, EcommercePaymentError, EcommerceValidationError } from './errors';
+import { maskStoreCreditCode } from './paymentMask';
 import { isUniqueViolation } from './dbErrors';
 import { str } from './providers/http';
 import {
@@ -559,9 +560,9 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
       await history().record({
         orderId,
         type: 'STORE_CREDIT_ISSUED',
-        description: `Store credit ${res.code} of ${amount} cents issued: the original credit ${res.reissuedFrom.code} is void or expired${p.note}`,
-        previousValue: { storeCreditId: res.reissuedFrom.id, code: res.reissuedFrom.code },
-        newValue: { ...historyValue(linked), code: res.code },
+        description: `Store credit ${maskStoreCreditCode(res.code)} of ${amount} cents issued: the original credit ${maskStoreCreditCode(res.reissuedFrom.code)} is void or expired${p.note}`,
+        previousValue: { storeCreditId: res.reissuedFrom.id, code: maskStoreCreditCode(res.reissuedFrom.code) },
+        newValue: { ...historyValue(linked), code: maskStoreCreditCode(res.code) },
         actor,
         operationId,
       });
@@ -569,7 +570,7 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
       await history().record({
         orderId,
         type: 'STORE_CREDIT_RESTORED',
-        description: `${amount} cents restored to store credit ${res.code || p.storeCreditId}${p.note}`,
+        description: `${amount} cents restored to store credit ${maskStoreCreditCode(res.code) ?? p.storeCreditId}${p.note}`,
         previousValue: null,
         newValue: historyValue(linked),
         actor,
@@ -786,9 +787,9 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
         await history().record({
           orderId,
           type: 'STORE_CREDIT_ISSUED',
-          description: `Store credit ${credit.code} of ${amount} cents issued`,
+          description: `Store credit ${maskStoreCreditCode(credit.code)} of ${amount} cents issued`,
           previousValue: null,
-          newValue: { ...historyValue(linked), code: credit.code, expiresAt: credit.expiresAt },
+          newValue: { ...historyValue(linked), code: maskStoreCreditCode(credit.code), expiresAt: credit.expiresAt },
           actor,
           operationId,
         });

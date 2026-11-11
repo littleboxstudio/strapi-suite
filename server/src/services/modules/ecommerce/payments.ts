@@ -21,7 +21,7 @@ export type ManualPaymentInput = {
   idempotencyKey: string;
 };
 
-import { paymentReferenceOf, storeCreditIdOf } from './paymentMask';
+import { maskStoreCreditCode, paymentReferenceOf, storeCreditIdOf } from './paymentMask';
 
 export type PaymentView = {
   id: number;
@@ -312,7 +312,7 @@ const EcommercePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
           method: 'STORE_CREDIT',
           amount,
           storeCreditId: credit.id,
-          code: credit.code,
+          code: maskStoreCreditCode(credit.code),
         };
         await history().record({
           orderId,
