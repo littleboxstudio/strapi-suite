@@ -99,3 +99,12 @@ Lista de itens adiados nas revisões do plano 1 (Base e Produtos), a considerar 
 - `orders.ts` is ~2650 lines: split `priceCart`/`quote` (promotion pricing) into a sibling module.
 - P6 final: modify modal shows a raised discounted line as discounted price × new qty (e.g. €0) before preview; the preview/server add the extra units at full price — show the split in the editor
 - P6 final: admin OrderLine type lacks `sourceOrderLineId`
+
+## Plan 7
+- Expired checkout-session rows are cleaned opportunistically (≤100 per session open, no cron); rows with orders are scrubbed and kept; with no new-session traffic, expired rows wait for the next open
+- Rate limits and verification counters live in one instance's memory (design 9.2); multiple instances need a shared store
+- Secure order-access link by e-mail (requirement 2.14) still not implemented (design 4.13)
+- Catalog price/name sort happens in memory — revisit beyond a few thousand products
+- Unknown request body keys are ignored silently (e.g. `shipping` instead of `shippingMethod` on /cart/quote) — consider rejecting unknown keys to help BFF developers
+- Storefront token failures (missing, wrong, expired) all answer 403 (a policy can't throw 401 without @strapi/utils) — documented in docs/ecommerce/storefront-api.md
+- A quote that fails validation (e.g. INSUFFICIENT_STOCK) still saves the shopper's cart lines on the session (intended: the cart reflects the selection)
