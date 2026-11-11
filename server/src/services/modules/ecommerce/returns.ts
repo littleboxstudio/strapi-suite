@@ -94,6 +94,8 @@ const normalizeInput = (input: ReturnInput) => {
   const reason = clean(raw.reason);
   if (!reason) errors.push({ path: 'reason', code: 'required' });
   else if (reason.length > MAX_REASON) errors.push({ path: 'reason', code: 'too_long' });
+  if (raw.notes !== undefined && raw.notes !== null && typeof raw.notes !== 'string')
+    errors.push({ path: 'notes', code: 'invalid' });
   const notes = clean(raw.notes) || null;
   if (notes && notes.length > MAX_NOTES) errors.push({ path: 'notes', code: 'too_long' });
   if (errors.length) throw new EcommerceValidationError('Invalid return', errors);
@@ -203,7 +205,8 @@ const EcommerceReturnService = ({ strapi }: { strapi: Core.Strapi }) => {
         // the unit twice.
         const cancelled = order.orderStatus === 'CANCELLED';
         const lineById = new Map(state.lines.map((l) => [l.id, l]));
-        const items: ReturnItemView[] = computed.items.map((i, idx) => {
+        const restockOf = new Map(n.lines.map((r) => [r.orderLineId, r.restock]));
+        const items: ReturnItemView[] = computed.items.map((i) => {
           const l = lineById.get(i.orderLineId)!;
           return {
             orderLineId: l.id,
@@ -211,7 +214,7 @@ const EcommerceReturnService = ({ strapi }: { strapi: Core.Strapi }) => {
             name: l.name,
             option: l.option ?? null,
             quantity: i.quantity,
-            restock: !cancelled && n.lines[idx].restock,
+            restock: !cancelled && restockOf.get(i.orderLineId) === true,
             value: i.value,
           };
         });
@@ -239,8 +242,11 @@ const EcommerceReturnService = ({ strapi }: { strapi: Core.Strapi }) => {
         }
 
         // Totals: the returned units leave the subtotal and their share of the order discount
-        // leaves the stored discount. Never on an archived order (a concurrent archive that
-        // committed first leaves 0 rows and rolls this return back).
+        // leaves the stored discount. On a CANCELLED order the stored totals are informational
+        // (the financial summary of a cancelled order ignores the total) but are still kept equal
+        // to the current lines, so invoice reconciliation and credit notes stay aligned.
+        // The ARCHIVED guard is defence in depth only: archive takes the same order lock and
+        // `assertAction` above already refused archived orders.
         const storedLines: any[] = await strapi.db
           .query(u.orderLine)
           .findMany({ where: { order: orderId } });

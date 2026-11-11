@@ -27,7 +27,14 @@ const movements = (c: Commerce, type?: string) =>
   c.tables[UIDS.stockMovement].filter((m) => !type || m.type === type);
 
 /** 3 × 2000 + 500 shipping, optionally with an order discount, paid in full. Stock 50 → 47. */
-const paidOrder = async (c: Commerce, opts: { quantity?: number; orderDiscount?: number } = {}) => {
+const paidOrder = async (
+  c: Commerce,
+  opts: {
+    quantity?: number;
+    orderDiscount?: number;
+    lines?: { variantId: number; quantity: number }[];
+  } = {}
+) => {
   const quantity = opts.quantity ?? 3;
   c.tables[UIDS.variant].find((v) => v.id === 10).stock = 50;
   const order = await c.orders.create(
@@ -36,7 +43,7 @@ const paidOrder = async (c: Commerce, opts: { quantity?: number; orderDiscount?:
       shippingAddress: address,
       billingAddress: address,
       locale: 'en',
-      lines: [{ variantId: 10, quantity }],
+      lines: opts.lines ?? [{ variantId: 10, quantity }],
       shipping: { providerId: 'manual', serviceId: 'express' },
     },
     { actor: 'user:1', source: 'admin' }
@@ -284,5 +291,124 @@ describe('EcommerceReturnService.register', () => {
     });
     expect(res.return.notes).toBe('box crushed');
     expect(await returns.listForOrder(id)).toEqual([res.return]);
+  });
+
+  it('a return with restock followed by a cancel never restocks the returned unit twice', async () => {
+    const { c, returns } = setup();
+    const { id, lineId } = await paidOrder(c);
+    await ship(c, id, lineId, 3);
+    await returns.register(id, ret(lineId, 1, true), 'user:1');
+    expect(stockOf(c)).toBe(48);
+
+    await c.orders.cancel(id, 'user:1');
+    const cancel = movements(c, 'CANCEL_RESTOCK');
+    expect(cancel).toHaveLength(1);
+    expect(cancel[0].quantity).toBe(2);
+    expect(stockOf(c)).toBe(50);
+  });
+
+  it('a multi-line return: one movement per line, restock per line, discount share across lines', async () => {
+    const { c, returns } = setup();
+    c.tables[UIDS.variant].push({
+      id: 11,
+      product: 1,
+      sku: 'SH-L',
+      price: 1000,
+      tax: 23,
+      stock: 20,
+      active: true,
+    });
+    // subtotal 3 × 2000 + 2 × 1000 = 8000, order discount 800.
+    const { id } = await paidOrder(c, {
+      orderDiscount: 800,
+      lines: [
+        { variantId: 10, quantity: 3 },
+        { variantId: 11, quantity: 2 },
+      ],
+    });
+    const lineOf = (variantId: number) =>
+      c.tables[UIDS.orderLine].find((l) => l.order === id && l.variantId === variantId).id;
+    const a = lineOf(10);
+    const b = lineOf(11);
+    await c.services.EcommerceShipmentService.create(
+      id,
+      {
+        lines: [
+          { orderLineId: a, quantity: 3 },
+          { orderLineId: b, quantity: 2 },
+        ],
+        method: { mode: 'MANUAL', carrierName: 'CTT' },
+        shippingCost: 0,
+        notifyCustomer: false,
+        idempotencyKey: 's1',
+      },
+      'user:1'
+    );
+
+    const res = await returns.register(
+      id,
+      {
+        lines: [
+          { orderLineId: b, quantity: 2, restock: false },
+          { orderLineId: a, quantity: 1, restock: true },
+        ],
+        reason: 'Wrong size',
+        idempotencyKey: 'r1',
+      },
+      'user:1'
+    );
+    expect(res.return).toMatchObject({
+      grossValue: 4000,
+      discountShare: 400,
+      refundableValue: 3600,
+      items: [
+        { orderLineId: b, quantity: 2, restock: false, value: 2000 },
+        { orderLineId: a, quantity: 1, restock: true, value: 2000 },
+      ],
+    });
+    const rid = res.return.id;
+    expect(
+      movements(c)
+        .filter((m) => String(m.operationKey).startsWith('return:'))
+        .map((m) => [m.type, m.variantId, m.quantity, m.operationKey])
+    ).toEqual([
+      ['RETURN_NO_RESTOCK', 11, 2, `return:${rid}:${b}`],
+      ['RETURN_RESTOCK', 10, 1, `return:${rid}:${a}`],
+    ]);
+    expect(stockOf(c)).toBe(48);
+    expect(c.tables[UIDS.variant].find((v) => v.id === 11).stock).toBe(18);
+    expect(orderRow(c, id)).toMatchObject({ subtotal: 4000, orderDiscount: 400 });
+  });
+
+  it('a second return with another key reads the returned quantity under the order lock', async () => {
+    const { c, returns } = setup();
+    const { id, lineId } = await paidOrder(c);
+    await ship(c, id, lineId, 3);
+    // The second request passes its pre-checks, then waits for the order lock while the first
+    // commits. The real lock serializes them; the fake DB does not, so the interleaving is
+    // scripted: the first return runs (and commits) before the second's transaction starts.
+    const db = c.strapi.db;
+    const transaction = db.transaction;
+    db.transaction = async (cb: any) => {
+      db.transaction = transaction;
+      await returns.register(id, ret(lineId, 2, true, { idempotencyKey: 'r1' }), 'user:1');
+      return transaction(cb);
+    };
+    expect(
+      await codesOf(returns.register(id, ret(lineId, 2, true, { idempotencyKey: 'r2' }), 'user:1'))
+    ).toEqual(['QUANTITY_EXCEEDS_RETURNABLE']);
+    expect(c.tables[UIDS.orderReturn]).toHaveLength(1);
+    expect(c.tables[UIDS.orderLine].find((l) => l.id === lineId).returnedQuantity).toBe(2);
+    expect(movements(c, 'RETURN_RESTOCK')).toHaveLength(1);
+  });
+
+  it('refuses non-string notes with invalid', async () => {
+    const { c, returns } = setup();
+    const { id, lineId } = await paidOrder(c);
+    await ship(c, id, lineId, 3);
+    expect(
+      await codesOf(returns.register(id, ret(lineId, 1, true, { notes: 42 }), 'user:1'))
+    ).toEqual(['invalid']);
+    expect(c.tables[UIDS.orderReturn]).toHaveLength(0);
   });
 });
