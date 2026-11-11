@@ -224,7 +224,10 @@ const OrderQuotePanel = ({
               {selectors.map((s) => {
                 const promotion = quote.promotions.find((p) => p.promotionId === s.promotionId);
                 return (
-                  <Field.Root key={s.promotionId} name={`giftChoices.${s.promotionId}`}>
+                  <Field.Root
+                    key={`${s.promotionId}:${s.benefitIndex}`}
+                    name={`giftChoices.${s.promotionId}.${s.benefitIndex}`}
+                  >
                     <Field.Label>
                       {t('ecommerce.orders.quote.giftChoice', {
                         name: promotion ? promotionName(promotion) : '',
@@ -237,9 +240,9 @@ const OrderQuotePanel = ({
                         onGiftChoice(s.promotionId, Number(value))
                       }
                     >
-                      {s.variantIds.map((id) => (
-                        <SingleSelectOption key={id} value={String(id)}>
-                          {variantLabel(id)}
+                      {s.variants.map((v) => (
+                        <SingleSelectOption key={v.variantId} value={String(v.variantId)}>
+                          {variantLabel(v.variantId)}
                         </SingleSelectOption>
                       ))}
                     </SingleSelect>

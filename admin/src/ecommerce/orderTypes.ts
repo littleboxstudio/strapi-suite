@@ -411,6 +411,25 @@ export type OrderQuoteLine = {
   name: string;
   option: string | null;
   imageUrl: string | null;
+  /** VAT rate of the variant. */
+  tax: number;
+};
+
+/** A gift benefit of an applied promotion and the variants it offers (texts in the quote locale). */
+export type QuoteGiftOption = {
+  promotionId: number;
+  benefitIndex: number;
+  quantity: number;
+  /** The variant the quote priced as the gift; null when the benefit gave nothing. */
+  selectedVariantId: number | null;
+  variants: {
+    variantId: number;
+    sku: string;
+    name: string;
+    option: string | null;
+    imageUrl: string | null;
+    available: boolean;
+  }[];
 };
 
 export type OrderQuote = {
@@ -433,6 +452,8 @@ export type OrderQuote = {
   shippingOption: ShippingOption | null;
   /** False when the best combination was searched greedily (too many candidates). */
   exhaustive: boolean;
+  /** One entry per GIFT benefit of the applied promotions. */
+  giftOptions: QuoteGiftOption[];
 };
 
 export type CreateOrderInput = {

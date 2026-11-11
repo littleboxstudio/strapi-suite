@@ -24,7 +24,6 @@ import FetchCustomerLastAddresses from '../../usecases/orders/fetchCustomerLastA
 import QuoteOrderShipping from '../../usecases/orders/quoteOrderShipping';
 import CreateOrder from '../../usecases/orders/createOrder';
 import QuoteOrder from '../../usecases/orders/quoteOrder';
-import FetchPromotion from '../../usecases/promotions/fetchPromotion';
 import AddressFields, { type AddressField } from '../../components/orders/AddressFields';
 import VariantPicker from '../../components/orders/VariantPicker';
 import OrderLinesEditor from '../../components/orders/OrderLinesEditor';
@@ -34,7 +33,6 @@ import { extractFieldErrors } from '../../utils/productForm';
 import { mintUuid } from '../../utils/variantDraft';
 import { formatCents } from '../../utils/money';
 import { useOrderPermissions } from '../../hooks/useOrderPermissions';
-import { usePromotionPermissions } from '../../hooks/usePromotionPermissions';
 import { apiErrorCode } from '../../utils/orderDetail';
 import {
   addLine,
@@ -46,7 +44,6 @@ import {
   emptyOrderForm,
   giftChoicesFromQuote,
   pruneGiftChoices,
-  giftSelectors,
   toOrderErrorMap,
   validateOrderForm,
   type OrderErrorMap,
@@ -101,7 +98,6 @@ const OrderCreatePage = () => {
   const customerId = Number.isInteger(rawCustomerId) && rawCustomerId > 0 ? rawCustomerId : null;
 
   const { isLoading: permissionsLoading, canManage } = useOrderPermissions();
-  const { canRead: canReadPromotions } = usePromotionPermissions();
 
   // One key per form: a retried submit returns the order created by the first one.
   const [idempotencyKey] = useState(() => mintUuid());
@@ -118,8 +114,6 @@ const OrderCreatePage = () => {
   const [priced, setPriced] = useState<{ signature: string; quote: OrderQuote } | null>(null);
   const [pricing, setPricing] = useState(0);
   const [pricingError, setPricingError] = useState<string | null>(null);
-  const [giftLabels, setGiftLabels] = useState<Record<number, string>>({});
-  const labelledPromotions = useRef(new Set<number>());
 
   useEffect(() => {
     let cancelled = false;
@@ -236,33 +230,17 @@ const OrderCreatePage = () => {
   const freshQuote = priced && priced.signature === priceSignature ? priced.quote : null;
   const shownQuote = canPrice ? (priced?.quote ?? null) : null;
 
-  // Names of the gift variants a promotion lets the admin choose from (needs promotions.read).
-  useEffect(() => {
-    if (!shownQuote || !canReadPromotions) return;
-    giftSelectors(shownQuote).forEach((s) => {
-      if (labelledPromotions.current.has(s.promotionId)) return;
-      labelledPromotions.current.add(s.promotionId);
-      new FetchPromotion()
-        .execute(s.promotionId)
-        .then((p) => {
-          const labels: Record<number, string> = {};
-          Object.entries(p.labels?.variants ?? {}).forEach(([id, v]) => {
-            labels[Number(id)] = v.option ? `${v.name} — ${v.option}` : v.name;
-          });
-          setGiftLabels((current) => ({ ...labels, ...current }));
-        })
-        .catch(() => {
-          // Without the names the selector shows the variant ids.
-        });
-    });
-  }, [shownQuote, canReadPromotions]);
-
   const variantLabel = (variantId: number) => {
     const fromQuote = shownQuote?.lines.find((l) => l.variantId === variantId);
     if (fromQuote) return fromQuote.option ? `${fromQuote.name} — ${fromQuote.option}` : fromQuote.name;
     const fromCart = form.lines.find((l) => l.variantId === variantId);
     if (fromCart) return fromCart.option ? `${fromCart.name} — ${fromCart.option}` : fromCart.name;
-    return giftLabels[variantId] ?? `#${variantId}`;
+    // Gift variants on offer come with their names in the quote (no promotions.read needed).
+    const fromGifts = shownQuote?.giftOptions
+      .flatMap((g) => g.variants)
+      .find((v) => v.variantId === variantId);
+    if (fromGifts) return fromGifts.option ? `${fromGifts.name} — ${fromGifts.option}` : fromGifts.name;
+    return `#${variantId}`;
   };
 
   const addCode = (raw: string) => {

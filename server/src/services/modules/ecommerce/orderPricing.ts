@@ -31,6 +31,8 @@ export type OrderQuoteInput = {
   promotionCodes?: string[];
   giftChoices?: Record<number, number>;
   shipping?: { country: string; postalCode?: string; providerId: string; serviceId: string } | null;
+  /** Absent = trusted (admin); `false` = storefront without a verified e-mail. */
+  emailVerified?: boolean;
 };
 
 export type OrderQuoteLine = PricedLine & {
@@ -38,6 +40,26 @@ export type OrderQuoteLine = PricedLine & {
   name: string;
   option: string | null;
   imageUrl: string | null;
+  /** VAT rate of the variant (catalog). */
+  tax: number;
+};
+
+/** A gift benefit (`BUY_X_GET_Y` in `GIFT` mode) of an applied promotion and its variants. */
+export type QuoteGiftOption = {
+  promotionId: number;
+  benefitIndex: number;
+  quantity: number;
+  /** The variant of this benefit's gift line, null when the benefit gave nothing. */
+  selectedVariantId: number | null;
+  variants: {
+    variantId: number;
+    sku: string;
+    name: string;
+    option: string | null;
+    imageUrl: string | null;
+    /** Active and with at least `quantity` units left after the cart's own units. */
+    available: boolean;
+  }[];
 };
 
 export type OrderQuote = {
@@ -58,6 +80,7 @@ export type OrderQuote = {
   };
   shippingOption: ShippingOption | null;
   exhaustive: boolean;
+  giftOptions: QuoteGiftOption[];
 };
 
 export type PricingDestination = {
@@ -74,6 +97,8 @@ export type PricedCart = {
   option: ShippingOption | null;
   /** The cart's variants and every gift variant on offer. */
   catalog: Map<number, CatalogVariant>;
+  /** Gift variants on offer (stock already net of the cart's units). */
+  gifts: Map<number, GiftOption>;
 };
 
 /** What pricing needs from the promotion service. */
@@ -156,7 +181,11 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
    * 3. shipping quoted for the lines plus G1 (units summed per variant), on the subtotal after
    *    the order discount of pass 1;
    * 4. evaluation with that shipping; if its gifts differ, one more quote with the new gifts and a
-   *    third, final evaluation (at most two shipping quotes).
+   *    third, final evaluation (at most two shipping quotes);
+   * 5. if that final evaluation's gifts differ again from the ones the last shipping quote was for,
+   *    the shipping price belongs to another parcel: SHIPPING_UNAVAILABLE rather than a wrong price.
+   *
+   * `emailVerified` goes to the engine as is (absent = trusted, the admin).
    */
   const priceCart = async (p: {
     lines: MergedLine[];
@@ -166,9 +195,11 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
     codes: string[];
     giftChoices: Record<number, number>;
     destination: PricingDestination | null;
+    emailVerified?: boolean;
   }): Promise<PricedCart> => {
     const promo = promotions();
-    const candidates = await promo.loadCandidates({ codes: p.codes, email: p.email });
+    const verified = p.emailVerified === undefined ? {} : { emailVerified: p.emailVerified };
+    const candidates = await promo.loadCandidates({ codes: p.codes, email: p.email, ...verified });
     const gifts = await promo.giftOptions(candidates, quantitiesByVariant(p.lines));
     const catalog = new Map(p.catalog);
     const missing = [...gifts.keys()].filter((id) => !catalog.has(id));
@@ -185,6 +216,7 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
       promo.evaluate({
         lines,
         email: p.email,
+        ...verified,
         shipping: shippingPrice,
         codes: p.codes,
         candidates,
@@ -195,7 +227,7 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
 
     const first = evaluate(null);
     const destination = p.destination;
-    if (!destination) return { evaluation: first, evaluatedAt: now, option: null, catalog };
+    if (!destination) return { evaluation: first, evaluatedAt: now, option: null, catalog, gifts };
 
     const quoteFor = async (e: PromotionEvaluation): Promise<ShippingOption> => {
       const option = await shipping().findOption(
@@ -230,10 +262,16 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
     let option = await quoteFor(first);
     let evaluation = evaluate(num(option.price));
     if (giftSignature(evaluation) !== giftSignature(first)) {
-      option = await quoteFor(evaluation);
+      const quotedFor = evaluation;
+      option = await quoteFor(quotedFor);
       evaluation = evaluate(num(option.price));
+      if (giftSignature(evaluation) !== giftSignature(quotedFor)) {
+        throw new EcommerceValidationError('Invalid order', [
+          { path: 'shipping', code: 'SHIPPING_UNAVAILABLE' },
+        ]);
+      }
     }
-    return { evaluation, evaluatedAt: now, option, catalog };
+    return { evaluation, evaluatedAt: now, option, catalog, gifts };
   };
 
   /**
@@ -271,6 +309,48 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
     if (issues.length) throw new EcommerceValidationError('Invalid order', issues);
   };
 
+  /**
+   * One entry per GIFT benefit of the applied promotions, with every variant it offers (texts in
+   * the quote's locale; a variant no longer in the catalog is left out).
+   */
+  const giftOptionsOf = (priced: PricedCart): QuoteGiftOption[] => {
+    const out: QuoteGiftOption[] = [];
+    for (const promotion of priced.evaluation.applied) {
+      for (const benefit of promotion.benefits) {
+        const params = benefit.params;
+        if (params.type !== 'BUY_X_GET_Y' || params.get.mode !== 'GIFT') continue;
+        const quantity = params.get.quantity;
+        const line = priced.evaluation.lines.find(
+          (l) =>
+            l.isGift &&
+            l.refs.some((r) => r.promotionId === promotion.promotionId && r.benefitIndex === benefit.index)
+        );
+        const variants: QuoteGiftOption['variants'] = [];
+        for (const variantId of params.get.variantIds) {
+          const c = priced.catalog.get(variantId);
+          if (!c) continue;
+          const gift = priced.gifts.get(variantId);
+          variants.push({
+            variantId,
+            sku: c.sku,
+            name: c.name,
+            option: c.option,
+            imageUrl: c.imageUrl,
+            available: !!gift && gift.active && gift.available >= quantity,
+          });
+        }
+        out.push({
+          promotionId: promotion.promotionId,
+          benefitIndex: benefit.index,
+          quantity,
+          selectedVariantId: line?.variantId ?? null,
+          variants,
+        });
+      }
+    }
+    return out;
+  };
+
   /** A cart priced with its promotions, without writing anything (plan 7's entry point). */
   const quote = async (input: OrderQuoteInput): Promise<OrderQuote> => {
     const errors: ValidationIssue[] = [];
@@ -279,6 +359,7 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
     const lines = normalizeLines(input?.lines, errors);
     const { promotionCodes, giftChoices } = normalizePromotionFields(input, errors);
     const email = clean(input?.email) || null;
+    const emailVerified = typeof input?.emailVerified === 'boolean' ? input.emailVerified : undefined;
     if (email && !isValidEmailFormat(email)) errors.push({ path: 'email', code: 'invalid_email' });
 
     let destination: PricingDestination | null = null;
@@ -314,6 +395,7 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
       codes: promotionCodes,
       giftChoices,
       destination,
+      emailVerified,
     });
     const e = priced.evaluation;
     await assertPricedStock(lines, e.lines);
@@ -327,6 +409,7 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
           name: c?.name ?? '',
           option: c?.option ?? null,
           imageUrl: c?.imageUrl ?? null,
+          tax: c?.tax ?? 0,
         };
       }),
       promotions: e.applied,
@@ -345,6 +428,7 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
       },
       shippingOption: priced.option,
       exhaustive: e.exhaustive,
+      giftOptions: giftOptionsOf(priced),
     };
   };
 

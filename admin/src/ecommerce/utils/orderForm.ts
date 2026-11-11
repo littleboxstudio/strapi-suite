@@ -6,6 +6,7 @@ import {
   type FieldError,
   type OrderQuote,
   type OrderQuoteInput,
+  type QuoteGiftOption,
   type VariantSearchResult,
 } from '../orderTypes';
 
@@ -293,31 +294,34 @@ export function buildQuoteInput(form: OrderForm, giftChoices: Record<number, num
   };
 }
 
-export type GiftSelector = { promotionId: number; variantIds: number[]; selected: number | null };
+/** A gift choice, identified by `promotionId` + `benefitIndex`, with the names from the quote. */
+export type GiftSelector = {
+  promotionId: number;
+  benefitIndex: number;
+  variants: QuoteGiftOption['variants'];
+  selected: number | null;
+};
 
-/** Gift benefits of the applied promotions that let the admin choose between several variants. */
+/** Gift benefits of the applied promotions (`quote.giftOptions`) offering several variants. */
 export function giftSelectors(quote: OrderQuote): GiftSelector[] {
-  const out: GiftSelector[] = [];
-  quote.promotions.forEach((p) => {
-    p.benefits.forEach((b) => {
-      const params = b.params;
-      if (params.type !== 'BUY_X_GET_Y' || params.get.mode !== 'GIFT') return;
-      const variantIds = params.get.variantIds;
-      if (variantIds.length < 2 || out.some((s) => s.promotionId === p.promotionId)) return;
-      const line = quote.lines.find(
-        (l) => l.isGift && l.refs.some((r) => r.promotionId === p.promotionId && r.benefitIndex === b.index)
-      );
-      out.push({ promotionId: p.promotionId, variantIds: [...variantIds], selected: line?.variantId ?? null });
-    });
-  });
-  return out;
+  return quote.giftOptions
+    .filter((g) => g.variants.length >= 2)
+    .map((g) => ({
+      promotionId: g.promotionId,
+      benefitIndex: g.benefitIndex,
+      variants: g.variants,
+      selected: g.selectedVariantId,
+    }));
 }
 
-/** The gift variant the quote priced for each promotion with a choice: sent with the order. */
+/**
+ * The gift variant the quote priced for each promotion with a choice: sent with the order. The
+ * server keys choices by promotion, so the first benefit of a promotion decides.
+ */
 export function giftChoicesFromQuote(quote: OrderQuote): Record<number, number> {
   const out: Record<number, number> = {};
   giftSelectors(quote).forEach((s) => {
-    if (s.selected !== null) out[s.promotionId] = s.selected;
+    if (s.selected !== null && !(s.promotionId in out)) out[s.promotionId] = s.selected;
   });
   return out;
 }

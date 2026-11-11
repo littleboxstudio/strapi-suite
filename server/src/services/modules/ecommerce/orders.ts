@@ -85,7 +85,7 @@ const MAX_CREATE_ATTEMPTS = 3;
 const retryPause = () => new Promise((r) => setTimeout(r, 10 + Math.floor(Math.random() * 41)));
 const FIRST_REFERENCE = 1001;
 export { MAX_PROMOTION_CODES };
-export type { OrderQuote, OrderQuoteInput, OrderQuoteLine } from './orderPricing';
+export type { OrderQuote, OrderQuoteInput, OrderQuoteLine, QuoteGiftOption } from './orderPricing';
 
 export type OrderSource = 'admin' | 'storefront';
 
@@ -104,6 +104,8 @@ export type CreateOrderInput = {
   expectedTotal?: number;
   /** Per promotion id, the chosen gift variant. */
   giftChoices?: Record<number, number>;
+  /** Absent = trusted (admin); `false` = storefront without a verified e-mail. */
+  emailVerified?: boolean;
 };
 
 export type OrderPromotionView = AppliedPromotion & {
@@ -609,6 +611,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
 
     const notes = clean(input?.notes) || null;
     const idempotencyKey = clean(input?.idempotencyKey) || null;
+    const emailVerified = typeof input?.emailVerified === 'boolean' ? input.emailVerified : undefined;
     return {
       customer,
       shippingAddress,
@@ -621,6 +624,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       idempotencyKey,
       ...promotionFields,
       expectedTotal,
+      emailVerified,
     };
   };
 
@@ -731,6 +735,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         providerId: v.providerId,
         serviceId: v.serviceId,
       },
+      emailVerified: v.emailVerified,
     });
     const evaluation = priced.evaluation;
     const option = priced.option as ShippingOption;

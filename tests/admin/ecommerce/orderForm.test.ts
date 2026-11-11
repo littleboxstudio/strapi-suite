@@ -398,6 +398,18 @@ describe('order quote', () => {
     },
     shippingOption: null,
     exhaustive: true,
+    giftOptions: [
+      {
+        promotionId: 4,
+        benefitIndex: 0,
+        quantity: 1,
+        selectedVariantId: 31,
+        variants: [
+          { variantId: 30, sku: 'SOCK-R', name: 'Socks', option: 'Red', imageUrl: null, available: true },
+          { variantId: 31, sku: 'SOCK-B', name: 'Socks', option: 'Blue', imageUrl: null, available: true },
+        ],
+      },
+    ],
     ...over,
   });
 
@@ -426,12 +438,48 @@ describe('order quote', () => {
   it('giftChoicesFromQuote reads the gift variant of each promotion that offers several', () => {
     expect(giftChoicesFromQuote(quote())).toEqual({ 4: 31 });
     const single = quote();
-    (single.promotions[0].benefits[0].params as any).get.variantIds = [31];
+    single.giftOptions[0].variants = single.giftOptions[0].variants.slice(1);
     expect(giftChoicesFromQuote(single)).toEqual({});
   });
 
-  it('giftSelectors lists the choosable gifts with the variant in the quote', () => {
-    expect(giftSelectors(quote())).toEqual([{ promotionId: 4, variantIds: [30, 31], selected: 31 }]);
+  it('giftSelectors lists the choosable gifts with the names and the variant in the quote', () => {
+    const q = quote();
+    expect(giftSelectors(q)).toEqual([
+      { promotionId: 4, benefitIndex: 0, variants: q.giftOptions[0].variants, selected: 31 },
+    ]);
+    expect(giftSelectors(q)[0].variants.map((v) => [v.name, v.option])).toEqual([
+      ['Socks', 'Red'],
+      ['Socks', 'Blue'],
+    ]);
+  });
+
+  it('giftSelectors reads giftOptions, not the promotion params: one variant → no selector', () => {
+    const q = quote();
+    q.giftOptions[0].variants = q.giftOptions[0].variants.slice(0, 1);
+    expect(giftSelectors(q)).toEqual([]);
+    // The params still list two variants: the selector follows giftOptions only.
+    expect((q.promotions[0].benefits[0].params as any).get.variantIds).toEqual([30, 31]);
+  });
+
+  it('giftSelectors keeps two GIFT benefits of one promotion apart (promotionId + benefitIndex)', () => {
+    const base = quote();
+    const second = {
+      promotionId: 4,
+      benefitIndex: 1,
+      quantity: 2,
+      selectedVariantId: null,
+      variants: [
+        { variantId: 50, sku: 'CAP-R', name: 'Cap', option: 'Red', imageUrl: null, available: true },
+        { variantId: 51, sku: 'CAP-B', name: 'Cap', option: 'Blue', imageUrl: null, available: false },
+      ],
+    };
+    const q = quote({ giftOptions: [...base.giftOptions, second] });
+    expect(giftSelectors(q).map((s) => [s.promotionId, s.benefitIndex, s.selected])).toEqual([
+      [4, 0, 31],
+      [4, 1, null],
+    ]);
+    expect(giftSelectors(q)[1].variants.map((v) => v.variantId)).toEqual([50, 51]);
+    expect(giftChoicesFromQuote(q)).toEqual({ 4: 31 });
   });
 
   it('createOrderConflict recognises the promotion conflicts of create', () => {
@@ -529,6 +577,18 @@ describe('pruneGiftChoices', () => {
                 reward: { kind: 'FREE' },
               },
             },
+          ],
+        },
+      ],
+      giftOptions: [
+        {
+          promotionId: 4,
+          benefitIndex: 0,
+          quantity: 1,
+          selectedVariantId: 31,
+          variants: [
+            { variantId: 30, sku: 'R', name: 'Socks', option: null, imageUrl: null, available: true },
+            { variantId: 31, sku: 'S', name: 'Socks', option: null, imageUrl: null, available: true },
           ],
         },
       ],
