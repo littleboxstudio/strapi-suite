@@ -210,7 +210,8 @@ const StorefrontSettings = ({ readOnly }: { readOnly: boolean }) => {
     return (
       <Flex direction="column" alignItems="stretch" gap={4}>
         <Flex direction="column" alignItems="flex-start" gap={1}>
-          <Typography variant="sigma" textColor="neutral600" tag="h3">
+          {/* Same look as the field labels (Field.Label). */}
+          <Typography variant="pi" fontWeight="bold" textColor="neutral800" tag="h3">
             {t('ecommerce.settings.storefrontApi.token')}
           </Typography>
           <Typography variant="pi" textColor="neutral600">
@@ -292,8 +293,6 @@ const StorefrontSettings = ({ readOnly }: { readOnly: boolean }) => {
           {t('ecommerce.settings.storefrontApi.intro')}
         </Typography>
 
-        {tokenSection()}
-
         <Field.Root
           name="checkoutSessionTtlHours"
           error={ttlError ? t(`ecommerce.settings.errors.${ttlError}`) : undefined}
@@ -317,6 +316,8 @@ const StorefrontSettings = ({ readOnly }: { readOnly: boolean }) => {
           <Field.Error />
           <Field.Hint />
         </Field.Root>
+
+        {tokenSection()}
 
         {!readOnly && (
           <HeaderActions>
