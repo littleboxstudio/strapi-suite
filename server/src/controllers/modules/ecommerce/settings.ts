@@ -11,7 +11,6 @@ const EcommerceSettingsController = ({ strapi }: { strapi: Core.Strapi }) => {
   const service = (name: string): any => strapi.plugin(PLUGIN_ID).service(name);
   const settings = () => service('EcommerceSettingsService');
   const templates = () => service('EcommerceEmailTemplateService');
-  const zones = () => service('EcommerceShippingZoneService');
 
   const userId = (ctx: any): string | undefined => {
     const id = ctx.state?.user?.id;
@@ -127,19 +126,6 @@ const EcommerceSettingsController = ({ strapi }: { strapi: Core.Strapi }) => {
       respond(ctx, () => settings().updateManualMethod(Number(ctx.params.id), body(ctx), userId(ctx))),
     deleteShippingMethod: (ctx: any) =>
       respond(ctx, () => settings().deleteManualMethod(Number(ctx.params.id), userId(ctx)), true),
-
-    listShippingZones: (ctx: any) => respond(ctx, () => zones().list()),
-    createShippingZone: async (ctx: any) => {
-      await respond(ctx, async () => {
-        const created = await zones().create(body(ctx), userId(ctx));
-        ctx.status = 201;
-        return created;
-      });
-    },
-    updateShippingZone: (ctx: any) =>
-      respond(ctx, () => zones().update(Number(ctx.params.id), body(ctx), userId(ctx))),
-    deleteShippingZone: (ctx: any) =>
-      respond(ctx, () => zones().remove(Number(ctx.params.id), userId(ctx)), true),
 
     listEmailTemplates: (ctx: any) => respond(ctx, () => templates().list()),
     getEmailTemplate: (ctx: any) =>

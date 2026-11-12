@@ -6,16 +6,13 @@ import EcommerceShippingService, {
   registerCarrierQuoter,
 } from '../../../server/src/services/modules/ecommerce/shipping';
 
-const method = (id: number, rates: Record<string, number>, extra = {}) => ({
+const method = (id: number, rates: Record<string, { upTo: number; price: number }[]>, extra = {}) => ({
   id, name: { pt: `M${id}`, en: `M${id}en` }, rates, tax: 23, active: true, position: id, ...extra,
 });
 
-const ZONES = [
-  { id: 1, name: 'Portugal', countries: ['PT'], position: 1 },
-  { id: 2, name: 'Espanha', countries: ['ES'], position: 2 },
-];
-/** The runtime of a carrier serving zone 1 (PT). */
-const RUNTIME = { config: { zones: [1] }, secrets: {}, active: true };
+const FLAT = (price: number) => [{ upTo: 1000, price }];
+/** The runtime of a carrier serving PT. */
+const RUNTIME = { config: { markets: ['PT'] }, secrets: {}, active: true };
 
 let lastWarn: ReturnType<typeof vi.fn>;
 function setup(
@@ -27,7 +24,6 @@ function setup(
     getActiveProviders: async () => opts.carriers ?? ['manual'],
     getRuntime: async (id: string) => (opts.runtime ? opts.runtime(id) : RUNTIME),
   };
-  const zones = { list: async () => ZONES };
   const warn = vi.fn();
   lastWarn = warn;
   const strapi: any = {
@@ -35,38 +31,43 @@ function setup(
     plugin: (id: string) =>
       id === 'i18n'
         ? { service: () => ({ getDefaultLocale: async () => 'pt' }) }
-        : { service: (name: string) => (name === 'EcommerceShippingZoneService' ? zones : settings) },
+        : { service: () => settings },
   };
   return EcommerceShippingService({ strapi });
 }
 
-const req = (country = 'PT') => ({ country, items: [], subtotal: 1000, locale: 'en' });
+const item = (weight: number, quantity = 1) => ({ variantId: 1, quantity, weight, width: 0, height: 0, depth: 0 });
+const req = (country = 'PT', items: any[] = []) => ({ country, items, subtotal: 1000, locale: 'en' });
 
 beforeEach(() => __resetCarrierQuotersForTests());
 
 describe('EcommerceShippingService', () => {
-  it('a manual method is offered in the zones it has a price for, at that price', async () => {
-    const s = setup({ methods: [method(1, { '1': 500 }), method(2, { '2': 300 }), method(3, { '1': 100 }, { active: false })] });
-    const pt = await s.quote(req('PT'));
-    expect(pt.options.map((o) => o.serviceId)).toEqual(['1']);
-    expect(pt.options[0]).toMatchObject({ providerId: 'manual', name: 'M1en', price: 500, tax: 23 });
-    const es = await s.quote(req('ES'));
-    expect(es.options.map((o) => [o.serviceId, o.price])).toEqual([['2', 300]]);
+  it('a manual method is priced by the order weight in the country brackets', async () => {
+    const s = setup({
+      methods: [method(1, { PT: [{ upTo: 1, price: 300 }, { upTo: 5, price: 1000 }] }), method(3, { PT: FLAT(100) }, { active: false })],
+    });
+    const light = await s.quote(req('PT', [item(0.4, 2)]));
+    expect(light.options.map((o) => o.serviceId)).toEqual(['1']);
+    expect(light.options[0]).toMatchObject({ providerId: 'manual', name: 'M1en', price: 300, tax: 23 });
+    expect((await s.quote(req('PT', [item(3)]))).options[0].price).toBe(1000);
+    expect(await s.quote(req('PT', [item(6)]))).toEqual({ options: [], failures: [] });
   });
 
-  it('a market without a zone has no options and no failures', async () => {
-    const s = setup({ carriers: ['manual', 'ctt'], methods: [method(1, { '1': 500, '2': 300 })] });
-    const quoter = vi.fn(async () => []);
-    s.registerCarrierQuoter('ctt', quoter);
-    expect(await s.quote(req('FR'))).toEqual({ options: [], failures: [] });
-    expect(quoter).not.toHaveBeenCalled();
+  it('a manual method without brackets for the country is not offered', async () => {
+    const s = setup({ methods: [method(1, { PT: FLAT(500) })] });
+    expect(await s.quote(req('ES', [item(0.5)]))).toEqual({ options: [], failures: [] });
   });
 
-  it('a country outside the markets has no options, even with a carrier serving every zone', async () => {
+  it('ignores stored rates that are not brackets (old zone shape)', async () => {
+    const s = setup({ methods: [{ ...method(1, {}), rates: { PT: 500, '1': 300 } }] });
+    expect(await s.quote(req('PT', [item(0.5)]))).toEqual({ options: [], failures: [] });
+  });
+
+  it('a country outside the markets has no options, even with a carrier serving it', async () => {
     const s = setup({
       carriers: ['manual', 'ctt'],
-      methods: [method(1, { '1': 500 })],
-      runtime: () => ({ config: { zones: [1, 2] }, secrets: {}, active: true }),
+      methods: [method(1, { DE: FLAT(500) })],
+      runtime: () => ({ config: { markets: ['DE'] }, secrets: {}, active: true }),
     });
     const quoter = vi.fn(async () => []);
     s.registerCarrierQuoter('ctt', quoter);
@@ -74,18 +75,19 @@ describe('EcommerceShippingService', () => {
     expect(quoter).not.toHaveBeenCalled();
   });
 
-  it('a carrier is only asked for the zones in its configuration, with the zone id', async () => {
-    const s = setup({ carriers: ['ctt'], runtime: () => ({ config: { zones: [2] }, secrets: {}, active: true }) });
+  it('a carrier is only asked for the markets in its configuration', async () => {
+    const s = setup({ carriers: ['ctt'], runtime: () => ({ config: { markets: ['ES'] }, secrets: {}, active: true }) });
     const quoter = vi.fn(async () => []);
     s.registerCarrierQuoter('ctt', quoter);
     expect(await s.quote(req('PT'))).toEqual({ options: [], failures: [] });
     expect(quoter).not.toHaveBeenCalled();
     await s.quote(req('ES'));
     expect(quoter).toHaveBeenCalledTimes(1);
-    expect((quoter.mock.calls[0] as any)[0]).toMatchObject({ country: 'ES', zoneId: 2 });
+    expect((quoter.mock.calls[0] as any)[0]).toMatchObject({ country: 'ES' });
+    expect((quoter.mock.calls[0] as any)[0]).not.toHaveProperty('zoneId');
   });
 
-  it('a carrier without zones in its configuration is never asked and does not fail', async () => {
+  it('a carrier without markets in its configuration is never asked and does not fail', async () => {
     const s = setup({ carriers: ['ctt'], runtime: () => ({ config: {}, secrets: {}, active: true }) });
     const quoter = vi.fn(async () => []);
     s.registerCarrierQuoter('ctt', quoter);
@@ -94,14 +96,14 @@ describe('EcommerceShippingService', () => {
   });
 
   it('falls back to the default locale and ignores manual when inactive', async () => {
-    const s = setup({ methods: [method(1, { '1': 1 }, { name: { pt: 'Só PT' } })] });
+    const s = setup({ methods: [method(1, { PT: FLAT(1) }, { name: { pt: 'Só PT' } })] });
     expect((await s.quote(req())).options[0].name).toBe('Só PT');
-    const off = setup({ carriers: [], methods: [method(1, { '1': 1 })] });
+    const off = setup({ carriers: [], methods: [method(1, { PT: FLAT(1) })] });
     expect((await off.quote(req())).options).toEqual([]);
   });
 
   it('a failing carrier does not hide manual methods', async () => {
-    const s = setup({ carriers: ['manual', 'ctt'], methods: [method(1, { '1': 500 })] });
+    const s = setup({ carriers: ['manual', 'ctt'], methods: [method(1, { PT: FLAT(500) })] });
     s.registerCarrierQuoter('ctt', async () => {
       throw Object.assign(new Error('x'), { code: 'UNREACHABLE' });
     });
@@ -111,7 +113,7 @@ describe('EcommerceShippingService', () => {
   });
 
   it('merges carrier options and sorts by price then name', async () => {
-    const s = setup({ carriers: ['manual', 'ctt'], methods: [method(1, { '1': 500 }), method(2, { '1': 500 }, { name: { pt: 'A', en: 'A' } })] });
+    const s = setup({ carriers: ['manual', 'ctt'], methods: [method(1, { PT: FLAT(500) }), method(2, { PT: FLAT(500) }, { name: { pt: 'A', en: 'A' } })] });
     s.registerCarrierQuoter('ctt', async () => [{ providerId: 'ctt', serviceId: 'e', name: 'Exp', price: 300, tax: 23 }]);
     const { options } = await s.quote(req());
     expect(options.map((o) => `${o.providerId}:${o.serviceId}`)).toEqual(['ctt:e', 'manual:2', 'manual:1']);
@@ -122,11 +124,11 @@ describe('EcommerceShippingService', () => {
     const quoter = vi.fn(async () => []);
     s.registerCarrierQuoter('ctt', quoter);
     await s.quote(req());
-    expect(quoter).toHaveBeenCalledWith({ ...req(), zoneId: 1 }, { config: { zones: [1] }, secrets: {} }, { timeoutMs: 8000 });
+    expect(quoter).toHaveBeenCalledWith(req(), { config: { markets: ['PT'] }, secrets: {} }, { timeoutMs: 8000 });
   });
 
   it('findOption returns the option or null', async () => {
-    const s = setup({ methods: [method(1, { '1': 500 })] });
+    const s = setup({ methods: [method(1, { PT: FLAT(500) })] });
     expect(await s.findOption(req(), 'manual', '1')).toMatchObject({ price: 500 });
     expect(await s.findOption(req(), 'manual', '99')).toBeNull();
     expect(await s.findOption(req('ES'), 'manual', '1')).toBeNull();
@@ -138,7 +140,7 @@ describe('EcommerceShippingService', () => {
     it('times out a never-resolving quoter after 8 s and keeps manual methods', async () => {
       vi.useFakeTimers();
       try {
-        const s = setup({ carriers: ['manual', 'ctt'], methods: [method(1, { '1': 500 })] });
+        const s = setup({ carriers: ['manual', 'ctt'], methods: [method(1, { PT: FLAT(500) })] });
         s.registerCarrierQuoter('ctt', () => new Promise(() => undefined));
         const p = s.quote(req());
         await vi.advanceTimersByTimeAsync(8000);
@@ -244,7 +246,7 @@ describe('EcommerceShippingService', () => {
     });
 
     it('CTT stub yields NOT_IMPLEMENTED and manual methods remain', async () => {
-      const s = setup({ carriers: ['manual', 'ctt-expresso'], methods: [method(1, { '1': 500 })] });
+      const s = setup({ carriers: ['manual', 'ctt-expresso'], methods: [method(1, { PT: FLAT(500) })] });
       const r = await s.quote(req());
       expect(r.failures).toEqual([{ providerId: 'ctt-expresso', code: 'NOT_IMPLEMENTED' }]);
       expect(r.options).toHaveLength(1);
@@ -278,7 +280,7 @@ describe('EcommerceShippingService', () => {
       registerCarrierAdapter('a', adapter);
       const r = await setup().carrierFor('a');
       expect(r.adapter).toMatchObject(adapter);
-      expect(r.runtime).toEqual({ config: { zones: [1] }, secrets: {} });
+      expect(r.runtime).toEqual({ config: { markets: ['PT'] }, secrets: {} });
     });
 
     it('registerCarrierAdapter merges; registerCarrierQuoter is a quote shortcut', () => {

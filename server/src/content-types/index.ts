@@ -38,7 +38,6 @@ import EcommercePromotionSchema from './modules/ecommerce/promotion';
 import EcommercePromotionRedemptionSchema from './modules/ecommerce/promotion-redemption';
 import EcommercePromotionCustomerUsageSchema from './modules/ecommerce/promotion-customer-usage';
 import EcommerceCheckoutSessionSchema from './modules/ecommerce/checkout-session';
-import EcommerceShippingZoneSchema from './modules/ecommerce/shipping-zone';
 
 export default {
   "ltb-st-app-setting": SettingsAppSchema,
@@ -80,6 +79,5 @@ export default {
   "ltb-st-module-ecommerce-promotion": EcommercePromotionSchema,
   "ltb-st-module-ecommerce-promotion-redemption": EcommercePromotionRedemptionSchema,
   "ltb-st-module-ecommerce-promotion-customer-usage": EcommercePromotionCustomerUsageSchema,
-  "ltb-st-module-ecommerce-checkout-session": EcommerceCheckoutSessionSchema,
-  "ltb-st-module-ecommerce-shipping-zone": EcommerceShippingZoneSchema
+  "ltb-st-module-ecommerce-checkout-session": EcommerceCheckoutSessionSchema
 };

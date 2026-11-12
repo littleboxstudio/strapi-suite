@@ -9,7 +9,6 @@ const names: Record<string, string[]> = {
   'email-template': ['type', 'locale', 'subject', 'html', 'version', 'editorId'],
   'email-template-version': ['type', 'locale', 'subject', 'html', 'version', 'authorId'],
   'audit-log': ['area', 'action', 'targetId', 'userId', 'details'],
-  'shipping-zone': ['name', 'countries', 'position'],
 };
 
 const get = (n: string): any => (contentTypes as any)[`ltb-st-module-ecommerce-${n}`]?.schema;
@@ -49,12 +48,9 @@ describe('ecommerce settings content-types', () => {
     expect(a.active.default).toBe(true);
   });
 
-  it('shipping-zone attributes', () => {
-    const a = get('shipping-zone').attributes;
-    expect(a.name).toMatchObject({ type: 'string', required: true });
-    expect(a.countries.type).toBe('json');
-    expect(a.position.type).toBe('integer');
-    expect(Object.values(a).some((x: any) => x.unique)).toBe(false);
+  it('has no shipping-zone content-type', () => {
+    expect(get('shipping-zone')).toBeUndefined();
+    expect((config as any).default.uuid.modules.ecommerce.shippingZone).toBeUndefined();
   });
 
   it('email-template has unique type+locale index and version default', () => {
@@ -78,7 +74,6 @@ describe('ecommerce settings content-types', () => {
     for (const [k, n] of Object.entries({
       integration: 'integration', storeSetting: 'store-setting', manualShippingMethod: 'manual-shipping-method',
       emailTemplate: 'email-template', emailTemplateVersion: 'email-template-version', auditLog: 'audit-log',
-      shippingZone: 'shipping-zone',
     })) {
       expect(uid[k]).toBe(`plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-${n}`);
     }

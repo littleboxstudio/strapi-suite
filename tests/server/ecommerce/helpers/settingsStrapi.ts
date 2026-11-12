@@ -1,6 +1,5 @@
 import { vi } from 'vitest';
 import EcommerceSettingsService from '../../../../server/src/services/modules/ecommerce/settings';
-import EcommerceShippingZoneService from '../../../../server/src/services/modules/ecommerce/shippingZones';
 import EcommerceAuditService from '../../../../server/src/services/modules/ecommerce/audit';
 import EcommerceImageService from '../../../../server/src/services/modules/ecommerce/images';
 import { createFakeDb } from './fakeDb';
@@ -10,7 +9,6 @@ export const UIDS = {
   integration: `${P}integration`,
   storeSetting: `${P}store-setting`,
   manualShippingMethod: `${P}manual-shipping-method`,
-  shippingZone: `${P}shipping-zone`,
   auditLog: `${P}audit-log`,
 };
 
@@ -124,10 +122,8 @@ export function makeStrapi(opts: { encryptionKey?: string | null } = {}) {
   services.EcommerceAuditService = EcommerceAuditService({ strapi });
   services.EcommerceImageService = EcommerceImageService({ strapi });
   services.EcommerceSettingsService = EcommerceSettingsService({ strapi });
-  services.EcommerceShippingZoneService = EcommerceShippingZoneService({ strapi });
   return {
     service: services.EcommerceSettingsService as ReturnType<typeof EcommerceSettingsService>,
-    zones: services.EcommerceShippingZoneService as ReturnType<typeof EcommerceShippingZoneService>,
     strapi,
     provider,
     apiTokens,
