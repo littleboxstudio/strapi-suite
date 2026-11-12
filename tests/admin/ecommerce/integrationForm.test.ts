@@ -13,7 +13,8 @@ import {
   validateIntegrationForm,
 } from '../../../admin/src/ecommerce/utils/integrationForm';
 import {
-  applyToAllMarkets,
+  fillAllMarkets,
+  validateBracketRows,
   draftToManualMethodInput,
   emptyManualMethodDraft,
   manualMethodErrorMap,
@@ -35,7 +36,14 @@ const FIELDS: ProviderField[] = [
   { key: 'clientSecret', type: 'secret', required: true, label: `${L}.clientSecret` },
   { key: 'password', type: 'secret', required: true, label: `${L}.password` },
   { key: 'companyId', type: 'number', required: true, label: `${L}.companyId` },
-  { key: 'documentType', type: 'select', required: false, default: 'FR', options: ['FR', 'FT'], label: `${L}.documentType` },
+  {
+    key: 'documentType',
+    type: 'select',
+    required: false,
+    default: 'FR',
+    options: ['FR', 'FT'],
+    label: `${L}.documentType`,
+  },
   { key: 'documentSetId', type: 'number', required: false, label: `${L}.documentSetId` },
   { key: 'sandbox', type: 'boolean', required: false, label: `${L}.sandbox` },
 ];
@@ -217,7 +225,15 @@ describe('manual method draft', () => {
   it('accepts a comma or a dot in the weight limit', () => {
     const rates = (upTo: string) =>
       draftToManualMethodInput(
-        base({ markets: ['PT'], brackets: { PT: [{ upTo, price: '1' }, { upTo: '', price: '2' }] } }),
+        base({
+          markets: ['PT'],
+          brackets: {
+            PT: [
+              { upTo, price: '1' },
+              { upTo: '', price: '2' },
+            ],
+          },
+        }),
         'pt'
       ).input?.rates?.PT[0].upTo;
     expect(rates('1,5')).toBe(1.5);
@@ -227,7 +243,12 @@ describe('manual method draft', () => {
   it('only the last row may have no limit', () => {
     const draft = base({
       markets: ['PT'],
-      brackets: { PT: [{ upTo: '', price: '3' }, { upTo: '', price: '10' }] },
+      brackets: {
+        PT: [
+          { upTo: '', price: '3' },
+          { upTo: '', price: '10' },
+        ],
+      },
     });
     expect(draftToManualMethodInput(draft, 'pt').errors).toEqual({ 'rates.PT.0.upTo': 'required' });
   });
@@ -240,7 +261,9 @@ describe('manual method draft', () => {
     expect(errorsOf([row('1.2345'), row('')])).toEqual({ 'rates.PT.0.upTo': 'invalid_number' });
     expect(errorsOf([row('0'), row('')])).toEqual({ 'rates.PT.0.upTo': 'out_of_range' });
     expect(errorsOf([row('2'), row('2'), row('')])).toEqual({ 'rates.PT.1.upTo': 'out_of_range' });
-    expect(errorsOf([row('2'), row('1,5'), row('')])).toEqual({ 'rates.PT.1.upTo': 'out_of_range' });
+    expect(errorsOf([row('2'), row('1,5'), row('')])).toEqual({
+      'rates.PT.1.upTo': 'out_of_range',
+    });
     expect(errorsOf([row('1'), row('2.001')])).toEqual({});
   });
 
@@ -302,7 +325,15 @@ describe('manual method draft', () => {
   });
 
   it('shows kg with up to 3 decimals', () => {
-    const m = { ...METHOD, rates: { PT: [{ upTo: 0.25, price: 100 }, { upTo: 12.345, price: 200 }] } };
+    const m = {
+      ...METHOD,
+      rates: {
+        PT: [
+          { upTo: 0.25, price: 100 },
+          { upTo: 12.345, price: 200 },
+        ],
+      },
+    };
     expect(manualMethodToDraft(m, ['pt'], 'en', ['PT']).brackets.PT.map((b) => b.upTo)).toEqual([
       '0.25',
       '12.345',
@@ -310,19 +341,58 @@ describe('manual method draft', () => {
   });
 });
 
-describe('applyToAllMarkets', () => {
-  it('copies the brackets to every selected market without sharing them', () => {
+describe('fillAllMarkets', () => {
+  it('gives every selected market its own copy of the rows', () => {
     const draft = base({
-      markets: ['PT', 'ES', 'FR'],
-      brackets: { PT: PT_ROWS, ES: [{ upTo: '', price: '1' }], FR: [{ upTo: '', price: '2' }] },
+      markets: ['PT', 'ES'],
+      brackets: {
+        PT: [{ upTo: '', price: '1' }],
+        ES: [
+          { upTo: '2', price: '2' },
+          { upTo: '', price: '3' },
+        ],
+        FR: [{ upTo: '', price: '9' }],
+      },
     });
-    const out = applyToAllMarkets(draft, 'PT');
-    expect(out.brackets.ES).toEqual(PT_ROWS);
-    expect(out.brackets.FR).toEqual(PT_ROWS);
+    const out = fillAllMarkets(draft, PT_ROWS);
+    expect(out.brackets).toEqual({ PT: PT_ROWS, ES: PT_ROWS });
     out.brackets.ES[0].price = '99';
-    expect(out.brackets.PT[0].price).toBe('3');
-    expect(out.brackets.FR[0].price).toBe('3');
-    expect(draft.brackets.ES[0].price).toBe('1');
+    expect(out.brackets.PT[0].price).toBe(PT_ROWS[0].price);
+    expect(PT_ROWS[0].price).not.toBe('99');
+  });
+});
+
+describe('validateBracketRows', () => {
+  it('checks the order, the open last row and the prices', () => {
+    expect(
+      validateBracketRows(
+        [
+          { upTo: '1', price: '3,50' },
+          { upTo: '', price: '5' },
+        ],
+        'fill'
+      )
+    ).toEqual({
+      brackets: [
+        { upTo: 1, price: 350 },
+        { upTo: null, price: 500 },
+      ],
+      errors: {},
+    });
+    expect(
+      validateBracketRows(
+        [
+          { upTo: '', price: 'x' },
+          { upTo: '2', price: '1' },
+          { upTo: '1', price: '1' },
+        ],
+        'fill'
+      ).errors
+    ).toEqual({
+      'fill.0.upTo': 'required',
+      'fill.0.price': 'invalid_number',
+      'fill.2.upTo': 'out_of_range',
+    });
   });
 });
 
@@ -339,7 +409,13 @@ describe('manualMethodErrorMap', () => {
 });
 
 describe('markets field', () => {
-  const field: ProviderField = { key: 'markets', type: 'markets', required: true, default: [], label: 'm' };
+  const field: ProviderField = {
+    key: 'markets',
+    type: 'markets',
+    required: true,
+    default: [],
+    label: 'm',
+  };
   const view = (config: Record<string, unknown>): IntegrationView => ({
     id: 'ctt-expresso',
     category: 'carrier',
@@ -353,7 +429,10 @@ describe('markets field', () => {
   });
 
   it('sends the country codes as a list of strings', () => {
-    expect(buildIntegrationPayload([field], { markets: ['PT', 'ES'] }).config.markets).toEqual(['PT', 'ES']);
+    expect(buildIntegrationPayload([field], { markets: ['PT', 'ES'] }).config.markets).toEqual([
+      'PT',
+      'ES',
+    ]);
   });
 
   it('reads the stored codes', () => {
@@ -363,7 +442,9 @@ describe('markets field', () => {
 
   it('requires a market only on an active integration, like any required field', () => {
     expect(validateIntegrationForm([field], { markets: [] })).toEqual({});
-    expect(validateIntegrationForm([field], { markets: [] }, true)).toEqual({ markets: 'required' });
+    expect(validateIntegrationForm([field], { markets: [] }, true)).toEqual({
+      markets: 'required',
+    });
     expect(validateIntegrationForm([field], { markets: ['PT'] }, true)).toEqual({});
   });
 });
@@ -395,7 +476,9 @@ describe('validateIntegrationForm', () => {
 describe('showsAsRequired', () => {
   it('a required text field with a default is not shown as required (blank restores it)', () => {
     const base = { key: 'k', label: 'x' };
-    expect(showsAsRequired({ ...base, type: 'string', format: 'path', required: true, default: '/a' })).toBe(false);
+    expect(
+      showsAsRequired({ ...base, type: 'string', format: 'path', required: true, default: '/a' })
+    ).toBe(false);
     expect(showsAsRequired({ ...base, type: 'string', required: true })).toBe(true);
     expect(showsAsRequired({ ...base, type: 'markets', required: true, default: [] })).toBe(true);
     expect(showsAsRequired({ ...base, type: 'string', required: false })).toBe(false);
@@ -409,7 +492,10 @@ describe('two-step configure helpers', () => {
     { key: 'companyId', type: 'number', required: true, label: 'l', lookup: 'companies' },
     { key: 'documentSetId', type: 'number', required: false, label: 'l', lookup: 'documentSets' },
   ];
-  const stepView = (config: Record<string, unknown>, secrets: Record<string, string | null>): IntegrationView => ({
+  const stepView = (
+    config: Record<string, unknown>,
+    secrets: Record<string, string | null>
+  ): IntegrationView => ({
     id: 'moloni',
     category: 'billing',
     name: 'Moloni',
@@ -427,14 +513,24 @@ describe('two-step configure helpers', () => {
   });
 
   it('stepFields splits credentials from the rest', () => {
-    expect(stepFields(STEP_FIELDS, 'credentials').map((f) => f.key)).toEqual(['clientId', 'clientSecret']);
-    expect(stepFields(STEP_FIELDS, 'details').map((f) => f.key)).toEqual(['companyId', 'documentSetId']);
+    expect(stepFields(STEP_FIELDS, 'credentials').map((f) => f.key)).toEqual([
+      'clientId',
+      'clientSecret',
+    ]);
+    expect(stepFields(STEP_FIELDS, 'details').map((f) => f.key)).toEqual([
+      'companyId',
+      'documentSetId',
+    ]);
   });
 
   it('credentialsSaved needs every required credential stored', () => {
-    expect(credentialsSaved(stepView({ clientId: 'abc' }, { clientSecret: 'abc********1234' }))).toBe(true);
+    expect(
+      credentialsSaved(stepView({ clientId: 'abc' }, { clientSecret: 'abc********1234' }))
+    ).toBe(true);
     expect(credentialsSaved(stepView({ clientId: 'abc' }, { clientSecret: null }))).toBe(false);
-    expect(credentialsSaved(stepView({ clientId: ' ' }, { clientSecret: 'abc********1234' }))).toBe(false);
+    expect(credentialsSaved(stepView({ clientId: ' ' }, { clientSecret: 'abc********1234' }))).toBe(
+      false
+    );
   });
 
   it('missingCredentials accepts a blank secret only when one is stored', () => {
@@ -442,7 +538,9 @@ describe('two-step configure helpers', () => {
     expect(missingCredentials(stored, { clientId: 'abc', clientSecret: '' })).toEqual([]);
     expect(missingCredentials(stored, { clientId: '', clientSecret: '' })).toEqual(['clientId']);
     const empty = stepView({}, { clientSecret: null });
-    expect(missingCredentials(empty, { clientId: 'abc', clientSecret: '  ' })).toEqual(['clientSecret']);
+    expect(missingCredentials(empty, { clientId: 'abc', clientSecret: '  ' })).toEqual([
+      'clientSecret',
+    ]);
     expect(missingCredentials(empty, { clientId: 'abc', clientSecret: 'new' })).toEqual([]);
   });
 
@@ -451,6 +549,9 @@ describe('two-step configure helpers', () => {
     const unknown = (v: string) => `ID ${v} (not found)`;
     expect(lookupFieldOptions(list, '5', unknown)).toEqual(list);
     expect(lookupFieldOptions(list, '', unknown)).toEqual(list);
-    expect(lookupFieldOptions(list, '9', unknown)).toEqual([...list, { value: '9', label: 'ID 9 (not found)' }]);
+    expect(lookupFieldOptions(list, '9', unknown)).toEqual([
+      ...list,
+      { value: '9', label: 'ID 9 (not found)' },
+    ]);
   });
 });

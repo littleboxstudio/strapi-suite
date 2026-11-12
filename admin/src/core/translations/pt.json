@@ -302,7 +302,6 @@
   "littlebox-strapi-suite.ecommerce.settings.manual.upTo": "Até (kg)",
   "littlebox-strapi-suite.ecommerce.settings.manual.price": "Preço (€)",
   "littlebox-strapi-suite.ecommerce.settings.manual.noLimit": "Deixe 'Até' vazio na última linha para não ter limite. Encomendas mais pesadas do que o último intervalo não podem usar este método.",
-  "littlebox-strapi-suite.ecommerce.settings.manual.applyAll": "Aplicar a todos os mercados",
   "littlebox-strapi-suite.ecommerce.settings.manual.pricesHint": "Preços em euros, IVA incluído (ex.: 4,95).",
   "littlebox-strapi-suite.ecommerce.settings.manual.marketsRequired": "Escolha pelo menos um mercado.",
   "littlebox-strapi-suite.ecommerce.settings.manual.rangesRequired": "Adicione pelo menos um intervalo de peso.",
@@ -1660,8 +1659,6 @@
   "littlebox-strapi-suite.ecommerce.settings.manual.searchMarkets": "Pesquisar mercados",
   "littlebox-strapi-suite.ecommerce.settings.manual.noMarketMatch": "Nenhum mercado corresponde à pesquisa.",
   "littlebox-strapi-suite.ecommerce.settings.manual.removeMarket": "Eliminar",
-  "littlebox-strapi-suite.ecommerce.settings.manual.applyAllConfirm.title": "Aplicar a todos os mercados",
-  "littlebox-strapi-suite.ecommerce.settings.manual.applyAllConfirm.text": "Os intervalos de peso de {market} vão substituir os intervalos de todos os outros mercados deste método. Todos os valores atuais desses mercados serão perdidos.",
   "littlebox-strapi-suite.ecommerce.settings.manualMethods.disable": "Desativar",
   "littlebox-strapi-suite.ecommerce.settings.manualMethods.enable": "Ativar",
   "littlebox-strapi-suite.ecommerce.settings.manualMethods.disableConfirm.title": "Desativar método de envio",
@@ -1673,5 +1670,12 @@
   "littlebox-strapi-suite.ecommerce.settings.manualMethods.toggleError": "Não foi possível alterar o método de envio.",
   "littlebox-strapi-suite.ecommerce.settings.manualMethods.deleteBlocked.title": "Método de envio em uso",
   "littlebox-strapi-suite.ecommerce.settings.manualMethods.deleteBlocked.text": "Já existem encomendas com este método de envio, por isso não pode ser eliminado. Desative-o em vez disso.",
-  "littlebox-strapi-suite.ecommerce.settings.manualMethods.ok": "OK"
+  "littlebox-strapi-suite.ecommerce.settings.manualMethods.ok": "OK",
+  "littlebox-strapi-suite.ecommerce.settings.manual.fillAll.open": "Preencher todos os mercados",
+  "littlebox-strapi-suite.ecommerce.settings.manual.fillAll.title": "Preencher todos os mercados",
+  "littlebox-strapi-suite.ecommerce.settings.manual.fillAll.text": "Estes intervalos de peso vão ser usados por todos os mercados deste método de envio.",
+  "littlebox-strapi-suite.ecommerce.settings.manual.fillAll.apply": "Aplicar a todos os mercados",
+  "littlebox-strapi-suite.ecommerce.settings.manual.fillAll.confirmTitle": "Substituir todos os intervalos",
+  "littlebox-strapi-suite.ecommerce.settings.manual.fillAll.confirmText": "Os intervalos de peso {count, plural, one {do # mercado} other {dos # mercados}} vão ser substituídos por estes. Os valores atuais serão perdidos.",
+  "littlebox-strapi-suite.ecommerce.settings.manual.fillAll.replace": "Substituir"
 }
