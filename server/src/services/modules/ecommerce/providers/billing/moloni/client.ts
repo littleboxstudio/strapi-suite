@@ -53,12 +53,68 @@ const authFailed = () => new EcommerceBillingError('BILLING_AUTH_FAILED', 'Molon
 
 const ERROR_KEYS = new Set(['code', 'field', 'description']);
 
-/** Moloni validation errors: `[{ code, field, description }]` (entity lists never look like this). */
-function errorList(body: unknown): { code: unknown; field: unknown }[] | null {
+/** Moloni's validation error codes (https://www.moloni.pt/dev/controlo-de-erros/). */
+const ERROR_MEANINGS: Record<string, string> = {
+  '1': 'required',
+  '2': 'number out of range',
+  '3': 'invalid e-mail',
+  '4': 'must be unique',
+  '5': 'invalid value',
+  '9': 'date must be YYYY-MM-DD',
+  '10': 'invalid document association',
+  '11': 'document cannot be sent to the tax authority',
+  '16': 'customer identification required (CIVA art. 36 n.º 15)',
+  '17': 'field limit reached',
+};
+
+type MoloniError = { code: string; field: string };
+
+/** `"2 language_id 1 0"` → code 2, field language_id (the rest are the rule's bounds). */
+const STRING_ERROR = /^(\d+)\s+(\S+)/;
+
+const toError = (e: unknown): MoloniError | null => {
+  if (typeof e === 'string') {
+    const match = STRING_ERROR.exec(e.trim());
+    return match ? { code: match[1], field: match[2] } : null;
+  }
+  if (!!e && typeof e === 'object' && 'code' in e && Object.keys(e).every((k) => ERROR_KEYS.has(k))) {
+    const { code, field } = e as { code: unknown; field?: unknown };
+    // With human_errors the code carries the field too: "1 name".
+    const fromCode = STRING_ERROR.exec(String(code));
+    return fromCode && !field
+      ? { code: fromCode[1], field: fromCode[2] }
+      : { code: String(code), field: String(field ?? '') };
+  }
+  return null;
+};
+
+/**
+ * Moloni validation errors: a list of `"<code> <field> [bounds…]"` strings (the default), or of
+ * `{ code, field, description }` objects. Entity lists never look like either.
+ */
+function errorList(body: unknown): MoloniError[] | null {
   if (!Array.isArray(body) || body.length === 0) return null;
-  const isError = (e: unknown) =>
-    !!e && typeof e === 'object' && 'code' in e && Object.keys(e).every((k) => ERROR_KEYS.has(k));
-  return body.every(isError) ? (body as { code: unknown; field: unknown }[]) : null;
+  const errors = body.map(toError);
+  return errors.every((e): e is MoloniError => e !== null) ? errors : null;
+}
+
+/** `field:code (meaning)`: what was rejected and why, never the submitted value. */
+const describeError = (e: MoloniError) => {
+  const meaning = ERROR_MEANINGS[e.code];
+  return `${e.field}:${e.code}${meaning ? ` (${meaning})` : ''}`;
+};
+
+/** The JSON shape of an unexpected answer, without any of its values. */
+export function describeShape(body: unknown): string {
+  if (Array.isArray(body)) {
+    const kinds = [...new Set(body.map((v) => (v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v)))];
+    return body.length ? `a list of ${body.length} (${kinds.join(', ')})` : 'an empty list';
+  }
+  if (body && typeof body === 'object') {
+    const keys = Object.keys(body).slice(0, 10);
+    return keys.length ? `an object with ${keys.join(', ')}` : 'an empty object';
+  }
+  return body === null ? 'no body' : `a ${typeof body}`;
 }
 
 const isInvalidToken = (res: Raw) => {
@@ -142,7 +198,7 @@ export function createMoloniClient(rt: ProviderRuntime) {
     if (res.status >= 500) throw unreachable(write);
     const errors = errorList(res.body);
     if (errors) {
-      const detail = errors.map((e) => `${String(e.field ?? '')}:${String(e.code)}`).join(', ');
+      const detail = errors.map(describeError).join(', ');
       throw new EcommerceBillingError('BILLING_REQUEST_FAILED', `Moloni rejected ${path} (${detail}).`);
     }
     if (res.status < 200 || res.status >= 300) {

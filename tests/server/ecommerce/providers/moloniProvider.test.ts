@@ -336,6 +336,24 @@ describe('moloniProvider.issue (FR, default)', () => {
     expect(err.code).toBe('BILLING_CONFIG_MISSING');
   });
 
+  it('a rejected insert (Moloni string errors) is a plain failure, saying which field and why', async () => {
+    moloniFake(happyRoutes({ 'invoiceReceipts/insert': () => ['10 associated_documents', '1 document_set_id'] }));
+    const err: any = await fail(moloniProvider.issue(draft(), rt()));
+    expect(err.code).toBe('BILLING_REQUEST_FAILED');
+    expect(err.uncertain).toBe(false);
+    expect(err.message).toContain('associated_documents:10 (invalid document association)');
+    expect(err.message).toContain('document_set_id:1 (required)');
+  });
+
+  it('an accepted insert without a document id is uncertain and names the shape of the answer', async () => {
+    moloniFake(happyRoutes({ 'invoiceReceipts/insert': () => ({ valid: 1 }) }));
+    const err: any = await fail(moloniProvider.issue(draft(), rt()));
+    expect(err.uncertain).toBe(true);
+    expect(err.message).toBe(
+      'Moloni accepted invoiceReceipts/insert but its answer had no document id (it returned an object with valid).'
+    );
+  });
+
   it('FR payments not adding up to the total -> BILLING_REQUEST_FAILED, nothing inserted', async () => {
     const m = moloniFake(happyRoutes());
     const err: any = await fail(
