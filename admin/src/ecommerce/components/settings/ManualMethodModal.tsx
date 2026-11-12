@@ -18,7 +18,7 @@ import { Plus, Trash } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { LocaleSwitcher } from '../LocaleSwitcher';
 import { ActionConfirmModal } from '../ActionConfirmModal';
-import { MarketPicker, MarketCard } from './MarketPicker';
+import { FilteredMarkets, MarketPicker, MarketCard } from './MarketPicker';
 import { BracketRows } from './BracketRows';
 import { FillMarketsModal } from './FillMarketsModal';
 import CreateShippingMethod from '../../usecases/settings/createShippingMethod';
@@ -197,8 +197,12 @@ const ManualMethodModal = ({
   const errorText = (path: string) =>
     errors[path] ? t(`ecommerce.settings.errors.${errors[path]}`) : undefined;
 
+  /** Bumped when errors are shown: clears the market search so no market with an error is hidden. */
+  const [errorRound, setErrorRound] = useState(0);
+
   const showErrors = (map: ManualMethodErrors) => {
     setErrors(map);
+    setErrorRound((n) => n + 1);
     // The default-locale name is the only required name: show it if that is what failed.
     if (map[namePath(defaultLocale)]) setLocale(defaultLocale);
   };
@@ -389,58 +393,64 @@ const ManualMethodModal = ({
                   </Typography>
                 )}
 
-                <Flex direction="column" alignItems="stretch">
-                  {draft.markets.map((code) => {
-                    const rows = draft.brackets[code] ?? [];
-                    const marketError = errors[`rates.${code}`];
-                    return (
-                      <MarketCard key={code}>
-                        <Flex direction="column" alignItems="stretch" gap={2}>
-                          <Flex
-                            justifyContent="space-between"
-                            alignItems="center"
-                            gap={2}
-                            wrap="wrap"
-                          >
-                            <Typography variant="omega" fontWeight="bold" tag="h3">
-                              {countryName(code)}
-                            </Typography>
-                            <Flex gap={1}>
-                              <IconButton
-                                label={`${t('ecommerce.settings.manual.addRange')}: ${countryName(code)}`}
-                                variant="ghost"
-                                onClick={() => addRow(code)}
+                <FilteredMarkets codes={draft.markets} nameOf={countryName} resetKey={errorRound}>
+                  {(visibleMarkets) => (
+                    <Flex direction="column" alignItems="stretch">
+                      {visibleMarkets.map((code) => {
+                        const rows = draft.brackets[code] ?? [];
+                        const marketError = errors[`rates.${code}`];
+                        return (
+                          <MarketCard key={code}>
+                            <Flex direction="column" alignItems="stretch" gap={2}>
+                              <Flex
+                                justifyContent="space-between"
+                                alignItems="center"
+                                gap={2}
+                                wrap="wrap"
                               >
-                                <Plus />
-                              </IconButton>
-                              <IconButton
-                                label={`${t('ecommerce.settings.manual.removeMarket')}: ${countryName(code)}`}
-                                variant="ghost"
-                                onClick={() => setMarkets(draft.markets.filter((c) => c !== code))}
-                              >
-                                <Trash />
-                              </IconButton>
+                                <Typography variant="omega" fontWeight="bold" tag="h3">
+                                  {countryName(code)}
+                                </Typography>
+                                <Flex gap={1}>
+                                  <IconButton
+                                    label={`${t('ecommerce.settings.manual.addRange')}: ${countryName(code)}`}
+                                    variant="ghost"
+                                    onClick={() => addRow(code)}
+                                  >
+                                    <Plus />
+                                  </IconButton>
+                                  <IconButton
+                                    label={`${t('ecommerce.settings.manual.removeMarket')}: ${countryName(code)}`}
+                                    variant="ghost"
+                                    onClick={() =>
+                                      setMarkets(draft.markets.filter((c) => c !== code))
+                                    }
+                                  >
+                                    <Trash />
+                                  </IconButton>
+                                </Flex>
+                              </Flex>
+                              <BracketRows
+                                rows={rows}
+                                label={countryName(code)}
+                                errorText={(i, field) => errorText(`rates.${code}.${i}.${field}`)}
+                                onChange={(i, field, text) => updateRow(code, i, field, text)}
+                                onRemove={(i) => removeRow(code, i)}
+                              />
+                              {marketError && (
+                                <Typography variant="pi" textColor="danger600" role="alert">
+                                  {marketError === 'required'
+                                    ? t('ecommerce.settings.manual.rangesRequired')
+                                    : errorText(`rates.${code}`)}
+                                </Typography>
+                              )}
                             </Flex>
-                          </Flex>
-                          <BracketRows
-                            rows={rows}
-                            label={countryName(code)}
-                            errorText={(i, field) => errorText(`rates.${code}.${i}.${field}`)}
-                            onChange={(i, field, text) => updateRow(code, i, field, text)}
-                            onRemove={(i) => removeRow(code, i)}
-                          />
-                          {marketError && (
-                            <Typography variant="pi" textColor="danger600" role="alert">
-                              {marketError === 'required'
-                                ? t('ecommerce.settings.manual.rangesRequired')
-                                : errorText(`rates.${code}`)}
-                            </Typography>
-                          )}
-                        </Flex>
-                      </MarketCard>
-                    );
-                  })}
-                </Flex>
+                          </MarketCard>
+                        );
+                      })}
+                    </Flex>
+                  )}
+                </FilteredMarkets>
               </Flex>
             )}
           </Flex>

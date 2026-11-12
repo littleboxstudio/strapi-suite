@@ -38,7 +38,7 @@ import {
 } from '../../utils/integrationForm';
 import type { IntegrationView, LookupResult, ProviderField } from '../../settingsTypes';
 import { FieldHelpModal } from './FieldHelpModal';
-import { MarketPicker, MarketRow } from './MarketPicker';
+import { FilteredMarkets, MarketPicker, MarketRow } from './MarketPicker';
 
 /** All fields in two columns (one on narrow screens). */
 const FieldGrid = styled.div`
@@ -436,25 +436,29 @@ const IntegrationConfigModal = ({
               </Button>
             </Flex>
             {selected.length > 0 && (
-              <Box>
-                {selected.map((code) => (
-                  <MarketRow key={code}>
-                    <Typography variant="omega">{countryName(code)}</Typography>
-                    <IconButton
-                      label={`${t('ecommerce.settings.manual.removeMarket')}: ${countryName(code)}`}
-                      variant="ghost"
-                      onClick={() =>
-                        setValue(
-                          field.key,
-                          selected.filter((c) => c !== code)
-                        )
-                      }
-                    >
-                      <Trash />
-                    </IconButton>
-                  </MarketRow>
-                ))}
-              </Box>
+              <FilteredMarkets codes={selected} nameOf={countryName}>
+                {(visibleMarkets) => (
+                  <Box>
+                    {visibleMarkets.map((code) => (
+                      <MarketRow key={code}>
+                        <Typography variant="omega">{countryName(code)}</Typography>
+                        <IconButton
+                          label={`${t('ecommerce.settings.manual.removeMarket')}: ${countryName(code)}`}
+                          variant="ghost"
+                          onClick={() =>
+                            setValue(
+                              field.key,
+                              selected.filter((c) => c !== code)
+                            )
+                          }
+                        >
+                          <Trash />
+                        </IconButton>
+                      </MarketRow>
+                    ))}
+                  </Box>
+                )}
+              </FilteredMarkets>
             )}
           </Flex>
         );

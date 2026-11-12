@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import styled from 'styled-components';
 import { useIntl } from 'react-intl';
 import { Box, Button, Checkbox, Flex, Popover, TextInput, Typography } from '@strapi/design-system';
 import { Plus, Search } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
+import { filterMarketsByName, foldText } from '../../utils/markets';
 
 type Props = {
   /** The markets that can be picked, with their names. */
@@ -71,8 +72,7 @@ const Row = styled.label`
   }
 `;
 
-/** Folds accents and case, so "espanha" finds "Espanha" and "Sverige" finds "sverige". */
-const fold = (text: string) => text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const fold = foldText;
 
 /**
  * "Add markets" button with a searchable, multi-choice dropdown. The trigger does not list the
@@ -159,4 +159,64 @@ const MarketPicker = ({ options, selected, onChange, hasError = false }: Props) 
   );
 };
 
-export { MarketPicker, MarketCard, MarketRow };
+/** Search field shown above a list once it has more markets than this. */
+const SEARCH_FROM = 3;
+const SEARCH_DELAY_MS = 150;
+
+type FilteredMarketsProps = {
+  /** The chosen markets, in list order. */
+  codes: string[];
+  nameOf: (code: string) => string;
+  /** Changing it clears the search (e.g. so markets with errors are not hidden). */
+  resetKey?: unknown;
+  children: (visible: string[]) => ReactNode;
+};
+
+/**
+ * A full-width search by market name above the list, only with 3 or more markets; the filter
+ * runs 150 ms after the last key press.
+ */
+const FilteredMarkets = ({ codes, nameOf, resetKey, children }: FilteredMarketsProps) => {
+  const { formatMessage } = useIntl();
+  const t = (id: string) => formatMessage({ id: getTranslation(id) });
+  const [text, setText] = useState('');
+  const [query, setQuery] = useState('');
+
+  useEffect(() => {
+    const timer = setTimeout(() => setQuery(text), SEARCH_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [text]);
+
+  useEffect(() => {
+    setText('');
+    setQuery('');
+  }, [resetKey]);
+
+  const searchable = codes.length >= SEARCH_FROM;
+  const visible = searchable ? filterMarketsByName(codes, nameOf, query) : codes;
+
+  return (
+    <>
+      {searchable && (
+        <Box paddingBottom={4}>
+          <TextInput
+            startAction={<Search />}
+            aria-label={t('ecommerce.settings.manual.searchMarkets')}
+            placeholder={t('ecommerce.settings.manual.searchMarkets')}
+            value={text}
+            onChange={(e: any) => setText(e.target.value)}
+          />
+        </Box>
+      )}
+      {visible.length === 0 ? (
+        <Typography variant="omega" textColor="neutral600">
+          {t('ecommerce.settings.manual.noMarketMatch')}
+        </Typography>
+      ) : (
+        children(visible)
+      )}
+    </>
+  );
+};
+
+export { MarketPicker, MarketCard, MarketRow, FilteredMarkets };
