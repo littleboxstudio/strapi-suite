@@ -13,14 +13,45 @@ type Props = {
   hasError?: boolean;
 };
 
-/** One market's block: header/footer-coloured background, 20px between blocks. */
+/** One market's block: bordered, 20px between blocks. */
 const MarketCard = styled.div`
-  background: ${({ theme }) => theme.colors.neutral100};
+  border: 1px solid ${({ theme }) => theme.colors.neutral200};
   border-radius: ${({ theme }) => theme.borderRadius};
   padding: 8px 12px 12px;
 
   & + & {
     margin-top: 20px;
+  }
+`;
+
+/**
+ * One row of a plain market list: a line between rows; on hover (or keyboard focus) the row
+ * darkens and its action shows.
+ */
+const MarketRow = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
+  padding: 4px 12px;
+
+  & + & {
+    border-top: 1px solid ${({ theme }) => theme.colors.neutral200};
+  }
+
+  & > :last-child {
+    visibility: hidden;
+  }
+
+  &:hover,
+  &:focus-within {
+    background: ${({ theme }) => theme.colors.neutral100};
+  }
+
+  &:hover > :last-child,
+  &:focus-within > :last-child {
+    visibility: visible;
   }
 `;
 
@@ -130,4 +161,4 @@ const MarketPicker = ({ options, selected, onChange, hasError = false }: Props) 
   );
 };
 
-export { MarketPicker, MarketCard };
+export { MarketPicker, MarketCard, MarketRow };
