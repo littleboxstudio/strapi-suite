@@ -1,10 +1,11 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type DragEvent } from 'react';
 import { useIntl } from 'react-intl';
 import styled from 'styled-components';
 import { useNotification } from '@strapi/strapi/admin';
-import { Box, Button, Field, Flex, VisuallyHidden } from '@strapi/design-system';
+import { Box, Button, Field, Flex, Typography, VisuallyHidden } from '@strapi/design-system';
 import ConfirmModal from '../../../components/ConfirmModal';
 import { getTranslation } from '../../../core/utils/getTranslation';
+import ImageDrop from '../../illustrations/ImageDrop';
 import UploadStoreLogo from '../../usecases/settings/uploadStoreLogo';
 import RemoveStoreLogo from '../../usecases/settings/removeStoreLogo';
 import { LOGO_ACCEPT, buildLogoForm, logoFileError } from '../../utils/storeLogo';
@@ -12,10 +13,31 @@ import { extractErrorCode } from '../../utils/settingsForm';
 import type { StoreSettings } from '../../settingsTypes';
 
 const Thumb = styled.img`
-  max-width: 160px;
-  max-height: 48px;
+  max-width: 240px;
+  max-height: 96px;
   object-fit: contain;
 `;
+
+/** Dashed drop area: the logo (or an illustration), the instructions and the buttons. */
+const Zone = styled.div<{ $active: boolean }>`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 24px 16px;
+  border: 2px dashed
+    ${({ theme, $active }) => ($active ? theme.colors.primary600 : theme.colors.neutral300)};
+  border-radius: ${({ theme }) => theme.borderRadius};
+  background: ${({ theme, $active }) => ($active ? theme.colors.primary100 : 'transparent')};
+  text-align: center;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease;
+`;
+
+/** The dragged items include a file (not text or a link). */
+const hasFiles = (event: DragEvent) =>
+  Array.from(event.dataTransfer?.types ?? []).includes('Files');
 
 type Props = {
   logo: StoreSettings['logo'];
@@ -32,6 +54,10 @@ const StoreLogoField = ({ logo, readOnly, onChange }: Props) => {
   const [busy, setBusy] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [broken, setBroken] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  /** dragenter/dragleave also fire for children: count them so the highlight does not flicker. */
+  const depth = useRef(0);
+  const canDrop = !readOnly && !busy;
 
   const fail = (code: string) =>
     toggleNotification({ type: 'danger', message: t(`store.logo.errors.${code}`) });
@@ -75,31 +101,50 @@ const StoreLogoField = ({ logo, readOnly, onChange }: Props) => {
       <VisuallyHidden>
         <Field.Label>{t('store.logo')}</Field.Label>
       </VisuallyHidden>
-      {/* The hint goes under the title, 20px above the image or the upload button. */}
-      <Box paddingBottom="20px">
-        <Field.Hint />
-      </Box>
-      <Flex gap={3} alignItems="center" wrap="wrap">
-        {logo && !broken && (
+      <Zone
+        $active={dragging}
+        onDragEnter={(e) => {
+          if (!canDrop || !hasFiles(e)) return;
+          e.preventDefault();
+          depth.current += 1;
+          setDragging(true);
+        }}
+        onDragOver={(e) => {
+          if (!canDrop || !hasFiles(e)) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+        }}
+        onDragLeave={() => {
+          depth.current = Math.max(0, depth.current - 1);
+          if (depth.current === 0) setDragging(false);
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          depth.current = 0;
+          setDragging(false);
+          if (canDrop) pick(e.dataTransfer?.files?.[0]);
+        }}
+      >
+        {logo && !broken ? (
           <Thumb src={logo.url} alt={t('store.logoPreview')} onError={() => setBroken(true)} />
+        ) : (
+          <ImageDrop size={112} />
         )}
+        <Flex direction="column" gap={1}>
+          {!readOnly && (
+            <Typography variant="omega" fontWeight="semiBold">
+              {t(logo ? 'store.logo.dropReplace' : 'store.logo.drop')}
+            </Typography>
+          )}
+          <Field.Hint />
+        </Flex>
         {!readOnly && (
           <Flex gap={2}>
-            <Button
-              variant="secondary"
-              size="S"
-              loading={busy}
-              onClick={() => input.current?.click()}
-            >
-              {t(logo ? 'store.logo.replace' : 'store.logo.upload')}
+            <Button variant="secondary" loading={busy} onClick={() => input.current?.click()}>
+              {t(logo ? 'store.logo.replace' : 'store.logo.select')}
             </Button>
             {logo && (
-              <Button
-                variant="danger-light"
-                size="S"
-                disabled={busy}
-                onClick={() => setConfirmRemove(true)}
-              >
+              <Button variant="danger-light" disabled={busy} onClick={() => setConfirmRemove(true)}>
                 {t('store.logo.remove')}
               </Button>
             )}
@@ -114,7 +159,7 @@ const StoreLogoField = ({ logo, readOnly, onChange }: Props) => {
             onChange={(e) => pick(e.target.files?.[0])}
           />
         </Box>
-      </Flex>
+      </Zone>
       <ConfirmModal
         open={confirmRemove}
         title={t('store.logo.removeConfirm.title')}

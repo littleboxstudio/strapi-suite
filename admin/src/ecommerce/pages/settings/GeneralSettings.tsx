@@ -244,35 +244,6 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
             {textField('storeName', { required: true })}
           </Grid.Item>
           <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
-            {textField('storefrontUrl', {
-              placeholder: 'https://shop.example.com',
-              hint: t('ecommerce.settings.store.storefrontUrl.hint'),
-            })}
-          </Grid.Item>
-          <Grid.Item col={4} s={12} direction="column" alignItems="stretch">
-            {textField('supportEmail', {
-              type: 'email',
-              placeholder: 'support@example.com',
-              hint: t('ecommerce.settings.store.supportEmail.hint'),
-            })}
-          </Grid.Item>
-          <Grid.Item col={4} s={12} direction="column" alignItems="stretch">
-            {textField('brandColor', {
-              required: true,
-              placeholder: '#4945ff',
-              hint: t('ecommerce.settings.store.brandColor.hint'),
-              start: (
-                <ColorSwatch
-                  type="color"
-                  aria-label={t('ecommerce.settings.store.brandColor.picker')}
-                  value={isValidHexColor(brandColor) ? brandColor.toLowerCase() : '#000000'}
-                  disabled={readOnly}
-                  onChange={(e) => update('brandColor', e.target.value)}
-                />
-              ),
-            })}
-          </Grid.Item>
-          <Grid.Item col={4} s={12} direction="column" alignItems="stretch">
             <Field.Root name="timezone" required error={errorText('timezone')}>
               <Field.Label>{t('ecommerce.settings.store.timezone')}</Field.Label>
               <SingleSelect
@@ -289,6 +260,35 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
               </SingleSelect>
               <Field.Error />
             </Field.Root>
+          </Grid.Item>
+          <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
+            {textField('supportEmail', {
+              type: 'email',
+              placeholder: 'support@example.com',
+              hint: t('ecommerce.settings.store.supportEmail.hint'),
+            })}
+          </Grid.Item>
+          <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
+            {textField('brandColor', {
+              required: true,
+              placeholder: '#4945ff',
+              hint: t('ecommerce.settings.store.brandColor.hint'),
+              start: (
+                <ColorSwatch
+                  type="color"
+                  aria-label={t('ecommerce.settings.store.brandColor.picker')}
+                  value={isValidHexColor(brandColor) ? brandColor.toLowerCase() : '#000000'}
+                  disabled={readOnly}
+                  onChange={(e) => update('brandColor', e.target.value)}
+                />
+              ),
+            })}
+          </Grid.Item>
+          <Grid.Item col={12} direction="column" alignItems="stretch">
+            {textField('storefrontUrl', {
+              placeholder: 'https://shop.example.com',
+              hint: t('ecommerce.settings.store.storefrontUrl.hint'),
+            })}
           </Grid.Item>
         </Grid.Root>
       </Section>
