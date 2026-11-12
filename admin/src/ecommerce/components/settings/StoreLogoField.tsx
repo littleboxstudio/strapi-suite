@@ -76,6 +76,12 @@ const StoreLogoField = ({ logo, readOnly, onChange }: Props) => {
   return (
     <Field.Root name="logo" hint={t('store.logo.hint')}>
       <Field.Label>{t('store.logo')}</Field.Label>
+      {/* With a logo the hint goes under the title, 20px above the image. */}
+      {logo && (
+        <Box paddingBottom="20px">
+          <Field.Hint />
+        </Box>
+      )}
       <Flex gap={3} alignItems="center" wrap="wrap">
         {logo && !broken && (
           <Thumb src={logo.url} alt={t('store.logoPreview')} onError={() => setBroken(true)} />
@@ -102,7 +108,7 @@ const StoreLogoField = ({ logo, readOnly, onChange }: Props) => {
           />
         </Box>
       </Flex>
-      <Field.Hint />
+      {!logo && <Field.Hint />}
       <ConfirmModal
         open={confirmRemove}
         title={t('store.logo.removeConfirm.title')}
