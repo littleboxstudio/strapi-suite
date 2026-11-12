@@ -191,7 +191,6 @@
   "littlebox-strapi-suite.ecommerce.settings.module.confirm.title": "Desativar o módulo E-commerce?",
   "littlebox-strapi-suite.ecommerce.settings.module.confirm.text": "A loja fecha de imediato: o site deixa de mostrar produtos e de receber encomendas, e as notificações de pagamento do Stripe são recusadas até voltar a ativá-lo. Nenhum dado é apagado.",
   "littlebox-strapi-suite.ecommerce.settings.store.title": "Loja",
-  "littlebox-strapi-suite.ecommerce.settings.storefront.title": "Loja online",
   "littlebox-strapi-suite.ecommerce.settings.region.title": "Região",
   "littlebox-strapi-suite.ecommerce.settings.store.storeName": "Nome da loja",
   "littlebox-strapi-suite.ecommerce.settings.store.logo": "Logótipo",

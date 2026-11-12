@@ -251,13 +251,6 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
             })}
           </Grid.Item>
           <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
-            <StoreLogoField
-              logo={logo}
-              readOnly={readOnly}
-              onChange={(saved) => setLogo(saved.logo)}
-            />
-          </Grid.Item>
-          <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
             {textField('brandColor', {
               required: true,
               placeholder: '#4945ff',
@@ -273,16 +266,18 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
               ),
             })}
           </Grid.Item>
-        </Grid.Root>
-      </Section>
-
-      <Section title={t('ecommerce.settings.storefront.title')}>
-        <Grid.Root gap={5}>
-          <Grid.Item col={12} direction="column" alignItems="stretch">
+          <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
             {textField('storefrontUrl', {
               placeholder: 'https://shop.example.com',
               hint: t('ecommerce.settings.store.storefrontUrl.hint'),
             })}
+          </Grid.Item>
+          <Grid.Item col={12} direction="column" alignItems="stretch">
+            <StoreLogoField
+              logo={logo}
+              readOnly={readOnly}
+              onChange={(saved) => setLogo(saved.logo)}
+            />
           </Grid.Item>
         </Grid.Root>
       </Section>

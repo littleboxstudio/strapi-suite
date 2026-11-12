@@ -407,7 +407,6 @@
   "littlebox-strapi-suite.ecommerce.settings.module.confirm.title": "Disable the E-commerce module?",
   "littlebox-strapi-suite.ecommerce.settings.module.confirm.text": "The store closes straight away: the site cannot show products or take orders, and Stripe payment notifications are refused until you enable it again. No data is deleted.",
   "littlebox-strapi-suite.ecommerce.settings.store.title": "Store",
-  "littlebox-strapi-suite.ecommerce.settings.storefront.title": "Storefront",
   "littlebox-strapi-suite.ecommerce.settings.region.title": "Region",
   "littlebox-strapi-suite.ecommerce.settings.store.storeName": "Store name",
   "littlebox-strapi-suite.ecommerce.settings.store.logo": "Logo",
