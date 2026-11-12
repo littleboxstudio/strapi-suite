@@ -389,6 +389,30 @@ describe('markets field', () => {
   });
 });
 
+describe('validateIntegrationForm', () => {
+  const fields: ProviderField[] = [
+    { key: 'paymentSuccessPath', type: 'string', format: 'path', required: true, label: 'x' },
+    { key: 'name', type: 'string', required: false, label: 'y' },
+  ];
+  it('flags an invalid path', () => {
+    expect(validateIntegrationForm(fields, { paymentSuccessPath: '//x', name: 'a b' })).toEqual({
+      paymentSuccessPath: 'invalid_path',
+    });
+  });
+  it('flags a path with a query or a fragment', () => {
+    expect(validateIntegrationForm(fields, { paymentSuccessPath: '/ok?x=1', name: '' })).toEqual({
+      paymentSuccessPath: 'invalid_path',
+    });
+    expect(validateIntegrationForm(fields, { paymentSuccessPath: '/ok#a', name: '' })).toEqual({
+      paymentSuccessPath: 'invalid_path',
+    });
+  });
+  it('accepts a valid or blank path', () => {
+    expect(validateIntegrationForm(fields, { paymentSuccessPath: '/ok', name: '' })).toEqual({});
+    expect(validateIntegrationForm(fields, { paymentSuccessPath: '  ', name: '' })).toEqual({});
+  });
+});
+
 describe('showsAsRequired', () => {
   it('a required text field with a default is not shown as required (blank restores it)', () => {
     const base = { key: 'k', label: 'x' };
