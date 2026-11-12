@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import {
@@ -25,6 +25,7 @@ import FetchShippingMethods from '../../usecases/settings/fetchShippingMethods';
 import DeleteShippingMethod from '../../usecases/settings/deleteShippingMethod';
 import FetchSettingsLocales from '../../usecases/settings/fetchSettingsLocales';
 import { ratesSummary } from '../../utils/manualMethodForm';
+import { countryOptions } from '../../utils/settingsForm';
 import { ManualMethodModal } from './ManualMethodModal';
 import type { EcommerceLocales } from '../../types';
 import type { ManualMethod } from '../../settingsTypes';
@@ -37,7 +38,7 @@ type Editing = { method: ManualMethod | null };
  */
 type Props = {
   readOnly: boolean;
-  /** The store markets (TEMP: Task 5 rewrites this table). */
+  /** The store markets (country codes). */
   markets: string[];
 };
 
@@ -108,7 +109,9 @@ const ManualMethodsTable = ({ readOnly, markets }: Props) => {
 
   const canEdit = !readOnly && locales !== null;
 
-  // A method needs a price in at least one zone, so adding one waits for a zone.
+  const countries = useMemo(() => countryOptions(uiLocale), [uiLocale]);
+
+  // A method needs prices for at least one market, so adding one waits for the store markets.
   const addButton = (variant: 'default' | 'secondary') =>
     !canEdit || markets.length === 0 ? null : (
       <Button variant={variant} startIcon={<Plus />} onClick={() => setEditing({ method: null })}>
@@ -134,7 +137,7 @@ const ManualMethodsTable = ({ readOnly, markets }: Props) => {
           <Typography variant="omega" textColor="neutral600">
             {t(
               markets.length === 0
-                ? 'ecommerce.settings.zones.createFirst'
+                ? 'ecommerce.settings.manual.noStoreMarkets'
                 : 'ecommerce.settings.manualMethods.empty'
             )}
           </Typography>
@@ -146,7 +149,8 @@ const ManualMethodsTable = ({ readOnly, markets }: Props) => {
     const nameOf = (m: ManualMethod) =>
       (locales && m.name[locales.defaultLocale]) || Object.values(m.name).find((n) => n) || '';
 
-    const summaries = new Map(methods.map((m) => [m.id, ratesSummary(m, uiLocale, (code) => code)]));
+    const countryName = (code: string) => countries.find((c) => c.code === code)?.name ?? code;
+    const summaries = new Map(methods.map((m) => [m.id, ratesSummary(m, uiLocale, countryName)]));
 
     return (
       <Flex direction="column" alignItems="stretch" gap={3}>
@@ -176,7 +180,7 @@ const ManualMethodsTable = ({ readOnly, markets }: Props) => {
                     <Typography textColor="neutral800">{summaries.get(m.id)}</Typography>
                   ) : (
                     <Typography textColor="neutral600">
-                      {t('ecommerce.settings.manualMethods.noZones')}
+                      {t('ecommerce.settings.manual.noMarkets')}
                     </Typography>
                   )}
                 </Td>

@@ -20,7 +20,7 @@ import type { IntegrationView, ProviderCategory } from '../../settingsTypes';
 type Props = {
   category: ProviderCategory;
   readOnly: boolean;
-  /** Carriers only: the store markets (TEMP: Task 5 rewires this). */
+  /** Carriers only: the store markets (country codes). */
   markets?: string[];
 };
 

@@ -88,8 +88,8 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
   const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [logo, setLogo] = useState<StoreSettings['logo']>(null);
-  /** Zones named by a `MARKET_IN_USE` error, shown in the Markets field. */
-  const [marketZones, setMarketZones] = useState<string[]>([]);
+  /** Shipping methods and carriers named by a `MARKET_IN_USE` error, shown in the Markets field. */
+  const [marketUsers, setMarketUsers] = useState<string[]>([]);
 
   const countries = useMemo(() => countryOptions(locale), [locale]);
   const timezones = useMemo(() => timezoneOptions(form?.timezone ?? ''), [form?.timezone]);
@@ -142,12 +142,12 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
 
   const errorText = (field: keyof StoreForm) =>
     errors[field]
-      ? t(`ecommerce.settings.errors.${errors[field]}`, { zones: marketZones.join(', ') })
+      ? t(`ecommerce.settings.errors.${errors[field]}`, { methods: marketUsers.join(', ') })
       : undefined;
 
   const showErrors = (list: SettingsFieldError[]) => {
     setErrors(toErrorMap(list));
-    setMarketZones(marketInUseNames(list));
+    setMarketUsers(marketInUseNames(list));
     toggleNotification({ type: 'warning', message: t('ecommerce.settings.errors.fix') });
   };
 
@@ -297,9 +297,9 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
                 hasError={!!errors.timezone}
                 onChange={(value: string | number) => update('timezone', String(value))}
               >
-                {timezones.map((zone) => (
-                  <SingleSelectOption key={zone} value={zone}>
-                    {zone}
+                {timezones.map((tz) => (
+                  <SingleSelectOption key={tz} value={tz}>
+                    {tz}
                   </SingleSelectOption>
                 ))}
               </SingleSelect>
