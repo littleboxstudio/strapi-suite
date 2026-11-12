@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { useIntl } from 'react-intl';
 import styled, { useTheme } from 'styled-components';
 import { getTranslation } from '../../../core/utils/getTranslation';
@@ -8,6 +9,7 @@ import {
   orderStatusBadge,
   paymentStatusBadge,
   type BadgeColors,
+  type BadgeVariant,
   type StatusBadge,
 } from '../../utils/statusBadges';
 import type { FulfillmentStatus, OrderStatus, PaymentStatus } from '../../orderTypes';
@@ -28,14 +30,19 @@ const Pill = styled.span<{ $colors: BadgeColors }>`
   white-space: nowrap;
 `;
 
-const TranslatedBadge = ({ badge, status }: { badge: StatusBadge; status: string }) => {
-  const { formatMessage } = useIntl();
+/** A status badge in one of the readable colour pairs, for the current theme. */
+const ToneBadge = ({ variant, children }: { variant: BadgeVariant; children: ReactNode }) => {
   const theme = useTheme();
   const palette = BADGE_COLORS[isDarkColor(theme?.colors?.neutral0) ? 'dark' : 'light'];
+  return <Pill $colors={palette[variant]}>{children}</Pill>;
+};
+
+const TranslatedBadge = ({ badge, status }: { badge: StatusBadge; status: string }) => {
+  const { formatMessage } = useIntl();
   return (
-    <Pill $colors={palette[badge.variant]}>
+    <ToneBadge variant={badge.variant}>
       {badge.labelKey ? formatMessage({ id: getTranslation(badge.labelKey) }) : status}
-    </Pill>
+    </ToneBadge>
   );
 };
 
@@ -51,4 +58,4 @@ const FulfillmentStatusBadge = ({ status }: { status: FulfillmentStatus }) => (
   <TranslatedBadge badge={fulfillmentStatusBadge(status)} status={status} />
 );
 
-export { OrderStatusBadge, PaymentStatusBadge, FulfillmentStatusBadge };
+export { ToneBadge, OrderStatusBadge, PaymentStatusBadge, FulfillmentStatusBadge };

@@ -103,6 +103,28 @@ export function invoiceActions(
   return actions;
 }
 
+/** Actions that live in the document's detail modal, next to the explanation, not in the row. */
+const DETAIL_ACTIONS: InvoiceAction[] = ['RECONCILE', 'MARK_FAILED'];
+
+export const isDetailAction = (action: InvoiceAction) => DETAIL_ACTIONS.includes(action);
+
+/**
+ * The row has more than its badge to tell (an explanation of the status, a warning, or the
+ * Reconcile / Mark as failed actions): the row opens a modal with it.
+ */
+export function invoiceHasDetails(
+  invoice: Pick<InvoiceView, 'status' | 'error' | 'warnings'>,
+  actions: InvoiceAction[]
+): boolean {
+  return (
+    invoice.status === 'UNCERTAIN' ||
+    invoice.status === 'PENDING' ||
+    (invoice.status === 'FAILED' && !!invoice.error) ||
+    invoice.warnings.length > 0 ||
+    actions.some(isDetailAction)
+  );
+}
+
 /** Some payment still has an amount to invoice (archiving does not require it). */
 export function hasUninvoicedPayments(payments: { invoice?: { invoiceable: number } | null }[]): boolean {
   return payments.some((p) => (p.invoice?.invoiceable ?? 0) > 0);
