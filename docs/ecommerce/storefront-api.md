@@ -120,8 +120,9 @@ integer cents (EUR), VAT included.
 Shipping destinations: the store sells to its **markets** (Settings → General). A manual shipping
 method chooses the markets it serves and has weight brackets per market; a carrier (e.g. CTT)
 chooses the markets it serves and its price comes from the carrier API. The order weight is the
-sum of each variant's weight times its quantity; a method is offered only when that weight is
-within its last bracket for the destination country.
+sum of each variant's weight times its quantity; a method is offered only when that weight does
+not exceed the upper limit of its last bracket for the destination country (a last bracket with no
+limit always covers it).
 
 - A country outside the markets: `POST /cart/quote` with a `shippingMethod` →
   `400` with `invalid_country` on `shipping.country`; `POST /orders` → `400` with
