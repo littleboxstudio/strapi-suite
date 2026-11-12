@@ -1477,7 +1477,6 @@
   "littlebox-strapi-suite.ecommerce.orders.invoices.issue.error": "The invoice could not be issued.",
   "littlebox-strapi-suite.ecommerce.orders.invoices.issue.errorNext": "Nothing was issued. Fix the cause (usually in the billing provider or in its settings here) and issue again.",
   "littlebox-strapi-suite.ecommerce.orders.invoices.issue.errorTitle": "Invoice not issued",
-  "littlebox-strapi-suite.ecommerce.orders.invoices.issue.providerMessage": "Message from the billing provider",
   "littlebox-strapi-suite.ecommerce.orders.invoices.issue.previewError": "The invoice preview could not be loaded.",
   "littlebox-strapi-suite.ecommerce.orders.invoices.issue.uncertain": "The billing provider did not answer, so it is not known whether the invoice was issued. The payment stays reserved for this invoice: use \"Reconcile\" in the invoices list to look it up at the provider by its reference. Do not issue it again by hand.",
   "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.title": "Credit note for {number}",
