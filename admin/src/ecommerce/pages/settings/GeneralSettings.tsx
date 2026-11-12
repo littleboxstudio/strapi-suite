@@ -18,6 +18,7 @@ import { WarningCircle } from '@strapi/icons';
 import { StoreLogoField } from '../../components/settings/StoreLogoField';
 import { MarketsTable } from '../../components/settings/MarketsTable';
 import { ModuleStatusSection } from '../../components/settings/ModuleStatusSection';
+import { HeaderActions } from '../../components/HeaderActions';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchStoreSettings from '../../usecases/settings/fetchStoreSettings';
 import FetchIntegrations from '../../usecases/settings/fetchIntegrations';
@@ -319,11 +320,11 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
       </Section>
 
       {!readOnly && (
-        <Flex justifyContent="flex-end">
+        <HeaderActions>
           <Button onClick={save} loading={saving}>
             {t('ecommerce.settings.save')}
           </Button>
-        </Flex>
+        </HeaderActions>
       )}
     </Flex>
   );
