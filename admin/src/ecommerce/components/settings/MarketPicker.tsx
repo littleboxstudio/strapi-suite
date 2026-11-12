@@ -26,7 +26,7 @@ const MarketCard = styled.div`
 
 /**
  * One row of a plain market list: a line between rows; on hover (or keyboard focus) the row
- * darkens and its action shows.
+ * is highlighted and its action shows.
  */
 const MarketRow = styled.div`
   display: flex;
@@ -44,9 +44,10 @@ const MarketRow = styled.div`
     visibility: hidden;
   }
 
+  /* Same hover as the design-system options and menu items. */
   &:hover,
   &:focus-within {
-    background: ${({ theme }) => theme.colors.neutral100};
+    background: ${({ theme }) => theme.colors.primary100};
   }
 
   &:hover > :last-child,
