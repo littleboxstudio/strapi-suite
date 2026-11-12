@@ -449,7 +449,7 @@
   "littlebox-strapi-suite.ecommerce.settings.errors.invalid_color": "Enter a colour in the #RRGGBB format.",
   "littlebox-strapi-suite.ecommerce.settings.errors.invalid_timezone": "Choose a valid time zone.",
   "littlebox-strapi-suite.ecommerce.settings.errors.invalid_country": "Choose valid countries.",
-  "littlebox-strapi-suite.ecommerce.settings.errors.MARKET_IN_USE": "Remove these countries from the shipping methods first: {methods}.",
+  "littlebox-strapi-suite.ecommerce.settings.errors.MARKET_IN_USE": "These shipping methods still use the countries you removed: {methods}.",
   "littlebox-strapi-suite.ecommerce.settings.errors.too_long": "This value is too long.",
   "littlebox-strapi-suite.ecommerce.settings.errors.invalid_email": "Enter a valid email address.",
   "littlebox-strapi-suite.ecommerce.settings.errors.invalid_path": "Enter a path that starts with /, e.g. /checkout/success.",
