@@ -5,7 +5,7 @@ import {
   countryOptions,
   extractErrorCode,
   isValidHexColor,
-  marketInUseZones,
+  marketInUseNames,
   isValidHttpUrl,
   normalizeCountries,
   storeFormFromSettings,
@@ -157,15 +157,15 @@ describe('store form', () => {
   });
 });
 
-describe('marketInUseZones', () => {
-  it('returns the zone names of the MARKET_IN_USE errors', () => {
+describe('marketInUseNames', () => {
+  it('returns the method and provider names of the MARKET_IN_USE errors', () => {
     expect(
-      marketInUseZones([
-        { path: 'markets', code: 'MARKET_IN_USE', detail: 'Ibéria' },
+      marketInUseNames([
+        { path: 'markets', code: 'MARKET_IN_USE', detail: 'Correio' },
         { path: 'x', code: 'required' },
       ])
-    ).toEqual(['Ibéria']);
-    expect(marketInUseZones([])).toEqual([]);
+    ).toEqual(['Correio']);
+    expect(marketInUseNames([])).toEqual([]);
   });
 });
 

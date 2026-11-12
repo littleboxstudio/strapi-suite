@@ -27,7 +27,7 @@ import FetchSettingsLocales from '../../usecases/settings/fetchSettingsLocales';
 import { ratesSummary } from '../../utils/manualMethodForm';
 import { ManualMethodModal } from './ManualMethodModal';
 import type { EcommerceLocales } from '../../types';
-import type { ManualMethod, ShippingZone } from '../../settingsTypes';
+import type { ManualMethod } from '../../settingsTypes';
 
 type Editing = { method: ManualMethod | null };
 
@@ -37,11 +37,11 @@ type Editing = { method: ManualMethod | null };
  */
 type Props = {
   readOnly: boolean;
-  /** The shipping zones; a new list (a zone changed) refetches the methods. */
-  zones: ShippingZone[];
+  /** The store markets (TEMP: Task 5 rewrites this table). */
+  markets: string[];
 };
 
-const ManualMethodsTable = ({ readOnly, zones }: Props) => {
+const ManualMethodsTable = ({ readOnly, markets }: Props) => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) =>
@@ -68,7 +68,6 @@ const ManualMethodsTable = ({ readOnly, zones }: Props) => {
     };
   }, []);
 
-  // Deleting a zone removes its prices from the methods, so reload them when the zones change.
   useEffect(() => {
     let cancelled = false;
     new FetchShippingMethods()
@@ -82,7 +81,7 @@ const ManualMethodsTable = ({ readOnly, zones }: Props) => {
     return () => {
       cancelled = true;
     };
-  }, [zones]);
+  }, [markets]);
 
   const remove = async (method: ManualMethod) => {
     try {
@@ -111,7 +110,7 @@ const ManualMethodsTable = ({ readOnly, zones }: Props) => {
 
   // A method needs a price in at least one zone, so adding one waits for a zone.
   const addButton = (variant: 'default' | 'secondary') =>
-    !canEdit || zones.length === 0 ? null : (
+    !canEdit || markets.length === 0 ? null : (
       <Button variant={variant} startIcon={<Plus />} onClick={() => setEditing({ method: null })}>
         {t('ecommerce.settings.manualMethods.add')}
       </Button>
@@ -134,7 +133,7 @@ const ManualMethodsTable = ({ readOnly, zones }: Props) => {
           <EmptyShipping />
           <Typography variant="omega" textColor="neutral600">
             {t(
-              zones.length === 0
+              markets.length === 0
                 ? 'ecommerce.settings.zones.createFirst'
                 : 'ecommerce.settings.manualMethods.empty'
             )}
@@ -147,7 +146,7 @@ const ManualMethodsTable = ({ readOnly, zones }: Props) => {
     const nameOf = (m: ManualMethod) =>
       (locales && m.name[locales.defaultLocale]) || Object.values(m.name).find((n) => n) || '';
 
-    const summaries = new Map(methods.map((m) => [m.id, ratesSummary(m, zones, uiLocale)]));
+    const summaries = new Map(methods.map((m) => [m.id, ratesSummary(m, uiLocale, (code) => code)]));
 
     return (
       <Flex direction="column" alignItems="stretch" gap={3}>
@@ -229,7 +228,7 @@ const ManualMethodsTable = ({ readOnly, zones }: Props) => {
           method={editing.method}
           locales={locales.locales}
           defaultLocale={locales.defaultLocale}
-          zones={zones}
+          markets={markets}
           onClose={() => setEditing(null)}
           onSaved={onSaved}
         />

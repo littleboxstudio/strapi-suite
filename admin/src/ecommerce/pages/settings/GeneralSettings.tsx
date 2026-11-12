@@ -28,7 +28,7 @@ import {
   countryOptions,
   extractErrorCode,
   isValidHexColor,
-  marketInUseZones,
+  marketInUseNames,
   storeFormFromSettings,
   timezoneOptions,
   validateStoreForm,
@@ -147,7 +147,7 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
 
   const showErrors = (list: SettingsFieldError[]) => {
     setErrors(toErrorMap(list));
-    setMarketZones(marketInUseZones(list));
+    setMarketZones(marketInUseNames(list));
     toggleNotification({ type: 'warning', message: t('ecommerce.settings.errors.fix') });
   };
 

@@ -28,7 +28,7 @@ import {
   type ManualMethodDraft,
   type ManualMethodErrors,
 } from '../../utils/manualMethodForm';
-import type { ManualMethod, ShippingZone } from '../../settingsTypes';
+import type { ManualMethod } from '../../settingsTypes';
 
 /** Mount it only while open: the draft is initialised once, from the props. */
 type Props = {
@@ -36,13 +36,13 @@ type Props = {
   method: ManualMethod | null;
   locales: { code: string; name: string }[];
   defaultLocale: string;
-  /** One price per zone; without zones the method cannot be saved. */
-  zones: ShippingZone[];
+  /** The store markets; without any the method cannot be saved. TEMP (Task 5 rewrites this modal). */
+  markets: string[];
   onClose: () => void;
   onSaved: (method: ManualMethod) => void;
 };
 
-const ManualMethodModal = ({ method, locales, defaultLocale, zones, onClose, onSaved }: Props) => {
+const ManualMethodModal = ({ method, locales, defaultLocale, markets, onClose, onSaved }: Props) => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) =>
@@ -51,8 +51,8 @@ const ManualMethodModal = ({ method, locales, defaultLocale, zones, onClose, onS
 
   const [draft, setDraft] = useState<ManualMethodDraft>(() =>
     method
-      ? manualMethodToDraft(method, codes, uiLocale, zones)
-      : emptyManualMethodDraft(codes, zones)
+      ? manualMethodToDraft(method, codes, uiLocale, markets)
+      : emptyManualMethodDraft(codes)
   );
   const [errors, setErrors] = useState<ManualMethodErrors>({});
   const [locale, setLocale] = useState(defaultLocale);
@@ -76,10 +76,15 @@ const ManualMethodModal = ({ method, locales, defaultLocale, zones, onClose, onS
     clearError(errorPath);
   };
 
-  const updateRate = (zoneId: string, text: string) => {
-    setDraft((d) => ({ ...d, rates: { ...d.rates, [zoneId]: text } }));
-    clearError(`rates.${zoneId}`);
-    clearError('rates');
+  // TEMP: one flat price per market (a single no-limit bracket) until Task 5 adds the bracket editor.
+  const updateRate = (code: string, text: string) => {
+    setDraft((d) => ({
+      ...d,
+      markets: d.markets.includes(code) ? d.markets : [...d.markets, code],
+      brackets: { ...d.brackets, [code]: [{ upTo: '', price: text }] },
+    }));
+    clearError(`rates.${code}.0.price`);
+    clearError('markets');
   };
 
   const errorText = (path: string) =>
@@ -92,7 +97,7 @@ const ManualMethodModal = ({ method, locales, defaultLocale, zones, onClose, onS
   };
 
   const save = async () => {
-    if (saving || zones.length === 0) return;
+    if (saving || markets.length === 0) return;
     const result = draftToManualMethodInput(draft, defaultLocale);
     if (!result.input) {
       showErrors(result.errors);
@@ -108,7 +113,7 @@ const ManualMethodModal = ({ method, locales, defaultLocale, zones, onClose, onS
     } catch (err) {
       const fieldErrors = extractFieldErrors(err);
       if (fieldErrors) {
-        showErrors(manualMethodErrorMap(fieldErrors, zones));
+        showErrors(manualMethodErrorMap(fieldErrors));
         toggleNotification({ type: 'warning', message: t('ecommerce.settings.errors.fix') });
       } else {
         toggleNotification({ type: 'danger', message: t('ecommerce.settings.saveError') });
@@ -182,7 +187,7 @@ const ManualMethodModal = ({ method, locales, defaultLocale, zones, onClose, onS
                   {t('ecommerce.settings.manualMethods.fields.rates.hint')}
                 </Typography>
               </Flex>
-              {zones.length === 0 ? (
+              {markets.length === 0 ? (
                 <Box background="warning100" borderColor="warning200" hasRadius padding={4}>
                   <Typography textColor="neutral800">
                     {t('ecommerce.settings.zones.createFirst')}
@@ -190,16 +195,16 @@ const ManualMethodModal = ({ method, locales, defaultLocale, zones, onClose, onS
                 </Box>
               ) : (
                 <Grid.Root gap={4}>
-                  {zones.map((zone) => {
-                    const id = String(zone.id);
+                  {markets.map((id) => {
+                    const path = `rates.${id}.0.price`;
                     return (
                       <Grid.Item key={id} col={6} s={12} direction="column" alignItems="stretch">
-                        <Field.Root name={`rates.${id}`} error={errorText(`rates.${id}`)}>
-                          <Field.Label>{zone.name}</Field.Label>
+                        <Field.Root name={path} error={errorText(path)}>
+                          <Field.Label>{id}</Field.Label>
                           <TextInput
                             inputMode="decimal"
-                            value={draft.rates[id] ?? ''}
-                            hasError={!!errors[`rates.${id}`] || !!ratesError}
+                            value={draft.brackets[id]?.[0]?.price ?? ''}
+                            hasError={!!errors[path] || !!ratesError}
                             onChange={(e: any) => updateRate(id, e.target.value)}
                           />
                           <Field.Error />
@@ -263,7 +268,7 @@ const ManualMethodModal = ({ method, locales, defaultLocale, zones, onClose, onS
           <Button variant="tertiary" onClick={onClose}>
             {t('ecommerce.settings.cancel')}
           </Button>
-          <Button onClick={save} loading={saving} disabled={zones.length === 0}>
+          <Button onClick={save} loading={saving} disabled={markets.length === 0}>
             {t('ecommerce.settings.save')}
           </Button>
         </Modal.Footer>

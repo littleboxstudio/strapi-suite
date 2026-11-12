@@ -3,27 +3,25 @@ import { useIntl } from 'react-intl';
 import { Flex, Loader, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchStoreSettings from '../../usecases/settings/fetchStoreSettings';
-import FetchShippingZones from '../../usecases/settings/fetchShippingZones';
-import { ShippingZonesSection } from '../../components/settings/ShippingZonesSection';
 import { IntegrationsSection } from './IntegrationsSection';
-import type { ShippingZone } from '../../settingsTypes';
 
-/** Shipping tab: the zones, then the carriers (the manual one holds its methods table). */
+/** Shipping tab: the carriers (the manual one holds its methods table). */
 const ShippingSettings = ({ readOnly }: { readOnly: boolean }) => {
   const { formatMessage } = useIntl();
   const t = (id: string) => formatMessage({ id: getTranslation(id) });
 
   const [markets, setMarkets] = useState<string[]>([]);
-  const [zones, setZones] = useState<ShippingZone[] | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([new FetchStoreSettings().execute(), new FetchShippingZones().execute()])
-      .then(([store, list]) => {
+    new FetchStoreSettings()
+      .execute()
+      .then((store) => {
         if (cancelled) return;
         setMarkets(store.markets ?? []);
-        setZones(list);
+        setLoaded(true);
       })
       .catch(() => {
         if (!cancelled) setLoadError(true);
@@ -36,7 +34,7 @@ const ShippingSettings = ({ readOnly }: { readOnly: boolean }) => {
   if (loadError) {
     return <Typography textColor="danger600">{t('ecommerce.settings.loadError')}</Typography>;
   }
-  if (!zones) {
+  if (!loaded) {
     return (
       <Flex justifyContent="center" padding={8}>
         <Loader />
@@ -46,8 +44,7 @@ const ShippingSettings = ({ readOnly }: { readOnly: boolean }) => {
 
   return (
     <Flex direction="column" alignItems="stretch" gap={6}>
-      <ShippingZonesSection zones={zones} markets={markets} readOnly={readOnly} onChange={setZones} />
-      <IntegrationsSection category="carrier" readOnly={readOnly} zones={zones} />
+      <IntegrationsSection category="carrier" readOnly={readOnly} markets={markets} />
     </Flex>
   );
 };

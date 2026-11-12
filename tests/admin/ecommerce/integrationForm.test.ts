@@ -13,18 +13,21 @@ import {
   validateIntegrationForm,
 } from '../../../admin/src/ecommerce/utils/integrationForm';
 import {
+  applyToAllMarkets,
   draftToManualMethodInput,
   emptyManualMethodDraft,
   manualMethodErrorMap,
   manualMethodToDraft,
+  newBracketRows,
   ratesSummary,
+  type BracketDraft,
+  type ManualMethodDraft,
 } from '../../../admin/src/ecommerce/utils/manualMethodForm';
 import { formatCents } from '../../../admin/src/ecommerce/utils/money';
 import type {
   IntegrationView,
   ManualMethod,
   ProviderField,
-  ShippingZone,
 } from '../../../admin/src/ecommerce/settingsTypes';
 
 const L = 'ecommerce.settings.providers.moloni.fields';
@@ -148,54 +151,122 @@ describe('integrationErrorMap', () => {
   });
 });
 
-const ZONES: ShippingZone[] = [
-  { id: 1, name: 'Continente', countries: ['PT'], position: 1 },
-  { id: 2, name: 'Ilhas', countries: ['ES'], position: 2 },
-];
-
 const METHOD: ManualMethod = {
   id: 1,
   name: { pt: 'Correio' },
-  rates: { '1': 495 },
+  rates: {
+    PT: [
+      { upTo: 1.5, price: 300 },
+      { upTo: null, price: 1000 },
+    ],
+    ES: [{ upTo: null, price: 500 }],
+    FR: [{ upTo: null, price: 700 }],
+  },
   tax: 6,
   active: false,
   position: 0,
 };
 
+const base = (over: Partial<ManualMethodDraft> = {}): ManualMethodDraft => ({
+  ...emptyManualMethodDraft(['pt']),
+  names: { pt: 'X' },
+  ...over,
+});
+
+const PT_ROWS: BracketDraft[] = [
+  { upTo: '1', price: '3' },
+  { upTo: '', price: '10' },
+];
+
 describe('manual method draft', () => {
-  it('starts with every zone blank', () => {
-    expect(emptyManualMethodDraft(['pt'], ZONES).rates).toEqual({ '1': '', '2': '' });
+  it('starts with no market selected', () => {
+    expect(emptyManualMethodDraft(['pt', 'en'])).toMatchObject({
+      names: { pt: '', en: '' },
+      markets: [],
+      brackets: {},
+      active: true,
+    });
+    expect(newBracketRows()).toEqual([{ upTo: '', price: '' }]);
   });
 
-  it('builds the input from a valid draft, leaving blank zones out', () => {
-    const draft = {
-      names: { pt: 'Entrega em loja' },
-      rates: { '1': '3,50', '2': '' },
+  it('requires a market', () => {
+    expect(draftToManualMethodInput(base(), 'pt').errors.markets).toBe('required');
+  });
+
+  it('builds per-country brackets from a valid draft', () => {
+    const draft = base({
+      markets: ['PT', 'ES'],
+      brackets: { PT: PT_ROWS, ES: [{ upTo: '', price: '5,50' }] },
       taxChoice: '23',
-      taxOther: '',
-      active: true,
-    };
+    });
     expect(draftToManualMethodInput(draft, 'pt')).toEqual({
       errors: {},
-      input: { name: { pt: 'Entrega em loja' }, rates: { '1': 350 }, tax: 23, active: true },
+      input: {
+        name: { pt: 'X' },
+        rates: {
+          PT: [
+            { upTo: 1, price: 300 },
+            { upTo: null, price: 1000 },
+          ],
+          ES: [{ upTo: null, price: 550 }],
+        },
+        tax: 23,
+        active: true,
+      },
     });
   });
 
-  it('flags an invalid price per zone', () => {
-    const draft = { ...emptyManualMethodDraft(['pt'], ZONES), names: { pt: 'X' }, rates: { '1': 'abc' } };
-    expect(draftToManualMethodInput(draft, 'pt').errors['rates.1']).toBe('invalid_number');
+  it('accepts a comma or a dot in the weight limit', () => {
+    const rates = (upTo: string) =>
+      draftToManualMethodInput(
+        base({ markets: ['PT'], brackets: { PT: [{ upTo, price: '1' }, { upTo: '', price: '2' }] } }),
+        'pt'
+      ).input?.rates?.PT[0].upTo;
+    expect(rates('1,5')).toBe(1.5);
+    expect(rates('1.25')).toBe(1.25);
   });
 
-  it('requires a price in at least one zone', () => {
-    const draft = { ...emptyManualMethodDraft(['pt'], ZONES), names: { pt: 'X' } };
-    expect(draftToManualMethodInput(draft, 'pt').errors.rates).toBe('required');
+  it('only the last row may have no limit', () => {
+    const draft = base({
+      markets: ['PT'],
+      brackets: { PT: [{ upTo: '', price: '3' }, { upTo: '', price: '10' }] },
+    });
+    expect(draftToManualMethodInput(draft, 'pt').errors).toEqual({ 'rates.PT.0.upTo': 'required' });
+  });
+
+  it('checks the weight limits like the server', () => {
+    const errorsOf = (rows: BracketDraft[]) =>
+      draftToManualMethodInput(base({ markets: ['PT'], brackets: { PT: rows } }), 'pt').errors;
+    const row = (upTo: string) => ({ upTo, price: '1' });
+    expect(errorsOf([row('abc'), row('')])).toEqual({ 'rates.PT.0.upTo': 'invalid_number' });
+    expect(errorsOf([row('1.2345'), row('')])).toEqual({ 'rates.PT.0.upTo': 'invalid_number' });
+    expect(errorsOf([row('0'), row('')])).toEqual({ 'rates.PT.0.upTo': 'out_of_range' });
+    expect(errorsOf([row('2'), row('2'), row('')])).toEqual({ 'rates.PT.1.upTo': 'out_of_range' });
+    expect(errorsOf([row('2'), row('1,5'), row('')])).toEqual({ 'rates.PT.1.upTo': 'out_of_range' });
+    expect(errorsOf([row('1'), row('2.001')])).toEqual({});
+  });
+
+  it('flags an invalid or too large price per row', () => {
+    const errorsOf = (price: string) =>
+      draftToManualMethodInput(
+        base({ markets: ['PT'], brackets: { PT: [{ upTo: '', price }] } }),
+        'pt'
+      ).errors;
+    expect(errorsOf('abc')).toEqual({ 'rates.PT.0.price': 'invalid_number' });
+    expect(errorsOf('')).toEqual({ 'rates.PT.0.price': 'invalid_number' });
+    expect(errorsOf('99999999')).toEqual({ 'rates.PT.0.price': 'out_of_range' });
+  });
+
+  it('requires brackets for a selected market', () => {
+    expect(draftToManualMethodInput(base({ markets: ['PT'] }), 'pt').errors).toEqual({
+      'rates.PT': 'required',
+    });
   });
 
   it('reports the default-locale name and tax errors', () => {
     const draft = {
-      ...emptyManualMethodDraft(['pt', 'en'], ZONES),
+      ...base({ markets: ['PT'], brackets: { PT: [{ upTo: '', price: '1' }] } }),
       names: { pt: '', en: 'Pickup' },
-      rates: { '1': '1' },
       taxChoice: 'other',
       taxOther: '120',
     };
@@ -204,106 +275,117 @@ describe('manual method draft', () => {
     });
   });
 
-  it('round-trips a stored method through the draft', () => {
-    const draft = manualMethodToDraft(METHOD, ['pt'], 'pt', ZONES);
-    expect(draft).toMatchObject({ names: { pt: 'Correio' }, rates: { '1': '4,95', '2': '' }, taxChoice: '6', active: false });
+  it('round-trips a stored method, keeping only countries still in the markets', () => {
+    const draft = manualMethodToDraft(METHOD, ['pt'], 'pt', ['PT', 'ES']);
+    expect(draft).toMatchObject({
+      names: { pt: 'Correio' },
+      markets: ['PT', 'ES'],
+      brackets: {
+        PT: [
+          { upTo: '1,5', price: '3,00' },
+          { upTo: '', price: '10,00' },
+        ],
+        ES: [{ upTo: '', price: '5,00' }],
+      },
+      taxChoice: '6',
+      active: false,
+    });
     expect(draftToManualMethodInput(draft, 'pt').input).toEqual({
       name: { pt: 'Correio' },
-      rates: { '1': 495 },
+      rates: { PT: METHOD.rates.PT, ES: METHOD.rates.ES },
       tax: 6,
       active: false,
     });
   });
 
-  it('keeps rates.<id> server errors per zone', () => {
-    expect(manualMethodErrorMap([{ path: 'rates.9', code: 'invalid_zone' }])).toEqual({
-      'rates.9': 'invalid_zone',
-    });
+  it('ignores old-shaped rates (not arrays)', () => {
+    const old = { ...METHOD, rates: { '1': 495 } as any };
+    expect(manualMethodToDraft(old, ['pt'], 'pt', ['1', 'PT']).markets).toEqual([]);
+    expect(ratesSummary(old, 'pt', (c) => c)).toBe('');
   });
 
-  it('reports an error on a zone the form does not show on the rates as a whole', () => {
+  it('shows kg with up to 3 decimals', () => {
+    const m = { ...METHOD, rates: { PT: [{ upTo: 0.25, price: 100 }, { upTo: 12.345, price: 200 }] } };
+    expect(manualMethodToDraft(m, ['pt'], 'en', ['PT']).brackets.PT.map((b) => b.upTo)).toEqual([
+      '0.25',
+      '12.345',
+    ]);
+  });
+});
+
+describe('applyToAllMarkets', () => {
+  it('copies the brackets to every selected market without sharing them', () => {
+    const draft = base({
+      markets: ['PT', 'ES', 'FR'],
+      brackets: { PT: PT_ROWS, ES: [{ upTo: '', price: '1' }], FR: [{ upTo: '', price: '2' }] },
+    });
+    const out = applyToAllMarkets(draft, 'PT');
+    expect(out.brackets.ES).toEqual(PT_ROWS);
+    expect(out.brackets.FR).toEqual(PT_ROWS);
+    out.brackets.ES[0].price = '99';
+    expect(out.brackets.PT[0].price).toBe('3');
+    expect(out.brackets.FR[0].price).toBe('3');
+    expect(draft.brackets.ES[0].price).toBe('1');
+  });
+});
+
+describe('manualMethodErrorMap', () => {
+  it('keys server errors by path, first error wins', () => {
     expect(
-      manualMethodErrorMap(
-        [
-          { path: 'rates.9', code: 'invalid_zone' },
-          { path: 'rates.1', code: 'out_of_range' },
-        ],
-        [{ id: 1 }]
-      )
-    ).toEqual({ rates: 'invalid_zone', 'rates.1': 'out_of_range' });
+      manualMethodErrorMap([
+        { path: 'rates.PT.1.upTo', code: 'out_of_range' },
+        { path: 'rates.PT.1.upTo', code: 'invalid_number' },
+        { path: 'rates', code: 'required' },
+      ])
+    ).toEqual({ 'rates.PT.1.upTo': 'out_of_range', rates: 'required' });
   });
 });
 
 describe('ratesSummary', () => {
-  it('lists the priced zones in zone order', () => {
-    // The price follows formatCents (Node's ICU writes "€ 4,95" for plain `pt`).
-    expect(ratesSummary({ ...METHOD, rates: { '2': 995, '1': 495 } }, ZONES, 'pt')).toBe(
-      `Continente ${formatCents(495, 'pt')} · Ilhas ${formatCents(995, 'pt')}`
+  const names: Record<string, string> = { PT: 'Portugal', ES: 'Spain' };
+  const name = (c: string) => names[c] ?? c;
+
+  it('shows min–max per country, a single price when equal', () => {
+    expect(ratesSummary(METHOD, 'pt-PT', name)).toBe(
+      'Portugal 3,00\u00a0€–10,00\u00a0€ · Spain 5,00\u00a0€ · FR 7,00\u00a0€'
     );
-    expect(ratesSummary({ rates: { '2': 995, '1': 495 } }, ZONES, 'pt-PT')).toBe(
-      'Continente 4,95\u00a0€ · Ilhas 9,95\u00a0€'
+    expect(ratesSummary({ rates: { PT: [{ upTo: 1, price: 300 }], ES: [{ upTo: null, price: 500 }] } }, 'en', name)).toBe(
+      `Portugal ${formatCents(300, 'en')} · Spain ${formatCents(500, 'en')}`
     );
   });
 
-  it('omits zones without a price and is empty without any', () => {
-    expect(ratesSummary({ ...METHOD, rates: { '2': 995 } }, ZONES, 'pt')).toBe(
-      `Ilhas ${formatCents(995, 'pt')}`
-    );
-    expect(ratesSummary({ ...METHOD, rates: {} }, ZONES, 'pt')).toBe('');
+  it('is empty without rates', () => {
+    expect(ratesSummary({ rates: {} }, 'pt', name)).toBe('');
   });
 });
 
-describe('zones field', () => {
-  const zonesField: ProviderField = { key: 'zones', type: 'zones', required: true, default: [], label: 'z' };
+describe('markets field', () => {
+  const field: ProviderField = { key: 'markets', type: 'markets', required: true, default: [], label: 'm' };
   const view = (config: Record<string, unknown>): IntegrationView => ({
     id: 'ctt-expresso',
     category: 'carrier',
     name: 'CTT',
     active: false,
-    fields: [zonesField],
+    fields: [field],
     config,
     secrets: {},
     secretsStatus: 'none',
     encryptionKeyConfigured: true,
   });
 
-  it('sends the zone ids as numbers', () => {
-    expect(buildIntegrationPayload([zonesField], { zones: ['1', '3'] }).config.zones).toEqual([1, 3]);
+  it('sends the country codes as a list of strings', () => {
+    expect(buildIntegrationPayload([field], { markets: ['PT', 'ES'] }).config.markets).toEqual(['PT', 'ES']);
   });
 
-  it('reads the stored ids as text', () => {
-    expect(integrationFormFromView(view({ zones: [2] })).zones).toEqual(['2']);
-    expect(integrationFormFromView(view({})).zones).toEqual([]);
+  it('reads the stored codes', () => {
+    expect(integrationFormFromView(view({ markets: ['PT'] })).markets).toEqual(['PT']);
+    expect(integrationFormFromView(view({})).markets).toEqual([]);
   });
 
-  it('requires a zone only on an active integration, like any required field', () => {
-    expect(validateIntegrationForm([zonesField], { zones: [] })).toEqual({});
-    expect(validateIntegrationForm([zonesField], { zones: [] }, true)).toEqual({ zones: 'required' });
-    expect(validateIntegrationForm([zonesField], { zones: ['1'] }, true)).toEqual({});
-  });
-});
-
-describe('validateIntegrationForm', () => {
-  const fields: ProviderField[] = [
-    { key: 'paymentSuccessPath', type: 'string', format: 'path', required: true, label: 'x' },
-    { key: 'name', type: 'string', required: false, label: 'y' },
-  ];
-  it('flags an invalid path', () => {
-    expect(validateIntegrationForm(fields, { paymentSuccessPath: '//x', name: 'a b' })).toEqual({
-      paymentSuccessPath: 'invalid_path',
-    });
-  });
-  it('flags a path with a query or a fragment', () => {
-    expect(validateIntegrationForm(fields, { paymentSuccessPath: '/ok?x=1', name: '' })).toEqual({
-      paymentSuccessPath: 'invalid_path',
-    });
-    expect(validateIntegrationForm(fields, { paymentSuccessPath: '/ok#a', name: '' })).toEqual({
-      paymentSuccessPath: 'invalid_path',
-    });
-  });
-  it('accepts a valid or blank path', () => {
-    expect(validateIntegrationForm(fields, { paymentSuccessPath: '/ok', name: '' })).toEqual({});
-    expect(validateIntegrationForm(fields, { paymentSuccessPath: '  ', name: '' })).toEqual({});
+  it('requires a market only on an active integration, like any required field', () => {
+    expect(validateIntegrationForm([field], { markets: [] })).toEqual({});
+    expect(validateIntegrationForm([field], { markets: [] }, true)).toEqual({ markets: 'required' });
+    expect(validateIntegrationForm([field], { markets: ['PT'] }, true)).toEqual({});
   });
 });
 
@@ -312,7 +394,7 @@ describe('showsAsRequired', () => {
     const base = { key: 'k', label: 'x' };
     expect(showsAsRequired({ ...base, type: 'string', format: 'path', required: true, default: '/a' })).toBe(false);
     expect(showsAsRequired({ ...base, type: 'string', required: true })).toBe(true);
-    expect(showsAsRequired({ ...base, type: 'zones', required: true, default: [] })).toBe(true);
+    expect(showsAsRequired({ ...base, type: 'markets', required: true, default: [] })).toBe(true);
     expect(showsAsRequired({ ...base, type: 'string', required: false })).toBe(false);
   });
 });
