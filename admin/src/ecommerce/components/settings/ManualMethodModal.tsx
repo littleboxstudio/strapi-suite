@@ -1,5 +1,4 @@
-import { Fragment, useMemo, useState } from 'react';
-import styled from 'styled-components';
+import { useMemo, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import {
@@ -20,13 +19,15 @@ import { getTranslation } from '../../../core/utils/getTranslation';
 import { LocaleSwitcher } from '../LocaleSwitcher';
 import { ActionConfirmModal } from '../ActionConfirmModal';
 import { MarketPicker, MarketCard } from './MarketPicker';
+import { BracketRows } from './BracketRows';
+import { FillMarketsModal } from './FillMarketsModal';
 import CreateShippingMethod from '../../usecases/settings/createShippingMethod';
 import UpdateShippingMethod from '../../usecases/settings/updateShippingMethod';
 import { extractFieldErrors } from '../../utils/productForm';
 import { TAX_OTHER, TAX_PRESETS } from '../../utils/variantDraft';
 import { countryOptions } from '../../utils/settingsForm';
 import {
-  applyToAllMarkets,
+  fillAllMarkets,
   draftToManualMethodInput,
   emptyManualMethodDraft,
   manualMethodErrorMap,
@@ -37,17 +38,6 @@ import {
   type ManualMethodErrors,
 } from '../../utils/manualMethodForm';
 import type { ManualMethod } from '../../settingsTypes';
-
-/**
- * Weight ranges of one market: Up to | Price | remove. A plain grid (not the design-system Table,
- * whose scroll wrapper clips the last row) so every cell starts on the same line.
- */
-const RangeGrid = styled.div`
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
-  gap: 8px 12px;
-  align-items: start;
-`;
 
 /** Mount it only while open: the draft is initialised once, from the props. */
 type Props = {
@@ -94,8 +84,7 @@ const ManualMethodModal = ({
   const [saving, setSaving] = useState(false);
   const [toggling, setToggling] = useState(false);
   const [confirmToggle, setConfirmToggle] = useState(false);
-  /** The market whose ranges are about to be copied to all the others. */
-  const [confirmApply, setConfirmApply] = useState<string | null>(null);
+  const [filling, setFilling] = useState(false);
 
   /**
    * Like the variant button: a saved method is enabled/disabled right away; a new one only in the
@@ -199,9 +188,10 @@ const ManualMethodModal = ({
     clearErrorsUnder(`rates.${code}`);
   };
 
-  const applyToAll = (code: string) => {
-    setDraft((d) => applyToAllMarkets(d, code));
+  const fillAll = (rows: BracketDraft[]) => {
+    setDraft((d) => fillAllMarkets(d, rows));
     clearErrorsUnder('rates');
+    setFilling(false);
   };
 
   const errorText = (path: string) =>
@@ -368,6 +358,14 @@ const ManualMethodModal = ({
                       {t('ecommerce.settings.manual.selectAll')}
                     </Button>
                     <Button
+                      variant="secondary"
+                      size="L"
+                      disabled={draft.markets.length === 0}
+                      onClick={() => setFilling(true)}
+                    >
+                      {t('ecommerce.settings.manual.fillAll.open')}
+                    </Button>
+                    <Button
                       variant="tertiary"
                       size="L"
                       disabled={draft.markets.length === 0}
@@ -407,77 +405,30 @@ const ManualMethodModal = ({
                             <Typography variant="omega" fontWeight="bold" tag="h3">
                               {countryName(code)}
                             </Typography>
-                            <Flex gap={2}>
-                              {draft.markets.length >= 2 && (
-                                <Button
-                                  variant="tertiary"
-                                  size="S"
-                                  onClick={() => setConfirmApply(code)}
-                                >
-                                  {t('ecommerce.settings.manual.applyAll')}
-                                </Button>
-                              )}
-                              <Button
-                                variant="secondary"
-                                size="S"
-                                startIcon={<Plus />}
+                            <Flex gap={1}>
+                              <IconButton
+                                label={`${t('ecommerce.settings.manual.addRange')}: ${countryName(code)}`}
+                                variant="ghost"
                                 onClick={() => addRow(code)}
                               >
-                                {t('ecommerce.settings.manual.addRange')}
-                              </Button>
-                              <Button
-                                variant="danger-light"
-                                size="S"
+                                <Plus />
+                              </IconButton>
+                              <IconButton
+                                label={`${t('ecommerce.settings.manual.removeMarket')}: ${countryName(code)}`}
+                                variant="ghost"
                                 onClick={() => setMarkets(draft.markets.filter((c) => c !== code))}
                               >
-                                {t('ecommerce.settings.manual.removeMarket')}
-                              </Button>
+                                <Trash />
+                              </IconButton>
                             </Flex>
                           </Flex>
-                          {rows.length > 0 && (
-                            <RangeGrid>
-                              <Typography variant="sigma" textColor="neutral600">
-                                {t('ecommerce.settings.manual.upTo')}
-                              </Typography>
-                              <Typography variant="sigma" textColor="neutral600">
-                                {t('ecommerce.settings.manual.price')}
-                              </Typography>
-                              <span />
-                              {rows.map((row, i) => (
-                                <Fragment key={i}>
-                                  {(['upTo', 'price'] as const).map((field) => {
-                                    const path = `rates.${code}.${i}.${field}`;
-                                    return (
-                                      <Field.Root key={field} name={path} error={errorText(path)}>
-                                        <TextInput
-                                          aria-label={`${countryName(code)}: ${t(
-                                            `ecommerce.settings.manual.${field}`
-                                          )} (${i + 1})`}
-                                          inputMode="decimal"
-                                          value={row[field]}
-                                          onChange={(e: any) =>
-                                            updateRow(code, i, field, e.target.value)
-                                          }
-                                        />
-                                        <Field.Error />
-                                      </Field.Root>
-                                    );
-                                  })}
-                                  {/* Same height as the inputs, so the button sits on their line. */}
-                                  <Flex height="4rem" alignItems="center">
-                                    <IconButton
-                                      label={t('ecommerce.settings.manual.removeRange')}
-                                      variant="ghost"
-                                      disabled={rows.length === 1}
-                                      onClick={() => removeRow(code, i)}
-                                    >
-                                      <Trash />
-                                    </IconButton>
-                                  </Flex>
-                                </Fragment>
-                              ))}
-                            </RangeGrid>
-                          )}
+                          <BracketRows
+                            rows={rows}
+                            label={countryName(code)}
+                            errorText={(i, field) => errorText(`rates.${code}.${i}.${field}`)}
+                            onChange={(i, field, text) => updateRow(code, i, field, text)}
+                            onRemove={(i) => removeRow(code, i)}
+                          />
                           {marketError && (
                             <Typography variant="pi" textColor="danger600" role="alert">
                               {marketError === 'required'
@@ -543,22 +494,13 @@ const ManualMethodModal = ({
           toggleActive();
         }}
       />
-      <ActionConfirmModal
-        open={confirmApply !== null}
-        title={t('ecommerce.settings.manual.applyAllConfirm.title')}
-        text={formatMessage(
-          { id: getTranslation('ecommerce.settings.manual.applyAllConfirm.text') },
-          { market: confirmApply ? countryName(confirmApply) : '' }
-        )}
-        confirmLabel={t('ecommerce.settings.manual.applyAll')}
-        cancelLabel={t('ecommerce.settings.cancel')}
-        confirmVariant="danger"
-        onCancel={() => setConfirmApply(null)}
-        onConfirm={() => {
-          if (confirmApply) applyToAll(confirmApply);
-          setConfirmApply(null);
-        }}
-      />
+      {filling && (
+        <FillMarketsModal
+          marketCount={draft.markets.length}
+          onClose={() => setFilling(false)}
+          onApply={fillAll}
+        />
+      )}
     </Modal.Root>
   );
 };

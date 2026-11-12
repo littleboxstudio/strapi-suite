@@ -66,12 +66,11 @@ export function manualMethodToDraft(
 }
 
 /** Copies the brackets of `from` (deep) to every selected market. */
-export function applyToAllMarkets(draft: ManualMethodDraft, from: string): ManualMethodDraft {
-  const source = draft.brackets[from];
-  if (!source) return draft;
+/** Every selected market gets its own copy of `rows` (their current ranges are replaced). */
+export function fillAllMarkets(draft: ManualMethodDraft, rows: BracketDraft[]): ManualMethodDraft {
   return {
     ...draft,
-    brackets: Object.fromEntries(draft.markets.map((code) => [code, source.map((b) => ({ ...b }))])),
+    brackets: Object.fromEntries(draft.markets.map((code) => [code, rows.map((b) => ({ ...b }))])),
   };
 }
 
@@ -79,6 +78,38 @@ export function applyToAllMarkets(draft: ManualMethodDraft, from: string): Manua
 function parseKg(text: string): number | null {
   const s = text.trim().replace(',', '.');
   return /^\d+(\.\d{1,3})?$/.test(s) ? Number(s) : null;
+}
+
+/**
+ * Checks one market's ranges: each 'Up to' above the previous one, only the last may be empty
+ * (no limit), prices in euros. Errors are keyed `<prefix>.<row>.<upTo|price>`.
+ */
+export function validateBracketRows(
+  rows: BracketDraft[],
+  prefix: string
+): { brackets: { upTo: number | null; price: number }[]; errors: ManualMethodErrors } {
+  const errors: ManualMethodErrors = {};
+  let previousGrams = 0;
+  const brackets = rows.map((row, i) => {
+    const at = `${prefix}.${i}`;
+    let upTo: number | null = null;
+    if (row.upTo.trim() === '') {
+      if (i !== rows.length - 1) errors[`${at}.upTo`] = 'required';
+    } else {
+      const kg = parseKg(row.upTo);
+      if (kg === null) errors[`${at}.upTo`] = 'invalid_number';
+      else if (Math.round(kg * 1000) <= previousGrams) errors[`${at}.upTo`] = 'out_of_range';
+      else {
+        upTo = kg;
+        previousGrams = Math.round(kg * 1000);
+      }
+    }
+    const cents = parseMoneyToCents(row.price);
+    if (cents === null) errors[`${at}.price`] = 'invalid_number';
+    else if (cents > MAX_MONEY_CENTS) errors[`${at}.price`] = 'out_of_range';
+    return { upTo, price: cents ?? 0 };
+  });
+  return { brackets, errors };
 }
 
 /** Validates the draft; returns the input only when there are no errors. */
@@ -102,26 +133,9 @@ export function draftToManualMethodInput(
       errors[`rates.${code}`] = 'required';
       return;
     }
-    let previousGrams = 0;
-    rates[code] = rows.map((row, i) => {
-      const at = `rates.${code}.${i}`;
-      let upTo: number | null = null;
-      if (row.upTo.trim() === '') {
-        if (i !== rows.length - 1) errors[`${at}.upTo`] = 'required';
-      } else {
-        const kg = parseKg(row.upTo);
-        if (kg === null) errors[`${at}.upTo`] = 'invalid_number';
-        else if (Math.round(kg * 1000) <= previousGrams) errors[`${at}.upTo`] = 'out_of_range';
-        else {
-          upTo = kg;
-          previousGrams = Math.round(kg * 1000);
-        }
-      }
-      const cents = parseMoneyToCents(row.price);
-      if (cents === null) errors[`${at}.price`] = 'invalid_number';
-      else if (cents > MAX_MONEY_CENTS) errors[`${at}.price`] = 'out_of_range';
-      return { upTo, price: cents ?? 0 };
-    });
+    const result = validateBracketRows(rows, `rates.${code}`);
+    rates[code] = result.brackets;
+    Object.assign(errors, result.errors);
   });
 
   const taxText = draft.taxChoice === TAX_OTHER ? draft.taxOther : draft.taxChoice;
