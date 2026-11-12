@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
-import styled from 'styled-components';
 import { useNotification } from '@strapi/strapi/admin';
 import {
   Badge,
@@ -23,6 +22,7 @@ import IssueInvoice from '../../usecases/orders/issueInvoice';
 import { formatCents } from '../../utils/money';
 import { apiErrorDetail, apiErrorMessageId, shouldRenewIdempotencyKey } from '../../utils/orderDetail';
 import { invoiceFailureMessageId, isFailedReplay, isUncertainResult, issuedWarnings } from '../../utils/invoiceForm';
+import InvoiceErrorModal from './InvoiceErrorModal';
 import { mintUuid } from '../../utils/variantDraft';
 import type { InvoicePreview, InvoiceScopeInput } from '../../orderTypes';
 
@@ -36,18 +36,6 @@ type Props = {
 };
 
 const COLUMNS = ['name', 'quantity', 'total', 'tax'] as const;
-
-/** The provider's message, as it came. */
-const Detail = styled.pre`
-  margin: 4px 0;
-  padding: 8px 12px;
-  border-radius: ${({ theme }) => theme.borderRadius};
-  background: ${({ theme }) => theme.colors.neutral0};
-  color: ${({ theme }) => theme.colors.neutral800};
-  font-size: ${({ theme }) => theme.fontSizes[1]};
-  white-space: pre-wrap;
-  word-break: break-word;
-`;
 
 /**
  * Previews and issues the invoice of one payment or of the whole order (design 4.4).
@@ -98,6 +86,8 @@ const IssueInvoiceModal = ({ orderId, scope, onClose, onIssued }: Props) => {
       if (isFailedReplay(invoice)) {
         // The provider refused it: say why; the attempt is in the invoices list.
         setError(failureText(invoice.error));
+        setErrorDetail(invoice.errorDetail);
+        setRefused(true);
         return;
       }
       if (isUncertainResult(invoice)) {
@@ -117,8 +107,8 @@ const IssueInvoiceModal = ({ orderId, scope, onClose, onIssued }: Props) => {
       );
       onIssued();
     } catch (err) {
-      // A refusal records nothing: the provider's message is shown here. Only Close remains, so the
-      // cause is fixed before another attempt.
+      // A refusal records nothing: the error modal shows the provider's message, with only Close,
+      // so the cause is fixed before another attempt.
       setError(t(apiErrorMessageId(err, 'ecommerce.orders.invoices.issue.error')));
       setErrorDetail(apiErrorDetail(err));
       setRefused(shouldRenewIdempotencyKey(err));
@@ -136,6 +126,11 @@ const IssueInvoiceModal = ({ orderId, scope, onClose, onIssued }: Props) => {
     if (attempted) onIssued();
     else onClose();
   };
+
+  // A failed attempt replaces this modal with the error one; closing it refreshes the order.
+  if (error) {
+    return <InvoiceErrorModal message={error} detail={errorDetail} refused={refused} onClose={close} />;
+  }
 
   return (
     <Modal.Root open onOpenChange={(next: boolean) => !next && close()}>
@@ -214,21 +209,6 @@ const IssueInvoiceModal = ({ orderId, scope, onClose, onIssued }: Props) => {
                 <Typography variant="omega" textColor="warning700">
                   {t('ecommerce.orders.invoices.issue.uncertain')}
                 </Typography>
-              </Box>
-            )}
-            {error && (
-              <Box padding={3} background="danger100" hasRadius role="alert">
-                <Flex direction="column" alignItems="stretch" gap={1}>
-                  <Typography variant="omega" fontWeight="bold" textColor="danger700">
-                    {error}
-                  </Typography>
-                  {errorDetail && <Detail>{errorDetail}</Detail>}
-                  {refused && (
-                    <Typography variant="omega" textColor="danger700">
-                      {t('ecommerce.orders.invoices.issue.errorNext')}
-                    </Typography>
-                  )}
-                </Flex>
               </Box>
             )}
           </Flex>
