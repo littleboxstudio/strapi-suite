@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
+import styled from 'styled-components';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import {
@@ -14,15 +15,8 @@ import {
   SingleSelect,
   SingleSelectOption,
   Switch,
-  Table,
-  Tbody,
-  Td,
   TextInput,
-  Th,
-  Thead,
-  Tr,
   Typography,
-  VisuallyHidden,
 } from '@strapi/design-system';
 import { Plus, Trash } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
@@ -44,6 +38,17 @@ import {
   type ManualMethodErrors,
 } from '../../utils/manualMethodForm';
 import type { ManualMethod } from '../../settingsTypes';
+
+/**
+ * Weight ranges of one market: Up to | Price | remove. A plain grid (not the design-system Table,
+ * whose scroll wrapper clips the last row) so every cell starts on the same line.
+ */
+const RangeGrid = styled.div`
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 8px 12px;
+  align-items: start;
+`;
 
 /** Mount it only while open: the draft is initialised once, from the props. */
 type Props = {
@@ -336,65 +341,48 @@ const ManualMethodModal = ({ method, locales, defaultLocale, markets, onClose, o
                           )}
                         </Flex>
                         {rows.length > 0 && (
-                          <Table colCount={3} rowCount={rows.length + 1}>
-                            <Thead>
-                              <Tr>
-                                <Th>
-                                  <Typography variant="sigma">
-                                    {t('ecommerce.settings.manual.upTo')}
-                                  </Typography>
-                                </Th>
-                                <Th>
-                                  <Typography variant="sigma">
-                                    {t('ecommerce.settings.manual.price')}
-                                  </Typography>
-                                </Th>
-                                <Th>
-                                  <VisuallyHidden>
-                                    {t('ecommerce.settings.manual.removeRange')}
-                                  </VisuallyHidden>
-                                </Th>
-                              </Tr>
-                            </Thead>
-                            <Tbody>
-                              {rows.map((row, i) => (
-                                <Tr key={i}>
-                                  {(['upTo', 'price'] as const).map((field) => {
-                                    const path = `rates.${code}.${i}.${field}`;
-                                    return (
-                                      <Td key={field} style={{ verticalAlign: 'top' }}>
-                                        <Field.Root name={path} error={errorText(path)}>
-                                          <TextInput
-                                            aria-label={`${countryName(code)}: ${t(
-                                              `ecommerce.settings.manual.${field}`
-                                            )} (${i + 1})`}
-                                            inputMode="decimal"
-                                            value={row[field]}
-                                            onChange={(e: any) =>
-                                              updateRow(code, i, field, e.target.value)
-                                            }
-                                          />
-                                          <Field.Error />
-                                        </Field.Root>
-                                      </Td>
-                                    );
-                                  })}
-                                  <Td style={{ verticalAlign: 'top' }}>
-                                    <Flex justifyContent="flex-end">
-                                      <IconButton
-                                        label={t('ecommerce.settings.manual.removeRange')}
-                                        variant="ghost"
-                                        disabled={rows.length === 1}
-                                        onClick={() => removeRow(code, i)}
-                                      >
-                                        <Trash />
-                                      </IconButton>
-                                    </Flex>
-                                  </Td>
-                                </Tr>
-                              ))}
-                            </Tbody>
-                          </Table>
+                          <RangeGrid>
+                            <Typography variant="sigma" textColor="neutral600">
+                              {t('ecommerce.settings.manual.upTo')}
+                            </Typography>
+                            <Typography variant="sigma" textColor="neutral600">
+                              {t('ecommerce.settings.manual.price')}
+                            </Typography>
+                            <span />
+                            {rows.map((row, i) => (
+                              <Fragment key={i}>
+                                {(['upTo', 'price'] as const).map((field) => {
+                                  const path = `rates.${code}.${i}.${field}`;
+                                  return (
+                                    <Field.Root key={field} name={path} error={errorText(path)}>
+                                      <TextInput
+                                        aria-label={`${countryName(code)}: ${t(
+                                          `ecommerce.settings.manual.${field}`
+                                        )} (${i + 1})`}
+                                        inputMode="decimal"
+                                        value={row[field]}
+                                        onChange={(e: any) =>
+                                          updateRow(code, i, field, e.target.value)
+                                        }
+                                      />
+                                      <Field.Error />
+                                    </Field.Root>
+                                  );
+                                })}
+                                {/* Same height as the inputs, so the button sits on their line. */}
+                                <Flex height="4rem" alignItems="center">
+                                  <IconButton
+                                    label={t('ecommerce.settings.manual.removeRange')}
+                                    variant="ghost"
+                                    disabled={rows.length === 1}
+                                    onClick={() => removeRow(code, i)}
+                                  >
+                                    <Trash />
+                                  </IconButton>
+                                </Flex>
+                              </Fragment>
+                            ))}
+                          </RangeGrid>
                         )}
                         {marketError && (
                           <Typography variant="pi" textColor="danger600" role="alert">
