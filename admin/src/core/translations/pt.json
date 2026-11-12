@@ -246,8 +246,6 @@
   "littlebox-strapi-suite.ecommerce.settings.integrations.empty": "Não há integrações disponíveis para esta secção.",
   "littlebox-strapi-suite.ecommerce.settings.integrations.active": "Ativo",
   "littlebox-strapi-suite.ecommerce.settings.integrations.inactive": "Inativo",
-  "littlebox-strapi-suite.ecommerce.settings.integrations.activate": "Ativar {name}",
-  "littlebox-strapi-suite.ecommerce.settings.integrations.activateLabel": "Ativo",
   "littlebox-strapi-suite.ecommerce.settings.integrations.activated": "{name} ativado",
   "littlebox-strapi-suite.ecommerce.settings.integrations.deactivated": "{name} desativado",
   "littlebox-strapi-suite.ecommerce.settings.integrations.activateMissing": "Preencha os campos obrigatórios antes de ativar.",
@@ -1678,5 +1676,9 @@
   "littlebox-strapi-suite.ecommerce.settings.markets.title": "Mercados",
   "littlebox-strapi-suite.ecommerce.settings.store.logo.drop": "Arraste o seu logótipo para aqui",
   "littlebox-strapi-suite.ecommerce.settings.store.logo.dropReplace": "Arraste um novo logótipo para aqui para o substituir",
-  "littlebox-strapi-suite.ecommerce.settings.store.logo.select": "Selecionar do computador"
+  "littlebox-strapi-suite.ecommerce.settings.store.logo.select": "Selecionar do computador",
+  "littlebox-strapi-suite.ecommerce.settings.integrations.disable": "Desativar",
+  "littlebox-strapi-suite.ecommerce.settings.integrations.enable": "Ativar",
+  "littlebox-strapi-suite.ecommerce.settings.integrations.disableConfirm.title": "Desativar {name}",
+  "littlebox-strapi-suite.ecommerce.settings.integrations.disableConfirm.text": "A loja deixa de usar {name} até o voltar a ativar. Continuar?"
 }

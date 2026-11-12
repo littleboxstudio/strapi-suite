@@ -108,6 +108,14 @@ const Content = styled.div`
   min-width: 0;
   overflow-y: auto;
   padding: 32px 40px;
+  /*
+   * Positioned, so absolutely placed descendants (e.g. the design system's VisuallyHidden) are
+   * clipped here. Without it they grew the whole document, and scrolling past the end of the
+   * content scrolled the page, top bar and menu included.
+   */
+  position: relative;
+  /* Reaching the end of this area does not hand the scroll on to the page. */
+  overscroll-behavior: contain;
 `;
 
 const NavItem = styled(Link)<{ $active: boolean }>`

@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react';
 import { useIntl } from 'react-intl';
-import { Badge, Box, Button, Flex, Switch, Typography } from '@strapi/design-system';
+import { Badge, Box, Button, Flex, Typography } from '@strapi/design-system';
 import { Cog, Play } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import type { ConnectionResult, IntegrationView } from '../../settingsTypes';
+import { ActiveToggleButton } from './ActiveToggleButton';
 
 /** `error` is a failed request (not a connection result). */
 export type TestState =
@@ -21,6 +22,11 @@ type Props = {
   onConfigure: () => void;
   onTest: () => void;
   onToggleActive: (active: boolean) => void;
+  /**
+   * The Enable/Disable button is placed by the children (e.g. next to "Add shipping method")
+   * instead of before Configure.
+   */
+  toggleInChildren?: boolean;
   /** Extra buttons after Configure / Test (e.g. Stripe's Webhook); shown even when read-only. */
   extraActions?: ReactNode;
   /** Extra content inside the card, after the actions (e.g. the manual shipping methods). */
@@ -36,6 +42,7 @@ const IntegrationCard = ({
   onTest,
   onToggleActive,
   extraActions,
+  toggleInChildren = false,
   children,
 }: Props) => {
   const { formatMessage } = useIntl();
@@ -114,19 +121,18 @@ const IntegrationCard = ({
             )}
             {credentials()}
           </Flex>
-          <Flex gap={3} alignItems="center">
-            <Switch
-              checked={active}
-              disabled={readOnly || toggling}
-              onCheckedChange={(checked: boolean) => onToggleActive(checked)}
-              aria-label={t('ecommerce.settings.integrations.activate', { name })}
-            />
-            <Typography variant="omega">{t('ecommerce.settings.integrations.activateLabel')}</Typography>
-          </Flex>
         </Flex>
 
-        {((configurable && !readOnly) || extraActions) && (
+        {((configurable && !readOnly) || extraActions || (!readOnly && !toggleInChildren)) && (
           <Flex gap={2} alignItems="center" wrap="wrap">
+            {!readOnly && !toggleInChildren && (
+              <ActiveToggleButton
+                name={name}
+                active={active}
+                busy={toggling}
+                onChange={onToggleActive}
+              />
+            )}
             {configurable && !readOnly && (
               <Button variant="secondary" startIcon={<Cog />} onClick={onConfigure}>
                 {t('ecommerce.settings.integrations.configure')}
