@@ -56,6 +56,8 @@ export type InvoiceView = {
   credited: number;
   paymentIds: number[];
   error: string | null;
+  /** The provider's message for a FAILED / UNCERTAIN row (rejected fields, rule), when it gave one. */
+  errorDetail: string | null;
   warnings: string[];
   issuedAt: string | null;
   createdAt: string | null;
@@ -132,6 +134,34 @@ const isUncertain = (err: unknown): boolean =>
 
 const billingCode = (err: unknown): string =>
   err instanceof EcommerceBillingError ? err.code : 'BILLING_REQUEST_FAILED';
+
+/** Longest failure detail kept on the row (and shown to admins). */
+const MAX_ERROR_DETAIL = 1000;
+
+/**
+ * What went wrong, for the log and the admin: the provider's own message (built by the provider
+ * from the rejected fields and codes, never credentials), or the class and message of an
+ * unexpected error. Null when it adds nothing to the code.
+ */
+export const billingErrorDetail = (err: unknown): string | null => {
+  if (!(err instanceof Error)) return null;
+  const message = (err.message ?? '').trim();
+  const text = err instanceof EcommerceBillingError ? message : `${err.name}: ${message}`;
+  if (!message || message === billingCode(err)) return null;
+  return text.length > MAX_ERROR_DETAIL ? `${text.slice(0, MAX_ERROR_DETAIL - 1)}…` : text;
+};
+
+/** `metadata.errorDetail` of a FAILED or UNCERTAIN row. */
+const errorDetailOf = (row: any): string | null => {
+  const raw = row?.metadata?.errorDetail;
+  return typeof raw === 'string' && raw ? raw : null;
+};
+
+/** The row's metadata without the failure detail (the document was issued after all). */
+const withoutErrorDetail = (metadata: any) => {
+  const { errorDetail: _drop, ...rest } = metadata ?? {};
+  return rest;
+};
 
 const lineKey = (l: InvoiceLine): number | 'SHIPPING' =>
   l.kind === 'SHIPPING' || l.orderLineId === null ? 'SHIPPING' : l.orderLineId;
@@ -299,6 +329,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
         .map((a) => idOf(a.payment))
         .filter((id): id is number => id !== null),
       error: r.error ?? null,
+      errorDetail: r.status === 'ISSUED' ? null : errorDetailOf(r),
       warnings: warningsOf(r),
       issuedAt: r.issuedAt ?? null,
       createdAt: r.createdAt ?? null,
@@ -438,7 +469,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
         series: doc.series ?? null,
         documentType: doc.documentType,
         issuedAt: doc.issuedAt || new Date().toISOString(),
-        metadata: { ...(row.metadata ?? {}), warnings },
+        metadata: { ...withoutErrorDetail(row.metadata), warnings },
       },
     });
     const creditNote = row.kind === 'CREDIT_NOTE';
@@ -476,11 +507,16 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     orderId: number,
     error: string,
     actor: string,
-    note = ''
+    note = '',
+    detail: string | null = null
   ) => {
     await strapi.db.query(uids().invoice).update({
       where: { id: row.id },
-      data: { status: 'FAILED', error },
+      data: {
+        status: 'FAILED',
+        error,
+        ...(detail ? { metadata: { ...(row.metadata ?? {}), errorDetail: detail } } : {}),
+      },
     });
     await releaseAllocations(row.id);
     await history().record({
@@ -558,11 +594,18 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
         return;
       }
       const code = billingCode(call.error);
-      strapi.log?.warn?.(`[ecommerce] ${describe(row).toLowerCase()} ${row.id} failed: ${code}`);
+      const detail = billingErrorDetail(call.error);
+      strapi.log?.warn?.(
+        `[ecommerce] ${describe(row).toLowerCase()} ${row.id} failed: ${code}${detail ? ` (${detail})` : ''}`
+      );
       if (isUncertain(call.error)) {
         await strapi.db.query(uids().invoice).update({
           where: { id: row.id },
-          data: { status: 'UNCERTAIN', error: code },
+          data: {
+            status: 'UNCERTAIN',
+            error: code,
+            ...(detail ? { metadata: { ...(row.metadata ?? {}), errorDetail: detail } } : {}),
+          },
         });
         await history().record({
           orderId,
@@ -574,7 +617,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
         });
         return;
       }
-      await recordFailed(row, orderId, code, actor);
+      await recordFailed(row, orderId, code, actor, '', detail);
       failure = call.error;
     });
     await collector.flush();

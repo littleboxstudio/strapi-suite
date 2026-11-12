@@ -1230,6 +1230,7 @@
   "littlebox-strapi-suite.ecommerce.orders.invoices.actions.CREDIT_NOTE": "Nota de crédito",
   "littlebox-strapi-suite.ecommerce.orders.invoices.actions.DETAILS": "Ler mais",
   "littlebox-strapi-suite.ecommerce.orders.invoices.details.title": "Documento {number}",
+  "littlebox-strapi-suite.ecommerce.orders.invoices.details.providerMessage": "Mensagem do {provider}",
   "littlebox-strapi-suite.ecommerce.orders.invoices.details.close": "Fechar",
   "littlebox-strapi-suite.ecommerce.orders.invoices.pdf.error": "Não foi possível descarregar o PDF.",
   "littlebox-strapi-suite.ecommerce.orders.invoices.reconcile.found": "O documento foi encontrado no fornecedor de faturação e está agora emitido.",

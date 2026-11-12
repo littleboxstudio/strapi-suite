@@ -197,6 +197,8 @@ export type InvoiceView = {
   credited: number;
   paymentIds: number[];
   error: string | null;
+  /** The provider's message for a FAILED / UNCERTAIN row (rejected fields, rule), when it gave one. */
+  errorDetail: string | null;
   /** TOTAL_MISMATCH, RECEIPT_FAILED, ISSUED_AFTER_FAILED, DUPLICATE_INVOICE, … */
   warnings: string[];
   issuedAt: string | null;

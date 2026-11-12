@@ -57,6 +57,19 @@ const Row = styled(Tr)<{ $clickable: boolean }>`
   cursor: ${({ $clickable }) => ($clickable ? 'pointer' : 'default')};
 `;
 
+/** The provider's own message, as it came (field names and codes). */
+const Detail = styled.pre`
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid ${({ theme }) => theme.colors.neutral200};
+  border-radius: ${({ theme }) => theme.borderRadius};
+  background: ${({ theme }) => theme.colors.neutral100};
+  color: ${({ theme }) => theme.colors.neutral800};
+  font-size: ${({ theme }) => theme.fontSizes[1]};
+  white-space: pre-wrap;
+  word-break: break-word;
+`;
+
 /** Tone of a status note → its box background and text colour. */
 const NOTE_BOX: Record<string, { background: string; text: string }> = {
   warning600: { background: 'warning100', text: 'warning700' },
@@ -223,6 +236,16 @@ const InvoicesSection = ({ title, order, canInvoice, onIssue, onChanged }: Props
                     )}
                   </Typography>
                 </Box>
+              )}
+              {invoice.errorDetail && (
+                <Flex direction="column" alignItems="stretch" gap={1}>
+                  <Typography variant="sigma" textColor="neutral600">
+                    {t('ecommerce.orders.invoices.details.providerMessage', {
+                      provider: providerName(invoice.provider),
+                    })}
+                  </Typography>
+                  <Detail>{invoice.errorDetail}</Detail>
+                </Flex>
               )}
               {warnings.map((w) => (
                 <Box key={w} padding={3} background="warning100" hasRadius>
