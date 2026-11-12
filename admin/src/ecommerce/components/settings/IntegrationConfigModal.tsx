@@ -10,8 +10,6 @@ import {
   IconButton,
   Loader,
   Modal,
-  MultiSelect,
-  MultiSelectOption,
   SingleSelect,
   SingleSelectOption,
   Switch,
@@ -40,6 +38,7 @@ import {
 } from '../../utils/integrationForm';
 import type { IntegrationView, LookupResult, ProviderField } from '../../settingsTypes';
 import { FieldHelpModal } from './FieldHelpModal';
+import { MarketPicker, MarketCard } from './MarketPicker';
 
 /** All fields in two columns (one on narrow screens). */
 const FieldGrid = styled.div`
@@ -52,6 +51,14 @@ const FieldGrid = styled.div`
     grid-template-columns: minmax(0, 1fr);
   }
 `;
+
+/** A field that takes the whole row of the grid (the markets list). */
+const FullRow = styled.div`
+  grid-column: 1 / -1;
+`;
+
+const FieldCell = ({ full, children }: { full: boolean; children: React.ReactNode }) =>
+  full ? <FullRow>{children}</FullRow> : <>{children}</>;
 
 /** The field whose value selects the company-specific lookup lists. */
 const COMPANY_FIELD = 'companyId';
@@ -120,7 +127,9 @@ const IntegrationConfigModal = ({
 
   const hasCompanyField = integration.fields.some((f) => f.key === COMPANY_FIELD);
   const companyValue =
-    hasCompanyField && typeof values[COMPANY_FIELD] === 'string' ? (values[COMPANY_FIELD] as string) : '';
+    hasCompanyField && typeof values[COMPANY_FIELD] === 'string'
+      ? (values[COMPANY_FIELD] as string)
+      : '';
 
   /** Reads the lookup lists for the given company (or only the companies). */
   const loadLookups = async (companyId: string): Promise<LookupState> => {
@@ -128,7 +137,10 @@ const IntegrationConfigModal = ({
     setLookups({ status: 'loading' });
     let next: LookupState;
     try {
-      const result = await new FetchIntegrationLookups().execute(integration.id, companyId || undefined);
+      const result = await new FetchIntegrationLookups().execute(
+        integration.id,
+        companyId || undefined
+      );
       next = { status: 'ok', result, companyId };
     } catch (err) {
       next = { status: 'error', code: extractErrorCode(err) };
@@ -177,7 +189,9 @@ const IntegrationConfigModal = ({
         const fieldErrors = extractFieldErrors(err);
         const code = extractErrorCode(err);
         if (fieldErrors) setErrors(integrationErrorMap(fieldErrors));
-        setCredentialsError(code ? `ecommerce.settings.errors.${code}` : 'ecommerce.settings.saveError');
+        setCredentialsError(
+          code ? `ecommerce.settings.errors.${code}` : 'ecommerce.settings.saveError'
+        );
         return;
       }
       setCurrent(saved);
@@ -202,7 +216,8 @@ const IntegrationConfigModal = ({
   /** Lookup options for a field; null when the field falls back to a plain input. */
   const lookupState = (field: ProviderField) => {
     if (!twoStep || !field.lookup) return null;
-    if (lookups.status === 'idle' || lookups.status === 'loading') return { kind: 'loading' as const };
+    if (lookups.status === 'idle' || lookups.status === 'loading')
+      return { kind: 'loading' as const };
     if (lookups.status === 'error') return null;
     if (lookups.result.failed.includes(field.lookup)) return null;
     const list = lookups.result.lists[field.lookup];
@@ -387,35 +402,64 @@ const IntegrationConfigModal = ({
           );
         }
         const selected = Array.isArray(value) ? value : [];
+        const countryName = (code: string) =>
+          marketOptions.find((c) => c.code === code)?.name ?? code;
         return (
-          <Flex gap={2} alignItems="flex-start">
-            <Box flex="1" minWidth={0}>
-              <MultiSelect
-                withTags
-                value={selected}
+          <Flex direction="column" alignItems="stretch" gap={4}>
+            <Flex gap={2} wrap="wrap">
+              <MarketPicker
+                options={marketOptions}
+                selected={selected}
                 hasError={hasError}
-                onChange={(next: string[]) => setValue(field.key, next)}
+                onChange={(next) => setValue(field.key, next)}
+              />
+              <Button
+                variant="secondary"
+                size="L"
+                disabled={markets.every((code) => selected.includes(code))}
+                onClick={() =>
+                  setValue(field.key, [
+                    ...selected,
+                    ...markets.filter((code) => !selected.includes(code)),
+                  ])
+                }
               >
-                {marketOptions.map(({ code, name }) => (
-                  <MultiSelectOption key={code} value={code}>
-                    {name}
-                  </MultiSelectOption>
+                {t('ecommerce.settings.manual.selectAll')}
+              </Button>
+              <Button
+                variant="tertiary"
+                size="L"
+                disabled={selected.length === 0}
+                onClick={() => setValue(field.key, [])}
+              >
+                {t('ecommerce.settings.manual.clear')}
+              </Button>
+            </Flex>
+            {selected.length > 0 && (
+              <Flex direction="column" alignItems="stretch">
+                {selected.map((code) => (
+                  <MarketCard key={code}>
+                    <Flex justifyContent="space-between" alignItems="center" gap={2}>
+                      <Typography variant="omega" fontWeight="bold">
+                        {countryName(code)}
+                      </Typography>
+                      <Button
+                        variant="danger-light"
+                        size="S"
+                        onClick={() =>
+                          setValue(
+                            field.key,
+                            selected.filter((c) => c !== code)
+                          )
+                        }
+                      >
+                        {t('ecommerce.settings.manual.removeMarket')}
+                      </Button>
+                    </Flex>
+                  </MarketCard>
                 ))}
-              </MultiSelect>
-            </Box>
-            <Button
-              variant="secondary"
-              size="L"
-              disabled={markets.every((code) => selected.includes(code))}
-              onClick={() =>
-                setValue(field.key, [
-                  ...selected,
-                  ...markets.filter((code) => !selected.includes(code)),
-                ])
-              }
-            >
-              {t('ecommerce.settings.manual.selectAllMarkets')}
-            </Button>
+              </Flex>
+            )}
           </Flex>
         );
       }
@@ -478,9 +522,19 @@ const IntegrationConfigModal = ({
               </Typography>
             )}
             {twoStep && step === 'credentials' && credentialsError && (
-              <Box background="danger100" borderColor="danger200" hasRadius padding={4} role="alert">
+              <Box
+                background="danger100"
+                borderColor="danger200"
+                hasRadius
+                padding={4}
+                role="alert"
+              >
                 <Typography textColor="danger700">
-                  {t(credentialsError, { name }, t('ecommerce.settings.integrations.lookup.errors.unknown', { name }))}
+                  {t(
+                    credentialsError,
+                    { name },
+                    t('ecommerce.settings.integrations.lookup.errors.unknown', { name })
+                  )}
                 </Typography>
               </Box>
             )}
@@ -508,55 +562,75 @@ const IntegrationConfigModal = ({
               </Flex>
             )}
             {twoStep && step === 'details' && lookups.status === 'error' && (
-              <Box background="warning100" borderColor="warning200" hasRadius padding={4} role="alert">
+              <Box
+                background="warning100"
+                borderColor="warning200"
+                hasRadius
+                padding={4}
+                role="alert"
+              >
                 <Typography textColor="neutral800">
-                  {t(`ecommerce.settings.integrations.lookup.errors.${lookups.code ?? 'unknown'}`, { name }, t('ecommerce.settings.integrations.lookup.errors.unknown', { name }))}{' '}
+                  {t(
+                    `ecommerce.settings.integrations.lookup.errors.${lookups.code ?? 'unknown'}`,
+                    { name },
+                    t('ecommerce.settings.integrations.lookup.errors.unknown', { name })
+                  )}{' '}
                   {t('ecommerce.settings.integrations.lookup.manual')}
                 </Typography>
               </Box>
             )}
-            {twoStep && step === 'details' && lookups.status === 'ok' && lookups.result.failed.length > 0 && (
-              <Box background="warning100" borderColor="warning200" hasRadius padding={4} role="note">
-                <Typography textColor="neutral800">
-                  {t('ecommerce.settings.integrations.lookup.someFailed', { name })}
-                </Typography>
-              </Box>
-            )}
+            {twoStep &&
+              step === 'details' &&
+              lookups.status === 'ok' &&
+              lookups.result.failed.length > 0 && (
+                <Box
+                  background="warning100"
+                  borderColor="warning200"
+                  hasRadius
+                  padding={4}
+                  role="note"
+                >
+                  <Typography textColor="neutral800">
+                    {t('ecommerce.settings.integrations.lookup.someFailed', { name })}
+                  </Typography>
+                </Box>
+              )}
             <FieldGrid>
               {visibleFields.map((field) => (
-                <Field.Root
-                  key={field.key}
-                  name={field.key}
-                  required={showsAsRequired(field)}
-                  error={
-                    errors[field.key]
-                      ? t(`ecommerce.settings.errors.${errors[field.key]}`)
-                      : undefined
-                  }
-                  hint={secretHint(field)}
-                >
-                  <Field.Label
-                    action={
-                      field.help ? (
-                        <IconButton
-                          variant="ghost"
-                          size="XS"
-                          label={t('ecommerce.settings.integrations.help.open', {
-                            field: t(field.label, undefined, field.key),
-                          })}
-                          onClick={() => setHelpField(field)}
-                        >
-                          <Information />
-                        </IconButton>
-                      ) : undefined
+                <FieldCell key={field.key} full={field.type === 'markets'}>
+                  <Field.Root
+                    name={field.key}
+                    required={showsAsRequired(field)}
+                    error={
+                      errors[field.key]
+                        ? t(`ecommerce.settings.errors.${errors[field.key]}`)
+                        : undefined
                     }
+                    hint={secretHint(field)}
                   >
-                    {t(field.label, undefined, field.key)}
-                  </Field.Label>
-                  {fieldInput(field)}
-                  <Field.Error />
-                  <Field.Hint />
-                </Field.Root>
+                    <Field.Label
+                      action={
+                        field.help ? (
+                          <IconButton
+                            variant="ghost"
+                            size="XS"
+                            label={t('ecommerce.settings.integrations.help.open', {
+                              field: t(field.label, undefined, field.key),
+                            })}
+                            onClick={() => setHelpField(field)}
+                          >
+                            <Information />
+                          </IconButton>
+                        ) : undefined
+                      }
+                    >
+                      {t(field.label, undefined, field.key)}
+                    </Field.Label>
+                    {fieldInput(field)}
+                    <Field.Error />
+                    <Field.Hint />
+                  </Field.Root>
+                </FieldCell>
               ))}
             </FieldGrid>
           </Flex>
