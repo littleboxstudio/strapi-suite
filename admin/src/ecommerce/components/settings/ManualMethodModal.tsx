@@ -49,6 +49,13 @@ const RangeGrid = styled.div`
   align-items: start;
 `;
 
+/** Line between two markets: 10px above and below. */
+const MarketSeparator = styled.hr`
+  border: 0;
+  border-top: 1px solid ${({ theme }) => theme.colors.neutral200};
+  margin: 10px 0;
+`;
+
 /** Mount it only while open: the draft is initialised once, from the props. */
 type Props = {
   /** The method being edited, or null to create one. */
@@ -87,9 +94,7 @@ const ManualMethodModal = ({
   );
 
   const [draft, setDraft] = useState<ManualMethodDraft>(() =>
-    method
-      ? manualMethodToDraft(method, codes, uiLocale, markets)
-      : emptyManualMethodDraft(codes)
+    method ? manualMethodToDraft(method, codes, uiLocale, markets) : emptyManualMethodDraft(codes)
   );
   const [errors, setErrors] = useState<ManualMethodErrors>({});
   const [locale, setLocale] = useState(defaultLocale);
@@ -124,7 +129,10 @@ const ManualMethodModal = ({
         ),
       });
     } catch {
-      toggleNotification({ type: 'danger', message: t('ecommerce.settings.manualMethods.toggleError') });
+      toggleNotification({
+        type: 'danger',
+        message: t('ecommerce.settings.manualMethods.toggleError'),
+      });
     } finally {
       setToggling(false);
     }
@@ -175,7 +183,10 @@ const ManualMethodModal = ({
   };
 
   const changeRows = (code: string, change: (rows: BracketDraft[]) => BracketDraft[]) =>
-    setDraft((d) => ({ ...d, brackets: { ...d.brackets, [code]: change(d.brackets[code] ?? []) } }));
+    setDraft((d) => ({
+      ...d,
+      brackets: { ...d.brackets, [code]: change(d.brackets[code] ?? []) },
+    }));
 
   const updateRow = (code: string, index: number, field: keyof BracketDraft, text: string) => {
     changeRows(code, (rows) =>
@@ -266,20 +277,71 @@ const ManualMethodModal = ({
                 isFilled={(code) => !!draft.names[code]?.trim()}
                 label={t('ecommerce.settings.manualMethods.locale')}
               />
-              <Field.Root
-                name="name"
-                error={errorText(namePath(locale))}
-                required={locale === defaultLocale}
-              >
-                <Field.Label>{t('ecommerce.settings.manualMethods.name')}</Field.Label>
-                <TextInput
-                  value={draft.names[locale] ?? ''}
-                  onChange={(e: any) =>
-                    update('names', { ...draft.names, [locale]: e.target.value }, namePath(locale))
-                  }
-                />
-                <Field.Error />
-              </Field.Root>
+              <Grid.Root gap={4}>
+                <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
+                  <Field.Root
+                    name="name"
+                    error={errorText(namePath(locale))}
+                    required={locale === defaultLocale}
+                  >
+                    <Field.Label>{t('ecommerce.settings.manualMethods.name')}</Field.Label>
+                    <TextInput
+                      value={draft.names[locale] ?? ''}
+                      onChange={(e: any) =>
+                        update(
+                          'names',
+                          { ...draft.names, [locale]: e.target.value },
+                          namePath(locale)
+                        )
+                      }
+                    />
+                    <Field.Error />
+                  </Field.Root>
+                </Grid.Item>
+                <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
+                  <Field.Root
+                    name="tax"
+                    error={taxError}
+                    hint={t('ecommerce.settings.manual.pricesHint')}
+                    required
+                  >
+                    <Field.Label>{t('ecommerce.settings.manualMethods.tax')}</Field.Label>
+                    <Flex gap={2} alignItems="flex-start">
+                      <Box style={{ flex: 1 }}>
+                        <SingleSelect
+                          value={draft.taxChoice}
+                          hasError={!!taxError}
+                          onChange={(value: string | number) =>
+                            update('taxChoice', String(value), 'tax')
+                          }
+                        >
+                          {TAX_PRESETS.map((rate) => (
+                            <SingleSelectOption key={rate} value={String(rate)}>
+                              {`${rate}%`}
+                            </SingleSelectOption>
+                          ))}
+                          <SingleSelectOption value={TAX_OTHER}>
+                            {t('ecommerce.settings.manualMethods.tax.other')}
+                          </SingleSelectOption>
+                        </SingleSelect>
+                      </Box>
+                      {draft.taxChoice === TAX_OTHER && (
+                        <Box style={{ width: 96 }}>
+                          <TextInput
+                            aria-label={t('ecommerce.settings.manualMethods.tax.otherValue')}
+                            placeholder="%"
+                            value={draft.taxOther}
+                            hasError={!!taxError}
+                            onChange={(e: any) => update('taxOther', e.target.value, 'tax')}
+                          />
+                        </Box>
+                      )}
+                    </Flex>
+                    <Field.Hint />
+                    <Field.Error />
+                  </Field.Root>
+                </Grid.Item>
+              </Grid.Root>
             </Flex>
 
             {markets.length === 0 ? (
@@ -336,153 +398,111 @@ const ManualMethodModal = ({
                   </Typography>
                 )}
 
-                {draft.markets.map((code) => {
-                  const rows = draft.brackets[code] ?? [];
-                  const marketError = errors[`rates.${code}`];
-                  return (
-                    <Box
-                      key={code}
-                      borderColor={marketError ? 'danger600' : 'neutral200'}
-                      hasRadius
-                      paddingTop={2}
-                      paddingBottom={3}
-                      paddingLeft={3}
-                      paddingRight={3}
-                    >
-                      <Flex direction="column" alignItems="stretch" gap={2}>
-                        <Flex justifyContent="space-between" alignItems="center" gap={2} wrap="wrap">
-                          <Flex gap={1} alignItems="center">
-                            <IconButton
-                              label={t('ecommerce.settings.manual.removeMarket')}
-                              variant="ghost"
-                              size="S"
-                              onClick={() => setMarkets(draft.markets.filter((c) => c !== code))}
-                            >
-                              <Cross />
-                            </IconButton>
-                            <Typography variant="omega" fontWeight="bold" tag="h3">
-                              {countryName(code)}
-                            </Typography>
-                          </Flex>
-                          <Flex gap={2}>
-                            {draft.markets.length >= 2 && (
-                              <Button variant="tertiary" size="S" onClick={() => setConfirmApply(code)}>
-                                {t('ecommerce.settings.manual.applyAll')}
+                <Flex direction="column" alignItems="stretch">
+                  {draft.markets.map((code, index) => {
+                    const rows = draft.brackets[code] ?? [];
+                    const marketError = errors[`rates.${code}`];
+                    return (
+                      <Box key={code}>
+                        {index > 0 && <MarketSeparator />}
+                        <Flex direction="column" alignItems="stretch" gap={2}>
+                          <Flex
+                            justifyContent="space-between"
+                            alignItems="center"
+                            gap={2}
+                            wrap="wrap"
+                          >
+                            <Flex gap={1} alignItems="center">
+                              <IconButton
+                                label={t('ecommerce.settings.manual.removeMarket')}
+                                variant="ghost"
+                                size="S"
+                                onClick={() => setMarkets(draft.markets.filter((c) => c !== code))}
+                              >
+                                <Cross />
+                              </IconButton>
+                              <Typography variant="omega" fontWeight="bold" tag="h3">
+                                {countryName(code)}
+                              </Typography>
+                            </Flex>
+                            <Flex gap={2}>
+                              {draft.markets.length >= 2 && (
+                                <Button
+                                  variant="tertiary"
+                                  size="S"
+                                  onClick={() => setConfirmApply(code)}
+                                >
+                                  {t('ecommerce.settings.manual.applyAll')}
+                                </Button>
+                              )}
+                              <Button
+                                variant="secondary"
+                                size="S"
+                                startIcon={<Plus />}
+                                onClick={() => addRow(code)}
+                              >
+                                {t('ecommerce.settings.manual.addRange')}
                               </Button>
-                            )}
-                            <Button
-                              variant="secondary"
-                              size="S"
-                              startIcon={<Plus />}
-                              onClick={() => addRow(code)}
-                            >
-                              {t('ecommerce.settings.manual.addRange')}
-                            </Button>
+                            </Flex>
                           </Flex>
+                          {rows.length > 0 && (
+                            <RangeGrid>
+                              <Typography variant="sigma" textColor="neutral600">
+                                {t('ecommerce.settings.manual.upTo')}
+                              </Typography>
+                              <Typography variant="sigma" textColor="neutral600">
+                                {t('ecommerce.settings.manual.price')}
+                              </Typography>
+                              <span />
+                              {rows.map((row, i) => (
+                                <Fragment key={i}>
+                                  {(['upTo', 'price'] as const).map((field) => {
+                                    const path = `rates.${code}.${i}.${field}`;
+                                    return (
+                                      <Field.Root key={field} name={path} error={errorText(path)}>
+                                        <TextInput
+                                          aria-label={`${countryName(code)}: ${t(
+                                            `ecommerce.settings.manual.${field}`
+                                          )} (${i + 1})`}
+                                          inputMode="decimal"
+                                          value={row[field]}
+                                          onChange={(e: any) =>
+                                            updateRow(code, i, field, e.target.value)
+                                          }
+                                        />
+                                        <Field.Error />
+                                      </Field.Root>
+                                    );
+                                  })}
+                                  {/* Same height as the inputs, so the button sits on their line. */}
+                                  <Flex height="4rem" alignItems="center">
+                                    <IconButton
+                                      label={t('ecommerce.settings.manual.removeRange')}
+                                      variant="ghost"
+                                      disabled={rows.length === 1}
+                                      onClick={() => removeRow(code, i)}
+                                    >
+                                      <Trash />
+                                    </IconButton>
+                                  </Flex>
+                                </Fragment>
+                              ))}
+                            </RangeGrid>
+                          )}
+                          {marketError && (
+                            <Typography variant="pi" textColor="danger600" role="alert">
+                              {marketError === 'required'
+                                ? t('ecommerce.settings.manual.rangesRequired')
+                                : errorText(`rates.${code}`)}
+                            </Typography>
+                          )}
                         </Flex>
-                        {rows.length > 0 && (
-                          <RangeGrid>
-                            <Typography variant="sigma" textColor="neutral600">
-                              {t('ecommerce.settings.manual.upTo')}
-                            </Typography>
-                            <Typography variant="sigma" textColor="neutral600">
-                              {t('ecommerce.settings.manual.price')}
-                            </Typography>
-                            <span />
-                            {rows.map((row, i) => (
-                              <Fragment key={i}>
-                                {(['upTo', 'price'] as const).map((field) => {
-                                  const path = `rates.${code}.${i}.${field}`;
-                                  return (
-                                    <Field.Root key={field} name={path} error={errorText(path)}>
-                                      <TextInput
-                                        aria-label={`${countryName(code)}: ${t(
-                                          `ecommerce.settings.manual.${field}`
-                                        )} (${i + 1})`}
-                                        inputMode="decimal"
-                                        value={row[field]}
-                                        onChange={(e: any) =>
-                                          updateRow(code, i, field, e.target.value)
-                                        }
-                                      />
-                                      <Field.Error />
-                                    </Field.Root>
-                                  );
-                                })}
-                                {/* Same height as the inputs, so the button sits on their line. */}
-                                <Flex height="4rem" alignItems="center">
-                                  <IconButton
-                                    label={t('ecommerce.settings.manual.removeRange')}
-                                    variant="ghost"
-                                    disabled={rows.length === 1}
-                                    onClick={() => removeRow(code, i)}
-                                  >
-                                    <Trash />
-                                  </IconButton>
-                                </Flex>
-                              </Fragment>
-                            ))}
-                          </RangeGrid>
-                        )}
-                        {marketError && (
-                          <Typography variant="pi" textColor="danger600" role="alert">
-                            {marketError === 'required'
-                              ? t('ecommerce.settings.manual.rangesRequired')
-                              : errorText(`rates.${code}`)}
-                          </Typography>
-                        )}
-                      </Flex>
-                    </Box>
-                  );
-                })}
+                      </Box>
+                    );
+                  })}
+                </Flex>
               </Flex>
             )}
-
-            <Grid.Root gap={4}>
-              <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
-                <Field.Root
-                  name="tax"
-                  error={taxError}
-                  hint={t('ecommerce.settings.manual.pricesHint')}
-                  required
-                >
-                  <Field.Label>{t('ecommerce.settings.manualMethods.tax')}</Field.Label>
-                  <Flex gap={2} alignItems="flex-start">
-                    <Box style={{ flex: 1 }}>
-                      <SingleSelect
-                        value={draft.taxChoice}
-                        hasError={!!taxError}
-                        onChange={(value: string | number) =>
-                          update('taxChoice', String(value), 'tax')
-                        }
-                      >
-                        {TAX_PRESETS.map((rate) => (
-                          <SingleSelectOption key={rate} value={String(rate)}>
-                            {`${rate}%`}
-                          </SingleSelectOption>
-                        ))}
-                        <SingleSelectOption value={TAX_OTHER}>
-                          {t('ecommerce.settings.manualMethods.tax.other')}
-                        </SingleSelectOption>
-                      </SingleSelect>
-                    </Box>
-                    {draft.taxChoice === TAX_OTHER && (
-                      <Box style={{ width: 96 }}>
-                        <TextInput
-                          aria-label={t('ecommerce.settings.manualMethods.tax.otherValue')}
-                          placeholder="%"
-                          value={draft.taxOther}
-                          hasError={!!taxError}
-                          onChange={(e: any) => update('taxOther', e.target.value, 'tax')}
-                        />
-                      </Box>
-                    )}
-                  </Flex>
-                  <Field.Hint />
-                  <Field.Error />
-                </Field.Root>
-              </Grid.Item>
-            </Grid.Root>
           </Flex>
         </Modal.Body>
         <Modal.Footer>
