@@ -128,21 +128,15 @@ const EcommerceShippingZoneService = ({ strapi }: { strapi: Core.Strapi }) => {
       return toZone(updated);
     },
 
-    /** Deletes the zone and, in the same transaction, its rates and carrier references. */
+    /** Deletes the zone (the module goes away with per-market shipping). */
     async remove(id: number, userId?: string | number): Promise<void> {
       await findExisting(id);
-      const references: { methods: number[]; carriers: string[] } = await strapi.db.transaction(async () => {
-        await q().delete({ where: { id } });
-        return settings().removeZoneReferences(id);
-      });
-      // Again after the commit, so no read during the transaction keeps the old runtime cached.
-      settings().invalidateRuntimes();
+      await q().delete({ where: { id } });
       await audit({
         area: AREA,
         action: 'shipping_zone.delete',
         targetId: String(id),
         userId: auditUser(userId),
-        details: references,
       });
     },
   };

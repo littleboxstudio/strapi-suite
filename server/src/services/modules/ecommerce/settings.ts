@@ -27,7 +27,7 @@ import {
   ValidationIssue,
 } from './errors';
 import type { AuditEntry } from './audit';
-import { MAX_MONEY_CENTS } from './domain/orders';
+import { MarketRates, normalizeMarketRates, readMarketRates } from './domain/shippingRates';
 import type { StoreLogoFile } from './images';
 
 const AREA = 'settings';
@@ -61,7 +61,7 @@ export type StoreSettings = {
   brandColor: string;
   storefrontUrl: string | null;
   timezone: string;
-  /** Countries where the store sells; shipping zones group them. */
+  /** Countries where the store sells; shipping methods and carriers choose among them. */
   markets: string[];
   supportEmail: string | null;
   storefrontApiTokenId: number | null;
@@ -132,8 +132,8 @@ const tokenBaseName = (now: Date) =>
 export type ManualMethod = {
   id: number;
   name: Record<string, string>;
-  /** Price in cents (VAT included) per shipping zone id; a zone without a key has no service. */
-  rates: Record<string, number>;
+  /** Weight brackets (prices in cents, VAT included) per country; a country without a key has no service. */
+  rates: MarketRates;
   tax: number;
   active: boolean;
   position: number;
@@ -270,29 +270,10 @@ const unwrapStoreValue = (stored: unknown): unknown =>
     ? (stored as { v: unknown }).v
     : stored;
 
-function normalizeRates(input: unknown, zoneIds: Set<number>, errors: ValidationIssue[]): Record<string, number> {
-  const rates: Record<string, number> = {};
-  if (input === undefined || input === null) return rates;
-  if (typeof input !== 'object' || Array.isArray(input)) {
-    errors.push({ path: 'rates', code: 'invalid_number' });
-    return rates;
-  }
-  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
-    const path = `rates.${key}`;
-    // A blank value removes the zone's price, even for a zone that no longer exists.
-    if (value === null || value === '') continue;
-    if (!/^[1-9]\d*$/.test(key) || !zoneIds.has(Number(key))) errors.push({ path, code: 'invalid_zone' });
-    else if (typeof value !== 'number' || !Number.isInteger(value)) errors.push({ path, code: 'invalid_number' });
-    else if (value < 0 || value > MAX_MONEY_CENTS) errors.push({ path, code: 'out_of_range' });
-    else rates[key] = value;
-  }
-  return rates;
-}
-
 function normalizeManualMethod(
   input: ManualMethodInput,
   defaultLocale: string,
-  zoneIds: Set<number>
+  markets: ReadonlySet<string>
 ): { values: Omit<ManualMethod, 'id' | 'position'> & { position?: number }; errors: ValidationIssue[] } {
   const errors: ValidationIssue[] = [];
 
@@ -304,7 +285,10 @@ function normalizeManualMethod(
   }
   if (!name[defaultLocale]) errors.push({ path: `name.${defaultLocale}`, code: 'required' });
 
-  const rates = normalizeRates(input.rates, zoneIds, errors);
+  const rates = normalizeMarketRates(input.rates, markets, errors);
+  if (!errors.some((e) => e.path.startsWith('rates')) && Object.keys(rates).length === 0) {
+    errors.push({ path: 'rates', code: 'required' });
+  }
 
   const tax = input.tax ?? 23;
   if (typeof tax !== 'number' || !Number.isFinite(tax)) errors.push({ path: 'tax', code: 'invalid_number' });
@@ -330,7 +314,7 @@ function normalizeManualMethod(
 const toManualMethod = (r: any): ManualMethod => ({
   id: r.id,
   name: r.name ?? {},
-  rates: r.rates && typeof r.rates === 'object' && !Array.isArray(r.rates) ? r.rates : {},
+  rates: readMarketRates(r.rates),
   tax: r.tax === null || r.tax === undefined ? 23 : Number(r.tax),
   active: r.active ?? true,
   position: r.position ?? 0,
@@ -349,10 +333,6 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
     strapi.plugin(PLUGIN_ID).service('EcommerceAuditService').log(entry);
   const getDefaultLocale = async (): Promise<string> =>
     strapi.plugin('i18n').service('locales').getDefaultLocale();
-  const zoneIds = async (): Promise<Set<number>> => {
-    const zones: { id: number }[] = await strapi.plugin(PLUGIN_ID).service('EcommerceShippingZoneService').list();
-    return new Set(zones.map((z) => z.id));
-  };
 
   const runtimeCache = new Map<string, { value: ProviderRuntime & { active: boolean }; expiresAt: number }>();
   // Bumped on every invalidation so a read that started before it cannot repopulate the cache.
@@ -433,7 +413,7 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
 
   /** Normalizes a non-secret config value for storage (numbers from strings, trimmed strings). */
   const normalizeConfigValue = (field: ProviderField, value: unknown): unknown => {
-    if (field.type === 'zones') {
+    if (field.type === 'markets') {
       if (!Array.isArray(value) || value.length === 0) return undefined;
       return [...new Set(value)];
     }
@@ -647,14 +627,14 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
         { config: configWithDefaults(def, nextConfig), secrets: newSecrets },
         (k) => Boolean(storedSecrets[k])
       );
-      // Zone ids must exist, whether the integration is active or not.
-      const zoneFields = def.fields.filter((f) => f.type === 'zones');
-      if (zoneFields.length && !issues.some((i) => i.code === 'invalid_zone')) {
-        const existing = await zoneIds();
-        for (const field of zoneFields) {
+      // Markets must be store markets, whether the integration is active or not.
+      const marketFields = def.fields.filter((f) => f.type === 'markets');
+      if (marketFields.length && !issues.some((i) => i.code === 'invalid_country')) {
+        const storeMarkets = new Set((await getStoreSettings()).markets);
+        for (const field of marketFields) {
           const value = nextConfig[field.key];
-          if (Array.isArray(value) && value.some((id) => !existing.has(id))) {
-            issues.push({ path: `config.${field.key}`, code: 'invalid_zone' });
+          if (Array.isArray(value) && value.some((c) => !storeMarkets.has(c))) {
+            issues.push({ path: `config.${field.key}`, code: 'invalid_country' });
           }
         }
       }
@@ -807,21 +787,32 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
       if (errors.length) throw new EcommerceValidationError('Invalid settings', errors);
 
       if (values.markets) {
-        // A market still grouped in a shipping zone cannot go: nothing of this patch is saved.
+        // A market still used by a shipping method or a carrier cannot go: nothing of this patch is saved.
         const kept = new Set(values.markets);
-        const removed = (await getStoreSettings()).markets.filter((c) => !kept.has(c));
-        if (removed.length) {
-          const zones: { name: string; countries: string[] }[] = await strapi
-            .plugin(PLUGIN_ID)
-            .service('EcommerceShippingZoneService')
-            .list();
-          const inUse = zones.filter((z) => z.countries.some((c) => removed.includes(c)));
-          if (inUse.length) {
-            throw new EcommerceValidationError(
-              'Invalid settings',
-              inUse.map((z) => ({ path: 'markets', code: 'MARKET_IN_USE', detail: z.name }))
-            );
+        const removed = new Set((await getStoreSettings()).markets.filter((c) => !kept.has(c)));
+        if (removed.size) {
+          const inUse: ValidationIssue[] = [];
+          const defaultLocale = await getDefaultLocale();
+          const methodRows = await strapi
+            .db.query(uids().manualShippingMethod)
+            .findMany({ orderBy: [{ position: 'asc' }, { id: 'asc' }] });
+          for (const row of methodRows) {
+            const m = toManualMethod(row);
+            if (Object.keys(m.rates).some((c) => removed.has(c))) {
+              inUse.push({ path: 'markets', code: 'MARKET_IN_USE', detail: m.name[defaultLocale] ?? '' });
+            }
           }
+          const integrations: IntegrationRow[] = await strapi.db.query(uids().integration).findMany({});
+          for (const row of integrations) {
+            const def = getProviderDefinition(row.providerId);
+            if (!def || !row.config) continue;
+            const used = def.fields.some((f) => {
+              const value = row.config?.[f.key];
+              return f.type === 'markets' && Array.isArray(value) && value.some((c) => removed.has(c));
+            });
+            if (used) inUse.push({ path: 'markets', code: 'MARKET_IN_USE', detail: def.name });
+          }
+          if (inUse.length) throw new EcommerceValidationError('Invalid settings', inUse);
         }
       }
 
@@ -862,49 +853,6 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
     /** Clears the provider runtime cache (after changes committed elsewhere). */
     invalidateRuntimes: invalidate,
 
-    /**
-     * Removes a deleted shipping zone from the manual method rates and from the `zones` fields
-     * of the stored integrations. Run inside the zone deletion transaction.
-     */
-    async removeZoneReferences(zoneId: number): Promise<{ methods: number[]; carriers: string[] }> {
-      const key = String(zoneId);
-      const methods: number[] = [];
-      const carriers: string[] = [];
-
-      const mq = strapi.db.query(uids().manualShippingMethod);
-      const rows = await mq.findMany({ orderBy: [{ id: 'asc' }] });
-      for (const row of rows) {
-        const rates = toManualMethod(row).rates;
-        if (!(key in rates)) continue;
-        const { [key]: _removed, ...rest } = rates;
-        await mq.update({ where: { id: row.id }, data: { rates: rest } });
-        methods.push(row.id);
-      }
-
-      const iq = strapi.db.query(uids().integration);
-      const integrations: IntegrationRow[] = await iq.findMany({});
-      for (const row of integrations) {
-        const def = getProviderDefinition(row.providerId);
-        if (!def || !row.config) continue;
-        const config = { ...row.config };
-        let changed = false;
-        for (const field of def.fields) {
-          const value = config[field.key];
-          if (field.type !== 'zones' || !Array.isArray(value) || !value.includes(zoneId)) continue;
-          const rest = value.filter((id) => id !== zoneId);
-          if (rest.length) config[field.key] = rest;
-          else delete config[field.key];
-          changed = true;
-        }
-        if (!changed) continue;
-        await iq.update({ where: { id: row.id }, data: { config } });
-        carriers.push(row.providerId);
-      }
-
-      invalidate();
-      return { methods, carriers };
-    },
-
     async listManualMethods(): Promise<ManualMethod[]> {
       const rows = await strapi.db
         .query(uids().manualShippingMethod)
@@ -913,7 +861,11 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
     },
 
     async createManualMethod(input: ManualMethodInput, userId?: string | number): Promise<ManualMethod> {
-      const { values, errors } = normalizeManualMethod(input ?? {}, await getDefaultLocale(), await zoneIds());
+      const { values, errors } = normalizeManualMethod(
+        input ?? {},
+        await getDefaultLocale(),
+        new Set((await getStoreSettings()).markets)
+      );
       if (errors.length) throw new EcommerceValidationError('Invalid settings', errors);
       const q = strapi.db.query(uids().manualShippingMethod);
       if (values.position === undefined) {
@@ -935,15 +887,13 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
       const existing = await q.findOne({ where: { id } });
       if (!existing) throw new EcommerceNotFoundError('Shipping method not found');
       const { id: _id, ...current } = toManualMethod(existing);
-      // Stored prices of zones deleted meanwhile are dropped, so they cannot block the update.
-      const zones = await zoneIds();
-      const storedRates = Object.fromEntries(
-        Object.entries(current.rates).filter(([k]) => zones.has(Number(k)))
-      );
+      // Stored prices of countries no longer markets are dropped, so they cannot block the update.
+      const markets = new Set((await getStoreSettings()).markets);
+      const storedRates = Object.fromEntries(Object.entries(current.rates).filter(([c]) => markets.has(c)));
       const { values, errors } = normalizeManualMethod(
         { ...current, rates: storedRates, ...(input ?? {}) },
         await getDefaultLocale(),
-        zones
+        markets
       );
       if (errors.length) throw new EcommerceValidationError('Invalid settings', errors);
       const updated = await q.update({ where: { id }, data: values });

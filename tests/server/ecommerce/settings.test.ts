@@ -421,56 +421,54 @@ describe('EcommerceSettingsService — Stripe return paths', () => {
   });
 });
 
-describe('EcommerceSettingsService — carrier zones', () => {
+describe('EcommerceSettingsService — carrier markets', () => {
   afterEach(() => __resetRegistryForTests());
   const CTT = {
     config: { clientId: 'c', contractNumber: 'n', username: 'u' },
     secrets: { password: 'ctt-password-1' },
   };
-  const withZones = async () => {
+  const withMarkets = async () => {
     const ctx = makeStrapi();
     await ctx.service.updateStoreSettings({ markets: ['PT', 'ES'] });
-    await ctx.zones.create({ name: 'PT', countries: ['PT'] });
-    await ctx.zones.create({ name: 'ES', countries: ['ES'] });
     return ctx;
   };
 
-  it('stores unique zone ids in the order received', async () => {
-    const { service } = await withZones();
-    const view = await service.updateIntegration('ctt-expresso', { config: { zones: [2, 1, 2] } });
-    expect(view.config.zones).toEqual([2, 1]);
-    expect((await service.getRuntime('ctt-expresso'))!.config.zones).toEqual([2, 1]);
+  it('stores unique country codes in the order received', async () => {
+    const { service } = await withMarkets();
+    const view = await service.updateIntegration('ctt-expresso', { config: { markets: ['ES', 'PT', 'ES'] } });
+    expect(view.config.markets).toEqual(['ES', 'PT']);
+    expect((await service.getRuntime('ctt-expresso'))!.config.markets).toEqual(['ES', 'PT']);
   });
 
-  it('rejects ids of zones that do not exist, active or not', async () => {
-    const { service } = await withZones();
-    const err: any = await service.updateIntegration('ctt-expresso', { config: { zones: [9] } }).catch((e) => e);
+  it('rejects countries that are not store markets, active or not', async () => {
+    const { service } = await withMarkets();
+    const err: any = await service.updateIntegration('ctt-expresso', { config: { markets: ['DE'] } }).catch((e) => e);
     expect(err).toBeInstanceOf(EcommerceValidationError);
-    expect(err.errors).toEqual([{ path: 'config.zones', code: 'invalid_zone' }]);
-    const bad: any = await service.updateIntegration('ctt-expresso', { config: { zones: ['1'] } }).catch((e) => e);
-    expect(bad.errors).toEqual([{ path: 'config.zones', code: 'invalid_zone' }]);
+    expect(err.errors).toEqual([{ path: 'config.markets', code: 'invalid_country' }]);
+    const bad: any = await service.updateIntegration('ctt-expresso', { config: { markets: ['pt'] } }).catch((e) => e);
+    expect(bad.errors).toEqual([{ path: 'config.markets', code: 'invalid_country' }]);
   });
 
-  it('activating CTT requires at least one zone', async () => {
-    const { service } = await withZones();
+  it('activating CTT requires at least one market', async () => {
+    const { service } = await withMarkets();
     await service.updateIntegration('ctt-expresso', CTT);
     const err: any = await service.setActive('ctt-expresso', true).catch((e) => e);
     expect(err).toBeInstanceOf(EcommerceValidationError);
-    expect(err.errors).toEqual([{ path: 'config.zones', code: 'required' }]);
-    await service.updateIntegration('ctt-expresso', { config: { zones: [1] } });
+    expect(err.errors).toEqual([{ path: 'config.markets', code: 'required' }]);
+    await service.updateIntegration('ctt-expresso', { config: { markets: ['PT'] } });
     expect((await service.setActive('ctt-expresso', true)).active).toBe(true);
   });
 
-  it('zones are required like any other field: saving without them only fails while active', async () => {
-    const { service } = await withZones();
-    const saved = await service.updateIntegration('ctt-expresso', { ...CTT, config: { ...CTT.config, zones: [] } });
-    expect(saved.config.zones).toEqual([]);
-    await service.updateIntegration('ctt-expresso', { config: { zones: [1] } });
+  it('markets are required like any other field: saving without them only fails while active', async () => {
+    const { service } = await withMarkets();
+    const saved = await service.updateIntegration('ctt-expresso', { ...CTT, config: { ...CTT.config, markets: [] } });
+    expect(saved.config.markets).toEqual([]);
+    await service.updateIntegration('ctt-expresso', { config: { markets: ['PT'] } });
     await service.setActive('ctt-expresso', true);
-    const err: any = await service.updateIntegration('ctt-expresso', { config: { zones: [] } }).catch((e) => e);
+    const err: any = await service.updateIntegration('ctt-expresso', { config: { markets: [] } }).catch((e) => e);
     expect(err).toBeInstanceOf(EcommerceValidationError);
-    expect(err.errors).toEqual([{ path: 'config.zones', code: 'required' }]);
-    expect((await service.getRuntime('ctt-expresso'))!.config.zones).toEqual([1]);
+    expect(err.errors).toEqual([{ path: 'config.markets', code: 'required' }]);
+    expect((await service.getRuntime('ctt-expresso'))!.config.markets).toEqual(['PT']);
   });
 });
 
@@ -587,21 +585,31 @@ describe('EcommerceSettingsService — store settings', () => {
     });
   });
 
-  it('removing from markets a country still in a zone fails with MARKET_IN_USE and saves nothing', async () => {
-    const { service, zones, tables } = makeStrapi();
+  it('removing a market still used by a manual method fails with MARKET_IN_USE and saves nothing', async () => {
+    const { service, tables } = makeStrapi();
     await service.updateStoreSettings({ markets: ['PT', 'ES', 'FR'] });
-    await zones.create({ name: 'Ibéria', countries: ['PT', 'ES'] });
+    await service.createManualMethod({
+      name: { en: 'Mail' },
+      rates: { PT: [{ upTo: null, price: 350 }], ES: [{ upTo: null, price: 650 }] },
+    });
     const rowsBefore = JSON.stringify(tables[UIDS.storeSetting]);
-    const err: any = await service
-      .updateStoreSettings({ storeName: 'Nova', markets: ['PT', 'FR'] })
-      .catch((e) => e);
+    const err: any = await service.updateStoreSettings({ storeName: 'Nova', markets: ['ES', 'FR'] }).catch((e) => e);
     expect(err).toBeInstanceOf(EcommerceValidationError);
-    expect(err.errors).toEqual([{ path: 'markets', code: 'MARKET_IN_USE', detail: 'Ibéria' }]);
+    expect(err.errors).toEqual([{ path: 'markets', code: 'MARKET_IN_USE', detail: 'Mail' }]);
     expect(JSON.stringify(tables[UIDS.storeSetting])).toBe(rowsBefore);
     expect((await service.getStoreSettings()).storeName).toBe('');
 
     const res = await service.updateStoreSettings({ markets: ['PT', 'ES'] });
     expect(res.markets).toEqual(['PT', 'ES']);
+  });
+
+  it('removing a market still used by a CTT integration fails with the provider name', async () => {
+    const { service } = makeStrapi();
+    await service.updateStoreSettings({ markets: ['PT', 'ES'] });
+    await service.updateIntegration('ctt-expresso', { config: { markets: ['PT'] } });
+    const err: any = await service.updateStoreSettings({ markets: ['ES'] }).catch((e) => e);
+    expect(err.errors).toEqual([{ path: 'markets', code: 'MARKET_IN_USE', detail: 'CTT Expresso' }]);
+    expect((await service.getStoreSettings()).markets).toEqual(['PT', 'ES']);
   });
 
   it('accepts null for optional fields and ignores unknown keys', async () => {
@@ -617,19 +625,18 @@ describe('EcommerceSettingsService — store settings', () => {
 describe('EcommerceSettingsService — manual shipping methods', () => {
   const method = (extra: any = {}) => ({
     name: { en: 'Pickup', pt: 'Levantamento' },
-    rates: {},
+    rates: { PT: [{ upTo: null, price: 350 }] },
     tax: 23,
     active: true,
     ...extra,
   });
 
-  /** Markets PT and ES, zone 1 = PT, zone 2 = ES. */
-  const withZones = async () => {
+  const PT = [{ upTo: null, price: 350 }];
+  const ES = [{ upTo: 1, price: 600 }, { upTo: null, price: 900 }];
+  /** Markets PT and ES. */
+  const withMarkets = async () => {
     const ctx = makeStrapi();
     await ctx.service.updateStoreSettings({ markets: ['PT', 'ES'] });
-    const z1 = await ctx.zones.create({ name: 'PT', countries: ['PT'] });
-    const z2 = await ctx.zones.create({ name: 'ES', countries: ['ES'] });
-    expect([z1.id, z2.id]).toEqual([1, 2]);
     return ctx;
   };
 
@@ -648,52 +655,55 @@ describe('EcommerceSettingsService — manual shipping methods', () => {
     await expect(service.updateManualMethod(999, {})).rejects.toBeInstanceOf(EcommerceNotFoundError);
   });
 
-  it('applies defaults for tax and rates; no price or countries', async () => {
+  it('applies the default tax; no price or countries', async () => {
     const { service } = makeStrapi();
-    const m = await service.createManualMethod({ name: { en: 'X' } });
-    expect(m).toMatchObject({ tax: 23, rates: {}, active: true });
+    const m = await service.createManualMethod({ name: { en: 'X' }, rates: { PT } });
+    expect(m).toMatchObject({ tax: 23, rates: { PT }, active: true });
     expect(m).not.toHaveProperty('price');
     expect(m).not.toHaveProperty('countries');
   });
 
-  it('stores a price per zone', async () => {
-    const { service, tables } = await withZones();
-    const m = await service.createManualMethod({ name: { en: 'Mail', pt: 'Correio' }, rates: { '1': 495, '2': 995 }, tax: 23 });
-    expect(m.rates).toEqual({ '1': 495, '2': 995 });
-    expect(tables[UIDS.manualShippingMethod][0].rates).toEqual({ '1': 495, '2': 995 });
+  it('stores weight brackets per market', async () => {
+    const { service, tables } = await withMarkets();
+    const m = await service.createManualMethod({ name: { en: 'Mail', pt: 'Correio' }, rates: { PT, ES }, tax: 23 });
+    expect(m.rates).toEqual({ PT, ES });
+    expect(tables[UIDS.manualShippingMethod][0].rates).toEqual({ PT, ES });
   });
 
-  it('validates the rates', async () => {
-    const { service, tables } = await withZones();
+  it('a method needs at least one market', async () => {
+    const { service, tables } = makeStrapi();
+    for (const rates of [{}, undefined, null]) {
+      const err: any = await service.createManualMethod({ name: { en: 'X' }, rates } as any).catch((e) => e);
+      expect(err.errors).toEqual([{ path: 'rates', code: 'required' }]);
+    }
+    expect(tables[UIDS.manualShippingMethod]).toHaveLength(0);
+  });
+
+  it('validates the rates against the store markets', async () => {
+    const { service, tables } = makeStrapi();
     const issues = async (rates: unknown) =>
       ((await service.createManualMethod(method({ rates })).catch((e) => e)) as any).errors;
-    expect(await issues({ '9': 100 })).toEqual([{ path: 'rates.9', code: 'invalid_zone' }]);
-    expect(await issues({ '1': -1 })).toEqual([{ path: 'rates.1', code: 'out_of_range' }]);
-    expect(await issues({ '1': 100_000_000_000 })).toEqual([{ path: 'rates.1', code: 'out_of_range' }]);
-    expect(await issues({ '1': 4.5 })).toEqual([{ path: 'rates.1', code: 'invalid_number' }]);
-    expect(await issues({ '1': '450' })).toEqual([{ path: 'rates.1', code: 'invalid_number' }]);
+    expect(await issues({ ES: PT })).toEqual([{ path: 'rates.ES', code: 'invalid_country' }]);
+    expect(await issues({ PT: [{ upTo: null, price: -1 }] })).toEqual([{ path: 'rates.PT.0.price', code: 'out_of_range' }]);
+    expect(await issues({ PT: [] })).toEqual([{ path: 'rates.PT', code: 'required' }]);
     expect(await issues([])).toEqual([{ path: 'rates', code: 'invalid_number' }]);
     expect(await issues('x')).toEqual([{ path: 'rates', code: 'invalid_number' }]);
     expect(tables[UIDS.manualShippingMethod]).toHaveLength(0);
   });
 
-  it('a null or empty rate removes the zone; a partial update keeps the stored rates', async () => {
-    const { service } = await withZones();
-    const m = await service.createManualMethod(method({ rates: { '1': null, '2': 300 } }));
-    expect(m.rates).toEqual({ '2': 300 });
-    expect((await service.updateManualMethod(m.id, { tax: 6 })).rates).toEqual({ '2': 300 });
-    expect((await service.updateManualMethod(m.id, { rates: { '1': 100, '2': '' } as any })).rates).toEqual({ '1': 100 });
+  it('a partial update keeps the stored rates; sent rates replace them', async () => {
+    const { service } = await withMarkets();
+    const m = await service.createManualMethod(method({ rates: { PT, ES } }));
+    expect((await service.updateManualMethod(m.id, { tax: 6 })).rates).toEqual({ PT, ES });
+    expect((await service.updateManualMethod(m.id, { rates: { ES } })).rates).toEqual({ ES });
   });
 
-  it('a stored price of a zone deleted meanwhile does not block later updates', async () => {
-    const { service, tables } = await withZones();
-    const m = await service.createManualMethod(method({ rates: { '2': 300 } }));
-    tables[UIDS.manualShippingMethod][0].rates = { '2': 300, '9': 500 };
-    expect((await service.updateManualMethod(m.id, { tax: 6 })).rates).toEqual({ '2': 300 });
-    tables[UIDS.manualShippingMethod][0].rates = { '2': 300, '9': 500 };
-    expect((await service.updateManualMethod(m.id, { rates: { '9': null, '2': 300 } as any })).rates).toEqual({
-      '2': 300,
-    });
+  it('a stored price of a country no longer a market is dropped and does not block updates', async () => {
+    const { service, tables } = makeStrapi();
+    const m = await service.createManualMethod(method({ rates: { PT } }));
+    tables[UIDS.manualShippingMethod][0].rates = { PT, FR: PT };
+    expect((await service.updateManualMethod(m.id, { tax: 6 })).rates).toEqual({ PT });
+    expect(tables[UIDS.manualShippingMethod][0].rates).toEqual({ PT });
   });
 
   it('validates name in the default locale and tax', async () => {
