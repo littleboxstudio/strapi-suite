@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  apiErrorDetail,
   actorLabel,
   financialSummaryRows,
   formatAddressLine,
@@ -811,5 +812,23 @@ describe('unappliedPromotionCodes', () => {
   it('drops the orphan placeholder key', () => {
     expect(en[`${P}ecommerce.orders.detail.sections.empty`]).toBeUndefined();
     expect(pt[`${P}ecommerce.orders.detail.sections.empty`]).toBeUndefined();
+  });
+});
+
+describe('apiErrorDetail', () => {
+  const answer = (code: string, message: string) => ({
+    response: { data: { error: { message, details: { code } } } },
+  });
+
+  it('the provider message of a billing refusal', () => {
+    expect(apiErrorDetail(answer('BILLING_REQUEST_FAILED', 'Moloni rejected invoices/insert (vat:2).'))).toBe(
+      'Moloni rejected invoices/insert (vat:2).'
+    );
+  });
+
+  it('nothing when the message is the code, or the error is not from billing', () => {
+    expect(apiErrorDetail(answer('BILLING_UNREACHABLE', 'BILLING_UNREACHABLE'))).toBeNull();
+    expect(apiErrorDetail(answer('ORDER_NOT_FOUND', 'Not found'))).toBeNull();
+    expect(apiErrorDetail(new Error('network'))).toBeNull();
   });
 });

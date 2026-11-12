@@ -415,7 +415,7 @@ describe('EcommerceInvoiceService.issue', () => {
     expect((await inv.reconcile(view.id, {}, 'user:1')).status).toBe('FAILED');
   });
 
-  it('a definitive error → FAILED, allocations released, the error reaches the caller and the payment is invoiceable again', async () => {
+  it('a definitive error → no document kept, the error reaches the caller, the history remembers it and the payment is invoiceable again', async () => {
     const { c, inv, provider } = setup();
     const id = await order(c);
     const paymentId = paymentRows(c, id)[0].id;
@@ -423,28 +423,33 @@ describe('EcommerceInvoiceService.issue', () => {
     expect(
       await codesOf(inv.issue(id, paymentScope(paymentId), { idempotencyKey: 'k1' }, 'user:1'))
     ).toEqual(['BILLING_TAX_NOT_FOUND']);
-    expect(invoiceRows(c)[0]).toMatchObject({ status: 'FAILED', error: 'BILLING_TAX_NOT_FOUND' });
-    expect(allocations(c)[0].uniqueKey).toBeNull();
-    expect(c.tables[UIDS.orderHistory].some((h) => h.type === 'INVOICE_FAILED')).toBe(true);
+    expect(invoiceRows(c)).toEqual([]);
+    expect(allocations(c)).toEqual([]);
+    expect(c.tables[UIDS.orderHistory].find((h) => h.type === 'INVOICE_FAILED')).toMatchObject({
+      newValue: { kind: 'INVOICE', error: 'BILLING_TAX_NOT_FOUND' },
+    });
     const o = await c.orders.get(id);
     expect(o.payments[0].invoice).toEqual({ invoiceable: 4500, invoiceId: null, status: null });
     expect(o.availableActions).toContain('INVOICE_TOTAL');
-    expect(o.invoices[0]).toMatchObject({ status: 'FAILED', error: 'BILLING_TAX_NOT_FOUND' });
+    expect(o.invoices).toEqual([]);
   });
 
-  it('keeps the provider message of a failure on the row, for the admin (and clears it once issued)', async () => {
+  it('a refusal reaches the caller with the provider message, which the history keeps; the next try is new', async () => {
     const { c, inv, provider } = setup();
     const id = await order(c);
     const paymentId = paymentRows(c, id)[0].id;
     provider.issue.mockRejectedValueOnce(
       new EcommerceBillingError('BILLING_REQUEST_FAILED', 'Moloni rejected documents/insert (vat:2).')
     );
-    await codesOf(inv.issue(id, paymentScope(paymentId), { idempotencyKey: 'k1' }, 'user:1'));
-    const o = await c.orders.get(id);
-    expect(o.invoices[0]).toMatchObject({
-      status: 'FAILED',
+    const err: any = await inv
+      .issue(id, paymentScope(paymentId), { idempotencyKey: 'k1' }, 'user:1')
+      .catch((e: unknown) => e);
+    expect(err.message).toBe('Moloni rejected documents/insert (vat:2).');
+    expect((await c.orders.get(id)).invoices).toEqual([]);
+    expect(c.tables[UIDS.orderHistory].find((h) => h.type === 'INVOICE_FAILED')?.newValue).toEqual({
+      kind: 'INVOICE',
       error: 'BILLING_REQUEST_FAILED',
-      errorDetail: 'Moloni rejected documents/insert (vat:2).',
+      detail: 'Moloni rejected documents/insert (vat:2).',
     });
 
     const issued = await inv.issue(id, paymentScope(paymentId), { idempotencyKey: 'k2' }, 'user:1');
@@ -542,7 +547,7 @@ describe('EcommerceInvoiceService.issue', () => {
     expect(c.events.filter((e) => e.type === 'INVOICE_ISSUED')).toHaveLength(1);
   });
 
-  it('a coverage mismatch marks the invoice FAILED with that error, releases the allocation and never calls the provider', async () => {
+  it('a coverage mismatch is refused before anything is recorded and never calls the provider', async () => {
     const { c, inv, provider } = setup();
     const id = await order(c);
     const paymentId = paymentRows(c, id)[0].id;
@@ -552,10 +557,8 @@ describe('EcommerceInvoiceService.issue', () => {
       await codesOf(inv.issue(id, paymentScope(paymentId), { idempotencyKey: 'k1' }, 'user:1'))
     ).toEqual(['coverage_mismatch']);
     expect(provider.issue).not.toHaveBeenCalled();
-    expect(invoiceRows(c)).toEqual([
-      expect.objectContaining({ status: 'FAILED', error: 'coverage_mismatch' }),
-    ]);
-    expect(allocations(c).every((a) => a.uniqueKey === null)).toBe(true);
+    expect(invoiceRows(c)).toEqual([]);
+    expect(allocations(c)).toEqual([]);
     expect((await c.orders.get(id)).payments[0].invoice.invoiceable).toBe(4500);
   });
 

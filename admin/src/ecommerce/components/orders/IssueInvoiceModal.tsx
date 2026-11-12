@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
+import styled from 'styled-components';
 import { useNotification } from '@strapi/strapi/admin';
 import {
   Badge,
@@ -20,7 +21,7 @@ import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchInvoicePreview from '../../usecases/orders/fetchInvoicePreview';
 import IssueInvoice from '../../usecases/orders/issueInvoice';
 import { formatCents } from '../../utils/money';
-import { apiErrorMessageId } from '../../utils/orderDetail';
+import { apiErrorDetail, apiErrorMessageId, shouldRenewIdempotencyKey } from '../../utils/orderDetail';
 import { invoiceFailureMessageId, isFailedReplay, isUncertainResult, issuedWarnings } from '../../utils/invoiceForm';
 import { mintUuid } from '../../utils/variantDraft';
 import type { InvoicePreview, InvoiceScopeInput } from '../../orderTypes';
@@ -35,6 +36,18 @@ type Props = {
 };
 
 const COLUMNS = ['name', 'quantity', 'total', 'tax'] as const;
+
+/** The provider's message, as it came. */
+const Detail = styled.pre`
+  margin: 4px 0;
+  padding: 8px 12px;
+  border-radius: ${({ theme }) => theme.borderRadius};
+  background: ${({ theme }) => theme.colors.neutral0};
+  color: ${({ theme }) => theme.colors.neutral800};
+  font-size: ${({ theme }) => theme.fontSizes[1]};
+  white-space: pre-wrap;
+  word-break: break-word;
+`;
 
 /**
  * Previews and issues the invoice of one payment or of the whole order (design 4.4).
@@ -51,6 +64,10 @@ const IssueInvoiceModal = ({ orderId, scope, onClose, onIssued }: Props) => {
   const [preview, setPreview] = useState<InvoicePreview | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** The billing provider's message of a refusal (what it rejected and why). */
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
+  /** The server answered with a refusal (4xx): nothing was issued. Otherwise the outcome is unknown. */
+  const [refused, setRefused] = useState(false);
   const [saving, setSaving] = useState(false);
   // The provider did not answer: the outcome is unknown until the invoice is reconciled.
   const [uncertain, setUncertain] = useState(false);
@@ -100,9 +117,11 @@ const IssueInvoiceModal = ({ orderId, scope, onClose, onIssued }: Props) => {
       );
       onIssued();
     } catch (err) {
-      // No retry from here: retrying blindly piles up failed attempts. The modal is closed and the
-      // invoices list (refreshed on close) shows what was recorded, with the provider's message.
+      // A refusal records nothing: the provider's message is shown here. Only Close remains, so the
+      // cause is fixed before another attempt.
       setError(t(apiErrorMessageId(err, 'ecommerce.orders.invoices.issue.error')));
+      setErrorDetail(apiErrorDetail(err));
+      setRefused(shouldRenewIdempotencyKey(err));
     } finally {
       setSaving(false);
     }
@@ -203,9 +222,12 @@ const IssueInvoiceModal = ({ orderId, scope, onClose, onIssued }: Props) => {
                   <Typography variant="omega" fontWeight="bold" textColor="danger700">
                     {error}
                   </Typography>
-                  <Typography variant="omega" textColor="danger700">
-                    {t('ecommerce.orders.invoices.issue.errorNext')}
-                  </Typography>
+                  {errorDetail && <Detail>{errorDetail}</Detail>}
+                  {refused && (
+                    <Typography variant="omega" textColor="danger700">
+                      {t('ecommerce.orders.invoices.issue.errorNext')}
+                    </Typography>
+                  )}
                 </Flex>
               </Box>
             )}
