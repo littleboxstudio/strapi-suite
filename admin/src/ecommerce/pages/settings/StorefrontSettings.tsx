@@ -221,21 +221,36 @@ const StorefrontSettings = ({ readOnly }: { readOnly: boolean }) => {
 
         {token ? (
           <Box background="neutral100" hasRadius padding={4}>
-            <Flex gap={6} wrap="wrap" alignItems="flex-start">
-              <Detail label={t('ecommerce.settings.storefrontApi.token.name')} value={token.name} />
-              <Detail
-                label={t('ecommerce.settings.storefrontApi.token.createdAt')}
-                value={formatWhen(token.createdAt)}
-              />
-              <Detail
-                label={t('ecommerce.settings.storefrontApi.token.lastUsedAt')}
-                value={formatWhen(token.lastUsedAt)}
-              />
-              {token.expiresAt && (
+            <Flex gap={4} justifyContent="space-between" alignItems="center" wrap="wrap">
+              <Flex gap={6} wrap="wrap" alignItems="flex-start">
                 <Detail
-                  label={t('ecommerce.settings.storefrontApi.token.expiresAt')}
-                  value={formatWhen(token.expiresAt)}
+                  label={t('ecommerce.settings.storefrontApi.token.name')}
+                  value={token.name}
                 />
+                <Detail
+                  label={t('ecommerce.settings.storefrontApi.token.createdAt')}
+                  value={formatWhen(token.createdAt)}
+                />
+                <Detail
+                  label={t('ecommerce.settings.storefrontApi.token.lastUsedAt')}
+                  value={formatWhen(token.lastUsedAt)}
+                />
+                {token.expiresAt && (
+                  <Detail
+                    label={t('ecommerce.settings.storefrontApi.token.expiresAt')}
+                    value={formatWhen(token.expiresAt)}
+                  />
+                )}
+              </Flex>
+              {actions.regenerate && (
+                <Button
+                  variant="danger-light"
+                  startIcon={<ArrowClockwise />}
+                  onClick={() => setConfirmRegenerate(true)}
+                  loading={tokenBusy}
+                >
+                  {t('ecommerce.settings.storefrontApi.regenerate')}
+                </Button>
               )}
             </Flex>
           </Box>
@@ -269,19 +284,6 @@ const StorefrontSettings = ({ readOnly }: { readOnly: boolean }) => {
         {warnings.map((w) => (
           <Notice key={w}>{t(`ecommerce.settings.storefrontApi.warning.${w}`)}</Notice>
         ))}
-
-        {actions.regenerate && (
-          <Flex justifyContent="flex-end">
-            <Button
-              variant="danger-light"
-              startIcon={<ArrowClockwise />}
-              onClick={() => setConfirmRegenerate(true)}
-              loading={tokenBusy}
-            >
-              {t('ecommerce.settings.storefrontApi.regenerate')}
-            </Button>
-          </Flex>
-        )}
       </Flex>
     );
   };
