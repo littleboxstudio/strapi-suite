@@ -130,7 +130,7 @@ const EcommerceShippingService = ({ strapi }: { strapi: Core.Strapi }) => {
       const defaultLocale = await getDefaultLocale();
       const methods = await svc.listManualMethods();
       for (const m of methods) {
-        const price = m.rates?.[zoneKey];
+        const price = (m.rates as Record<string, unknown> | undefined)?.[zoneKey];
         if (!m.active || typeof price !== 'number') continue;
         options.push({
           providerId: 'manual',

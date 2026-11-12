@@ -38,7 +38,7 @@ describe('provider registry', () => {
     ]);
     expect(f('ctt-expresso')).toEqual([
       'clientId:string:*', 'contractNumber:string:*', 'username:string:*', 'password:secret:*',
-      'zones:zones:*',
+      'markets:markets:*',
     ]);
     expect(f('resend')).toEqual(['apiKey:secret:*', 'fromEmail:string:*', 'fromName:string:']);
     expect(getProviderDefinition('moloni')!.fields.find((x) => x.key === 'shippingReference')!.default).toBe('PORTES');
@@ -131,27 +131,28 @@ describe('validateProviderInput', () => {
       'config.clientId', 'secrets.clientSecret', 'config.username', 'secrets.password', 'config.companyId',
     ]);
   });
-  it('validates zones fields: an empty list is empty, items are zone ids', () => {
+  it('validates markets fields: an empty list is empty, items are country codes', () => {
     const def = {
       id: 'z', category: 'carrier' as const, name: 'Z', exclusive: false,
-      fields: [{ key: 'zones', type: 'zones' as const, required: true, label: 'x' }],
+      fields: [{ key: 'markets', type: 'markets' as const, required: true, label: 'x' }],
     };
-    const run = (zones: unknown) => validateProviderInput(def, { config: { zones } }, () => false);
-    expect(run([])).toEqual([{ path: 'config.zones', code: 'required' }]);
-    expect(run(undefined)).toEqual([{ path: 'config.zones', code: 'required' }]);
-    for (const bad of [['1'], [0], '1', [1.5], [1, -2]]) {
-      expect(run(bad)).toEqual([{ path: 'config.zones', code: 'invalid_zone' }]);
+    const run = (markets: unknown) => validateProviderInput(def, { config: { markets } }, () => false);
+    expect(run([])).toEqual([{ path: 'config.markets', code: 'required' }]);
+    expect(run(undefined)).toEqual([{ path: 'config.markets', code: 'required' }]);
+    for (const bad of [[1], ['pt'], ['PRT'], 'PT', [null]]) {
+      expect(run(bad)).toEqual([{ path: 'config.markets', code: 'invalid_country' }]);
     }
-    expect(run([1, 2])).toEqual([]);
+    expect(run(['PT', 'ES'])).toEqual([]);
     const optional = { ...def, fields: [{ ...def.fields[0], required: false }] };
-    expect(validateProviderInput(optional, { config: { zones: [] } }, () => false)).toEqual([]);
+    expect(validateProviderInput(optional, { config: { markets: [] } }, () => false)).toEqual([]);
   });
 
-  it('the ctt-expresso definition has a required zones field, empty by default', () => {
-    const field = getProviderDefinition('ctt-expresso')!.fields.find((f) => f.key === 'zones')!;
-    expect(field).toEqual({
-      key: 'zones', type: 'zones', required: true, default: [],
-      label: 'ecommerce.settings.providers.ctt-expresso.fields.zones',
+  it('the ctt-expresso definition has a required markets field and no zones field', () => {
+    const fields = getProviderDefinition('ctt-expresso')!.fields;
+    expect(fields.find((f) => f.key === 'markets')).toEqual({
+      key: 'markets', type: 'markets', required: true, default: [],
+      label: 'ecommerce.settings.providers.ctt-expresso.fields.markets',
     });
+    expect(fields.some((f) => (f.type as string) === 'zones')).toBe(false);
   });
 });

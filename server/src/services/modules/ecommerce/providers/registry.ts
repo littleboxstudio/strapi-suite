@@ -8,8 +8,8 @@ export type ProviderCategory = 'payment' | 'billing' | 'carrier' | 'email';
 
 export type ProviderField = {
   key: string;
-  /** `zones`: a list of shipping zone ids (`number[]`). */
-  type: 'string' | 'secret' | 'boolean' | 'number' | 'select' | 'zones';
+  /** `markets`: a list of ISO country codes (`string[]`), each one a store market. */
+  type: 'string' | 'secret' | 'boolean' | 'number' | 'select' | 'markets';
   required: boolean;
   default?: unknown;
   options?: string[];
@@ -89,7 +89,7 @@ export function __resetRegistryForTests(): void {
 
 export type ProviderInputIssue = {
   path: string;
-  code: 'required' | 'invalid_option' | 'invalid_number' | 'invalid_email' | 'invalid_path' | 'invalid_zone';
+  code: 'required' | 'invalid_option' | 'invalid_number' | 'invalid_email' | 'invalid_path' | 'invalid_country';
 };
 
 /** A storefront path: starts with a single `/`; no spaces, backslashes, query or fragment. */
@@ -122,12 +122,12 @@ export function validateProviderInput(
       if (field.required && typeof value !== 'boolean') issues.push({ path, code: 'required' });
       continue;
     }
-    if (field.type === 'zones') {
-      // An empty list counts as empty; existence of the zones is checked by the settings service.
+    if (field.type === 'markets') {
+      // An empty list counts as empty; membership in the store markets is checked by the settings service.
       if (value === undefined || value === null || (Array.isArray(value) && value.length === 0)) {
         if (field.required) issues.push({ path, code: 'required' });
-      } else if (!Array.isArray(value) || !value.every((id) => Number.isInteger(id) && id >= 1)) {
-        issues.push({ path, code: 'invalid_zone' });
+      } else if (!Array.isArray(value) || !value.every((c) => typeof c === 'string' && /^[A-Z]{2}$/.test(c))) {
+        issues.push({ path, code: 'invalid_country' });
       }
       continue;
     }
