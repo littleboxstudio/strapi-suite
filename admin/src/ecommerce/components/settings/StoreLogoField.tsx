@@ -15,10 +15,6 @@ const Thumb = styled.img`
   max-width: 160px;
   max-height: 48px;
   object-fit: contain;
-  border: 1px solid ${({ theme }) => theme.colors.neutral200};
-  border-radius: ${({ theme }) => theme.borderRadius};
-  background: ${({ theme }) => theme.colors.neutral100};
-  padding: 4px;
 `;
 
 type Props = {
