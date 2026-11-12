@@ -3,6 +3,7 @@ import { useIntl } from 'react-intl';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useNotification } from '@strapi/strapi/admin';
 import {
+  Badge,
   Box,
   Button,
   Field,
@@ -25,6 +26,8 @@ import DeleteProduct from '../usecases/deleteProduct';
 import SetProductActive from '../usecases/setProductActive';
 import ConfirmModal from '../../components/ConfirmModal';
 import { NoticeModal } from '../components/NoticeModal';
+import { ActionConfirmModal } from '../components/ActionConfirmModal';
+import { HeaderActions } from '../components/HeaderActions';
 import TranslateProductStrings from '../usecases/translateProductStrings';
 import { LocaleSwitcher } from '../components/LocaleSwitcher';
 import { DescriptionEditor } from '../components/DescriptionEditor';
@@ -97,6 +100,8 @@ const ProductEditPage = () => {
   const [deleteDialog, setDeleteDialog] = useState<'confirm' | 'blocked' | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [toggling, setToggling] = useState(false);
+  /** Disable/Enable asks for confirmation first. */
+  const [confirmToggle, setConfirmToggle] = useState(false);
   const newKeyCounter = useRef(0);
 
   const codes = info?.locales.map((l) => l.code) ?? [];
@@ -374,33 +379,54 @@ const ProductEditPage = () => {
           <Typography variant="beta" tag="h1" ellipsis>
             {title}
           </Typography>
-        </Flex>
-        <Flex gap={4} alignItems="center">
-          {productId !== undefined && (
-            <Button
-              variant="danger-light"
-              onClick={askDelete}
-              loading={deleting}
-              disabled={saving || translating}
-            >
-              {t('ecommerce.product.delete')}
-            </Button>
+          {form.active ? (
+            <Badge backgroundColor="success100" textColor="success700">
+              {t('ecommerce.products.status.active')}
+            </Badge>
+          ) : (
+            <Badge>{t('ecommerce.products.status.inactive')}</Badge>
           )}
-          {/* Same toggle as the module header: applied immediately on a saved product. */}
-          <Button
-            variant={form.active ? 'default' : 'danger'}
-            onClick={toggleActive}
-            loading={toggling}
-            disabled={saving || deleting}
-            aria-pressed={form.active}
-          >
-            {formatMessage({ id: getTranslation(form.active ? 'app.enabled' : 'app.disabled') })}
-          </Button>
-          <Button onClick={save} loading={saving} disabled={translating || deleting}>
-            {t('ecommerce.product.save')}
-          </Button>
         </Flex>
       </Flex>
+
+      {/* In the module's fixed top bar, so they stay visible while the form scrolls. */}
+      <HeaderActions>
+        {productId !== undefined && (
+          <Button
+            variant="danger-light"
+            onClick={askDelete}
+            loading={deleting}
+            disabled={saving || translating}
+          >
+            {t('ecommerce.product.delete')}
+          </Button>
+        )}
+        <Button
+          variant={form.active ? 'danger-light' : 'success-light'}
+          onClick={() => setConfirmToggle(true)}
+          loading={toggling}
+          disabled={saving || deleting}
+        >
+          {t(form.active ? 'ecommerce.product.disable' : 'ecommerce.product.enable')}
+        </Button>
+        <Button onClick={save} loading={saving} disabled={translating || deleting}>
+          {t('ecommerce.product.save')}
+        </Button>
+      </HeaderActions>
+
+      <ActionConfirmModal
+        open={confirmToggle}
+        title={t(form.active ? 'ecommerce.product.disableConfirm.title' : 'ecommerce.product.enableConfirm.title')}
+        text={t(form.active ? 'ecommerce.product.disableConfirm.text' : 'ecommerce.product.enableConfirm.text')}
+        confirmLabel={t(form.active ? 'ecommerce.product.disable' : 'ecommerce.product.enable')}
+        cancelLabel={t('ecommerce.product.deleteConfirm.cancel')}
+        confirmVariant={form.active ? 'danger' : 'default'}
+        onCancel={() => setConfirmToggle(false)}
+        onConfirm={() => {
+          setConfirmToggle(false);
+          toggleActive();
+        }}
+      />
 
       <ConfirmModal
         open={deleteDialog === 'confirm'}
