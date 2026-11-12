@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetMoloniTokensForTests,
   createMoloniClient,
+  describeShape,
 } from '../../../../server/src/services/modules/ecommerce/providers/billing/moloni/client';
 import { EcommerceBillingError } from '../../../../server/src/services/modules/ecommerce/errors';
 import { TOKEN, json, moloniFake } from './moloniFake';
@@ -151,6 +152,32 @@ describe('createMoloniClient', () => {
     expect(err.message).not.toMatch(/123456789|João|inválido|Nome|SECRET|AT-1/);
   });
 
+  it('the default string error list ("<code> <field> <bounds>") is a rejection, with the meaning of each code', async () => {
+    moloniFake({
+      'invoices/insert': () => ['1 customer_id', '2 language_id 1 0', '16 vat 123456789'],
+    });
+    const err: any = await fail(createMoloniClient(rt).call('invoices/insert', { vat: '123456789' }, { write: true }));
+    expect(err).toBeInstanceOf(EcommerceBillingError);
+    expect(err.code).toBe('BILLING_REQUEST_FAILED');
+    // Moloni rejected it: nothing was issued.
+    expect(err.uncertain).toBe(false);
+    expect(err.message).toBe(
+      'Moloni rejected invoices/insert (customer_id:1 (required), language_id:2 (number out of range), vat:16 (customer identification required (CIVA art. 36 n.º 15))).'
+    );
+    expect(err.message).not.toMatch(/123456789/);
+  });
+
+  it('a human_errors object list, with the field inside the code', async () => {
+    moloniFake({ 'invoices/insert': () => [{ code: '1 name', description: "Field 'name' is required" }] });
+    const err: any = await fail(createMoloniClient(rt).call('invoices/insert', {}, { write: true }));
+    expect(err.message).toBe('Moloni rejected invoices/insert (name:1 (required)).');
+  });
+
+  it('a list of plain values is not mistaken for errors', async () => {
+    moloniFake({ 'documentSets/getAll': () => ['abc', 'def'] });
+    await expect(createMoloniClient(rt).call('documentSets/getAll', {})).resolves.toEqual(['abc', 'def']);
+  });
+
   it('{ valid: 0 } -> BILLING_REQUEST_FAILED', async () => {
     moloniFake({ 'products/insert': () => ({ valid: 0 }) });
     const err: any = await fail(createMoloniClient(rt).call('products/insert', {}, { write: true }));
@@ -212,5 +239,15 @@ describe('createMoloniClient', () => {
     expect(err.code).toBe('BILLING_CONFIG_MISSING');
     expect(err.message).toBe('Missing fields: clientSecret, username, companyId');
     expect(m.f).not.toHaveBeenCalled();
+  });
+});
+
+describe('describeShape', () => {
+  it('names the shape of an answer, never its values', () => {
+    expect(describeShape(['1 x', 2])).toBe('a list of 2 (string, number)');
+    expect(describeShape([])).toBe('an empty list');
+    expect(describeShape({ valid: 1, secret: 'v' })).toBe('an object with valid, secret');
+    expect(describeShape(null)).toBe('no body');
+    expect(describeShape('oops')).toBe('a string');
   });
 });

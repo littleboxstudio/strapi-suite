@@ -2,7 +2,7 @@ import type { ProviderRuntime } from '../../registry';
 import { str, timedFetch } from '../../http';
 import { EcommerceBillingError } from '../../../errors';
 import type { BillingProvider, InvoiceDraft, InvoiceLine, IssuedDocument } from '../types';
-import { createMoloniClient } from './client';
+import { createMoloniClient, describeShape } from './client';
 
 /**
  * Moloni billing provider (design 4.15), built from the public API docs and NOT verified against
@@ -300,7 +300,12 @@ export const moloniProvider: BillingProvider = {
     const inserted = await ctx.client.call<any>(path, document, { write: true });
     const id = Number(inserted?.document_id);
     // Moloni accepted the document: from here on any failure leaves an issued document behind.
-    if (!Number.isInteger(id) || id <= 0) throw requestFailed('Moloni did not return the document id.', true);
+    if (!Number.isInteger(id) || id <= 0) {
+      throw requestFailed(
+        `Moloni accepted ${path} but its answer had no document id (it returned ${describeShape(inserted)}).`,
+        true
+      );
+    }
     const externalId = String(id);
 
     const warnings: string[] = [];
