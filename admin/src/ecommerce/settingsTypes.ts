@@ -6,7 +6,7 @@ export type StoreSettings = {
   brandColor: string;
   storefrontUrl: string | null;
   timezone: string;
-  /** Countries where the store sells; shipping zones group them. */
+  /** Countries where the store sells; shipping rates are set per market. */
   markets: string[];
   supportEmail: string | null;
   /**
@@ -48,8 +48,8 @@ export type ProviderCategory = 'payment' | 'billing' | 'carrier' | 'email';
 
 export type ProviderField = {
   key: string;
-  /** `zones`: a list of shipping zone ids (`number[]`). */
-  type: 'string' | 'secret' | 'boolean' | 'number' | 'select' | 'zones';
+  /** `markets`: a list of upper-case country codes (`string[]`). */
+  type: 'string' | 'secret' | 'boolean' | 'number' | 'select' | 'markets';
   required: boolean;
   default?: unknown;
   options?: string[];
@@ -99,22 +99,22 @@ export type ConnectionResult = {
   message?: string;
 };
 
+/** `upTo` in kg (at most 3 decimals; null = no upper limit, last bracket only); `price` in cents (VAT included). */
+export type WeightBracket = { upTo: number | null; price: number };
+
+export type MarketRates = Record<string, WeightBracket[]>;
+
 export type ManualMethod = {
   id: number;
   name: Record<string, string>;
-  /** Price in cents (VAT included) per shipping zone id; a zone without one does not offer it. */
-  rates: Record<string, number>;
+  /** Weight brackets per country (upper-case code); a country without one is not served. */
+  rates: MarketRates;
   tax: number;
   active: boolean;
   position: number;
 };
 
 export type ManualMethodInput = Partial<Omit<ManualMethod, 'id'>>;
-
-/** A group of market countries that share the shipping prices of each method. */
-export type ShippingZone = { id: number; name: string; countries: string[]; position: number };
-
-export type ShippingZoneInput = { name?: string; countries?: string[]; position?: number };
 
 export type EmailTemplateType =
   | 'ORDER_CONFIRMATION'
@@ -180,7 +180,7 @@ export type SettingsFieldError = {
     | 'invalid_option'
     | 'MARKET_IN_USE'
     | (string & {});
-  /** Extra context, e.g. the zone name of `MARKET_IN_USE` and `ZONE_COUNTRY_CONFLICT`. */
+  /** Extra context, e.g. the method or provider name of `MARKET_IN_USE`. */
   detail?: string;
 };
 

@@ -13,8 +13,6 @@ import type {
   LookupResult,
   ManualMethod,
   ManualMethodInput,
-  ShippingZone,
-  ShippingZoneInput,
   StoreSettings,
   StoreSettingsInput,
   GeneratedStorefrontToken,
@@ -46,10 +44,6 @@ export default interface EcommerceSettingsGateway {
   updateShippingMethod(id: number, input: ManualMethodInput): Promise<ManualMethod>;
   deleteShippingMethod(id: number): Promise<void>;
 
-  fetchShippingZones(): Promise<ShippingZone[]>;
-  createShippingZone(input: ShippingZoneInput): Promise<ShippingZone>;
-  updateShippingZone(id: number, input: ShippingZoneInput): Promise<ShippingZone>;
-  deleteShippingZone(id: number): Promise<void>;
 
   fetchEmailTemplates(): Promise<EmailTemplateSummary[]>;
   fetchEmailTemplate(type: EmailTemplateType, locale: string): Promise<EmailTemplateView>;
@@ -158,22 +152,6 @@ export class EcommerceSettingsGatewayHttp implements EcommerceSettingsGateway {
 
   async deleteShippingMethod(id: number): Promise<void> {
     await this.httpClient.delete(`${this.base}/shipping-methods/${id}`);
-  }
-
-  async fetchShippingZones(): Promise<ShippingZone[]> {
-    return this.httpClient.get(`${this.base}/shipping-zones`);
-  }
-
-  async createShippingZone(input: ShippingZoneInput): Promise<ShippingZone> {
-    return this.httpClient.post(`${this.base}/shipping-zones`, input);
-  }
-
-  async updateShippingZone(id: number, input: ShippingZoneInput): Promise<ShippingZone> {
-    return this.httpClient.put(`${this.base}/shipping-zones/${id}`, input);
-  }
-
-  async deleteShippingZone(id: number): Promise<void> {
-    await this.httpClient.delete(`${this.base}/shipping-zones/${id}`);
   }
 
   async fetchEmailTemplates(): Promise<EmailTemplateSummary[]> {

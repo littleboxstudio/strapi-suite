@@ -7,7 +7,7 @@ import type {
 } from '../settingsTypes';
 
 /**
- * What the configure modal edits: booleans as booleans, zone ids as a list of text ids,
+ * What the configure modal edits: booleans as booleans, country codes as a list,
  * everything else as typed text.
  */
 export type IntegrationFormValues = Record<string, string | boolean | string[]>;
@@ -26,8 +26,8 @@ export function integrationFormFromView(view: IntegrationView): IntegrationFormV
       return;
     }
     const stored = view.config[field.key] ?? field.default;
-    if (field.type === 'zones') {
-      values[field.key] = Array.isArray(stored) ? stored.map((id) => String(id)) : [];
+    if (field.type === 'markets') {
+      values[field.key] = Array.isArray(stored) ? stored.map((code) => String(code)) : [];
       return;
     }
     if (field.type === 'boolean') values[field.key] = stored === true;
@@ -60,10 +60,8 @@ export function buildIntegrationPayload(
       config[field.key] = value === true;
       return;
     }
-    if (field.type === 'zones') {
-      config[field.key] = Array.isArray(value)
-        ? value.filter((id) => /^\d+$/.test(id)).map(Number)
-        : [];
+    if (field.type === 'markets') {
+      config[field.key] = Array.isArray(value) ? [...value] : [];
       return;
     }
     const text = typeof value === 'string' ? value.trim() : '';
@@ -93,7 +91,7 @@ const isStorefrontPath = (text: string) => /^\/(?!\/)[^\s\\?#]*$/.test(text);
 
 /**
  * Client-side checks keyed by field key, with the server's error codes. Blank values are left to
- * the server, except a required `zones` field with no zone on an active integration (like the
+ * the server, except a required `markets` field with no market on an active integration (like the
  * server, required fields only block saving while the integration is active).
  */
 export function validateIntegrationForm(
@@ -103,7 +101,7 @@ export function validateIntegrationForm(
 ): Record<string, string> {
   const errors: Record<string, string> = {};
   fields.forEach((field) => {
-    if (field.type === 'zones') {
+    if (field.type === 'markets') {
       const value = values[field.key];
       if (active && field.required && (!Array.isArray(value) || value.length === 0)) {
         errors[field.key] = 'required';

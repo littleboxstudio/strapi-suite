@@ -38,7 +38,7 @@ import {
   validateIntegrationForm,
   showsAsRequired,
 } from '../../utils/integrationForm';
-import type { IntegrationView, LookupResult, ProviderField, ShippingZone } from '../../settingsTypes';
+import type { IntegrationView, LookupResult, ProviderField } from '../../settingsTypes';
 import { FieldHelpModal } from './FieldHelpModal';
 
 /** All fields in two columns (one on narrow screens). */
@@ -69,8 +69,8 @@ type Props = {
   integration: IntegrationView;
   /** Errors to show on open (e.g. an activation refused for missing fields), keyed by field. */
   initialErrors?: Record<string, string>;
-  /** The shipping zones offered by a `zones` field. */
-  zones?: ShippingZone[];
+  /** The store markets offered by a `markets` field. */
+  markets?: string[];
   onClose: () => void;
   onSaved: (integration: IntegrationView) => void;
   /** Two-step providers: the credentials were saved and the modal stays open on step 2. */
@@ -80,7 +80,7 @@ type Props = {
 const IntegrationConfigModal = ({
   integration,
   initialErrors = {},
-  zones = [],
+  markets = [],
   onClose,
   onSaved,
   onChanged,
@@ -370,8 +370,8 @@ const IntegrationConfigModal = ({
           </Flex>
         );
       }
-      case 'zones':
-        if (zones.length === 0) {
+      case 'markets':
+        if (markets.length === 0) {
           return (
             <Box background="warning100" borderColor="warning200" hasRadius padding={4}>
               <Typography textColor="neutral800">
@@ -387,9 +387,9 @@ const IntegrationConfigModal = ({
             hasError={hasError}
             onChange={(next: string[]) => setValue(field.key, next)}
           >
-            {zones.map((zone) => (
-              <MultiSelectOption key={zone.id} value={String(zone.id)}>
-                {zone.name}
+            {markets.map((code) => (
+              <MultiSelectOption key={code} value={code}>
+                {code}
               </MultiSelectOption>
             ))}
           </MultiSelect>

@@ -15,22 +15,22 @@ import StripeWebhookModal from '../../components/settings/StripeWebhookModal';
 import { extractFieldErrors } from '../../utils/productForm';
 import { extractErrorCode } from '../../utils/settingsForm';
 import { integrationErrorMap } from '../../utils/integrationForm';
-import type { IntegrationView, ProviderCategory, ShippingZone } from '../../settingsTypes';
+import type { IntegrationView, ProviderCategory } from '../../settingsTypes';
 
 type Props = {
   category: ProviderCategory;
   readOnly: boolean;
-  /** Carriers only: the shipping zones; a new list (a zone changed) refetches the integrations. */
-  zones?: ShippingZone[];
+  /** Carriers only: the store markets (TEMP: Task 5 rewires this). */
+  markets?: string[];
 };
 
 /** Stable fallback, so the methods table does not refetch on every render. */
-const NO_ZONES: ShippingZone[] = [];
+const NO_MARKETS: string[] = [];
 
 /** Billing allows a single active provider; the server deactivates the others. */
 const EXCLUSIVE_CATEGORIES: ProviderCategory[] = ['billing'];
 
-const IntegrationsSection = ({ category, readOnly, zones }: Props) => {
+const IntegrationsSection = ({ category, readOnly, markets }: Props) => {
   const { formatMessage } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>, defaultMessage?: string) =>
@@ -63,7 +63,7 @@ const IntegrationsSection = ({ category, readOnly, zones }: Props) => {
     return () => {
       cancelled = true;
     };
-  }, [category, zones]);
+  }, [category, markets]);
 
   const providerName = (i: IntegrationView) =>
     t(`ecommerce.settings.providers.${i.id}.name`, undefined, i.name);
@@ -176,7 +176,7 @@ const IntegrationsSection = ({ category, readOnly, zones }: Props) => {
           }
         >
           {integration.id === 'manual' && (
-            <ManualMethodsTable readOnly={readOnly} zones={zones ?? NO_ZONES} />
+            <ManualMethodsTable readOnly={readOnly} markets={markets ?? NO_MARKETS} />
           )}
         </IntegrationCard>
       ))}
@@ -185,7 +185,7 @@ const IntegrationsSection = ({ category, readOnly, zones }: Props) => {
         <IntegrationConfigModal
           integration={configured}
           initialErrors={configuring?.errors}
-          zones={zones}
+          markets={markets}
           onClose={() => setConfiguring(null)}
           onChanged={(saved) => {
             refresh(saved);

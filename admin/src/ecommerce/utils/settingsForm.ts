@@ -137,8 +137,8 @@ export function validateStoreForm(form: StoreForm): SettingsFieldError[] {
   return errors;
 }
 
-/** Names of the shipping zones that still hold markets the save tried to remove. */
-export function marketInUseZones(errors: SettingsFieldError[]): string[] {
+/** Names of the shipping methods and carriers that still use markets the save tried to remove. */
+export function marketInUseNames(errors: SettingsFieldError[]): string[] {
   return errors
     .filter((e) => e.code === 'MARKET_IN_USE' && typeof e.detail === 'string')
     .map((e) => e.detail as string);
