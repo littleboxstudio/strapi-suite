@@ -65,15 +65,38 @@ const Section = ({ title, children }: { title?: string; children: ReactNode }) =
   </Box>
 );
 
-const ColorSwatch = styled.input`
+/** The bordered square; the colour picker inside fills it edge to edge. */
+const SwatchFrame = styled.div`
   width: 40px;
   height: 40px;
-  padding: 2px;
   flex-shrink: 0;
-  cursor: pointer;
+  overflow: hidden;
   border: 1px solid ${({ theme }) => theme.colors.neutral200};
   border-radius: ${({ theme }) => theme.borderRadius};
-  background: ${({ theme }) => theme.colors.neutral0};
+`;
+
+const ColorSwatch = styled.input`
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  appearance: none;
+
+  /* The browser's own inner padding and border around the colour. */
+  &::-webkit-color-swatch-wrapper {
+    padding: 0;
+  }
+  &::-webkit-color-swatch {
+    border: 0;
+    border-radius: 0;
+  }
+  &::-moz-color-swatch {
+    border: 0;
+    border-radius: 0;
+  }
 
   &:disabled {
     cursor: not-allowed;
@@ -277,13 +300,15 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
               placeholder: '#4945ff',
               hint: t('ecommerce.settings.store.brandColor.hint'),
               start: (
-                <ColorSwatch
-                  type="color"
-                  aria-label={t('ecommerce.settings.store.brandColor.picker')}
-                  value={isValidHexColor(brandColor) ? brandColor.toLowerCase() : '#000000'}
-                  disabled={readOnly}
-                  onChange={(e) => update('brandColor', e.target.value)}
-                />
+                <SwatchFrame>
+                  <ColorSwatch
+                    type="color"
+                    aria-label={t('ecommerce.settings.store.brandColor.picker')}
+                    value={isValidHexColor(brandColor) ? brandColor.toLowerCase() : '#000000'}
+                    disabled={readOnly}
+                    onChange={(e) => update('brandColor', e.target.value)}
+                  />
+                </SwatchFrame>
               ),
             })}
           </Grid.Item>
