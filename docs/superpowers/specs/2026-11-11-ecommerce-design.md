@@ -372,8 +372,9 @@ Substitui as zonas de envio (removidas). A elegibilidade dos métodos é definid
   transportadora o usa é recusado (`MARKET_IN_USE`, com os nomes dos métodos).
 - **Métodos manuais por mercado:** cada método escolhe os mercados que serve e, por mercado,
   define escalões de peso `{ upTo: kg | null, price: cêntimos }`. Decisões:
-  - o escalão tem só limite superior; o `upTo` do escalão anterior é exclusivo (o peso igual ao
-    limite cai no escalão seguinte) e `null` significa sem limite, apenas no último escalão;
+  - o escalão tem só limite superior; o limite superior é inclusivo e o limite inferior (o `upTo` do
+    escalão anterior) é exclusivo — um peso igual ao limite fica no escalão desse limite; o primeiro
+    escalão começa em 0; `null` significa sem limite, apenas no último escalão;
   - o peso da encomenda é a soma de `peso da variante × quantidade`;
   - um peso acima do último escalão torna o método indisponível para essa encomenda (não é erro:
     o método deixa de ser oferecido).
