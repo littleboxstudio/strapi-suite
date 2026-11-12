@@ -15,7 +15,7 @@ import {
   TextInput,
   Typography,
 } from '@strapi/design-system';
-import { Cross, Plus, Trash } from '@strapi/icons';
+import { Plus, Trash } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { LocaleSwitcher } from '../LocaleSwitcher';
 import { ActionConfirmModal } from '../ActionConfirmModal';
@@ -49,11 +49,11 @@ const RangeGrid = styled.div`
   align-items: start;
 `;
 
-/** Line between two markets: 10px above and below. */
+/** Line between two markets: 20px above and below, in the modal header/footer colour. */
 const MarketSeparator = styled.hr`
   border: 0;
-  border-top: 1px solid ${({ theme }) => theme.colors.neutral200};
-  margin: 10px 0;
+  border-top: 1px solid ${({ theme }) => theme.colors.neutral100};
+  margin: 20px 0;
 `;
 
 /** Mount it only while open: the draft is initialised once, from the props. */
@@ -412,19 +412,9 @@ const ManualMethodModal = ({
                             gap={2}
                             wrap="wrap"
                           >
-                            <Flex gap={1} alignItems="center">
-                              <IconButton
-                                label={t('ecommerce.settings.manual.removeMarket')}
-                                variant="ghost"
-                                size="S"
-                                onClick={() => setMarkets(draft.markets.filter((c) => c !== code))}
-                              >
-                                <Cross />
-                              </IconButton>
-                              <Typography variant="omega" fontWeight="bold" tag="h3">
-                                {countryName(code)}
-                              </Typography>
-                            </Flex>
+                            <Typography variant="omega" fontWeight="bold" tag="h3">
+                              {countryName(code)}
+                            </Typography>
                             <Flex gap={2}>
                               {draft.markets.length >= 2 && (
                                 <Button
@@ -442,6 +432,13 @@ const ManualMethodModal = ({
                                 onClick={() => addRow(code)}
                               >
                                 {t('ecommerce.settings.manual.addRange')}
+                              </Button>
+                              <Button
+                                variant="danger-light"
+                                size="S"
+                                onClick={() => setMarkets(draft.markets.filter((c) => c !== code))}
+                              >
+                                {t('ecommerce.settings.manual.removeMarket')}
                               </Button>
                             </Flex>
                           </Flex>
