@@ -268,7 +268,8 @@ const VariantModal = ({
             </Grid.Root>
 
             <Flex direction="column" alignItems="stretch" gap={2}>
-              <Typography variant="sigma" textColor="neutral800">
+              {/* Same style as the field labels (Field.Label: pi, bold). */}
+              <Typography variant="pi" fontWeight="bold" textColor="neutral800">
                 {t('ecommerce.product.variant.gallery')}
               </Typography>
               <Typography variant="pi" textColor="neutral600">
