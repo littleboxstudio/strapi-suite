@@ -132,7 +132,7 @@ describe('moloniProvider.issue (FR, default)', () => {
       { product_id: 200, name: 'Mug', qty: 2, price: 10, taxes: [{ tax_id: 11 }] },
       { product_id: 201, name: 'Shipping', qty: 1, price: 5, taxes: [{ tax_id: 11 }] },
     ]);
-    expect(b.payments).toEqual([{ payment_method_id: 31, payment_date: '2026-11-10', value: 30.75 }]);
+    expect(b.payments).toEqual([{ payment_method_id: 31, date: '2026-11-10', value: 30.75 }]);
     expect(m.of('documents/getOne')[0].body).toEqual({ company_id: 42, document_id: 777 });
     expect(m.of('customers/getByVat')[0].body.vat).toBe('123456789');
     expect(m.of('products/getByReference')[0].body).toEqual({ company_id: 42, reference: 'SKU-1', exact: 1 });
@@ -166,8 +166,8 @@ describe('moloniProvider.issue (FR, default)', () => {
     const b = m.of('invoiceReceipts/insert')[0].body;
     expect(b.document_set_id).toBe(6);
     expect(b.payments).toEqual([
-      { payment_method_id: 99, payment_date: '2026-11-09', value: 10 },
-      { payment_method_id: 32, payment_date: '2026-11-10', value: 20.75 },
+      { payment_method_id: 99, date: '2026-11-09', value: 10 },
+      { payment_method_id: 32, date: '2026-11-10', value: 20.75 },
     ]);
   });
 
@@ -489,7 +489,7 @@ describe('moloniProvider.issue (FT)', () => {
       net_value: 30.75,
       status: 1,
       associated_documents: [{ associated_id: 778, value: 30.75 }],
-      payments: [{ payment_method_id: 31, payment_date: '2026-11-10', value: 30.75 }],
+      payments: [{ payment_method_id: 31, date: '2026-11-10', value: 30.75 }],
     });
     expect(m.paths().indexOf('invoices/insert')).toBeLessThan(m.paths().indexOf('receipts/insert'));
     expect(doc.externalId).toBe('778');

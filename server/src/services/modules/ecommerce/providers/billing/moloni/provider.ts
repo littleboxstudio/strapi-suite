@@ -258,7 +258,7 @@ export const moloniProvider: BillingProvider = {
               p.method === 'STORE_CREDIT'
                 ? configuredId(rt, 'storeCreditPaymentMethodId') ?? (await paymentMethodId())
                 : await paymentMethodId(),
-            payment_date: p.date,
+            date: p.date,
             value: euros(p.amount),
           }))
         );
