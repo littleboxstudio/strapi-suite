@@ -13,14 +13,15 @@ type Props = {
   hasError?: boolean;
 };
 
-/** One market's block: bordered, 20px between blocks. */
+/**
+ * One market's block: no frame; between two blocks a 2px line (header/footer colour) with 20px
+ * above and below it.
+ */
 const MarketCard = styled.div`
-  border: 1px solid ${({ theme }) => theme.colors.neutral200};
-  border-radius: ${({ theme }) => theme.borderRadius};
-  padding: 8px 12px 12px;
-
   & + & {
     margin-top: 20px;
+    padding-top: 20px;
+    border-top: 2px solid ${({ theme }) => theme.colors.neutral100};
   }
 `;
 
