@@ -233,7 +233,7 @@
   "littlebox-strapi-suite.ecommerce.settings.errors.invalid_color": "Introduza uma cor no formato #RRGGBB.",
   "littlebox-strapi-suite.ecommerce.settings.errors.invalid_timezone": "Escolha um fuso horário válido.",
   "littlebox-strapi-suite.ecommerce.settings.errors.invalid_country": "Escolha países válidos.",
-  "littlebox-strapi-suite.ecommerce.settings.errors.MARKET_IN_USE": "Retire primeiro estes países dos métodos de envio: {methods}.",
+  "littlebox-strapi-suite.ecommerce.settings.errors.MARKET_IN_USE": "Estes métodos de envio ainda usam os países que removeu: {methods}.",
   "littlebox-strapi-suite.ecommerce.settings.errors.too_long": "Este valor é demasiado longo.",
   "littlebox-strapi-suite.ecommerce.settings.errors.invalid_email": "Introduza um endereço de e-mail válido.",
   "littlebox-strapi-suite.ecommerce.settings.errors.invalid_path": "Indique um caminho começado por /, por exemplo /checkout/success.",
