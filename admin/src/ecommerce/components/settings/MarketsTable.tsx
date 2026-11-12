@@ -15,6 +15,7 @@ import {
   Thead,
   Tr,
   Typography,
+  VisuallyHidden,
 } from '@strapi/design-system';
 import { Plus, Trash } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
@@ -55,7 +56,10 @@ const MarketsTable = ({ value, countries, readOnly, error, onChange }: Props) =>
   return (
     <Field.Root name="markets" required error={error} hint={t('store.markets.hint')}>
       <Flex direction="column" alignItems="stretch" gap={3}>
-        <Field.Label>{t('store.markets')}</Field.Label>
+        {/* The section title shows it; kept for screen readers. */}
+        <VisuallyHidden>
+          <Field.Label>{t('store.markets')}</Field.Label>
+        </VisuallyHidden>
 
         {!readOnly && (
           <Flex gap={2} alignItems="flex-end" wrap="wrap">

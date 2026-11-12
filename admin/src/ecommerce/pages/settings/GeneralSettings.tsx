@@ -244,13 +244,19 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
             {textField('storeName', { required: true })}
           </Grid.Item>
           <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
+            {textField('storefrontUrl', {
+              placeholder: 'https://shop.example.com',
+              hint: t('ecommerce.settings.store.storefrontUrl.hint'),
+            })}
+          </Grid.Item>
+          <Grid.Item col={4} s={12} direction="column" alignItems="stretch">
             {textField('supportEmail', {
               type: 'email',
               placeholder: 'support@example.com',
               hint: t('ecommerce.settings.store.supportEmail.hint'),
             })}
           </Grid.Item>
-          <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
+          <Grid.Item col={4} s={12} direction="column" alignItems="stretch">
             {textField('brandColor', {
               required: true,
               placeholder: '#4945ff',
@@ -266,25 +272,7 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
               ),
             })}
           </Grid.Item>
-          <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
-            {textField('storefrontUrl', {
-              placeholder: 'https://shop.example.com',
-              hint: t('ecommerce.settings.store.storefrontUrl.hint'),
-            })}
-          </Grid.Item>
-          <Grid.Item col={12} direction="column" alignItems="stretch">
-            <StoreLogoField
-              logo={logo}
-              readOnly={readOnly}
-              onChange={(saved) => setLogo(saved.logo)}
-            />
-          </Grid.Item>
-        </Grid.Root>
-      </Section>
-
-      <Section title={t('ecommerce.settings.region.title')}>
-        <Grid.Root gap={5}>
-          <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
+          <Grid.Item col={4} s={12} direction="column" alignItems="stretch">
             <Field.Root name="timezone" required error={errorText('timezone')}>
               <Field.Label>{t('ecommerce.settings.store.timezone')}</Field.Label>
               <SingleSelect
@@ -302,6 +290,15 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
               <Field.Error />
             </Field.Root>
           </Grid.Item>
+        </Grid.Root>
+      </Section>
+
+      <Section title={t('ecommerce.settings.logo.title')}>
+        <StoreLogoField logo={logo} readOnly={readOnly} onChange={(saved) => setLogo(saved.logo)} />
+      </Section>
+
+      <Section title={t('ecommerce.settings.markets.title')}>
+        <Grid.Root gap={5}>
           <Grid.Item col={12} direction="column" alignItems="stretch">
             <MarketsTable
               value={form.markets}

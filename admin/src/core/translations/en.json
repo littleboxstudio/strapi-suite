@@ -407,7 +407,6 @@
   "littlebox-strapi-suite.ecommerce.settings.module.confirm.title": "Disable the E-commerce module?",
   "littlebox-strapi-suite.ecommerce.settings.module.confirm.text": "The store closes straight away: the site cannot show products or take orders, and Stripe payment notifications are refused until you enable it again. No data is deleted.",
   "littlebox-strapi-suite.ecommerce.settings.store.title": "Store",
-  "littlebox-strapi-suite.ecommerce.settings.region.title": "Region",
   "littlebox-strapi-suite.ecommerce.settings.store.storeName": "Store name",
   "littlebox-strapi-suite.ecommerce.settings.store.logo": "Logo",
   "littlebox-strapi-suite.ecommerce.settings.store.logo.hint": "PNG, JPG, WebP, GIF or SVG up to 400 KB. Shown in emails, resized to fit 480×96.",
@@ -1892,5 +1891,7 @@
   "littlebox-strapi-suite.ecommerce.settings.manual.fillAll.apply": "Apply to all markets",
   "littlebox-strapi-suite.ecommerce.settings.manual.fillAll.confirmTitle": "Replace all ranges",
   "littlebox-strapi-suite.ecommerce.settings.manual.fillAll.confirmText": "The weight ranges of all {count, plural, one {# market} other {# markets}} will be replaced by these. Their current values will be lost.",
-  "littlebox-strapi-suite.ecommerce.settings.manual.fillAll.replace": "Replace"
+  "littlebox-strapi-suite.ecommerce.settings.manual.fillAll.replace": "Replace",
+  "littlebox-strapi-suite.ecommerce.settings.logo.title": "Logo",
+  "littlebox-strapi-suite.ecommerce.settings.markets.title": "Markets"
 }

@@ -191,7 +191,6 @@
   "littlebox-strapi-suite.ecommerce.settings.module.confirm.title": "Desativar o módulo E-commerce?",
   "littlebox-strapi-suite.ecommerce.settings.module.confirm.text": "A loja fecha de imediato: o site deixa de mostrar produtos e de receber encomendas, e as notificações de pagamento do Stripe são recusadas até voltar a ativá-lo. Nenhum dado é apagado.",
   "littlebox-strapi-suite.ecommerce.settings.store.title": "Loja",
-  "littlebox-strapi-suite.ecommerce.settings.region.title": "Região",
   "littlebox-strapi-suite.ecommerce.settings.store.storeName": "Nome da loja",
   "littlebox-strapi-suite.ecommerce.settings.store.logo": "Logótipo",
   "littlebox-strapi-suite.ecommerce.settings.store.logo.hint": "PNG, JPG, WebP, GIF ou SVG até 400 KB. Aparece nos e-mails, redimensionado para caber em 480×96.",
@@ -1676,5 +1675,7 @@
   "littlebox-strapi-suite.ecommerce.settings.manual.fillAll.apply": "Aplicar a todos os mercados",
   "littlebox-strapi-suite.ecommerce.settings.manual.fillAll.confirmTitle": "Substituir todos os intervalos",
   "littlebox-strapi-suite.ecommerce.settings.manual.fillAll.confirmText": "Os intervalos de peso {count, plural, one {do # mercado} other {dos # mercados}} vão ser substituídos por estes. Os valores atuais serão perdidos.",
-  "littlebox-strapi-suite.ecommerce.settings.manual.fillAll.replace": "Substituir"
+  "littlebox-strapi-suite.ecommerce.settings.manual.fillAll.replace": "Substituir",
+  "littlebox-strapi-suite.ecommerce.settings.logo.title": "Logótipo",
+  "littlebox-strapi-suite.ecommerce.settings.markets.title": "Mercados"
 }
