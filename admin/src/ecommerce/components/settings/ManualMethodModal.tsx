@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import {
@@ -7,24 +7,39 @@ import {
   Field,
   Flex,
   Grid,
+  IconButton,
   Modal,
+  MultiSelect,
+  MultiSelectOption,
   SingleSelect,
   SingleSelectOption,
   Switch,
+  Table,
+  Tbody,
+  Td,
   TextInput,
+  Th,
+  Thead,
+  Tr,
   Typography,
+  VisuallyHidden,
 } from '@strapi/design-system';
+import { Plus, Trash } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { LocaleSwitcher } from '../LocaleSwitcher';
 import CreateShippingMethod from '../../usecases/settings/createShippingMethod';
 import UpdateShippingMethod from '../../usecases/settings/updateShippingMethod';
 import { extractFieldErrors } from '../../utils/productForm';
 import { TAX_OTHER, TAX_PRESETS } from '../../utils/variantDraft';
+import { countryOptions } from '../../utils/settingsForm';
 import {
+  applyToAllMarkets,
   draftToManualMethodInput,
   emptyManualMethodDraft,
   manualMethodErrorMap,
   manualMethodToDraft,
+  newBracketRows,
+  type BracketDraft,
   type ManualMethodDraft,
   type ManualMethodErrors,
 } from '../../utils/manualMethodForm';
@@ -36,7 +51,7 @@ type Props = {
   method: ManualMethod | null;
   locales: { code: string; name: string }[];
   defaultLocale: string;
-  /** The store markets; without any the method cannot be saved. TEMP (Task 5 rewrites this modal). */
+  /** The store markets (country codes); without any the method cannot be saved. */
   markets: string[];
   onClose: () => void;
   onSaved: (method: ManualMethod) => void;
@@ -48,6 +63,14 @@ const ManualMethodModal = ({ method, locales, defaultLocale, markets, onClose, o
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
   const codes = locales.map((l) => l.code);
+
+  const countries = useMemo(() => countryOptions(uiLocale), [uiLocale]);
+  const countryName = (code: string) => countries.find((c) => c.code === code)?.name ?? code;
+  /** The store markets, by country name. */
+  const marketOptions = useMemo(
+    () => countries.filter((c) => markets.includes(c.code)),
+    [countries, markets]
+  );
 
   const [draft, setDraft] = useState<ManualMethodDraft>(() =>
     method
@@ -76,15 +99,56 @@ const ManualMethodModal = ({ method, locales, defaultLocale, markets, onClose, o
     clearError(errorPath);
   };
 
-  // TEMP: one flat price per market (a single no-limit bracket) until Task 5 adds the bracket editor.
-  const updateRate = (code: string, text: string) => {
-    setDraft((d) => ({
-      ...d,
-      markets: d.markets.includes(code) ? d.markets : [...d.markets, code],
-      brackets: { ...d.brackets, [code]: [{ upTo: '', price: text }] },
-    }));
-    clearError(`rates.${code}.0.price`);
+  /** Drops every error whose path is `prefix` or below it (row indexes shift on add/remove). */
+  const clearErrorsUnder = (prefix: string) =>
+    setErrors((current) => {
+      const keys = Object.keys(current).filter((k) => k === prefix || k.startsWith(`${prefix}.`));
+      if (keys.length === 0) return current;
+      const rest = { ...current };
+      keys.forEach((k) => delete rest[k]);
+      return rest;
+    });
+
+  /** A newly selected market starts with one empty row; a reselected one keeps its rows. */
+  const setMarkets = (next: string[]) => {
+    setDraft((d) => {
+      const brackets = { ...d.brackets };
+      next.forEach((code) => {
+        if (!brackets[code]) brackets[code] = newBracketRows();
+      });
+      return { ...d, markets: next, brackets };
+    });
     clearError('markets');
+    clearError('rates');
+    draft.markets
+      .filter((code) => !next.includes(code))
+      .forEach((code) => clearErrorsUnder(`rates.${code}`));
+  };
+
+  const changeRows = (code: string, change: (rows: BracketDraft[]) => BracketDraft[]) =>
+    setDraft((d) => ({ ...d, brackets: { ...d.brackets, [code]: change(d.brackets[code] ?? []) } }));
+
+  const updateRow = (code: string, index: number, field: keyof BracketDraft, text: string) => {
+    changeRows(code, (rows) =>
+      rows.map((row, i) => (i === index ? { ...row, [field]: text } : row))
+    );
+    clearError(`rates.${code}.${index}.${field}`);
+    clearError(`rates.${code}`);
+  };
+
+  const addRow = (code: string) => {
+    changeRows(code, (rows) => [...rows, ...newBracketRows()]);
+    clearErrorsUnder(`rates.${code}`);
+  };
+
+  const removeRow = (code: string, index: number) => {
+    changeRows(code, (rows) => rows.filter((_, i) => i !== index));
+    clearErrorsUnder(`rates.${code}`);
+  };
+
+  const applyToAll = (code: string) => {
+    setDraft((d) => applyToAllMarkets(d, code));
+    clearErrorsUnder('rates');
   };
 
   const errorText = (path: string) =>
@@ -125,6 +189,10 @@ const ManualMethodModal = ({ method, locales, defaultLocale, markets, onClose, o
 
   const taxError = errorText('tax');
   const ratesError = errorText('rates');
+  const marketsError =
+    errors.markets === 'required'
+      ? t('ecommerce.settings.manual.marketsRequired')
+      : errorText('markets');
 
   return (
     <Modal.Root open onOpenChange={(next: boolean) => !next && onClose()}>
@@ -178,50 +246,179 @@ const ManualMethodModal = ({ method, locales, defaultLocale, markets, onClose, o
               </Flex>
             </Field.Root>
 
-            <Flex direction="column" alignItems="stretch" gap={3}>
-              <Flex direction="column" alignItems="flex-start" gap={1}>
-                <Typography variant="pi" fontWeight="bold" textColor="neutral800">
-                  {t('ecommerce.settings.manualMethods.fields.rates')}
+            {markets.length === 0 ? (
+              <Box background="warning100" borderColor="warning200" hasRadius padding={4}>
+                <Typography textColor="neutral800">
+                  {t('ecommerce.settings.manual.noStoreMarkets')}
                 </Typography>
-                <Typography variant="pi" textColor="neutral600">
-                  {t('ecommerce.settings.manualMethods.fields.rates.hint')}
-                </Typography>
-              </Flex>
-              {markets.length === 0 ? (
-                <Box background="warning100" borderColor="warning200" hasRadius padding={4}>
-                  <Typography textColor="neutral800">
-                    {t('ecommerce.settings.zones.createFirst')}
+              </Box>
+            ) : (
+              <Flex direction="column" alignItems="stretch" gap={4}>
+                <Field.Root
+                  name="markets"
+                  error={marketsError}
+                  hint={t('ecommerce.settings.manual.pricesHint')}
+                  required
+                >
+                  <Field.Label>{t('ecommerce.settings.manual.markets')}</Field.Label>
+                  <Flex gap={2} alignItems="flex-start">
+                    <Box style={{ flex: 1, minWidth: 0 }}>
+                      <MultiSelect
+                        withTags
+                        value={draft.markets}
+                        hasError={!!marketsError}
+                        onChange={(next: string[]) => setMarkets(next)}
+                      >
+                        {marketOptions.map(({ code, name }) => (
+                          <MultiSelectOption key={code} value={code}>
+                            {name}
+                          </MultiSelectOption>
+                        ))}
+                      </MultiSelect>
+                    </Box>
+                    <Button
+                      variant="secondary"
+                      size="L"
+                      disabled={draft.markets.length === markets.length}
+                      onClick={() =>
+                        setMarkets([
+                          ...draft.markets,
+                          ...markets.filter((code) => !draft.markets.includes(code)),
+                        ])
+                      }
+                    >
+                      {t('ecommerce.settings.manual.selectAll')}
+                    </Button>
+                    <Button
+                      variant="tertiary"
+                      size="L"
+                      disabled={draft.markets.length === 0}
+                      onClick={() => setMarkets([])}
+                    >
+                      {t('ecommerce.settings.manual.clear')}
+                    </Button>
+                  </Flex>
+                  <Field.Hint />
+                  <Field.Error />
+                </Field.Root>
+
+                {ratesError && (
+                  <Typography variant="pi" textColor="danger600" role="alert">
+                    {ratesError}
                   </Typography>
-                </Box>
-              ) : (
-                <Grid.Root gap={4}>
-                  {markets.map((id) => {
-                    const path = `rates.${id}.0.price`;
-                    return (
-                      <Grid.Item key={id} col={6} s={12} direction="column" alignItems="stretch">
-                        <Field.Root name={path} error={errorText(path)}>
-                          <Field.Label>{id}</Field.Label>
-                          <TextInput
-                            inputMode="decimal"
-                            value={draft.brackets[id]?.[0]?.price ?? ''}
-                            hasError={!!errors[path] || !!ratesError}
-                            onChange={(e: any) => updateRate(id, e.target.value)}
-                          />
-                          <Field.Error />
-                        </Field.Root>
-                      </Grid.Item>
-                    );
-                  })}
-                </Grid.Root>
-              )}
-              {ratesError && (
-                <Typography variant="pi" textColor="danger600" role="alert">
-                  {errors.rates === 'required'
-                    ? t('ecommerce.settings.manualMethods.ratesRequired')
-                    : ratesError}
-                </Typography>
-              )}
-            </Flex>
+                )}
+
+                {draft.markets.length > 0 && (
+                  <Typography variant="pi" textColor="neutral600">
+                    {t('ecommerce.settings.manual.noLimit')}
+                  </Typography>
+                )}
+
+                {draft.markets.map((code) => {
+                  const rows = draft.brackets[code] ?? [];
+                  const marketError = errors[`rates.${code}`];
+                  return (
+                    <Box
+                      key={code}
+                      borderColor={marketError ? 'danger600' : 'neutral200'}
+                      hasRadius
+                      padding={4}
+                    >
+                      <Flex direction="column" alignItems="stretch" gap={3}>
+                        <Flex justifyContent="space-between" alignItems="center" gap={2}>
+                          <Typography variant="delta" tag="h3">
+                            {countryName(code)}
+                          </Typography>
+                          {draft.markets.length >= 2 && (
+                            <Button variant="tertiary" size="S" onClick={() => applyToAll(code)}>
+                              {t('ecommerce.settings.manual.applyAll')}
+                            </Button>
+                          )}
+                        </Flex>
+                        {rows.length > 0 && (
+                          <Table colCount={3} rowCount={rows.length + 1}>
+                            <Thead>
+                              <Tr>
+                                <Th>
+                                  <Typography variant="sigma">
+                                    {t('ecommerce.settings.manual.upTo')}
+                                  </Typography>
+                                </Th>
+                                <Th>
+                                  <Typography variant="sigma">
+                                    {t('ecommerce.settings.manual.price')}
+                                  </Typography>
+                                </Th>
+                                <Th>
+                                  <VisuallyHidden>
+                                    {t('ecommerce.settings.manual.removeRange')}
+                                  </VisuallyHidden>
+                                </Th>
+                              </Tr>
+                            </Thead>
+                            <Tbody>
+                              {rows.map((row, i) => (
+                                <Tr key={i}>
+                                  {(['upTo', 'price'] as const).map((field) => {
+                                    const path = `rates.${code}.${i}.${field}`;
+                                    return (
+                                      <Td key={field} style={{ verticalAlign: 'top' }}>
+                                        <Field.Root name={path} error={errorText(path)}>
+                                          <TextInput
+                                            aria-label={`${countryName(code)}: ${t(
+                                              `ecommerce.settings.manual.${field}`
+                                            )} (${i + 1})`}
+                                            inputMode="decimal"
+                                            value={row[field]}
+                                            onChange={(e: any) =>
+                                              updateRow(code, i, field, e.target.value)
+                                            }
+                                          />
+                                          <Field.Error />
+                                        </Field.Root>
+                                      </Td>
+                                    );
+                                  })}
+                                  <Td style={{ verticalAlign: 'top' }}>
+                                    <Flex justifyContent="flex-end">
+                                      <IconButton
+                                        label={t('ecommerce.settings.manual.removeRange')}
+                                        variant="ghost"
+                                        disabled={rows.length === 1}
+                                        onClick={() => removeRow(code, i)}
+                                      >
+                                        <Trash />
+                                      </IconButton>
+                                    </Flex>
+                                  </Td>
+                                </Tr>
+                              ))}
+                            </Tbody>
+                          </Table>
+                        )}
+                        {marketError && (
+                          <Typography variant="pi" textColor="danger600" role="alert">
+                            {marketError === 'required'
+                              ? t('ecommerce.settings.manual.rangesRequired')
+                              : errorText(`rates.${code}`)}
+                          </Typography>
+                        )}
+                        <Flex justifyContent="flex-start">
+                          <Button
+                            variant="secondary"
+                            size="S"
+                            startIcon={<Plus />}
+                            onClick={() => addRow(code)}
+                          >
+                            {t('ecommerce.settings.manual.addRange')}
+                          </Button>
+                        </Flex>
+                      </Flex>
+                    </Box>
+                  );
+                })}
+              </Flex>
+            )}
 
             <Grid.Root gap={4}>
               <Grid.Item col={6} s={12} direction="column" alignItems="stretch">

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import styled from 'styled-components';
 import { useNotification } from '@strapi/strapi/admin';
@@ -23,7 +23,7 @@ import { getTranslation } from '../../../core/utils/getTranslation';
 import UpdateIntegration from '../../usecases/settings/updateIntegration';
 import FetchIntegrationLookups from '../../usecases/settings/fetchIntegrationLookups';
 import { extractFieldErrors } from '../../utils/productForm';
-import { extractErrorCode } from '../../utils/settingsForm';
+import { countryOptions, extractErrorCode } from '../../utils/settingsForm';
 import {
   buildIntegrationPayload,
   credentialsSaved,
@@ -85,10 +85,16 @@ const IntegrationConfigModal = ({
   onSaved,
   onChanged,
 }: Props) => {
-  const { formatMessage } = useIntl();
+  const { formatMessage, locale: uiLocale } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>, defaultMessage?: string) =>
     formatMessage({ id: getTranslation(id), defaultMessage }, values);
+
+  /** The store markets by country name, for `markets` fields. */
+  const marketOptions = useMemo(
+    () => countryOptions(uiLocale).filter((c) => markets.includes(c.code)),
+    [uiLocale, markets]
+  );
 
   const [values, setValues] = useState<IntegrationFormValues>(() =>
     integrationFormFromView(integration)
@@ -370,30 +376,49 @@ const IntegrationConfigModal = ({
           </Flex>
         );
       }
-      case 'markets':
+      case 'markets': {
         if (markets.length === 0) {
           return (
             <Box background="warning100" borderColor="warning200" hasRadius padding={4}>
               <Typography textColor="neutral800">
-                {t('ecommerce.settings.zones.createFirst')}
+                {t('ecommerce.settings.manual.noStoreMarkets')}
               </Typography>
             </Box>
           );
         }
+        const selected = Array.isArray(value) ? value : [];
         return (
-          <MultiSelect
-            withTags
-            value={Array.isArray(value) ? value : []}
-            hasError={hasError}
-            onChange={(next: string[]) => setValue(field.key, next)}
-          >
-            {markets.map((code) => (
-              <MultiSelectOption key={code} value={code}>
-                {code}
-              </MultiSelectOption>
-            ))}
-          </MultiSelect>
+          <Flex gap={2} alignItems="flex-start">
+            <Box flex="1" minWidth={0}>
+              <MultiSelect
+                withTags
+                value={selected}
+                hasError={hasError}
+                onChange={(next: string[]) => setValue(field.key, next)}
+              >
+                {marketOptions.map(({ code, name }) => (
+                  <MultiSelectOption key={code} value={code}>
+                    {name}
+                  </MultiSelectOption>
+                ))}
+              </MultiSelect>
+            </Box>
+            <Button
+              variant="secondary"
+              size="L"
+              disabled={markets.every((code) => selected.includes(code))}
+              onClick={() =>
+                setValue(field.key, [
+                  ...selected,
+                  ...markets.filter((code) => !selected.includes(code)),
+                ])
+              }
+            >
+              {t('ecommerce.settings.manual.selectAllMarkets')}
+            </Button>
+          </Flex>
         );
+      }
       case 'number':
         return (
           <TextInput
