@@ -24,10 +24,6 @@ const expected: [string, string, string, string][] = [
   ['POST', `${B}/shipping-methods`, 'createShippingMethod', P.settingsManage],
   ['PUT', `${B}/shipping-methods/:id`, 'updateShippingMethod', P.settingsManage],
   ['DELETE', `${B}/shipping-methods/:id`, 'deleteShippingMethod', P.settingsManage],
-  ['GET', `${B}/shipping-zones`, 'listShippingZones', P.settingsRead],
-  ['POST', `${B}/shipping-zones`, 'createShippingZone', P.settingsManage],
-  ['PUT', `${B}/shipping-zones/:id`, 'updateShippingZone', P.settingsManage],
-  ['DELETE', `${B}/shipping-zones/:id`, 'deleteShippingZone', P.settingsManage],
   ['GET', `${B}/email-templates`, 'listEmailTemplates', P.settingsRead],
   ['GET', T, 'getEmailTemplate', P.settingsRead],
   ['PUT', T, 'saveEmailTemplate', P.settingsManage],
@@ -60,6 +56,10 @@ describe('ecommerce settings routes', () => {
 
   it('no longer lists the Strapi API tokens for choosing', () => {
     expect(routes.some((r) => r.path.includes('api-tokens'))).toBe(false);
+  });
+
+  it('no longer exposes shipping zones', () => {
+    expect(routes.some((r) => r.path.includes('shipping-zones'))).toBe(false);
   });
 
   it('are included in the admin routes', () => {
