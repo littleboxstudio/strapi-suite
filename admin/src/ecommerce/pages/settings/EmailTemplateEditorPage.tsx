@@ -19,11 +19,15 @@ import ConfirmModal from '../../../components/ConfirmModal';
 import config from '../../../core/config';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { LocaleSwitcher } from '../../components/LocaleSwitcher';
-import { HtmlCodeEditor, type HtmlCodeEditorHandle } from '../../components/settings/HtmlCodeEditor';
+import {
+  HtmlCodeEditor,
+  type HtmlCodeEditorHandle,
+} from '../../components/settings/HtmlCodeEditor';
 import { EmailPreview } from '../../components/settings/EmailPreview';
 import { VariablesPanel } from '../../components/settings/VariablesPanel';
 import { TestEmailModal } from '../../components/settings/TestEmailModal';
 import { TemplateVersionsModal } from '../../components/settings/TemplateVersionsModal';
+import { HeaderActions } from '../../components/HeaderActions';
 import FetchEmailTemplate from '../../usecases/settings/fetchEmailTemplate';
 import SaveEmailTemplate from '../../usecases/settings/saveEmailTemplate';
 import PreviewEmailTemplate from '../../usecases/settings/previewEmailTemplate';
@@ -210,8 +214,7 @@ const EmailTemplateEditorPage = () => {
       });
     } catch (err) {
       const fieldErrors = extractFieldErrors(err) as unknown as
-        | (TemplateIssue & { path: string })[]
-        | null;
+        (TemplateIssue & { path: string })[] | null;
       if (fieldErrors?.length) {
         const grouped: FieldIssues = {};
         fieldErrors.forEach(({ path, code, detail }) => {
@@ -298,7 +301,7 @@ const EmailTemplateEditorPage = () => {
           ))}
       </Flex>
       {template && (
-        <Flex gap={2} alignItems="center" wrap="wrap">
+        <HeaderActions>
           <Button
             variant="tertiary"
             startIcon={<ClockCounterClockwise />}
@@ -327,7 +330,7 @@ const EmailTemplateEditorPage = () => {
               {t('ecommerce.settings.emailTemplates.editor.save')}
             </Button>
           )}
-        </Flex>
+        </HeaderActions>
       )}
     </Flex>
   );
@@ -357,11 +360,7 @@ const EmailTemplateEditorPage = () => {
         )}
 
         <Box background="neutral0" shadow="tableShadow" hasRadius padding={6}>
-          <Field.Root
-            name="subject"
-            required
-            error={issueText(issues.subject)?.join(' · ')}
-          >
+          <Field.Root name="subject" required error={issueText(issues.subject)?.join(' · ')}>
             <Field.Label>{t('ecommerce.settings.emailTemplates.editor.subject')}</Field.Label>
             <TextInput
               ref={subjectRef}

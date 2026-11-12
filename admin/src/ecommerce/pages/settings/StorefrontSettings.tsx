@@ -11,7 +11,12 @@ import RegenerateStorefrontToken from '../../usecases/settings/regenerateStorefr
 import UpdateStoreSettings from '../../usecases/settings/updateStoreSettings';
 import ConfirmModal from '../../../components/ConfirmModal';
 import StorefrontTokenKeyModal from '../../components/settings/StorefrontTokenKeyModal';
-import { buildStoreSettingsInput, extractErrorCode, storeFormFromSettings } from '../../utils/settingsForm';
+import { HeaderActions } from '../../components/HeaderActions';
+import {
+  buildStoreSettingsInput,
+  extractErrorCode,
+  storeFormFromSettings,
+} from '../../utils/settingsForm';
 import { extractFieldErrors } from '../../utils/productForm';
 import {
   TTL_MAX_HOURS,
@@ -21,9 +26,18 @@ import {
   tokenWarnings,
   validateTtlHours,
 } from '../../utils/storefrontSettings';
-import type { GeneratedStorefrontToken, StoreSettings, StorefrontTokenState } from '../../settingsTypes';
+import type {
+  GeneratedStorefrontToken,
+  StoreSettings,
+  StorefrontTokenState,
+} from '../../settingsTypes';
 
-const HEADERS = ['Authorization', 'X-Checkout-Session', 'Idempotency-Key', 'X-Storefront-Client-IP'] as const;
+const HEADERS = [
+  'Authorization',
+  'X-Checkout-Session',
+  'Idempotency-Key',
+  'X-Storefront-Client-IP',
+] as const;
 
 const Card = ({ title, children }: { title: string; children: React.ReactNode }) => (
   <Box background="neutral0" shadow="tableShadow" hasRadius padding={6}>
@@ -99,7 +113,10 @@ const StorefrontSettings = ({ readOnly }: { readOnly: boolean }) => {
     };
   }, []);
 
-  const warnings = useMemo(() => tokenWarnings(tokenState?.token ?? null, new Date()), [tokenState]);
+  const warnings = useMemo(
+    () => tokenWarnings(tokenState?.token ?? null, new Date()),
+    [tokenState]
+  );
 
   if (loadError) {
     return <Typography textColor="danger600">{t('ecommerce.settings.loadError')}</Typography>;
@@ -155,7 +172,10 @@ const StorefrontSettings = ({ readOnly }: { readOnly: boolean }) => {
       setGenerated(result);
     } catch (err) {
       if (extractErrorCode(err) === 'STOREFRONT_TOKEN_EXISTS') {
-        toggleNotification({ type: 'warning', message: t('ecommerce.settings.storefrontApi.tokenExists') });
+        toggleNotification({
+          type: 'warning',
+          message: t('ecommerce.settings.storefrontApi.tokenExists'),
+        });
         try {
           setTokenState(await new FetchStorefrontToken().execute());
         } catch {
@@ -173,11 +193,17 @@ const StorefrontSettings = ({ readOnly }: { readOnly: boolean }) => {
   };
 
   const formatWhen = (value: string | null) =>
-    value ? formatDate(value, { dateStyle: 'medium', timeStyle: 'short' }) : t('ecommerce.settings.storefrontApi.token.never');
+    value
+      ? formatDate(value, { dateStyle: 'medium', timeStyle: 'short' })
+      : t('ecommerce.settings.storefrontApi.token.never');
 
   const tokenSection = () => {
     if (tokenLoadError || !tokenState) {
-      return <Typography textColor="danger600">{t('ecommerce.settings.storefrontApi.tokenLoadError')}</Typography>;
+      return (
+        <Typography textColor="danger600">
+          {t('ecommerce.settings.storefrontApi.tokenLoadError')}
+        </Typography>
+      );
     }
     const actions = storefrontTokenActions(tokenState, readOnly);
     const { token } = tokenState;
@@ -196,27 +222,49 @@ const StorefrontSettings = ({ readOnly }: { readOnly: boolean }) => {
           <Box background="neutral100" hasRadius padding={4}>
             <Flex gap={6} wrap="wrap" alignItems="flex-start">
               <Detail label={t('ecommerce.settings.storefrontApi.token.name')} value={token.name} />
-              <Detail label={t('ecommerce.settings.storefrontApi.token.createdAt')} value={formatWhen(token.createdAt)} />
-              <Detail label={t('ecommerce.settings.storefrontApi.token.lastUsedAt')} value={formatWhen(token.lastUsedAt)} />
+              <Detail
+                label={t('ecommerce.settings.storefrontApi.token.createdAt')}
+                value={formatWhen(token.createdAt)}
+              />
+              <Detail
+                label={t('ecommerce.settings.storefrontApi.token.lastUsedAt')}
+                value={formatWhen(token.lastUsedAt)}
+              />
               {token.expiresAt && (
-                <Detail label={t('ecommerce.settings.storefrontApi.token.expiresAt')} value={formatWhen(token.expiresAt)} />
+                <Detail
+                  label={t('ecommerce.settings.storefrontApi.token.expiresAt')}
+                  value={formatWhen(token.expiresAt)}
+                />
               )}
             </Flex>
           </Box>
         ) : (
-          <Flex direction="column" alignItems="center" gap={3} padding={6} background="neutral100" hasRadius>
+          <Flex
+            direction="column"
+            alignItems="center"
+            gap={3}
+            padding={6}
+            background="neutral100"
+            hasRadius
+          >
             <Typography variant="omega" textColor="neutral600">
               {t('ecommerce.settings.storefrontApi.token.none')}
             </Typography>
             {actions.generate && (
-              <Button startIcon={<Key />} onClick={() => runTokenAction('generate')} loading={tokenBusy}>
+              <Button
+                startIcon={<Key />}
+                onClick={() => runTokenAction('generate')}
+                loading={tokenBusy}
+              >
                 {t('ecommerce.settings.storefrontApi.generate')}
               </Button>
             )}
           </Flex>
         )}
 
-        {tokenState.missing && <Notice>{t('ecommerce.settings.storefrontApi.warning.MISSING')}</Notice>}
+        {tokenState.missing && (
+          <Notice>{t('ecommerce.settings.storefrontApi.warning.MISSING')}</Notice>
+        )}
         {warnings.map((w) => (
           <Notice key={w}>{t(`ecommerce.settings.storefrontApi.warning.${w}`)}</Notice>
         ))}
@@ -240,14 +288,19 @@ const StorefrontSettings = ({ readOnly }: { readOnly: boolean }) => {
   return (
     <Flex direction="column" alignItems="stretch" gap={6}>
       <Card title={t('ecommerce.settings.storefrontApi.title')}>
-        <Typography textColor="neutral600">{t('ecommerce.settings.storefrontApi.intro')}</Typography>
+        <Typography textColor="neutral600">
+          {t('ecommerce.settings.storefrontApi.intro')}
+        </Typography>
 
         {tokenSection()}
 
         <Field.Root
           name="checkoutSessionTtlHours"
           error={ttlError ? t(`ecommerce.settings.errors.${ttlError}`) : undefined}
-          hint={t('ecommerce.settings.storefrontApi.ttl.hint', { min: TTL_MIN_HOURS, max: TTL_MAX_HOURS })}
+          hint={t('ecommerce.settings.storefrontApi.ttl.hint', {
+            min: TTL_MIN_HOURS,
+            max: TTL_MAX_HOURS,
+          })}
         >
           <Field.Label>{t('ecommerce.settings.storefrontApi.ttl')}</Field.Label>
           <TextInput
@@ -266,11 +319,11 @@ const StorefrontSettings = ({ readOnly }: { readOnly: boolean }) => {
         </Field.Root>
 
         {!readOnly && (
-          <Flex justifyContent="flex-end">
+          <HeaderActions>
             <Button onClick={save} loading={saving}>
               {t('ecommerce.settings.save')}
             </Button>
-          </Flex>
+          </HeaderActions>
         )}
       </Card>
 
