@@ -16,7 +16,7 @@ import {
   TextInput,
   Typography,
 } from '@strapi/design-system';
-import { Information } from '@strapi/icons';
+import { Information, Trash } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import UpdateIntegration from '../../usecases/settings/updateIntegration';
 import FetchIntegrationLookups from '../../usecases/settings/fetchIntegrationLookups';
@@ -440,10 +440,9 @@ const IntegrationConfigModal = ({
                 {selected.map((code) => (
                   <MarketRow key={code}>
                     <Typography variant="omega">{countryName(code)}</Typography>
-                    <Button
-                      variant="danger-light"
-                      size="S"
-                      aria-label={`${t('ecommerce.settings.manual.removeMarket')}: ${countryName(code)}`}
+                    <IconButton
+                      label={`${t('ecommerce.settings.manual.removeMarket')}: ${countryName(code)}`}
+                      variant="ghost"
                       onClick={() =>
                         setValue(
                           field.key,
@@ -451,8 +450,8 @@ const IntegrationConfigModal = ({
                         )
                       }
                     >
-                      {t('ecommerce.settings.manual.removeMarket')}
-                    </Button>
+                      <Trash />
+                    </IconButton>
                   </MarketRow>
                 ))}
               </Box>
