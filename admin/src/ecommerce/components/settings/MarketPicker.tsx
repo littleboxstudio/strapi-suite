@@ -13,6 +13,17 @@ type Props = {
   hasError?: boolean;
 };
 
+/** One market's block: header/footer-coloured background, 20px between blocks. */
+const MarketCard = styled.div`
+  background: ${({ theme }) => theme.colors.neutral100};
+  border-radius: ${({ theme }) => theme.borderRadius};
+  padding: 8px 12px 12px;
+
+  & + & {
+    margin-top: 20px;
+  }
+`;
+
 const List = styled.div`
   max-height: 280px;
   overflow-y: auto;
@@ -32,11 +43,7 @@ const Row = styled.label`
 `;
 
 /** Folds accents and case, so "espanha" finds "Espanha" and "Sverige" finds "sverige". */
-const fold = (text: string) =>
-  text
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase();
+const fold = (text: string) => text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 /**
  * "Add markets" button with a searchable, multi-choice dropdown. The trigger does not list the
@@ -102,7 +109,9 @@ const MarketPicker = ({ options, selected, onChange, hasError = false }: Props) 
                   <Row key={code} role="option" aria-selected={checked}>
                     <Checkbox
                       checked={checked}
-                      onCheckedChange={(next: boolean | 'indeterminate') => toggle(code, next === true)}
+                      onCheckedChange={(next: boolean | 'indeterminate') =>
+                        toggle(code, next === true)
+                      }
                     />
                     <Flex gap={2} justifyContent="space-between" style={{ flex: 1 }}>
                       <Typography variant="omega">{name}</Typography>
@@ -121,4 +130,4 @@ const MarketPicker = ({ options, selected, onChange, hasError = false }: Props) 
   );
 };
 
-export { MarketPicker };
+export { MarketPicker, MarketCard };

@@ -19,7 +19,7 @@ import { Plus, Trash } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { LocaleSwitcher } from '../LocaleSwitcher';
 import { ActionConfirmModal } from '../ActionConfirmModal';
-import { MarketPicker } from './MarketPicker';
+import { MarketPicker, MarketCard } from './MarketPicker';
 import CreateShippingMethod from '../../usecases/settings/createShippingMethod';
 import UpdateShippingMethod from '../../usecases/settings/updateShippingMethod';
 import { extractFieldErrors } from '../../utils/productForm';
@@ -47,13 +47,6 @@ const RangeGrid = styled.div`
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
   gap: 8px 12px;
   align-items: start;
-`;
-
-/** Line between two markets: 20px above and below, in the modal header/footer colour. */
-const MarketSeparator = styled.hr`
-  border: 0;
-  border-top: 1px solid ${({ theme }) => theme.colors.neutral100};
-  margin: 20px 0;
 `;
 
 /** Mount it only while open: the draft is initialised once, from the props. */
@@ -399,12 +392,11 @@ const ManualMethodModal = ({
                 )}
 
                 <Flex direction="column" alignItems="stretch">
-                  {draft.markets.map((code, index) => {
+                  {draft.markets.map((code) => {
                     const rows = draft.brackets[code] ?? [];
                     const marketError = errors[`rates.${code}`];
                     return (
-                      <Box key={code}>
-                        {index > 0 && <MarketSeparator />}
+                      <MarketCard key={code}>
                         <Flex direction="column" alignItems="stretch" gap={2}>
                           <Flex
                             justifyContent="space-between"
@@ -494,7 +486,7 @@ const ManualMethodModal = ({
                             </Typography>
                           )}
                         </Flex>
-                      </Box>
+                      </MarketCard>
                     );
                   })}
                 </Flex>
