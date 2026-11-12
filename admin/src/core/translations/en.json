@@ -1446,6 +1446,7 @@
   "littlebox-strapi-suite.ecommerce.orders.invoices.actions.CREDIT_NOTE": "Credit note",
   "littlebox-strapi-suite.ecommerce.orders.invoices.actions.DETAILS": "Read more",
   "littlebox-strapi-suite.ecommerce.orders.invoices.details.title": "Document {number}",
+  "littlebox-strapi-suite.ecommerce.orders.invoices.details.providerMessage": "Message from {provider}",
   "littlebox-strapi-suite.ecommerce.orders.invoices.details.close": "Close",
   "littlebox-strapi-suite.ecommerce.orders.invoices.pdf.error": "The PDF could not be downloaded.",
   "littlebox-strapi-suite.ecommerce.orders.invoices.reconcile.found": "The document was found at the billing provider and is now issued.",

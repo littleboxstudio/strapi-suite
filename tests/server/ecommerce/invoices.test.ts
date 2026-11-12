@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { __resetEventHandlersForTests } from '../../../server/src/services/modules/ecommerce/events';
+import { billingErrorDetail } from '../../../server/src/services/modules/ecommerce/invoices';
 import {
   EcommerceBillingError,
   EcommerceValidationError,
@@ -429,6 +430,33 @@ describe('EcommerceInvoiceService.issue', () => {
     expect(o.payments[0].invoice).toEqual({ invoiceable: 4500, invoiceId: null, status: null });
     expect(o.availableActions).toContain('INVOICE_TOTAL');
     expect(o.invoices[0]).toMatchObject({ status: 'FAILED', error: 'BILLING_TAX_NOT_FOUND' });
+  });
+
+  it('keeps the provider message of a failure on the row, for the admin (and clears it once issued)', async () => {
+    const { c, inv, provider } = setup();
+    const id = await order(c);
+    const paymentId = paymentRows(c, id)[0].id;
+    provider.issue.mockRejectedValueOnce(
+      new EcommerceBillingError('BILLING_REQUEST_FAILED', 'Moloni rejected documents/insert (vat:2).')
+    );
+    await codesOf(inv.issue(id, paymentScope(paymentId), { idempotencyKey: 'k1' }, 'user:1'));
+    const o = await c.orders.get(id);
+    expect(o.invoices[0]).toMatchObject({
+      status: 'FAILED',
+      error: 'BILLING_REQUEST_FAILED',
+      errorDetail: 'Moloni rejected documents/insert (vat:2).',
+    });
+
+    const issued = await inv.issue(id, paymentScope(paymentId), { idempotencyKey: 'k2' }, 'user:1');
+    expect(issued).toMatchObject({ status: 'ISSUED', errorDetail: null });
+  });
+
+  it('an unexpected error keeps its class and message as the detail of the UNCERTAIN row', async () => {
+    const { c, inv, provider } = setup();
+    const id = await order(c);
+    provider.issue.mockRejectedValueOnce(new Error('socket hang up'));
+    const view = await inv.issue(id, TOTAL, { idempotencyKey: 'k1' }, 'user:1');
+    expect(view).toMatchObject({ status: 'UNCERTAIN', errorDetail: 'Error: socket hang up' });
   });
 
   it('total invoice with two payments, one already invoiced → only the other', async () => {
@@ -1116,5 +1144,18 @@ describe('EcommerceInvoiceService credit notes', () => {
     const pb = await inv.creditNotePreview(b.id);
     const sum = [...pa.suggested, ...pb.suggested].reduce((s: number, v: number) => s + v, 0);
     expect(sum).toBe(4500);
+  });
+});
+
+describe('billingErrorDetail', () => {
+  it('is null when the message only repeats the code', () => {
+    expect(billingErrorDetail(new EcommerceBillingError('BILLING_UNREACHABLE', 'BILLING_UNREACHABLE', true))).toBeNull();
+    expect(billingErrorDetail('nope')).toBeNull();
+  });
+
+  it('caps a long message', () => {
+    const detail = billingErrorDetail(new EcommerceBillingError('BILLING_REQUEST_FAILED', 'x'.repeat(5000)));
+    expect(detail).toHaveLength(1000);
+    expect(detail?.endsWith('…')).toBe(true);
   });
 });
