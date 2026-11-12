@@ -10,17 +10,16 @@ import {
   Grid,
   IconButton,
   Modal,
-  MultiSelect,
-  MultiSelectOption,
   SingleSelect,
   SingleSelectOption,
-  Switch,
   TextInput,
   Typography,
 } from '@strapi/design-system';
-import { Plus, Trash } from '@strapi/icons';
+import { Cross, Plus, Trash } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { LocaleSwitcher } from '../LocaleSwitcher';
+import { ActionConfirmModal } from '../ActionConfirmModal';
+import { MarketPicker } from './MarketPicker';
 import CreateShippingMethod from '../../usecases/settings/createShippingMethod';
 import UpdateShippingMethod from '../../usecases/settings/updateShippingMethod';
 import { extractFieldErrors } from '../../utils/productForm';
@@ -60,9 +59,19 @@ type Props = {
   markets: string[];
   onClose: () => void;
   onSaved: (method: ManualMethod) => void;
+  /** A saved method was enabled or disabled from the footer (applied right away). */
+  onActiveChange: (method: ManualMethod) => void;
 };
 
-const ManualMethodModal = ({ method, locales, defaultLocale, markets, onClose, onSaved }: Props) => {
+const ManualMethodModal = ({
+  method,
+  locales,
+  defaultLocale,
+  markets,
+  onClose,
+  onSaved,
+  onActiveChange,
+}: Props) => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) =>
@@ -85,6 +94,41 @@ const ManualMethodModal = ({ method, locales, defaultLocale, markets, onClose, o
   const [errors, setErrors] = useState<ManualMethodErrors>({});
   const [locale, setLocale] = useState(defaultLocale);
   const [saving, setSaving] = useState(false);
+  const [toggling, setToggling] = useState(false);
+  const [confirmToggle, setConfirmToggle] = useState(false);
+  /** The market whose ranges are about to be copied to all the others. */
+  const [confirmApply, setConfirmApply] = useState<string | null>(null);
+
+  /**
+   * Like the variant button: a saved method is enabled/disabled right away; a new one only in the
+   * draft (stored when it is saved).
+   */
+  const toggleActive = async () => {
+    if (toggling) return;
+    const next = !draft.active;
+    if (!method) {
+      setDraft((d) => ({ ...d, active: next }));
+      return;
+    }
+    setToggling(true);
+    try {
+      const saved = await new UpdateShippingMethod().execute(method.id, { active: next });
+      setDraft((d) => ({ ...d, active: saved.active }));
+      onActiveChange(saved);
+      toggleNotification({
+        type: 'success',
+        message: t(
+          saved.active
+            ? 'ecommerce.settings.manualMethods.enabledNotice'
+            : 'ecommerce.settings.manualMethods.disabledNotice'
+        ),
+      });
+    } catch {
+      toggleNotification({ type: 'danger', message: t('ecommerce.settings.manualMethods.toggleError') });
+    } finally {
+      setToggling(false);
+    }
+  };
 
   const namePath = (code: string) => `name.${code}`;
 
@@ -213,7 +257,7 @@ const ManualMethodModal = ({ method, locales, defaultLocale, markets, onClose, o
         </Modal.Header>
         <Modal.Body>
           <Flex direction="column" alignItems="stretch" gap={5}>
-            <Flex direction="column" alignItems="stretch" gap={2}>
+            <Flex direction="column" alignItems="stretch" gap={6}>
               <LocaleSwitcher
                 locales={locales}
                 defaultLocale={defaultLocale}
@@ -238,19 +282,6 @@ const ManualMethodModal = ({ method, locales, defaultLocale, markets, onClose, o
               </Field.Root>
             </Flex>
 
-            <Field.Root name="active">
-              <Flex gap={3}>
-                <Switch
-                  checked={draft.active}
-                  onCheckedChange={(checked: boolean) => update('active', checked)}
-                  aria-label={t('ecommerce.settings.manualMethods.active')}
-                />
-                <Typography variant="omega">
-                  {t('ecommerce.settings.manualMethods.active')}
-                </Typography>
-              </Flex>
-            </Field.Root>
-
             {markets.length === 0 ? (
               <Box background="warning100" borderColor="warning200" hasRadius padding={4}>
                 <Typography textColor="neutral800">
@@ -259,28 +290,15 @@ const ManualMethodModal = ({ method, locales, defaultLocale, markets, onClose, o
               </Box>
             ) : (
               <Flex direction="column" alignItems="stretch" gap={4}>
-                <Field.Root
-                  name="markets"
-                  error={marketsError}
-                  hint={t('ecommerce.settings.manual.pricesHint')}
-                  required
-                >
+                <Field.Root name="markets" error={marketsError} required>
                   <Field.Label>{t('ecommerce.settings.manual.markets')}</Field.Label>
-                  <Flex gap={2} alignItems="flex-start">
-                    <Box style={{ flex: 1, minWidth: 0 }}>
-                      <MultiSelect
-                        withTags
-                        value={draft.markets}
-                        hasError={!!marketsError}
-                        onChange={(next: string[]) => setMarkets(next)}
-                      >
-                        {marketOptions.map(({ code, name }) => (
-                          <MultiSelectOption key={code} value={code}>
-                            {name}
-                          </MultiSelectOption>
-                        ))}
-                      </MultiSelect>
-                    </Box>
+                  <Flex gap={2} wrap="wrap">
+                    <MarketPicker
+                      options={marketOptions}
+                      selected={draft.markets}
+                      hasError={!!marketsError}
+                      onChange={setMarkets}
+                    />
                     <Button
                       variant="secondary"
                       size="L"
@@ -303,7 +321,6 @@ const ManualMethodModal = ({ method, locales, defaultLocale, markets, onClose, o
                       {t('ecommerce.settings.manual.clear')}
                     </Button>
                   </Flex>
-                  <Field.Hint />
                   <Field.Error />
                 </Field.Root>
 
@@ -327,18 +344,41 @@ const ManualMethodModal = ({ method, locales, defaultLocale, markets, onClose, o
                       key={code}
                       borderColor={marketError ? 'danger600' : 'neutral200'}
                       hasRadius
-                      padding={4}
+                      paddingTop={2}
+                      paddingBottom={3}
+                      paddingLeft={3}
+                      paddingRight={3}
                     >
-                      <Flex direction="column" alignItems="stretch" gap={3}>
-                        <Flex justifyContent="space-between" alignItems="center" gap={2}>
-                          <Typography variant="delta" tag="h3">
-                            {countryName(code)}
-                          </Typography>
-                          {draft.markets.length >= 2 && (
-                            <Button variant="tertiary" size="S" onClick={() => applyToAll(code)}>
-                              {t('ecommerce.settings.manual.applyAll')}
+                      <Flex direction="column" alignItems="stretch" gap={2}>
+                        <Flex justifyContent="space-between" alignItems="center" gap={2} wrap="wrap">
+                          <Flex gap={1} alignItems="center">
+                            <IconButton
+                              label={t('ecommerce.settings.manual.removeMarket')}
+                              variant="ghost"
+                              size="S"
+                              onClick={() => setMarkets(draft.markets.filter((c) => c !== code))}
+                            >
+                              <Cross />
+                            </IconButton>
+                            <Typography variant="omega" fontWeight="bold" tag="h3">
+                              {countryName(code)}
+                            </Typography>
+                          </Flex>
+                          <Flex gap={2}>
+                            {draft.markets.length >= 2 && (
+                              <Button variant="tertiary" size="S" onClick={() => setConfirmApply(code)}>
+                                {t('ecommerce.settings.manual.applyAll')}
+                              </Button>
+                            )}
+                            <Button
+                              variant="secondary"
+                              size="S"
+                              startIcon={<Plus />}
+                              onClick={() => addRow(code)}
+                            >
+                              {t('ecommerce.settings.manual.addRange')}
                             </Button>
-                          )}
+                          </Flex>
                         </Flex>
                         {rows.length > 0 && (
                           <RangeGrid>
@@ -391,16 +431,6 @@ const ManualMethodModal = ({ method, locales, defaultLocale, markets, onClose, o
                               : errorText(`rates.${code}`)}
                           </Typography>
                         )}
-                        <Flex justifyContent="flex-start">
-                          <Button
-                            variant="secondary"
-                            size="S"
-                            startIcon={<Plus />}
-                            onClick={() => addRow(code)}
-                          >
-                            {t('ecommerce.settings.manual.addRange')}
-                          </Button>
-                        </Flex>
                       </Flex>
                     </Box>
                   );
@@ -410,7 +440,12 @@ const ManualMethodModal = ({ method, locales, defaultLocale, markets, onClose, o
 
             <Grid.Root gap={4}>
               <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
-                <Field.Root name="tax" error={taxError} required>
+                <Field.Root
+                  name="tax"
+                  error={taxError}
+                  hint={t('ecommerce.settings.manual.pricesHint')}
+                  required
+                >
                   <Field.Label>{t('ecommerce.settings.manualMethods.tax')}</Field.Label>
                   <Flex gap={2} alignItems="flex-start">
                     <Box style={{ flex: 1 }}>
@@ -443,6 +478,7 @@ const ManualMethodModal = ({ method, locales, defaultLocale, markets, onClose, o
                       </Box>
                     )}
                   </Flex>
+                  <Field.Hint />
                   <Field.Error />
                 </Field.Root>
               </Grid.Item>
@@ -450,14 +486,70 @@ const ManualMethodModal = ({ method, locales, defaultLocale, markets, onClose, o
           </Flex>
         </Modal.Body>
         <Modal.Footer>
-          <Button variant="tertiary" onClick={onClose}>
-            {t('ecommerce.settings.cancel')}
-          </Button>
-          <Button onClick={save} loading={saving} disabled={markets.length === 0}>
+          <Flex gap={2}>
+            <Button variant="tertiary" onClick={onClose}>
+              {t('ecommerce.settings.cancel')}
+            </Button>
+            {/* Same as the variant's button: confirmed, then applied immediately on a saved method. */}
+            <Button
+              variant={draft.active ? 'danger-light' : 'success-light'}
+              onClick={() => setConfirmToggle(true)}
+              loading={toggling}
+              disabled={saving}
+            >
+              {t(
+                draft.active
+                  ? 'ecommerce.settings.manualMethods.disable'
+                  : 'ecommerce.settings.manualMethods.enable'
+              )}
+            </Button>
+          </Flex>
+          <Button onClick={save} loading={saving} disabled={markets.length === 0 || toggling}>
             {t('ecommerce.settings.save')}
           </Button>
         </Modal.Footer>
       </Modal.Content>
+      <ActionConfirmModal
+        open={confirmToggle}
+        title={t(
+          draft.active
+            ? 'ecommerce.settings.manualMethods.disableConfirm.title'
+            : 'ecommerce.settings.manualMethods.enableConfirm.title'
+        )}
+        text={t(
+          draft.active
+            ? 'ecommerce.settings.manualMethods.disableConfirm.text'
+            : 'ecommerce.settings.manualMethods.enableConfirm.text'
+        )}
+        confirmLabel={t(
+          draft.active
+            ? 'ecommerce.settings.manualMethods.disable'
+            : 'ecommerce.settings.manualMethods.enable'
+        )}
+        cancelLabel={t('ecommerce.settings.cancel')}
+        confirmVariant={draft.active ? 'danger' : 'default'}
+        onCancel={() => setConfirmToggle(false)}
+        onConfirm={() => {
+          setConfirmToggle(false);
+          toggleActive();
+        }}
+      />
+      <ActionConfirmModal
+        open={confirmApply !== null}
+        title={t('ecommerce.settings.manual.applyAllConfirm.title')}
+        text={formatMessage(
+          { id: getTranslation('ecommerce.settings.manual.applyAllConfirm.text') },
+          { market: confirmApply ? countryName(confirmApply) : '' }
+        )}
+        confirmLabel={t('ecommerce.settings.manual.applyAll')}
+        cancelLabel={t('ecommerce.settings.cancel')}
+        confirmVariant="danger"
+        onCancel={() => setConfirmApply(null)}
+        onConfirm={() => {
+          if (confirmApply) applyToAll(confirmApply);
+          setConfirmApply(null);
+        }}
+      />
     </Modal.Root>
   );
 };

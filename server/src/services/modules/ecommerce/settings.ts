@@ -137,9 +137,11 @@ export type ManualMethod = {
   tax: number;
   active: boolean;
   position: number;
+  /** False once an order used it: such a method can be disabled but not deleted. */
+  deletable: boolean;
 };
 
-export type ManualMethodInput = Partial<Omit<ManualMethod, 'id'>>;
+export type ManualMethodInput = Partial<Omit<ManualMethod, 'id' | 'deletable'>>;
 
 type IntegrationRow = {
   id: number;
@@ -274,7 +276,7 @@ function normalizeManualMethod(
   input: ManualMethodInput,
   defaultLocale: string,
   markets: ReadonlySet<string>
-): { values: Omit<ManualMethod, 'id' | 'position'> & { position?: number }; errors: ValidationIssue[] } {
+): { values: Omit<ManualMethod, 'id' | 'position' | 'deletable'> & { position?: number }; errors: ValidationIssue[] } {
   const errors: ValidationIssue[] = [];
 
   const name: Record<string, string> = {};
@@ -311,14 +313,32 @@ function normalizeManualMethod(
   };
 }
 
-const toManualMethod = (r: any): ManualMethod => ({
+const toManualMethod = (r: any, used: ReadonlySet<number> = new Set()): ManualMethod => ({
   id: r.id,
   name: r.name ?? {},
   rates: readMarketRates(r.rates),
   tax: r.tax === null || r.tax === undefined ? 23 : Number(r.tax),
   active: r.active ?? true,
   position: r.position ?? 0,
+  deletable: !used.has(r.id),
 });
+
+/** The manual method id of an order's stored shipping method (`{ providerId: 'manual', serviceId }`). */
+const manualMethodId = (value: unknown): number | null => {
+  let m = value;
+  if (typeof m === 'string') {
+    try {
+      m = JSON.parse(m);
+    } catch {
+      return null;
+    }
+  }
+  if (!m || typeof m !== 'object' || (m as any).providerId !== 'manual') return null;
+  const id = Number((m as any).serviceId);
+  return Number.isInteger(id) && id > 0 ? id : null;
+};
+
+const ORDER_SCAN_PAGE = 500;
 
 // ---------------------------------------------------------------------------
 // Service
@@ -333,6 +353,51 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
     strapi.plugin(PLUGIN_ID).service('EcommerceAuditService').log(entry);
   const getDefaultLocale = async (): Promise<string> =>
     strapi.plugin('i18n').service('locales').getDefaultLocale();
+
+  /**
+   * Ids of the manual methods some order used: its current shipping method, or the one it had
+   * before a shipping change. JSON columns cannot be filtered portably, so orders are read in pages.
+   */
+  const manualMethodsInOrders = async (): Promise<Set<number>> => {
+    const u = uids();
+    const used = new Set<number>();
+    const add = (value: unknown) => {
+      const id = manualMethodId(value);
+      if (id !== null) used.add(id);
+    };
+    for (let offset = 0; ; offset += ORDER_SCAN_PAGE) {
+      const rows: { shippingMethod?: unknown }[] = await strapi.db.query(u.order).findMany({
+        select: ['id', 'shippingMethod'],
+        orderBy: { id: 'asc' },
+        limit: ORDER_SCAN_PAGE,
+        offset,
+      });
+      rows.forEach((r) => add(r.shippingMethod));
+      if (rows.length < ORDER_SCAN_PAGE) break;
+    }
+    for (let offset = 0; ; offset += ORDER_SCAN_PAGE) {
+      const rows: { previousValue?: any }[] = await strapi.db.query(u.orderHistory).findMany({
+        where: { type: 'SHIPPING_CHANGED' },
+        select: ['id', 'previousValue'],
+        orderBy: { id: 'asc' },
+        limit: ORDER_SCAN_PAGE,
+        offset,
+      });
+      rows.forEach((r) => {
+        let previous = r.previousValue;
+        if (typeof previous === 'string') {
+          try {
+            previous = JSON.parse(previous);
+          } catch {
+            previous = null;
+          }
+        }
+        add(previous?.shippingMethod);
+      });
+      if (rows.length < ORDER_SCAN_PAGE) break;
+    }
+    return used;
+  };
 
   const runtimeCache = new Map<string, { value: ProviderRuntime & { active: boolean }; expiresAt: number }>();
   // Bumped on every invalidation so a read that started before it cannot repopulate the cache.
@@ -857,7 +922,8 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
       const rows = await strapi.db
         .query(uids().manualShippingMethod)
         .findMany({ orderBy: [{ position: 'asc' }, { id: 'asc' }] });
-      return rows.map(toManualMethod);
+      const used = rows.length ? await manualMethodsInOrders() : new Set<number>();
+      return rows.map((r: any) => toManualMethod(r, used));
     },
 
     async createManualMethod(input: ManualMethodInput, userId?: string | number): Promise<ManualMethod> {
@@ -886,7 +952,7 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
       const q = strapi.db.query(uids().manualShippingMethod);
       const existing = await q.findOne({ where: { id } });
       if (!existing) throw new EcommerceNotFoundError('Shipping method not found');
-      const { id: _id, ...current } = toManualMethod(existing);
+      const { id: _id, deletable: _deletable, ...current } = toManualMethod(existing);
       // Stored prices of countries no longer markets are dropped, so they cannot block the update.
       const markets = new Set((await getStoreSettings()).markets);
       const storedRates = Object.fromEntries(Object.entries(current.rates).filter(([c]) => markets.has(c)));
@@ -903,13 +969,22 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
         targetId: String(id),
         userId: userId === undefined ? undefined : String(userId),
       });
-      return toManualMethod(updated);
+      return toManualMethod(updated, await manualMethodsInOrders());
     },
 
+    /**
+     * Deletes a manual method no order ever used; a used one is refused with
+     * `SHIPPING_METHOD_IN_ORDERS` (409): disable it instead.
+     */
     async deleteManualMethod(id: number, userId?: string | number): Promise<void> {
       const q = strapi.db.query(uids().manualShippingMethod);
       const existing = await q.findOne({ where: { id } });
       if (!existing) throw new EcommerceNotFoundError('Shipping method not found');
+      if ((await manualMethodsInOrders()).has(id)) {
+        throw new EcommerceValidationError('Invalid shipping method', [
+          { path: 'method', code: 'SHIPPING_METHOD_IN_ORDERS' },
+        ]);
+      }
       await q.delete({ where: { id } });
       await audit({
         area: AREA,

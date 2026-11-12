@@ -655,6 +655,38 @@ describe('EcommerceSettingsService — manual shipping methods', () => {
     await expect(service.updateManualMethod(999, {})).rejects.toBeInstanceOf(EcommerceNotFoundError);
   });
 
+  it('a method an order used cannot be deleted, and the list says which can', async () => {
+    const { service, tables } = makeStrapi();
+    const used = await service.createManualMethod(method());
+    const before = await service.createManualMethod(method({ name: { en: 'Courier' } }));
+    const free = await service.createManualMethod(method({ name: { en: 'Pickup' } }));
+    tables[UIDS.order].push(
+      { id: 1, shippingMethod: { providerId: 'manual', serviceId: String(used.id), name: 'Mail' } },
+      { id: 2, shippingMethod: { providerId: 'ctt', serviceId: String(free.id) } },
+      { id: 3, shippingMethod: null }
+    );
+    // An order moved off `before` by a shipping change still used it.
+    tables[UIDS.orderHistory].push({
+      id: 1,
+      type: 'SHIPPING_CHANGED',
+      previousValue: { shippingMethod: { providerId: 'manual', serviceId: String(before.id) } },
+    });
+
+    const list = await service.listManualMethods();
+    expect(Object.fromEntries(list.map((m) => [m.id, m.deletable]))).toEqual({
+      [used.id]: false,
+      [before.id]: false,
+      [free.id]: true,
+    });
+    for (const id of [used.id, before.id]) {
+      const err: any = await service.deleteManualMethod(id).catch((e) => e);
+      expect(err.errors).toEqual([{ path: 'method', code: 'SHIPPING_METHOD_IN_ORDERS' }]);
+    }
+    await service.deleteManualMethod(free.id);
+    expect(tables[UIDS.manualShippingMethod].map((r: any) => r.id)).toEqual([used.id, before.id]);
+    expect((await service.updateManualMethod(used.id, { tax: 6 })).deletable).toBe(false);
+  });
+
   it('applies the default tax; no price or countries', async () => {
     const { service } = makeStrapi();
     const m = await service.createManualMethod({ name: { en: 'X' }, rates: { PT } });
