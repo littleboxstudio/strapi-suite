@@ -25,13 +25,17 @@ const InvoiceErrorModal = ({ message, detail, refused, onClose }: Props) => {
         </Modal.Header>
         <Modal.Body>
           <Flex direction="column" alignItems="stretch" gap={3}>
-            <Typography variant="delta" tag="p">
+            <Typography variant="omega" textColor="neutral800">
               {message}
             </Typography>
-            {detail && <Typography textColor="danger600">{detail}</Typography>}
             {refused && (
-              <Typography variant="omega" textColor="neutral600">
+              <Typography variant="omega" textColor="neutral800">
                 {t('ecommerce.orders.invoices.issue.errorNext')}
+              </Typography>
+            )}
+            {detail && (
+              <Typography variant="omega" textColor="danger600">
+                {detail}
               </Typography>
             )}
           </Flex>
