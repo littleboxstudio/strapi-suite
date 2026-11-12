@@ -25,8 +25,7 @@ const MarketCard = styled.div`
 `;
 
 /**
- * One row of a plain market list: a line between rows; on hover (or keyboard focus) the row
- * is highlighted and its action shows.
+ * One row of a plain market list: a line between rows; highlighted on hover (or keyboard focus).
  */
 const MarketRow = styled.div`
   display: flex;
@@ -40,10 +39,6 @@ const MarketRow = styled.div`
     border-top: 1px solid ${({ theme }) => theme.colors.neutral200};
   }
 
-  & > :last-child {
-    visibility: hidden;
-  }
-
   /*
    * The design system's hover colour (primary100) is the page background in the dark theme, too
    * strong inside a modal: half of it over the modal background keeps it subtle in both themes.
@@ -51,11 +46,6 @@ const MarketRow = styled.div`
   &:hover,
   &:focus-within {
     background: color-mix(in srgb, ${({ theme }) => theme.colors.primary100} 50%, transparent);
-  }
-
-  &:hover > :last-child,
-  &:focus-within > :last-child {
-    visibility: visible;
   }
 `;
 
