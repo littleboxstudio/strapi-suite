@@ -111,14 +111,12 @@ Lista de itens adiados nas revisões do plano 1 (Base e Produtos), a considerar 
 
 ## Plan 8
 - CTT Expresso: o preço vem da cotação da API (ainda um stub `NOT_IMPLEMENTED`); reavaliar a tarifação por zona do CTT (serviços, peso, zonas próprias do CTT) quando chegar a documentação da API.
-- A exclusividade país → zona (e a verificação de `markets` contra as zonas) é feita no serviço, sem índice na base de dados nem transação comum: duas gravações simultâneas no admin podem pôr o mesmo país em duas zonas, ou retirar dos mercados um país que outra gravação acabou de pôr numa zona (inofensivo na cotação: os mercados são verificados primeiro e vale a primeira zona por posição).
 - O storefront não expõe os mercados (nenhum endpoint de países existe hoje); o BFF precisa de os conhecer para o formulário de morada: acrescentar um endpoint público se for preciso.
 - O formulário de morada das encomendas no admin lista todos os países; restringir a morada de envio aos mercados (hoje o servidor recusa com `invalid_country`).
-- Uma lista de erros que mistura um código de conflito (`ZONE_COUNTRY_CONFLICT`, `MARKET_IN_USE`) com erros de validação responde 409 por inteiro (comportamento de `CONFLICT_CODES` já existente); o admin lê `details.errors` na mesma.
-- Transportadoras: só são cotadas as que declaram um campo `zones`; uma definição registada com `registerProvider`/`registerCarrierAdapter` sem esse campo nunca aparece na cotação, sem aviso. Documentar no guia de providers quando existir (ou `strapi.log.warn` uma vez).
+- Uma lista de erros que mistura um código de conflito (`MARKET_IN_USE`) com erros de validação responde 409 por inteiro (comportamento de `CONFLICT_CODES` já existente); o admin lê `details.errors` na mesma.
+- Transportadoras: só são cotadas as que declaram um campo `markets`; uma definição registada com `registerProvider`/`registerCarrierAdapter` sem esse campo nunca aparece na cotação, sem aviso. Documentar no guia de providers quando existir (ou `strapi.log.warn` uma vez).
+- Variantes com peso 0 fazem o peso da encomenda ficar subestimado (talvez uma dica no admin?).
 - Logótipo: dois uploads simultâneos leem o mesmo logótipo anterior, e o ficheiro do primeiro fica órfão no provider (reler o valor substituído dentro da transação de escrita).
-- Zonas: os erros `invalid_country`/`not_in_market` de uma zona não dizem qual o país (o modal já só oferece países dos mercados e fora de outras zonas, por isso só acontecem em corridas).
-- CTT ativo sem zonas: apagar a última zona remove `config.zones` do CTT mas deixa-o ativo (o cartão mostra uma integração ativa com um campo obrigatório em falta; a cotação ignora-o e a gravação seguinte falha com `required`). Desativar a integração na mesma transação e registar `deactivated` na auditoria.
 - Admin: `Shell` do `EcommerceLayout` usa `height: 100vh`; se o Strapi mostrar um aviso acima da página, aparece uma segunda barra de scroll (e em mobile o `100vh` inclui a barra do browser). Usar `100dvh` com fallback `100vh`, ou dimensionar a partir do pai; verificar com um aviso visível.
 
 ## Storefront token generation (review of c6abbcb)

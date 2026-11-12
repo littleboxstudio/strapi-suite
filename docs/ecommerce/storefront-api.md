@@ -117,17 +117,20 @@ locale (empty → default); `:publicId` is a UUID. **Unknown fields are ignored*
 discounts, statuses, stock or `emailVerified` sent by the BFF never reach the services. Money is
 integer cents (EUR), VAT included.
 
-Shipping destinations: the store sells to its **markets** (Settings → General) and groups them
-into **shipping zones** (Settings → Shipping); each shipping method has a price per zone.
+Shipping destinations: the store sells to its **markets** (Settings → General). A manual shipping
+method chooses the markets it serves and has weight brackets per market; a carrier (e.g. CTT)
+chooses the markets it serves and its price comes from the carrier API. The order weight is the
+sum of each variant's weight times its quantity; a method is offered only when that weight is
+within its last bracket for the destination country.
 
 - A country outside the markets: `POST /cart/quote` with a `shippingMethod` →
   `400` with `invalid_country` on `shipping.country`; `POST /orders` → `400` with
   `invalid_country` on `shippingAddress.country`. A `destination` alone (no method yet) is not an
   error: `shippingOptions` is `[]`.
-- A country in the markets but in no shipping zone, or whose zone no shipping method has a price
-  for: `shippingOptions: []` (the store does not ship there). Not an error; a quote or an order
-  with a method that does not serve that destination fails with `400 SHIPPING_UNAVAILABLE` on
-  `shipping`.
+- A country in the markets that no shipping method serves, or whose methods cannot take the cart
+  weight (above the last bracket): `shippingOptions: []` (the store does not ship there). Not an
+  error; a quote or an order with a method that does not serve that destination fails with
+  `400 SHIPPING_UNAVAILABLE` on `shipping`.
 
 Public answers never carry internal ids of orders, customers or payments (an order is its
 `publicId`), internal promotion names, the code of an automatic promotion, snapshots, stock

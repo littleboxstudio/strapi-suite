@@ -365,17 +365,22 @@ Os valores por defeito são FR, a série por defeito do Moloni e nenhum motivo d
 falha com uma mensagem clara se existirem linhas a 0% sem motivo configurado). O contabilista da
 loja escolhe os valores.
 
-### 4.16 Mercados, zonas de envio e métodos **[Escolha técnica]**
-A elegibilidade dos métodos é definida em três níveis:
+### 4.16 Mercados e métodos de envio por mercado com escalões de peso **[Decisão, 2026-11-12]**
+Substitui as zonas de envio (removidas). A elegibilidade dos métodos é definida em dois níveis:
 - **Mercados:** a definição da loja `markets` lista os países a que a loja vende. Valida as moradas
-  no checkout e nas encomendas do admin.
-- **Zonas de envio:** grupos de países. Cada país está em, no máximo, uma zona, e todos os países
-  de uma zona pertencem aos mercados. Retirar um país dos mercados enquanto uma zona o usa é
-  recusado (`MARKET_IN_USE`).
-- **Preço por zona em cada método:** nos métodos manuais, o preço é definido por zona; uma zona sem
-  preço significa que o método não serve essa zona. Os métodos de transportadora via API (por
-  exemplo, o CTT) escolhem as zonas que servem e o preço vem da cotação da API (a reavaliar quando
-  chegar a documentação da API do CTT).
+  no checkout e nas encomendas do admin. Retirar um país dos mercados enquanto um método ou uma
+  transportadora o usa é recusado (`MARKET_IN_USE`, com os nomes dos métodos).
+- **Métodos manuais por mercado:** cada método escolhe os mercados que serve e, por mercado,
+  define escalões de peso `{ upTo: kg | null, price: cêntimos }`. Decisões:
+  - o escalão tem só limite superior; o `upTo` do escalão anterior é exclusivo (o peso igual ao
+    limite cai no escalão seguinte) e `null` significa sem limite, apenas no último escalão;
+  - o peso da encomenda é a soma de `peso da variante × quantidade`;
+  - um peso acima do último escalão torna o método indisponível para essa encomenda (não é erro:
+    o método deixa de ser oferecido).
+- **Transportadoras via API (por exemplo, o CTT):** escolhem os mercados que servem; o preço vem
+  da cotação da API (a reavaliar quando chegar a documentação da API do CTT).
+
+O contrato da API da loja não muda.
 
 Portes grátis acima de um valor fazem-se com Promoções.
 
