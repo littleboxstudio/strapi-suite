@@ -173,6 +173,15 @@ describe('createMoloniClient', () => {
     expect(err.message).toBe('Moloni rejected invoices/insert (name:1 (required)).');
   });
 
+  it('errors nested in lists (one per document line) are a rejection too', async () => {
+    moloniFake({ 'invoiceReceipts/insert': () => [['1 products.0.product_id', '5 products.0.exemption_reason']] });
+    const err: any = await fail(createMoloniClient(rt).call('invoiceReceipts/insert', {}, { write: true }));
+    expect(err.uncertain).toBe(false);
+    expect(err.message).toBe(
+      'Moloni rejected invoiceReceipts/insert (products.0.product_id:1 (required), products.0.exemption_reason:5 (invalid value)).'
+    );
+  });
+
   it('a list of plain values is not mistaken for errors', async () => {
     moloniFake({ 'documentSets/getAll': () => ['abc', 'def'] });
     await expect(createMoloniClient(rt).call('documentSets/getAll', {})).resolves.toEqual(['abc', 'def']);
@@ -244,7 +253,8 @@ describe('createMoloniClient', () => {
 
 describe('describeShape', () => {
   it('names the shape of an answer, never its values', () => {
-    expect(describeShape(['1 x', 2])).toBe('a list of 2 (string, number)');
+    expect(describeShape(['1 x', 2])).toBe('a list of 2 (string; number)');
+    expect(describeShape([[{ a: 1 }, 'x']])).toBe('a list of 1 (a list of 2 (an object with a; string))');
     expect(describeShape([])).toBe('an empty list');
     expect(describeShape({ valid: 1, secret: 'v' })).toBe('an object with valid, secret');
     expect(describeShape(null)).toBe('no body');

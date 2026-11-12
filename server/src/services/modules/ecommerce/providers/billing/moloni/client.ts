@@ -90,11 +90,14 @@ const toError = (e: unknown): MoloniError | null => {
 
 /**
  * Moloni validation errors: a list of `"<code> <field> [bounds…]"` strings (the default), or of
- * `{ code, field, description }` objects. Entity lists never look like either.
+ * `{ code, field, description }` objects, possibly nested in lists (one per document line).
+ * Entity lists never look like either.
  */
 function errorList(body: unknown): MoloniError[] | null {
   if (!Array.isArray(body) || body.length === 0) return null;
-  const errors = body.map(toError);
+  const entries = (body as unknown[]).flat(4);
+  if (entries.length === 0) return null;
+  const errors = entries.map(toError);
   return errors.every((e): e is MoloniError => e !== null) ? errors : null;
 }
 
@@ -107,8 +110,14 @@ const describeError = (e: MoloniError) => {
 /** The JSON shape of an unexpected answer, without any of its values. */
 export function describeShape(body: unknown): string {
   if (Array.isArray(body)) {
-    const kinds = [...new Set(body.map((v) => (v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v)))];
-    return body.length ? `a list of ${body.length} (${kinds.join(', ')})` : 'an empty list';
+    const kinds = [
+      ...new Set(
+        body.map((v) =>
+          v === null ? 'null' : Array.isArray(v) ? describeShape(v) : typeof v === 'object' ? describeShape(v) : typeof v
+        )
+      ),
+    ].slice(0, 3);
+    return body.length ? `a list of ${body.length} (${kinds.join('; ')})` : 'an empty list';
   }
   if (body && typeof body === 'object') {
     const keys = Object.keys(body).slice(0, 10);
