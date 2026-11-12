@@ -1675,7 +1675,6 @@
   "littlebox-strapi-suite.ecommerce.settings.manual.fillAll.confirmTitle": "Substituir todos os intervalos",
   "littlebox-strapi-suite.ecommerce.settings.manual.fillAll.confirmText": "Os intervalos de peso {count, plural, one {do # mercado} other {dos # mercados}} vão ser substituídos por estes. Os valores atuais serão perdidos.",
   "littlebox-strapi-suite.ecommerce.settings.manual.fillAll.replace": "Substituir",
-  "littlebox-strapi-suite.ecommerce.settings.logo.title": "Logótipo",
   "littlebox-strapi-suite.ecommerce.settings.markets.title": "Mercados",
   "littlebox-strapi-suite.ecommerce.settings.store.logo.drop": "Arraste o seu logótipo para aqui",
   "littlebox-strapi-suite.ecommerce.settings.store.logo.dropReplace": "Arraste um novo logótipo para aqui para o substituir",
