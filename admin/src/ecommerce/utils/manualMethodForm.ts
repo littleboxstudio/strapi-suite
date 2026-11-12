@@ -1,5 +1,5 @@
 import type { ManualMethod, ManualMethodInput, SettingsFieldError } from '../settingsTypes';
-import { MAX_MONEY_CENTS, formatCents, parseMoneyToCents } from './money';
+import { MAX_MONEY_CENTS, parseMoneyToCents } from './money';
 import { TAX_OTHER, TAX_PRESETS, centsToText, parseDecimal } from './variantDraft';
 
 /** One weight bracket as typed: `upTo` in kg (`''` = no limit, last row only), `price` in euros. */
@@ -141,25 +141,4 @@ export function manualMethodErrorMap(errors: SettingsFieldError[]): ManualMethod
     if (!(path in map)) map[path] = code;
   });
   return map;
-}
-
-/** `"<country> <min>–<max>"` per country in rate order, joined by " · " (one price when equal). */
-export function ratesSummary(
-  method: Pick<ManualMethod, 'rates'>,
-  uiLocale: string,
-  countryName: (code: string) => string
-): string {
-  return Object.entries(method.rates ?? {})
-    .filter(([, rows]) => Array.isArray(rows) && rows.length > 0)
-    .map(([code, rows]) => {
-      const prices = rows.map((b) => b.price);
-      const min = Math.min(...prices);
-      const max = Math.max(...prices);
-      const text =
-        min === max
-          ? formatCents(min, uiLocale)
-          : `${formatCents(min, uiLocale)}–${formatCents(max, uiLocale)}`;
-      return `${countryName(code)} ${text}`;
-    })
-    .join(' · ');
 }

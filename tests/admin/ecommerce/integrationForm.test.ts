@@ -19,11 +19,9 @@ import {
   manualMethodErrorMap,
   manualMethodToDraft,
   newBracketRows,
-  ratesSummary,
   type BracketDraft,
   type ManualMethodDraft,
 } from '../../../admin/src/ecommerce/utils/manualMethodForm';
-import { formatCents } from '../../../admin/src/ecommerce/utils/money';
 import type {
   IntegrationView,
   ManualMethod,
@@ -301,7 +299,6 @@ describe('manual method draft', () => {
   it('ignores old-shaped rates (not arrays)', () => {
     const old = { ...METHOD, rates: { '1': 495 } as any };
     expect(manualMethodToDraft(old, ['pt'], 'pt', ['1', 'PT']).markets).toEqual([]);
-    expect(ratesSummary(old, 'pt', (c) => c)).toBe('');
   });
 
   it('shows kg with up to 3 decimals', () => {
@@ -338,24 +335,6 @@ describe('manualMethodErrorMap', () => {
         { path: 'rates', code: 'required' },
       ])
     ).toEqual({ 'rates.PT.1.upTo': 'out_of_range', rates: 'required' });
-  });
-});
-
-describe('ratesSummary', () => {
-  const names: Record<string, string> = { PT: 'Portugal', ES: 'Spain' };
-  const name = (c: string) => names[c] ?? c;
-
-  it('shows min–max per country, a single price when equal', () => {
-    expect(ratesSummary(METHOD, 'pt-PT', name)).toBe(
-      'Portugal 3,00\u00a0€–10,00\u00a0€ · Spain 5,00\u00a0€ · FR 7,00\u00a0€'
-    );
-    expect(ratesSummary({ rates: { PT: [{ upTo: 1, price: 300 }], ES: [{ upTo: null, price: 500 }] } }, 'en', name)).toBe(
-      `Portugal ${formatCents(300, 'en')} · Spain ${formatCents(500, 'en')}`
-    );
-  });
-
-  it('is empty without rates', () => {
-    expect(ratesSummary({ rates: {} }, 'pt', name)).toBe('');
   });
 });
 

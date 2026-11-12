@@ -10,6 +10,8 @@ export const UIDS = {
   storeSetting: `${P}store-setting`,
   manualShippingMethod: `${P}manual-shipping-method`,
   auditLog: `${P}audit-log`,
+  order: `${P}order`,
+  orderHistory: `${P}order-history`,
 };
 
 type FakeApiToken = {

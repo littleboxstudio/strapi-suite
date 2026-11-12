@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import {
@@ -19,13 +19,12 @@ import {
 } from '@strapi/design-system';
 import { Pencil, Plus, Trash } from '@strapi/icons';
 import ConfirmModal from '../../../components/ConfirmModal';
+import { NoticeModal } from '../NoticeModal';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import EmptyShipping from '../../illustrations/EmptyShipping';
 import FetchShippingMethods from '../../usecases/settings/fetchShippingMethods';
 import DeleteShippingMethod from '../../usecases/settings/deleteShippingMethod';
 import FetchSettingsLocales from '../../usecases/settings/fetchSettingsLocales';
-import { ratesSummary } from '../../utils/manualMethodForm';
-import { countryOptions } from '../../utils/settingsForm';
 import { ManualMethodModal } from './ManualMethodModal';
 import type { EcommerceLocales } from '../../types';
 import type { ManualMethod } from '../../settingsTypes';
@@ -43,7 +42,7 @@ type Props = {
 };
 
 const ManualMethodsTable = ({ readOnly, markets }: Props) => {
-  const { formatMessage, locale: uiLocale } = useIntl();
+  const { formatMessage } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
@@ -54,6 +53,8 @@ const ManualMethodsTable = ({ readOnly, markets }: Props) => {
   const [loadError, setLoadError] = useState(false);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<ManualMethod | null>(null);
+  /** A method an order used: it can only be disabled. */
+  const [deleteBlocked, setDeleteBlocked] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -89,13 +90,28 @@ const ManualMethodsTable = ({ readOnly, markets }: Props) => {
       await new DeleteShippingMethod().execute(method.id);
       setMethods((list) => list?.filter((m) => m.id !== method.id) ?? list);
       toggleNotification({ type: 'success', message: t('ecommerce.settings.manualMethods.deleted') });
-    } catch {
+    } catch (err: any) {
+      // 409 SHIPPING_METHOD_IN_ORDERS: used by an order placed since the list was loaded.
+      if (err?.response?.status === 409) {
+        setMethods((list) => list?.map((m) => (m.id === method.id ? { ...m, deletable: false } : m)) ?? list);
+        setDeleteBlocked(true);
+        return;
+      }
       toggleNotification({
         type: 'danger',
         message: t('ecommerce.settings.manualMethods.deleteError'),
       });
     }
   };
+
+  const askDelete = (method: ManualMethod) => {
+    if (method.deletable === false) setDeleteBlocked(true);
+    else setConfirmDelete(method);
+  };
+
+  /** Replaces the row in place; the modal stays open. */
+  const onActiveChange = (changed: ManualMethod) =>
+    setMethods((list) => list?.map((m) => (m.id === changed.id ? changed : m)) ?? list);
 
   const onSaved = (saved: ManualMethod) => {
     setEditing(null);
@@ -108,8 +124,6 @@ const ManualMethodsTable = ({ readOnly, markets }: Props) => {
   };
 
   const canEdit = !readOnly && locales !== null;
-
-  const countries = useMemo(() => countryOptions(uiLocale), [uiLocale]);
 
   // A method needs prices for at least one market, so adding one waits for the store markets.
   const addButton = (variant: 'default' | 'secondary') =>
@@ -149,15 +163,13 @@ const ManualMethodsTable = ({ readOnly, markets }: Props) => {
     const nameOf = (m: ManualMethod) =>
       (locales && m.name[locales.defaultLocale]) || Object.values(m.name).find((n) => n) || '';
 
-    const countryName = (code: string) => countries.find((c) => c.code === code)?.name ?? code;
-    const summaries = new Map(methods.map((m) => [m.id, ratesSummary(m, uiLocale, countryName)]));
 
     return (
       <Flex direction="column" alignItems="stretch" gap={3}>
-        <Table colCount={5} rowCount={methods.length + 1}>
+        <Table colCount={4} rowCount={methods.length + 1}>
           <Thead>
             <Tr>
-              {(['name', 'rates', 'tax', 'active'] as const).map((column) => (
+              {(['name', 'tax', 'active'] as const).map((column) => (
                 <Th key={column}>
                   <Typography variant="sigma">
                     {t(`ecommerce.settings.manualMethods.table.${column}`)}
@@ -174,15 +186,6 @@ const ManualMethodsTable = ({ readOnly, markets }: Props) => {
               <Tr key={m.id}>
                 <Td>
                   <Typography textColor="neutral800">{nameOf(m)}</Typography>
-                </Td>
-                <Td style={{ whiteSpace: 'normal' }}>
-                  {summaries.get(m.id) ? (
-                    <Typography textColor="neutral800">{summaries.get(m.id)}</Typography>
-                  ) : (
-                    <Typography textColor="neutral600">
-                      {t('ecommerce.settings.manual.noMarkets')}
-                    </Typography>
-                  )}
                 </Td>
                 <Td>
                   <Typography textColor="neutral800">{`${m.tax}%`}</Typography>
@@ -209,7 +212,7 @@ const ManualMethodsTable = ({ readOnly, markets }: Props) => {
                       <IconButton
                         label={t('ecommerce.settings.manualMethods.delete')}
                         variant="ghost"
-                        onClick={() => setConfirmDelete(m)}
+                        onClick={() => askDelete(m)}
                       >
                         <Trash />
                       </IconButton>
@@ -235,6 +238,7 @@ const ManualMethodsTable = ({ readOnly, markets }: Props) => {
           markets={markets}
           onClose={() => setEditing(null)}
           onSaved={onSaved}
+          onActiveChange={onActiveChange}
         />
       )}
 
@@ -253,6 +257,13 @@ const ManualMethodsTable = ({ readOnly, markets }: Props) => {
           button: t('ecommerce.settings.cancel'),
           action: () => setConfirmDelete(null),
         }}
+      />
+      <NoticeModal
+        open={deleteBlocked}
+        title={t('ecommerce.settings.manualMethods.deleteBlocked.title')}
+        text={t('ecommerce.settings.manualMethods.deleteBlocked.text')}
+        okLabel={t('ecommerce.settings.manualMethods.ok')}
+        onClose={() => setDeleteBlocked(false)}
       />
     </>
   );

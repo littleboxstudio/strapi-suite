@@ -112,9 +112,11 @@ export type ManualMethod = {
   tax: number;
   active: boolean;
   position: number;
+  /** False once an order used it: it can be disabled but not deleted. */
+  deletable?: boolean;
 };
 
-export type ManualMethodInput = Partial<Omit<ManualMethod, 'id'>>;
+export type ManualMethodInput = Partial<Omit<ManualMethod, 'id' | 'deletable'>>;
 
 export type EmailTemplateType =
   | 'ORDER_CONFIRMATION'
