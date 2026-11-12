@@ -462,8 +462,6 @@
   "littlebox-strapi-suite.ecommerce.settings.integrations.empty": "No integrations are available for this section.",
   "littlebox-strapi-suite.ecommerce.settings.integrations.active": "Active",
   "littlebox-strapi-suite.ecommerce.settings.integrations.inactive": "Inactive",
-  "littlebox-strapi-suite.ecommerce.settings.integrations.activate": "Activate {name}",
-  "littlebox-strapi-suite.ecommerce.settings.integrations.activateLabel": "Active",
   "littlebox-strapi-suite.ecommerce.settings.integrations.activated": "{name} activated",
   "littlebox-strapi-suite.ecommerce.settings.integrations.deactivated": "{name} deactivated",
   "littlebox-strapi-suite.ecommerce.settings.integrations.activateMissing": "Fill in the required fields before activating.",
@@ -1894,5 +1892,9 @@
   "littlebox-strapi-suite.ecommerce.settings.markets.title": "Markets",
   "littlebox-strapi-suite.ecommerce.settings.store.logo.drop": "Drag and drop your logo here",
   "littlebox-strapi-suite.ecommerce.settings.store.logo.dropReplace": "Drag and drop a new logo here to replace it",
-  "littlebox-strapi-suite.ecommerce.settings.store.logo.select": "Select from computer"
+  "littlebox-strapi-suite.ecommerce.settings.store.logo.select": "Select from computer",
+  "littlebox-strapi-suite.ecommerce.settings.integrations.disable": "Disable",
+  "littlebox-strapi-suite.ecommerce.settings.integrations.enable": "Enable",
+  "littlebox-strapi-suite.ecommerce.settings.integrations.disableConfirm.title": "Disable {name}",
+  "littlebox-strapi-suite.ecommerce.settings.integrations.disableConfirm.text": "{name} will stop being used by the store until you enable it again. Continue?"
 }

@@ -9,6 +9,7 @@ import FetchIntegrations from '../../usecases/settings/fetchIntegrations';
 import SetIntegrationActive from '../../usecases/settings/setIntegrationActive';
 import TestIntegration from '../../usecases/settings/testIntegration';
 import { IntegrationCard, type TestState } from '../../components/settings/IntegrationCard';
+import { ActiveToggleButton } from '../../components/settings/ActiveToggleButton';
 import { IntegrationConfigModal } from '../../components/settings/IntegrationConfigModal';
 import { ManualMethodsTable } from '../../components/settings/ManualMethodsTable';
 import StripeWebhookModal from '../../components/settings/StripeWebhookModal';
@@ -167,16 +168,34 @@ const IntegrationsSection = ({ category, readOnly, markets }: Props) => {
           onConfigure={() => setConfiguring({ id: integration.id })}
           onTest={() => runTest(integration.id)}
           onToggleActive={(active) => onToggleActive(integration, active)}
+          toggleInChildren={integration.id === 'manual'}
           extraActions={
             integration.id === 'stripe' ? (
-              <Button variant="secondary" startIcon={<LinkIcon />} onClick={() => setWebhookOpen(true)}>
+              <Button
+                variant="secondary"
+                startIcon={<LinkIcon />}
+                onClick={() => setWebhookOpen(true)}
+              >
                 {t('ecommerce.settings.stripeWebhook.open')}
               </Button>
             ) : undefined
           }
         >
           {integration.id === 'manual' && (
-            <ManualMethodsTable readOnly={readOnly} markets={markets ?? NO_MARKETS} />
+            <ManualMethodsTable
+              readOnly={readOnly}
+              markets={markets ?? NO_MARKETS}
+              toggle={
+                readOnly ? undefined : (
+                  <ActiveToggleButton
+                    name={providerName(integration)}
+                    active={integration.active}
+                    busy={toggling === integration.id}
+                    onChange={(active) => onToggleActive(integration, active)}
+                  />
+                )
+              }
+            />
           )}
         </IntegrationCard>
       ))}

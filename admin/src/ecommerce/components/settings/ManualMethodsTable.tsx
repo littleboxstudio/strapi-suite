@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import {
@@ -39,9 +39,11 @@ type Props = {
   readOnly: boolean;
   /** The store markets (country codes). */
   markets: string[];
+  /** The card's Enable/Disable button, shown left of "Add shipping method". */
+  toggle?: ReactNode;
 };
 
-const ManualMethodsTable = ({ readOnly, markets }: Props) => {
+const ManualMethodsTable = ({ readOnly, markets, toggle }: Props) => {
   const { formatMessage } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) =>
@@ -89,11 +91,16 @@ const ManualMethodsTable = ({ readOnly, markets }: Props) => {
     try {
       await new DeleteShippingMethod().execute(method.id);
       setMethods((list) => list?.filter((m) => m.id !== method.id) ?? list);
-      toggleNotification({ type: 'success', message: t('ecommerce.settings.manualMethods.deleted') });
+      toggleNotification({
+        type: 'success',
+        message: t('ecommerce.settings.manualMethods.deleted'),
+      });
     } catch (err: any) {
       // 409 SHIPPING_METHOD_IN_ORDERS: used by an order placed since the list was loaded.
       if (err?.response?.status === 409) {
-        setMethods((list) => list?.map((m) => (m.id === method.id ? { ...m, deletable: false } : m)) ?? list);
+        setMethods(
+          (list) => list?.map((m) => (m.id === method.id ? { ...m, deletable: false } : m)) ?? list
+        );
         setDeleteBlocked(true);
         return;
       }
@@ -155,14 +162,16 @@ const ManualMethodsTable = ({ readOnly, markets }: Props) => {
                 : 'ecommerce.settings.manualMethods.empty'
             )}
           </Typography>
-          {addButton('default')}
+          <Flex gap={2}>
+            {toggle}
+            {addButton('default')}
+          </Flex>
         </Flex>
       );
     }
 
     const nameOf = (m: ManualMethod) =>
       (locales && m.name[locales.defaultLocale]) || Object.values(m.name).find((n) => n) || '';
-
 
     return (
       <Flex direction="column" alignItems="stretch" gap={3}>
@@ -177,7 +186,9 @@ const ManualMethodsTable = ({ readOnly, markets }: Props) => {
                 </Th>
               ))}
               <Th>
-                <VisuallyHidden>{t('ecommerce.settings.manualMethods.table.actions')}</VisuallyHidden>
+                <VisuallyHidden>
+                  {t('ecommerce.settings.manualMethods.table.actions')}
+                </VisuallyHidden>
               </Th>
             </Tr>
           </Thead>
@@ -223,7 +234,10 @@ const ManualMethodsTable = ({ readOnly, markets }: Props) => {
             ))}
           </Tbody>
         </Table>
-        <Flex justifyContent="flex-start">{addButton('secondary')}</Flex>
+        <Flex justifyContent="flex-start" gap={2}>
+          {toggle}
+          {addButton('secondary')}
+        </Flex>
       </Flex>
     );
   };
