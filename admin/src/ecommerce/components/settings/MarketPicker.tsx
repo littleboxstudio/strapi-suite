@@ -14,14 +14,14 @@ type Props = {
 };
 
 /**
- * One market's block: no frame; between two blocks a 2px line (header/footer colour) with 20px
+ * One market's block: no frame; between two blocks a 2px line (the design-system Divider colour) with 20px
  * above and below it.
  */
 const MarketCard = styled.div`
   & + & {
     margin-top: 20px;
     padding-top: 20px;
-    border-top: 2px solid ${({ theme }) => theme.colors.neutral100};
+    border-top: 2px solid ${({ theme }) => theme.colors.neutral150};
   }
 `;
 
