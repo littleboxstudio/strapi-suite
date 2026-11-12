@@ -12,9 +12,11 @@ import { LOGO_ACCEPT, buildLogoForm, logoFileError } from '../../utils/storeLogo
 import { extractErrorCode } from '../../utils/settingsForm';
 import type { StoreSettings } from '../../settingsTypes';
 
+/** 55px tall, width from the logo's proportions (never wider than the drop area). */
 const Thumb = styled.img`
-  max-width: 240px;
-  max-height: 96px;
+  height: 55px;
+  width: auto;
+  max-width: 100%;
   object-fit: contain;
 `;
 
