@@ -14,17 +14,20 @@ import {
   TextInput,
   Typography,
 } from '@strapi/design-system';
-import { ArrowLeft, ArrowsCounterClockwise, ClockCounterClockwise, Mail } from '@strapi/icons';
+import {
+  ArrowLeft,
+  ArrowsCounterClockwise,
+  ClockCounterClockwise,
+  Code,
+  Mail,
+} from '@strapi/icons';
 import ConfirmModal from '../../../components/ConfirmModal';
 import config from '../../../core/config';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { LocaleSwitcher } from '../../components/LocaleSwitcher';
-import {
-  HtmlCodeEditor,
-  type HtmlCodeEditorHandle,
-} from '../../components/settings/HtmlCodeEditor';
+import { HtmlCodeEditor } from '../../components/settings/HtmlCodeEditor';
 import { EmailPreview } from '../../components/settings/EmailPreview';
-import { VariablesPanel } from '../../components/settings/VariablesPanel';
+import { VariablesModal } from '../../components/settings/VariablesModal';
 import { TestEmailModal } from '../../components/settings/TestEmailModal';
 import { TemplateVersionsModal } from '../../components/settings/TemplateVersionsModal';
 import { HeaderActions } from '../../components/HeaderActions';
@@ -34,11 +37,7 @@ import PreviewEmailTemplate from '../../usecases/settings/previewEmailTemplate';
 import RestoreDefaultEmailTemplate from '../../usecases/settings/restoreDefaultEmailTemplate';
 import FetchSettingsLocales from '../../usecases/settings/fetchSettingsLocales';
 import { extractFieldErrors } from '../../utils/productForm';
-import {
-  insertAtCursor,
-  isEmailTemplateType,
-  shouldBlockNavigation,
-} from '../../utils/emailTemplateEditor';
+import { isEmailTemplateType, shouldBlockNavigation } from '../../utils/emailTemplateEditor';
 import { useSettingsPermissions } from './useSettingsPermissions';
 import type {
   EmailPreview as EmailPreviewData,
@@ -93,13 +92,9 @@ const EmailTemplateEditorPage = () => {
 
   const [testOpen, setTestOpen] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
+  const [variablesOpen, setVariablesOpen] = useState(false);
   const [confirmRestore, setConfirmRestore] = useState(false);
   const [restoring, setRestoring] = useState(false);
-
-  const editorRef = useRef<HtmlCodeEditorHandle>(null);
-  const subjectRef = useRef<HTMLInputElement>(null);
-  /** Where a clicked variable goes: the last focused field. */
-  const insertTarget = useRef<'subject' | 'html'>('html');
 
   const applyTemplate = (view: EmailTemplateView) => {
     setTemplate(view);
@@ -255,23 +250,6 @@ const EmailTemplateEditorPage = () => {
     }
   };
 
-  const insertVariable = (snippet: string) => {
-    if (insertTarget.current === 'html') {
-      editorRef.current?.insert(snippet);
-      return;
-    }
-    // The subject is a single line.
-    const inline = snippet.replace(/\s*\n\s*/g, ' ');
-    const input = subjectRef.current;
-    const result = insertAtCursor(subject, input?.selectionStart ?? Number.NaN, inline);
-    setSubject(result.text);
-    setIssues((current) => ({ ...current, subject: undefined }));
-    requestAnimationFrame(() => {
-      input?.focus();
-      input?.setSelectionRange(result.cursor, result.cursor);
-    });
-  };
-
   const issueText = (list: TemplateIssue[] | undefined) =>
     list?.map(
       (issue) => `${t(`ecommerce.settings.emailTemplates.issues.${issue.code}`)}: ${issue.detail}`
@@ -302,6 +280,9 @@ const EmailTemplateEditorPage = () => {
       </Flex>
       {template && (
         <HeaderActions>
+          <Button variant="tertiary" startIcon={<Code />} onClick={() => setVariablesOpen(true)}>
+            {t('ecommerce.settings.emailTemplates.editor.variables')}
+          </Button>
           <Button
             variant="tertiary"
             startIcon={<ClockCounterClockwise />}
@@ -363,12 +344,8 @@ const EmailTemplateEditorPage = () => {
           <Field.Root name="subject" required error={issueText(issues.subject)?.join(' · ')}>
             <Field.Label>{t('ecommerce.settings.emailTemplates.editor.subject')}</Field.Label>
             <TextInput
-              ref={subjectRef}
               value={subject}
               disabled={readOnly}
-              onFocus={() => {
-                insertTarget.current = 'subject';
-              }}
               onChange={(e: any) => {
                 setSubject(e.target.value);
                 setIssues((current) => ({ ...current, subject: undefined }));
@@ -396,23 +373,15 @@ const EmailTemplateEditorPage = () => {
                 </Box>
               )}
               <HtmlCodeEditor
-                ref={editorRef}
                 value={html}
                 readOnly={readOnly}
                 label={t('ecommerce.settings.emailTemplates.editor.html')}
-                onFocus={() => {
-                  insertTarget.current = 'html';
-                }}
                 onChange={(value) => {
                   setHtml(value);
                   setIssues((current) => ({ ...current, html: undefined }));
                 }}
               />
             </Flex>
-            <VariablesPanel
-              variables={template.variables}
-              onInsert={readOnly ? undefined : insertVariable}
-            />
           </Flex>
           <EmailPreview preview={preview} loading={previewLoading} error={previewError} />
         </Columns>
@@ -445,6 +414,10 @@ const EmailTemplateEditorPage = () => {
           unsaved={dirty}
           onClose={() => setTestOpen(false)}
         />
+      )}
+
+      {variablesOpen && template && (
+        <VariablesModal variables={template.variables} onClose={() => setVariablesOpen(false)} />
       )}
 
       {versionsOpen && (

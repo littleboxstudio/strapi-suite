@@ -20,19 +20,6 @@ export const EMAIL_TEMPLATE_TYPES: EmailTemplateType[] = [
 export const isEmailTemplateType = (value: string | undefined): value is EmailTemplateType =>
   EMAIL_TEMPLATE_TYPES.includes(value as EmailTemplateType);
 
-/**
- * Inserts `snippet` at `cursor` (clamped to the text; an unknown cursor appends)
- * and returns the new text with the cursor right after the snippet.
- */
-export function insertAtCursor(
-  text: string,
-  cursor: number,
-  snippet: string
-): { text: string; cursor: number } {
-  const at = Number.isNaN(cursor) ? text.length : Math.min(Math.max(cursor, 0), text.length);
-  return { text: text.slice(0, at) + snippet + text.slice(at), cursor: at + snippet.length };
-}
-
 /** The tag that prints a variable. */
 export const variableTag = (path: string) => `{{${path}}}`;
 
