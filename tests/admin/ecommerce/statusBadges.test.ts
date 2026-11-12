@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
+  BADGE_COLORS,
   FULFILLMENT_STATUS_BADGES,
   ORDER_STATUS_BADGES,
   PAYMENT_STATUS_BADGES,
   fulfillmentStatusBadge,
+  isDarkColor,
   orderStatusBadge,
   paymentStatusBadge,
 } from '../../../admin/src/ecommerce/utils/statusBadges';
@@ -55,5 +57,35 @@ describe('order status badges', () => {
       expect(en[key], key).toEqual(expect.any(String));
       expect(pt[key], key).toEqual(expect.any(String));
     }
+  });
+});
+
+const luminance = (hex: string) => {
+  const n = parseInt(hex.slice(1), 16);
+  const [r, g, b] = [n >> 16, (n >> 8) & 255, n & 255].map((c) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+const contrast = (a: string, b: string) => {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+};
+
+describe('badge colours', () => {
+  it.each(['light', 'dark'] as const)('keep the %s theme text at 4.5:1 or more', (themeName) => {
+    Object.entries(BADGE_COLORS[themeName]).forEach(([variant, colors]) => {
+      expect({ variant, ok: contrast(colors.text, colors.background) >= 4.5 }).toEqual({
+        variant,
+        ok: true,
+      });
+    });
+  });
+
+  it('tells the dark theme from the light one by its neutral0', () => {
+    expect(isDarkColor('#212134')).toBe(true);
+    expect(isDarkColor('#ffffff')).toBe(false);
+    expect(isDarkColor(undefined)).toBe(false);
   });
 });
