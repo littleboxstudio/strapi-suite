@@ -17,6 +17,7 @@ import { getTranslation } from '../../core/utils/getTranslation';
 import { LocaleSwitcher } from './LocaleSwitcher';
 import { Gallery } from './Gallery';
 import SetVariantActive from '../usecases/setVariantActive';
+import { ActionConfirmModal } from './ActionConfirmModal';
 import type { ErrorMap, FormVariant } from '../utils/productForm';
 import type { ImageRecord } from '../types';
 import {
@@ -79,6 +80,7 @@ const VariantModal = ({
   const [errors, setErrors] = useState<ErrorMap>(serverErrors);
   const [locale, setLocale] = useState(initialLocale);
   const [toggling, setToggling] = useState(false);
+  const [confirmToggle, setConfirmToggle] = useState(false);
   const { toggleNotification } = useNotification();
 
   /**
@@ -161,7 +163,7 @@ const VariantModal = ({
         </Modal.Header>
         <Modal.Body>
           <Flex direction="column" alignItems="stretch" gap={5}>
-            <Flex direction="column" alignItems="stretch" gap={4}>
+            <Flex direction="column" alignItems="stretch" gap={6}>
               <LocaleSwitcher
                 locales={locales}
                 defaultLocale={defaultLocale}
@@ -294,19 +296,41 @@ const VariantModal = ({
             <Button variant="tertiary" onClick={onClose}>
               {t('ecommerce.product.variant.cancel')}
             </Button>
-            {/* Same as the product's button: applied immediately on a saved variant. */}
+            {/* Same as the product's button: confirmed, then applied immediately on a saved variant. */}
             <Button
-              variant={draft.active ? 'default' : 'danger'}
-              onClick={toggleActive}
+              variant={draft.active ? 'danger-light' : 'success-light'}
+              onClick={() => setConfirmToggle(true)}
               loading={toggling}
-              aria-pressed={draft.active}
             >
-              {formatMessage({ id: getTranslation(draft.active ? 'app.enabled' : 'app.disabled') })}
+              {t(draft.active ? 'ecommerce.product.variant.disable' : 'ecommerce.product.variant.enable')}
             </Button>
           </Flex>
           <Button onClick={confirm}>{t('ecommerce.product.variant.confirm')}</Button>
         </Modal.Footer>
       </Modal.Content>
+      <ActionConfirmModal
+        open={confirmToggle}
+        title={t(
+          draft.active
+            ? 'ecommerce.product.variant.disableConfirm.title'
+            : 'ecommerce.product.variant.enableConfirm.title'
+        )}
+        text={t(
+          draft.active
+            ? 'ecommerce.product.variant.disableConfirm.text'
+            : 'ecommerce.product.variant.enableConfirm.text'
+        )}
+        confirmLabel={t(
+          draft.active ? 'ecommerce.product.variant.disable' : 'ecommerce.product.variant.enable'
+        )}
+        cancelLabel={t('ecommerce.product.variant.cancel')}
+        confirmVariant={draft.active ? 'danger' : 'default'}
+        onCancel={() => setConfirmToggle(false)}
+        onConfirm={() => {
+          setConfirmToggle(false);
+          toggleActive();
+        }}
+      />
     </Modal.Root>
   );
 };

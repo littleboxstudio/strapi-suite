@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import { ReactNode, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
@@ -18,6 +18,7 @@ import { getTranslation } from '../core/utils/getTranslation';
 import { useSettings } from '../contexts/settings';
 import Logo from '../components/Logo';
 import EmptyProducts from './illustrations/EmptyProducts';
+import { HeaderActionsProvider } from './components/HeaderActions';
 import { usePromotionPermissions } from './hooks/usePromotionPermissions';
 import { PROMOTIONS_READ_ACTION, filterMenu } from './utils/rbac';
 
@@ -45,6 +46,14 @@ const TopBar = styled.header`
   padding: 12px 12px 12px 20px;
   background: ${({ theme }) => theme.colors.neutral0};
   border-bottom: 1px solid ${({ theme }) => theme.colors.neutral150};
+`;
+
+/** Right side of the top bar: the current page's actions (see `HeaderActions`). */
+const ActionsSlot = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 `;
 
 /** Fits the shared logo inside the bar (32px = 56px − 2 × 12px). */
@@ -131,6 +140,7 @@ const EcommerceLayout = ({ children }: { children: ReactNode }) => {
   const { formatMessage } = useIntl();
   const { pathname } = useLocation();
   const navigate = useNavigate();
+  const [actionsSlot, setActionsSlot] = useState<HTMLDivElement | null>(null);
   const settings = useSettings();
   const active = settings.provide(module).active;
   const section = activeSection(pathname);
@@ -172,6 +182,7 @@ const EcommerceLayout = ({ children }: { children: ReactNode }) => {
             )}
           </Breadcrumbs>
         </Box>
+        <ActionsSlot ref={setActionsSlot} />
       </TopBar>
 
       {!active && (
@@ -217,7 +228,9 @@ const EcommerceLayout = ({ children }: { children: ReactNode }) => {
               ))}
             </Flex>
           </SideNav>
-          <Content>{children}</Content>
+          <Content>
+            <HeaderActionsProvider value={actionsSlot}>{children}</HeaderActionsProvider>
+          </Content>
         </Body>
       )}
     </Shell>
