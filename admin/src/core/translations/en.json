@@ -1891,7 +1891,6 @@
   "littlebox-strapi-suite.ecommerce.settings.manual.fillAll.confirmTitle": "Replace all ranges",
   "littlebox-strapi-suite.ecommerce.settings.manual.fillAll.confirmText": "The weight ranges of all {count, plural, one {# market} other {# markets}} will be replaced by these. Their current values will be lost.",
   "littlebox-strapi-suite.ecommerce.settings.manual.fillAll.replace": "Replace",
-  "littlebox-strapi-suite.ecommerce.settings.logo.title": "Logo",
   "littlebox-strapi-suite.ecommerce.settings.markets.title": "Markets",
   "littlebox-strapi-suite.ecommerce.settings.store.logo.drop": "Drag and drop your logo here",
   "littlebox-strapi-suite.ecommerce.settings.store.logo.dropReplace": "Drag and drop a new logo here to replace it",

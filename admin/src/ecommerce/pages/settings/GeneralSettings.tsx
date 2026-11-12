@@ -51,12 +51,15 @@ const toErrorMap = (errors: SettingsFieldError[]): ErrorMap => {
   return map;
 };
 
-const Section = ({ title, children }: { title: string; children: ReactNode }) => (
+/** A white card; the title is optional (the logo card has none). */
+const Section = ({ title, children }: { title?: string; children: ReactNode }) => (
   <Box background="neutral0" shadow="tableShadow" hasRadius padding={6}>
     <Flex direction="column" alignItems="stretch" gap={5}>
-      <Typography variant="delta" tag="h2">
-        {title}
-      </Typography>
+      {title && (
+        <Typography variant="delta" tag="h2">
+          {title}
+        </Typography>
+      )}
       {children}
     </Flex>
   </Box>
@@ -293,7 +296,7 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
         </Grid.Root>
       </Section>
 
-      <Section title={t('ecommerce.settings.logo.title')}>
+      <Section>
         <StoreLogoField logo={logo} readOnly={readOnly} onChange={(saved) => setLogo(saved.logo)} />
       </Section>
 
