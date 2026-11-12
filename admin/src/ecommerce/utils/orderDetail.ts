@@ -470,6 +470,18 @@ export function apiErrorCode(err: unknown): string | null {
   return null;
 }
 
+/**
+ * The billing provider's own message of a refused request (Moloni: the rejected fields and
+ * rules), or null when the server only sent the code.
+ */
+export function apiErrorDetail(err: unknown): string | null {
+  const error = (err as any)?.response?.data?.error;
+  const code = error?.details?.code;
+  const message = typeof error?.message === 'string' ? error.message.trim() : '';
+  if (typeof code !== 'string' || !code.startsWith('BILLING_')) return null;
+  return message && message !== code ? message : null;
+}
+
 /** Translation id (without the plugin prefix) for a failed request: its code's message, or `fallback`. */
 export function apiErrorMessageId(err: unknown, fallback: string): string {
   const code = apiErrorCode(err);

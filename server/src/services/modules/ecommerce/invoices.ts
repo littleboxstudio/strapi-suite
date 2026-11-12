@@ -502,6 +502,27 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     });
   };
 
+  /** Removes a PENDING row the provider refused outright, with its allocations; logged in the history. */
+  const discardRejected = async (
+    row: any,
+    orderId: number,
+    error: string,
+    detail: string | null,
+    actor: string
+  ) => {
+    const u = uids();
+    await strapi.db.query(u.invoiceAllocation).deleteMany({ where: { invoice: { id: row.id } } });
+    await strapi.db.query(u.invoice).delete({ where: { id: row.id } });
+    await history().record({
+      orderId,
+      type: 'INVOICE_FAILED',
+      description: `${describe(row)} not issued: the provider refused it (${error}${detail ? `: ${detail}` : ''})`,
+      previousValue: null,
+      newValue: { kind: row.kind, error, ...(detail ? { detail } : {}) },
+      actor,
+    });
+  };
+
   const recordFailed = async (
     row: any,
     orderId: number,
@@ -617,7 +638,9 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
         });
         return;
       }
-      await recordFailed(row, orderId, code, actor, '', detail);
+      // The provider refused it, so nothing was issued: the attempt is not kept as a document (the
+      // admin sees the provider's message at once); only the order history remembers it.
+      await discardRejected(row, orderId, code, detail, actor);
       failure = call.error;
     });
     await collector.flush();
@@ -749,9 +772,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
           composed = compose(state, scope);
         } catch (err) {
           if (!isMismatch(err)) throw err;
-          // The coverages do not fit the lines: recorded FAILED, never left PENDING.
-          const row = await createPending({ ...base, total: 0, lines: { lines: [] } });
-          await recordFailed(row, orderId, 'coverage_mismatch', actor);
+          // The coverages do not fit the lines: refused before anything is recorded.
           return { failed: err };
         }
 
