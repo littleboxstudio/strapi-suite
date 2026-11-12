@@ -6,6 +6,8 @@ import {
   emptyCreditNoteForm,
   hasUninvoicedPayments,
   invoiceActions,
+  invoiceHasDetails,
+  isDetailAction,
   invoiceFailureMessageId,
   invoiceStatusTone,
   isFailedReplay,
@@ -253,4 +255,27 @@ describe('Moloni settings labels', () => {
       expect(pt[key]).toEqual(expect.any(String));
     }
   );
+});
+
+describe('invoice details', () => {
+  const doc = { status: 'ISSUED' as const, error: null, warnings: [] as string[] };
+
+  it('Reconcile and Mark as failed live in the modal; PDF and credit note stay in the row', () => {
+    expect(isDetailAction('RECONCILE')).toBe(true);
+    expect(isDetailAction('MARK_FAILED')).toBe(true);
+    expect(isDetailAction('PDF')).toBe(false);
+    expect(isDetailAction('CREDIT_NOTE')).toBe(false);
+  });
+
+  it('an issued document with no warning has nothing more than its badge', () => {
+    expect(invoiceHasDetails(doc, ['PDF', 'CREDIT_NOTE'])).toBe(false);
+  });
+
+  it('uncertain, pending, a failure with a reason or a warning have an explanation', () => {
+    expect(invoiceHasDetails({ ...doc, status: 'UNCERTAIN' }, [])).toBe(true);
+    expect(invoiceHasDetails({ ...doc, status: 'PENDING' }, [])).toBe(true);
+    expect(invoiceHasDetails({ ...doc, status: 'FAILED', error: 'MOLONI_ERROR' }, [])).toBe(true);
+    expect(invoiceHasDetails({ ...doc, status: 'FAILED' }, [])).toBe(false);
+    expect(invoiceHasDetails({ ...doc, warnings: ['TOTAL_MISMATCH'] }, ['PDF'])).toBe(true);
+  });
 });

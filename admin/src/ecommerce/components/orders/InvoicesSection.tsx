@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, type MouseEvent } from 'react';
+import styled from 'styled-components';
 import { useIntl } from 'react-intl';
 import { Link as RouterLink } from 'react-router-dom';
 import { useNotification } from '@strapi/strapi/admin';
 import {
-  Badge,
   Box,
   Button,
   Checkbox,
@@ -30,11 +30,14 @@ import {
   canMarkFailed,
   invoiceFailureMessageId,
   invoiceStatusTone,
+  invoiceHasDetails,
+  isDetailAction,
   type InvoiceAction,
 } from '../../utils/invoiceForm';
 import type { InvoiceScopeInput, InvoiceView, Order } from '../../orderTypes';
 import CreditNoteModal from './CreditNoteModal';
 import OrderSection from './OrderSection';
+import { ToneBadge } from './StatusBadges';
 
 type Props = {
   title: string;
@@ -48,6 +51,18 @@ type Props = {
 };
 
 const COLUMNS = ['number', 'kind', 'date', 'total', 'status', 'actions'] as const;
+
+/** A row with details opens them on click. */
+const Row = styled(Tr)<{ $clickable: boolean }>`
+  cursor: ${({ $clickable }) => ($clickable ? 'pointer' : 'default')};
+`;
+
+/** Tone of a status note → its box background and text colour. */
+const NOTE_BOX: Record<string, { background: string; text: string }> = {
+  warning600: { background: 'warning100', text: 'warning700' },
+  danger600: { background: 'danger100', text: 'danger700' },
+  neutral600: { background: 'neutral100', text: 'neutral700' },
+};
 
 /** The invoices and credit notes of the order (design 4.4). */
 const InvoicesSection = ({ title, order, canInvoice, onIssue, onChanged }: Props) => {
@@ -63,6 +78,8 @@ const InvoicesSection = ({ title, order, canInvoice, onIssue, onChanged }: Props
   const [crediting, setCrediting] = useState<InvoiceView | null>(null);
   const [markingFailed, setMarkingFailed] = useState<InvoiceView | null>(null);
   const [confirmed, setConfirmed] = useState(false);
+  /** The document whose explanation and Reconcile / Mark as failed are shown in a modal. */
+  const [detailsId, setDetailsId] = useState<number | null>(null);
 
   const invoices = order.invoices;
   const billingActive = order.billing.active;
@@ -137,6 +154,7 @@ const InvoicesSection = ({ title, order, canInvoice, onIssue, onChanged }: Props
         reconcile(invoice, false);
         break;
       case 'MARK_FAILED':
+        setDetailsId(null);
         setConfirmed(false);
         setMarkingFailed(invoice);
         break;
@@ -164,6 +182,93 @@ const InvoicesSection = ({ title, order, canInvoice, onIssue, onChanged }: Props
         : { tone: 'danger600', text: t('ecommerce.orders.invoices.failure.unknown'), code: invoice.error };
     }
     return null;
+  };
+
+  const detailsModal = () => {
+    const invoice = invoices.find((i) => i.id === detailsId);
+    if (!invoice) return null;
+    const note = statusNote(invoice);
+    const box = note ? (NOTE_BOX[note.tone] ?? NOTE_BOX.neutral600) : null;
+    const actions = invoiceActions(invoice, canInvoice).filter(isDetailAction);
+    const warnings = invoice.warnings.filter((w) => w !== 'DUPLICATE_INVOICE');
+    const close = () => setDetailsId(null);
+    return (
+      <Modal.Root open onOpenChange={(next: boolean) => !next && close()}>
+        <Modal.Content>
+          <Modal.Header>
+            <Modal.Title>
+              {t('ecommerce.orders.invoices.details.title', { number: invoice.number ?? `#${invoice.id}` })}
+            </Modal.Title>
+          </Modal.Header>
+          <Modal.Body>
+            <Flex direction="column" alignItems="stretch" gap={4}>
+              <Flex gap={2} alignItems="center" wrap="wrap">
+                <ToneBadge variant={invoiceStatusTone(invoice.status)}>
+                  {t(`ecommerce.orders.invoices.statuses.${invoice.status}`, undefined, invoice.status)}
+                </ToneBadge>
+                <Typography variant="pi" textColor="neutral600">
+                  {providerName(invoice.provider)}
+                  {invoice.documentType ? ` · ${invoice.documentType}` : ''}
+                </Typography>
+              </Flex>
+              {note && box && (
+                <Box padding={3} background={box.background} hasRadius>
+                  <Typography variant="omega" textColor={box.text}>
+                    {note.text}
+                    {note.code && (
+                      <Typography variant="omega" textColor="neutral600">
+                        {' '}
+                        ({note.code})
+                      </Typography>
+                    )}
+                  </Typography>
+                </Box>
+              )}
+              {warnings.map((w) => (
+                <Box key={w} padding={3} background="warning100" hasRadius>
+                  <Typography variant="omega" textColor="warning700">
+                    {t(`ecommerce.orders.invoices.warnings.${w}`, undefined, w)}
+                  </Typography>
+                </Box>
+              ))}
+              {invoice.warnings.includes('DUPLICATE_INVOICE') && (
+                <Box padding={3} background="danger100" hasRadius>
+                  <Typography variant="omega" fontWeight="bold" textColor="danger700">
+                    {t('ecommerce.orders.invoices.warnings.DUPLICATE_INVOICE')}
+                  </Typography>
+                </Box>
+              )}
+            </Flex>
+          </Modal.Body>
+          <Modal.Footer>
+            <Button variant="tertiary" onClick={close}>
+              {t('ecommerce.orders.invoices.details.close')}
+            </Button>
+            {actions.length > 0 && (
+              <Flex gap={2}>
+                {actions.includes('MARK_FAILED') && (
+                  <Button variant="danger-light" disabled={busy !== null} onClick={() => act(invoice, 'MARK_FAILED')}>
+                    {t('ecommerce.orders.invoices.actions.MARK_FAILED')}
+                  </Button>
+                )}
+                {actions.includes('RECONCILE') && (
+                  <Button
+                    disabled={busy !== null && busy !== invoice.id}
+                    loading={busy === invoice.id}
+                    onClick={async () => {
+                      await reconcile(invoice, false);
+                      close();
+                    }}
+                  >
+                    {t('ecommerce.orders.invoices.actions.RECONCILE')}
+                  </Button>
+                )}
+              </Flex>
+            )}
+          </Modal.Footer>
+        </Modal.Content>
+      </Modal.Root>
+    );
   };
 
   const totalButton = canTotal ? (
@@ -220,11 +325,18 @@ const InvoicesSection = ({ title, order, canInvoice, onIssue, onChanged }: Props
             <Tbody>
               {invoices.map((invoice) => {
                 const actions = invoiceActions(invoice, canInvoice);
-                const note = statusNote(invoice);
+                const rowActions = actions.filter((a) => !isDetailAction(a));
+                const hasDetails = invoiceHasDetails(invoice, actions);
+                // The action buttons do their own thing, not the row's.
+                const stop = (e: MouseEvent) => e.stopPropagation();
                 const isCredit = invoice.kind === 'CREDIT_NOTE';
                 const credited = invoices.find((i) => i.id === invoice.creditedInvoiceId);
                 return (
-                  <Tr key={invoice.id}>
+                  <Row
+                    key={invoice.id}
+                    $clickable={hasDetails}
+                    onClick={hasDetails ? () => setDetailsId(invoice.id) : undefined}
+                  >
                     <Td>
                       <Flex direction="column" alignItems="flex-start">
                         <Typography textColor="neutral800" fontWeight="semiBold">
@@ -261,53 +373,44 @@ const InvoicesSection = ({ title, order, canInvoice, onIssue, onChanged }: Props
                         )}
                       </Flex>
                     </Td>
-                    <Td style={{ maxWidth: 280 }}>
-                      <Flex direction="column" alignItems="flex-start" gap={1}>
-                        <Badge variant={invoiceStatusTone(invoice.status)} size="S">
-                          {t(`ecommerce.orders.invoices.statuses.${invoice.status}`, undefined, invoice.status)}
-                        </Badge>
-                        {note && (
-                          <Typography variant="pi" textColor={note.tone}>
-                            {note.text}
-                            {note.code && (
-                              <Typography variant="pi" textColor="neutral500">
-                                {' '}
-                                ({note.code})
-                              </Typography>
-                            )}
-                          </Typography>
-                        )}
-                        {invoice.warnings
-                          .filter((w) => w !== 'DUPLICATE_INVOICE')
-                          .map((w) => (
-                            <Typography key={w} variant="pi" textColor="warning600">
-                              {t(`ecommerce.orders.invoices.warnings.${w}`, undefined, w)}
-                            </Typography>
-                          ))}
-                        {invoice.warnings.includes('DUPLICATE_INVOICE') && (
-                          <Typography variant="pi" fontWeight="bold" textColor="danger600">
-                            {t('ecommerce.orders.invoices.warnings.DUPLICATE_INVOICE')}
-                          </Typography>
-                        )}
-                      </Flex>
+                    <Td>
+                      <ToneBadge variant={invoiceStatusTone(invoice.status)}>
+                        {t(`ecommerce.orders.invoices.statuses.${invoice.status}`, undefined, invoice.status)}
+                      </ToneBadge>
                     </Td>
                     <Td>
                       <Flex gap={1} justifyContent="flex-end" wrap="wrap">
-                        {actions.map((a) => (
+                        {hasDetails && (
+                          <Button
+                            size="S"
+                            variant="tertiary"
+                            loading={busy === invoice.id && !rowActions.includes('PDF')}
+                            onClick={(e: MouseEvent) => {
+                              stop(e);
+                              setDetailsId(invoice.id);
+                            }}
+                          >
+                            {t('ecommerce.orders.invoices.actions.DETAILS')}
+                          </Button>
+                        )}
+                        {rowActions.map((a) => (
                           <Button
                             key={a}
                             size="S"
-                            variant={a === 'MARK_FAILED' ? 'danger-light' : a === 'RECONCILE' ? 'secondary' : 'tertiary'}
+                            variant="tertiary"
                             disabled={busy !== null}
-                            loading={busy === invoice.id && (a === 'PDF' || a === 'RECONCILE')}
-                            onClick={() => act(invoice, a)}
+                            loading={busy === invoice.id && a === 'PDF'}
+                            onClick={(e: MouseEvent) => {
+                              stop(e);
+                              act(invoice, a);
+                            }}
                           >
                             {t(`ecommerce.orders.invoices.actions.${a}`)}
                           </Button>
                         ))}
                       </Flex>
                     </Td>
-                  </Tr>
+                  </Row>
                 );
               })}
             </Tbody>
@@ -315,6 +418,7 @@ const InvoicesSection = ({ title, order, canInvoice, onIssue, onChanged }: Props
         </Box>
       )}
 
+      {detailsModal()}
       {canInvoice && crediting && (
         <CreditNoteModal
           invoice={crediting}
