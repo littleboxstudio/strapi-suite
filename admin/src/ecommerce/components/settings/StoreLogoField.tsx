@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import styled from 'styled-components';
 import { useNotification } from '@strapi/strapi/admin';
-import { Box, Button, Field, Flex } from '@strapi/design-system';
+import { Box, Button, Field, Flex, VisuallyHidden } from '@strapi/design-system';
 import ConfirmModal from '../../../components/ConfirmModal';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import UploadStoreLogo from '../../usecases/settings/uploadStoreLogo';
@@ -71,7 +71,10 @@ const StoreLogoField = ({ logo, readOnly, onChange }: Props) => {
 
   return (
     <Field.Root name="logo" hint={t('store.logo.hint')}>
-      <Field.Label>{t('store.logo')}</Field.Label>
+      {/* The section title shows it; kept for screen readers. */}
+      <VisuallyHidden>
+        <Field.Label>{t('store.logo')}</Field.Label>
+      </VisuallyHidden>
       {/* The hint goes under the title, 20px above the image or the upload button. */}
       <Box paddingBottom="20px">
         <Field.Hint />
@@ -82,11 +85,21 @@ const StoreLogoField = ({ logo, readOnly, onChange }: Props) => {
         )}
         {!readOnly && (
           <Flex gap={2}>
-            <Button variant="secondary" size="S" loading={busy} onClick={() => input.current?.click()}>
+            <Button
+              variant="secondary"
+              size="S"
+              loading={busy}
+              onClick={() => input.current?.click()}
+            >
               {t(logo ? 'store.logo.replace' : 'store.logo.upload')}
             </Button>
             {logo && (
-              <Button variant="danger-light" size="S" disabled={busy} onClick={() => setConfirmRemove(true)}>
+              <Button
+                variant="danger-light"
+                size="S"
+                disabled={busy}
+                onClick={() => setConfirmRemove(true)}
+              >
                 {t('store.logo.remove')}
               </Button>
             )}
