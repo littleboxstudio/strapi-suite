@@ -20,7 +20,7 @@ import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchInvoicePreview from '../../usecases/orders/fetchInvoicePreview';
 import IssueInvoice from '../../usecases/orders/issueInvoice';
 import { formatCents } from '../../utils/money';
-import { apiErrorMessageId, shouldRenewIdempotencyKey } from '../../utils/orderDetail';
+import { apiErrorMessageId } from '../../utils/orderDetail';
 import { invoiceFailureMessageId, isFailedReplay, isUncertainResult, issuedWarnings } from '../../utils/invoiceForm';
 import { mintUuid } from '../../utils/variantDraft';
 import type { InvoicePreview, InvoiceScopeInput } from '../../orderTypes';
@@ -46,8 +46,8 @@ const IssueInvoiceModal = ({ orderId, scope, onClose, onIssued }: Props) => {
   const t = (id: string, values?: Record<string, any>) => formatMessage({ id: getTranslation(id) }, values);
   const money = (cents: number) => formatCents(cents, uiLocale);
 
-  // One key per opening and per new attempt after the server answered.
-  const [idempotencyKey, setIdempotencyKey] = useState(() => mintUuid());
+  // One key per opening: after an attempt the modal can only be closed, so there is no second one.
+  const [idempotencyKey] = useState(() => mintUuid());
   const [preview, setPreview] = useState<InvoicePreview | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -79,8 +79,7 @@ const IssueInvoiceModal = ({ orderId, scope, onClose, onIssued }: Props) => {
     try {
       const invoice = await new IssueInvoice().execute(orderId, { ...scope, idempotencyKey });
       if (isFailedReplay(invoice)) {
-        // A replay of an attempt the provider refused: say why; the next try is a new request.
-        setIdempotencyKey(mintUuid());
+        // The provider refused it: say why; the attempt is in the invoices list.
         setError(failureText(invoice.error));
         return;
       }
@@ -101,18 +100,21 @@ const IssueInvoiceModal = ({ orderId, scope, onClose, onIssued }: Props) => {
       );
       onIssued();
     } catch (err) {
-      // A 4xx (validation, refusal by the provider → FAILED row) gets a new key for the next attempt.
-      // On a 5xx or without an answer the key is kept, so a retry returns what was recorded.
-      if (shouldRenewIdempotencyKey(err)) setIdempotencyKey(mintUuid());
+      // No retry from here: retrying blindly piles up failed attempts. The modal is closed and the
+      // invoices list (refreshed on close) shows what was recorded, with the provider's message.
       setError(t(apiErrorMessageId(err, 'ecommerce.orders.invoices.issue.error')));
     } finally {
       setSaving(false);
     }
   };
 
+  /** An attempt was made and did not end in an issued invoice: only Close remains. */
+  const attempted = uncertain || error !== null;
+
   const close = () => {
     if (saving) return;
-    if (uncertain) onIssued();
+    // After an attempt the order is fetched again, so the list shows the recorded row.
+    if (attempted) onIssued();
     else onClose();
   };
 
@@ -196,17 +198,24 @@ const IssueInvoiceModal = ({ orderId, scope, onClose, onIssued }: Props) => {
               </Box>
             )}
             {error && (
-              <Typography variant="omega" textColor="danger600">
-                {error}
-              </Typography>
+              <Box padding={3} background="danger100" hasRadius role="alert">
+                <Flex direction="column" alignItems="stretch" gap={1}>
+                  <Typography variant="omega" fontWeight="bold" textColor="danger700">
+                    {error}
+                  </Typography>
+                  <Typography variant="omega" textColor="danger700">
+                    {t('ecommerce.orders.invoices.issue.errorNext')}
+                  </Typography>
+                </Flex>
+              </Box>
             )}
           </Flex>
         </Modal.Body>
         <Modal.Footer>
           <Button variant="tertiary" onClick={close} disabled={saving}>
-            {t(uncertain ? 'ecommerce.orders.invoices.close' : 'ecommerce.orders.invoices.back')}
+            {t(attempted ? 'ecommerce.orders.invoices.close' : 'ecommerce.orders.invoices.back')}
           </Button>
-          {!uncertain && (
+          {!attempted && (
             <Button onClick={submit} loading={saving} disabled={!preview || saving}>
               {t('ecommerce.orders.invoices.issue.confirm')}
             </Button>

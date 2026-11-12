@@ -1259,6 +1259,7 @@
   "littlebox-strapi-suite.ecommerce.orders.invoices.issue.confirm": "Emitir",
   "littlebox-strapi-suite.ecommerce.orders.invoices.issue.success": "Fatura emitida.",
   "littlebox-strapi-suite.ecommerce.orders.invoices.issue.error": "Não foi possível emitir a fatura.",
+  "littlebox-strapi-suite.ecommerce.orders.invoices.issue.errorNext": "A tentativa fica registada na lista de faturas: feche esta janela e abra o \"Ler mais\" dela para ver a mensagem do fornecedor de faturação. Corrija a causa antes de voltar a emitir.",
   "littlebox-strapi-suite.ecommerce.orders.invoices.issue.previewError": "Não foi possível carregar a pré-visualização da fatura.",
   "littlebox-strapi-suite.ecommerce.orders.invoices.issue.uncertain": "O fornecedor de faturação não respondeu, por isso não se sabe se a fatura foi emitida. O pagamento fica reservado para esta fatura: use \"Reconciliar\" na lista de faturas para a procurar no fornecedor pela sua referência. Não a volte a emitir manualmente.",
   "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.title": "Nota de crédito da fatura {number}",
