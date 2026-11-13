@@ -7,6 +7,7 @@ import {
   Button,
   Flex,
   Loader,
+  Modal,
   Table,
   Tbody,
   Td,
@@ -50,6 +51,8 @@ const NotificationsSection = ({ orderId, refreshKey, canResend }: Props) => {
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState<number | null>(null);
+  /** The e-mail whose failure reason is open in the modal. */
+  const [details, setDetails] = useState<NotificationView | null>(null);
   const request = useRef(0);
 
   const load = useCallback(async () => {
@@ -113,6 +116,74 @@ const NotificationsSection = ({ orderId, refreshKey, canResend }: Props) => {
     </Button>
   );
 
+  const canRetryRow = (n: NotificationView) => canResend && (n.status === 'FAILED' || n.status === 'SKIPPED');
+
+  const statusBadge = (n: NotificationView) => (
+    <Badge variant={STATUS_VARIANT[n.status ?? ''] ?? 'neutral'} size="S">
+      {n.status ? t(`ecommerce.orders.notifications.statuses.${n.status}`, undefined, n.status) : '—'}
+    </Badge>
+  );
+
+  const detailsModal = () => {
+    if (!details) return null;
+    // The row may have changed (a resend): show the latest version of it.
+    const n = items?.find((i) => i.id === details.id) ?? details;
+    const parts = notificationErrorParts(n.error);
+    const close = () => setDetails(null);
+    return (
+      <Modal.Root open onOpenChange={(next: boolean) => !next && close()}>
+        <Modal.Content>
+          <Modal.Header>
+            <Modal.Title>{t(`ecommerce.settings.emailTemplates.types.${n.type}.name`, undefined, n.type)}</Modal.Title>
+          </Modal.Header>
+          <Modal.Body>
+            <Flex direction="column" alignItems="stretch" gap={3}>
+              <Flex gap={2} alignItems="center" wrap="wrap">
+                {statusBadge(n)}
+                <Typography variant="omega" textColor="neutral600">
+                  {n.recipient || '—'}
+                </Typography>
+              </Flex>
+              {parts ? (
+                <>
+                  <Typography variant="omega" textColor="neutral800">
+                    {t('ecommerce.orders.notifications.reason', { reason: errorLabel(parts.code) })}
+                  </Typography>
+                  {parts.detail && (
+                    <Typography variant="omega" textColor="neutral800" style={{ wordBreak: 'break-word' }}>
+                      {parts.detail}
+                    </Typography>
+                  )}
+                </>
+              ) : (
+                <Typography variant="omega" textColor="neutral800">
+                  {t('ecommerce.orders.notifications.noReason')}
+                </Typography>
+              )}
+            </Flex>
+          </Modal.Body>
+          <Modal.Footer>
+            <Button variant="tertiary" onClick={close}>
+              {t('ecommerce.orders.notifications.close')}
+            </Button>
+            {canRetryRow(n) && (
+              <Button
+                loading={resending === n.id}
+                disabled={resending !== null && resending !== n.id}
+                onClick={async () => {
+                  await resend(n);
+                  close();
+                }}
+              >
+                {t('ecommerce.orders.notifications.resend')}
+              </Button>
+            )}
+          </Modal.Footer>
+        </Modal.Content>
+      </Modal.Root>
+    );
+  };
+
   const content = () => {
     if (error && !items) {
       return <Typography textColor="danger600">{t('ecommerce.orders.notifications.loadError')}</Typography>;
@@ -147,7 +218,8 @@ const NotificationsSection = ({ orderId, refreshKey, canResend }: Props) => {
         <Tbody>
           {items.map((n) => {
             const when = n.sentAt ?? n.createdAt;
-            const canRetry = canResend && (n.status === 'FAILED' || n.status === 'SKIPPED');
+            const canRetry = canRetryRow(n);
+            const hasReason = n.status !== 'SENT' && !!notificationErrorParts(n.error);
             return (
               <Tr key={n.id}>
                 <Td>
@@ -160,47 +232,31 @@ const NotificationsSection = ({ orderId, refreshKey, canResend }: Props) => {
                     {n.recipient || '—'}
                   </Typography>
                 </Td>
-                <Td>
-                  <Flex direction="column" alignItems="flex-start" gap={1}>
-                    <Badge variant={STATUS_VARIANT[n.status ?? ''] ?? 'neutral'} size="S">
-                      {n.status ? t(`ecommerce.orders.notifications.statuses.${n.status}`, undefined, n.status) : '—'}
-                    </Badge>
-                    {n.status !== 'SENT' &&
-                      (() => {
-                        const parts = notificationErrorParts(n.error);
-                        if (!parts) return null;
-                        return (
-                          <>
-                            <Typography variant="pi" textColor="neutral600">
-                              {errorLabel(parts.code)}
-                            </Typography>
-                            {parts.detail && (
-                              <Typography variant="pi" textColor="neutral500" style={{ wordBreak: 'break-word' }}>
-                                {parts.detail}
-                              </Typography>
-                            )}
-                          </>
-                        );
-                      })()}
-                  </Flex>
-                </Td>
+                <Td>{statusBadge(n)}</Td>
                 <Td>
                   <Typography textColor="neutral800">
                     {when ? formatDate(when, { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
                   </Typography>
                 </Td>
                 <Td>
-                  {canRetry && (
-                    <Flex justifyContent="flex-end">
-                      <Button
-                        size="S"
-                        variant="secondary"
-                        loading={resending === n.id}
-                        disabled={resending !== null && resending !== n.id}
-                        onClick={() => resend(n)}
-                      >
-                        {t('ecommerce.orders.notifications.resend')}
-                      </Button>
+                  {(canRetry || hasReason) && (
+                    <Flex justifyContent="flex-end" gap={2}>
+                      {hasReason && (
+                        <Button size="S" variant="tertiary" onClick={() => setDetails(n)}>
+                          {t('ecommerce.orders.notifications.readMore')}
+                        </Button>
+                      )}
+                      {canRetry && (
+                        <Button
+                          size="S"
+                          variant="secondary"
+                          loading={resending === n.id}
+                          disabled={resending !== null && resending !== n.id}
+                          onClick={() => resend(n)}
+                        >
+                          {t('ecommerce.orders.notifications.resend')}
+                        </Button>
+                      )}
                     </Flex>
                   )}
                 </Td>
@@ -215,6 +271,7 @@ const NotificationsSection = ({ orderId, refreshKey, canResend }: Props) => {
   return (
     <OrderSection title={t('ecommerce.orders.notifications.title')} actions={refresh}>
       {content()}
+      {detailsModal()}
     </OrderSection>
   );
 };
