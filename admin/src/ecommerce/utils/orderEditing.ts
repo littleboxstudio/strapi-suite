@@ -1,9 +1,16 @@
 import { MAX_MONEY_CENTS, parseMoneyToCents } from './money';
 import { ADDRESS_REQUIRED_FIELDS, type AddressForm } from './orderForm';
-import { allowedToolbarActions, type OrderActionPermissions, type ToolbarAction } from './orderDetail';
+import {
+  allowedToolbarActions,
+  promotionsDiscountTotal,
+  type OrderActionPermissions,
+  type ToolbarAction,
+} from './orderDetail';
 import type {
+  AppliedPromotion,
   DiscountRow,
   FieldError,
+  ManualDiscount,
   ManualDiscountInput,
   Order,
   OrderEditAction,
@@ -201,6 +208,61 @@ export function discountSelectionToggle(selection: string[], row: DiscountRow): 
   const selected = selection.includes(row.key);
   if (row.locked) return selected ? selection : [...selection, row.key];
   return selected ? selection.filter((k) => k !== row.key) : [...selection, row.key];
+}
+
+export type DiscountGroup = { kind: DiscountRow['kind']; rows: DiscountRow[] };
+
+/** The groups of the recalculation table (spec 7.1), in its order; empty groups are left out. */
+const DISCOUNT_GROUP_ORDER: DiscountRow['kind'][] = ['APPLIED_VALID', 'APPLIED_INVALID', 'NEW', 'MANUAL'];
+
+export function discountRowGroups(rows: DiscountRow[]): DiscountGroup[] {
+  return DISCOUNT_GROUP_ORDER.map((kind) => ({ kind, rows: rows.filter((r) => r.kind === kind) })).filter(
+    (g) => g.rows.length > 0
+  );
+}
+
+/** The names of the rows in the conflicting pairs, each once, in the order they first appear. */
+export function discountConflictNames(
+  conflicts: [string, string][],
+  rows: DiscountRow[],
+  nameOf: (row: DiscountRow) => string
+): string[] {
+  const keys = [...new Set(conflicts.flat())];
+  return keys.map((key) => {
+    const row = rows.find((r) => r.key === key);
+    return row ? nameOf(row) : key;
+  });
+}
+
+/** The order's whole discount as listed: the promotions plus the manual discounts. */
+export function orderDiscountTotal(
+  promotions: Pick<AppliedPromotion, 'amount'>[],
+  manual: Pick<ManualDiscount, 'amount'>[]
+): number {
+  return promotionsDiscountTotal(promotions) + promotionsDiscountTotal(manual);
+}
+
+export type ManualDiscountRow = {
+  discount: ManualDiscount;
+  /** Migrated from the old order discount: its reason is shown translated. */
+  legacy: boolean;
+  actions: 'REMOVE'[];
+};
+
+/** The manual discounts as rows of the promotions table; Remove behind `REMOVE_DISCOUNT`. */
+export function manualDiscountRows(order: Order, canManage: boolean): ManualDiscountRow[] {
+  const canRemove = canManage && canEdit(order, 'REMOVE_DISCOUNT');
+  return (Array.isArray(order.manualDiscounts) ? order.manualDiscounts : []).map((discount) => ({
+    discount,
+    legacy: discount.kind === 'LEGACY',
+    actions: canRemove ? ['REMOVE'] : [],
+  }));
+}
+
+/** "10 %" for a PERCENT discount (its euros are shown beside it); null for the other kinds. */
+export function manualDiscountPercent(discount: ManualDiscount, locale: string): string | null {
+  if (discount.kind !== 'PERCENT' || typeof discount.percent !== 'number') return null;
+  return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(discount.percent)} %`;
 }
 
 export const MAX_DISCOUNT_REASON = 200;

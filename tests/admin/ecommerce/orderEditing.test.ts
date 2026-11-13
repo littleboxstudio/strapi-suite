@@ -12,8 +12,13 @@ import {
   shippingLineEditUnchanged,
   shippingLineErrorKey,
   shippingOptionKey,
+  discountConflictNames,
+  discountRowGroups,
   discountSelectionToggle,
   hasRowActions,
+  manualDiscountPercent,
+  manualDiscountRows,
+  orderDiscountTotal,
   manualDiscountDraftToInput,
   reviewAlertDate,
   reviewAlerts,
@@ -21,6 +26,7 @@ import {
 } from '../../../admin/src/ecommerce/utils/orderEditing';
 import type {
   DiscountRow,
+  ManualDiscount,
   Order,
   OrderEditAction,
   OrderEditing,
@@ -491,5 +497,184 @@ describe('address lock fallback text', () => {
     const id = 'littlebox-strapi-suite.ecommerce.orders.address.locked.default';
     expect(en[id]).toBeTruthy();
     expect(pt[id]).toBeTruthy();
+  });
+});
+
+const manual = (over: Partial<ManualDiscount> = {}): ManualDiscount => ({
+  id: 1,
+  kind: 'FIXED',
+  percent: null,
+  amount: 500,
+  reason: 'Goodwill',
+  createdAt: '2026-11-13T10:00:00.000Z',
+  actor: 'admin',
+  ...over,
+});
+
+describe('discountRowGroups', () => {
+  it('groups the rows in the spec 7.1 order and skips empty groups', () => {
+    const rows = [
+      row({ key: 'm:1', kind: 'MANUAL' }),
+      row({ key: 'p:2', kind: 'NEW' }),
+      row({ key: 'p:1', kind: 'APPLIED_VALID' }),
+      row({ key: 'p:4', kind: 'NEW' }),
+    ];
+    expect(discountRowGroups(rows).map((g) => [g.kind, g.rows.map((r) => r.key)])).toEqual([
+      ['APPLIED_VALID', ['p:1']],
+      ['NEW', ['p:2', 'p:4']],
+      ['MANUAL', ['m:1']],
+    ]);
+  });
+
+  it('puts the no-longer-valid ones right after the valid ones', () => {
+    const rows = [row({ key: 'p:2', kind: 'APPLIED_INVALID' }), row({ key: 'p:1' })];
+    expect(discountRowGroups(rows).map((g) => g.kind)).toEqual(['APPLIED_VALID', 'APPLIED_INVALID']);
+  });
+});
+
+describe('discountConflictNames', () => {
+  it('names each conflicting row once, in order', () => {
+    const rows = [row({ key: 'p:1', name: 'A' }), row({ key: 'p:2', name: 'B' }), row({ key: 'p:3', name: 'C' })];
+    const nameOf = (r: DiscountRow) => r.name;
+    expect(
+      discountConflictNames(
+        [
+          ['p:1', 'p:2'],
+          ['p:1', 'p:3'],
+        ],
+        rows,
+        nameOf
+      )
+    ).toEqual(['A', 'B', 'C']);
+  });
+
+  it('falls back to the key of a row it does not know', () => {
+    expect(discountConflictNames([['p:1', 'p:9']], [row({ key: 'p:1', name: 'A' })], (r) => r.name)).toEqual([
+      'A',
+      'p:9',
+    ]);
+  });
+});
+
+describe('orderDiscountTotal', () => {
+  it('adds the promotions and the manual discounts', () => {
+    expect(orderDiscountTotal([{ amount: 300 }, { amount: 200 }], [manual({ amount: 500 }), manual({ id: 2, amount: 50 })])).toBe(
+      1050
+    );
+    expect(orderDiscountTotal([], [])).toBe(0);
+  });
+});
+
+describe('manualDiscountRows', () => {
+  const o = (actions: OrderEditAction[] = ['REMOVE_DISCOUNT']) =>
+    order({ editing: editing({ actions }), manualDiscounts: [manual(), manual({ id: 2, kind: 'LEGACY', reason: 'x' })] });
+
+  it('offers Remove behind REMOVE_DISCOUNT and orders.manage', () => {
+    expect(manualDiscountRows(o(), true).map((r) => [r.discount.id, r.legacy, r.actions])).toEqual([
+      [1, false, ['REMOVE']],
+      [2, true, ['REMOVE']],
+    ]);
+    expect(manualDiscountRows(o([]), true).every((r) => r.actions.length === 0)).toBe(true);
+    expect(manualDiscountRows(o(), false).every((r) => r.actions.length === 0)).toBe(true);
+  });
+
+  it('offers nothing while the order is not editable', () => {
+    const closed = order({
+      editing: editing({ editable: false, actions: ['REMOVE_DISCOUNT'] }),
+      manualDiscounts: [manual()],
+    });
+    expect(manualDiscountRows(closed, true)[0].actions).toEqual([]);
+  });
+
+  it('reads a missing list as empty', () => {
+    expect(manualDiscountRows(order({ manualDiscounts: undefined }), true)).toEqual([]);
+  });
+});
+
+describe('manualDiscountPercent', () => {
+  it('formats the percent of a PERCENT discount in the UI locale', () => {
+    expect(manualDiscountPercent(manual({ kind: 'PERCENT', percent: 10 }), 'pt-PT')).toBe('10 %');
+    expect(manualDiscountPercent(manual({ kind: 'PERCENT', percent: 12.5 }), 'pt-PT')).toBe('12,5 %');
+    expect(manualDiscountPercent(manual({ kind: 'PERCENT', percent: 12.5 }), 'en')).toBe('12.5 %');
+  });
+
+  it('is null for the other kinds', () => {
+    expect(manualDiscountPercent(manual(), 'en')).toBeNull();
+    expect(manualDiscountPercent(manual({ kind: 'PERCENT', percent: null }), 'en')).toBeNull();
+  });
+});
+
+describe('discounts texts', () => {
+  const keys = [
+    'recalculate',
+    'add',
+    'remove',
+    'removeTitle',
+    'removeConfirm',
+    'group.APPLIED_VALID',
+    'group.APPLIED_INVALID',
+    'group.NEW',
+    'group.MANUAL',
+    'invalidToday',
+    'reason.INACTIVE',
+    'reason.SCHEDULED',
+    'reason.EXPIRED',
+    'reason.USAGE_LIMIT_REACHED',
+    'reason.CUSTOMER_LIMIT_REACHED',
+    'reason.EMAIL_NOT_ELIGIBLE',
+    'reason.EMAIL_NOT_VERIFIED',
+    'reason.CONDITIONS_NOT_MET',
+    'reason.CONFLICT',
+    'reason.NO_BENEFIT',
+    'reason.AWAITING_SHIPPING',
+    'reason.NOT_FOUND',
+    'conflict',
+    'giftShipped',
+    'manual',
+    'kind.FIXED',
+    'kind.PERCENT',
+    'value',
+    'reasonLabel',
+    'legacyReason',
+    'current',
+    'after',
+    'columns.select',
+    'columns.promotion',
+    'columns.current',
+    'columns.amount',
+    'manualName',
+    'totals.subtotal',
+    'totals.shipping',
+    'totals.total',
+    'totals.due',
+    'nothing',
+    'close',
+    'confirm',
+    'save',
+    'saved',
+    'saveError',
+    'previewError',
+    'greedy',
+    'percentHint',
+    'kindLabel',
+  ].map((k) => `ecommerce.orders.discounts.${k}`);
+  it.each(keys)('%s exists in en and pt', (key) => {
+    const id = `littlebox-strapi-suite.${key}`;
+    expect(en[id]).toBeTruthy();
+    expect(pt[id]).toBeTruthy();
+  });
+
+  it('names the Actions column of the promotions table', () => {
+    const id = 'littlebox-strapi-suite.ecommerce.orders.promotions.columns.actions';
+    expect(en[id]).toBe('Actions');
+    expect(pt[id]).toBe('Ações');
+  });
+
+  it('uses the brief wording', () => {
+    const k = (s: string) => `littlebox-strapi-suite.ecommerce.orders.discounts.${s}`;
+    expect(pt[k('invalidToday')]).toBe('Não é válida hoje, mas era no dia da compra');
+    expect(pt[k('legacyReason')]).toBe('Ajuste manual anterior');
+    expect(en[k('conflict')]).toBe('These promotions cannot be combined: {names}');
+    expect(pt[k('group.NEW')]).toBe('Aplicar-se-ia agora');
   });
 });
