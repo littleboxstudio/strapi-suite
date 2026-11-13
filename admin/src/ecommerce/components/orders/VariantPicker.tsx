@@ -7,6 +7,7 @@ import {
   Field,
   Flex,
   Loader,
+  Popover,
   TextInput,
   Typography,
 } from '@strapi/design-system';
@@ -24,7 +25,10 @@ type Props = {
   disabled?: boolean;
 };
 
-/** Searches active variants by product name or SKU; variants without stock are listed but cannot be added. */
+/**
+ * Searches active variants by product name or SKU; the results open in a dropdown under the field.
+ * Variants without stock are listed but cannot be added.
+ */
 const VariantPicker = ({ locale, onAdd, disabled }: Props) => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const t = (id: string, values?: Record<string, any>) =>
@@ -35,7 +39,10 @@ const VariantPicker = ({ locale, onAdd, disabled }: Props) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [searched, setSearched] = useState(false);
+  /** The results dropdown; it opens while typing and closes on add, Escape or a click outside. */
+  const [open, setOpen] = useState(false);
   const requestId = useRef(0);
+  const anchorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const q = term.trim();
@@ -68,44 +75,73 @@ const VariantPicker = ({ locale, onAdd, disabled }: Props) => {
     return () => clearTimeout(timer);
   }, [term, locale]);
 
+  const add = (variant: VariantSearchResult) => {
+    onAdd(variant);
+    setOpen(false);
+    setTerm('');
+  };
+
+  const hasContent = loading || error || searched || results.length > 0;
+
   return (
-    <Flex direction="column" alignItems="stretch" gap={3}>
-      <Field.Root name="variant-search">
-        <Field.Label>{t('ecommerce.orders.picker.label')}</Field.Label>
-        <TextInput
-          startAction={<Search />}
-          placeholder={t('ecommerce.orders.picker.placeholder')}
-          value={term}
-          disabled={disabled}
-          onChange={(e: any) => setTerm(e.target.value)}
-        />
-      </Field.Root>
+    <Popover.Root open={open && !!term.trim() && hasContent} onOpenChange={setOpen}>
+      <Popover.Anchor ref={anchorRef}>
+        <Field.Root name="variant-search">
+          <Field.Label>{t('ecommerce.orders.picker.label')}</Field.Label>
+          <TextInput
+            startAction={<Search />}
+            placeholder={t('ecommerce.orders.picker.placeholder')}
+            value={term}
+            disabled={disabled}
+            autoComplete="off"
+            aria-haspopup="listbox"
+            aria-expanded={open && !!term.trim() && hasContent}
+            onChange={(e: any) => {
+              setTerm(e.target.value);
+              setOpen(true);
+            }}
+            onFocus={() => setOpen(true)}
+          />
+        </Field.Root>
+      </Popover.Anchor>
+      <Popover.Content
+        align="start"
+        sideOffset={4}
+        // Typing stays in the search field: the dropdown never takes the focus.
+        onOpenAutoFocus={(e: Event) => e.preventDefault()}
+        onInteractOutside={(e: any) => {
+          if (anchorRef.current?.contains(e.target as Node)) e.preventDefault();
+        }}
+        style={{ width: 'var(--radix-popover-trigger-width, var(--radix-popper-anchor-width))', minWidth: 320 }}
+      >
+        <Box style={{ maxHeight: 320, overflowY: 'auto' }} role="listbox">
+          {loading && results.length === 0 && (
+            <Flex justifyContent="center" padding={3}>
+              <Loader small />
+            </Flex>
+          )}
 
-      {loading && (
-        <Flex justifyContent="center" padding={2}>
-          <Loader small />
-        </Flex>
-      )}
+          {error && (
+            <Box padding={3}>
+              <Typography textColor="danger600">{t('ecommerce.orders.picker.error')}</Typography>
+            </Box>
+          )}
 
-      {error && <Typography textColor="danger600">{t('ecommerce.orders.picker.error')}</Typography>}
+          {!loading && searched && !error && results.length === 0 && (
+            <Box padding={3}>
+              <Typography variant="omega" textColor="neutral600">
+                {t('ecommerce.orders.picker.noResults')}
+              </Typography>
+            </Box>
+          )}
 
-      {!loading && searched && !error && results.length === 0 && (
-        <Typography variant="omega" textColor="neutral600">
-          {t('ecommerce.orders.picker.noResults')}
-        </Typography>
-      )}
-
-      {results.length > 0 && (
-        <Box
-          borderColor="neutral200"
-          hasRadius
-          style={{ maxHeight: 280, overflowY: 'auto', opacity: loading ? 0.5 : 1 }}
-        >
           {results.map((v, i) => {
             const outOfStock = v.stock <= 0;
             return (
               <Flex
                 key={v.variantId}
+                role="option"
+                aria-disabled={disabled || outOfStock}
                 justifyContent="space-between"
                 alignItems="center"
                 gap={3}
@@ -113,7 +149,10 @@ const VariantPicker = ({ locale, onAdd, disabled }: Props) => {
                 paddingBottom={2}
                 paddingLeft={3}
                 paddingRight={3}
-                style={i > 0 ? { borderTop: '1px solid var(--strapi-neutral-150, #eaeaef)' } : {}}
+                style={{
+                  opacity: loading ? 0.5 : 1,
+                  ...(i > 0 ? { borderTop: '1px solid var(--strapi-neutral-150, #eaeaef)' } : {}),
+                }}
               >
                 <Flex direction="column" alignItems="flex-start" style={{ minWidth: 0 }}>
                   <Typography textColor="neutral800" fontWeight="semiBold" ellipsis>
@@ -134,7 +173,7 @@ const VariantPicker = ({ locale, onAdd, disabled }: Props) => {
                     variant="secondary"
                     startIcon={<Plus />}
                     disabled={disabled || outOfStock}
-                    onClick={() => onAdd(v)}
+                    onClick={() => add(v)}
                   >
                     {t('ecommerce.orders.picker.add')}
                   </Button>
@@ -143,8 +182,8 @@ const VariantPicker = ({ locale, onAdd, disabled }: Props) => {
             );
           })}
         </Box>
-      )}
-    </Flex>
+      </Popover.Content>
+    </Popover.Root>
   );
 };
 
