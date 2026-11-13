@@ -105,7 +105,6 @@ export type OrderListItem = {
 
 export type OrderActionKey =
   | 'SHIP'
-  | 'MODIFY'
   | 'CANCEL'
   | 'REFUND'
   | 'ADD_PAYMENT'
@@ -309,6 +308,13 @@ export type Order = {
   summary: FinancialSummary;
   availableActions: OrderActionKey[];
   history: OrderHistoryItem[];
+  /** Which edits the order offers (order editing by section). */
+  editing: OrderEditing;
+  /** The shipping charges table, oldest first. */
+  shippingLines: ShippingLineView[];
+  /** The manual order discounts (a legacy order reads its LEGACY item). */
+  manualDiscounts: ManualDiscount[];
+  reviewFlags: ReviewFlag[];
 };
 
 // ---------------------------------------------------------------------------
@@ -538,25 +544,6 @@ export type PaymentView = {
   methodLabel: string | null;
 };
 
-export type ModificationShipping =
-  | { mode: 'KEEP' }
-  | { mode: 'RECALCULATE' }
-  | { mode: 'MANUAL'; amount: number; name?: string };
-
-export type OrderModificationInput = {
-  lines: { orderLineId?: number; variantId: number; quantity: number }[];
-  shipping: ModificationShipping;
-  addresses?: { shipping?: Address; billing?: Address };
-  /** Manual order discount (cents). Omitted = keep the stored discount (capped at the subtotal). */
-  orderDiscount?: number;
-};
-
-/** Discount notices of a modification preview: nothing is re-priced, the admin is told. */
-export type DiscountWarning =
-  | { code: 'ORDER_DISCOUNT_CAPPED' }
-  | { code: 'PROMOTION_CONDITION_UNMET'; promotionId: number; name: string }
-  | { code: 'SHIPPING_PROMOTION_DROPPED'; promotionId: number; name: string };
-
 export type ModificationErrorCode =
   | 'QUANTITY_BELOW_SHIPPED'
   | 'INSUFFICIENT_STOCK'
@@ -580,7 +567,8 @@ export type ModificationTotals = {
 
 export type ModificationOutcome = 'DUE' | 'REFUNDABLE' | 'NONE';
 
-export type ModificationPreview = {
+/** Preview of a products save (`POST :id/lines/preview`). */
+export type LinesPreview = {
   errors: { path: string; code: ModificationErrorCode }[];
   before: ModificationTotals;
   after: ModificationTotals;
@@ -593,26 +581,136 @@ export type ModificationPreview = {
   }[];
   /** Signed: negative = deduct from stock, positive = restock. */
   stockMovements: { variantId: number; quantity: number }[];
-  shipping: {
-    mode: ModificationShipping['mode'];
-    previousCharged: number;
-    newCharged: number;
-    previousShipmentsCost?: number;
-    quote?: number;
-    shippingOriginal: number;
-    shippingDiscount: number;
-  };
-  discountWarnings: DiscountWarning[];
   outcome: ModificationOutcome;
   difference: number;
 };
 
-export type ApplyModificationInput = OrderModificationInput & {
-  /** 8–64 characters; a repeated id returns the outcome of the first application. */
-  operationId: string;
+export type LinesInput = {
+  lines: { orderLineId?: number; variantId: number; quantity: number }[];
 };
 
-export type ModificationApplied = { order: Order; outcome: ModificationOutcome; difference: number };
+// ---------------------------------------------------------------------------
+// Order editing by section (plan 10)
+// ---------------------------------------------------------------------------
+
+export type OrderEditAction =
+  | 'ADD_PRODUCTS'
+  | 'EDIT_ADDRESS'
+  | 'RECALCULATE_SHIPPING'
+  | 'EDIT_SHIPPING_LINE'
+  | 'ADD_SHIPPING_LINE'
+  | 'RECALCULATE_DISCOUNTS'
+  | 'ADD_DISCOUNT'
+  | 'REMOVE_DISCOUNT';
+
+export type EditBlockReason = 'CANCELLED' | 'ARCHIVED' | 'SHIPMENT_PENDING';
+
+export type OrderEditing = {
+  editable: boolean;
+  blockedBy: EditBlockReason | null;
+  hasShipments: boolean;
+  actions: OrderEditAction[];
+};
+
+export type ShippingLineOrigin = 'CHECKOUT' | 'RECALCULATION' | 'EDIT' | 'MANUAL';
+
+export type ShippingLineView = {
+  id: number;
+  origin: ShippingLineOrigin;
+  /** Signed cents. */
+  amount: number;
+  providerId: string;
+  serviceId: string;
+  name: string;
+  tax: number;
+  createdAt: string;
+  actor: string;
+  /** An EDIT line appended as a correction of the locked line with this id. */
+  editOf?: number;
+  paid: boolean;
+  invoiced: boolean;
+  spent: boolean;
+  /** Lines with corrections only: the amount plus every correction of it. */
+  effectiveAmount?: number;
+};
+
+export type ShippingLineInput = { providerId: string; serviceId: string; amount: number };
+
+export type ManualDiscount = {
+  id: number;
+  kind: 'FIXED' | 'PERCENT' | 'LEGACY';
+  percent: number | null;
+  amount: number;
+  reason: string;
+  createdAt: string;
+  actor: string;
+};
+
+/** FIXED: `value` is cents. PERCENT: `value` is a percentage in (0, 100], at most 2 decimals. */
+export type ManualDiscountInput = { kind: 'FIXED' | 'PERCENT'; value: number; reason: string };
+
+export type ReviewFlagCode = 'SHIPPING_REVIEW' | 'DISCOUNTS_REVIEW';
+export type ReviewReason =
+  | 'PRODUCTS_CHANGED'
+  | 'ADDRESS_CHANGED'
+  | 'SHIPPING_CHANGED'
+  | 'SHIPPING_QUOTE_FAILED';
+
+export type ReviewFlag = { code: ReviewFlagCode; reason: ReviewReason; raisedAt: string; actor: string };
+
+export type ShippingRecalculationPreview = {
+  charged: number;
+  due: number;
+  quote: number;
+  previousShipmentsCost: number;
+  mode: 'REPLACED' | 'APPENDED' | 'UNCHANGED';
+  lines: ShippingLineView[];
+  before: ModificationTotals;
+  after: ModificationTotals;
+};
+
+export type DiscountRow = {
+  /** `p:<promotionId>` | `m:<manualId>` */
+  key: string;
+  kind: 'APPLIED_VALID' | 'APPLIED_INVALID' | 'NEW' | 'MANUAL';
+  promotionId: number | null;
+  manualId: number | null;
+  name: string;
+  displayName: Record<string, string>;
+  code: string | null;
+  method: 'AUTOMATIC' | 'CODE' | 'MANUAL';
+  classes: DiscountClass[];
+  /** Stored amount (applied, manual); null for NEW. */
+  currentAmount: number | null;
+  /** Value under the priced selection (unselected: the value it would give). */
+  amount: number;
+  /** A rejection reason of the promotion engine, or `NOT_FOUND` when it was deleted. */
+  invalidReason: string | null;
+  /** Initial selection. */
+  selected: boolean;
+  locked: 'GIFT_SHIPPED' | null;
+};
+
+export type DiscountRecalculation = {
+  rows: DiscountRow[];
+  selection: string[];
+  /** False when the best combination was searched greedily (too many candidates). */
+  exhaustive: boolean;
+  applied: AppliedPromotion[];
+  manual: ManualDiscount[];
+  orderDiscount: number;
+  shippingDiscount: number;
+  before: ModificationTotals;
+  after: ModificationTotals;
+  /** Pairs of row keys that cannot be combined. */
+  conflicts: [string, string][];
+  /** Promotion ids. */
+  added: number[];
+  removed: number[];
+};
+
+/** What every edit answers: the new order, and what it left to pay or refund. */
+export type EditResult = { order: Order; outcome: ModificationOutcome; difference: number };
 
 // ---------------------------------------------------------------------------
 // Payment links and instructions (plan 4)

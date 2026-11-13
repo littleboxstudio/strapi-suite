@@ -5,6 +5,7 @@ import type {
   DiscountClass,
   FinancialSummary,
   FulfillmentStatus,
+  Order,
   OrderActionKey,
   OrderHistoryItem,
   OrderPromotion,
@@ -82,6 +83,18 @@ const STATUS_CHANGES: Record<string, { key: string; badge: (s: string) => Status
   },
 };
 
+/** Σ of the shipping lines' signed amounts; null when the value is not a list of lines. */
+function chargedOf(lines: unknown): number | null {
+  if (!Array.isArray(lines)) return null;
+  let sum = 0;
+  for (const l of lines) {
+    const amount = field(l, 'amount');
+    if (!isNumber(amount)) return null;
+    sum += amount;
+  }
+  return sum;
+}
+
 function historyChange(
   entry: OrderHistoryItem,
   t: Translate,
@@ -122,6 +135,28 @@ function historyChange(
     const after = field(next, 'newCharged');
     if (!isNumber(before) || !isNumber(after)) return null;
     return { before: money(before), after: money(after) };
+  }
+
+  if (type === 'LINES_CHANGED' || type === 'DISCOUNTS_RECALCULATED') {
+    const before = field(field(prev, 'totals'), 'total');
+    const after = field(field(next, 'totals'), 'total');
+    if (!isNumber(before) || !isNumber(after)) return null;
+    return { before: money(before), after: money(after) };
+  }
+
+  if (type === 'SHIPPING_RECALCULATED' || type === 'SHIPPING_LINE_EDITED' || type === 'SHIPPING_LINE_ADDED') {
+    const before = chargedOf(field(prev, 'lines'));
+    const after = chargedOf(field(next, 'lines'));
+    if (before === null || after === null) return null;
+    return { before: money(before), after: money(after) };
+  }
+
+  if (type === 'MANUAL_DISCOUNT_ADDED' || type === 'MANUAL_DISCOUNT_REMOVED') {
+    const amount = field(type === 'MANUAL_DISCOUNT_ADDED' ? next : prev, 'amount');
+    if (!isNumber(amount)) return null;
+    return type === 'MANUAL_DISCOUNT_ADDED'
+      ? { before: money(0), after: money(amount) }
+      : { before: money(amount), after: money(0) };
   }
 
   if (type === 'RETURN_REGISTERED') {
@@ -360,7 +395,6 @@ export function isActionUnavailable(err: unknown): boolean {
 /** Toolbar actions in display order, with the permission each one needs. */
 const ACTION_PERMISSION: { action: OrderActionKey; needs: 'canManage' | 'canPay' | 'canRefund' }[] = [
   { action: 'SHIP', needs: 'canManage' },
-  { action: 'MODIFY', needs: 'canManage' },
   { action: 'ADD_PAYMENT', needs: 'canManage' },
   { action: 'SEND_PAYMENT_INSTRUCTIONS', needs: 'canPay' },
   { action: 'REFUND', needs: 'canRefund' },
@@ -373,7 +407,6 @@ export type OrderActionPermissions = { canManage: boolean; canPay: boolean; canR
 /** Toolbar actions. INVOICE_TOTAL is a button of the invoices section, not of the toolbar. */
 export type ToolbarAction =
   | 'SHIP'
-  | 'MODIFY'
   | 'ADD_PAYMENT'
   | 'SEND_PAYMENT_INSTRUCTIONS'
   | 'REFUND'
@@ -382,14 +415,11 @@ export type ToolbarAction =
   | 'ARCHIVE';
 
 /**
- * An open order with a shipment still PENDING at the carrier cannot be modified (the server leaves
- * MODIFY out and refuses it with SHIPMENT_PENDING): the header says why.
+ * Editing is closed because a carrier shipment is still PENDING (the server answers
+ * ORDER_NOT_EDITABLE): the header says why.
  */
-export function modifyBlockedByShipment(order: {
-  orderStatus: OrderStatus;
-  shipments: { status: string }[];
-}): boolean {
-  return order.orderStatus === 'OPEN' && order.shipments.some((s) => s.status === 'PENDING');
+export function editBlockedByShipment(order: Pick<Order, 'editing'>): boolean {
+  return order.editing.blockedBy === 'SHIPMENT_PENDING';
 }
 
 /**
@@ -496,6 +526,20 @@ export const API_ERROR_CODES = [
   'too_many',
   'invalid_email',
   'invalid_country',
+  // Order editing by section (plan 10)
+  'OPERATION_ID_CONFLICT',
+  'ORDER_NOT_EDITABLE',
+  'ORDER_HAS_SHIPMENTS',
+  'REVIEW_FLAG_NOT_DISMISSABLE',
+  'PROMOTIONS_NOT_COMBINABLE',
+  'PROMOTION_GIFT_SHIPPED',
+  'COUNTRY_NOT_SERVED',
+  'SHIPPING_METHOD_UNAVAILABLE',
+  'SHIPPING_QUOTE_FAILED',
+  'DISCOUNT_EXCEEDS_PRODUCTS',
+  'SHIPPING_LINE_NOT_FOUND',
+  'MANUAL_DISCOUNT_NOT_FOUND',
+  'INVALID_PERCENT',
 ] as const;
 
 /**

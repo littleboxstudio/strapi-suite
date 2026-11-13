@@ -4,7 +4,7 @@ import Registry from '../../core/di/registry';
 import config from '../../core/config';
 import { objectToQueryString } from '../../core/utils/objectToQueryString';
 import type {
-  ApplyModificationInput,
+  Address,
   CreatedOrder,
   CreateOrderInput,
   Customer,
@@ -18,20 +18,22 @@ import type {
   CreateShipmentInput,
   CreditNoteInput,
   CreditNotePreview,
+  DiscountRecalculation,
+  EditResult,
   DeliveryInput,
   InvoicePreview,
   InvoiceScopeInput,
   InvoiceView,
   IssueInvoiceInput,
   IssueStoreCreditInput,
+  LinesInput,
+  LinesPreview,
+  ManualDiscountInput,
   ManualPaymentInput,
-  ModificationApplied,
-  ModificationPreview,
   Order,
   OrderListItem,
   OrderListParams,
   OrderLocales,
-  OrderModificationInput,
   OrderQuote,
   OrderQuoteInput,
   NotificationView,
@@ -44,7 +46,10 @@ import type {
   RefundView,
   RegisterReturnInput,
   ReturnRegistered,
+  ReviewFlagCode,
   ShipmentView,
+  ShippingLineInput,
+  ShippingRecalculationPreview,
   TrackingInput,
   StoreCredit,
   StoreCreditPaymentInput,
@@ -77,8 +82,32 @@ export default interface EcommerceOrdersGateway {
   addPayment(orderId: number, input: ManualPaymentInput): Promise<PaymentView>;
   cancelOrder(id: number): Promise<Order>;
   archiveOrder(id: number): Promise<Order>;
-  previewModification(id: number, input: OrderModificationInput): Promise<ModificationPreview>;
-  applyModification(id: number, input: ApplyModificationInput): Promise<ModificationApplied>;
+
+  // Order editing by section (orders.manage). Every write carries an `operationId` (8-64
+  // characters): a repeated id replays the first outcome, for another edit it is a 409.
+  previewLines(id: number, input: LinesInput): Promise<LinesPreview>;
+  applyLines(id: number, input: LinesInput & { operationId: string }): Promise<EditResult>;
+  fetchShippingAddressCountries(id: number): Promise<{ countries: string[] }>;
+  updateShippingAddress(
+    id: number,
+    input: { address: Address; operationId: string }
+  ): Promise<EditResult>;
+  /** Quotes the order's pending units at its current address. */
+  fetchShippingOptions(id: number): Promise<ShippingQuote>;
+  previewShippingRecalculation(id: number): Promise<ShippingRecalculationPreview>;
+  recalculateShipping(id: number, input: { operationId: string }): Promise<EditResult>;
+  editShippingLine(
+    id: number,
+    lineId: number,
+    input: ShippingLineInput & { operationId: string }
+  ): Promise<EditResult>;
+  addShippingLine(id: number, input: ShippingLineInput & { operationId: string }): Promise<EditResult>;
+  /** Without a `selection` the initial one (applied promotions still valid) is priced. */
+  previewDiscounts(id: number, input: { selection?: string[] }): Promise<DiscountRecalculation>;
+  applyDiscounts(id: number, input: { selection: string[]; operationId: string }): Promise<EditResult>;
+  addManualDiscount(id: number, input: ManualDiscountInput & { operationId: string }): Promise<EditResult>;
+  removeManualDiscount(id: number, discountId: number, input: { operationId: string }): Promise<EditResult>;
+  dismissReviewFlag(id: number, code: ReviewFlagCode, input: { operationId: string }): Promise<EditResult>;
 
   // Payment links and instructions (payments.manage), store credit payment (orders.manage)
   createPaymentLink(orderId: number): Promise<PaymentLink>;
@@ -201,12 +230,78 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
     return this.httpClient.post(`${this.orders}/${id}/archive`, {});
   }
 
-  async previewModification(id: number, input: OrderModificationInput): Promise<ModificationPreview> {
-    return this.httpClient.post(`${this.orders}/${id}/modification/preview`, input);
+  async previewLines(id: number, input: LinesInput): Promise<LinesPreview> {
+    return this.httpClient.post(`${this.orders}/${id}/lines/preview`, input);
   }
 
-  async applyModification(id: number, input: ApplyModificationInput): Promise<ModificationApplied> {
-    return this.httpClient.post(`${this.orders}/${id}/modification`, input);
+  async applyLines(id: number, input: LinesInput & { operationId: string }): Promise<EditResult> {
+    return this.httpClient.post(`${this.orders}/${id}/lines`, input);
+  }
+
+  async fetchShippingAddressCountries(id: number): Promise<{ countries: string[] }> {
+    return this.httpClient.get(`${this.orders}/${id}/shipping-address/countries`);
+  }
+
+  async updateShippingAddress(
+    id: number,
+    input: { address: Address; operationId: string }
+  ): Promise<EditResult> {
+    return this.httpClient.put(`${this.orders}/${id}/shipping-address`, input);
+  }
+
+  async fetchShippingOptions(id: number): Promise<ShippingQuote> {
+    return this.httpClient.get(`${this.orders}/${id}/shipping-options`);
+  }
+
+  async previewShippingRecalculation(id: number): Promise<ShippingRecalculationPreview> {
+    return this.httpClient.post(`${this.orders}/${id}/shipping/recalculate/preview`, {});
+  }
+
+  async recalculateShipping(id: number, input: { operationId: string }): Promise<EditResult> {
+    return this.httpClient.post(`${this.orders}/${id}/shipping/recalculate`, input);
+  }
+
+  async editShippingLine(
+    id: number,
+    lineId: number,
+    input: ShippingLineInput & { operationId: string }
+  ): Promise<EditResult> {
+    return this.httpClient.put(`${this.orders}/${id}/shipping-lines/${lineId}`, input);
+  }
+
+  async addShippingLine(id: number, input: ShippingLineInput & { operationId: string }): Promise<EditResult> {
+    return this.httpClient.post(`${this.orders}/${id}/shipping-lines`, input);
+  }
+
+  async previewDiscounts(id: number, input: { selection?: string[] }): Promise<DiscountRecalculation> {
+    return this.httpClient.post(`${this.orders}/${id}/discounts/preview`, input);
+  }
+
+  async applyDiscounts(
+    id: number,
+    input: { selection: string[]; operationId: string }
+  ): Promise<EditResult> {
+    return this.httpClient.post(`${this.orders}/${id}/discounts`, input);
+  }
+
+  async addManualDiscount(id: number, input: ManualDiscountInput & { operationId: string }): Promise<EditResult> {
+    return this.httpClient.post(`${this.orders}/${id}/manual-discounts`, input);
+  }
+
+  async removeManualDiscount(
+    id: number,
+    discountId: number,
+    input: { operationId: string }
+  ): Promise<EditResult> {
+    return this.httpClient.post(`${this.orders}/${id}/manual-discounts/${discountId}/remove`, input);
+  }
+
+  async dismissReviewFlag(
+    id: number,
+    code: ReviewFlagCode,
+    input: { operationId: string }
+  ): Promise<EditResult> {
+    return this.httpClient.post(`${this.orders}/${id}/review-flags/${code}/dismiss`, input);
   }
 
   async createPaymentLink(orderId: number): Promise<PaymentLink> {
