@@ -37,11 +37,12 @@ import {
 import type { InvoiceScopeInput, InvoiceView, Order } from '../../orderTypes';
 import CreditNoteModal from './CreditNoteModal';
 import OrderSection from './OrderSection';
+import AddressCard from './AddressCard';
 import { ToneBadge } from './StatusBadges';
 
 type Props = {
   title: string;
-  order: Pick<Order, 'availableActions' | 'billing' | 'invoices' | 'payments'>;
+  order: Pick<Order, 'availableActions' | 'billing' | 'invoices' | 'payments' | 'billingAddress'>;
   /** `invoicing.manage`: issue, reconcile, credit notes. Without it those buttons are hidden. */
   canInvoice: boolean;
   /** Opens the invoice modal (owned by the page, shared with the payments table). */
@@ -302,6 +303,7 @@ const InvoicesSection = ({ title, order, canInvoice, onIssue, onChanged }: Props
 
   return (
     <OrderSection title={title} actions={totalButton}>
+      <AddressCard title={t('ecommerce.orders.detail.address.billing')} address={order.billingAddress} />
       {showBillingHint && (
         <Box padding={3} background="neutral100" hasRadius>
           <Typography variant="omega" textColor="neutral700">

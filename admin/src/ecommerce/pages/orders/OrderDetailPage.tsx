@@ -2,8 +2,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useNotification } from '@strapi/strapi/admin';
-import styled from 'styled-components';
-import { Box, Flex, Grid, IconButton, Loader, Typography } from '@strapi/design-system';
+import { Box, Flex, IconButton, Loader, Typography } from '@strapi/design-system';
 import { ArrowLeft } from '@strapi/icons';
 import config from '../../../core/config';
 import ConfirmModal from '../../../components/ConfirmModal';
@@ -24,7 +23,6 @@ import OrderSection from '../../components/orders/OrderSection';
 import OrderLinesTable from '../../components/orders/OrderLinesTable';
 import PaymentsOverview from '../../components/orders/PaymentsOverview';
 import CustomerCard from '../../components/orders/CustomerCard';
-import AddressCard from '../../components/orders/AddressCard';
 import PaymentsTable from '../../components/orders/PaymentsTable';
 import AddPaymentModal from '../../components/orders/AddPaymentModal';
 import CancelOrderModal from '../../components/orders/CancelOrderModal';
@@ -44,17 +42,6 @@ import InvoicesSection from '../../components/orders/InvoicesSection';
 import IssueInvoiceModal from '../../components/orders/IssueInvoiceModal';
 
 /** Order management screen (requirements 3–8). The fetched order is the single source of truth. */
-/** The summary, customer and address cards of a row share its height. */
-const FillCell = styled.div`
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-
-  & > * {
-    flex: 1;
-  }
-`;
-
 const OrderDetailPage = () => {
   const { formatMessage } = useIntl();
   const navigate = useNavigate();
@@ -238,24 +225,7 @@ const OrderDetailPage = () => {
         onAction={(action) => dispatchModal({ type: 'OPEN', action })}
       />
 
-      <Grid.Root gap={6}>
-        <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
-          <FillCell>
-            <CustomerCard customer={order.customer} />
-          </FillCell>
-        </Grid.Item>
-        {/* The two addresses share the last half, one above the other. */}
-        <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
-          <Flex direction="column" alignItems="stretch" gap={6} style={{ flex: 1 }}>
-            <FillCell>
-              <AddressCard title={t('ecommerce.orders.detail.address.shipping')} address={order.shippingAddress} />
-            </FillCell>
-            <FillCell>
-              <AddressCard title={t('ecommerce.orders.detail.address.billing')} address={order.billingAddress} />
-            </FillCell>
-          </Flex>
-        </Grid.Item>
-      </Grid.Root>
+      <CustomerCard customer={order.customer} />
 
       <OrderSection title={t('ecommerce.orders.detail.lines.title')}>
         <OrderLinesTable
@@ -286,6 +256,7 @@ const OrderDetailPage = () => {
         orderStatus={order.orderStatus}
         deliveryStatus={order.shipping.deliveryStatus}
         shipments={order.shipments}
+        shippingAddress={order.shippingAddress}
         canManage={canManage}
         onChanged={load}
       />
