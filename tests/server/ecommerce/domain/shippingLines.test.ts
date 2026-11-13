@@ -244,6 +244,19 @@ describe('planLineChange', () => {
     expect(r.lines[1]).toMatchObject({ amount: 0, ...B, editOf: 1 });
   });
 
+  it('a replaceable line with corrections is set to the rest: 500 + 200, edit to 800 → 600', () => {
+    const lines = [view(), view({ id: 2, origin: 'EDIT', amount: 200, editOf: 1, invoiced: true })];
+    const r = planLineChange(lines, 1, { method: A, amount: 800 }, META);
+    expect(r.mode).toBe('REPLACED');
+    expect(r.lines.map((l) => [l.id, l.amount, l.editOf])).toEqual([
+      [1, 600, undefined],
+      [2, 200, 1],
+    ]);
+    expect(chargedShipping(r.lines)).toBe(800);
+    expect(shippingLineViews(r.lines, ctx())[0].effectiveAmount).toBe(800);
+    expect(planLineChange(lines, 1, { method: A, amount: 700 }, META).mode).toBe('UNCHANGED');
+  });
+
   it('legacy EDIT lines without editOf are not counted as corrections', () => {
     const lines = [
       view({ invoiced: true }),

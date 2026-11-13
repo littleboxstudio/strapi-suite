@@ -173,8 +173,9 @@ export function planLineChange(
   const base = lines.map(plain);
   const target = lines.find((l) => l.id === targetId);
   if (!target) return { lines: base, mode: 'UNCHANGED' };
-  // A locked line is charged at its amount plus its corrections, under the latest method.
-  const corrections = isReplaceable(target) ? [] : correctionsOf(base, target.id);
+  // A line is charged at its amount plus its corrections, under the latest method. Corrections
+  // may be locked, so they are never removed: a replace sets the target to the rest.
+  const corrections = correctionsOf(base, target.id);
   const latest = corrections[corrections.length - 1] ?? target;
   const delta = next.amount - (target.amount + chargedShipping(corrections));
   if (
@@ -188,7 +189,7 @@ export function planLineChange(
     return {
       lines: base.map((l) =>
         l.id === targetId
-          ? { ...l, origin: 'EDIT', amount: next.amount, ...next.method, createdAt: meta.at, actor: meta.actor }
+          ? { ...l, origin: 'EDIT', amount: target.amount + delta, ...next.method, createdAt: meta.at, actor: meta.actor }
           : l
       ),
       mode: 'REPLACED',
