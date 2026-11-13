@@ -2,7 +2,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useNotification } from '@strapi/strapi/admin';
-import { Box, Flex, IconButton, Loader, Typography } from '@strapi/design-system';
+import { Box, Button, Flex, IconButton, Loader, Typography } from '@strapi/design-system';
 import { ArrowLeft } from '@strapi/icons';
 import config from '../../../core/config';
 import ConfirmModal from '../../../components/ConfirmModal';
@@ -16,11 +16,13 @@ import { usePaymentPermissions } from '../../hooks/usePaymentPermissions';
 import { useInvoicingPermissions } from '../../hooks/useInvoicingPermissions';
 import { hasUninvoicedPayments } from '../../utils/invoiceForm';
 import { apiErrorMessageId, promotionDisplayName, type ToolbarAction } from '../../utils/orderDetail';
+import { canEdit } from '../../utils/orderEditing';
 import { initialOrderModalState, orderModalReducer } from '../../utils/orderModals';
 import type { EditResult, InvoiceScopeInput, Order } from '../../orderTypes';
 import OrderHeader from '../../components/orders/OrderHeader';
 import ReviewAlerts from '../../components/orders/ReviewAlerts';
 import OrderSection from '../../components/orders/OrderSection';
+import OrderProductsModal from '../../components/orders/OrderProductsModal';
 import OrderLinesTable from '../../components/orders/OrderLinesTable';
 import PaymentsOverview from '../../components/orders/PaymentsOverview';
 import PaymentsTable from '../../components/orders/PaymentsTable';
@@ -66,6 +68,8 @@ const OrderDetailPage = () => {
   const [version, setVersion] = useState(0);
   // The invoice being issued (one payment or the whole order); null when the modal is closed.
   const [invoiceScope, setInvoiceScope] = useState<InvoiceScopeInput | null>(null);
+  // The Add products modal; `productsKey` remounts it per opening (one operationId each).
+  const [productsKey, setProductsKey] = useState<number | null>(null);
   const hasOrderRef = useRef(false);
   // Only the latest request may update the page (navigation, quick successive refetches).
   const requestRef = useRef(0);
@@ -121,6 +125,7 @@ const OrderDetailPage = () => {
     setLoadError(false);
     dispatchModal({ type: 'RESET' });
     setInvoiceScope(null);
+    setProductsKey(null);
     if (!Number.isInteger(orderId) || orderId < 1) {
       setLoadError(true);
       return undefined;
@@ -222,7 +227,17 @@ const OrderDetailPage = () => {
         />
       </OrderSection>
 
-      <OrderSection id="order-section-lines" title={t('ecommerce.orders.detail.lines.title')}>
+      <OrderSection
+        id="order-section-lines"
+        title={t('ecommerce.orders.detail.lines.title')}
+        actions={
+          canManage && canEdit(order, 'ADD_PRODUCTS') ? (
+            <Button variant="secondary" size="S" onClick={() => setProductsKey((k) => (k ?? 0) + 1)}>
+              {t('ecommerce.orders.products.add')}
+            </Button>
+          ) : undefined
+        }
+      >
         <OrderLinesTable
           lines={order.lines}
           promotions={order.promotions}
@@ -270,6 +285,19 @@ const OrderDetailPage = () => {
         <HistoryTimeline history={order.history} />
       </OrderSection>
 
+      {canManage && productsKey !== null && (
+        <OrderProductsModal
+          key={`products-${productsKey}`}
+          order={order}
+          permissions={permissions}
+          onClose={() => setProductsKey(null)}
+          onSaved={showResult}
+          onAction={(action) => {
+            setProductsKey(null);
+            dispatchModal({ type: 'OPEN', action });
+          }}
+        />
+      )}
       {canPay && modal === 'SEND_PAYMENT_INSTRUCTIONS' && (
         <PaymentInstructionsModal
           orderId={order.id}

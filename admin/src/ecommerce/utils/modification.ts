@@ -93,6 +93,15 @@ export function restoreModifyLine(lines: ModifyLineDraft[], key: string): Modify
   return lines.map((l) => (l.key === key ? { ...l, removed: false } : l));
 }
 
+/** Some line was added, removed or given another quantity (so there is something to review). */
+export function linesDraftChanged(lines: ModifyLineDraft[]): boolean {
+  return lines.some((l) => {
+    if (l.isGift) return false;
+    if (l.orderLineId === undefined) return !l.removed;
+    return l.removed || l.quantity !== l.originalQuantity;
+  });
+}
+
 /** The lines sent to the server, in order: removed existing lines are omitted. */
 export function sentLines(lines: ModifyLineDraft[]): ModifyLineDraft[] {
   return lines.filter((l) => l.isGift || !l.removed);
