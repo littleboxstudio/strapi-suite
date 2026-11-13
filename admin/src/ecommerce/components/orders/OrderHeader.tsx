@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { useIntl } from 'react-intl';
 import { Button, Flex, Typography } from '@strapi/design-system';
 import { HeaderActions } from '../HeaderActions';
+import CustomerCard from './CustomerCard';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import {
   allowedToolbarActions,
@@ -62,11 +63,14 @@ const OrderHeader = ({ order, back, permissions, busy, onAction }: Props) => {
           </Typography>
         </Flex>
       </Flex>
-      {modifyBlocked && (
-        <Typography variant="pi" textColor="warning600" style={{ maxWidth: 420, textAlign: 'right' }}>
-          {t('ecommerce.orders.errors.SHIPMENT_PENDING')}
-        </Typography>
-      )}
+      <Flex direction="column" alignItems="flex-end" gap={2}>
+        <CustomerCard customer={order.customer} />
+        {modifyBlocked && (
+          <Typography variant="pi" textColor="warning600" style={{ maxWidth: 420, textAlign: 'right' }}>
+            {t('ecommerce.orders.errors.SHIPMENT_PENDING')}
+          </Typography>
+        )}
+      </Flex>
       {/* The actions sit in the fixed top bar, visible while the page scrolls. */}
       {actions.length > 0 && (
         <HeaderActions>
