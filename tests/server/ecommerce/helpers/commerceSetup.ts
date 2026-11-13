@@ -1,6 +1,7 @@
 import { vi } from 'vitest';
 
 import EcommerceOrderService from '../../../../server/src/services/modules/ecommerce/orders';
+import EcommerceOrderEditingService from '../../../../server/src/services/modules/ecommerce/orderEditing';
 import EcommercePaymentService from '../../../../server/src/services/modules/ecommerce/payments';
 import EcommerceStripePaymentService from '../../../../server/src/services/modules/ecommerce/stripePayments';
 import EcommerceStripeWebhookService from '../../../../server/src/services/modules/ecommerce/stripeWebhooks';
@@ -209,6 +210,7 @@ export function setupCommerce(
   };
   services.EcommerceEventBus = { collector: bus.collector, subscribe: bus.subscribe };
   services.EcommerceOrderService = EcommerceOrderService({ strapi });
+  services.EcommerceOrderEditingService = EcommerceOrderEditingService({ strapi });
   services.EcommercePaymentService = EcommercePaymentService({ strapi });
   services.EcommerceStripePaymentService = EcommerceStripePaymentService({ strapi });
   services.EcommerceStripeWebhookService = EcommerceStripeWebhookService({ strapi });
@@ -252,6 +254,7 @@ export function setupCommerce(
     db,
     services,
     orders: services.EcommerceOrderService,
+    editing: services.EcommerceOrderEditingService,
     payments: services.EcommercePaymentService,
     storeCredits: services.EcommerceStoreCreditService,
     refunds: services.EcommerceRefundService,

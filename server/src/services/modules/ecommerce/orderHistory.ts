@@ -36,7 +36,19 @@ export type OrderHistoryType =
   | 'INVOICE_UNCERTAIN'
   | 'CREDIT_NOTE_ISSUED'
   | 'PROMOTIONS_APPLIED'
-  | 'PROMOTIONS_RELEASED';
+  | 'PROMOTIONS_RELEASED'
+  // Order editing by section (plan 10). The older line/shipping/modification types above stay
+  // for the rows already written.
+  | 'LINES_CHANGED'
+  | 'SHIPPING_RECALCULATED'
+  | 'SHIPPING_LINE_EDITED'
+  | 'SHIPPING_LINE_ADDED'
+  | 'DISCOUNTS_RECALCULATED'
+  | 'MANUAL_DISCOUNT_ADDED'
+  | 'MANUAL_DISCOUNT_REMOVED'
+  | 'REVIEW_FLAG_RAISED'
+  | 'REVIEW_FLAG_CLEARED'
+  | 'REVIEW_FLAG_DISMISSED';
 
 export type OrderHistoryEntry = {
   orderId: number;

@@ -74,6 +74,17 @@ export type ModificationErrorCode =
 
 export type ModificationTotals = OrderTotals & { paid: number; due: number; excess: number };
 
+/** A change that raises the debt is DUE; one that creates new excess is REFUNDABLE. */
+export const modificationOutcome = (
+  before: { due: number; excess: number },
+  after: { due: number; excess: number }
+): 'DUE' | 'REFUNDABLE' | 'NONE' =>
+  after.due > before.due
+    ? 'DUE'
+    : after.excess > 0 && after.excess > before.excess
+      ? 'REFUNDABLE'
+      : 'NONE';
+
 export type LineChange = {
   kind: 'ADDED' | 'REMOVED' | 'QUANTITY_CHANGED' | 'UNCHANGED';
   orderLineId?: number;
@@ -437,12 +448,7 @@ export const simulateModification = (
     }
   }
 
-  const outcome: ModificationResult['outcome'] =
-    after.due > before.due
-      ? 'DUE'
-      : after.excess > 0 && after.excess > before.excess
-        ? 'REFUNDABLE'
-        : 'NONE';
+  const outcome = modificationOutcome(before, after);
 
   return {
     errors,
