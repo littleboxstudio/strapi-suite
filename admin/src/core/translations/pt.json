@@ -942,7 +942,6 @@
   "littlebox-strapi-suite.ecommerce.orders.notifications.errors.unknown": "erro de envio",
   "littlebox-strapi-suite.ecommerce.orders.notifications.resend": "Reenviar",
   "littlebox-strapi-suite.ecommerce.orders.notifications.readMore": "Ler mais",
-  "littlebox-strapi-suite.ecommerce.orders.notifications.reason": "Motivo: {reason}.",
   "littlebox-strapi-suite.ecommerce.orders.notifications.noReason": "Não foi registado nenhum motivo.",
   "littlebox-strapi-suite.ecommerce.orders.notifications.close": "Fechar",
   "littlebox-strapi-suite.ecommerce.orders.notifications.resent": "E-mail enviado",
