@@ -38,6 +38,7 @@ import {
   type StoreCreditForm,
 } from '../../utils/refundForm';
 import type { FieldError, StoreCredit } from '../../orderTypes';
+import ColumnLabel from '../ColumnLabel';
 
 type Props = {
   customerId: number;
@@ -263,7 +264,7 @@ const CustomerStoreCredits = ({ customerId, email, canManage }: Props) => {
           <Tr>
             {COLUMNS.map((column) => (
               <Th key={column}>
-                <Typography variant="sigma">{t(`ecommerce.customers.storeCredits.columns.${column}`)}</Typography>
+                <ColumnLabel column={column}>{t(`ecommerce.customers.storeCredits.columns.${column}`)}</ColumnLabel>
               </Th>
             ))}
           </Tr>

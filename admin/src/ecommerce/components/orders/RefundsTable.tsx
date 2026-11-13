@@ -28,6 +28,7 @@ import { formatCents } from '../../utils/money';
 import { actorLabel, apiErrorMessageId } from '../../utils/orderDetail';
 import { MAX_LONG_TEXT, isRefreshableStripeRefund, isStuckStripeRefund } from '../../utils/refundForm';
 import type { OrderRefund, RefundView } from '../../orderTypes';
+import ColumnLabel from '../ColumnLabel';
 
 type Props = {
   orderId: number;
@@ -197,7 +198,7 @@ const RefundsTable = ({ orderId, summaries, refreshKey, canRefund, onChanged }: 
           <Tr>
             {COLUMNS.map((column) => (
               <Th key={column}>
-                <Typography variant="sigma">{t(`ecommerce.orders.refunds.columns.${column}`)}</Typography>
+                <ColumnLabel column={column}>{t(`ecommerce.orders.refunds.columns.${column}`)}</ColumnLabel>
               </Th>
             ))}
           </Tr>

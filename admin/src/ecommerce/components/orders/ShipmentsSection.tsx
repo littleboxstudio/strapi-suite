@@ -44,6 +44,7 @@ import AddressButton from './AddressButton';
 import DeliveryModal from './DeliveryModal';
 import TrackingModal from './TrackingModal';
 import OrderSection from './OrderSection';
+import ColumnLabel from '../ColumnLabel';
 
 type Props = {
   title: string;
@@ -244,7 +245,7 @@ const ShipmentsSection = ({
               <Tr>
                 {COLUMNS.map((c) => (
                   <Th key={c}>
-                    <Typography variant="sigma">{t(`ecommerce.orders.shipments.columns.${c}`)}</Typography>
+                    <ColumnLabel column={c}>{t(`ecommerce.orders.shipments.columns.${c}`)}</ColumnLabel>
                   </Th>
                 ))}
               </Tr>

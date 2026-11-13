@@ -4,6 +4,7 @@ import { getTranslation } from '../../../core/utils/getTranslation';
 import { formatCents } from '../../utils/money';
 import { invoiceStatusTone } from '../../utils/invoiceForm';
 import type { OrderPayment } from '../../orderTypes';
+import ColumnLabel from '../ColumnLabel';
 
 const COLUMNS = ['method', 'amount', 'reference', 'status', 'date', 'actions'] as const;
 
@@ -45,7 +46,7 @@ const PaymentsTable = ({ payments, canInvoice = false, billingActive = false, on
         <Tr>
           {COLUMNS.map((column) => (
             <Th key={column}>
-              <Typography variant="sigma">{t(`ecommerce.orders.detail.payments.${column}`)}</Typography>
+              <ColumnLabel column={column}>{t(`ecommerce.orders.detail.payments.${column}`)}</ColumnLabel>
             </Th>
           ))}
         </Tr>
