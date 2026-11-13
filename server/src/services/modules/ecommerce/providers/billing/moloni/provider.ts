@@ -195,6 +195,34 @@ function isMoloniUrl(url: string): boolean {
   }
 }
 
+type PdfAnswer = { status: number; bytes: Buffer };
+
+async function downloadPdf(url: string): Promise<PdfAnswer> {
+  const res = await timedFetch(url, { method: 'GET' }, (r) => readCapped(r, PDF_MAX_BYTES), PDF_TIMEOUT_MS);
+  if (!res) throw new EcommerceBillingError('BILLING_UNREACHABLE', 'Could not download the Moloni PDF.');
+  if (!res.bytes) throw requestFailed('The Moloni PDF is too large.');
+  return { status: res.status, bytes: res.bytes };
+}
+
+const isPdf = (res: PdfAnswer) =>
+  res.status >= 200 && res.status < 300 && res.bytes.subarray(0, 4).toString('latin1') === '%PDF';
+
+/** The target of an HTML page's `<meta http-equiv="refresh" content="…; URL=…">`, on moloni.pt only. */
+export function metaRefreshUrl(res: PdfAnswer, base: string): string | null {
+  if (!res.bytes.length || res.bytes.length > PDF_MAX_BYTES) return null;
+  const html = res.bytes.toString('utf8');
+  const tag = /<meta[^>]+http-equiv=["']?refresh["']?[^>]*>/i.exec(html)?.[0];
+  const content = tag && /content=(["'])(.*?)\1/i.exec(tag)?.[2];
+  const target = content && /url\s*=\s*(.+)$/i.exec(content)?.[1]?.trim().replace(/&amp;/g, '&');
+  if (!target) return null;
+  try {
+    const next = new URL(target, base).toString();
+    return isMoloniUrl(next) ? next : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Reads the body up to `max` bytes; `bytes` is null when it is larger (the stream is cancelled). */
 async function readCapped(res: Response, max: number): Promise<{ status: number; bytes: Buffer | null }> {
   if (Number(res.headers.get('content-length')) > max) {
@@ -349,12 +377,22 @@ export const moloniProvider: BillingProvider = {
     const link = await ctx.client.call<any>('documents/getPDFLink', { document_id: documentId(externalId) });
     let url = typeof link?.url === 'string' ? link.url : '';
     if (url.startsWith('//')) url = `https:${url}`;
-    if (!isMoloniUrl(url)) throw requestFailed('Moloni did not return a PDF link.');
-    const res = await timedFetch(url, { method: 'GET' }, (r) => readCapped(r, PDF_MAX_BYTES), PDF_TIMEOUT_MS);
-    if (!res) throw new EcommerceBillingError('BILLING_UNREACHABLE', 'Could not download the Moloni PDF.');
-    if (!res.bytes) throw requestFailed('The Moloni PDF is too large.');
-    if (res.status < 200 || res.status >= 300 || res.bytes.subarray(0, 4).toString('latin1') !== '%PDF') {
-      throw requestFailed('Moloni did not return a PDF.');
+    if (!isMoloniUrl(url)) {
+      throw requestFailed(
+        url
+          ? 'Moloni returned a PDF link outside moloni.pt.'
+          : `Moloni did not return a PDF link (it returned ${describeShape(link)}).`
+      );
+    }
+    // The link opens Moloni's download page, which forwards to the file with a meta refresh
+    // (a browser follows it on its own): follow it once, only to moloni.pt.
+    let res = await downloadPdf(url);
+    const forward = isPdf(res) ? null : metaRefreshUrl(res, url);
+    if (forward) res = await downloadPdf(forward);
+    if (!isPdf(res)) {
+      const start = res.bytes.subarray(0, 64).toString('latin1').trimStart().toLowerCase();
+      const kind = !res.bytes.length ? 'an empty answer' : start.startsWith('<') ? 'an HTML page' : 'something other than a PDF';
+      throw requestFailed(`Moloni did not return a PDF (HTTP ${res.status}, ${kind}).`);
     }
     return res.bytes;
   },

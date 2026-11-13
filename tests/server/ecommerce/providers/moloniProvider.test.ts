@@ -590,6 +590,32 @@ describe('moloniProvider.getPdf', () => {
     expect(err.message).not.toContain('h=abc');
   });
 
+  it("follows the download page's meta refresh to the file (Moloni's getPDFLink lands on a page)", async () => {
+    const page =
+      '<html><head><meta http-equiv="refresh" content="URL=index.php?action=getDownload&amp;h=abc&amp;d=777&amp;i=1"></head></html>';
+    const m = moloniFake({
+      'documents/getPDFLink': () => ({ url: '//www.moloni.pt/downloads/index.php?action=getDownload&h=abc&d=777' }),
+      'https://www.moloni.pt/downloads/index.php?action=getDownload&h=abc&d=777': () =>
+        new Response(page, { status: 200 }),
+      'https://www.moloni.pt/downloads/index.php?action=getDownload&h=abc&d=777&i=1': () =>
+        new Response(pdf, { status: 200 }),
+    });
+    expect((await moloniProvider.getPdf('777', rt())).toString()).toBe('%PDF-1.4 hello');
+    expect(m.calls.filter((c) => c.path === 'downloads/index.php')).toHaveLength(2);
+  });
+
+  it('a meta refresh off moloni.pt is not followed', async () => {
+    const m = moloniFake({
+      'documents/getPDFLink': () => ({ url: 'https://www.moloni.pt/dl?h=abc' }),
+      'https://www.moloni.pt/dl?h=abc': () =>
+        new Response('<meta http-equiv="refresh" content="0; URL=https://evil.example/x.pdf">', { status: 200 }),
+      'https://evil.example/x.pdf': () => new Response(pdf, { status: 200 }),
+    });
+    const err: any = await fail(moloniProvider.getPdf('777', rt()));
+    expect(err.message).toBe('Moloni did not return a PDF (HTTP 200, an HTML page).');
+    expect(m.calls.some((c) => c.path === 'x.pdf')).toBe(false);
+  });
+
   it('a link outside moloni.pt -> BILLING_REQUEST_FAILED, never fetched', async () => {
     const m = moloniFake({
       'documents/getPDFLink': () => ({ url: 'https://evil.example/moloni.pt/x.pdf' }),

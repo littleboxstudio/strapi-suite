@@ -895,8 +895,12 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     let content: Buffer;
     try {
       content = await issuing.provider.getPdf(String(row.externalId), issuing.runtime);
-    } catch {
-      throw new EcommerceBillingError('INVOICE_PDF_UNAVAILABLE');
+    } catch (err) {
+      const detail = billingErrorDetail(err);
+      strapi.log?.warn?.(
+        `[ecommerce] PDF of ${describe(row).toLowerCase()} ${row.id} unavailable: ${billingCode(err)}${detail ? ` (${detail})` : ''}`
+      );
+      throw new EcommerceBillingError('INVOICE_PDF_UNAVAILABLE', detail ?? 'INVOICE_PDF_UNAVAILABLE');
     }
     if (!content || !content.length) throw new EcommerceBillingError('INVOICE_PDF_UNAVAILABLE');
     const base = clean(row.number) || `invoice-${row.id}`;
