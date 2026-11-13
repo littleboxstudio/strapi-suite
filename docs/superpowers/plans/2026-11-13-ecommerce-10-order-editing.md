@@ -27,7 +27,7 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
 
    Why: JSON columns hold objects only (MariaDB rule from plan 9). The existing columns stay authoritative for every other reader (`shippingOriginal`, `shippingDiscount`, `shippingTotal`, `shippingMethod`, `shippingTax`, `orderDiscount`, `total`), and every edit rewrites them.
 2. **Migration (spec 6.1, 7.4).** Two parts:
-   - **Read-through.** Each reader (`readShippingLines`, `readManualDiscounts`, `readReviewFlags`) builds the legacy value when the column is `null`, with the pure `legacyEditingData`. Ids are stable: the CHECKOUT line is id `1`, the legacy discount is id `1`. Every edit persists what it read.
+   - **Read-through.** Each reader (`readShippingLines`, `readManualDiscounts`, `readReviewFlags`) builds the legacy value when the column is `null` (`checkoutLine`, `legacyManualDiscount`); the pure `legacyEditingData` composes the three readers for the backfill. Ids are stable: the CHECKOUT line is id `1`, the legacy discount is id `1`. Every edit persists what it read.
    - **Backfill.** A bootstrap backfill (`migrateOrderEditingData`) writes the same data, in batches of 100.
 
    Why: the plugin has no migration framework (the existing code reads legacy shapes leniently, e.g. `appliedOf`). If the backfill fails, the read-through still gives correct data.
@@ -54,18 +54,18 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
    - Amounts are integers in `0..MAX_MONEY_CENTS`.
    - The method must be one of `shippingOptionsForOrder` (the pending units, or all effective units when none is pending, at the current address), else `SHIPPING_METHOD_UNAVAILABLE`.
 8. **Sync after any change to the shipping lines.** `shippingOriginal = Σ lines`, `shippingDiscount = min(stored, Σ lines)` (spec 6.3: the euro value is kept), `shippingTotal = difference`. `shippingMethod` gets the current method with `price = Σ lines`, and `shippingTax` gets its tax.
-9. **The modification endpoints are removed** (`/:id/modification/preview`, `/:id/modification`), together with `previewModification`, `applyModification`, `normalizeModification`, `resolveShipping` and `writeModification` in `orders.ts`. `simulateModification` stays and is called with `shipping: { mode: 'KEEP' }` and no `orderDiscount`. The products save writes one `LINES_CHANGED` history entry, not one entry per line (spec 4, 9).
-10. **One idempotent runner** for all edits. The main history row of each edit has `uniqueKey = edit:<operationId>` and `newValue.kind`. Reusing an `operationId` for another kind, or on another order, gives `OPERATION_ID_CONFLICT`. Stock keys are `edit:<operationId>:<variantId>`.
+9. **The modification endpoints are removed** (`/:id/modification/preview`, `/:id/modification`), together with `previewModification`, `applyModification`, `normalizeModification`, `resolveShipping` and `writeModification` in `orders.ts`. Task 7 first moves the parts both flows need (`toModificationCurrent`, `toModificationCatalog`, the quote-item builder of `resolveShipping`, the line/stock writes of `writeModification`) to an exported shared module; Task 8 deletes the old flow together with migrating its callers and tests. `simulateModification` stays and is called with `shipping: { mode: 'KEEP' }` and no `orderDiscount`. The products save writes one `LINES_CHANGED` history entry, not one entry per line (spec 4, 9).
+10. **One idempotent runner** for all edits. The main history row of each edit has `uniqueKey = edit:<operationId>` and `newValue.kind`. Reusing an `operationId` for another kind, or on another order, gives `OPERATION_ID_CONFLICT` (409, ruling 11). Stock keys are `edit:<operationId>:<variantId>`.
 11. **Error codes.**
-    - New `409` codes in `CONFLICT_CODES`: `ORDER_NOT_EDITABLE` (`detail`: `CANCELLED` | `ARCHIVED` | `SHIPMENT_PENDING`), `ORDER_HAS_SHIPMENTS`, `REVIEW_FLAG_NOT_DISMISSABLE`, `PROMOTIONS_NOT_COMBINABLE`, `PROMOTION_GIFT_SHIPPED`.
+    - New `409` codes in `CONFLICT_CODES`: `OPERATION_ID_CONFLICT`, `ORDER_NOT_EDITABLE` (`detail`: `CANCELLED` | `ARCHIVED` | `SHIPMENT_PENDING`), `ORDER_HAS_SHIPMENTS`, `REVIEW_FLAG_NOT_DISMISSABLE`, `PROMOTIONS_NOT_COMBINABLE`, `PROMOTION_GIFT_SHIPPED`.
     - `400` codes: `COUNTRY_NOT_SERVED`, `SHIPPING_METHOD_UNAVAILABLE`, `SHIPPING_QUOTE_FAILED` (existing), `DISCOUNT_EXCEEDS_PRODUCTS`, `SHIPPING_LINE_NOT_FOUND`, `MANUAL_DISCOUNT_NOT_FOUND`, and the line codes of `simulateModification`.
 12. **Candidates for spec 7.1.**
-    - Load with `loadCandidates({ codes, email })`, trusted (admin). `codes` = the codes entered at checkout (`promotions.codes[].code`) plus the codes of applied CODE promotions.
+    - Load with `loadCandidatesForOrder({ orderId, codes, email })` (Task 11), trusted (admin). Besides `loadCandidates`' rows it loads the order's applied promotions by id in any state (inactive, expired), so they are evaluated and get their real rejection reason; a deleted one is simply absent. Task 8 uses `loadCandidates` until Task 12 switches `discountEvaluation` to it. `codes` = the codes entered at checkout (`promotions.codes[].code`) plus the codes of applied CODE promotions.
     - For each promotion with a `RESERVED` redemption on this order, subtract 1 from `redemptions` and from `customerUses` (minimum 0). Otherwise the order's own use would block it.
     - Gifts are evaluated with an empty map. A gift-only promotion is never offered as "Nova"; the merchant adds the product in Products and an `IN_CART` promotion then applies.
 13. **Classifying applied promotions (spec 7.1).**
     - "Ainda válida": the promotion is in `evaluation.eligible`, i.e. not blocked and its conditions are met (`CONFLICT`/`NO_BENEFIT` still count as valid).
-    - "Já não válida": anything else. The reason is the evaluation's rejection reason, or `NOT_FOUND` when the promotion was deleted.
+    - "Já não válida": anything else. The reason is the evaluation's real rejection reason (`INACTIVE`, `EXPIRED`, `CONDITIONS_NOT_MET`, …); `NOT_FOUND` only when the promotion row was deleted.
     - "Nova": a promotion in `evaluation.applied` that the order has not applied.
 14. **Pricing a selection (spec 7.1).**
     - The selected valid and new candidates go through `applyCombination` over the customer lines (non-gift, effective quantity > 0, not frozen), with `shipping = Σ shipping lines`.
@@ -83,8 +83,8 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
     - `amount > subtotal − orderDiscount` → `DISCOUNT_EXCEEDS_PRODUCTS`.
     - `orderDiscount` remains the order's total order-level discount (promotions + manual). The manual items are listed separately; the promotions' part is the rest.
 19. **Legacy manual discount (spec 7.4).** `amount = max(0, orderDiscount − Σ amounts of applied ORDER_DISCOUNT benefits)`, `kind: 'LEGACY'`, `reason: 'Previous manual adjustment'`. The admin shows it translated ("Ajuste manual anterior").
-20. **Products save and flags (spec 3, 4).** The shipping due after the change is quoted before the transaction, as `resolveShipping` did. A failed quote raises `SHIPPING_REVIEW` with reason `SHIPPING_QUOTE_FAILED` and never blocks the save. `DISCOUNTS_REVIEW` is raised when `unmet()` is not empty, or the evaluation (ruling 12) would apply a promotion the order does not have.
-21. **Address (spec 5).** Only the shipping address can change. Allowed countries = the countries the current method serves ∩ the store markets (`servedCountries`), else `COUNTRY_NOT_SERVED`. The save re-quotes the current method for the whole order: a different price, or a failed quote, raises `SHIPPING_REVIEW` (reason `ADDRESS_CHANGED` or `SHIPPING_QUOTE_FAILED`).
+20. **Products save and flags (spec 3, 4).** The shipping due after the change is quoted before the transaction (`shippingDue`, with the shared `quoteItems`). `SHIPPING_REVIEW` is raised when `due !== chargedShipping(lines)` (due ≠ charged, spec 3). A failed quote raises `SHIPPING_REVIEW` with reason `SHIPPING_QUOTE_FAILED` and never blocks the save. `DISCOUNTS_REVIEW` is raised when `unmet()` is not empty, or the evaluation (ruling 12) would apply a promotion the order does not have.
+21. **Address (spec 5).** Only the shipping address can change. Allowed countries = the countries the current method serves ∩ the store markets (`servedCountries`), else `COUNTRY_NOT_SERVED`. The save re-quotes the current method for the whole order: `due !== chargedShipping(lines)` (due ≠ charged), or a failed quote, raises `SHIPPING_REVIEW` (reason `ADDRESS_CHANGED` or `SHIPPING_QUOTE_FAILED`).
 22. **A shipping change raises `DISCOUNTS_REVIEW`** (reason `SHIPPING_CHANGED`) when the gross shipping changed and the order has a shipping discount (`shippingDiscount > 0`, or an applied promotion with class `SHIPPING_DISCOUNT`).
 23. **Fully shipped orders stay editable** ([Decisão] spec 2), so spec 3's "já não é possível recalcular" applies only to `CANCELLED`, `ARCHIVED` and `SHIPMENT_PENDING`. A flag can be dismissed only then.
 24. **Result step.** Every modal that changes money ends on a result step (`BalanceOutcome`) when the outcome is `DUE` or `REFUNDABLE`. It shows the new balance with Refund / Add payment / Send payment instructions, which open the top-bar modals. This replaces `SupplementaryPaymentModal`.
@@ -93,7 +93,7 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
 
 ## Global Constraints
 
-- Modules other than e-commerce must not change, except the one bootstrap call in `server/src/bootstrap.ts` (ruling 2). Single tenant.
+- Modules other than e-commerce must not change, except the one bootstrap call in `server/src/bootstrap.ts` (ruling 2) and the shared registries/translations this plan edits: `server/src/services/index.ts`, `server/src/controllers/index.ts`, `admin/src/core/translations/en.json` and `pt.json`. Single tenant.
 - The storefront API contract is unchanged (`docs/ecommerce/storefront-api.md` shapes). `shippingTotal` and the other totals stay the totals.
 - Never print secrets. Moloni descriptions, customer values and manual-discount reasons never go into logs.
 - No automatic e-mails to the shopper. No automatic refunds, credit notes or store credit.
@@ -126,6 +126,17 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
 3. **A legacy order edited before the backfill ran** (`shippingLines` null, `orderDiscount` above the promotions' ORDER amount). The view shows CHECKOUT line `1` and a LEGACY manual discount. The first edit persists both. Reading never changes the totals. Pinned in Tasks 5 and 7.
 4. **Reusing an `operationId`.** Sent again for another edit kind, or on another order: `OPERATION_ID_CONFLICT`, never the other edit's replayed outcome. Sent twice for the same edit: applied once. Pinned in Task 7.
 5. **A carrier quote that fails during a products or address save.** The save succeeds and `SHIPPING_REVIEW` is raised with reason `SHIPPING_QUOTE_FAILED`. A failing Recalculate shipping changes nothing and answers `SHIPPING_QUOTE_FAILED`. Pinned in Tasks 8, 9 and 10.
+
+## Amendments (pre-flight)
+
+Applied from the pre-flight scan (`.superpowers/sdd/2026-11-13-ecommerce-10-order-editing/progress.md`) before Task 1:
+- F1/F2: Task 7 extracts the shared modification helpers to `orderModificationSupport.ts`; the old flow, `MODIFY`, `orders.modify.test.ts` and the three `applyModification` test callers move to Task 8, which ports them.
+- F3: `OPERATION_ID_CONFLICT` is a 409 code (ruling 11, Tasks 13–15).
+- F4: dismiss writes `reviewFlags` with its own unguarded update. F5: the runner test write calls `assertEditable`. F6: `raise`/`clear` are async.
+- F7: unchanged address still records the main row (`unchanged: true`), no flag. F8/F9: Task 12 switches to `loadCandidatesForOrder`, which also loads applied promotions by id in any state (ruling 12/13).
+- F10: `amount` of unselected rows defined. F11: recalc preview returns `ShippingLineView[]`; `shippingLineRows` takes lines. F12: sections get `onAction`. F13: `modify.summary.*` kept until Task 16. F14/F15/F17: Files lists completed; admin types added. F16: test input gets a reason.
+- F18: Edit/Add shipping line raise `DISCOUNTS_REVIEW` (ruling 22). F19: SHIPPING_REVIEW is due ≠ charged (rulings 20/21). F20: P6 followup reworded, P5 F4 reworded. F21: `getOrCreatePaymentLink`.
+- F22: no test-only service method (runner factory `createEditRunner`); one shared helper each for line writes/gift restock and quote items. F23: Global Constraints list the shared registries.
 
 ---
 
@@ -207,7 +218,7 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
   - `raiseFlag` on a raised `SHIPPING_REVIEW` replaces its reason and date and keeps one entry. `clearFlag` on an absent code → `cleared: false`.
   - `readReviewFlags({ flags: [{ code: 'X' }] })` → `[]`.
 - [ ] **Step 2: Run** `npx vitest run tests/server/ecommerce/domain/orderEditing.test.ts`. Expected: FAIL.
-- [ ] **Step 3: Implement** the domain module. `MODIFY` is removed in Task 7, together with the code that uses it.
+- [ ] **Step 3: Implement** the domain module. `MODIFY` is removed in Task 8, together with the code that uses it.
 - [ ] **Step 4: Run** the tests. Expected: PASS.
 - [ ] **Step 5: Commit** `feat(ecommerce): order editability rules and review flags domain`.
 
@@ -289,7 +300,7 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
     };
     export type DiscountRecalculation = { rows: DiscountRow[]; selection: string[]; exhaustive: boolean } & DiscountPricing;
     ```
-  - `export function recalculateDiscounts(ctx: DiscountContext, selection?: string[]): DiscountRecalculation`. Without `selection`, the initial selection of spec 7.1 is used. Unknown keys in `selection` are ignored. `rows[].amount` reflects the priced selection. A locked row is always selected.
+  - `export function recalculateDiscounts(ctx: DiscountContext, selection?: string[]): DiscountRecalculation`. Without `selection`, the initial selection of spec 7.1 is used. Unknown keys in `selection` are ignored. For a selected row, `amount` is its value under the priced selection. For an unselected row, `amount` is the value it would give: the evaluation's value for NEW and valid rows, the stored amount for invalid and manual rows. A locked row is always selected.
 
 - [ ] **Step 1: Write the failing tests.** Build the candidates with the existing `tests/server/ecommerce/domain/promotions` fixtures style.
   - **Valid:** an applied ORDER_PERCENT 10 % on 2 × 2000 → row `APPLIED_VALID`, `currentAmount: 400`. After adding a third unit (lines quantity 3), `amount: 600` and `after.orderDiscount === 600`.
@@ -329,7 +340,7 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
 
 **Interfaces:**
 - Consumes: Tasks 1–3.
-- Produces: the three columns, always objects after create. `legacyEditingData` is used by the readers in Task 7.
+- Produces: the three columns, always objects after create. `legacyEditingData(order)` = `{ shippingLines: { lines: readShippingLines(order) }, manualDiscounts: { items: readManualDiscounts(order) }, reviewFlags: { flags: readReviewFlags(order.reviewFlags) } }`, used by the backfill; Task 7's view and `writeTotals` call the readers.
 
 - [ ] **Step 1: Write the failing tests:**
   - The content-type test lists the three attributes, with type `json`.
@@ -374,10 +385,14 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
 
 **Files:**
 - Create: `server/src/services/modules/ecommerce/orderEditing.ts` (`EcommerceOrderEditingService`)
-- Modify: `server/src/services/index.ts` (register it)
-- Modify: `server/src/services/modules/ecommerce/domain/orders.ts`: remove `'MODIFY'` from `OrderActionKey` and from `availableActions`, and update the doc comment's action order.
+- Create: `server/src/services/modules/ecommerce/orderEditRunner.ts`: `export function createEditRunner(strapi: Core.Strapi, deps: { orders: () => OrderServiceLike; history: () => OrderHistoryServiceLike; emit: (event, payload) => Promise<void> }): { runEdit; assertEditable; writeTotals; outcomeOf }`. The service builds it from the Strapi services; tests build it with injected deps (finding 22a: no test-only exports).
+- Create: `server/src/services/modules/ecommerce/orderModificationSupport.ts` (shared by `orders.ts` and `orderEditing.ts`; finding 22b): `export function createOrderModificationSupport(strapi: Core.Strapi)` returning
+  - `toModificationCurrent(state: OrderState)` and `toModificationCatalog(catalog)`, moved from `orders.ts`;
+  - `quoteItems(state: OrderState, units: { variantId: number; quantity: number; orderLineId?: number; sourceOrderLineId?: number }[], catalog): { items: ShippingQuoteRequest['items']; subtotal: number }`, the item builder moved out of `resolveShipping` (units net of `reserved`);
+  - `writeLineChanges(state, catalog, result: Pick<ModificationResult, 'lineChanges' | 'stockMovements'>, ctx: { actor: string; operationId: string; stockKey: (variantId: number) => string }): Promise<void>`, the line create/update/delete and stock part moved out of `writeModification` (deleting a line restocks it with `ORDER_RESTOCK`; per-line history stays in the caller).
+- Modify: `server/src/services/index.ts` (register the service)
 - Modify: `server/src/services/modules/ecommerce/orders.ts`:
-  - delete the modification block (ruling 9) and the `'MODIFY'` filter;
+  - the existing modification flow calls the moved helpers from `orderModificationSupport.ts` (no behaviour change; the flow itself is deleted in Task 8);
   - add `loadCatalog` to the returned object;
   - `OrderView` gains `editing: OrderEditing`, `shippingLines: ShippingLineView[]`, `manualDiscounts: ManualDiscount[]` and `reviewFlags: ReviewFlag[]`;
   - `OrderState` gains `editing: OrderEditing` and `shippingLines: ShippingLineView[]`, computed in `computeOrderState`.
@@ -385,17 +400,16 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
   - The invoices for `shippingLineViews` come from `invoicing.invoices`, with `hasShipping` from `lines.lines[].kind === 'SHIPPING'`.
 - Modify: `server/src/services/modules/ecommerce/orderHistory.ts` (`OrderHistoryType`). Add `LINES_CHANGED`, `SHIPPING_RECALCULATED`, `SHIPPING_LINE_EDITED`, `SHIPPING_LINE_ADDED`, `DISCOUNTS_RECALCULATED`, `MANUAL_DISCOUNT_ADDED`, `MANUAL_DISCOUNT_REMOVED`, `REVIEW_FLAG_RAISED`, `REVIEW_FLAG_CLEARED` and `REVIEW_FLAG_DISMISSED`; keep the old types for existing rows.
 - Modify: `tests/server/ecommerce/helpers/commerceSetup.ts` (register the service, expose `c.editing`)
-- Delete: `tests/server/ecommerce/orders.modify.test.ts`. Its line cases are ported in Task 8.
-- Test: `tests/server/ecommerce/orderEditing.runner.test.ts`, `tests/server/ecommerce/orders.admin.test.ts` (view fields), `tests/server/ecommerce/domain/orders.test.ts` (no MODIFY), and the MODIFY expectations in `orders.create.test.ts`, `orders.lifecycle.test.ts`, `orders.promotions.test.ts` and `invoices.test.ts`
+- Test: `tests/server/ecommerce/orderEditing.runner.test.ts`, `tests/server/ecommerce/orders.admin.test.ts` (view fields); `orders.modify.test.ts` must still pass unchanged (the moved helpers)
 
 **Interfaces:**
 - Consumes: Tasks 1–5. From the order service: `computeOrderState`, `get`, `lockOrder`, `recalculate`, `loadCatalog`.
-- Produces (inside `orderEditing.ts`):
+- Produces (`EditKind`/`EditOutcome`/`EditResult` exported from `orderEditing.ts`; the runner and helpers from `createEditRunner` in `orderEditRunner.ts`):
   - `export type EditKind = 'lines' | 'address' | 'shipping-recalculate' | 'shipping-line-edit' | 'shipping-line-add' | 'discounts' | 'manual-discount-add' | 'manual-discount-remove' | 'review-dismiss'`
   - `export type EditOutcome = { outcome: 'DUE' | 'REFUNDABLE' | 'NONE'; difference: number }`
   - `export type EditResult = { order: OrderView } & EditOutcome`
-  - An internal runner, `runEdit<P>(orderId: number, kind: EditKind, rawOperationId: string, actor: string, steps: { prepare: () => Promise<P>; write: (state: OrderState, prepared: P, w: EditWriter) => Promise<EditOutcome & { history: { type: OrderHistoryType; description: string; previousValue: object | null; newValue: object } }> }): Promise<EditResult>`
-    - `EditWriter = { actor: string; operationId: string; record(entry): Promise<void>; raise(flags: ReviewFlag[], code: ReviewFlagCode, reason: ReviewReason): ReviewFlag[]; clear(flags: ReviewFlag[], code: ReviewFlagCode): ReviewFlag[] }`. `raise` and `clear` also record `REVIEW_FLAG_RAISED`/`REVIEW_FLAG_CLEARED`; `clear` records only when something was cleared.
+  - The runner, `runEdit<P>(orderId: number, kind: EditKind, rawOperationId: string, actor: string, steps: { prepare: () => Promise<P>; write: (state: OrderState, prepared: P, w: EditWriter) => Promise<EditOutcome & { history: { type: OrderHistoryType; description: string; previousValue: object | null; newValue: object } }> }): Promise<EditResult>`
+    - `EditWriter = { actor: string; operationId: string; record(entry): Promise<void>; raise(flags: ReviewFlag[], code: ReviewFlagCode, reason: ReviewReason): Promise<ReviewFlag[]>; clear(flags: ReviewFlag[], code: ReviewFlagCode): Promise<ReviewFlag[]> }`. `raise` and `clear` also record `REVIEW_FLAG_RAISED`/`REVIEW_FLAG_CLEARED`; `clear` records only when something was cleared.
     - Order of work:
       1. validate the operationId (8..64 characters, else `{ path: 'operationId', code: 'required' }`);
       2. replay;
@@ -406,26 +420,25 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
       7. emit `ORDER_MODIFIED`;
       8. on a unique violation, replay.
     - Replay: a row with that `uniqueKey` on this order with the same kind → its outcome. Another kind, or another order → `OPERATION_ID_CONFLICT`.
-  - Internal helpers:
+  - Helpers (also returned by `createEditRunner`):
     - `assertEditable(state: OrderState, action: OrderEditAction): void`. It throws `ORDER_NOT_EDITABLE` (with `detail` = `blockedBy`) when `!editing.editable`. It throws `ORDER_HAS_SHIPMENTS` when the action needs no shipments and one exists.
     - `writeTotals(state: OrderState, data: { lines?: true; shippingLines?: ShippingLine[]; orderDiscount?: number; shippingDiscount?: number; manualDiscounts?: ManualDiscount[]; reviewFlags?: ReviewFlag[]; promotions?: object; shippingAddress?: Address }): Promise<OrderTotals>`.
       - It recomputes the totals from the stored lines plus these values, applies ruling 8 when `shippingLines` is given, and always persists the read-through `shippingLines`, `manualDiscounts` and `reviewFlags` (ruling 2).
       - The update is conditional on `orderStatus: 'OPEN'`: 0 rows → `ORDER_NOT_EDITABLE`.
     - `outcomeOf(before: FinancialSummary, after: FinancialSummary): EditOutcome['outcome']`, with the same rule as `simulateModification`.
 
-- [ ] **Step 1: Write the failing tests** in `orderEditing.runner.test.ts`. Drive the runner through a test-only method on the service, `__runEditForTests(orderId: number, kind: EditKind, operationId: string, actor: string): Promise<EditResult>`. Its `write` raises `SHIPPING_REVIEW` (reason `PRODUCTS_CHANGED`) through `writeTotals({ reviewFlags })` and returns outcome `NONE`.
+- [ ] **Step 1: Write the failing tests** in `orderEditing.runner.test.ts`. Build the runner with `createEditRunner(c.strapi, deps)` (the commerce setup's services as deps) and call `runEdit` with a test `write` that calls `assertEditable(state, 'ADD_PRODUCTS')`, then raises `SHIPPING_REVIEW` (reason `PRODUCTS_CHANGED`) with `await w.raise(...)` and persists it through `writeTotals({ reviewFlags })`, and returns outcome `NONE`.
   - The same `operationId` twice → applied once; both calls return the same outcome.
   - The same `operationId` reused with another kind → `OPERATION_ID_CONFLICT` (Review Focus 4). Reused on another order → `OPERATION_ID_CONFLICT`.
   - `operationId: 'short'` → `operationId`/`required`.
   - Run on a `CANCELLED` order → `ORDER_NOT_EDITABLE`, detail `CANCELLED`. With a PENDING shipment → `ORDER_NOT_EDITABLE`, detail `SHIPMENT_PENDING`.
-  - `availableActions` never contains `'MODIFY'`, including for an open, unfulfilled order (`domain/orders.test.ts`).
   - **View** (in `orders.admin.test.ts`):
-    - a fresh order has `editing.actions` with all 8 actions, `availableActions` without `MODIFY`, and `shippingLines[0]` with `{ id: 1, origin: 'CHECKOUT', amount: 500, paid: false, invoiced: false, spent: false }`;
+    - a fresh order has `editing.actions` with all 8 actions and `shippingLines[0]` with `{ id: 1, origin: 'CHECKOUT', amount: 500, paid: false, invoiced: false, spent: false }`;
     - after a payment of the total, `paid: true`;
     - a legacy order (columns set to `null` in the fake DB) shows the same line and its LEGACY manual discount, and `get()` writes nothing (Review Focus 3).
 - [ ] **Step 2: Run** `npx vitest run tests/server/ecommerce/orderEditing.runner.test.ts tests/server/ecommerce/orders.admin.test.ts`. Expected: FAIL.
-- [ ] **Step 3: Implement.** The `SHIPMENT_PENDING` check now lives in `orderEditing()`. `assertNoPendingShipment` stays for cancel.
-- [ ] **Step 4: Run** the tests, then `npx vitest run tests/server/ecommerce` to catch callers of the deleted modification code. Expected: PASS.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Run** the tests, then `npx vitest run tests/server/ecommerce` (the old modification flow must still pass on the moved helpers). Expected: PASS.
 - [ ] **Step 5: Commit** `feat(ecommerce): order editing service with idempotent edit runner; order view editing fields`.
 
 ---
@@ -434,17 +447,22 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
 
 **Files:**
 - Modify: `server/src/services/modules/ecommerce/orderEditing.ts`
+- Modify: `server/src/services/modules/ecommerce/domain/orders.ts`: remove `'MODIFY'` from `OrderActionKey` and from `availableActions`, and update the doc comment's action order.
+- Modify: `server/src/services/modules/ecommerce/orders.ts`: delete the modification flow of ruling 9 (`normalizeModification`, `previewModification`, `applyModification`, `resolveShipping`, `writeModification`, `runSimulation`, `loadModificationContext`) and the `'MODIFY'` filter in `availableActions`. The `SHIPMENT_PENDING` check now lives in `orderEditing()`; `assertNoPendingShipment` stays for cancel.
+- Delete: `tests/server/ecommerce/orders.modify.test.ts` (its line cases are ported below).
+- Modify (callers of `applyModification`, ported to `c.editing.applyLines`): `tests/server/ecommerce/invoices.test.ts` (~212), `orders.promotions.test.ts` (~564), `orders.lifecycle.test.ts` (~755, the lock case).
+- Modify (MODIFY expectations): `tests/server/ecommerce/domain/orders.test.ts`, `orders.create.test.ts`, `orders.lifecycle.test.ts`, `orders.promotions.test.ts`, `invoices.test.ts`, `orders.admin.test.ts`.
 - Test: `tests/server/ecommerce/orders.editLines.test.ts` (it ports the line cases of the deleted `orders.modify.test.ts`: add, reduce/restock, remove, snapshot locale, idempotency, concurrent duplicate, `operationId` validation, simulation errors without effect, cancelled order, order-discount cap)
 
 **Interfaces:**
-- Consumes: Task 7 runner; `simulateModification` (shipping `KEEP`); `loadCatalog`; the shipping service's `findOption`; the promotions service's `unmet`, `loadCandidates` and `evaluate`.
+- Consumes: Task 7 runner and `orderModificationSupport` (`toModificationCurrent`, `toModificationCatalog`, `quoteItems`, `writeLineChanges`); `simulateModification` (shipping `KEEP`); `loadCatalog`; the shipping service's `findOption`; the promotions service's `unmet`, `loadCandidates` and `evaluate` (`loadCandidates` here; Task 12 switches to `loadCandidatesForOrder`).
 - Produces:
   - `export type LinesInput = { lines: { orderLineId?: number; variantId: number; quantity: number }[] }`
   - `export type LinesPreview = Pick<ModificationResult, 'errors' | 'before' | 'after' | 'lineChanges' | 'stockMovements' | 'outcome' | 'difference'>`
   - `previewLines(orderId: number | string, input: LinesInput): Promise<LinesPreview>` (writes nothing; `ADD_PRODUCTS` must be available)
   - `applyLines(orderId: number | string, input: LinesInput, actor: string, operationId: string): Promise<EditResult>`
   - Internal helpers used by Tasks 9, 10 and 12:
-    - `shippingDue(state: OrderState, units: { variantId: number; quantity: number; orderLineId?: number }[], address: Address | null): Promise<{ due: number; quote: number; previousShipmentsCost: number; option: ShippingOption | null } | { failed: true }>` (ruling 6; no carrier call when no unit is pending)
+    - `shippingDue(state: OrderState, units: { variantId: number; quantity: number; orderLineId?: number }[], address: Address | null): Promise<{ due: number; quote: number; previousShipmentsCost: number; option: ShippingOption | null } | { failed: true }>` (ruling 6; items from the shared `quoteItems`; no carrier call when no unit is pending)
     - `discountEvaluation(state: OrderState, overrides?: { lines?: DiscountLine[] }): Promise<DiscountRecalculation>` (ruling 12)
 
 - [ ] **Step 1: Write the failing tests:**
@@ -452,7 +470,7 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
     - one `LINES_CHANGED` entry with `newValue.added`, `newValue.changed`, `newValue.removed`, `totals` before/after, and no `LINE_ADDED` rows;
     - stock is deducted with key `edit:<op>:<variantId>`;
     - the shipping lines are unchanged and `shippingOriginal` is unchanged.
-  - **Shipping flag:** with a manual method priced by weight brackets, adding 3 kg changes the quote → `SHIPPING_REVIEW` raised with reason `PRODUCTS_CHANGED`. An unchanged quote → no flag.
+  - **Shipping flag:** with a manual method priced by weight brackets, adding 3 kg makes due ≠ charged → `SHIPPING_REVIEW` raised with reason `PRODUCTS_CHANGED`. Due = charged → no flag.
   - **Failed quote** (the method no longer serves the country) → the save succeeds and the flag reason is `SHIPPING_QUOTE_FAILED` (Review Focus 5).
   - **Discount flags:**
     - an applied SUBTOTAL ≥ 100 € promotion, lines lowered to 80 € → `DISCOUNTS_REVIEW` raised, discounts unchanged;
@@ -463,13 +481,15 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
     - lowering a shipped line → `QUANTITY_BELOW_SHIPPED`;
     - adding a new variant → `fulfillmentStatus: 'PARTIALLY_FULFILLED'`, `availableActions` contains `SHIP` (once settled) and not `ARCHIVE`, and the `shippingDue` quote prices only the new units.
   - **Preview:** `previewLines` writes nothing and returns `before`/`after` subtotal and total.
+  - `availableActions` never contains `'MODIFY'`, including for an open, unfulfilled order (`domain/orders.test.ts`); the order view neither.
 - [ ] **Step 2: Run** `npx vitest run tests/server/ecommerce/orders.editLines.test.ts`. Expected: FAIL.
 - [ ] **Step 3: Implement.**
-  - The line writes are moved from the old `writeModification` (create, update, delete, stock); the per-line history rows are dropped.
+  - The line writes use `writeLineChanges` (stock key `edit:<op>:<variantId>`); no per-line history rows.
   - `prepare` runs the simulation draft and `shippingDue` for the draft's pending units.
   - `write` re-runs the simulation on fresh state, writes the lines and stock, and calls `writeTotals({ lines: true, reviewFlags })` with the flags from rulings 20 and 22.
   - `discountEvaluation` runs on the written state (inside the transaction).
-- [ ] **Step 4: Run** the test. Expected: PASS.
+  - Delete the old flow in `orders.ts` and port its test callers (Files).
+- [ ] **Step 4: Run** the test, then `npx vitest run tests/server/ecommerce`. Expected: PASS.
 - [ ] **Step 5: Commit** `feat(ecommerce): save order products from the Products section; raise review flags`.
 
 ---
@@ -482,16 +502,17 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
   - carriers: `runtime.config.markets` ∩ the store markets;
   - unknown method → `[]`.
 - Modify: `server/src/services/modules/ecommerce/orderEditing.ts`
+- Modify: `server/src/services/modules/ecommerce/orders.ts` (export `normalizeAddress`)
 - Test: `tests/server/ecommerce/orders.editAddress.test.ts`, `tests/server/ecommerce/shipping.test.ts`
 
 **Interfaces:**
 - Produces:
   - `shippingAddressCountries(orderId: number | string): Promise<{ countries: string[] }>`
-  - `updateShippingAddress(orderId: number | string, input: { address: unknown }, actor: string, operationId: string): Promise<EditResult>`: needs `EDIT_ADDRESS`. The address is normalized like `normalizeAddress` in `orders.ts` (export it from there). A country outside `servedCountries` → `{ path: 'address.country', code: 'COUNTRY_NOT_SERVED' }`. An unchanged address (key-sorted compare) → outcome `NONE`, with no history and no flag.
+  - `updateShippingAddress(orderId: number | string, input: { address: unknown }, actor: string, operationId: string): Promise<EditResult>`: needs `EDIT_ADDRESS`. The address is normalized like `normalizeAddress` in `orders.ts` (export it from there). A country outside `servedCountries` → `{ path: 'address.country', code: 'COUNTRY_NOT_SERVED' }`. An unchanged address (key-sorted compare) → outcome `NONE`, no flag, no quote; the runner still records its main row (type `ADDRESS_CHANGED`, `newValue: { unchanged: true }`, no before/after) so a replay stays idempotent.
 
 - [ ] **Step 1: Write the failing tests:**
   - `servedCountries('manual', '1')` with rates for PT and ES and markets `['PT']` → `['PT']`. CTT with `config.markets: ['PT', 'ES']` → both when both are markets.
-  - **Save:** a new PT address → `ADDRESS_CHANGED` with before/after, a re-quote (whole order), and a flag only if the price differs (reason `ADDRESS_CHANGED`). A quote that fails → flag reason `SHIPPING_QUOTE_FAILED`, and the save succeeds (Review Focus 5).
+  - **Save:** a new PT address → `ADDRESS_CHANGED` with before/after, a re-quote (whole order), and a flag only if due ≠ charged (reason `ADDRESS_CHANGED`). A quote that fails → flag reason `SHIPPING_QUOTE_FAILED`, and the save succeeds (Review Focus 5).
   - A country not served → 400 `COUNTRY_NOT_SERVED`, nothing written.
   - With an ACTIVE shipment → 409 `ORDER_HAS_SHIPMENTS`. On a cancelled order → `ORDER_NOT_EDITABLE`.
   - The billing address is never changed.
@@ -511,17 +532,18 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
 **Interfaces:**
 - Consumes: Task 1 (`planRecalculation`, `planLineChange`, `appendLine`, `currentMethod`, `chargedShipping`); Task 8 (`shippingDue`).
 - Produces:
-  - `shippingOptionsForOrder(orderId: number | string): Promise<{ options: ShippingOption[]; failures: { providerId: string; code: string }[] }>` (ruling 7 units, current address)
-  - `export type ShippingRecalculationPreview = { charged: number; due: number; quote: number; previousShipmentsCost: number; mode: 'REPLACED' | 'APPENDED' | 'UNCHANGED'; lines: ShippingLine[]; before: ModificationTotals; after: ModificationTotals }`
+  - `shippingOptionsForOrder(orderId: number | string): Promise<{ options: ShippingOption[]; failures: { providerId: string; code: string }[] }>` (ruling 7 units, current address; items from the shared `quoteItems`)
+  - `export type ShippingRecalculationPreview = { charged: number; due: number; quote: number; previousShipmentsCost: number; mode: 'REPLACED' | 'APPENDED' | 'UNCHANGED'; lines: ShippingLineView[]; before: ModificationTotals; after: ModificationTotals }`
   - `previewShippingRecalculation(orderId: number | string): Promise<ShippingRecalculationPreview>` (writes nothing; a failed quote → `SHIPPING_QUOTE_FAILED`)
   - `recalculateShipping(orderId: number | string, actor: string, operationId: string): Promise<EditResult>` (clears `SHIPPING_REVIEW`; raises `DISCOUNTS_REVIEW` per ruling 22; history `SHIPPING_RECALCULATED` with charged/due/quote/previousShipmentsCost and lines before/after)
   - `export type ShippingLineInput = { providerId: string; serviceId: string; amount: number }`
   - `editShippingLine(orderId: number | string, lineId: number, input: ShippingLineInput, actor: string, operationId: string): Promise<EditResult>` (needs `EDIT_SHIPPING_LINE`; `SHIPPING_LINE_NOT_FOUND`; history `SHIPPING_LINE_EDITED`)
   - `addShippingLine(orderId: number | string, input: ShippingLineInput, actor: string, operationId: string): Promise<EditResult>` (needs `ADD_SHIPPING_LINE`; history `SHIPPING_LINE_ADDED`)
-  - Edit and Add clear `SHIPPING_REVIEW`. A method not in `shippingOptionsForOrder` → `{ path: 'method', code: 'SHIPPING_METHOD_UNAVAILABLE' }`. A bad amount → `{ path: 'amount', code: 'INVALID_AMOUNT' }`. The line method's `name` and `tax` come from the matching option.
+  - `lines` in the preview are views of the proposed table, computed with the same `shippingLineViews` ctx as the order (new lines: `paid`/`invoiced`/`spent` from that ctx).
+  - Edit and Add clear `SHIPPING_REVIEW` and, like Recalculate, raise `DISCOUNTS_REVIEW` per ruling 22 (spec 6.3). A method not in `shippingOptionsForOrder` → `{ path: 'method', code: 'SHIPPING_METHOD_UNAVAILABLE' }`. A bad amount → `{ path: 'amount', code: 'INVALID_AMOUNT' }`. The line method's `name` and `tax` come from the matching option.
 
 - [ ] **Step 1: Write the failing tests:**
-  - **Recalculate, no shipment:** charged 500, quote 650 → one RECALCULATION line of 650, `shippingOriginal` 650, `total` +150, outcome `DUE`. Then `createPaymentLink` (Stripe mocked as in `stripePayments.test.ts`) asks for the new `summary.due` (spec 6.2, "verificar").
+  - **Recalculate, no shipment:** charged 500, quote 650 → one RECALCULATION line of 650, `shippingOriginal` 650, `total` +150, outcome `DUE`. Then `getOrCreatePaymentLink` (Stripe service, mocked as in `stripePayments.test.ts`) asks for the new `summary.due` (spec 6.2, "verificar").
   - **Recalculate, partially shipped:** an ACTIVE shipment with cost 300, the rest quoted 100, charged 500 → appends −100, outcome `REFUNDABLE` on a paid order, `availableActions` contains `REFUND`, and no refund row is created.
   - **Recalculate, fully shipped, nothing added:** no carrier call (the quoter spy is not called); `due = Σ ACTIVE shipment costs`.
   - **Recalculate, equal:** no line, flag cleared, history `SHIPPING_RECALCULATED` with `mode: 'UNCHANGED'`.
@@ -534,6 +556,7 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
     - an unknown line id → `SHIPPING_LINE_NOT_FOUND`;
     - a method not offered for the destination or weight → `SHIPPING_METHOD_UNAVAILABLE`.
   - **Add:** with a shipment → a MANUAL line is appended (allowed) and `SHIPPING_REVIEW` is cleared.
+  - **Edit/Add with a shipping discount:** on the SHIPPING_FREE order, editing the line to 700 (or adding a line) → `DISCOUNTS_REVIEW` raised (reason `SHIPPING_CHANGED`).
 - [ ] **Step 2: Run** `npx vitest run tests/server/ecommerce/orders.editShipping.test.ts tests/server/ecommerce/stripePayments.test.ts`. Expected: FAIL.
 - [ ] **Step 3: Implement.** Recalculate: in `prepare`, run `shippingDue(state, pendingUnits, address)`. In `write`, recompute the line views on fresh state, run `planRecalculation`, then `writeTotals({ shippingLines })`.
 - [ ] **Step 4: Run** the tests. Expected: PASS.
@@ -551,12 +574,13 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
 - Produces:
   - `reserve(applied, ctx)`: unchanged signature. A `RESERVED` row is still skipped. A `RELEASED` row for this promotion and order is taken back: the same guarded bumps as a new reservation, then a conditional `RELEASED → RESERVED` update with `releasedAt: null` and `amount` = the new amount. A refusal throws `PROMOTION_UNAVAILABLE`.
   - `releasePromotions(orderId: number, promotionIds: number[]): Promise<{ promotionId: number; promotionCode: string | null }[]>`: `releaseForOrder` limited to these ids. It reuses that function's loop, given a filter.
-  - `loadCandidatesForOrder(p: { orderId: number; codes: string[]; email: string | null }): Promise<PromotionCandidate[]>`: `loadCandidates` with the counts of this order's `RESERVED` redemptions taken off (ruling 12).
+  - `loadCandidatesForOrder(p: { orderId: number; codes: string[]; email: string | null; appliedIds: number[] }): Promise<PromotionCandidate[]>`: `loadCandidates`, plus the rows of `appliedIds` loaded by id in any state (inactive, expired, any method; deleted ids are simply absent), with the counts of this order's `RESERVED` redemptions taken off (ruling 12).
 
 - [ ] **Step 1: Write the failing tests:**
   - **Release and take back:** release P1 of an order with P1 and P2 → only P1 released, `redemptions` −1. `reserve([P1])` again → the row is `RESERVED`, `redemptions` back up, and no new row (the unique key stays).
   - **Limit on take-back:** `usageLimit` reached by other orders while P1 was released → `PROMOTION_UNAVAILABLE`.
   - **Own redemption:** with `perCustomerLimit: 1` and this order's own redemption, `loadCandidatesForOrder` returns `customerUses: 0`, and `evaluatePromotions` with it keeps P1 eligible (Review Focus 1). With `usageLimit: 1, redemptions: 1` (this order) → `redemptions: 0`.
+  - **Applied but inactive:** an applied AUTOMATIC promotion with `active: false` is returned by `loadCandidatesForOrder` (not by `loadCandidates`), and `evaluatePromotions` rejects it with `INACTIVE`. A deleted applied id → absent.
 - [ ] **Step 2: Run** `npx vitest run tests/server/ecommerce/promotions.test.ts`. Expected: FAIL.
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run** the test. Expected: PASS.
@@ -571,12 +595,12 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
 - Test: `tests/server/ecommerce/orders.editDiscounts.test.ts`
 
 **Interfaces:**
-- Consumes: Task 4 (`recalculateDiscounts`), Task 3 (`buildManualDiscount`), Task 11.
+- Consumes: Task 4 (`recalculateDiscounts`), Task 3 (`buildManualDiscount`), Task 11. Task 12 switches Task 8's `discountEvaluation` from `loadCandidates` to `loadCandidatesForOrder` (with `appliedIds` = the order's applied promotion ids).
 - Produces:
   - `previewDiscounts(orderId: number | string, input: { selection?: string[] }): Promise<DiscountRecalculation>` (writes nothing; needs `RECALCULATE_DISCOUNTS`)
   - `applyDiscounts(orderId: number | string, input: { selection: string[] }, actor: string, operationId: string): Promise<EditResult>`. The steps:
     1. reject `conflicts` with `PROMOTIONS_NOT_COMBINABLE`, and an unselected locked row with `PROMOTION_GIFT_SHIPPED`;
-    2. write the line `unitDiscount`/`promotionRefs`, remove gift lines and restock them (`ORDER_RESTOCK`, key `edit:<op>:<variantId>`);
+    2. write the line `unitDiscount`/`promotionRefs`, remove gift lines and restock them through the shared `writeLineChanges` (`ORDER_RESTOCK`, key `edit:<op>:<variantId>`);
     3. `reserve(added)` with the customer id and normalized e-mail;
     4. `releasePromotions(removed)`;
     5. store `promotions: { ...stored, applied, recalculatedAt }`;
@@ -586,7 +610,7 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
   - `export type ManualDiscountInput = { kind: 'FIXED' | 'PERCENT'; value: number; reason: string }`
   - `addManualDiscount(orderId, input: ManualDiscountInput, actor, operationId): Promise<EditResult>`: needs `ADD_DISCOUNT`; `orderDiscount += amount`; history `MANUAL_DISCOUNT_ADDED` with `{ id, kind, percent, amount, reason }`.
   - `removeManualDiscount(orderId, discountId: number, actor, operationId): Promise<EditResult>`: needs `REMOVE_DISCOUNT`; `MANUAL_DISCOUNT_NOT_FOUND`; `orderDiscount = max(0, orderDiscount − amount)`; history `MANUAL_DISCOUNT_REMOVED`.
-  - `dismissReviewFlag(orderId, code: ReviewFlagCode, actor, operationId): Promise<EditResult>`: `REVIEW_FLAG_NOT_DISMISSABLE` while `editing.editable`; an absent flag → `invalid`; history `REVIEW_FLAG_DISMISSED`.
+  - `dismissReviewFlag(orderId, code: ReviewFlagCode, actor, operationId): Promise<EditResult>`: `REVIEW_FLAG_NOT_DISMISSABLE` while `editing.editable`; a code that is not a `ReviewFlagCode` or not raised → 400 `{ path: 'code', code: 'invalid' }`; history `REVIEW_FLAG_DISMISSED`. It runs through `runEdit` but persists `reviewFlags` with its own update (not `writeTotals`, whose `orderStatus: 'OPEN'` guard would refuse a cancelled or archived order).
 
 - [ ] **Step 1: Write the failing tests.** The first one follows spec 2's example.
   - **Spec 2's example:** "2× X oferece Y" (BUY_X_GET_Y `IN_CART`, Y free). The order has 2 X, is paid and invoiced, with no shipment.
@@ -594,6 +618,7 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
     - `previewDiscounts` → a `NEW` row for the promotion, unselected.
     - `applyDiscounts` with it selected → Y's `unitDiscount` equals its price; `redemptions` +1; the invoice is unchanged; the flag is cleared.
     - The outcome reflects the Y line (added at full price) and its discount.
+  - **Applied, now invalid (ruling 13):** an applied AUTOMATIC promotion since deactivated → `APPLIED_INVALID`, `invalidReason: 'INACTIVE'`; one since expired → `EXPIRED`; one deleted → `NOT_FOUND`.
   - **Kept invalid:** an applied promotion now expired, kept → its amount is unchanged. Deselected → its amount comes off the total, `releasePromotions` was called, and the outcome is `DUE`.
   - **After invoicing:** a discount added after invoicing → outcome `REFUNDABLE`; no refund or credit-note row is created (anti-goal).
   - **Errors:** a conflicting selection → 409 `PROMOTIONS_NOT_COMBINABLE`. Applying on a cancelled order → `ORDER_NOT_EDITABLE`.
@@ -601,7 +626,7 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
     - PERCENT 10 on a subtotal of 4000 → amount 400, `orderDiscount` +400, history with the reason;
     - removing it restores the total;
     - FIXED above the remaining products → `DISCOUNT_EXCEEDS_PRODUCTS`.
-  - **Dismiss:** on an open order → 409 `REVIEW_FLAG_NOT_DISMISSABLE`. On a cancelled order with a raised flag → the flag is removed and `REVIEW_FLAG_DISMISSED` is recorded.
+  - **Dismiss:** on an open order → 409 `REVIEW_FLAG_NOT_DISMISSABLE`. On a cancelled order with a raised flag → the flag is removed and `REVIEW_FLAG_DISMISSED` is recorded. A flag that is not raised → 400 `invalid`.
   - **Own redemption:** `perCustomerLimit: 1` with this order's own redemption → `APPLIED_VALID` (Review Focus 1).
 - [ ] **Step 2: Run** `npx vitest run tests/server/ecommerce/orders.editDiscounts.test.ts`. Expected: FAIL.
 - [ ] **Step 3: Implement.**
@@ -613,10 +638,10 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
 ### Task 13: Controller, routes and error codes
 
 **Files:**
-- Create: `server/src/controllers/modules/ecommerce/orderEditing.ts` (`EcommerceOrderEditingController`; parses `:id`, `:lineId` and `:discountId` as positive integers, else 400 `Invalid id`; `actor = user:<id>`; `operationId` from the body)
+- Create: `server/src/controllers/modules/ecommerce/orderEditing.ts` (`EcommerceOrderEditingController`; parses `:id`, `:lineId` and `:discountId` as positive integers, else 400 `Invalid id`; `:code` must be `SHIPPING_REVIEW` or `DISCOUNTS_REVIEW`, else 400 `{ path: 'code', code: 'invalid' }`; `actor = user:<id>`; `operationId` from the body)
 - Modify: `server/src/controllers/index.ts` (register it)
 - Modify: `server/src/controllers/modules/ecommerce/orders.ts` (delete `previewModification` and `applyModification`)
-- Modify: `server/src/controllers/modules/ecommerce/errors.ts` (add the ruling 11 codes to `CONFLICT_CODES`)
+- Modify: `server/src/controllers/modules/ecommerce/errors.ts` (add the ruling 11 codes to `CONFLICT_CODES`, including `OPERATION_ID_CONFLICT`)
 - Modify: `server/src/routes/ecommerce/admin-orders.ts`. Remove the two modification routes. Add an `editRoute(method, path, handler)` helper (handler prefix `EcommerceOrderEditingController.`, `orders.manage`) and these routes:
   - `GET /:id/shipping-address/countries` → `shippingAddressCountries`
   - `PUT /:id/shipping-address` → `updateShippingAddress`
@@ -632,16 +657,16 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
   - `POST /:id/manual-discounts` → `addManualDiscount`
   - `POST /:id/manual-discounts/:discountId/remove` → `removeManualDiscount`
   - `POST /:id/review-flags/:code/dismiss` → `dismissReviewFlag`
-- Test: `tests/server/ecommerce/ordersRoutes.test.ts`, `tests/server/ecommerce/ordersController.test.ts`
+- Test: `tests/server/ecommerce/ordersRoutes.test.ts` (drop the `modification` rows), `tests/server/ecommerce/ordersController.test.ts` (drop the `applyModification` case), `tests/server/ecommerce/orderEditingController.test.ts`
 
 - [ ] **Step 1: Write the failing tests:**
   - Each route exists with `orders.manage` and the module-active middleware. No route path contains `modification`.
   - The controller maps:
-    - `ORDER_NOT_EDITABLE` → 409 with `details.code`;
+    - `ORDER_NOT_EDITABLE` and `OPERATION_ID_CONFLICT` → 409 with `details.code`;
     - `COUNTRY_NOT_SERVED` → 400 with `details.code` (`withCode`);
     - `lineId: 'x'` → 400;
     - `operationId` and body are passed through to the service with `actor: 'user:7'`.
-- [ ] **Step 2: Run** `npx vitest run tests/server/ecommerce/ordersRoutes.test.ts tests/server/ecommerce/ordersController.test.ts`. Expected: FAIL.
+- [ ] **Step 2: Run** `npx vitest run tests/server/ecommerce/ordersRoutes.test.ts tests/server/ecommerce/ordersController.test.ts tests/server/ecommerce/orderEditingController.test.ts`. Expected: FAIL.
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run** the tests. Expected: PASS.
 - [ ] **Step 5: Commit** `feat(ecommerce): admin routes for editing orders by section`.
@@ -658,7 +683,7 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
   - remove `'MODIFY'` from `OrderActionKey`;
   - remove `ModificationShipping`, `OrderModificationInput`, `ApplyModificationInput`, `ModificationApplied` and `DiscountWarning`;
   - keep `ModificationTotals` and the line-related preview fields as `LinesPreview`;
-  - add `OrderEditing`, `OrderEditAction`, `ShippingLineView`, `ManualDiscount`, `ReviewFlag`, `ShippingRecalculationPreview`, `DiscountRow`, `DiscountRecalculation` and `EditResult`, mirroring the server types.
+  - add `OrderEditing`, `OrderEditAction`, `ShippingLineView`, `ShippingLineInput`, `ManualDiscount`, `ManualDiscountInput`, `ReviewFlag`, `ReviewFlagCode`, `ShippingRecalculationPreview`, `DiscountRow`, `DiscountRecalculation` and `EditResult`, mirroring the server types.
   - `Order` gains `editing`, `shippingLines`, `manualDiscounts` and `reviewFlags`.
 - Modify: `admin/src/ecommerce/gateways/ecommerceOrdersGateway.ts`. Remove `previewModification`/`applyModification` and add one method per route of Task 13:
   - `previewLines(id, input)`, `applyLines(id, input & { operationId })`
@@ -679,7 +704,7 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
 - Create: `admin/src/ecommerce/utils/orderEditing.ts`:
   - `canEdit(order: Order, action: OrderEditAction): boolean`
   - `reviewAlerts(order: Order): { code: ReviewFlagCode; reasonKey: string; raisedAt: string; sectionId: 'order-section-shipments' | 'order-section-promotions'; actionable: boolean; dismissable: boolean }[]`
-  - `shippingLineRows(order: Order, canManage: boolean): { line: ShippingLineView; badges: ('PAID' | 'INVOICED' | 'SPENT')[]; actions: ('EDIT')[] }[]`
+  - `shippingLineRows(lines: ShippingLineView[], editing: OrderEditing, canManage: boolean): { line: ShippingLineView; badges: ('PAID' | 'INVOICED' | 'SPENT')[]; actions: ('EDIT')[] }[]`
   - `hasRowActions(rows: { actions: unknown[] }[]): boolean`
   - `discountSelectionToggle(selection: string[], row: DiscountRow): string[]` (locked rows stay selected)
   - `manualDiscountDraftToInput(draft: { kind: 'FIXED' | 'PERCENT'; value: string; reason: string }): { input: ManualDiscountInput | null; errors: FieldError[] }` (parses euros with `parseMoneyToCents`; percent with a comma or a dot)
@@ -688,8 +713,10 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
   - remove `MODIFY` from `ACTION_PERMISSION` and `ToolbarAction`;
   - rename `modifyBlockedByShipment` to `editBlockedByShipment(order: Order): boolean` (`order.editing.blockedBy === 'SHIPMENT_PENDING'`);
   - `historyChange` covers `LINES_CHANGED` (`totals.total` before → after), `SHIPPING_RECALCULATED`/`SHIPPING_LINE_EDITED`/`SHIPPING_LINE_ADDED` (charged before → after), `DISCOUNTS_RECALCULATED` (total before → after) and `MANUAL_DISCOUNT_ADDED`/`MANUAL_DISCOUNT_REMOVED` (amount);
-  - add the new error codes of ruling 11 to `API_ERROR_CODES`.
+  - add the new error codes of ruling 11 (including `OPERATION_ID_CONFLICT`) to `API_ERROR_CODES`.
 - Modify: `admin/src/ecommerce/utils/orderModals.ts` (no `MODIFY`)
+- Delete: `admin/src/ecommerce/components/orders/ModifyOrderModal.tsx`, `ModificationSummary.tsx`, `SupplementaryPaymentModal.tsx`
+- Modify: `admin/src/ecommerce/pages/orders/OrderDetailPage.tsx`, `admin/src/ecommerce/components/orders/OrderHeader.tsx` (Step 4)
 - Test: `tests/admin/ecommerce/orderEditing.test.ts`, `tests/admin/ecommerce/modification.test.ts`, `tests/admin/ecommerce/orderDetail.test.ts`, `tests/admin/ecommerce/orderModals.test.ts`
 
 - [ ] **Step 1: Write the failing tests:**
@@ -702,7 +729,7 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
   - **`manualDiscountDraftToInput`:**
     - `{ kind: 'PERCENT', value: '10,5', reason: 'x' }` → `value: 10.5`;
     - `{ kind: 'FIXED', value: '5', reason: '' }` → a `reason` error;
-    - `{ kind: 'FIXED', value: '5,00' }` → 500.
+    - `{ kind: 'FIXED', value: '5,00', reason: 'x' }` → `value: 500`.
   - **`balanceActions`:** with `due > 0` and `canPay` → `['ADD_PAYMENT', 'SEND_PAYMENT_INSTRUCTIONS']`; with `REFUND` available and `canRefund` → `['REFUND']`.
   - **`historyEntryText`:** `LINES_CHANGED` → a money change before/after.
   - **Toolbar:** `allowedToolbarActions` never yields `MODIFY`.
@@ -718,6 +745,7 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
 
 **Files:**
 - Modify: `admin/src/ecommerce/components/orders/OrderSection.tsx` (optional `id?: string` on the root `Box`)
+- Modify: `admin/src/ecommerce/components/orders/ShipmentsSection.tsx` and `PromotionsSection.tsx` (an optional `id` prop passed to the `OrderSection` they render)
 - Create: `admin/src/ecommerce/components/orders/ReviewAlerts.tsx`. It renders one `Alert variant="danger"` per `reviewAlerts(order)` item, with:
   - title = the flag text;
   - body = the reason with the date (`formatDate`, `dateStyle: 'short'`, `timeStyle: 'short'`);
@@ -726,9 +754,9 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
 - Create: `admin/src/ecommerce/components/orders/BalanceOutcome.tsx` (`{ order: Order; outcome: 'DUE' | 'REFUNDABLE'; permissions: OrderActionPermissions; onAction: (a: ToolbarAction) => void }`). It shows "Amount due: X" or "Eligible for refund: X" and the `balanceActions` buttons.
 - Modify: `admin/src/ecommerce/pages/orders/OrderDetailPage.tsx`:
   - render `ReviewAlerts` under the header;
-  - give the sections ids `order-section-lines`, `order-section-shipments` and `order-section-promotions`;
-  - add `showResult(result: EditResult)`, which sets the order from `result.order` (the same supersede logic as the removed `afterModification`). Tasks 16–18 call it.
-- Modify: `admin/src/core/translations/en.json`, `pt.json`. Remove the `ecommerce.orders.modify.*` keys that are no longer used, and the `detail.actions.MODIFY` key. Add these keys (en / pt):
+  - give the sections ids `order-section-lines`, `order-section-shipments` and `order-section-promotions` (the last two through the new `id` props);
+  - add `showResult(result: EditResult)`, which sets the order from `result.order` with the supersede logic of the removed `afterModification` (`requestRef.current += 1`, `hasOrderRef.current = true`, `setOrder`, `setVersion(v => v + 1)`, `setLoadError(false)`; `load()` when `result.order` is missing). Tasks 16–18 call it.
+- Modify: `admin/src/core/translations/en.json`, `pt.json`. Remove the `ecommerce.orders.modify.*` keys that are no longer used, except `modify.summary.*` (Task 16 renames them), and the `detail.actions.MODIFY` key. Add these keys (en / pt):
   - `ecommerce.orders.review.SHIPPING_REVIEW` "Shipping may need to be recalculated." / "Os portes podem precisar de ser recalculados."
   - `ecommerce.orders.review.DISCOUNTS_REVIEW` "Discounts may need to be reassessed." / "Os descontos podem precisar de ser reavaliados."
   - `ecommerce.orders.review.reason.PRODUCTS_CHANGED` "Products changed on {date}" / "Produtos alterados a {date}"
@@ -741,7 +769,7 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
   - `ecommerce.orders.balance.due` "Amount due: {amount}" / "Valor em dívida: {amount}"
   - `ecommerce.orders.balance.refundable` "Eligible for refund: {amount}" / "Elegível para reembolso: {amount}"
   - `ecommerce.orders.history.type.<each new type>`, with titles in en and pt (e.g. `LINES_CHANGED` "Products changed" / "Produtos alterados"; `REVIEW_FLAG_DISMISSED` "Warning dismissed" / "Aviso dispensado")
-  - `ecommerce.orders.errors.<each new code>` (e.g. `ORDER_NOT_EDITABLE` "This order can no longer be changed." / "Esta encomenda já não pode ser alterada."; `ORDER_HAS_SHIPMENTS` "The order already has shipments." / "A encomenda já tem envios.")
+  - `ecommerce.orders.errors.<each new code>` (e.g. `ORDER_NOT_EDITABLE` "This order can no longer be changed." / "Esta encomenda já não pode ser alterada."; `OPERATION_ID_CONFLICT` "This change conflicts with another one. Reload the order and try again." / "Esta alteração entra em conflito com outra. Recarregue a encomenda e tente novamente."; `ORDER_HAS_SHIPMENTS` "The order already has shipments." / "A encomenda já tem envios.")
 - Test: `tests/admin/ecommerce/registerTrads.test.ts` (en/pt parity already enforced)
 
 - [ ] **Step 1: Implement** the components and the page changes.
@@ -783,8 +811,8 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
 - Modify: `admin/src/ecommerce/components/orders/AddressFields.tsx` (optional `countries` prop)
 - Create: `admin/src/ecommerce/components/orders/ShippingChargesTable.tsx`. Columns: method (name, origin under it), date, amount (signed, `formatCents`), status (`ToneBadge` per badge) and actions (`ColumnLabel`, hidden when `!hasRowActions`).
 - Create: `admin/src/ecommerce/components/orders/ShippingLineModal.tsx` (`mode: 'EDIT' | 'ADD'`). It loads `FetchShippingOptions` and shows a radio list of methods with the suggested price; the price field is prefilled with the suggestion and editable. It saves with `EditShippingLine`/`AddShippingLine`, then shows the result step. A method list that comes back empty → `EmptyNote` "No shipping method serves this address and weight."
-- Create: `admin/src/ecommerce/components/orders/RecalculateShippingModal.tsx`. It loads `PreviewShippingRecalculation` and shows charged, due (previous shipments + quote), the proposed table (`ShippingChargesTable` read-only) and the totals before → after. **Confirm** → `RecalculateShipping`, then the result step. An unchanged result → the text "Shipping is already correct." and **Confirm** still clears the flag.
-- Modify: `admin/src/ecommerce/components/orders/ShipmentsSection.tsx`. Props gain `order: Order`, `permissions` and `onEdited(result: EditResult)`. Header actions: delivery status, the address button, **Recalculate shipping** and **Add shipping** (when allowed). Body: a "Shipping charges" sub-heading with `ShippingChargesTable` above the shipments table.
+- Create: `admin/src/ecommerce/components/orders/RecalculateShippingModal.tsx`. It loads `PreviewShippingRecalculation` and shows charged, due (previous shipments + quote), the proposed table (`ShippingChargesTable` read-only) and the totals before → after. The proposed table rows are `shippingLineRows(preview.lines, order.editing, false)`. **Confirm** → `RecalculateShipping`, then the result step. An unchanged result → the text "Shipping is already correct." and **Confirm** still clears the flag.
+- Modify: `admin/src/ecommerce/components/orders/ShipmentsSection.tsx`. Props gain `order: Order`, `permissions`, `onEdited(result: EditResult)` and `onAction(a: ToolbarAction)` (for `BalanceOutcome`). Header actions: delivery status, the address button, **Recalculate shipping** and **Add shipping** (when allowed). Body: a "Shipping charges" sub-heading with `ShippingChargesTable` above the shipments table.
 - Modify: `OrderDetailPage.tsx` (pass the new props)
 - Modify: translations (en / pt):
   - `ecommerce.orders.shippingCharges.title` "Shipping charges" / "Cobranças de portes"
@@ -798,7 +826,7 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
   - `.badge.PAID` "Paid" / "Pago"
   - `.badge.INVOICED` "Invoiced" / "Faturado"
   - `.badge.SPENT` "Shipped" / "Gasto"
-  - `.columns.method|date|amount|status|actions`
+  - `.columns.method` "Method" / "Método", `.columns.date` "Date" / "Data", `.columns.amount` "Amount" / "Valor", `.columns.status` "Status" / "Estado", `.columns.actions` "Actions" / "Ações"
   - `.charged` "Charged" / "Cobrados"
   - `.due` "Due" / "Devidos"
   - `.unchanged` "Shipping is already correct." / "Os portes já estão certos."
@@ -826,7 +854,7 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
   - **Confirm** → `ApplyDiscounts`, then the result step.
 - Create: `admin/src/ecommerce/components/orders/ManualDiscountModal.tsx`: kind radio (Fixed amount / Percentage), value, reason (required, 200 maximum). It saves with `AddManualDiscount`, then the result step.
 - Modify: `admin/src/ecommerce/components/orders/PromotionsSection.tsx`:
-  - props gain `order`, `permissions` and `onEdited`;
+  - props gain `order`, `permissions`, `onEdited` and `onAction(a: ToolbarAction)` (for `BalanceOutcome`);
   - `actions`: **Recalculate discounts** and **Add discount** when allowed;
   - manual discounts are extra rows (method "Manual", benefit = the reason, with "10 % (5,00 €)" for PERCENT and the translated legacy reason for LEGACY);
   - `promotionsDiscountTotal` + manual amounts go into the "Total discount:" row;
@@ -879,8 +907,9 @@ Ambiguities resolved here (decision: why). They follow the spec's [Decisão] poi
   - **§4.1:** add that an order fully shipped that receives new products goes back to `PARTIALLY_FULFILLED`, so Archive is unavailable until those products are shipped.
   - Add **§4.17 "Edição da encomenda por secções [Decisão, 2026-11-13]"**: a short summary with a link to `docs/superpowers/specs/2026-11-13-order-editing-design.md`. It states that it replaces requirement 16's single modification flow and the **Modify** button.
 - Modify: `docs/superpowers/plans/ecommerce-followups.md`:
-  - remove the "P6 final: modify modal …" item (the modal is gone);
+  - reword the "P6 final: modify modal shows a raised discounted line…" item to the Products modal (`OrderProductsModal`, which still uses `ModifyLinesEditor`);
   - reword the P4 item about MODIFY with PROCESSING refunds so it names the new edit actions;
+  - reword the P5 F4 item ("blocks MODIFY/CANCEL") to "blocks editing (`SHIPMENT_PENDING`) and CANCEL";
   - add "shipping line `invoiced` is derived from invoice dates (prudent); store shipping-line ids on coverages if per-line invoicing is ever needed".
 - Check: `docs/ecommerce/storefront-api.md` needs no change (contract unchanged); `grep -n -i "modif" docs/ecommerce/storefront-api.md` shows nothing to change.
 
