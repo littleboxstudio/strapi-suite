@@ -764,3 +764,31 @@ describe('applyCombination: exact splits stress', () => {
     checkInvariants(r, lines);
   });
 });
+
+describe('applyCombination — frozen lines', () => {
+  it('gives frozen units no line-level benefit but counts them in order bases and thresholds', () => {
+    const frozen = { ...line(1, 1800, 2), frozen: true };
+    const r = run(
+      [
+        promo(1, [{ type: 'PRODUCT_PERCENT', target: T(1, 2), percent: 50, maxQuantity: null }]),
+        promo(2, [
+          {
+            type: 'BUY_X_GET_Y',
+            buy: { target: A, quantity: 1, minAmount: 3000 },
+            get: { mode: 'IN_CART', target: A, quantity: 1 },
+            reward: { kind: 'FREE' },
+          },
+        ]),
+        promo(3, [{ type: 'ORDER_PERCENT', percent: 10 }]),
+      ],
+      [frozen, line(2, 1000, 1)]
+    );
+    expect(r.benefitAmounts.get(1)).toEqual([500]);
+    expect(r.benefitAmounts.get(2)).toEqual([0]);
+    expect(r.lines.filter((l) => l.sourceIndex === 0)).toEqual([
+      expect.objectContaining({ quantity: 2, unitDiscount: 0, refs: [] }),
+    ]);
+    // 10 % of (3600 + 500).
+    expect(r.orderDiscount).toBe(410);
+  });
+});

@@ -265,6 +265,67 @@ describe('recalculateDiscounts — applied but no longer valid', () => {
   });
 });
 
+describe('recalculateDiscounts — frozen lines in order-level bases', () => {
+  const p1 = promo(1, [{ type: 'PRODUCT_PERCENT', target: T(1), percent: 10, maxQuantity: null }]);
+  const p2 = promo(2, [{ type: 'ORDER_PERCENT', percent: 10 }]);
+  const stored = [line(1, 1, 2000, 2), line(2, 2, 1000, 1)];
+  const lines = [
+    line(1, 1, 2000, 2, {
+      unitDiscount: 200,
+      refs: [{ promotionId: 1, benefitIndex: 0, amount: 400 }],
+    }),
+    line(2, 2, 1000, 1),
+  ];
+
+  it("counts a frozen line's net value in a valid order promotion, without new line discounts", () => {
+    const applied = checkout([p1, p2], stored);
+    const r = recalculateDiscounts(
+      ctx({ lines, applied, orderDiscount: 460, candidates: [{ ...p1, active: false }, p2] })
+    );
+    expect(r.rows.map((x) => [x.key, x.kind, x.amount])).toEqual([
+      ['p:1', 'APPLIED_INVALID', 400],
+      ['p:2', 'APPLIED_VALID', 460],
+    ]);
+    // 10 % of (2 × 1800 + 1000).
+    expect(r.applied.find((a) => a.promotionId === 2)?.amount).toBe(460);
+    expect(r.orderDiscount).toBe(460);
+    expect(r.lines).toEqual([]);
+    expect(r.after.total).toBe(4600 - 460);
+  });
+
+  it('gives a frozen line no new product discount', () => {
+    const p3 = promo(3, [
+      { type: 'PRODUCT_PERCENT', target: T(1, 2), percent: 50, maxQuantity: null },
+    ]);
+    const r = recalculateDiscounts(
+      ctx({ lines, applied: checkout([p1], stored), candidates: [{ ...p1, active: false }, p3] }),
+      ['p:1', 'p:3']
+    );
+    expect(r.lines).toEqual([
+      { id: 2, unitDiscount: 500, refs: [{ promotionId: 3, benefitIndex: 0, amount: 500 }] },
+    ]);
+    expect(r.rows.find((x) => x.key === 'p:3')?.amount).toBe(500);
+  });
+});
+
+describe('recalculateDiscounts — order discount clamp', () => {
+  it('returns the order discount clamped to the new subtotal', () => {
+    const p1 = promo(1, [{ type: 'ORDER_FIXED', amount: 1500 }]);
+    const r = recalculateDiscounts(
+      ctx({
+        lines: [line(1, 1, 1000, 1)],
+        applied: checkout([p1], [line(1, 1, 1000, 3)]),
+        manual: [manual(1, 800)],
+        orderDiscount: 2300,
+        candidates: [{ ...p1, active: false }],
+      })
+    );
+    expect(r.orderDiscount).toBe(1000);
+    expect(r.after.orderDiscount).toBe(1000);
+    expect(r.after.total).toBe(0);
+  });
+});
+
 describe('recalculateDiscounts — new promotions', () => {
   const p2 = promo(2, [{ type: 'ORDER_FIXED', amount: 300 }]);
   const base = ctx({ lines: [line(1, 1, 2000, 2)], candidates: [p2] });
