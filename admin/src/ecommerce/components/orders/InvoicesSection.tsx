@@ -19,7 +19,7 @@ import {
 } from '@strapi/design-system';
 import config from '../../../core/config';
 import { getTranslation } from '../../../core/utils/getTranslation';
-import EmptySection from '../../illustrations/EmptySection';
+import EmptyNote from './EmptyNote';
 import FetchInvoicePdf from '../../usecases/orders/fetchInvoicePdf';
 import ReconcileInvoice from '../../usecases/orders/reconcileInvoice';
 import { formatCents } from '../../utils/money';
@@ -327,12 +327,7 @@ const InvoicesSection = ({ title, order, canInvoice, onIssue, onChanged }: Props
       ))}
 
       {invoices.length === 0 ? (
-        <Flex direction="column" alignItems="center" gap={2} paddingTop={2} paddingBottom={2}>
-          <EmptySection />
-          <Typography variant="pi" textColor="neutral600">
-            {t('ecommerce.orders.invoices.empty')}
-          </Typography>
-        </Flex>
+        <EmptyNote>{t('ecommerce.orders.invoices.empty')}</EmptyNote>
       ) : (
         <Box style={{ overflowX: 'auto' }}>
           <Table colCount={COLUMNS.length} rowCount={invoices.length + 1}>
