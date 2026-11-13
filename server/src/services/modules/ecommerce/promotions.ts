@@ -539,6 +539,10 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
     email: string | null;
     /** `false`: the per-customer usage is not read (it is never evaluated for unverified e-mails). */
     emailVerified?: boolean;
+    /** Promotions loaded by id in any state, besides the running and entered ones (edited orders). */
+    extraIds?: number[];
+    /** Order whose own RESERVED redemptions are taken off the usage counts (edited orders). */
+    ownOrderId?: number;
   }): Promise<PromotionCandidate[]> => {
     const u = uids();
     const q = strapi.db.query(u.promotion);
@@ -550,7 +554,9 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
     const coded: any[] = codes.length
       ? await q.findMany({ where: { method: 'CODE', code: { $in: codes } } })
       : [];
-    const rows = [...new Map([...running, ...coded].map((r) => [r.id, r])).values()].sort(
+    const extraIds = [...new Set(p?.extraIds ?? [])];
+    const extra: any[] = extraIds.length ? await q.findMany({ where: { id: { $in: extraIds } } }) : [];
+    const rows = [...new Map([...running, ...coded, ...extra].map((r) => [r.id, r])).values()].sort(
       (a, b) => a.id - b.id
     );
 
@@ -563,8 +569,41 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
         .findMany({ where: { uniqueKey: { $in: keys } }, select: ['uniqueKey', 'uses'] });
       usage.forEach((x) => uses.set(x.uniqueKey, num(x.uses)));
     }
-    return rows.map((r) => toCandidate(r, email ? (uses.get(promotionUsageKey(r.id, email)) ?? 0) : 0));
+    // The order's own RESERVED use must not block the promotion it already holds.
+    const own = new Map<number, string | null>();
+    if (p?.ownOrderId !== undefined) {
+      const held: any[] = await strapi.db.query(u.promotionRedemption).findMany({
+        where: { order: { id: p.ownOrderId }, status: 'RESERVED' },
+        populate: { promotion: { select: ['id'] } },
+      });
+      for (const r of held) {
+        const id = idOf(r.promotion);
+        if (id !== null) own.set(id, r.emailNormalized ?? null);
+      }
+    }
+    return rows.map((r) => {
+      const customerUses = email ? (uses.get(promotionUsageKey(r.id, email)) ?? 0) : 0;
+      if (!own.has(r.id)) return toCandidate(r, customerUses);
+      const ownEmail = own.get(r.id);
+      const candidate = toCandidate(r, ownEmail && ownEmail === email ? Math.max(0, customerUses - 1) : customerUses);
+      return { ...candidate, redemptions: Math.max(0, candidate.redemptions - 1) };
+    });
   };
+
+  /**
+   * `loadCandidates` for editing an order (trusted, admin): the order's applied promotions are
+   * also loaded by id in any state (inactive, expired; a deleted row is simply absent) so the
+   * engine gives their real rejection reason, and the order's own RESERVED redemptions are
+   * taken off `redemptions` and `customerUses`. A CODE promotion is only considered when its
+   * code is entered, so the caller passes the current code of each applied one in `codes`.
+   */
+  const loadCandidatesForOrder = (p: {
+    orderId: number;
+    codes: string[];
+    email: string | null;
+    appliedIds: number[];
+  }): Promise<PromotionCandidate[]> =>
+    loadCandidates({ codes: p.codes, email: p.email, extraIds: p.appliedIds, ownOrderId: p.orderId });
 
   /**
    * One option per variant offered as a GIFT by any candidate. `available` is the stock minus
@@ -664,9 +703,10 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
       const now = new Date();
       for (const a of list) {
         const key = redemptionKey(a.promotionId, ctx.orderId);
-        if (await strapi.db.query(u.promotionRedemption).findOne({ where: { uniqueKey: key }, select: ['id'] })) {
-          continue;
-        }
+        const existing = await strapi.db
+          .query(u.promotionRedemption)
+          .findOne({ where: { uniqueKey: key }, select: ['id', 'status'] });
+        if (existing && existing.status !== 'RELEASED') continue;
         // A locking (current) read: a snapshot read could predate an admin lowering a limit.
         const row = await lockPromotion(trx, a.promotionId, RESERVE_COLUMNS);
         const code = a.code ?? row?.code ?? null;
@@ -701,7 +741,16 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
           }
         }
 
-        // 3. The redemption that the cancel releases.
+        // 3. The redemption that the cancel releases (a released one of this order is taken back).
+        if (existing) {
+          const { count } = await strapi.db.query(u.promotionRedemption).updateMany({
+            where: { id: existing.id, status: 'RELEASED' },
+            data: { status: 'RESERVED', releasedAt: null, amount: num(a.amount), actor: ctx.actor ?? null },
+          });
+          // Lost the race to another take-back: undo through the failure of the transaction.
+          if (!count) throw unavailable(a.promotionId, code);
+          continue;
+        }
         await strapi.db.query(u.promotionRedemption).create({
           data: {
             promotion: a.promotionId,
@@ -728,7 +777,8 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
   const releaseForOrder = async (
     orderId: number,
     _actor: string,
-    _opts: { operationId?: string } = {}
+    _opts: { operationId?: string } = {},
+    only?: number[]
   ): Promise<{ promotionId: number; promotionCode: string | null }[]> => {
     const u = uids();
     return strapi.db.transaction(async ({ trx }: { trx: any }) => {
@@ -740,6 +790,7 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
       const released: { promotionId: number; promotionCode: string | null }[] = [];
       const releasedAt = new Date().toISOString();
       for (const r of rows) {
+        if (only && !only.includes(idOf(r.promotion) as number)) continue;
         const { count } = await strapi.db.query(u.promotionRedemption).updateMany({
           where: { id: r.id, status: 'RESERVED' },
           data: { status: 'RELEASED', releasedAt },
@@ -761,6 +812,13 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
       return released.sort((a, b) => a.promotionId - b.promotionId);
     });
   };
+
+  /** `releaseForOrder` limited to the given promotions (deselected on an edited order). */
+  const releasePromotions = (
+    orderId: number,
+    promotionIds: number[]
+  ): Promise<{ promotionId: number; promotionCode: string | null }[]> =>
+    releaseForOrder(orderId, '', {}, promotionIds);
 
   /** Per promotion id, the status of the order's redemption (the order view reads it). */
   const redemptionStatuses = async (orderId: number): Promise<Map<number, 'RESERVED' | 'RELEASED'>> => {
@@ -792,9 +850,11 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
     evaluate,
     unmet,
     loadCandidates,
+    loadCandidatesForOrder,
     giftOptions,
     reserve,
     releaseForOrder,
+    releasePromotions,
     redemptionStatuses,
   };
 };

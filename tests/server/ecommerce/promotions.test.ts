@@ -3,6 +3,7 @@ import { createHash } from 'crypto';
 
 import { __resetEventHandlersForTests } from '../../../server/src/services/modules/ecommerce/events';
 import { EcommerceValidationError } from '../../../server/src/services/modules/ecommerce/errors';
+import { evaluatePromotions } from '../../../server/src/services/modules/ecommerce/domain/promotions';
 import type { AppliedPromotion } from '../../../server/src/services/modules/ecommerce/domain/promotions';
 import { UIDS, setupCommerce, type Commerce } from './helpers/commerceSetup';
 
@@ -644,5 +645,110 @@ describe('requireVerifiedEmail', () => {
     expect(p.customerUses).toBe(0);
     const [q] = await svc.loadCandidates({ codes: ['ONCE2'], email: 'ana@example.pt', emailVerified: true });
     expect(q.customerUses).toBe(1);
+  });
+});
+
+describe('edited orders: partial release, take-back and own usage', () => {
+  const ctx = (orderId: number, email = 'ana@example.pt') => ({ orderId, customerId: 3, email, actor: 'user:1' });
+  const redemption = (promotionId: number, orderId: number) =>
+    c.tables[UIDS.promotionRedemption].find((r) => r.promotion === promotionId && r.order === orderId);
+
+  it('releasePromotions releases only the given ids; reserve takes the released row back', async () => {
+    const p1 = addPromotion();
+    const p2 = addPromotion();
+    addOrder(1);
+    await svc.reserve([applied(p1, null, 100), applied(p2, null, 200)], ctx(1));
+    expect(await svc.releasePromotions(1, [p1])).toEqual([{ promotionId: p1, promotionCode: null }]);
+    expect(promo(p1).redemptions).toBe(0);
+    expect(promo(p2).redemptions).toBe(1);
+    expect(redemption(p1, 1)).toMatchObject({ status: 'RELEASED' });
+    expect(redemption(p2, 1)).toMatchObject({ status: 'RESERVED' });
+    expect(await svc.releasePromotions(1, [p1])).toEqual([]);
+
+    await svc.reserve([applied(p1, null, 150)], ctx(1));
+    expect(promo(p1).redemptions).toBe(1);
+    expect(c.tables[UIDS.promotionRedemption]).toHaveLength(2);
+    expect(redemption(p1, 1)).toMatchObject({ status: 'RESERVED', releasedAt: null, amount: 150 });
+    expect(c.tables[UIDS.promotionCustomerUsage].map((u) => u.uses)).toEqual([1, 1]);
+  });
+
+  it('refuses the take-back when other orders used up the limit meanwhile', async () => {
+    const p1 = addPromotion({ usageLimit: 1 });
+    addOrder(1);
+    addOrder(2);
+    await svc.reserve([applied(p1, null)], ctx(1));
+    await svc.releasePromotions(1, [p1]);
+    await svc.reserve([applied(p1, null)], ctx(2, 'rui@example.pt'));
+    expect(await errorsOf(svc.reserve([applied(p1, null)], ctx(1)))).toEqual([
+      { path: `promotions.${p1}`, code: 'PROMOTION_UNAVAILABLE', detail: '' },
+    ]);
+    expect(promo(p1).redemptions).toBe(1);
+    expect(redemption(p1, 1)).toMatchObject({ status: 'RELEASED' });
+  });
+
+  it('loadCandidatesForOrder ignores the own RESERVED redemption (Review Focus 1)', async () => {
+    const id = addPromotion({ usageLimit: 1, perCustomerLimit: 1 });
+    addOrder(1);
+    await svc.reserve([applied(id, null)], ctx(1));
+    const base = await svc.loadCandidates({ codes: [], email: 'ana@example.pt' });
+    expect(base[0]).toMatchObject({ redemptions: 1, customerUses: 1 });
+
+    const out = await svc.loadCandidatesForOrder({ orderId: 1, codes: [], email: 'ana@example.pt', appliedIds: [id] });
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ redemptions: 0, customerUses: 0 });
+    const result = evaluatePromotions({
+      lines: [{ variantId: 10, productId: 1, unitPrice: 2000, quantity: 1 }],
+      email: 'ana@example.pt',
+      shipping: null,
+      codes: [],
+      candidates: out,
+      gifts: new Map(),
+      now: new Date(),
+      searchLimit: 50,
+    } as any);
+    expect(result.eligible).toEqual([id]);
+    // Another order's own use still counts.
+    const other = await svc.loadCandidatesForOrder({ orderId: 2, codes: [], email: 'ana@example.pt', appliedIds: [] });
+    expect(other[0]).toMatchObject({ redemptions: 1, customerUses: 1 });
+  });
+
+  it('does not subtract a RELEASED redemption of the order', async () => {
+    const id = addPromotion({ usageLimit: 5 });
+    addOrder(1);
+    await svc.reserve([applied(id, null)], ctx(1));
+    await svc.releasePromotions(1, [id]);
+    const [out] = await svc.loadCandidatesForOrder({ orderId: 1, codes: [], email: 'ana@example.pt', appliedIds: [id] });
+    expect(out).toMatchObject({ redemptions: 0, customerUses: 0 });
+  });
+
+  it('loads applied promotions in any state by id; a deleted one is absent', async () => {
+    const inactive = addPromotion({ active: false });
+    const expiredCode = addPromotion({ method: 'CODE', code: 'NEWNAME', endsAt: '2020-06-01T00:00:00.000Z' });
+    const running = addPromotion();
+    const gone = 999;
+    expect((await svc.loadCandidates({ codes: [], email: null })).map((p: any) => p.id)).toEqual([running]);
+    const out = await svc.loadCandidatesForOrder({
+      orderId: 1,
+      codes: [],
+      email: null,
+      appliedIds: [inactive, expiredCode, gone],
+    });
+    expect(out.map((p: any) => p.id)).toEqual([inactive, expiredCode, running]);
+    const result = evaluatePromotions({
+      lines: [{ variantId: 10, productId: 1, unitPrice: 2000, quantity: 1 }],
+      email: null,
+      shipping: null,
+      codes: ['NEWNAME'],
+      candidates: out,
+      gifts: new Map(),
+      now: new Date(),
+      searchLimit: 50,
+    } as any);
+    expect(result.rejected).toEqual(
+      expect.arrayContaining([
+        { promotionId: inactive, reason: 'INACTIVE' },
+        { promotionId: expiredCode, reason: 'EXPIRED' },
+      ])
+    );
   });
 });
