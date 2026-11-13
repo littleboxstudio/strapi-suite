@@ -583,6 +583,19 @@ describe('EcommerceOrderEditingService.editShippingLine', () => {
     });
   });
 
+  it('a correction line (editOf) cannot be edited: SHIPPING_LINE_NOT_FOUND', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    issueInvoice(ctx, id);
+    await ctx.editing.editShippingLine(id, 1, { ...standard, amount: 700 }, 'user:1', 'op-line-0013');
+    expect(
+      await issues(
+        ctx.editing.editShippingLine(id, 2, { ...standard, amount: 900 }, 'user:1', 'op-line-0014')
+      )
+    ).toEqual([{ path: 'lineId', code: 'SHIPPING_LINE_NOT_FOUND' }]);
+    expect(orderRow(ctx, id).shippingOriginal).toBe(700);
+  });
+
   it('a carrier that failed to quote the requested method is SHIPPING_QUOTE_FAILED', async () => {
     const ctx = setup();
     const id = await createOrder(ctx);

@@ -63,22 +63,38 @@ export type ShippingLineRow = {
   line: ShippingLineView;
   badges: ('PAID' | 'INVOICED' | 'SPENT')[];
   actions: 'EDIT'[];
+  /** A correction line: the id of the line it corrects. */
+  correctionOf: number | null;
+  /** A corrected line: what it charges now, with its corrections. */
+  now: number | null;
 };
 
+/**
+ * The rows of the shipping charges table. Each line shows its own amount, so the rows add up to the
+ * charge; a correction is listed right under the line it corrects. Corrections are never edited by
+ * themselves (the edit goes through their line).
+ */
 export function shippingLineRows(
   lines: ShippingLineView[],
   editing: OrderEditing,
   canManage: boolean
 ): ShippingLineRow[] {
   const canEditLine = canManage && editing.editable && editing.actions.includes('EDIT_SHIPPING_LINE');
-  return lines.map((line) => ({
+  const ids = new Set(lines.map((l) => l.id));
+  const isPlaced = (l: ShippingLineView) => l.editOf != null && ids.has(l.editOf);
+  const ordered = lines.flatMap((l) =>
+    isPlaced(l) ? [] : [l, ...lines.filter((c) => c.editOf === l.id && c.editOf != null)]
+  );
+  return ordered.map((line) => ({
     line,
     badges: [
       ...(line.paid ? (['PAID'] as const) : []),
       ...(line.invoiced ? (['INVOICED'] as const) : []),
       ...(line.spent ? (['SPENT'] as const) : []),
     ],
-    actions: canEditLine ? ['EDIT'] : [],
+    actions: canEditLine && line.editOf == null ? ['EDIT'] : [],
+    correctionOf: line.editOf ?? null,
+    now: line.effectiveAmount !== undefined && line.effectiveAmount !== line.amount ? line.effectiveAmount : null,
   }));
 }
 
@@ -119,11 +135,39 @@ export function currentShippingMethod(lines: ShippingLineView[]): MethodRef | nu
   return chosen ? { providerId: chosen.providerId, serviceId: chosen.serviceId } : null;
 }
 
+/** The method a line now charges with: its newest correction's, else its own. */
+function lineMethod(lines: ShippingLineView[], line: ShippingLineView): MethodRef {
+  const latest = [line, ...lines.filter((l) => l.editOf === line.id)].pop() as ShippingLineView;
+  return { providerId: latest.providerId, serviceId: latest.serviceId };
+}
+
+/** An edit that would leave `line` charging the same method and amount (nothing to save). */
+export function shippingLineEditUnchanged(
+  lines: ShippingLineView[],
+  line: ShippingLineView,
+  input: ShippingLineInput
+): boolean {
+  const method = lineMethod(lines, line);
+  return (
+    method.providerId === input.providerId &&
+    method.serviceId === input.serviceId &&
+    shippingLineAmount(line) === input.amount
+  );
+}
+
 export const shippingOptionKey = (o: MethodRef): string => `${o.providerId}:${o.serviceId}`;
 
-/** The option selected when the modal opens: `preferred` when offered, else the first one. */
-export function defaultShippingOptionKey(options: ShippingOption[], preferred: MethodRef | null): string | null {
+/**
+ * The option selected when the modal opens: `preferred` when offered, else the first one; nothing
+ * when `preferred` is missing because its carrier failed to quote (no silent switch of method).
+ */
+export function defaultShippingOptionKey(
+  options: ShippingOption[],
+  preferred: MethodRef | null,
+  failures: { providerId: string }[] = []
+): string | null {
   const match = preferred && options.find((o) => shippingOptionKey(o) === shippingOptionKey(preferred));
+  if (!match && preferred && failures.some((f) => f.providerId === preferred.providerId)) return null;
   const option = match || options[0];
   return option ? shippingOptionKey(option) : null;
 }

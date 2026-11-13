@@ -47,7 +47,7 @@ const ShippingAddressDialog = ({ order, canManage, onSaved, onClose }: Props & {
     });
 
   const editable = canManage && canEdit(order, 'EDIT_ADDRESS');
-  const lockReason = editable ? null : addressLockReason(order.editing);
+  const lockReason = editable ? null : (addressLockReason(order.editing) ?? 'default');
 
   const [operationId] = useState(() => mintUuid());
   const [initial] = useState(() => addressFormFromAddress(order.shippingAddress));
