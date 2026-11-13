@@ -14,12 +14,12 @@ const CustomerCard = ({ customer }: { customer: OrderCustomer }) => {
     <Flex direction="column" alignItems="flex-end" gap={1}>
       {customer.id ? (
         <Link tag={RouterLink} to={`/plugins/${config.pluginId}/ecommerce/customers/${customer.id}`}>
-          <Typography variant="delta" tag="span" textColor="primary600">
+          <Typography variant="omega" textColor="neutral800">
             {name}
           </Typography>
         </Link>
       ) : (
-        <Typography variant="delta" tag="span" textColor="neutral800">
+        <Typography variant="omega" textColor="neutral800">
           {name}
         </Typography>
       )}
