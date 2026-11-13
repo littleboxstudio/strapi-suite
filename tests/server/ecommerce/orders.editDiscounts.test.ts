@@ -636,7 +636,7 @@ describe('applyDiscounts errors', () => {
 });
 
 describe('legacy manual discount (spec 7.4)', () => {
-  it('a LEGACY item above the clamped order discount is capped when the discounts are saved', async () => {
+  it('a LEGACY item above the clamped order discount is capped by the products save and the discounts save', async () => {
     const ctx = setup();
     const id = await createOrder(ctx);
     const row = orderRow(ctx, id);
@@ -650,13 +650,99 @@ describe('legacy manual discount (spec 7.4)', () => {
     );
     expect(orderRow(ctx, id).orderDiscount).toBe(2500);
     expect(orderRow(ctx, id).manualDiscounts.items).toEqual([
-      expect.objectContaining({ id: 1, kind: 'LEGACY', amount: 5000 }),
+      expect.objectContaining({ id: 1, kind: 'LEGACY', amount: 2500 }),
     ]);
 
     await ctx.editing.applyDiscounts(id, { selection: ['m:1'] }, 'user:1', 'op-legacy-02');
     expect(orderRow(ctx, id)).toMatchObject({ orderDiscount: 2500, total: 500 });
     expect(orderRow(ctx, id).manualDiscounts.items).toEqual([
       expect.objectContaining({ id: 1, kind: 'LEGACY', amount: 2500 }),
+    ]);
+  });
+
+  /** Products save down to variant 11 (subtotal 2500), then back up with 2 × variant 10 (6500). */
+  const clampThenRaise = async (ctx: Ctx, id: number) => {
+    await ctx.editing.applyLines(
+      id,
+      { lines: lineInputs(ctx, id).filter((l) => l.variantId === 11) },
+      'user:1',
+      'op-clamp-001'
+    );
+    expect(orderRow(ctx, id).orderDiscount).toBe(2500);
+    await ctx.editing.applyLines(
+      id,
+      { lines: [...lineInputs(ctx, id), { variantId: 10, quantity: 2 }] },
+      'user:1',
+      'op-raise-001'
+    );
+    expect(orderRow(ctx, id)).toMatchObject({ subtotal: 6500, orderDiscount: 2500 });
+  };
+
+  it('a clamped LEGACY item is persisted capped by the products save; a later recalculation keeps 2500', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    Object.assign(orderRow(ctx, id), { orderDiscount: 5000, total: 2000, manualDiscounts: null });
+    await clampThenRaise(ctx, id);
+    expect(orderRow(ctx, id).manualDiscounts.items).toEqual([
+      expect.objectContaining({ id: 1, kind: 'LEGACY', amount: 2500 }),
+    ]);
+    const preview = await ctx.editing.previewDiscounts(id, {});
+    expect(preview.rows).toEqual([expect.objectContaining({ key: 'm:1', amount: 2500 })]);
+    expect(preview.orderDiscount).toBe(2500);
+    await ctx.editing.applyDiscounts(id, { selection: ['m:1'] }, 'user:1', 'op-recalc-01');
+    expect(orderRow(ctx, id).orderDiscount).toBe(2500);
+    expect(orderRow(ctx, id).manualDiscounts.items).toEqual([
+      expect.objectContaining({ id: 1, kind: 'LEGACY', amount: 2500 }),
+    ]);
+  });
+
+  it('a stored manual list above the order discount is priced capped (preview and apply)', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    // Persisted unreconciled by an earlier version: LEGACY 5000 next to orderDiscount 2500.
+    Object.assign(orderRow(ctx, id), {
+      orderDiscount: 2500,
+      total: 4500,
+      manualDiscounts: {
+        items: [
+          {
+            id: 1,
+            kind: 'LEGACY',
+            percent: null,
+            amount: 5000,
+            reason: 'Previous manual adjustment',
+            createdAt: '',
+            actor: 'system',
+          },
+        ],
+      },
+    });
+    const preview = await ctx.editing.previewDiscounts(id, {});
+    expect(preview.rows).toEqual([
+      expect.objectContaining({ key: 'm:1', currentAmount: 2500, amount: 2500 }),
+    ]);
+    expect(preview.orderDiscount).toBe(2500);
+    await ctx.editing.applyDiscounts(id, { selection: ['m:1'] }, 'user:1', 'op-recalc-03');
+    expect(orderRow(ctx, id)).toMatchObject({ orderDiscount: 2500, total: 4500 });
+  });
+
+  it('the same with a FIXED manual item', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    await ctx.editing.addManualDiscount(
+      id,
+      { kind: 'FIXED', value: 5000, reason: 'Gesture' },
+      'user:1',
+      'op-fixed-big'
+    );
+    await clampThenRaise(ctx, id);
+    expect(orderRow(ctx, id).manualDiscounts.items).toEqual([
+      expect.objectContaining({ id: 1, kind: 'FIXED', amount: 2500 }),
+    ]);
+    await ctx.editing.applyDiscounts(id, { selection: ['m:1'] }, 'user:1', 'op-recalc-02');
+    expect(orderRow(ctx, id)).toMatchObject({ orderDiscount: 2500, total: 4500 });
+    expect(orderRow(ctx, id).manualDiscounts.items).toEqual([
+      expect.objectContaining({ id: 1, kind: 'FIXED', amount: 2500 }),
     ]);
   });
 

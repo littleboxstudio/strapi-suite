@@ -76,7 +76,7 @@ export type PromotionRedemptionView = {
 
 export type ReserveContext = {
   orderId: number;
-  customerId: number;
+  customerId: number | null;
   email: string;
   actor: string;
   operationId?: string;

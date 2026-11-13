@@ -91,6 +91,36 @@ export function readManualDiscounts(
   return legacy ? [legacy] : [];
 }
 
+/**
+ * The items consistent with the order-level discount: Σ amounts ≤ `orderDiscount` minus the
+ * applied ORDER_DISCOUNT benefits (what the promotions explain). The excess comes off LEGACY items
+ * first, then FIXED/PERCENT newest-first; no amount grows or goes below 0, and a LEGACY item at 0
+ * is dropped. A clamp of the order discount (a lower subtotal) must not leave the manual list above
+ * it, or a later recalculation would re-add the clamped part.
+ */
+export function reconcileManualDiscounts(
+  items: ManualDiscount[],
+  order: { orderDiscount: number; promotions: unknown }
+): ManualDiscount[] {
+  const available = Math.max(0, order.orderDiscount - appliedOrderDiscount(order.promotions));
+  let excess = manualDiscountTotal(items) - available;
+  if (excess <= 0) return items;
+  const byPriority = [
+    ...items.filter((m) => m.kind === 'LEGACY'),
+    ...items.filter((m) => m.kind !== 'LEGACY').sort((a, b) => b.id - a.id),
+  ];
+  const cut = new Map<number, number>();
+  for (const m of byPriority) {
+    if (excess <= 0) break;
+    const c = Math.min(m.amount, excess);
+    cut.set(m.id, c);
+    excess -= c;
+  }
+  return items
+    .map((m) => ({ ...m, amount: m.amount - (cut.get(m.id) ?? 0) }))
+    .filter((m) => m.kind !== 'LEGACY' || m.amount > 0);
+}
+
 export const manualDiscountTotal = (items: ManualDiscount[]): number =>
   items.reduce((sum, item) => sum + item.amount, 0);
 

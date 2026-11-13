@@ -6,6 +6,7 @@ import {
   readManualDiscounts,
   manualDiscountTotal,
   buildManualDiscount,
+  reconcileManualDiscounts,
   type ManualDiscount,
 } from '../../../../server/src/services/modules/ecommerce/domain/manualDiscounts';
 
@@ -125,5 +126,64 @@ describe('buildManualDiscount', () => {
     expect(bad(undefined)).toEqual([{ path: 'reason', code: 'required' }]);
     expect(bad('a'.repeat(MAX_DISCOUNT_REASON + 1))).toEqual([{ path: 'reason', code: 'required' }]);
     expect(bad('a'.repeat(MAX_DISCOUNT_REASON))).toEqual([]);
+  });
+});
+
+describe('reconcileManualDiscounts', () => {
+  const item = (id: number, kind: 'FIXED' | 'PERCENT' | 'LEGACY', amount: number) => ({
+    id,
+    kind,
+    percent: kind === 'PERCENT' ? 10 : null,
+    amount,
+    reason: 'r',
+    createdAt: '',
+    actor: 'user:1',
+  });
+  const promo = (amount: number) => ({
+    applied: [
+      {
+        benefits: [
+          { class: 'ORDER_DISCOUNT', amount },
+          { class: 'PRODUCT_DISCOUNT', amount: 99 },
+        ],
+      },
+    ],
+  });
+
+  it('within the order discount: unchanged', () => {
+    const items = [item(1, 'FIXED', 300)];
+    expect(reconcileManualDiscounts(items, { orderDiscount: 500, promotions: promo(200) })).toBe(
+      items
+    );
+  });
+
+  it('caps LEGACY first, then FIXED/PERCENT newest-first, never below 0; a LEGACY at 0 is dropped', () => {
+    const items = [item(1, 'LEGACY', 1000), item(2, 'FIXED', 600), item(3, 'PERCENT', 400)];
+    // Available to manual: 1500 − 200 = 1300; excess 700 → LEGACY 300.
+    expect(
+      reconcileManualDiscounts(items, { orderDiscount: 1500, promotions: promo(200) }).map(
+        (m) => m.amount
+      )
+    ).toEqual([300, 600, 400]);
+    // Available 600: excess 1400 → LEGACY dropped (1000), then id 3 400 → 0.
+    expect(
+      reconcileManualDiscounts(items, { orderDiscount: 800, promotions: promo(200) }).map((m) => [
+        m.id,
+        m.amount,
+      ])
+    ).toEqual([
+      [2, 600],
+      [3, 0],
+    ]);
+    // Nothing available: every amount 0, never negative.
+    expect(
+      reconcileManualDiscounts(items, { orderDiscount: 100, promotions: promo(200) }).map((m) => [
+        m.id,
+        m.amount,
+      ])
+    ).toEqual([
+      [2, 0],
+      [3, 0],
+    ]);
   });
 });
