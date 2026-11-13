@@ -14,9 +14,17 @@ export type ShippingLine = ShippingMethodRef & {
   amount: number;
   createdAt: string;
   actor: string;
+  /** An EDIT line appended as a correction of the locked line with this id. */
+  editOf?: number;
 };
 
-export type ShippingLineView = ShippingLine & { paid: boolean; invoiced: boolean; spent: boolean };
+export type ShippingLineView = ShippingLine & {
+  paid: boolean;
+  invoiced: boolean;
+  spent: boolean;
+  /** Lines with corrections only: the amount plus every correction of it. */
+  effectiveAmount?: number;
+};
 
 type PlanMode = 'REPLACED' | 'APPENDED' | 'UNCHANGED';
 
@@ -48,6 +56,7 @@ const plain = (l: ShippingLine): ShippingLine => ({
   tax: l.tax,
   createdAt: l.createdAt,
   actor: l.actor,
+  ...(l.editOf !== undefined ? { editOf: l.editOf } : {}),
 });
 
 export function checkoutLine(order: {
@@ -79,8 +88,16 @@ const parseLine = (raw: unknown): ShippingLine | null => {
   for (const k of ['providerId', 'serviceId', 'name', 'createdAt', 'actor']) {
     if (typeof raw[k] !== 'string') return null;
   }
-  return plain(raw as ShippingLine);
+  const { editOf, ...rest } = raw;
+  return plain({
+    ...(rest as ShippingLine),
+    ...(Number.isInteger(editOf) && editOf >= 1 ? { editOf } : {}),
+  });
 };
+
+/** The corrections appended to the line `id`, oldest first. */
+const correctionsOf = <L extends ShippingLine>(lines: L[], id: number): L[] =>
+  lines.filter((l) => l.editOf === id).sort(byId);
 
 export function readShippingLines(
   order: { shippingLines?: unknown } & Parameters<typeof checkoutLine>[0]
@@ -130,11 +147,13 @@ export function shippingLineViews(
       remaining = 0;
     }
     const at = timeOf(l.createdAt);
+    const corrections = correctionsOf(lines, l.id);
     return {
       ...l,
       paid,
       invoiced: issued.some((i) => timeOf(i.createdAt) >= at),
       spent: ctx.hasActiveShipment,
+      ...(corrections.length ? { effectiveAmount: l.amount + chargedShipping(corrections) } : {}),
     };
   });
 }
@@ -154,10 +173,14 @@ export function planLineChange(
   const base = lines.map(plain);
   const target = lines.find((l) => l.id === targetId);
   if (!target) return { lines: base, mode: 'UNCHANGED' };
+  // A locked line is charged at its amount plus its corrections, under the latest method.
+  const corrections = isReplaceable(target) ? [] : correctionsOf(base, target.id);
+  const latest = corrections[corrections.length - 1] ?? target;
+  const delta = next.amount - (target.amount + chargedShipping(corrections));
   if (
-    target.providerId === next.method.providerId &&
-    target.serviceId === next.method.serviceId &&
-    target.amount === next.amount
+    latest.providerId === next.method.providerId &&
+    latest.serviceId === next.method.serviceId &&
+    delta === 0
   ) {
     return { lines: base, mode: 'UNCHANGED' };
   }
@@ -174,10 +197,11 @@ export function planLineChange(
   return {
     lines: appendLine(base, {
       origin: 'EDIT',
-      amount: next.amount - target.amount,
+      amount: delta,
       ...next.method,
       createdAt: meta.at,
       actor: meta.actor,
+      editOf: target.id,
     }),
     mode: 'APPENDED',
   };

@@ -597,16 +597,26 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
   const shippingOptionsForOrder = async (rawOrderId: number | string) =>
     optionsFor(await orders().computeOrderState(Number(rawOrderId)));
 
-  /** The offered option for `input`'s method, else `SHIPPING_METHOD_UNAVAILABLE`. */
+  /**
+   * The offered option for `input`'s method. A carrier that failed to quote and offered nothing
+   * is `SHIPPING_QUOTE_FAILED`; otherwise a method not offered is `SHIPPING_METHOD_UNAVAILABLE`.
+   */
   const offeredMethod = async (
     state: OrderState,
     input: ShippingLineInput
   ): Promise<ShippingMethodRef> => {
-    const { options } = await optionsFor(state);
+    const { options, failures } = await optionsFor(state);
     const o = options.find(
       (x) => x.providerId === input.providerId && x.serviceId === input.serviceId
     );
-    if (!o) throw invalidShipping('method', 'SHIPPING_METHOD_UNAVAILABLE');
+    if (!o) {
+      const failed =
+        failures.some((f) => f.providerId === input.providerId) &&
+        !options.some((x) => x.providerId === input.providerId);
+      throw failed
+        ? invalidShipping('shipping', 'SHIPPING_QUOTE_FAILED')
+        : invalidShipping('method', 'SHIPPING_METHOD_UNAVAILABLE');
+    }
     return { providerId: o.providerId, serviceId: o.serviceId, name: o.name, tax: o.tax };
   };
 
@@ -675,7 +685,8 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
 
   /** The new table for `due`, under the current method (its quoted name and tax when quoted). */
   const recalculationPlan = (state: OrderState, due: ShippingQuoted, actor: string) => {
-    const current = currentMethod(state.shippingLines)!;
+    const current = currentMethod(state.shippingLines);
+    if (!current) throw invalidShipping('shipping', 'SHIPPING_QUOTE_FAILED');
     const method: ShippingMethodRef = due.option
       ? { ...current, name: due.option.name, tax: due.option.tax }
       : current;

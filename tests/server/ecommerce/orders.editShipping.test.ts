@@ -560,6 +560,49 @@ describe('EcommerceOrderEditingService.editShippingLine', () => {
     expect(orderRow(ctx, id).shippingOriginal).toBe(700);
   });
 
+  it('editing a locked line twice charges the last amount: 500 → 700 → 800', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    issueInvoice(ctx, id);
+    await ctx.editing.editShippingLine(id, 1, { ...standard, amount: 700 }, 'user:1', 'op-line-0010');
+    const res = await ctx.editing.editShippingLine(
+      id,
+      1,
+      { ...standard, amount: 800 },
+      'user:1',
+      'op-line-0011'
+    );
+    expect(storedLines(ctx, id).map((l: any) => [l.id, l.origin, l.amount, l.editOf])).toEqual([
+      [1, 'CHECKOUT', 500, undefined],
+      [2, 'EDIT', 200, 1],
+      [3, 'EDIT', 100, 1],
+    ]);
+    expect(orderRow(ctx, id)).toMatchObject({ shippingOriginal: 800, total: 7300 });
+    expect(res.order.shippingLines.find((l: any) => l.id === 1)).toMatchObject({
+      effectiveAmount: 800,
+    });
+  });
+
+  it('a carrier that failed to quote the requested method is SHIPPING_QUOTE_FAILED', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    ctx.quote.mockResolvedValueOnce({
+      options: [],
+      failures: [{ providerId: 'ctt', code: 'TIMEOUT' }],
+    });
+    expect(
+      await issues(
+        ctx.editing.editShippingLine(
+          id,
+          1,
+          { providerId: 'ctt', serviceId: 'EXP', amount: 700 },
+          'user:1',
+          'op-line-0012'
+        )
+      )
+    ).toEqual([{ path: 'shipping', code: 'SHIPPING_QUOTE_FAILED' }]);
+  });
+
   it('an ACTIVE shipment gives ORDER_HAS_SHIPMENTS', async () => {
     const ctx = setup();
     const id = await createOrder(ctx);
