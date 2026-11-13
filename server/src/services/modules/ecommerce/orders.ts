@@ -261,6 +261,25 @@ export type OrderState = {
 };
 
 /** The order's invoicing position (design 4.4), part of `OrderState`. */
+/** What the shipping line views need from the order: covered shipping, invoices, shipments. */
+export const shippingLineContext = (
+  invoicing: Pick<OrderInvoicing, 'completedPayments' | 'reconciled' | 'invoices'>,
+  hasActiveShipment: boolean
+): Parameters<typeof shippingLineViews>[1] => ({
+  coveredShipping: invoicing.completedPayments.reduce(
+    (sum, p) => sum + (invoicing.reconciled.get(p.id)?.shipping ?? 0),
+    0
+  ),
+  invoices: invoicing.invoices.map((i) => ({
+    kind: i.kind,
+    status: i.status,
+    createdAt: i.createdAt,
+    hasShipping:
+      Array.isArray(i.lines?.lines) && i.lines.lines.some((l: any) => l?.kind === 'SHIPPING'),
+  })),
+  hasActiveShipment,
+});
+
 export type OrderInvoicing = {
   /** The current lines as invoice reconciliation reads them. */
   coverageOrder: InvoiceOrderState;
@@ -1210,20 +1229,10 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       hasPendingShipment,
       hasActiveShipment,
     });
-    const shippingLines = shippingLineViews(readShippingLines(order), {
-      coveredShipping: invoicing.completedPayments.reduce(
-        (sum, p) => sum + (invoicing.reconciled.get(p.id)?.shipping ?? 0),
-        0
-      ),
-      invoices: invoicing.invoices.map((i) => ({
-        kind: i.kind,
-        status: i.status,
-        createdAt: i.createdAt,
-        hasShipping:
-          Array.isArray(i.lines?.lines) && i.lines.lines.some((l: any) => l?.kind === 'SHIPPING'),
-      })),
-      hasActiveShipment,
-    });
+    const shippingLines = shippingLineViews(
+      readShippingLines(order),
+      shippingLineContext(invoicing, hasActiveShipment)
+    );
     const actions = availableActions({
       orderStatus: order.orderStatus,
       paymentStatus: order.paymentStatus,
