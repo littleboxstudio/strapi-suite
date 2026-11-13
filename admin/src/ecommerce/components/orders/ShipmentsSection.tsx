@@ -40,7 +40,7 @@ import {
   type ShipmentAction,
 } from '../../utils/shipmentForm';
 import type { Address, OrderDeliveryStatus, OrderStatus, ShipmentView } from '../../orderTypes';
-import AddressCard from './AddressCard';
+import AddressButton from './AddressButton';
 import DeliveryModal from './DeliveryModal';
 import TrackingModal from './TrackingModal';
 import OrderSection from './OrderSection';
@@ -220,19 +220,21 @@ const ShipmentsSection = ({
   };
 
   const header = (
-    <Flex gap={2} alignItems="center">
-      <Typography variant="pi" textColor="neutral600">
-        {t('ecommerce.orders.shipments.deliveryStatus')}
-      </Typography>
-      <Badge variant={ORDER_DELIVERY_VARIANT[deliveryStatus] ?? 'neutral'} size="S">
-        {t(`ecommerce.orders.shipments.orderDelivery.${deliveryStatus}`, undefined, deliveryStatus)}
-      </Badge>
+    <Flex gap={4} alignItems="center">
+      <Flex gap={2} alignItems="center">
+        <Typography variant="pi" textColor="neutral600">
+          {t('ecommerce.orders.shipments.deliveryStatus')}
+        </Typography>
+        <Badge variant={ORDER_DELIVERY_VARIANT[deliveryStatus] ?? 'neutral'} size="S">
+          {t(`ecommerce.orders.shipments.orderDelivery.${deliveryStatus}`, undefined, deliveryStatus)}
+        </Badge>
+      </Flex>
+      <AddressButton title={t('ecommerce.orders.detail.address.shipping')} address={shippingAddress} />
     </Flex>
   );
 
   return (
     <OrderSection title={title} actions={header}>
-      <AddressCard title={t('ecommerce.orders.detail.address.shipping')} address={shippingAddress} />
       {shipments.length === 0 ? (
         <EmptyNote>{t('ecommerce.orders.shipments.empty')}</EmptyNote>
       ) : (

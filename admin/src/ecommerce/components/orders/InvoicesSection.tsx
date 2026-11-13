@@ -37,7 +37,7 @@ import {
 import type { InvoiceScopeInput, InvoiceView, Order } from '../../orderTypes';
 import CreditNoteModal from './CreditNoteModal';
 import OrderSection from './OrderSection';
-import AddressCard from './AddressCard';
+import AddressButton from './AddressButton';
 import { ToneBadge } from './StatusBadges';
 
 type Props = {
@@ -295,15 +295,19 @@ const InvoicesSection = ({ title, order, canInvoice, onIssue, onChanged }: Props
     );
   };
 
-  const totalButton = canTotal ? (
-    <Button size="S" disabled={!billingActive} onClick={() => onIssue({ scope: 'TOTAL' })}>
-      {t('ecommerce.orders.invoices.generateTotal')}
-    </Button>
-  ) : undefined;
+  const headerActions = (
+    <Flex gap={2} alignItems="center">
+      <AddressButton title={t('ecommerce.orders.detail.address.billing')} address={order.billingAddress} />
+      {canTotal && (
+        <Button size="S" disabled={!billingActive} onClick={() => onIssue({ scope: 'TOTAL' })}>
+          {t('ecommerce.orders.invoices.generateTotal')}
+        </Button>
+      )}
+    </Flex>
+  );
 
   return (
-    <OrderSection title={title} actions={totalButton}>
-      <AddressCard title={t('ecommerce.orders.detail.address.billing')} address={order.billingAddress} />
+    <OrderSection title={title} actions={headerActions}>
       {showBillingHint && (
         <Box padding={3} background="neutral100" hasRadius>
           <Typography variant="omega" textColor="neutral700">
