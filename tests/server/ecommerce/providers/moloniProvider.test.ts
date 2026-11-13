@@ -63,6 +63,10 @@ function happyRoutes(over: Record<string, (b: any, q: URLSearchParams) => unknow
     'invoices/insert': () => ({ valid: 1, document_id: 778 }),
     'receipts/insert': () => ({ valid: 1, document_id: 779 }),
     'creditNotes/insert': () => ({ valid: 1, document_id: 780 }),
+    'documents/getUnrelatedProducts': () => [
+      { document_product_id: 9001, product_id: 200, reference: 'SKU-1', qty: 2 },
+      { document_product_id: 9002, product_id: 201, reference: 'PORTES', qty: 1 },
+    ],
     'documents/getOne': (b: any) => ({
       document_id: b.document_id,
       number: 12,
@@ -530,9 +534,52 @@ describe('moloniProvider.issue (CREDIT_NOTE)', () => {
       notes: 'Order #1001 — Return',
       associated_documents: [{ associated_id: 777, value: 12.3 }],
     });
-    expect(b.products).toEqual([{ product_id: 200, name: 'Mug', qty: 1, price: 10, taxes: [{ tax_id: 11 }] }]);
+    expect(b.products).toEqual([
+      { product_id: 200, name: 'Mug', qty: 1, price: 10, taxes: [{ tax_id: 11 }], related_id: 9001 },
+    ]);
+    expect(m.of('documents/getUnrelatedProducts')[0].body).toMatchObject({ document_id: 777 });
     expect(b.payments).toBeUndefined();
     expect(doc).toMatchObject({ externalId: '780', number: 'A/3', documentType: 'NC', total: 1230, warnings: [] });
+  });
+});
+
+describe('moloniProvider.issue (CREDIT_NOTE) — related lines', () => {
+  const credit = (lines: any[], total: number) =>
+    draft({ kind: 'CREDIT_NOTE', lines, total, payments: [], original: { externalId: '777', total: 3075 } });
+  const mug = (quantity: number, total: number) => ({
+    orderLineId: 1, kind: 'ITEM', sku: 'SKU-1', name: 'Mug', quantity, total, tax: 23, partial: false,
+  });
+  const shipping = { orderLineId: null, kind: 'SHIPPING', sku: 'PORTES', name: 'Shipping', quantity: 1, total: 615, tax: 23, partial: false };
+
+  it('each line points at its original line, shipping included', async () => {
+    const m = moloniFake(happyRoutes());
+    await moloniProvider.issue(credit([mug(2, 2460), shipping], 3075), rt());
+    expect(m.of('creditNotes/insert')[0].body.products.map((p: any) => p.related_id)).toEqual([9001, 9002]);
+  });
+
+  it('matches by reference when the product id differs', async () => {
+    const m = moloniFake(
+      happyRoutes({
+        'documents/getUnrelatedProducts': () => ({
+          products: [{ document_product_id: 7, product_id: 999, reference: 'SKU-1', qty: 2 }],
+        }),
+      })
+    );
+    await moloniProvider.issue(credit([mug(1, 1230)], 1230), rt());
+    expect(m.of('creditNotes/insert')[0].body.products[0].related_id).toBe(7);
+  });
+
+  it('a quantity already credited refuses the credit note before any write', async () => {
+    const m = moloniFake(
+      happyRoutes({
+        'documents/getUnrelatedProducts': () => [{ document_product_id: 9001, product_id: 200, reference: 'SKU-1', qty: 1 }],
+      })
+    );
+    const err: any = await fail(moloniProvider.issue(credit([mug(2, 2460)], 2460), rt()));
+    expect(err.code).toBe('BILLING_REQUEST_FAILED');
+    expect(err.uncertain).toBe(false);
+    expect(err.message).toBe('Line 1 is not on the original Moloni document, or that quantity was already credited.');
+    expect(m.of('creditNotes/insert')).toHaveLength(0);
   });
 });
 
