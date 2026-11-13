@@ -280,6 +280,10 @@ const OrderDetailPage = () => {
         promotions={order.promotions ?? []}
         promotionCodes={order.promotionCodes}
         locales={{ locale: order.locale, defaultLocale }}
+        order={order}
+        permissions={permissions}
+        onEdited={showResult}
+        onAction={(action) => dispatchModal({ type: 'OPEN', action })}
       />
 
       <NotificationsSection orderId={order.id} refreshKey={version} canResend={canManage} />
