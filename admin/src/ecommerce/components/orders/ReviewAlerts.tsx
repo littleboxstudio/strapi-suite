@@ -46,7 +46,7 @@ const ReviewAlerts = ({ order, canManage, onResult }: Props) => {
     }
   };
 
-  /** Title, reason and (when it can no longer be fixed) why, joined on one line. */
+  /** Title, reason and (when it can no longer be fixed) why, as sentences on one line. */
   const alertText = (alert: { code: string; dismissable: boolean }, reason: string) =>
     [
       t(`ecommerce.orders.review.${alert.code}`),
@@ -54,7 +54,7 @@ const ReviewAlerts = ({ order, canManage, onResult }: Props) => {
       alert.dismissable ? t('ecommerce.orders.review.locked') : null,
     ]
       .filter(Boolean)
-      .join(' · ');
+      .join(' ');
 
   const goTo = (sectionId: string) => (event: { preventDefault: () => void }) => {
     event.preventDefault();
