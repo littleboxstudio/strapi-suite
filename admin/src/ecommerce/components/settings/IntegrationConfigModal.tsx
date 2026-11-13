@@ -84,6 +84,16 @@ type Props = {
   onChanged?: (integration: IntegrationView) => void;
 };
 
+/**
+ * Every label row as tall as one with the "i" help button, so the fields of a grid row line up
+ * whether or not their label has one.
+ */
+const LabelRow = styled.div`
+  display: flex;
+  align-items: center;
+  min-height: 22px;
+`;
+
 const IntegrationConfigModal = ({
   integration,
   initialErrors = {},
@@ -608,24 +618,26 @@ const IntegrationConfigModal = ({
                     }
                     hint={secretHint(field)}
                   >
-                    <Field.Label
-                      action={
-                        field.help ? (
-                          <IconButton
-                            variant="ghost"
-                            size="XS"
-                            label={t('ecommerce.settings.integrations.help.open', {
-                              field: t(field.label, undefined, field.key),
-                            })}
-                            onClick={() => setHelpField(field)}
-                          >
-                            <Information />
-                          </IconButton>
-                        ) : undefined
-                      }
-                    >
-                      {t(field.label, undefined, field.key)}
-                    </Field.Label>
+                    <LabelRow>
+                      <Field.Label
+                        action={
+                          field.help ? (
+                            <IconButton
+                              variant="ghost"
+                              size="XS"
+                              label={t('ecommerce.settings.integrations.help.open', {
+                                field: t(field.label, undefined, field.key),
+                              })}
+                              onClick={() => setHelpField(field)}
+                            >
+                              <Information />
+                            </IconButton>
+                          ) : undefined
+                        }
+                      >
+                        {t(field.label, undefined, field.key)}
+                      </Field.Label>
+                    </LabelRow>
                     {fieldInput(field)}
                     <Field.Error />
                     <Field.Hint />
