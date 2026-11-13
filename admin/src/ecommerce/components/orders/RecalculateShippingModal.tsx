@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
-import { Button, Dialog, Flex, Loader, Modal, Typography } from '@strapi/design-system';
+import { Button, Dialog, Flex, IconButton, Loader, Modal, Typography } from '@strapi/design-system';
+import { Information } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import PreviewShippingRecalculation from '../../usecases/orders/previewShippingRecalculation';
 import RecalculateShipping from '../../usecases/orders/recalculateShipping';
@@ -12,6 +13,10 @@ import { mintUuid } from '../../utils/variantDraft';
 import type { EditResult, Order, ShippingRecalculationPreview } from '../../orderTypes';
 import ShippingChargesTable from './ShippingChargesTable';
 import { Tile, Tiles } from './SummaryTiles';
+import { FieldHelpModal } from '../settings/FieldHelpModal';
+
+/** The four figures, each with its explanation (`shippingCharges.help.<key>`). */
+type FigureKey = 'charged' | 'due' | 'previousShipments' | 'quote';
 
 type Props = {
   order: Order;
@@ -36,6 +41,8 @@ const RecalculateShippingModal = ({ order, onClose, onSaved }: Props) => {
   const [loadError, setLoadError] = useState<string | null>(null);
   /** The final confirmation, with the balance change, is open. */
   const [confirming, setConfirming] = useState(false);
+  /** The figure whose explanation is open. */
+  const [help, setHelp] = useState<FigureKey | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -73,11 +80,23 @@ const RecalculateShippingModal = ({ order, onClose, onSaved }: Props) => {
     }
   };
 
-  const tile = (label: string, value: number, tone?: 'warning') => (
+  const tile = (key: FigureKey, value: number, tone?: 'warning') => (
     <Tile $tone={tone}>
-      <Typography variant="sigma" textColor="neutral600">
-        {label}
-      </Typography>
+      <Flex justifyContent="space-between" alignItems="center" gap={1}>
+        <Typography variant="sigma" textColor="neutral600">
+          {t(`ecommerce.orders.shippingCharges.${key}`)}
+        </Typography>
+        <IconButton
+          variant="ghost"
+          size="XS"
+          label={t('ecommerce.orders.shippingCharges.help.open', {
+            field: t(`ecommerce.orders.shippingCharges.${key}`),
+          })}
+          onClick={() => setHelp(key)}
+        >
+          <Information />
+        </IconButton>
+      </Flex>
       <Typography variant="beta" tag="p" textColor="neutral800" style={{ whiteSpace: 'nowrap' }}>
         {money(value)}
       </Typography>
@@ -104,14 +123,10 @@ const RecalculateShippingModal = ({ order, onClose, onSaved }: Props) => {
     return (
       <Flex direction="column" alignItems="stretch" gap={4}>
         <Tiles>
-          {tile(t('ecommerce.orders.shippingCharges.charged'), preview.charged)}
-          {tile(
-            t('ecommerce.orders.shippingCharges.due'),
-            preview.due,
-            preview.due !== preview.charged ? 'warning' : undefined
-          )}
-          {tile(t('ecommerce.orders.shippingCharges.previousShipments'), preview.previousShipmentsCost)}
-          {tile(t('ecommerce.orders.shippingCharges.quote'), preview.quote)}
+          {tile('charged', preview.charged)}
+          {tile('due', preview.due, preview.due !== preview.charged ? 'warning' : undefined)}
+          {tile('previousShipments', preview.previousShipmentsCost)}
+          {tile('quote', preview.quote)}
         </Tiles>
         {preview.mode === 'UNCHANGED' ? (
           <Typography variant="omega" textColor="neutral700">
@@ -145,6 +160,13 @@ const RecalculateShippingModal = ({ order, onClose, onSaved }: Props) => {
           </Button>
         </Modal.Footer>
       </Modal.Content>
+      {help && (
+        <FieldHelpModal
+          title={t(`ecommerce.orders.shippingCharges.${help}`)}
+          textKey={`ecommerce.orders.shippingCharges.help.${help}`}
+          onClose={() => setHelp(null)}
+        />
+      )}
       {confirming && change && (
         // A short confirmation with what the customer will have to pay (or get back).
         <Dialog.Root open onOpenChange={(next: boolean) => !next && !busy && setConfirming(false)}>
