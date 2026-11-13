@@ -245,7 +245,7 @@ describe('planLineChange', () => {
   });
 
   it('a replaceable line with corrections is set to the rest: 500 + 200, edit to 800 → 600', () => {
-    const lines = [view(), view({ id: 2, origin: 'EDIT', amount: 200, editOf: 1, invoiced: true })];
+    const lines = [view(), view({ id: 2, origin: 'EDIT', amount: 200, editOf: 1 })];
     const r = planLineChange(lines, 1, { method: A, amount: 800 }, META);
     expect(r.mode).toBe('REPLACED');
     expect(r.lines.map((l) => [l.id, l.amount, l.editOf])).toEqual([
@@ -255,6 +255,17 @@ describe('planLineChange', () => {
     expect(chargedShipping(r.lines)).toBe(800);
     expect(shippingLineViews(r.lines, ctx())[0].effectiveAmount).toBe(800);
     expect(planLineChange(lines, 1, { method: A, amount: 700 }, META).mode).toBe('UNCHANGED');
+  });
+
+  it('a line with a locked correction is locked: the edit appends', () => {
+    const lines = [view(), view({ id: 2, origin: 'EDIT', amount: 200, editOf: 1, invoiced: true })];
+    const r = planLineChange(lines, 1, { method: A, amount: 800 }, META);
+    expect(r.mode).toBe('APPENDED');
+    expect(r.lines.map((l) => [l.id, l.amount, l.editOf])).toEqual([
+      [1, 500, undefined],
+      [2, 200, 1],
+      [3, 100, 1],
+    ]);
   });
 
   it('legacy EDIT lines without editOf are not counted as corrections', () => {
@@ -317,6 +328,17 @@ describe('planRecalculation', () => {
     expect(r.delta).toBe(0);
     expect(r.lines.map((l) => l.id)).toEqual([1, 2]);
     expect(r.lines.map((l) => l.amount)).toEqual([500, 300]);
+  });
+
+  it('keeps a replaceable line whose correction is locked, so the correction is never orphaned', () => {
+    const lines = [view(), view({ id: 2, origin: 'EDIT', amount: 200, editOf: 1, invoiced: true })];
+    const r = planRecalculation(lines, 900, meta);
+    expect(r.mode).toBe('APPENDED');
+    expect(r.lines.map((l) => [l.id, l.amount, l.editOf])).toEqual([
+      [1, 500, undefined],
+      [2, 200, 1],
+      [3, 200, undefined],
+    ]);
   });
 
   it('leaves out a zero recalculation line when locked lines exist', () => {

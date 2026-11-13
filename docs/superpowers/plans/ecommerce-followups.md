@@ -125,3 +125,4 @@ Lista de itens adiados nas revisões do plano 1 (Base e Produtos), a considerar 
 
 ## Order editing (plan 10)
 - Order editing: shipping line `invoiced` is derived from invoice dates (prudent); store shipping-line ids on coverages if per-line invoicing is ever needed.
+- Invoice shipping VAT split: the rates are weighted by cumulative per-rate totals instead of the amounts not yet invoiced. The split is wrong only with mixed-rate shipping methods; fix by weighting only the lines created after the last invoice with shipping.

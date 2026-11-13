@@ -10,6 +10,7 @@ import {
   discountConflictNames,
   discountRowGroups,
   discountSelectionToggle,
+  discountsSaveErrorId,
 } from '../../utils/orderEditing';
 import {
   apiErrorMessageId,
@@ -125,7 +126,7 @@ const RecalculateDiscountsModal = ({
     } catch (err) {
       toggleNotification({
         type: 'danger',
-        message: t(apiErrorMessageId(err, 'ecommerce.orders.discounts.saveError')),
+        message: t(discountsSaveErrorId(err)),
       });
     } finally {
       setBusy(false);

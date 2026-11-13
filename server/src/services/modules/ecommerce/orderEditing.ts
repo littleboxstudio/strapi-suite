@@ -574,7 +574,11 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         const address = normalizeAddress(input?.address, 'address', errors);
         if (errors.length) throw new EcommerceValidationError('Invalid address', errors);
         if (sameAddress(address, state.order.shippingAddress)) return { address, due: null };
-        if (!(await countriesOf(state)).includes(address.country)) {
+        // Only a new country is checked: an unchanged one is kept even if no longer served.
+        const countryChanged =
+          String(address.country).toUpperCase() !==
+          String(state.order.shippingAddress?.country ?? '').toUpperCase();
+        if (countryChanged && !(await countriesOf(state)).includes(address.country)) {
           throw new EcommerceValidationError('Invalid address', [
             { path: 'address.country', code: 'COUNTRY_NOT_SERVED' },
           ]);
@@ -768,7 +772,11 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
       mode: plan.mode,
       lines: shippingLineViews(
         plan.lines,
-        shippingLineContext(state.invoicing, state.editing.hasShipments)
+        shippingLineContext(
+          state.invoicing,
+          state.editing.hasShipments,
+          state.order.shippingDiscount
+        )
       ),
       before: totalsWith(state),
       after: plan.mode === 'UNCHANGED' ? totalsWith(state) : totalsWith(state, plan.lines),

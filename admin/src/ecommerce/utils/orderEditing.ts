@@ -2,6 +2,8 @@ import { MAX_MONEY_CENTS, parseMoneyToCents } from './money';
 import { ADDRESS_REQUIRED_FIELDS, type AddressForm } from './orderForm';
 import {
   allowedToolbarActions,
+  apiErrorCode,
+  apiErrorMessageId,
   promotionsDiscountTotal,
   type OrderActionPermissions,
   type ToolbarAction,
@@ -312,4 +314,14 @@ export function balanceActions(order: Order, perms: OrderActionPermissions): Too
     order.availableActions.filter((a) => wanted.includes(a)),
     perms
   );
+}
+
+/**
+ * The text for a failed discounts confirm. PROMOTION_UNAVAILABLE gets an edit-flow text (the
+ * generic one speaks of checkout totals); other codes map as usual.
+ */
+export function discountsSaveErrorId(err: unknown): string {
+  return apiErrorCode(err) === 'PROMOTION_UNAVAILABLE'
+    ? 'ecommerce.orders.discounts.errors.PROMOTION_UNAVAILABLE'
+    : apiErrorMessageId(err, 'ecommerce.orders.discounts.saveError');
 }

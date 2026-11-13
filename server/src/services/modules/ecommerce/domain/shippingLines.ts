@@ -160,6 +160,10 @@ export function shippingLineViews(
 
 export const isReplaceable = (l: ShippingLineView): boolean => !l.spent && !l.invoiced;
 
+/** Replaceable within its table: a line with a locked correction is locked too (never orphaned). */
+const replaceableIn = (lines: ShippingLineView[], l: ShippingLineView): boolean =>
+  isReplaceable(l) && correctionsOf(lines, l.id).every(isReplaceable);
+
 export function appendLine(lines: ShippingLine[], line: Omit<ShippingLine, 'id'>): ShippingLine[] {
   return [...lines, { ...line, id: nextShippingLineId(lines) }];
 }
@@ -185,7 +189,7 @@ export function planLineChange(
   ) {
     return { lines: base, mode: 'UNCHANGED' };
   }
-  if (isReplaceable(target)) {
+  if (replaceableIn(lines, target)) {
     return {
       lines: base.map((l) =>
         l.id === targetId
@@ -218,7 +222,7 @@ export function planRecalculation(
   const delta = due - charged;
   if (delta === 0) return { lines: base, mode: 'UNCHANGED', charged, delta };
 
-  const locked = lines.filter((l) => !isReplaceable(l)).map(plain);
+  const locked = lines.filter((l) => !replaceableIn(lines, l)).map(plain);
   const amount = due - chargedShipping(locked);
   const dropped = locked.length < base.length;
   const out =

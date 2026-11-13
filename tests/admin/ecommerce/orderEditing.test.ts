@@ -13,6 +13,7 @@ import {
   shippingLineErrorKey,
   shippingOptionKey,
   discountConflictNames,
+  discountsSaveErrorId,
   discountRowGroups,
   discountSelectionToggle,
   hasRowActions,
@@ -292,6 +293,8 @@ describe('translations', () => {
     'ecommerce.orders.errors.SHIPPING_LINE_NOT_FOUND',
     'ecommerce.orders.errors.MANUAL_DISCOUNT_NOT_FOUND',
     'ecommerce.orders.errors.INVALID_PERCENT',
+    'ecommerce.orders.products.saved',
+    'ecommerce.orders.discounts.errors.PROMOTION_UNAVAILABLE',
   ];
   it.each(keys)('%s exists in en and pt', (key) => {
     const id = `littlebox-strapi-suite.${key}`;
@@ -676,5 +679,18 @@ describe('discounts texts', () => {
     expect(pt[k('legacyReason')]).toBe('Ajuste manual anterior');
     expect(en[k('conflict')]).toBe('These promotions cannot be combined: {names}');
     expect(pt[k('group.NEW')]).toBe('Aplicar-se-ia agora');
+  });
+});
+
+describe('discountsSaveErrorId', () => {
+  const httpError = (status: number, error: unknown) => ({ response: { status, data: { error } } });
+  it('maps PROMOTION_UNAVAILABLE to the edit-flow text, other codes as usual', () => {
+    expect(discountsSaveErrorId(httpError(409, { details: { code: 'PROMOTION_UNAVAILABLE' } }))).toBe(
+      'ecommerce.orders.discounts.errors.PROMOTION_UNAVAILABLE'
+    );
+    expect(discountsSaveErrorId(httpError(409, { details: { code: 'PROMOTIONS_NOT_COMBINABLE' } }))).toBe(
+      'ecommerce.orders.errors.PROMOTIONS_NOT_COMBINABLE'
+    );
+    expect(discountsSaveErrorId(new Error('network'))).toBe('ecommerce.orders.discounts.saveError');
   });
 });
