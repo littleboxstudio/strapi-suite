@@ -3,6 +3,7 @@ import {
   addModifyLine,
   buildLinesInput,
   countLines,
+  linesDraftChanged,
   linesDraftFromOrder,
   removeModifyLine,
   restoreModifyLine,
@@ -232,5 +233,22 @@ describe('countLines', () => {
         { kind: 'ADDED', variantId: 3, previousQuantity: 0, newQuantity: 4 },
       ])
     ).toEqual({ before: { products: 2, units: 3 }, after: { products: 2, units: 6 } });
+  });
+});
+
+describe('linesDraftChanged', () => {
+  it('is false for an untouched draft and true after any edit', () => {
+    const lines = linesDraftFromOrder(order());
+    expect(linesDraftChanged(lines)).toBe(false);
+    expect(linesDraftChanged(setModifyLineQuantity(lines, keyOf(lines, 1), 3))).toBe(true);
+    expect(linesDraftChanged(addModifyLine(lines, variant()))).toBe(true);
+    expect(linesDraftChanged(removeModifyLine(lines, keyOf(lines, 1)))).toBe(true);
+  });
+
+  it('is false again once an edit is undone', () => {
+    const lines = linesDraftFromOrder(order());
+    const key = keyOf(lines, 1);
+    expect(linesDraftChanged(restoreModifyLine(removeModifyLine(lines, key), key))).toBe(false);
+    expect(linesDraftChanged(setModifyLineQuantity(lines, key, 2))).toBe(false);
   });
 });
