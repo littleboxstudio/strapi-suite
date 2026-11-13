@@ -1580,7 +1580,7 @@
   "littlebox-strapi-suite.ecommerce.orders.promotions.columns.amount": "Valor",
   "littlebox-strapi-suite.ecommerce.orders.promotions.released": "Libertada",
   "littlebox-strapi-suite.ecommerce.orders.promotions.releasedHint": "A encomenda foi cancelada: esta utilização deixou de contar para os limites da promoção.",
-  "littlebox-strapi-suite.ecommerce.orders.promotions.total": "Desconto total das promoções",
+  "littlebox-strapi-suite.ecommerce.orders.promotions.total": "Desconto total:",
   "littlebox-strapi-suite.ecommerce.orders.promotions.empty": "Nenhuma promoção foi aplicada a esta encomenda.",
   "littlebox-strapi-suite.ecommerce.orders.promotions.fallbackName": "Promoção",
   "littlebox-strapi-suite.ecommerce.orders.promotions.internalName": "Nome interno: {name}",

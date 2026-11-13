@@ -66,7 +66,7 @@ const PromotionsSection = ({ title, promotions, promotionCodes, locales }: Props
         <Flex direction="column" alignItems="stretch" gap={4}>
           {rows.length > 0 && (
             <>
-              <Table colCount={COLUMNS.length} rowCount={rows.length + 1}>
+              <Table colCount={COLUMNS.length} rowCount={rows.length + 2}>
                 <Thead>
                   <Tr>
                     {COLUMNS.map((c) => (
@@ -125,20 +125,21 @@ const PromotionsSection = ({ title, promotions, promotionCodes, locales }: Props
                       </Td>
                     </Tr>
                   ))}
+                  {/* The total: one cell across the first columns, the amount under Amount. */}
+                  <Tr>
+                    <Td colSpan={COLUMNS.length - 1} style={{ textAlign: 'right', paddingRight: 15 }}>
+                      <Typography fontWeight="bold" textColor="neutral800">
+                        {t('ecommerce.orders.promotions.total')}
+                      </Typography>
+                    </Td>
+                    <Td>
+                      <Typography fontWeight="bold" textColor="neutral800" style={{ whiteSpace: 'nowrap' }}>
+                        {discount(promotionsDiscountTotal(promotions))}
+                      </Typography>
+                    </Td>
+                  </Tr>
                 </Tbody>
               </Table>
-              <Flex justifyContent="space-between" gap={4}>
-                <Typography fontWeight="bold" textColor="neutral800">
-                  {t('ecommerce.orders.promotions.total')}
-                </Typography>
-                <Typography
-                  fontWeight="bold"
-                  textColor="neutral800"
-                  style={{ whiteSpace: 'nowrap' }}
-                >
-                  {discount(promotionsDiscountTotal(promotions))}
-                </Typography>
-              </Flex>
             </>
           )}
           {enteredCodes}
