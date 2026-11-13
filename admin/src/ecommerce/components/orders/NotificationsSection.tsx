@@ -121,6 +121,7 @@ const NotificationsSection = ({ orderId, refreshKey, canResend }: Props) => {
   );
 
   const canRetryRow = (n: NotificationView) => canResend && (n.status === 'FAILED' || n.status === 'SKIPPED');
+  const hasReasonRow = (n: NotificationView) => n.status !== 'SENT' && !!notificationErrorParts(n.error);
 
   const statusBadge = (n: NotificationView) => (
     <Badge variant={STATUS_VARIANT[n.status ?? ''] ?? 'neutral'} size="S">
@@ -199,11 +200,14 @@ const NotificationsSection = ({ orderId, refreshKey, canResend }: Props) => {
         </Box>
       );
     }
+    // No row has anything to do: the Actions column goes away.
+    const showActions = items.some((n) => canRetryRow(n) || hasReasonRow(n));
+    const columns = showActions ? COLUMNS : COLUMNS.filter((c) => c !== 'actions');
     return (
-      <Table colCount={COLUMNS.length} rowCount={items.length + 1}>
+      <Table colCount={columns.length} rowCount={items.length + 1}>
         <Thead>
           <Tr>
-            {COLUMNS.map((column) => (
+            {columns.map((column) => (
               <Th key={column}>
                 <ColumnLabel column={column}>{t(`ecommerce.orders.notifications.columns.${column}`)}</ColumnLabel>
               </Th>
@@ -214,7 +218,7 @@ const NotificationsSection = ({ orderId, refreshKey, canResend }: Props) => {
           {items.map((n) => {
             const when = n.sentAt ?? n.createdAt;
             const canRetry = canRetryRow(n);
-            const hasReason = n.status !== 'SENT' && !!notificationErrorParts(n.error);
+            const hasReason = hasReasonRow(n);
             return (
               <Tr key={n.id}>
                 <Td>
@@ -233,28 +237,30 @@ const NotificationsSection = ({ orderId, refreshKey, canResend }: Props) => {
                     {when ? formatDate(when, { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
                   </Typography>
                 </Td>
-                <Td>
-                  {(canRetry || hasReason) && (
-                    <Flex justifyContent="flex-end" gap={2}>
-                      {hasReason && (
-                        <Button size="S" variant="tertiary" onClick={() => setDetails(n)}>
-                          {t('ecommerce.orders.notifications.readMore')}
-                        </Button>
-                      )}
-                      {canRetry && (
-                        <Button
-                          size="S"
-                          variant="secondary"
-                          loading={resending === n.id}
-                          disabled={resending !== null && resending !== n.id}
-                          onClick={() => resend(n)}
-                        >
-                          {t('ecommerce.orders.notifications.resend')}
-                        </Button>
-                      )}
-                    </Flex>
-                  )}
-                </Td>
+                {showActions && (
+                  <Td>
+                    {(canRetry || hasReason) && (
+                      <Flex justifyContent="flex-end" gap={2}>
+                        {hasReason && (
+                          <Button size="S" variant="tertiary" onClick={() => setDetails(n)}>
+                            {t('ecommerce.orders.notifications.readMore')}
+                          </Button>
+                        )}
+                        {canRetry && (
+                          <Button
+                            size="S"
+                            variant="secondary"
+                            loading={resending === n.id}
+                            disabled={resending !== null && resending !== n.id}
+                            onClick={() => resend(n)}
+                          >
+                            {t('ecommerce.orders.notifications.resend')}
+                          </Button>
+                        )}
+                      </Flex>
+                    )}
+                  </Td>
+                )}
               </Tr>
             );
           })}
