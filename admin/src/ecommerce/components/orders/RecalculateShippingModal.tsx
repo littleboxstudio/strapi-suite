@@ -1,32 +1,31 @@
 import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
-import { Box, Button, Flex, Loader, Modal, Typography } from '@strapi/design-system';
+import { Button, Dialog, Flex, Loader, Modal, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import PreviewShippingRecalculation from '../../usecases/orders/previewShippingRecalculation';
 import RecalculateShipping from '../../usecases/orders/recalculateShipping';
 import { formatCents } from '../../utils/money';
-import { shippingLineRows } from '../../utils/orderEditing';
-import { apiErrorMessageId, type OrderActionPermissions, type ToolbarAction } from '../../utils/orderDetail';
+import { balanceChange, shippingLineRows } from '../../utils/orderEditing';
+import { apiErrorMessageId } from '../../utils/orderDetail';
 import { mintUuid } from '../../utils/variantDraft';
 import type { EditResult, Order, ShippingRecalculationPreview } from '../../orderTypes';
-import BalanceOutcome from './BalanceOutcome';
 import ShippingChargesTable from './ShippingChargesTable';
+import { Tile, Tiles } from './SummaryTiles';
 
 type Props = {
   order: Order;
-  permissions: OrderActionPermissions;
   onClose: () => void;
   onSaved: (result: EditResult) => void;
-  onAction: (action: ToolbarAction) => void;
 };
 
 /**
- * Recalculate shipping (spec 6.3): the charged and due shipping, the proposed charges and the
- * totals before and after; Confirm applies it (an unchanged result still clears the review flag).
- * Mount it only while open: each opening mints one operationId.
+ * Recalculate shipping (spec 6.3): the charged and due shipping (previous shipments + quote) and
+ * the proposed charges. Confirm asks once more with what the customer will pay (or get back), then
+ * applies it and closes (an unchanged result still clears the review flag). Mount it only while
+ * open: each opening mints one operationId.
  */
-const RecalculateShippingModal = ({ order, permissions, onClose, onSaved, onAction }: Props) => {
+const RecalculateShippingModal = ({ order, onClose, onSaved }: Props) => {
   const { formatMessage, locale } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) => formatMessage({ id: getTranslation(id) }, values);
@@ -35,7 +34,8 @@ const RecalculateShippingModal = ({ order, permissions, onClose, onSaved, onActi
   const [operationId] = useState(() => mintUuid());
   const [preview, setPreview] = useState<ShippingRecalculationPreview | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [saved, setSaved] = useState<EditResult | null>(null);
+  /** The final confirmation, with the balance change, is open. */
+  const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -61,12 +61,8 @@ const RecalculateShippingModal = ({ order, permissions, onClose, onSaved, onActi
     try {
       const result = await new RecalculateShipping().execute(order.id, { operationId });
       onSaved(result);
-      if (result.outcome === 'NONE') {
-        toggleNotification({ type: 'success', message: t('ecommerce.orders.shippingCharges.saved') });
-        onClose();
-      } else {
-        setSaved(result);
-      }
+      toggleNotification({ type: 'success', message: t('ecommerce.orders.shippingCharges.saved') });
+      onClose();
     } catch (err) {
       toggleNotification({
         type: 'danger',
@@ -77,45 +73,20 @@ const RecalculateShippingModal = ({ order, permissions, onClose, onSaved, onActi
     }
   };
 
-  const summary = (label: string, value: string, detail?: string) => (
-    <Flex direction="column" alignItems="flex-start" gap={1}>
+  const tile = (label: string, value: number, tone?: 'warning') => (
+    <Tile $tone={tone}>
       <Typography variant="sigma" textColor="neutral600">
         {label}
       </Typography>
-      <Typography variant="delta" tag="p">
-        {value}
+      <Typography variant="beta" tag="p" textColor="neutral800" style={{ whiteSpace: 'nowrap' }}>
+        {money(value)}
       </Typography>
-      {detail && (
-        <Typography variant="pi" textColor="neutral600">
-          {detail}
-        </Typography>
-      )}
-    </Flex>
+    </Tile>
   );
 
-  const totals = preview
-    ? [
-        {
-          label: t('ecommerce.orders.shippingCharges.shippingTotal'),
-          before: preview.before.shippingTotal,
-          after: preview.after.shippingTotal,
-        },
-        { label: t('ecommerce.orders.shippingCharges.total'), before: preview.before.total, after: preview.after.total },
-        { label: t('ecommerce.orders.shippingCharges.balanceDue'), before: preview.before.due, after: preview.after.due },
-      ]
-    : [];
+  const change = preview ? balanceChange(preview.before, preview.after) : null;
 
   const body = () => {
-    if (saved) {
-      return (
-        <BalanceOutcome
-          order={saved.order}
-          outcome={saved.outcome as 'DUE' | 'REFUNDABLE'}
-          permissions={permissions}
-          onAction={onAction}
-        />
-      );
-    }
     if (loadError) {
       return (
         <Typography variant="omega" textColor="danger600">
@@ -132,17 +103,16 @@ const RecalculateShippingModal = ({ order, permissions, onClose, onSaved, onActi
     }
     return (
       <Flex direction="column" alignItems="stretch" gap={4}>
-        <Flex gap={8} alignItems="flex-start" wrap="wrap">
-          {summary(t('ecommerce.orders.shippingCharges.charged'), money(preview.charged))}
-          {summary(
+        <Tiles>
+          {tile(t('ecommerce.orders.shippingCharges.charged'), preview.charged)}
+          {tile(
             t('ecommerce.orders.shippingCharges.due'),
-            money(preview.due),
-            t('ecommerce.orders.shippingCharges.dueDetail', {
-              shipments: money(preview.previousShipmentsCost),
-              quote: money(preview.quote),
-            })
+            preview.due,
+            preview.due !== preview.charged ? 'warning' : undefined
           )}
-        </Flex>
+          {tile(t('ecommerce.orders.shippingCharges.previousShipments'), preview.previousShipmentsCost)}
+          {tile(t('ecommerce.orders.shippingCharges.quote'), preview.quote)}
+        </Tiles>
         {preview.mode === 'UNCHANGED' ? (
           <Typography variant="omega" textColor="neutral700">
             {t('ecommerce.orders.shippingCharges.unchanged')}
@@ -153,34 +123,6 @@ const RecalculateShippingModal = ({ order, permissions, onClose, onSaved, onActi
               {t('ecommerce.orders.shippingCharges.proposed')}
             </Typography>
             <ShippingChargesTable rows={shippingLineRows(preview.lines, order.editing, false)} />
-            <Box tag="table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>
-                  <th />
-                  <th style={{ textAlign: 'right' }}>
-                    <Typography variant="sigma">{t('ecommerce.orders.shippingCharges.before')}</Typography>
-                  </th>
-                  <th style={{ textAlign: 'right' }}>
-                    <Typography variant="sigma">{t('ecommerce.orders.shippingCharges.after')}</Typography>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {totals.map((row) => (
-                  <tr key={row.label}>
-                    <td style={{ padding: '4px 0' }}>
-                      <Typography>{row.label}</Typography>
-                    </td>
-                    <td style={{ textAlign: 'right' }}>
-                      <Typography textColor="neutral600">{money(row.before)}</Typography>
-                    </td>
-                    <td style={{ textAlign: 'right' }}>
-                      <Typography fontWeight="semiBold">{money(row.after)}</Typography>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </Box>
           </>
         )}
       </Flex>
@@ -198,13 +140,39 @@ const RecalculateShippingModal = ({ order, permissions, onClose, onSaved, onActi
           <Button variant="tertiary" onClick={onClose} disabled={busy}>
             {t('ecommerce.orders.shippingCharges.close')}
           </Button>
-          {!saved && (
-            <Button onClick={confirm} loading={busy} disabled={!preview}>
-              {t('ecommerce.orders.shippingCharges.confirm')}
-            </Button>
-          )}
+          <Button onClick={() => setConfirming(true)} disabled={!preview || busy}>
+            {t('ecommerce.orders.shippingCharges.confirm')}
+          </Button>
         </Modal.Footer>
       </Modal.Content>
+      {confirming && change && (
+        // A short confirmation with what the customer will have to pay (or get back).
+        <Dialog.Root open onOpenChange={(next: boolean) => !next && !busy && setConfirming(false)}>
+          <Dialog.Content>
+            <Dialog.Header>{t('ecommerce.orders.shippingCharges.confirmTitle')}</Dialog.Header>
+            <Dialog.Body>
+              <Typography
+                variant="omega"
+                textColor={change.outcome === 'DUE' ? 'warning600' : 'neutral800'}
+                fontWeight={change.outcome === 'NONE' ? undefined : 'semiBold'}
+                style={{ textAlign: 'center' }}
+              >
+                {t(`ecommerce.orders.products.outcome.${change.outcome}`, { amount: money(change.amount) })}
+              </Typography>
+            </Dialog.Body>
+            <Dialog.Footer>
+              <Flex style={{ width: '100%' }} gap={2}>
+                <Button fullWidth variant="tertiary" disabled={busy} onClick={() => setConfirming(false)}>
+                  {t('ecommerce.orders.products.confirm.cancel')}
+                </Button>
+                <Button fullWidth loading={busy} onClick={confirm}>
+                  {t('ecommerce.orders.shippingCharges.confirm')}
+                </Button>
+              </Flex>
+            </Dialog.Footer>
+          </Dialog.Content>
+        </Dialog.Root>
+      )}
     </Modal.Root>
   );
 };
