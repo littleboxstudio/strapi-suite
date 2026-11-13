@@ -172,21 +172,6 @@ const EcommerceOrderController = ({ strapi }: { strapi: Core.Strapi }) => {
 
     cancel: (ctx: any) => withId(ctx, (id) => orders().cancel(id, actorOf(ctx))),
     archive: (ctx: any) => withId(ctx, (id) => orders().archive(id, actorOf(ctx))),
-
-    /**
-     * Body `{ lines: [{ orderLineId?, variantId, quantity }], shipping, addresses?, orderDiscount? }`.
-     * An order may hold several lines of the same variant (promotions split them): every entry
-     * for such a variant must carry its `orderLineId`, otherwise `INVALID_QUANTITY` on
-     * `lines.<i>.orderLineId`. `orderDiscount` (cents) adjusts the order discount manually.
-     */
-    previewModification: (ctx: any) =>
-      withId(ctx, (id) => orders().previewModification(id, body(ctx))),
-
-    applyModification: (ctx: any) =>
-      withId(ctx, (id) => {
-        const { operationId, ...input } = body(ctx);
-        return orders().applyModification(id, input, actorOf(ctx), operationId);
-      }),
   };
 };
 

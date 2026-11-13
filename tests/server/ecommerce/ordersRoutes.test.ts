@@ -27,11 +27,30 @@ const orders: [string, string, string, string][] = [
   ['POST', `${O}/:id/store-credit-payment`, 'addStoreCreditPayment', P.ordersManage],
   ['POST', `${O}/:id/cancel`, 'cancel', P.ordersManage],
   ['POST', `${O}/:id/archive`, 'archive', P.ordersManage],
-  ['POST', `${O}/:id/modification/preview`, 'previewModification', P.ordersManage],
-  ['POST', `${O}/:id/modification`, 'applyModification', P.ordersManage],
+];
+const editing: [string, string, string, string][] = [
+  ['GET', `${O}/:id/shipping-address/countries`, 'shippingAddressCountries', P.ordersManage],
+  ['PUT', `${O}/:id/shipping-address`, 'updateShippingAddress', P.ordersManage],
+  ['POST', `${O}/:id/lines/preview`, 'previewLines', P.ordersManage],
+  ['POST', `${O}/:id/lines`, 'applyLines', P.ordersManage],
+  ['GET', `${O}/:id/shipping-options`, 'shippingOptions', P.ordersManage],
+  ['POST', `${O}/:id/shipping/recalculate/preview`, 'previewShippingRecalculation', P.ordersManage],
+  ['POST', `${O}/:id/shipping/recalculate`, 'recalculateShipping', P.ordersManage],
+  ['PUT', `${O}/:id/shipping-lines/:lineId`, 'editShippingLine', P.ordersManage],
+  ['POST', `${O}/:id/shipping-lines`, 'addShippingLine', P.ordersManage],
+  ['POST', `${O}/:id/discounts/preview`, 'previewDiscounts', P.ordersManage],
+  ['POST', `${O}/:id/discounts`, 'applyDiscounts', P.ordersManage],
+  ['POST', `${O}/:id/manual-discounts`, 'addManualDiscount', P.ordersManage],
+  ['POST', `${O}/:id/manual-discounts/:discountId/remove`, 'removeManualDiscount', P.ordersManage],
+  ['POST', `${O}/:id/review-flags/:code/dismiss`, 'dismissReviewFlag', P.ordersManage],
 ];
 
-const check = (routes: any[], ctrl: string, expected: [string, string, string, string][]) => {
+const check = (
+  routes: any[],
+  ctrl: string,
+  expected: [string, string, string, string][],
+  total = expected.length
+) => {
   it.each(expected)('%s %s is guarded', (method, path, handler, action) => {
     const r = routes.find((x) => x.method === method && x.path === path);
     expect(r).toBeDefined();
@@ -40,14 +59,17 @@ const check = (routes: any[], ctrl: string, expected: [string, string, string, s
     expect(r.config.policies).toContainEqual({ name: 'admin::hasPermissions', config: { actions: [action] } });
     expect(r.config.policies).toContain('admin::isAuthenticatedAdmin');
   });
-  it('declares exactly the expected routes', () => expect(routes).toHaveLength(expected.length));
+  it('declares exactly the expected routes', () => expect(routes).toHaveLength(total));
   it('are included in the admin routes', () =>
     expect(adminRoutes).toEqual(expect.arrayContaining(routes)));
 };
 
 describe('ecommerce customer routes', () => check(customerRoutes, 'EcommerceCustomerController', customers));
 describe('ecommerce order routes', () => {
-  check(orderRoutes, 'EcommerceOrderController', orders);
+  check(orderRoutes, 'EcommerceOrderController', orders, orders.length + editing.length);
+  check(orderRoutes, 'EcommerceOrderEditingController', editing, orders.length + editing.length);
+  it('has no modification route', () =>
+    expect(orderRoutes.filter((r) => r.path.includes('modification')).length).toBe(0));
   it('registers static paths before /:id', () => {
     const idx = (m: string, p: string) => orderRoutes.findIndex((r) => r.method === m && r.path === p);
     const id = idx('GET', `${O}/:id`);

@@ -2,10 +2,15 @@ import { ECOMMERCE_PERMISSIONS } from '../../services/modules/ecommerce/permissi
 
 const MIDDLEWARE = 'plugin::littlebox-strapi-suite.check-module-is-active';
 
-const route = (method: string, path: string, handler: string, action: string) => ({
+const build = (controller: string) => (
+  method: string,
+  path: string,
+  handler: string,
+  action: string
+) => ({
   method,
   path: `/admin/ecommerce/orders${path}`,
-  handler: `EcommerceOrderController.${handler}`,
+  handler: `${controller}.${handler}`,
   config: {
     policies: [
       'admin::isAuthenticatedAdmin',
@@ -14,6 +19,9 @@ const route = (method: string, path: string, handler: string, action: string) =>
     middlewares: [MIDDLEWARE],
   },
 });
+
+const route = build('EcommerceOrderController');
+const edit = build('EcommerceOrderEditingController');
 
 const { ordersRead: read, ordersManage: manage, paymentsManage: pay } = ECOMMERCE_PERMISSIONS;
 
@@ -34,6 +42,19 @@ export default [
   route('POST', '/:id/store-credit-payment', 'addStoreCreditPayment', manage),
   route('POST', '/:id/cancel', 'cancel', manage),
   route('POST', '/:id/archive', 'archive', manage),
-  route('POST', '/:id/modification/preview', 'previewModification', manage),
-  route('POST', '/:id/modification', 'applyModification', manage),
+  // Order editing by section: every route needs orders.manage, including the quoting GETs.
+  edit('GET', '/:id/shipping-address/countries', 'shippingAddressCountries', manage),
+  edit('PUT', '/:id/shipping-address', 'updateShippingAddress', manage),
+  edit('POST', '/:id/lines/preview', 'previewLines', manage),
+  edit('POST', '/:id/lines', 'applyLines', manage),
+  edit('GET', '/:id/shipping-options', 'shippingOptions', manage),
+  edit('POST', '/:id/shipping/recalculate/preview', 'previewShippingRecalculation', manage),
+  edit('POST', '/:id/shipping/recalculate', 'recalculateShipping', manage),
+  edit('PUT', '/:id/shipping-lines/:lineId', 'editShippingLine', manage),
+  edit('POST', '/:id/shipping-lines', 'addShippingLine', manage),
+  edit('POST', '/:id/discounts/preview', 'previewDiscounts', manage),
+  edit('POST', '/:id/discounts', 'applyDiscounts', manage),
+  edit('POST', '/:id/manual-discounts', 'addManualDiscount', manage),
+  edit('POST', '/:id/manual-discounts/:discountId/remove', 'removeManualDiscount', manage),
+  edit('POST', '/:id/review-flags/:code/dismiss', 'dismissReviewFlag', manage),
 ];
