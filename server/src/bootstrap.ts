@@ -11,6 +11,7 @@ import {
   AfterUnpublishSlug
 } from './lifecycles';
 import { registerEcommercePermissions } from './services/modules/ecommerce/permissions';
+import { migrateOrderEditingData } from './services/modules/ecommerce/orderEditingMigration';
 import { subscribeNotifications } from './services/modules/ecommerce/notifications';
 
 const bootstrap = async ({ strapi }: { strapi: Core.Strapi }) => {
@@ -123,6 +124,12 @@ const bootstrap = async ({ strapi }: { strapi: Core.Strapi }) => {
   }
 
   await registerEcommercePermissions(strapi);
+
+  try {
+    await migrateOrderEditingData(strapi);
+  } catch (e) {
+    strapi.log?.warn?.('[ecommerce] order editing migration failed: ' + (e instanceof Error ? e.name : typeof e));
+  }
 
   // Customer e-mails on domain events (each event checks that the e-commerce module is active).
   subscribeNotifications(strapi);

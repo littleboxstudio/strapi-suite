@@ -70,6 +70,7 @@ import {
   type PromotionEvaluation,
 } from './domain/promotions';
 import { createOrderPricing } from './orderPricing';
+import { checkoutLine } from './domain/shippingLines';
 import { MAX_STORE_CREDIT_CODE_LENGTH } from './domain/storefront/limits';
 import {
   MAX_PROMOTION_CODES,
@@ -876,6 +877,22 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
                 : {}),
             },
             promotions: storedPromotions,
+            shippingLines: {
+              lines: [
+                checkoutLine({
+                  createdAt: new Date().toISOString(),
+                  shippingOriginal,
+                  shippingTax: num(option.tax),
+                  shippingMethod: {
+                    providerId: option.providerId,
+                    serviceId: option.serviceId,
+                    name: option.name,
+                  },
+                }),
+              ],
+            },
+            manualDiscounts: { items: [] },
+            reviewFlags: { flags: [] },
             source: ctx.source,
             notes: v.notes,
             idempotencyKey: v.idempotencyKey,
