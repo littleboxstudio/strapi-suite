@@ -1701,5 +1701,10 @@
   "littlebox-strapi-suite.ecommerce.orders.review.locked": "Esta encomenda já não pode ser alterada, por isso já não é possível recalcular.",
   "littlebox-strapi-suite.ecommerce.orders.review.dismiss": "Dispensar",
   "littlebox-strapi-suite.ecommerce.orders.balance.due": "Valor em dívida: {amount}",
-  "littlebox-strapi-suite.ecommerce.orders.balance.refundable": "Elegível para reembolso: {amount}"
+  "littlebox-strapi-suite.ecommerce.orders.balance.refundable": "Elegível para reembolso: {amount}",
+  "littlebox-strapi-suite.ecommerce.orders.review.reasonNoDate.PRODUCTS_CHANGED": "Produtos alterados",
+  "littlebox-strapi-suite.ecommerce.orders.review.reasonNoDate.ADDRESS_CHANGED": "Morada de entrega alterada",
+  "littlebox-strapi-suite.ecommerce.orders.review.reasonNoDate.SHIPPING_CHANGED": "Portes alterados",
+  "littlebox-strapi-suite.ecommerce.orders.review.reasonNoDate.SHIPPING_QUOTE_FAILED": "Não foi possível cotar o método de entrega",
+  "littlebox-strapi-suite.ecommerce.orders.review.dismissError": "Não foi possível dispensar o aviso."
 }

@@ -49,6 +49,13 @@ export function reviewAlerts(order: Order): ReviewAlert[] {
     }));
 }
 
+/** The flag's raise date as an ISO string, or null when it is empty or not a date. */
+export function reviewAlertDate(raisedAt: string | null | undefined): string | null {
+  if (!raisedAt) return null;
+  const time = new Date(raisedAt).getTime();
+  return Number.isNaN(time) ? null : raisedAt;
+}
+
 export type ShippingLineRow = {
   line: ShippingLineView;
   badges: ('PAID' | 'INVOICED' | 'SPENT')[];
