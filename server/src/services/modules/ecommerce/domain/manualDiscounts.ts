@@ -58,11 +58,35 @@ export function legacyManualDiscount(order: {
   };
 }
 
-/** The stored list; a null column reads as the legacy item, or none. */
+const KINDS = ['FIXED', 'PERCENT', 'LEGACY'];
+
+/** One stored item, or null when malformed. */
+const parseDiscount = (raw: unknown): ManualDiscount | null => {
+  if (!isRecord(raw)) return null;
+  const { id, kind, percent, amount, reason, createdAt, actor } = raw;
+  if (typeof id !== 'number' || !Number.isInteger(id)) return null;
+  if (typeof kind !== 'string' || !KINDS.includes(kind)) return null;
+  if (typeof amount !== 'number' || !Number.isInteger(amount) || amount < 0) return null;
+  if (typeof reason !== 'string') return null;
+  return {
+    id,
+    kind: kind as ManualDiscount['kind'],
+    percent: typeof percent === 'number' && Number.isFinite(percent) ? percent : null,
+    amount,
+    reason,
+    createdAt: typeof createdAt === 'string' ? createdAt : '',
+    actor: typeof actor === 'string' ? actor : '',
+  };
+};
+
+/** The stored list (`{ items }`); a null column reads as the legacy item, or none. */
 export function readManualDiscounts(
   order: { manualDiscounts?: unknown } & Parameters<typeof legacyManualDiscount>[0]
 ): ManualDiscount[] {
-  if (Array.isArray(order.manualDiscounts)) return order.manualDiscounts.filter(isRecord) as ManualDiscount[];
+  const column = order.manualDiscounts;
+  if (isRecord(column) && Array.isArray(column.items)) {
+    return column.items.map(parseDiscount).filter((d): d is ManualDiscount => d !== null);
+  }
   const legacy = legacyManualDiscount(order);
   return legacy ? [legacy] : [];
 }
