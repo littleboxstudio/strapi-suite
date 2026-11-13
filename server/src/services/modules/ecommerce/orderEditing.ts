@@ -26,6 +26,7 @@ import {
 } from './domain/orderModification';
 import {
   clearFlag,
+  isReviewFlagCode,
   readReviewFlags,
   type ReviewFlag,
   type ReviewFlagCode,
@@ -45,6 +46,7 @@ import {
 import {
   buildManualDiscount,
   readManualDiscounts,
+  reconcileManualDiscounts,
   type ManualDiscount,
 } from './domain/manualDiscounts';
 import { previousShipmentsCost } from './domain/fulfillment';
@@ -138,43 +140,6 @@ const codesOf = (order: any): string[] => {
   return [...new Set([...entered, ...applied])];
 };
 
-/** Σ of the applied promotions' ORDER_DISCOUNT benefits: the promotions' part of `orderDiscount`. */
-const promotionOrderDiscount = (applied: AppliedPromotion[]): number =>
-  applied.reduce(
-    (s, a) =>
-      s +
-      (a.benefits ?? [])
-        .filter((b) => b.class === 'ORDER_DISCOUNT')
-        .reduce((t, b) => t + num(b.amount), 0),
-    0
-  );
-
-/**
- * The manual items consistent with the persisted (clamped) `orderDiscount`: a LEGACY item is
- * capped so Σ manual ≤ the order-level discount the promotions do not explain, and dropped at 0.
- * A products save may have clamped the discount below a legacy amount read before it.
- */
-const reconcileManual = (
-  items: ManualDiscount[],
-  orderDiscount: number,
-  applied: AppliedPromotion[]
-): ManualDiscount[] => {
-  let excess =
-    items.reduce((s, m) => s + m.amount, 0) -
-    Math.max(0, orderDiscount - promotionOrderDiscount(applied));
-  if (excess <= 0) return items;
-  return items
-    .map((m) => {
-      if (m.kind !== 'LEGACY' || excess <= 0) return m;
-      const cut = Math.min(m.amount, excess);
-      excess -= cut;
-      return { ...m, amount: m.amount - cut };
-    })
-    .filter((m) => m.kind !== 'LEGACY' || m.amount > 0);
-};
-
-const REVIEW_FLAG_CODES: ReviewFlagCode[] = ['SHIPPING_REVIEW', 'DISCOUNTS_REVIEW'];
-
 const invalidDiscounts = (path: string, code: string) =>
   new EcommerceValidationError('Invalid discounts', [{ path, code }]);
 
@@ -244,7 +209,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     }): Promise<PromotionCandidate[]>;
     reserve(
       applied: AppliedPromotion[],
-      ctx: { orderId: number; customerId: number; email: string; actor: string }
+      ctx: { orderId: number; customerId: number | null; email: string; actor: string }
     ): Promise<void>;
     releasePromotions(orderId: number, promotionIds: number[]): Promise<unknown>;
     unmet(
@@ -371,7 +336,11 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
       {
         lines,
         applied,
-        manual: readManualDiscounts(order),
+        // Capped at the stored order discount: pricing never re-adds a clamped part.
+        manual: reconcileManualDiscounts(readManualDiscounts(order), {
+          orderDiscount: num(order.orderDiscount),
+          promotions: order.promotions,
+        }),
         orderDiscount: num(order.orderDiscount),
         shippingGross: chargedShipping(readShippingLines(order)),
         shippingDiscount: num(order.shippingDiscount),
@@ -1031,7 +1000,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
           lines: true,
           orderDiscount: r.orderDiscount,
           shippingDiscount: r.shippingDiscount,
-          manualDiscounts: reconcileManual(r.manual, r.orderDiscount, r.applied),
+          manualDiscounts: r.manual,
           promotions: {
             ...(isRecord(order.promotions) ? order.promotions : {}),
             applied: r.applied,
@@ -1132,7 +1101,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     const after = totalsWith(state, undefined, orderDiscount);
     await writeTotals(state, {
       orderDiscount: after.orderDiscount,
-      manualDiscounts: reconcileManual(items, after.orderDiscount, appliedOf(state.order)),
+      manualDiscounts: items,
     });
     return {
       outcome: modificationOutcome(before, after),
@@ -1201,7 +1170,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
   ): Promise<EditResult> => {
     const orderId = Number(rawOrderId);
     const check = (state: OrderState) => {
-      if (!REVIEW_FLAG_CODES.includes(code)) throw invalidDiscounts('code', 'invalid');
+      if (!isReviewFlagCode(code)) throw invalidDiscounts('code', 'invalid');
       if (state.editing.editable) throw invalidDiscounts('code', 'REVIEW_FLAG_NOT_DISMISSABLE');
       const { flags, cleared } = clearFlag(readReviewFlags(state.order.reviewFlags), code);
       if (!cleared) throw invalidDiscounts('code', 'invalid');

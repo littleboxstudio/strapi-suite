@@ -22,7 +22,11 @@ import {
   readShippingLines,
   type ShippingLine,
 } from './domain/shippingLines';
-import { readManualDiscounts, type ManualDiscount } from './domain/manualDiscounts';
+import {
+  readManualDiscounts,
+  reconcileManualDiscounts,
+  type ManualDiscount,
+} from './domain/manualDiscounts';
 import { modificationOutcome } from './domain/orderModification';
 import type { CatalogVariant } from './orderPricingHelpers';
 import type { DomainEventType } from './events';
@@ -252,7 +256,8 @@ export function createEditRunner(
   /**
    * Recomputes and persists the totals from the stored lines and `data` (stored values for the
    * rest). New shipping lines sync the shipping columns (ruling 8). The three editing columns
-   * are always written, so a legacy order persists what it read (ruling 2). Conditional on OPEN:
+   * are always written, so a legacy order persists what it read (ruling 2); the manual items are
+ * capped at the persisted order discount. Conditional on OPEN:
    * a cancel or archive that committed first gives `ORDER_NOT_EDITABLE` and rolls the edit back.
    */
   const writeTotals = async (state: OrderState, data: TotalsWrite): Promise<OrderTotals> => {
@@ -318,7 +323,13 @@ export function createEditRunner(
         shippingTotal: totals.shippingTotal,
         total: totals.total,
         shippingLines: { lines: shippingLines },
-        manualDiscounts: { items: data.manualDiscounts ?? readManualDiscounts(order) },
+        // Never above the order-level discount as persisted (a clamp may have lowered it).
+        manualDiscounts: {
+          items: reconcileManualDiscounts(data.manualDiscounts ?? readManualDiscounts(order), {
+            orderDiscount: totals.orderDiscount,
+            promotions: data.promotions ?? order.promotions,
+          }),
+        },
         reviewFlags: { flags: data.reviewFlags ?? readReviewFlags(order.reviewFlags) },
       },
     });

@@ -73,6 +73,9 @@ const REASONS: ReviewReason[] = [
   'SHIPPING_QUOTE_FAILED',
 ];
 
+export const isReviewFlagCode = (v: unknown): v is ReviewFlagCode =>
+  CODES.includes(v as ReviewFlagCode);
+
 /** Reads the stored `{ flags }` object leniently; unknown shapes give no flags. */
 export function readReviewFlags(stored: unknown): ReviewFlag[] {
   const list = (stored as { flags?: unknown } | null | undefined)?.flags;
