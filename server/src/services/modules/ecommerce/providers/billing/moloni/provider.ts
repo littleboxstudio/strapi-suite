@@ -195,6 +195,49 @@ function isMoloniUrl(url: string): boolean {
   }
 }
 
+/** A line of the original document that can still be credited (`documents/getUnrelatedProducts`). */
+type OpenLine = { lineId: number; productId: number; reference: string; qty: number };
+
+/**
+ * Moloni credits lines, not amounts: each credit-note line names the original document's line it
+ * credits (`related_id` = that line's `document_product_id`). The open lines come from
+ * `documents/getUnrelatedProducts`; each credit line takes the first one with the same product
+ * (by id, else by reference) that still has the quantity, which is then used up. Checked before
+ * any write: a line that cannot be matched refuses the credit note.
+ */
+async function relateToOriginal(
+  ctx: Ctx,
+  originalId: number,
+  products: Record<string, unknown>[],
+  lines: { name: string; sku: string; kind: string }[]
+) {
+  const answer = await ctx.client.call<any>('documents/getUnrelatedProducts', { document_id: originalId });
+  const raw: any[] = Array.isArray(answer) ? answer : Array.isArray(answer?.products) ? answer.products : [];
+  const open: OpenLine[] = raw
+    .map((p) => ({
+      lineId: Number(p?.document_product_id),
+      productId: Number(p?.product_id),
+      reference: typeof p?.reference === 'string' ? p.reference : '',
+      qty: Number(p?.qty),
+    }))
+    .filter((p) => Number.isInteger(p.lineId) && p.lineId > 0 && p.qty > 0);
+  const EPSILON = 1e-6;
+  products.forEach((product, i) => {
+    const qty = Number(product.qty);
+    const fits = (l: OpenLine) => l.qty + EPSILON >= qty;
+    const match =
+      open.find((l) => l.productId === product.product_id && fits(l)) ??
+      open.find((l) => !!l.reference && l.reference === lines[i]?.sku && fits(l));
+    if (!match) {
+      throw requestFailed(
+        `Line ${i + 1} is not on the original Moloni document, or that quantity was already credited.`
+      );
+    }
+    match.qty -= qty;
+    product.related_id = match.lineId;
+  });
+}
+
 type PdfAnswer = { status: number; bytes: Buffer };
 
 async function downloadPdf(url: string): Promise<PdfAnswer> {
@@ -304,6 +347,7 @@ export const moloniProvider: BillingProvider = {
       }
       products.push({ product_id: id, name: line.name, qty: line.quantity, price: netUnitPrice(line), ...lineTaxes[i] });
     }
+    if (isCredit) await relateToOriginal(ctx, documentId(draft.original!.externalId), products, draft.lines);
 
     const document: Record<string, unknown> = {
       date: draft.date,
