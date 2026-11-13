@@ -9,9 +9,9 @@ import { apiErrorMessageId } from '../../utils/orderDetail';
 import { mintUuid } from '../../utils/variantDraft';
 import type { EditResult, Order } from '../../orderTypes';
 
-/** The review alert's colours: a fixed orange background with black text. */
-const ALERT_BACKGROUND = '#f29d41';
-const ALERT_TEXT = '#000000';
+/** The review alert's colours: a fixed dark amber background with white text. */
+const ALERT_BACKGROUND = '#43311a';
+const ALERT_TEXT = '#ffffff';
 
 type Props = {
   order: Order;
@@ -77,7 +77,7 @@ const ReviewAlerts = ({ order, canManage, onResult }: Props) => {
             paddingBottom={2}
             paddingLeft={4}
             paddingRight={2}
-            // Fixed warning colour, the same in light and dark mode; the text stays black on it.
+            // Fixed warning colour, the same in light and dark mode; the text stays white on it.
             style={{ background: ALERT_BACKGROUND, color: ALERT_TEXT }}
           >
             <Flex gap={3} alignItems="center" justifyContent="space-between">
