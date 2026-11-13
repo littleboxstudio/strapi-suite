@@ -290,12 +290,15 @@ export function recalculateDiscounts(
   const pricedIds = new Set(priced.map((p) => p.id));
   const keptIds = new Set([...keptInvalid, ...pricedIds]);
 
-  // Frozen lines keep their discount; the others are priced by the selected valid and new ones.
-  const nonFrozen = evaluationLines.filter(
-    (e) => !e.line.refs.some((r) => keptInvalid.has(r.promotionId))
-  );
+  // Frozen lines keep their discount: they enter the combination at their net price, taking no
+  // line-level benefit but counting in the order-level bases and the buy thresholds.
+  const isFrozen = (l: DiscountLine) => l.refs.some((r) => keptInvalid.has(r.promotionId));
   const combination = applyCombination(priced, {
-    lines: nonFrozen.map((e) => e.input),
+    lines: evaluationLines.map(({ line, input }) =>
+      isFrozen(line)
+        ? { ...input, unitPrice: line.unitPrice - line.unitDiscount, frozen: true }
+        : input
+    ),
     shipping: ctx.shippingGross,
     gifts: new Map(),
     giftChoices: {},
@@ -304,7 +307,8 @@ export function recalculateDiscounts(
   const lines: DiscountPricing['lines'] = [];
   const newDiscount = new Map<number, number>();
   let remainders = 0;
-  nonFrozen.forEach(({ line }, index) => {
+  evaluationLines.forEach(({ line }, index) => {
+    if (isFrozen(line)) return;
     const groups = combination.lines.filter((l) => l.sourceIndex === index);
     const q = effective(line);
     const discount = groups.reduce((s, g) => s + g.unitDiscount * g.quantity, 0);
@@ -341,7 +345,7 @@ export function recalculateDiscounts(
       0
     );
   const manual = ctx.manual.filter((m) => wanted.has(manualKey(m.id)));
-  const orderDiscount =
+  const storedOrderDiscount =
     combination.orderDiscount +
     keptAmount('ORDER_DISCOUNT') +
     manual.reduce((s, m) => s + m.amount, 0) +
@@ -404,9 +408,15 @@ export function recalculateDiscounts(
     .filter((l) => !removedGiftIds.has(l.id))
     .map((l) => ({ ...l, unitDiscount: newDiscount.get(l.id) ?? l.unitDiscount }));
   const after = withMoney(
-    computeTotals(afterLines, { ...stateFor, orderDiscount, shippingDiscount }),
+    computeTotals(afterLines, {
+      ...stateFor,
+      orderDiscount: storedOrderDiscount,
+      shippingDiscount,
+    }),
     ctx
   );
+  // The value to persist: clamped to the new subtotal, as the totals read it.
+  const orderDiscount = after.orderDiscount;
 
   return {
     rows: finalRows,

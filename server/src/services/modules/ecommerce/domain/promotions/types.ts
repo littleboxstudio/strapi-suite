@@ -29,9 +29,7 @@ export type ConditionGroup = {
 };
 
 export type Reward =
-  | { kind: 'FREE' }
-  | { kind: 'PERCENT'; percent: number }
-  | { kind: 'FIXED'; amount: number };
+  { kind: 'FREE' } | { kind: 'PERCENT'; percent: number } | { kind: 'FIXED'; amount: number };
 
 export type Benefit =
   | { type: 'PRODUCT_PERCENT'; target: ProductTarget; percent: number; maxQuantity: number | null }
@@ -108,6 +106,11 @@ export type EvaluationLine = {
   productId: number;
   unitPrice: number;
   quantity: number;
+  /**
+   * Takes no line-level benefit (no product discount, no Buy X Get Y unit) but still counts in
+   * the subtotal and the buy thresholds. Used for order lines whose discount is kept as is.
+   */
+  frozen?: boolean;
 };
 
 /** Half-up rounding of `amount * percent / 100` in integers (percent has at most 2 decimals). */

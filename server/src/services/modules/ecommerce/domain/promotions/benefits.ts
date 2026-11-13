@@ -72,6 +72,8 @@ type Unit = {
   claim: Claim | null;
   /** Used as purchase by a Buy X Get Y: excluded from other Buy X Get Y only (requirement 2.12). */
   buyReserved: boolean;
+  /** From a frozen line: never claimed nor bought (see EvaluationLine.frozen). */
+  frozen: boolean;
 };
 
 type OrderedBenefit = {
@@ -127,7 +129,10 @@ const planInCartRepetitions = (
 ): { buyUnits: Unit[]; prizeUnits: Unit[] }[] => {
   const pool = units.filter(
     (u) =>
-      !u.claim && !u.buyReserved && (targetMatches(buyTarget, u) || targetMatches(getTarget, u))
+      !u.claim &&
+      !u.buyReserved &&
+      !u.frozen &&
+      (targetMatches(buyTarget, u) || targetMatches(getTarget, u))
   );
   type Kind = 'bo' | 'go' | 'both';
   const kind = new Map<Unit, Kind>();
@@ -254,7 +259,7 @@ const applyBuyXGetY = (
   while (ob.perOrderLimit === null || repetitions < ob.perOrderLimit) {
     if (giftLeft(g) < get.quantity) break;
     const buyUnits = units
-      .filter((u) => !u.claim && !u.buyReserved && targetMatches(buy.target, u))
+      .filter((u) => !u.claim && !u.buyReserved && !u.frozen && targetMatches(buy.target, u))
       .sort(byPriceDesc)
       .slice(0, buy.quantity);
     if (buyUnits.length < buy.quantity) break;
@@ -296,7 +301,7 @@ const applyUnitDiscounts = (benefits: OrderedBenefit[], units: Unit[], amounts: 
     eligible: number;
     won: Unit[];
   };
-  const free = units.filter((u) => !u.claim);
+  const free = units.filter((u) => !u.claim && !u.frozen);
   const states: State[] = benefits.map((ob) => {
     const b = ob.benefit as Extract<Benefit, { type: 'PRODUCT_PERCENT' | 'PRODUCT_FIXED' }>;
     const quota = b.maxQuantity ?? Number.POSITIVE_INFINITY;
@@ -427,6 +432,7 @@ export const applyCombination = (
         productId: line.productId,
         claim: null,
         buyReserved: false,
+        frozen: line.frozen === true,
       });
     }
   });
