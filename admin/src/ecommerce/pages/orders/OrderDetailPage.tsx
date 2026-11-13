@@ -238,14 +238,6 @@ const OrderDetailPage = () => {
         onAction={(action) => dispatchModal({ type: 'OPEN', action })}
       />
 
-      <OrderSection title={t('ecommerce.orders.detail.lines.title')}>
-        <OrderLinesTable
-          lines={order.lines}
-          promotions={order.promotions}
-          locales={{ locale: order.locale, defaultLocale }}
-        />
-      </OrderSection>
-
       <Grid.Root gap={6}>
         <Grid.Item col={3} m={6} s={12} direction="column" alignItems="stretch">
           <FillCell>
@@ -270,6 +262,14 @@ const OrderDetailPage = () => {
           </FillCell>
         </Grid.Item>
       </Grid.Root>
+
+      <OrderSection title={t('ecommerce.orders.detail.lines.title')}>
+        <OrderLinesTable
+          lines={order.lines}
+          promotions={order.promotions}
+          locales={{ locale: order.locale, defaultLocale }}
+        />
+      </OrderSection>
 
       <OrderSection title={t('ecommerce.orders.detail.payments.title')}>
         <PaymentsTable
