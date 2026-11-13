@@ -32,6 +32,9 @@ type Props = {
   canResend: boolean;
 };
 
+/** First letter in upper case (the reasons are written as sentence fragments). */
+const capitalize = (text: string) => text.charAt(0).toLocaleUpperCase() + text.slice(1);
+
 const COLUMNS = ['type', 'recipient', 'status', 'date', 'actions'] as const;
 
 const STATUS_VARIANT: Record<string, 'success' | 'danger' | 'neutral'> = {
@@ -137,30 +140,21 @@ const NotificationsSection = ({ orderId, refreshKey, canResend }: Props) => {
             <Modal.Title>{t(`ecommerce.settings.emailTemplates.types.${n.type}.name`, undefined, n.type)}</Modal.Title>
           </Modal.Header>
           <Modal.Body>
-            <Flex direction="column" alignItems="stretch" gap={3}>
-              <Flex gap={2} alignItems="center" wrap="wrap">
-                {statusBadge(n)}
-                <Typography variant="omega" textColor="neutral600">
-                  {n.recipient || '—'}
-                </Typography>
-              </Flex>
-              {parts ? (
-                <>
-                  <Typography variant="omega" textColor="neutral800">
-                    {t('ecommerce.orders.notifications.reason', { reason: errorLabel(parts.code) })}
-                  </Typography>
-                  {parts.detail && (
-                    <Typography variant="omega" textColor="neutral800" style={{ wordBreak: 'break-word' }}>
-                      {parts.detail}
-                    </Typography>
-                  )}
-                </>
-              ) : (
-                <Typography variant="omega" textColor="neutral800">
-                  {t('ecommerce.orders.notifications.noReason')}
-                </Typography>
-              )}
-            </Flex>
+            {parts ? (
+              <Typography variant="omega" textColor="neutral800" tag="p" style={{ wordBreak: 'break-word' }}>
+                {capitalize(errorLabel(parts.code))}.
+                {parts.detail && (
+                  <>
+                    <br />
+                    {parts.detail}
+                  </>
+                )}
+              </Typography>
+            ) : (
+              <Typography variant="omega" textColor="neutral800">
+                {t('ecommerce.orders.notifications.noReason')}
+              </Typography>
+            )}
           </Modal.Body>
           <Modal.Footer>
             <Button variant="tertiary" onClick={close}>
