@@ -1,7 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import {
+  addressLockReason,
+  allowedCountryCodes,
   balanceActions,
   canEdit,
+  currentShippingMethod,
+  defaultShippingOptionKey,
+  shippingAddressErrors,
+  shippingLineAmount,
+  shippingLineDraftToInput,
+  shippingLineErrorKey,
+  shippingOptionKey,
   discountSelectionToggle,
   hasRowActions,
   manualDiscountDraftToInput,
@@ -282,5 +291,148 @@ describe('balance action texts', () => {
       expect(en[key], key).toBeTruthy();
       expect(pt[key], key).toBeTruthy();
     });
+  });
+});
+
+describe('addressLockReason', () => {
+  it('is null while the address can be edited', () => {
+    expect(addressLockReason(editing())).toBeNull();
+  });
+  it('prefers the block reason, then HAS_SHIPMENTS', () => {
+    expect(addressLockReason(editing({ editable: false, blockedBy: 'CANCELLED', hasShipments: true }))).toBe(
+      'CANCELLED'
+    );
+    expect(addressLockReason(editing({ hasShipments: true }))).toBe('HAS_SHIPMENTS');
+  });
+});
+
+describe('allowedCountryCodes', () => {
+  it('keeps the served countries and adds the current one when missing', () => {
+    expect(allowedCountryCodes(['PT', 'ES'], 'PT')).toEqual(['PT', 'ES']);
+    expect(allowedCountryCodes(['PT'], 'fr')).toEqual(['PT', 'FR']);
+    expect(allowedCountryCodes(['PT'], ' ')).toEqual(['PT']);
+  });
+});
+
+describe('shippingAddressErrors', () => {
+  it('flags the empty required fields under address.*', () => {
+    const form = {
+      firstName: 'Ana',
+      lastName: ' ',
+      company: '',
+      nif: '',
+      line1: 'Rua 1',
+      line2: '',
+      postalCode: '1000-001',
+      city: '',
+      country: 'PT',
+      phone: '',
+    };
+    expect(shippingAddressErrors(form)).toEqual([
+      { path: 'address.lastName', code: 'required' },
+      { path: 'address.city', code: 'required' },
+    ]);
+  });
+});
+
+describe('shippingLineAmount', () => {
+  it('shows the corrected amount when the line has corrections', () => {
+    expect(shippingLineAmount(line({ amount: 500 }))).toBe(500);
+    expect(shippingLineAmount(line({ amount: 500, effectiveAmount: 700 }))).toBe(700);
+    expect(shippingLineAmount(line({ amount: 500, effectiveAmount: 0 }))).toBe(0);
+  });
+});
+
+describe('currentShippingMethod', () => {
+  it('is the newest line that chose a method; recalculation lines inherit it', () => {
+    const lines = [
+      line({ id: 1, origin: 'CHECKOUT', providerId: 'ctt', serviceId: 'a' }),
+      line({ id: 2, origin: 'EDIT', providerId: 'dpd', serviceId: 'b' }),
+      line({ id: 3, origin: 'RECALCULATION', providerId: 'ctt', serviceId: 'a' }),
+    ];
+    expect(currentShippingMethod(lines)).toEqual({ providerId: 'dpd', serviceId: 'b' });
+    expect(currentShippingMethod([])).toBeNull();
+  });
+});
+
+describe('defaultShippingOptionKey', () => {
+  const options = [
+    { providerId: 'ctt', serviceId: 'a', name: 'CTT', price: 400, tax: 23 },
+    { providerId: 'dpd', serviceId: 'b', name: 'DPD', price: 600, tax: 23 },
+  ];
+  it('picks the preferred method when offered, else the first option', () => {
+    expect(defaultShippingOptionKey(options, { providerId: 'dpd', serviceId: 'b' })).toBe('dpd:b');
+    expect(defaultShippingOptionKey(options, { providerId: 'x', serviceId: 'y' })).toBe('ctt:a');
+    expect(defaultShippingOptionKey(options, null)).toBe('ctt:a');
+    expect(defaultShippingOptionKey([], null)).toBeNull();
+    expect(shippingOptionKey(options[1])).toBe('dpd:b');
+  });
+});
+
+describe('shippingLineDraftToInput', () => {
+  const option = { providerId: 'ctt', serviceId: 'a', name: 'CTT', price: 400, tax: 23 };
+  it('builds the input from the chosen method and the price in euros', () => {
+    expect(shippingLineDraftToInput(option, '4,50')).toEqual({
+      input: { providerId: 'ctt', serviceId: 'a', amount: 450 },
+      errors: [],
+    });
+    expect(shippingLineDraftToInput(option, '0').input?.amount).toBe(0);
+  });
+  it('requires a method and a valid amount', () => {
+    expect(shippingLineDraftToInput(null, 'abc')).toEqual({
+      input: null,
+      errors: [
+        { path: 'method', code: 'required' },
+        { path: 'amount', code: 'INVALID_AMOUNT' },
+      ],
+    });
+    expect(shippingLineDraftToInput(option, '').errors).toEqual([{ path: 'amount', code: 'INVALID_AMOUNT' }]);
+    expect(shippingLineDraftToInput(option, '99999999').errors).toEqual([
+      { path: 'amount', code: 'INVALID_AMOUNT' },
+    ]);
+  });
+});
+
+describe('shippingLineErrorKey', () => {
+  it('maps server paths to the modal fields', () => {
+    expect(shippingLineErrorKey('amount')).toBe('amount');
+    expect(shippingLineErrorKey('method')).toBe('method');
+    expect(shippingLineErrorKey('shipping')).toBe('form');
+    expect(shippingLineErrorKey('lineId')).toBe('form');
+  });
+});
+
+describe('shipping charges texts', () => {
+  const keys = [
+    'ecommerce.orders.shippingCharges.title',
+    'ecommerce.orders.shippingCharges.recalculate',
+    'ecommerce.orders.shippingCharges.add',
+    'ecommerce.orders.shippingCharges.edit',
+    'ecommerce.orders.shippingCharges.origin.CHECKOUT',
+    'ecommerce.orders.shippingCharges.origin.RECALCULATION',
+    'ecommerce.orders.shippingCharges.origin.EDIT',
+    'ecommerce.orders.shippingCharges.origin.MANUAL',
+    'ecommerce.orders.shippingCharges.badge.PAID',
+    'ecommerce.orders.shippingCharges.badge.INVOICED',
+    'ecommerce.orders.shippingCharges.badge.SPENT',
+    'ecommerce.orders.shippingCharges.columns.method',
+    'ecommerce.orders.shippingCharges.columns.date',
+    'ecommerce.orders.shippingCharges.columns.amount',
+    'ecommerce.orders.shippingCharges.columns.status',
+    'ecommerce.orders.shippingCharges.columns.actions',
+    'ecommerce.orders.shippingCharges.charged',
+    'ecommerce.orders.shippingCharges.due',
+    'ecommerce.orders.shippingCharges.unchanged',
+    'ecommerce.orders.shippingCharges.noMethods',
+    'ecommerce.orders.shippingCharges.suggested',
+    'ecommerce.orders.address.locked.HAS_SHIPMENTS',
+    'ecommerce.orders.address.locked.CANCELLED',
+    'ecommerce.orders.address.locked.ARCHIVED',
+    'ecommerce.orders.address.locked.SHIPMENT_PENDING',
+  ];
+  it.each(keys)('%s exists in en and pt', (key) => {
+    const id = `littlebox-strapi-suite.${key}`;
+    expect(en[id]).toBeTruthy();
+    expect(pt[id]).toBeTruthy();
   });
 });

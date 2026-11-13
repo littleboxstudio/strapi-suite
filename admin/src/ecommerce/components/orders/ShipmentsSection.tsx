@@ -30,7 +30,8 @@ import FetchShipmentLabel from '../../usecases/orders/fetchShipmentLabel';
 import RefreshShipmentTracking from '../../usecases/orders/refreshShipmentTracking';
 import RetryShipment from '../../usecases/orders/retryShipment';
 import { formatCents } from '../../utils/money';
-import { apiErrorMessageId } from '../../utils/orderDetail';
+import { apiErrorMessageId, type OrderActionPermissions, type ToolbarAction } from '../../utils/orderDetail';
+import { canEdit, shippingLineRows } from '../../utils/orderEditing';
 import {
   MAX_CANCEL_REASON,
   isHttpUrl,
@@ -39,8 +40,11 @@ import {
   shipmentActions,
   type ShipmentAction,
 } from '../../utils/shipmentForm';
-import type { Address, OrderDeliveryStatus, OrderStatus, ShipmentView } from '../../orderTypes';
-import AddressButton from './AddressButton';
+import type { EditResult, Order, OrderDeliveryStatus, OrderStatus, ShipmentView, ShippingLineView } from '../../orderTypes';
+import ShippingAddressModal from './ShippingAddressModal';
+import ShippingChargesTable from './ShippingChargesTable';
+import ShippingLineModal from './ShippingLineModal';
+import RecalculateShippingModal from './RecalculateShippingModal';
 import DeliveryModal from './DeliveryModal';
 import TrackingModal from './TrackingModal';
 import OrderSection from './OrderSection';
@@ -52,13 +56,21 @@ type Props = {
   orderStatus: OrderStatus;
   deliveryStatus: OrderDeliveryStatus;
   shipments: ShipmentView[];
-  /** Where the order ships to, shown at the top of the section. */
-  shippingAddress: Address | null;
-  /** `orders.manage`: deliver, tracking, refresh, retry, cancel. */
+  /** The order: its shipping address and shipping charges, and which edits it offers. */
+  order: Order;
+  permissions: OrderActionPermissions;
+  /** `orders.manage`: deliver, tracking, refresh, retry, cancel, and the shipping edits. */
   canManage: boolean;
   /** After any change: the order is fetched again. */
   onChanged: () => void;
+  /** After a shipping edit: the order it returned. */
+  onEdited: (result: EditResult) => void;
+  /** A balance button of an edit's result step (add payment, refund, …). */
+  onAction: (action: ToolbarAction) => void;
 };
+
+/** The open shipping modal; it unmounts on close, so each opening mints its own operationId. */
+type ShippingModal = { kind: 'RECALCULATE' } | { kind: 'LINE'; mode: 'EDIT' | 'ADD'; line?: ShippingLineView };
 
 type Variant = 'warning' | 'success' | 'neutral' | 'danger' | 'secondary' | 'alternative' | 'primary';
 
@@ -90,9 +102,12 @@ const ShipmentsSection = ({
   orderStatus,
   deliveryStatus,
   shipments,
-  shippingAddress,
+  order,
+  permissions,
   canManage,
   onChanged,
+  onEdited,
+  onAction,
 }: Props) => {
   const { formatMessage, formatDate, locale: uiLocale } = useIntl();
   const { toggleNotification } = useNotification();
@@ -107,6 +122,12 @@ const ShipmentsSection = ({
   const [cancelling, setCancelling] = useState<ShipmentView | null>(null);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState<number | null>(null);
+  const [shippingModal, setShippingModal] = useState<ShippingModal | null>(null);
+  const shippingActionsFor = (action: ToolbarAction) => {
+    setShippingModal(null);
+    onAction(action);
+  };
+  const chargeRows = shippingLineRows(order.shippingLines, order.editing, canManage);
 
   const toggle = (id: number) =>
     setExpanded((set) => {
@@ -232,12 +253,29 @@ const ShipmentsSection = ({
           {t(`ecommerce.orders.shipments.orderDelivery.${deliveryStatus}`, undefined, deliveryStatus)}
         </Badge>
       </Flex>
-      <AddressButton title={t('ecommerce.orders.detail.address.shipping')} address={shippingAddress} />
+      <ShippingAddressModal order={order} canManage={canManage} onSaved={onEdited} />
+      {canManage && canEdit(order, 'RECALCULATE_SHIPPING') && (
+        <Button size="S" variant="secondary" onClick={() => setShippingModal({ kind: 'RECALCULATE' })}>
+          {t('ecommerce.orders.shippingCharges.recalculate')}
+        </Button>
+      )}
+      {canManage && canEdit(order, 'ADD_SHIPPING_LINE') && (
+        <Button size="S" variant="secondary" onClick={() => setShippingModal({ kind: 'LINE', mode: 'ADD' })}>
+          {t('ecommerce.orders.shippingCharges.add')}
+        </Button>
+      )}
     </Flex>
   );
 
   return (
     <OrderSection id={id} title={title} actions={header}>
+      <Typography variant="sigma" textColor="neutral700" tag="h3">
+        {t('ecommerce.orders.shippingCharges.title')}
+      </Typography>
+      <ShippingChargesTable
+        rows={chargeRows}
+        onEdit={(line) => setShippingModal({ kind: 'LINE', mode: 'EDIT', line })}
+      />
       {shipments.length === 0 ? (
         <EmptyNote>{t('ecommerce.orders.shipments.empty')}</EmptyNote>
       ) : (
@@ -400,6 +438,26 @@ const ShipmentsSection = ({
         </Box>
       )}
 
+      {canManage && shippingModal?.kind === 'RECALCULATE' && (
+        <RecalculateShippingModal
+          order={order}
+          permissions={permissions}
+          onClose={() => setShippingModal(null)}
+          onSaved={onEdited}
+          onAction={shippingActionsFor}
+        />
+      )}
+      {canManage && shippingModal?.kind === 'LINE' && (
+        <ShippingLineModal
+          order={order}
+          mode={shippingModal.mode}
+          line={shippingModal.line}
+          permissions={permissions}
+          onClose={() => setShippingModal(null)}
+          onSaved={onEdited}
+          onAction={shippingActionsFor}
+        />
+      )}
       {canManage && delivering && (
         <DeliveryModal
           shipment={delivering}

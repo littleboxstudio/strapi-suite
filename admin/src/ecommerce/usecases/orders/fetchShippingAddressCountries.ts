@@ -1,6 +1,5 @@
 import Registry from '../../../core/di/registry';
 import EcommerceOrdersGateway from '../../gateways/ecommerceOrdersGateway';
-import type {  } from '../../orderTypes';
 
 export default class FetchShippingAddressCountries {
   gateway: EcommerceOrdersGateway;

@@ -43,12 +43,17 @@ type Props = {
   /** Billing addresses also take `company` and `nif`. */
   billing?: boolean;
   disabled?: boolean;
+  /** Country codes the select offers; all countries when absent. */
+  countries?: string[];
 };
 
-const AddressFields = ({ name, value, onChange, errorFor, billing = false, disabled }: Props) => {
+const AddressFields = ({ name, value, onChange, errorFor, billing = false, disabled, countries: allowed }: Props) => {
   const { formatMessage, locale } = useIntl();
   const t = (id: string) => formatMessage({ id: getTranslation(id) });
-  const countries = useMemo(() => countryOptions(locale), [locale]);
+  const countries = useMemo(() => {
+    const all = countryOptions(locale);
+    return allowed ? all.filter((c) => allowed.includes(c.code)) : all;
+  }, [locale, allowed]);
   const fields = billing ? BILLING_FIELDS : SHIPPING_FIELDS;
 
   return (
