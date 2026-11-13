@@ -6,7 +6,7 @@ import CustomerCard from './CustomerCard';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import {
   allowedToolbarActions,
-  modifyBlockedByShipment,
+  editBlockedByShipment,
   type OrderActionPermissions,
   type ToolbarAction,
 } from '../../utils/orderDetail';
@@ -25,7 +25,6 @@ type Props = {
 
 const VARIANTS: Record<ToolbarAction, 'default' | 'secondary' | 'danger-light' | 'tertiary'> = {
   SHIP: 'default',
-  MODIFY: 'secondary',
   ADD_PAYMENT: 'default',
   SEND_PAYMENT_INSTRUCTIONS: 'secondary',
   REFUND: 'secondary',
@@ -40,8 +39,8 @@ const OrderHeader = ({ order, back, permissions, busy, onAction }: Props) => {
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
   const actions = allowedToolbarActions(order.availableActions, permissions);
-  // MODIFY is left out while a carrier shipment is pending: say why to whoever could modify.
-  const modifyBlocked = permissions.canManage && modifyBlockedByShipment(order);
+  // Editing is closed while a carrier shipment is pending: say why to whoever could edit.
+  const editBlocked = permissions.canManage && editBlockedByShipment(order);
 
   return (
     <Flex justifyContent="space-between" alignItems="flex-start" gap={4} wrap="wrap">
@@ -65,7 +64,7 @@ const OrderHeader = ({ order, back, permissions, busy, onAction }: Props) => {
       </Flex>
       <Flex direction="column" alignItems="flex-end" gap={2}>
         <CustomerCard customer={order.customer} />
-        {modifyBlocked && (
+        {editBlocked && (
           <Typography variant="pi" textColor="warning600" style={{ maxWidth: 420, textAlign: 'right' }}>
             {t('ecommerce.orders.errors.SHIPMENT_PENDING')}
           </Typography>

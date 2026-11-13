@@ -17,7 +17,7 @@ import { useInvoicingPermissions } from '../../hooks/useInvoicingPermissions';
 import { hasUninvoicedPayments } from '../../utils/invoiceForm';
 import { apiErrorMessageId, promotionDisplayName, type ToolbarAction } from '../../utils/orderDetail';
 import { initialOrderModalState, orderModalReducer } from '../../utils/orderModals';
-import type { InvoiceScopeInput, ModificationApplied, Order } from '../../orderTypes';
+import type { InvoiceScopeInput, Order } from '../../orderTypes';
 import OrderHeader from '../../components/orders/OrderHeader';
 import OrderSection from '../../components/orders/OrderSection';
 import OrderLinesTable from '../../components/orders/OrderLinesTable';
@@ -27,8 +27,6 @@ import AddPaymentModal from '../../components/orders/AddPaymentModal';
 import CancelOrderModal from '../../components/orders/CancelOrderModal';
 import HistoryTimeline from '../../components/orders/HistoryTimeline';
 import PromotionsSection from '../../components/orders/PromotionsSection';
-import ModifyOrderModal from '../../components/orders/ModifyOrderModal';
-import SupplementaryPaymentModal from '../../components/orders/SupplementaryPaymentModal';
 import PaymentInstructionsModal from '../../components/orders/PaymentInstructionsModal';
 import RefundModal from '../../components/orders/RefundModal';
 import RefundsTable from '../../components/orders/RefundsTable';
@@ -65,8 +63,6 @@ const OrderDetailPage = () => {
   const [busy, setBusy] = useState(false);
   // Bumped on every order (re)load: refunds and notifications refetch with it.
   const [version, setVersion] = useState(0);
-  // Opened after a modification leaves an amount due (requirement 16.7).
-  const [supplementary, setSupplementary] = useState(false);
   // The invoice being issued (one payment or the whole order); null when the modal is closed.
   const [invoiceScope, setInvoiceScope] = useState<InvoiceScopeInput | null>(null);
   const hasOrderRef = useRef(false);
@@ -123,7 +119,6 @@ const OrderDetailPage = () => {
     setOrder(null);
     setLoadError(false);
     dispatchModal({ type: 'RESET' });
-    setSupplementary(false);
     setInvoiceScope(null);
     if (!Number.isInteger(orderId) || orderId < 1) {
       setLoadError(true);
@@ -142,32 +137,6 @@ const OrderDetailPage = () => {
   const afterChange = (from: ToolbarAction) => async () => {
     dispatchModal({ type: 'DONE', from });
     await load();
-  };
-
-  /**
-   * After a modification: show the order the apply returned (refetch only if it is missing),
-   * then ask for the amount due or flag the refundable excess.
-   */
-  const afterModification = async (result: ModificationApplied) => {
-    dispatchModal({ type: 'DONE', from: 'MODIFY' });
-    if (result.order) {
-      // Supersedes any refetch still in flight.
-      requestRef.current += 1;
-      hasOrderRef.current = true;
-      setOrder(result.order);
-      setVersion((v) => v + 1);
-      setLoadError(false);
-    } else {
-      await load();
-    }
-    if (result.outcome === 'DUE') {
-      // Sending instructions needs payments.manage; without it the amount due stays on the order.
-      if (canPay) setSupplementary(true);
-      else toggleNotification({ type: 'info', message: t('ecommerce.orders.modify.due') });
-    }
-    else if (result.outcome === 'REFUNDABLE') {
-      toggleNotification({ type: 'info', message: t('ecommerce.orders.modify.refundable') });
-    }
   };
 
   const runTransition = async (action: 'CANCEL' | 'ARCHIVE') => {
@@ -280,24 +249,6 @@ const OrderDetailPage = () => {
         <HistoryTimeline history={order.history} />
       </OrderSection>
 
-      {canManage && modal === 'MODIFY' && (
-        <ModifyOrderModal order={order} onClose={closeModal('MODIFY')} onApplied={afterModification} />
-      )}
-      {canPay && supplementary && (
-        <SupplementaryPaymentModal
-          orderId={order.id}
-          reference={order.reference}
-          locale={order.locale}
-          total={order.totals.total}
-          paid={order.summary.paid}
-          due={order.summary.due}
-          onClose={() => setSupplementary(false)}
-          onSent={() => {
-            setSupplementary(false);
-            load();
-          }}
-        />
-      )}
       {canPay && modal === 'SEND_PAYMENT_INSTRUCTIONS' && (
         <PaymentInstructionsModal
           orderId={order.id}

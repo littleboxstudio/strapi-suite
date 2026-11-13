@@ -1,27 +1,7 @@
-import { MAX_MONEY_CENTS, parseMoneyToCents } from './money';
-import {
-  ADDRESS_REQUIRED_FIELDS,
-  addressFormFromAddress,
-  toAddress,
-  type AddressForm,
-} from './orderForm';
-import type { Message } from './orderDetail';
-import type {
-  DiscountWarning,
-  FieldError,
-  ModificationPreview,
-  ModificationShipping,
-  Order,
-  OrderModificationInput,
-  VariantSearchResult,
-} from '../orderTypes';
-
-export type ShippingMode = ModificationShipping['mode'];
-
-export const SHIPPING_MODES: ShippingMode[] = ['KEEP', 'RECALCULATE', 'MANUAL'];
+import type { FieldError, LinesPreview, Order, VariantSearchResult } from '../orderTypes';
 
 /**
- * One line of the modification draft. Existing lines keep their `orderLineId`; removing one only
+ * One line of the products draft. Existing lines keep their `orderLineId`; removing one only
  * marks it (it can be restored), removing a new line drops it. Gift lines are read-only.
  */
 export type ModifyLineDraft = {
@@ -35,7 +15,7 @@ export type ModifyLineDraft = {
   /** Price per unit after the product discount, for display only. */
   unitPrice: number;
   quantity: number;
-  /** Quantity on the order before the modification (0 for new lines). */
+  /** Quantity on the order before the edit (0 for new lines). */
   originalQuantity: number;
   shipped: number;
   isGift: boolean;
@@ -44,49 +24,25 @@ export type ModifyLineDraft = {
   stock: number | null;
 };
 
-export type ModifyOrderForm = {
-  lines: ModifyLineDraft[];
-  shippingAddress: AddressForm;
-  billingAddress: AddressForm;
-  originalShippingAddress: AddressForm;
-  originalBillingAddress: AddressForm;
-  shippingMode: ShippingMode;
-  /** Decimal amount typed by the admin (MANUAL mode). */
-  manualAmount: string;
-  /** Manual order discount in euros; empty keeps the stored discount. */
-  orderDiscount: string;
-};
-
-/** First code per UI key: `line.<key>`, `shippingAddress.<field>`, `shipping`, `form`, … */
+/** First code per UI key: `line.<key>`, `lines`, `form`. */
 export type ModificationErrorMap = Record<string, string>;
 
-export function modifyFormFromOrder(order: Order): ModifyOrderForm {
-  const shippingAddress = addressFormFromAddress(order.shippingAddress);
-  const billingAddress = addressFormFromAddress(order.billingAddress);
-  return {
-    lines: order.lines.map((l) => ({
-      key: `line-${l.id}`,
-      orderLineId: l.id,
-      variantId: l.variantId,
-      name: l.name,
-      option: l.option,
-      sku: l.sku,
-      unitPrice: l.unitPrice - l.unitDiscount,
-      quantity: l.quantity,
-      originalQuantity: l.quantity,
-      shipped: l.shipped,
-      isGift: l.isGift,
-      removed: false,
-      stock: null,
-    })),
-    shippingAddress,
-    billingAddress,
-    originalShippingAddress: { ...shippingAddress },
-    originalBillingAddress: { ...billingAddress },
-    shippingMode: 'KEEP',
-    manualAmount: '',
-    orderDiscount: '',
-  };
+export function linesDraftFromOrder(order: Order): ModifyLineDraft[] {
+  return order.lines.map((l) => ({
+    key: `line-${l.id}`,
+    orderLineId: l.id,
+    variantId: l.variantId,
+    name: l.name,
+    option: l.option,
+    sku: l.sku,
+    unitPrice: l.unitPrice - l.unitDiscount,
+    quantity: l.quantity,
+    originalQuantity: l.quantity,
+    shipped: l.shipped,
+    isGift: l.isGift,
+    removed: false,
+    stock: null,
+  }));
 }
 
 /** Adds a variant (quantity 1), or bumps / restores the non-gift line that already has it. */
@@ -138,110 +94,58 @@ export function restoreModifyLine(lines: ModifyLineDraft[], key: string): Modify
 }
 
 /** The lines sent to the server, in order: removed existing lines are omitted. */
-export function sentLines(form: ModifyOrderForm): ModifyLineDraft[] {
-  return form.lines.filter((l) => l.isGift || !l.removed);
+export function sentLines(lines: ModifyLineDraft[]): ModifyLineDraft[] {
+  return lines.filter((l) => l.isGift || !l.removed);
 }
 
-const sameAddress = (a: AddressForm, b: AddressForm) =>
-  JSON.stringify(toAddress(a, true)) === JSON.stringify(toAddress(b, true));
-
-export function addressChanged(value: AddressForm, original: AddressForm): boolean {
-  return !sameAddress(value, original);
-}
-
-/** Request body of `modification/preview` and (with an operationId) `modification`. */
-export function buildModificationInput(form: ModifyOrderForm): OrderModificationInput {
-  const lines = sentLines(form).map((l) =>
-    l.orderLineId !== undefined
-      ? {
-          orderLineId: l.orderLineId,
-          variantId: l.variantId,
-          quantity: l.isGift ? l.originalQuantity : l.quantity,
-        }
-      : { variantId: l.variantId, quantity: l.quantity }
-  );
-
-  let shipping: ModificationShipping;
-  if (form.shippingMode === 'MANUAL') {
-    // An unparsable amount becomes null in JSON: the server answers INVALID_AMOUNT.
-    shipping = { mode: 'MANUAL', amount: parseMoneyToCents(form.manualAmount) ?? NaN };
-  } else {
-    shipping = { mode: form.shippingMode };
-  }
-
-  const addresses: NonNullable<OrderModificationInput['addresses']> = {};
-  if (addressChanged(form.shippingAddress, form.originalShippingAddress)) {
-    addresses.shipping = toAddress(form.shippingAddress, true);
-  }
-  if (addressChanged(form.billingAddress, form.originalBillingAddress)) {
-    addresses.billing = toAddress(form.billingAddress, true);
-  }
-
-  // Empty keeps the stored discount. An unparsable amount becomes null in JSON: INVALID_AMOUNT.
-  const discount = (form.orderDiscount ?? '').trim();
-
+/** Request body of `lines/preview` and (with an operationId) `lines`. */
+export function buildLinesInput(lines: ModifyLineDraft[]): {
+  lines: { orderLineId?: number; variantId: number; quantity: number }[];
+} {
   return {
-    lines,
-    shipping,
-    ...(addresses.shipping || addresses.billing ? { addresses } : {}),
-    ...(discount ? { orderDiscount: parseMoneyToCents(discount) ?? NaN } : {}),
+    lines: sentLines(lines).map((l) =>
+      l.orderLineId !== undefined
+        ? {
+            orderLineId: l.orderLineId,
+            variantId: l.variantId,
+            quantity: l.isGift ? l.originalQuantity : l.quantity,
+          }
+        : { variantId: l.variantId, quantity: l.quantity }
+    ),
   };
 }
 
 const validQuantity = (q: number) => Number.isSafeInteger(q) && q >= 1;
 
 /** Mirrors the server rules (same paths) so obvious mistakes are flagged without a round trip. */
-export function validateModificationForm(form: ModifyOrderForm): FieldError[] {
+export function validateLinesDraft(lines: ModifyLineDraft[]): FieldError[] {
   const errors: FieldError[] = [];
-  if (!sentLines(form).length) errors.push({ path: 'lines', code: 'LINES_REQUIRED' });
-  sentLines(form).forEach((l, i) => {
+  const sent = sentLines(lines);
+  if (!sent.length) errors.push({ path: 'lines', code: 'LINES_REQUIRED' });
+  sent.forEach((l, i) => {
     if (l.isGift) return;
     if (!validQuantity(l.quantity)) errors.push({ path: `lines.${i}.quantity`, code: 'INVALID_QUANTITY' });
     else if (l.quantity < l.shipped) {
       errors.push({ path: `lines.${i}.quantity`, code: 'QUANTITY_BELOW_SHIPPED' });
     }
   });
-  form.lines.forEach((l) => {
+  lines.forEach((l) => {
     if (l.removed && !l.isGift && l.orderLineId !== undefined && l.shipped > 0) {
       errors.push({ path: `removed.${l.orderLineId}`, code: 'QUANTITY_BELOW_SHIPPED' });
     }
   });
-  (
-    [
-      ['shipping', form.shippingAddress, form.originalShippingAddress],
-      ['billing', form.billingAddress, form.originalBillingAddress],
-    ] as const
-  ).forEach(([kind, value, original]) => {
-    if (!addressChanged(value, original)) return;
-    ADDRESS_REQUIRED_FIELDS.forEach((f) => {
-      if (!value[f].trim()) errors.push({ path: `addresses.${kind}.${f}`, code: 'required' });
-    });
-  });
-  if (form.shippingMode === 'MANUAL') {
-    const cents = parseMoneyToCents(form.manualAmount);
-    if (cents === null || cents < 0 || cents > MAX_MONEY_CENTS) {
-      errors.push({ path: 'shipping.amount', code: 'INVALID_AMOUNT' });
-    }
-  }
-  const discount = (form.orderDiscount ?? '').trim();
-  if (discount) {
-    const cents = parseMoneyToCents(discount);
-    if (cents === null || cents < 0 || cents > MAX_MONEY_CENTS) {
-      errors.push({ path: 'orderDiscount', code: 'INVALID_AMOUNT' });
-    }
-  }
   return errors;
 }
 
 const LINE_PATH = /^lines\.(\d+)(\.|$)/;
 const REMOVED_PATH = /^removed\.(\d+)$/;
 
-/** Server (or local) error paths → the UI keys of the modify form. First code per key wins. */
+/** Server (or local) error paths → the UI keys of the products draft. First code per key wins. */
 export function toModificationErrorMap(
-  form: ModifyOrderForm,
+  lines: ModifyLineDraft[],
   errors: FieldError[]
 ): ModificationErrorMap {
-  const sent = sentLines(form);
+  const sent = sentLines(lines);
   const map: ModificationErrorMap = {};
   const put = (key: string, code: string) => {
     if (!(key in map)) map[key] = code;
@@ -255,41 +159,17 @@ export function toModificationErrorMap(
     }
     const removed = REMOVED_PATH.exec(path);
     if (removed) {
-      const draft = form.lines.find((l) => l.orderLineId === Number(removed[1]));
+      const draft = lines.find((l) => l.orderLineId === Number(removed[1]));
       put(draft ? `line.${draft.key}` : 'form', code);
       return;
     }
-    if (path.startsWith('addresses.shipping.')) {
-      put(`shippingAddress.${path.slice('addresses.shipping.'.length)}`, code);
-      return;
-    }
-    if (path.startsWith('addresses.billing.')) {
-      put(`billingAddress.${path.slice('addresses.billing.'.length)}`, code);
-      return;
-    }
-    if (path === 'shipping.amount') {
-      put('shipping.amount', code);
-      return;
-    }
-    if (path === 'shipping' || path.startsWith('shipping.')) {
-      put('shipping', code);
-      return;
-    }
-    if (path === 'lines') {
-      put('lines', code);
-      return;
-    }
-    if (path === 'orderDiscount') {
-      put('orderDiscount', code);
-      return;
-    }
-    put('form', code);
+    put(path === 'lines' ? 'lines' : 'form', code);
   });
   return map;
 }
 
-/** Number of products (lines with units) and units, before and after the modification. */
-export function countLines(lineChanges: ModificationPreview['lineChanges']): {
+/** Number of products (lines with units) and units, before and after the edit. */
+export function countLines(lineChanges: LinesPreview['lineChanges']): {
   before: { products: number; units: number };
   after: { products: number; units: number };
 } {
@@ -301,10 +181,4 @@ export function countLines(lineChanges: ModificationPreview['lineChanges']): {
     out.after.units += c.newQuantity;
   });
   return out;
-}
-
-/** Translation of a discount notice of the preview; promotion notices carry the promotion name. */
-export function discountWarningMessage(w: DiscountWarning): Message {
-  const id = `ecommerce.orders.modify.warnings.${w.code}`;
-  return 'name' in w ? { id, values: { name: w.name } } : { id };
 }

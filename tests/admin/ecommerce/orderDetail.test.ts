@@ -15,7 +15,7 @@ import {
   allowedToolbarActions,
   apiErrorCode,
   apiErrorMessageId,
-  modifyBlockedByShipment,
+  editBlockedByShipment,
   shouldRenewIdempotencyKey,
   linePromotionNames,
   promotionDisplayName,
@@ -105,6 +105,54 @@ describe('actorLabel', () => {
       expect(pt[key]).toBeTruthy();
     });
     expect(en['littlebox-strapi-suite.ecommerce.orders.history.actor.user']).toBe('Admin #{id}');
+  });
+});
+
+describe('historyEntryText for order editing', () => {
+  const change = (type: string, previousValue: unknown, newValue: unknown) =>
+    historyEntryText(entry({ type, previousValue, newValue }), t, money).change;
+  const sl = (amount: number) => ({ id: 1, amount });
+
+  it('LINES_CHANGED and DISCOUNTS_RECALCULATED show the total before and after', () => {
+    expect(change('LINES_CHANGED', { totals: { total: 2000 } }, { totals: { total: 3550 } })).toEqual({
+      before: '€20.00',
+      after: '€35.50',
+    });
+    expect(change('DISCOUNTS_RECALCULATED', { totals: { total: 3550 } }, { totals: { total: 3000 } })).toEqual({
+      before: '€35.50',
+      after: '€30.00',
+    });
+  });
+
+  it('shipping entries show what was charged before and after', () => {
+    const prev = { lines: [sl(500)] };
+    expect(change('SHIPPING_RECALCULATED', prev, { lines: [sl(500), sl(250)] })).toEqual({
+      before: '€5.00',
+      after: '€7.50',
+    });
+    expect(change('SHIPPING_LINE_EDITED', prev, { lineId: 1, lines: [sl(400)] })).toEqual({
+      before: '€5.00',
+      after: '€4.00',
+    });
+    expect(change('SHIPPING_LINE_ADDED', prev, { lineId: 2, lines: [sl(500), sl(-100)] })).toEqual({
+      before: '€5.00',
+      after: '€4.00',
+    });
+  });
+
+  it('manual discounts show the amount', () => {
+    expect(change('MANUAL_DISCOUNT_ADDED', null, { id: 2, amount: 500 })).toEqual({
+      before: '€0.00',
+      after: '€5.00',
+    });
+    expect(change('MANUAL_DISCOUNT_REMOVED', { id: 2, amount: 500 }, { id: 2, amount: 500 })).toEqual({
+      before: '€5.00',
+      after: '€0.00',
+    });
+  });
+
+  it('is null when the values are missing', () => {
+    expect(change('LINES_CHANGED', null, null)).toBeNull();
   });
 });
 
@@ -547,11 +595,10 @@ describe('apiErrorCode / apiErrorMessageId', () => {
 });
 
 describe('allowedToolbarActions', () => {
-  const all = ['SHIP', 'MODIFY', 'CANCEL', 'REFUND', 'ADD_PAYMENT', 'SEND_PAYMENT_INSTRUCTIONS', 'ARCHIVE'] as const;
+  const all = ['SHIP', 'CANCEL', 'REFUND', 'ADD_PAYMENT', 'SEND_PAYMENT_INSTRUCTIONS', 'ARCHIVE'] as const;
   it('orders the actions and keeps each one behind its permission', () => {
     expect(allowedToolbarActions([...all], { canManage: true, canPay: true, canRefund: true })).toEqual([
       'SHIP',
-      'MODIFY',
       'ADD_PAYMENT',
       'SEND_PAYMENT_INSTRUCTIONS',
       'REFUND',
@@ -578,11 +625,18 @@ describe('allowedToolbarActions', () => {
   });
 });
 
-describe('modifyBlockedByShipment', () => {
-  it('is true for an open order with a PENDING shipment', () => {
-    expect(modifyBlockedByShipment({ orderStatus: 'OPEN', shipments: [{ status: 'PENDING' }] })).toBe(true);
-    expect(modifyBlockedByShipment({ orderStatus: 'OPEN', shipments: [{ status: 'ACTIVE' }] })).toBe(false);
-    expect(modifyBlockedByShipment({ orderStatus: 'CANCELLED', shipments: [{ status: 'PENDING' }] })).toBe(false);
+describe('editBlockedByShipment', () => {
+  it('is true only when editing is blocked by a pending shipment', () => {
+    const o = (blockedBy: string | null) => ({ editing: { blockedBy } }) as any;
+    expect(editBlockedByShipment(o('SHIPMENT_PENDING'))).toBe(true);
+    expect(editBlockedByShipment(o('CANCELLED'))).toBe(false);
+    expect(editBlockedByShipment(o(null))).toBe(false);
+  });
+
+  it('never offers MODIFY in the toolbar', () => {
+    expect(
+      allowedToolbarActions(['MODIFY' as any, 'SHIP'], { canManage: true, canPay: true, canRefund: true })
+    ).toEqual(['SHIP']);
   });
 });
 
