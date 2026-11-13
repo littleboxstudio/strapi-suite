@@ -22,7 +22,6 @@ import OrderHeader from '../../components/orders/OrderHeader';
 import OrderSection from '../../components/orders/OrderSection';
 import OrderLinesTable from '../../components/orders/OrderLinesTable';
 import PaymentsOverview from '../../components/orders/PaymentsOverview';
-import CustomerCard from '../../components/orders/CustomerCard';
 import PaymentsTable from '../../components/orders/PaymentsTable';
 import AddPaymentModal from '../../components/orders/AddPaymentModal';
 import CancelOrderModal from '../../components/orders/CancelOrderModal';
@@ -224,8 +223,6 @@ const OrderDetailPage = () => {
         busy={busy}
         onAction={(action) => dispatchModal({ type: 'OPEN', action })}
       />
-
-      <CustomerCard customer={order.customer} />
 
       <OrderSection title={t('ecommerce.orders.detail.lines.title')}>
         <OrderLinesTable
