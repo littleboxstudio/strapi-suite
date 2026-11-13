@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
-import { Button, Field, Flex, Loader, Modal, Radio, TextInput, Typography } from '@strapi/design-system';
+import { Box, Button, Field, Flex, Loader, Modal, Radio, TextInput, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchShippingOptions from '../../usecases/orders/fetchShippingOptions';
 import EditShippingLine from '../../usecases/orders/editShippingLine';
@@ -11,13 +11,14 @@ import {
   currentShippingMethod,
   defaultShippingOptionKey,
   shippingLineDraftToInput,
+  shippingLineEditUnchanged,
   shippingLineErrorKey,
   shippingOptionKey,
 } from '../../utils/orderEditing';
 import { apiErrorMessageId, type OrderActionPermissions, type ToolbarAction } from '../../utils/orderDetail';
 import { extractFieldErrors } from '../../utils/productForm';
 import { mintUuid } from '../../utils/variantDraft';
-import type { EditResult, FieldError, Order, ShippingLineView, ShippingOption } from '../../orderTypes';
+import type { EditResult, FieldError, Order, ShippingLineView, ShippingOption, ShippingQuote } from '../../orderTypes';
 import BalanceOutcome from './BalanceOutcome';
 import EmptyNote from './EmptyNote';
 
@@ -61,6 +62,7 @@ const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, o
 
   const [operationId] = useState(() => mintUuid());
   const [options, setOptions] = useState<ShippingOption[] | null>(null);
+  const [failures, setFailures] = useState<ShippingQuote['failures']>([]);
   const [loadFailed, setLoadFailed] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [price, setPrice] = useState('');
@@ -72,13 +74,14 @@ const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, o
     let cancelled = false;
     new FetchShippingOptions()
       .execute(order.id)
-      .then(({ options: offered }) => {
+      .then(({ options: offered, failures: failed }) => {
         if (cancelled) return;
         const preferred = line
           ? { providerId: line.providerId, serviceId: line.serviceId }
           : currentShippingMethod(order.shippingLines);
-        const key = defaultShippingOptionKey(offered, preferred);
+        const key = defaultShippingOptionKey(offered, preferred, failed);
         setOptions(offered);
+        setFailures(failed);
         setSelected(key);
         const option = offered.find((o) => shippingOptionKey(o) === key);
         if (option) setPrice(formatAmountInput(option.price, locale));
@@ -99,6 +102,10 @@ const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, o
   }, []);
 
   const option = options?.find((o) => shippingOptionKey(o) === selected) ?? null;
+  const draft = shippingLineDraftToInput(option, price);
+  // Edit: nothing to save while the line would keep charging the same method and amount.
+  const unchanged =
+    mode === 'EDIT' && !!line && !!draft.input && shippingLineEditUnchanged(order.shippingLines, line, draft.input);
 
   const choose = (key: string) => {
     const next = options?.find((o) => shippingOptionKey(o) === key);
@@ -109,8 +116,7 @@ const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, o
   };
 
   const save = async () => {
-    if (busy) return;
-    const draft = shippingLineDraftToInput(option, price);
+    if (busy || unchanged) return;
     if (!draft.input) {
       setErrors(errorMap(draft.errors));
       return;
@@ -171,9 +177,21 @@ const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, o
         </Flex>
       );
     }
-    if (!options.length) return <EmptyNote>{t('ecommerce.orders.shippingCharges.noMethods')}</EmptyNote>;
+    const failureNote = failures.length > 0 && (
+      <Box padding={3} background="warning100" borderColor="warning200" hasRadius>
+        <Typography textColor="warning700" variant="pi">
+          {t('ecommerce.orders.shipping.failures', {
+            providers: failures.map((f) => f.providerId).join(', '),
+          })}
+        </Typography>
+      </Box>
+    );
+    if (!options.length) {
+      return failureNote || <EmptyNote>{t('ecommerce.orders.shippingCharges.noMethods')}</EmptyNote>;
+    }
     return (
       <Flex direction="column" alignItems="stretch" gap={4}>
+        {failureNote}
         <Field.Root name="method" error={errors.method ? codeText(errors.method) : undefined}>
           <Field.Label>{t('ecommerce.orders.shippingCharges.method')}</Field.Label>
           <Radio.Group
@@ -229,7 +247,7 @@ const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, o
             {t('ecommerce.orders.shippingCharges.close')}
           </Button>
           {!saved && (
-            <Button onClick={save} loading={busy} disabled={!option}>
+            <Button onClick={save} loading={busy} disabled={!option || unchanged}>
               {t('ecommerce.orders.shippingCharges.save')}
             </Button>
           )}

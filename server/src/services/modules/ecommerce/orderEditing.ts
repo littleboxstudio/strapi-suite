@@ -814,6 +814,9 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   const lineNotFound = () => invalidShipping('lineId', 'SHIPPING_LINE_NOT_FOUND');
+  /** A correction line (`editOf`) is edited through its target, never by itself. */
+  const editableLine = (lines: ShippingLine[], lineId: number): boolean =>
+    lines.some((l) => l.id === lineId && l.editOf == null);
 
   /**
    * Edit a shipping line (ruling 7): replaced in place while not spent nor invoiced, else an
@@ -832,13 +835,13 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
       prepare: async () => {
         const state = await orders().computeOrderState(orderId);
         assertEditable(state, 'EDIT_SHIPPING_LINE');
-        if (!state.shippingLines.some((l) => l.id === lineId)) throw lineNotFound();
+        if (!editableLine(state.shippingLines, lineId)) throw lineNotFound();
         const next = normalizeShippingInput(input);
         return { amount: next.amount, method: await offeredMethod(state, next) };
       },
       write: async (state, next, w) => {
         assertEditable(state, 'EDIT_SHIPPING_LINE');
-        if (!state.shippingLines.some((l) => l.id === lineId)) throw lineNotFound();
+        if (!editableLine(state.shippingLines, lineId)) throw lineNotFound();
         const plan = planLineChange(state.shippingLines, lineId, next, {
           at: new Date().toISOString(),
           actor: w.actor,

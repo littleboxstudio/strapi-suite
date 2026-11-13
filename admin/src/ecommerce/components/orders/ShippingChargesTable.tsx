@@ -2,7 +2,7 @@ import { useIntl } from 'react-intl';
 import { Box, Button, Flex, Table, Tbody, Td, Th, Thead, Tr, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { formatCents } from '../../utils/money';
-import { hasRowActions, shippingLineAmount, type ShippingLineRow } from '../../utils/orderEditing';
+import { hasRowActions, type ShippingLineRow } from '../../utils/orderEditing';
 import type { BadgeVariant } from '../../utils/statusBadges';
 import type { ShippingLineView } from '../../orderTypes';
 import ColumnLabel from '../ColumnLabel';
@@ -21,7 +21,10 @@ type Props = {
   onEdit?: (line: ShippingLineView) => void;
 };
 
-/** The order's shipping charges, one row per line (spec 6.3). */
+/**
+ * The order's shipping charges, one row per line (spec 6.3). Every row shows its own amount, so the
+ * rows add up to the charge; corrections sit, muted and indented, under the line they correct.
+ */
 const ShippingChargesTable = ({ rows, onEdit }: Props) => {
   const { formatMessage, formatDate, locale } = useIntl();
   const t = (id: string, values?: Record<string, any>, defaultMessage?: string) =>
@@ -44,31 +47,39 @@ const ShippingChargesTable = ({ rows, onEdit }: Props) => {
           </Tr>
         </Thead>
         <Tbody>
-          {rows.map(({ line, badges, actions }) => {
-            const amount = shippingLineAmount(line);
+          {rows.map(({ line, badges, actions, correctionOf, now }) => {
+            const correction = correctionOf !== null;
+            const text = correction ? 'neutral600' : 'neutral800';
             return (
               <Tr key={line.id}>
                 <Td>
-                  <Flex direction="column" alignItems="flex-start">
-                    <Typography textColor="neutral800">{line.name}</Typography>
+                  <Flex direction="column" alignItems="flex-start" paddingLeft={correction ? 4 : 0}>
+                    <Typography textColor={text}>{line.name}</Typography>
                     <Typography variant="pi" textColor="neutral600">
-                      {t(`ecommerce.orders.shippingCharges.origin.${line.origin}`, undefined, line.origin)}
+                      #{line.id} ·{' '}
+                      {correction
+                        ? t('ecommerce.orders.shippingCharges.correctionOf', { id: correctionOf })
+                        : t(`ecommerce.orders.shippingCharges.origin.${line.origin}`, undefined, line.origin)}
                     </Typography>
                   </Flex>
                 </Td>
                 <Td>
-                  <Typography textColor="neutral800">
+                  <Typography textColor={text}>
                     {line.createdAt ? formatDate(line.createdAt, { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
                   </Typography>
                 </Td>
                 <Td>
                   <Flex direction="column" alignItems="flex-start">
-                    <Typography textColor={amount < 0 ? 'success700' : 'neutral800'} fontWeight="semiBold">
-                      {money(amount)}
+                    <Typography
+                      textColor={line.amount < 0 ? 'success700' : text}
+                      fontWeight={correction ? undefined : 'semiBold'}
+                    >
+                      {correction && line.amount > 0 ? '+' : ''}
+                      {money(line.amount)}
                     </Typography>
-                    {amount !== line.amount && (
+                    {now !== null && (
                       <Typography variant="pi" textColor="neutral600">
-                        {t('ecommerce.orders.shippingCharges.corrected', { amount: money(line.amount) })}
+                        {t('ecommerce.orders.shippingCharges.now', { amount: money(now) })}
                       </Typography>
                     )}
                   </Flex>

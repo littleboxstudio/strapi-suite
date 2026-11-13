@@ -9,6 +9,7 @@ import {
   shippingAddressErrors,
   shippingLineAmount,
   shippingLineDraftToInput,
+  shippingLineEditUnchanged,
   shippingLineErrorKey,
   shippingOptionKey,
   discountSelectionToggle,
@@ -152,6 +153,33 @@ describe('shippingLineRows', () => {
     expect(shippingLineRows(lines, editing(), true)[0].actions).toEqual(['EDIT']);
     expect(shippingLineRows(lines, editing(), false)[0].actions).toEqual([]);
     expect(shippingLineRows(lines, editing({ actions: ['ADD_PRODUCTS'] }), true)[0].actions).toEqual([]);
+  });
+
+  it('never offers EDIT on a correction line', () => {
+    const rows = shippingLineRows([line(), line({ id: 2, origin: 'EDIT', amount: 200, editOf: 1 })], editing(), true);
+    expect(rows.map((r) => [r.line.id, r.actions])).toEqual([
+      [1, ['EDIT']],
+      [2, []],
+    ]);
+  });
+
+  it('lists each correction under its target, so the main amounts add up to the charge', () => {
+    const lines = [
+      line({ id: 1, amount: 400, effectiveAmount: 700 }),
+      line({ id: 2, origin: 'MANUAL', amount: 300 }),
+      line({ id: 3, origin: 'EDIT', amount: 200, editOf: 1 }),
+      line({ id: 4, origin: 'EDIT', amount: 100, editOf: 1 }),
+      line({ id: 5, origin: 'EDIT', amount: -50, editOf: 9 }),
+    ];
+    const rows = shippingLineRows(lines, editing(), true);
+    expect(rows.map((r) => [r.line.id, r.correctionOf, r.now])).toEqual([
+      [1, null, 700],
+      [3, 1, null],
+      [4, 1, null],
+      [2, null, null],
+      [5, 9, null],
+    ]);
+    expect(rows.reduce((sum, r) => sum + r.line.amount, 0)).toBe(950);
   });
 
   it('hasRowActions is false when no row has one', () => {
@@ -432,6 +460,35 @@ describe('shipping charges texts', () => {
   ];
   it.each(keys)('%s exists in en and pt', (key) => {
     const id = `littlebox-strapi-suite.${key}`;
+    expect(en[id]).toBeTruthy();
+    expect(pt[id]).toBeTruthy();
+  });
+});
+
+describe('shippingLineEditUnchanged', () => {
+  const target = line({ id: 1, amount: 400, effectiveAmount: 600, providerId: 'ctt', serviceId: 'a' });
+  const lines = [target, line({ id: 2, origin: 'EDIT', amount: 200, editOf: 1, providerId: 'dpd', serviceId: 'b' })];
+  it('is true when the method and amount match what the line now charges', () => {
+    expect(shippingLineEditUnchanged(lines, target, { providerId: 'dpd', serviceId: 'b', amount: 600 })).toBe(true);
+    expect(shippingLineEditUnchanged(lines, target, { providerId: 'ctt', serviceId: 'a', amount: 600 })).toBe(false);
+    expect(shippingLineEditUnchanged(lines, target, { providerId: 'dpd', serviceId: 'b', amount: 650 })).toBe(false);
+    const plain = line({ id: 7, amount: 500 });
+    expect(shippingLineEditUnchanged([plain], plain, { providerId: 'manual', serviceId: 'std', amount: 500 })).toBe(true);
+  });
+});
+
+describe('defaultShippingOptionKey with carrier failures', () => {
+  const options = [{ providerId: 'ctt', serviceId: 'a', name: 'CTT', price: 400, tax: 23 }];
+  it('selects nothing when the preferred method is missing because its carrier failed', () => {
+    const failures = [{ providerId: 'dpd', code: 'TIMEOUT' }];
+    expect(defaultShippingOptionKey(options, { providerId: 'dpd', serviceId: 'b' }, failures)).toBeNull();
+    expect(defaultShippingOptionKey(options, { providerId: 'gls', serviceId: 'c' }, failures)).toBe('ctt:a');
+  });
+});
+
+describe('address lock fallback text', () => {
+  it('exists in en and pt', () => {
+    const id = 'littlebox-strapi-suite.ecommerce.orders.address.locked.default';
     expect(en[id]).toBeTruthy();
     expect(pt[id]).toBeTruthy();
   });
