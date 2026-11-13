@@ -23,6 +23,7 @@ export type NotificationTemplateType = Extract<
   | 'FULL_SHIPMENT'
   | 'DELIVERY_CONFIRMATION'
   | 'INVOICE_AVAILABLE'
+  | 'CREDIT_NOTE_ISSUED'
 >;
 
 export const NOTIFICATION_TEMPLATE_TYPES: NotificationTemplateType[] = [
@@ -38,6 +39,7 @@ export const NOTIFICATION_TEMPLATE_TYPES: NotificationTemplateType[] = [
   'FULL_SHIPMENT',
   'DELIVERY_CONFIRMATION',
   'INVOICE_AVAILABLE',
+  'CREDIT_NOTE_ISSUED',
 ];
 
 /** The template an event sends, or null when it sends none. */
@@ -57,8 +59,8 @@ export function templateForEvent(event: Pick<DomainEvent, 'type' | 'payload'>): 
       p.notify === false ? null : p.full === true ? 'FULL_SHIPMENT' : 'PARTIAL_SHIPMENT',
     SHIPMENT_DELIVERED: () =>
       p.allDelivered === true && p.notify !== false ? 'DELIVERY_CONFIRMATION' : null,
-    // Credit notes are never e-mailed to the customer.
-    INVOICE_ISSUED: () => (p.kind === 'INVOICE' ? 'INVOICE_AVAILABLE' : null),
+    INVOICE_ISSUED: () =>
+      p.kind === 'INVOICE' ? 'INVOICE_AVAILABLE' : p.kind === 'CREDIT_NOTE' ? 'CREDIT_NOTE_ISSUED' : null,
   };
   return map[event.type]?.() ?? null;
 }
@@ -95,6 +97,8 @@ export type NotificationExtra = {
   shipments?: ShipmentRow[];
   /** The invoice (INVOICE_ISSUED). */
   invoice?: { id: number; number?: string | null } | null;
+  /** The credit note and the invoice it corrects (INVOICE_ISSUED of a credit note). */
+  creditNote?: { id: number; number?: string | null; total?: number | null; invoiceNumber?: string | null } | null;
 };
 
 export type ShipmentRow = {
@@ -389,6 +393,14 @@ export function buildTemplateData(
     case 'INVOICE_AVAILABLE':
       data.invoice = { number: str(extra.invoice?.number) };
       data.attachment = { kind: 'INVOICE_PDF', invoiceId: num(extra.invoice?.id ?? p.invoiceId) };
+      break;
+    case 'CREDIT_NOTE_ISSUED':
+      data.creditNote = {
+        number: str(extra.creditNote?.number),
+        amount: money(extra.creditNote?.total),
+        invoiceNumber: str(extra.creditNote?.invoiceNumber),
+      };
+      data.attachment = { kind: 'INVOICE_PDF', invoiceId: num(extra.creditNote?.id ?? p.invoiceId) };
       break;
     case 'STORE_CREDIT_ISSUED': {
       const c = extra.storeCredit ?? {};

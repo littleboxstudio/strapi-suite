@@ -16,6 +16,9 @@ import type { StoreSettings } from './settings';
 import type { ProviderRuntime } from './providers/registry';
 import type { OrderHistoryEntry } from './orderHistory';
 
+/** E-mails that carry the document's PDF (an invoice, or a credit note). */
+const PDF_TEMPLATES = ['INVOICE_AVAILABLE', 'CREDIT_NOTE_ISSUED'];
+
 export type NotificationStatus = 'SENT' | 'FAILED' | 'SKIPPED';
 
 export type NotificationView = {
@@ -183,6 +186,20 @@ const EcommerceNotificationService = ({ strapi }: { strapi: Core.Strapi }) => {
       if (!invoice || invoice.kind !== 'INVOICE') throw new EcommerceNotFoundError('Invoice not found');
       extra.invoice = { id: invoice.id, number: invoice.number ?? null };
     }
+    if (type === 'CREDIT_NOTE_ISSUED') {
+      const noteId = idOf(p.invoiceId);
+      const note =
+        noteId === null
+          ? null
+          : await strapi.db.query(u.invoice).findOne({ where: { id: noteId }, populate: { creditedInvoice: true } });
+      if (!note || note.kind !== 'CREDIT_NOTE') throw new EcommerceNotFoundError('Credit note not found');
+      extra.creditNote = {
+        id: note.id,
+        number: note.number ?? null,
+        total: note.total ?? null,
+        invoiceNumber: note.creditedInvoice?.number ?? null,
+      };
+    }
     if (type === 'REFUND_STARTED' || type === 'REFUND_COMPLETED') {
       const refundId = idOf(p.refundId);
       if (refundId !== null) extra.refund = await strapi.db.query(u.refund).findOne({ where: { id: refundId } });
@@ -236,11 +253,10 @@ const EcommerceNotificationService = ({ strapi }: { strapi: Core.Strapi }) => {
       q.update({ where: { id: row.id }, data: { status: 'SKIPPED', error } });
 
     const attachment = row.payload?.attachment;
+    const withPdf = PDF_TEMPLATES.includes(row.type);
     const invoiceId =
-      row.type === 'INVOICE_AVAILABLE' && attachment?.kind === 'INVOICE_PDF'
-        ? Number(attachment.invoiceId)
-        : null;
-    if (row.type === 'INVOICE_AVAILABLE') {
+      withPdf && attachment?.kind === 'INVOICE_PDF' ? Number(attachment.invoiceId) : null;
+    if (withPdf) {
       const invoice = invoiceId === null ? null : await strapi.db.query(uids().invoice).findOne({ where: { id: invoiceId } });
       const warnings = invoice?.metadata?.warnings;
       if (Array.isArray(warnings) && warnings.includes(DUPLICATE_INVOICE)) return skip(DUPLICATE_INVOICE);

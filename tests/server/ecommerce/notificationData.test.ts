@@ -109,6 +109,7 @@ const EVENT_FOR: Record<NotificationTemplateType, DomainEvent> = {
     notify: true,
   }),
   INVOICE_AVAILABLE: event('INVOICE_ISSUED', { invoiceId: 9, kind: 'INVOICE' }),
+  CREDIT_NOTE_ISSUED: event('INVOICE_ISSUED', { invoiceId: 10, kind: 'CREDIT_NOTE' }),
   STORE_CREDIT_ISSUED: event('STORE_CREDIT_ISSUED', {
     code: 'ABCD-EFGH-JKLM',
     amount: 1500,
@@ -149,7 +150,7 @@ describe('templateForEvent', () => {
     expect(t('SHIPMENT_DELIVERED', { allDelivered: true, notify: false })).toBeNull();
     expect(t('SHIPMENT_DELIVERED', { allDelivered: false, notify: true })).toBeNull();
     expect(t('INVOICE_ISSUED', { kind: 'INVOICE' })).toBe('INVOICE_AVAILABLE');
-    expect(t('INVOICE_ISSUED', { kind: 'CREDIT_NOTE' })).toBeNull();
+    expect(t('INVOICE_ISSUED', { kind: 'CREDIT_NOTE' })).toBe('CREDIT_NOTE_ISSUED');
     expect(t('RETURN_REGISTERED', {})).toBeNull();
   });
 

@@ -621,7 +621,7 @@ describe('shipment, delivery and invoice e-mails', () => {
     expect(notifs(c)).toHaveLength(before);
   });
 
-  it('the invoice e-mail carries the PDF fetched with getPdf; the credit note sends nothing', async () => {
+  it('the invoice e-mail carries the PDF fetched with getPdf; so does the credit note e-mail', async () => {
     const { c, inv, provider } = fulfilmentSetup();
     const { id } = await paid(c, 2);
     const payment = c.tables[UIDS.payment].find((p) => p.order === id);
@@ -638,7 +638,15 @@ describe('shipment, delivery and invoice e-mails', () => {
 
     await inv.issueCreditNote(view.id, { idempotencyKey: 'c1', reason: 'x', lines: [{ index: 0, value: 1000 }] }, actor);
     expect(c.events.some((e) => e.type === 'INVOICE_ISSUED' && e.payload.kind === 'CREDIT_NOTE')).toBe(true);
-    expect(notifs(c)).toHaveLength(1);
+    expect(notifs(c)).toHaveLength(2);
+    const credit = notifs(c).find((n) => n.type === 'CREDIT_NOTE_ISSUED');
+    expect(credit).toMatchObject({ status: 'SENT' });
+    expect(credit.payload.creditNote).toMatchObject({ invoiceNumber: view.number });
+    expect(credit.payload.creditNote.number).toMatch(/^NC 2026\//);
+    expect(resend.sendWithResend.mock.calls[1][1].attachments).toEqual([
+      { filename: expect.stringMatching(/\.pdf$/), content: Buffer.from('%PDF-1.4 fake'), contentType: 'application/pdf' },
+    ]);
+    expect(provider.getPdf).toHaveBeenCalledTimes(2);
   });
 
   it('Review Focus 5: PDF unavailable at notification time leaves the invoice ISSUED, the e-mail FAILED, and resend attaches the PDF', async () => {

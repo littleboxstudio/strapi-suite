@@ -347,6 +347,10 @@ Consequências:
 - **[Decisão]** O e-mail "Fatura disponível" leva o **PDF da fatura em anexo**. Não tem botão nem
   link de download (substitui 11.10 e 13.11). O download por URL existe só no admin, protegido pela
   sessão de administrador.
+- **[Decisão, 2026-11-13]** Há um 14.º e-mail, "Nota de crédito emitida" (`CREDIT_NOTE_ISSUED`),
+  enviado quando uma nota de crédito fica emitida, com o **PDF da nota de crédito em anexo**, tal
+  como a fatura. Variáveis: `creditNote.number`, `creditNote.amount` e `creditNote.invoiceNumber`
+  (a fatura que corrige). O modelo é editável como os outros.
 - **[Decisão] Regra geral:** nenhum e-mail, nem nenhuma resposta da API ao storefront, contém URLs
   do backend ou backoffice do Strapi. Os URLs permitidos nos e-mails são o `storefrontUrl` e o
   Stripe.
