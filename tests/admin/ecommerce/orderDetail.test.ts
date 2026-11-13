@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   apiErrorDetail,
+  notificationErrorParts,
   actorLabel,
   financialSummaryRows,
   formatAddressLine,
@@ -820,5 +821,26 @@ describe('apiErrorDetail', () => {
     expect(apiErrorDetail(answer('BILLING_UNREACHABLE', 'BILLING_UNREACHABLE'))).toBeNull();
     expect(apiErrorDetail(answer('ORDER_NOT_FOUND', 'Not found'))).toBeNull();
     expect(apiErrorDetail(new Error('network'))).toBeNull();
+  });
+});
+
+describe('notificationErrorParts', () => {
+  it('splits CODE: detail', () => {
+    expect(notificationErrorParts('EMAIL_SEND_FAILED: Resend did not accept the e-mail (HTTP 422).')).toEqual({
+      code: 'EMAIL_SEND_FAILED',
+      detail: 'Resend did not accept the e-mail (HTTP 422).',
+    });
+    expect(notificationErrorParts('NO_RECIPIENT')).toEqual({ code: 'NO_RECIPIENT', detail: null });
+    expect(notificationErrorParts(null)).toBeNull();
+    expect(notificationErrorParts('TypeError')).toEqual({ code: '', detail: 'TypeError' });
+  });
+
+  it('every stored code has en + pt text', () => {
+    ['EMAIL_SEND_FAILED', 'INVOICE_PDF_UNAVAILABLE', 'DUPLICATE_INVOICE', 'INVOICE_NOT_ISSUED', 'ORDER_NOT_OPEN',
+      'EMAIL_NOT_CONFIGURED', 'NO_RECIPIENT', 'IN_PROGRESS', 'PREPARE_FAILED', 'TEMPLATE_INVALID'].forEach((code) => {
+      const key = `littlebox-strapi-suite.ecommerce.orders.notifications.errors.${code}`;
+      expect(en[key], key).toBeTruthy();
+      expect(pt[key], key).toBeTruthy();
+    });
   });
 });

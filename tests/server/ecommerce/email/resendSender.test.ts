@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { formatFrom, sendWithResend } from '../../../../server/src/services/modules/ecommerce/providers/email/resendSender';
+import { formatFrom, resendReason, sendWithResend } from '../../../../server/src/services/modules/ecommerce/providers/email/resendSender';
 import { EcommerceEmailError } from '../../../../server/src/services/modules/ecommerce/errors';
 
 const API_KEY = 're_live_SuperSecretKey123';
@@ -73,6 +73,22 @@ describe('sendWithResend', () => {
     expect(err.code).toBe('EMAIL_SEND_FAILED');
     expect(err.message).not.toContain(API_KEY);
     expect(err.message).not.toContain('SuperSecret');
+  });
+
+  it("keeps Resend's reason for a refusal, with addresses masked", async () => {
+    stubFetch(422, { statusCode: 422, name: 'validation_error', message: 'Invalid `to` field: ana@example.com is not allowed.' });
+    const err = await sendWithResend(rt(), { to: 'ana@example.com', subject: 's', html: 'h' }).catch((e) => e);
+    expect(err.message).toBe(
+      'Resend did not accept the e-mail (HTTP 422: validation_error — Invalid `to` field: <address> is not allowed.).'
+    );
+  });
+
+  it('never repeats the API key or any re_ token in the reason', () => {
+    expect(resendReason({ name: 'invalid_api_key', message: `API key ${API_KEY} is invalid` }, API_KEY)).toBe(
+      'invalid_api_key — API key <key> is invalid'
+    );
+    expect(resendReason({ message: 'key re_other_123 revoked' })).toBe('key <key> revoked');
+    expect(resendReason(null)).toBe('');
   });
 
   it('maps a network failure to EMAIL_SEND_FAILED', async () => {

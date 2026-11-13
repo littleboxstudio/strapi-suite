@@ -501,3 +501,14 @@ export function shouldRenewIdempotencyKey(err: unknown): boolean {
   if (typeof status !== 'number') return false;
   return status >= 400 && status < 500 && status !== 408 && status !== 429;
 }
+
+/**
+ * A notification's stored error, `CODE` or `CODE: detail` (the provider's reason), split so the
+ * code is translated and the detail shown as it came.
+ */
+export function notificationErrorParts(error: string | null): { code: string; detail: string | null } | null {
+  if (!error) return null;
+  const match = /^([A-Z][A-Z_]*)(?::\s*(.+))?$/s.exec(error.trim());
+  if (!match) return { code: '', detail: error.trim() };
+  return { code: match[1], detail: match[2]?.trim() || null };
+}

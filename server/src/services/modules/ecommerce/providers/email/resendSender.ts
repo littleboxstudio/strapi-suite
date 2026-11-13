@@ -51,20 +51,34 @@ export async function sendWithResend(rt: ProviderRuntime, msg: EmailMessage): Pr
     }));
   }
 
-  const result = await timedFetch<{ status: number; id: string | null }>(
+  const result = await timedFetch<{ status: number; id: string | null; reason: string }>(
     RESEND_URL,
     { method: 'POST', headers, body: JSON.stringify(body) },
     async (res) => {
       const json: any = await res.json().catch(() => null);
-      return { status: res.status, id: typeof json?.id === 'string' ? json.id : null };
+      return { status: res.status, id: typeof json?.id === 'string' ? json.id : null, reason: resendReason(json, apiKey) };
     }
   );
   if (!result) throw new EcommerceEmailError('EMAIL_SEND_FAILED', 'Could not reach Resend.');
   if (result.status < 200 || result.status >= 300 || !result.id) {
     throw new EcommerceEmailError(
       'EMAIL_SEND_FAILED',
-      `Resend did not accept the e-mail (HTTP ${result.status}).`
+      `Resend did not accept the e-mail (HTTP ${result.status}${result.reason ? `: ${result.reason}` : ''}).`
     );
   }
   return { id: result.id };
+}
+
+/**
+ * Resend's own reason for refusing a message (`{ name, message }`), trimmed, with the API key, any
+ * `re_…` token and e-mail addresses masked: e.g. `validation_error — The example.com domain is not
+ * verified`.
+ */
+export function resendReason(json: any, apiKey = ''): string {
+  const name = typeof json?.name === 'string' ? json.name.trim() : '';
+  const message = typeof json?.message === 'string' ? json.message.trim() : '';
+  let text = [name, message].filter(Boolean).join(' — ');
+  if (apiKey) text = text.split(apiKey).join('<key>');
+  text = text.replace(/\bre_[A-Za-z0-9_-]+/g, '<key>').replace(/[^\s<>"'`,;:()]+@[^\s<>"'`,;:()]+/g, '<address>');
+  return text.length > 300 ? `${text.slice(0, 299)}…` : text;
 }

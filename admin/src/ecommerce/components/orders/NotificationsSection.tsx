@@ -19,7 +19,7 @@ import { ArrowClockwise } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchOrderNotifications from '../../usecases/orders/fetchOrderNotifications';
 import ResendNotification from '../../usecases/orders/resendNotification';
-import { apiErrorMessageId } from '../../utils/orderDetail';
+import { apiErrorMessageId, notificationErrorParts } from '../../utils/orderDetail';
 import type { NotificationView } from '../../orderTypes';
 import OrderSection from './OrderSection';
 
@@ -165,11 +165,23 @@ const NotificationsSection = ({ orderId, refreshKey, canResend }: Props) => {
                     <Badge variant={STATUS_VARIANT[n.status ?? ''] ?? 'neutral'} size="S">
                       {n.status ? t(`ecommerce.orders.notifications.statuses.${n.status}`, undefined, n.status) : '—'}
                     </Badge>
-                    {n.status !== 'SENT' && n.error && (
-                      <Typography variant="pi" textColor="neutral600">
-                        {errorLabel(n.error)}
-                      </Typography>
-                    )}
+                    {n.status !== 'SENT' &&
+                      (() => {
+                        const parts = notificationErrorParts(n.error);
+                        if (!parts) return null;
+                        return (
+                          <>
+                            <Typography variant="pi" textColor="neutral600">
+                              {errorLabel(parts.code)}
+                            </Typography>
+                            {parts.detail && (
+                              <Typography variant="pi" textColor="neutral500" style={{ wordBreak: 'break-word' }}>
+                                {parts.detail}
+                              </Typography>
+                            )}
+                          </>
+                        );
+                      })()}
                   </Flex>
                 </Td>
                 <Td>

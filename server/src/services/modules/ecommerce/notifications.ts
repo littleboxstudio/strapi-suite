@@ -78,8 +78,9 @@ const toView = (r: any): NotificationView => ({
 });
 
 /**
- * Error text safe to store and show: our own error codes and messages (never secrets nor
- * provider bodies), otherwise only the error class (a raw message may carry personal data).
+ * Error text safe to store and show: our own error codes and messages (the e-mail provider's
+ * reason is included with addresses and keys masked), otherwise only the error class (a raw
+ * message may carry personal data).
  */
 const describeError = (err: unknown): string => {
   if (err instanceof EcommerceEmailError) {
