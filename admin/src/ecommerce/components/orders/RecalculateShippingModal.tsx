@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
-import { Button, Dialog, Flex, IconButton, Loader, Modal, Typography } from '@strapi/design-system';
-import { Information } from '@strapi/icons';
+import { Button, Dialog, Flex, Loader, Modal, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import PreviewShippingRecalculation from '../../usecases/orders/previewShippingRecalculation';
 import RecalculateShipping from '../../usecases/orders/recalculateShipping';
@@ -80,23 +79,27 @@ const RecalculateShippingModal = ({ order, onClose, onSaved }: Props) => {
     }
   };
 
+  /** A figure; clicking it (or Enter / Space on it) opens its explanation. */
   const tile = (key: FigureKey, value: number, tone?: 'warning') => (
-    <Tile $tone={tone}>
-      <Flex justifyContent="space-between" alignItems="center" gap={1}>
-        <Typography variant="sigma" textColor="neutral600">
-          {t(`ecommerce.orders.shippingCharges.${key}`)}
-        </Typography>
-        <IconButton
-          variant="ghost"
-          size="XS"
-          label={t('ecommerce.orders.shippingCharges.help.open', {
-            field: t(`ecommerce.orders.shippingCharges.${key}`),
-          })}
-          onClick={() => setHelp(key)}
-        >
-          <Information />
-        </IconButton>
-      </Flex>
+    <Tile
+      $tone={tone}
+      role="button"
+      tabIndex={0}
+      aria-label={t('ecommerce.orders.shippingCharges.help.open', {
+        field: t(`ecommerce.orders.shippingCharges.${key}`),
+      })}
+      style={{ cursor: 'pointer' }}
+      onClick={() => setHelp(key)}
+      onKeyDown={(e: React.KeyboardEvent) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          setHelp(key);
+        }
+      }}
+    >
+      <Typography variant="sigma" textColor="neutral600">
+        {t(`ecommerce.orders.shippingCharges.${key}`)}
+      </Typography>
       <Typography variant="beta" tag="p" textColor="neutral800" style={{ whiteSpace: 'nowrap' }}>
         {money(value)}
       </Typography>
