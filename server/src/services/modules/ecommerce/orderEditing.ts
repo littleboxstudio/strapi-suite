@@ -3,7 +3,7 @@
  * (`orderEditRunner.ts`).
  */
 import type { Core } from '@strapi/strapi';
-import { PLUGIN_ID } from '../../../config';
+import { PLUGIN_ID, LtbConfigs } from '../../../config';
 import { EcommerceValidationError } from './errors';
 import {
   createEditRunner,
@@ -24,7 +24,12 @@ import {
   type ModificationResult,
   type ModificationTotals,
 } from './domain/orderModification';
-import { readReviewFlags, type ReviewFlag } from './domain/orderEditing';
+import {
+  clearFlag,
+  readReviewFlags,
+  type ReviewFlag,
+  type ReviewFlagCode,
+} from './domain/orderEditing';
 import {
   appendLine,
   chargedShipping,
@@ -37,7 +42,11 @@ import {
   type ShippingLineView,
   type ShippingMethodRef,
 } from './domain/shippingLines';
-import { readManualDiscounts } from './domain/manualDiscounts';
+import {
+  buildManualDiscount,
+  readManualDiscounts,
+  type ManualDiscount,
+} from './domain/manualDiscounts';
 import { previousShipmentsCost } from './domain/fulfillment';
 import {
   recalculateDiscounts,
@@ -45,6 +54,7 @@ import {
   type DiscountRecalculation,
 } from './domain/discountRecalculation';
 import { computeTotals, financialSummary, MAX_MONEY_CENTS, type Address } from './domain/orders';
+import { normalizeEmail } from './domain/email';
 import type {
   AppliedPromotion,
   BenefitRef,
@@ -95,6 +105,8 @@ export type ShippingRecalculationPreview = {
 
 export type ShippingLineInput = { providerId: string; serviceId: string; amount: number };
 
+export type ManualDiscountInput = { kind: 'FIXED' | 'PERCENT'; value: number; reason: string };
+
 type ShippingQuoted = Exclude<ShippingDue, { failed: true }>;
 
 const num = (v: unknown): number => {
@@ -105,13 +117,11 @@ const num = (v: unknown): number => {
 /** A line's stored `promotionRefs` (`{ refs }`; a legacy `[]` reads as none). */
 const refsOf = (stored: unknown): BenefitRef[] =>
   isRecord(stored) && Array.isArray(stored.refs)
-    ? stored.refs
-        .filter(isRecord)
-        .map((r) => ({
-          promotionId: num(r.promotionId),
-          benefitIndex: num(r.benefitIndex),
-          amount: num(r.amount),
-        }))
+    ? stored.refs.filter(isRecord).map((r) => ({
+        promotionId: num(r.promotionId),
+        benefitIndex: num(r.benefitIndex),
+        amount: num(r.amount),
+      }))
     : [];
 
 /** The codes entered at checkout plus the codes of the applied CODE promotions (ruling 12). */
@@ -126,6 +136,54 @@ const codesOf = (order: any): string[] => {
     .map((a) => a.code)
     .filter((c): c is string => typeof c === 'string' && c !== '');
   return [...new Set([...entered, ...applied])];
+};
+
+/** Σ of the applied promotions' ORDER_DISCOUNT benefits: the promotions' part of `orderDiscount`. */
+const promotionOrderDiscount = (applied: AppliedPromotion[]): number =>
+  applied.reduce(
+    (s, a) =>
+      s +
+      (a.benefits ?? [])
+        .filter((b) => b.class === 'ORDER_DISCOUNT')
+        .reduce((t, b) => t + num(b.amount), 0),
+    0
+  );
+
+/**
+ * The manual items consistent with the persisted (clamped) `orderDiscount`: a LEGACY item is
+ * capped so Σ manual ≤ the order-level discount the promotions do not explain, and dropped at 0.
+ * A products save may have clamped the discount below a legacy amount read before it.
+ */
+const reconcileManual = (
+  items: ManualDiscount[],
+  orderDiscount: number,
+  applied: AppliedPromotion[]
+): ManualDiscount[] => {
+  let excess =
+    items.reduce((s, m) => s + m.amount, 0) -
+    Math.max(0, orderDiscount - promotionOrderDiscount(applied));
+  if (excess <= 0) return items;
+  return items
+    .map((m) => {
+      if (m.kind !== 'LEGACY' || excess <= 0) return m;
+      const cut = Math.min(m.amount, excess);
+      excess -= cut;
+      return { ...m, amount: m.amount - cut };
+    })
+    .filter((m) => m.kind !== 'LEGACY' || m.amount > 0);
+};
+
+const REVIEW_FLAG_CODES: ReviewFlagCode[] = ['SHIPPING_REVIEW', 'DISCOUNTS_REVIEW'];
+
+const invalidDiscounts = (path: string, code: string) =>
+  new EcommerceValidationError('Invalid discounts', [{ path, code }]);
+
+/** A selection of row keys, or `required`. */
+const normalizeSelection = (raw: unknown): string[] => {
+  if (!Array.isArray(raw) || !raw.every((k) => typeof k === 'string')) {
+    throw invalidDiscounts('selection', 'required');
+  }
+  return [...new Set(raw as string[])];
 };
 
 const emailOf = (order: any): string | null =>
@@ -178,7 +236,17 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
   } => service('EcommerceShippingService');
   const promotions = (): {
     searchLimit(): number;
-    loadCandidates(p: { codes: string[]; email: string | null }): Promise<PromotionCandidate[]>;
+    loadCandidatesForOrder(p: {
+      orderId: number;
+      codes: string[];
+      email: string | null;
+      appliedIds: number[];
+    }): Promise<PromotionCandidate[]>;
+    reserve(
+      applied: AppliedPromotion[],
+      ctx: { orderId: number; customerId: number; email: string; actor: string }
+    ): Promise<void>;
+    releasePromotions(orderId: number, promotionIds: number[]): Promise<unknown>;
     unmet(
       applied: AppliedPromotion[],
       ctx: { lines: EvaluationLine[]; email: string | null }
@@ -266,44 +334,57 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
    */
   const discountEvaluation = async (
     state: OrderState,
-    overrides: { lines?: DiscountLine[] } = {}
+    overrides: { lines?: DiscountLine[]; selection?: string[] } = {}
   ): Promise<DiscountRecalculation> => {
     const order = state.order;
     const rawById = new Map<number, any>((order.lines ?? []).map((l: any) => [l.id, l]));
     const lines =
       overrides.lines ??
-      state.lines.map(
-        (l): DiscountLine => ({
-          id: l.id,
-          variantId: l.variantId,
-          productId: l.productId,
-          isGift: l.isGift,
-          shipped: l.shipped,
-          unitPrice: l.unitPrice,
-          unitDiscount: l.unitDiscount,
-          quantity: l.quantity,
-          returnedQuantity: l.returnedQuantity,
-          refs: refsOf(rawById.get(l.id)?.promotionRefs),
-        })
-      );
-    const codes = codesOf(order);
+      state.lines.map((l): DiscountLine => ({
+        id: l.id,
+        variantId: l.variantId,
+        productId: l.productId,
+        isGift: l.isGift,
+        shipped: l.shipped,
+        unitPrice: l.unitPrice,
+        unitDiscount: l.unitDiscount,
+        quantity: l.quantity,
+        returnedQuantity: l.returnedQuantity,
+        refs: refsOf(rawById.get(l.id)?.promotionRefs),
+      }));
+    const applied = appliedOf(order);
+    const appliedIds = applied.map((a) => a.promotionId);
     const email = emailOf(order);
-    const candidates = await promotions().loadCandidates({ codes, email });
-    return recalculateDiscounts({
-      lines,
-      applied: appliedOf(order),
-      manual: readManualDiscounts(order),
-      orderDiscount: num(order.orderDiscount),
-      shippingGross: chargedShipping(readShippingLines(order)),
-      shippingDiscount: num(order.shippingDiscount),
+    const candidates = await promotions().loadCandidatesForOrder({
+      orderId: order.id,
+      codes: codesOf(order),
       email,
-      codes,
-      candidates,
-      now: new Date(),
-      searchLimit: promotions().searchLimit(),
-      payments: state.payments.map(toPaymentLike),
-      refunds: state.refunds.map(toRefundLike),
+      appliedIds,
     });
+    // The current code of each applied CODE promotion (loaded by id): a renamed code is not
+    // NOT_FOUND.
+    const current = candidates
+      .filter((c) => c.method === 'CODE' && appliedIds.includes(c.id) && typeof c.code === 'string')
+      .map((c) => c.code as string);
+    const codes = [...new Set([...codesOf(order), ...current])];
+    return recalculateDiscounts(
+      {
+        lines,
+        applied,
+        manual: readManualDiscounts(order),
+        orderDiscount: num(order.orderDiscount),
+        shippingGross: chargedShipping(readShippingLines(order)),
+        shippingDiscount: num(order.shippingDiscount),
+        email,
+        codes,
+        candidates,
+        now: new Date(),
+        searchLimit: promotions().searchLimit(),
+        payments: state.payments.map(toPaymentLike),
+        refunds: state.refunds.map(toRefundLike),
+      },
+      overrides.selection
+    );
   };
 
   // -------------------------------------------------------------------------
@@ -384,7 +465,8 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     const removed: object[] = [];
     for (const c of changes) {
       if (c.kind === 'ADDED') {
-        const source = c.sourceOrderLineId !== undefined ? byId.get(c.sourceOrderLineId) : undefined;
+        const source =
+          c.sourceOrderLineId !== undefined ? byId.get(c.sourceOrderLineId) : undefined;
         const v = catalog.get(c.variantId);
         added.push({
           variantId: c.variantId,
@@ -484,7 +566,9 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
 
   const sameAddress = (a: unknown, b: unknown): boolean => {
     const key = (x: unknown) =>
-      JSON.stringify(Object.entries((x ?? {}) as Record<string, unknown>).sort(([k], [l]) => (k < l ? -1 : 1)));
+      JSON.stringify(
+        Object.entries((x ?? {}) as Record<string, unknown>).sort(([k], [l]) => (k < l ? -1 : 1))
+      );
     return key(a) === key(b);
   };
 
@@ -621,7 +705,11 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   /** The totals and balance with `shippingLines` (stored ones when absent), as `writeTotals` does. */
-  const totalsWith = (state: OrderState, shippingLines?: ShippingLine[]): ModificationTotals => {
+  const totalsWith = (
+    state: OrderState,
+    shippingLines?: ShippingLine[],
+    orderDiscount?: number
+  ): ModificationTotals => {
     const order = state.order;
     const gross = shippingLines ? chargedShipping(shippingLines) : num(order.shippingOriginal);
     const totals = computeTotals(
@@ -632,7 +720,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         returnedQuantity: l.returnedQuantity,
       })),
       {
-        orderDiscount: num(order.orderDiscount),
+        orderDiscount: orderDiscount ?? num(order.orderDiscount),
         shippingOriginal: gross,
         shippingDiscount: Math.max(0, Math.min(num(order.shippingDiscount), gross)),
       }
@@ -841,6 +929,308 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     });
   };
 
+  // -------------------------------------------------------------------------
+  // Discounts (spec 7, rulings 12–19 and 23)
+  // -------------------------------------------------------------------------
+
+  const uids = () => {
+    const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
+    return config.uuid.modules.ecommerce;
+  };
+
+  /** Recalculate discounts for `selection` (the initial one when absent). Writes nothing. */
+  const previewDiscounts = async (
+    rawOrderId: number | string,
+    input: { selection?: string[] }
+  ): Promise<DiscountRecalculation> => {
+    const selection =
+      input?.selection === undefined ? undefined : normalizeSelection(input.selection);
+    const state = await orders().computeOrderState(Number(rawOrderId));
+    assertEditable(state, 'RECALCULATE_DISCOUNTS');
+    return discountEvaluation(state, { selection });
+  };
+
+  /** Writes the priced lines and removes the deselected promotions' gift lines (ruling 16). */
+  const writeDiscountLines = async (state: OrderState, r: DiscountRecalculation, w: EditWriter) => {
+    const lines = strapi.db.query(uids().orderLine);
+    for (const l of r.lines) {
+      await lines.update({
+        where: { id: l.id },
+        data: { unitDiscount: l.unitDiscount, promotionRefs: { refs: l.refs } },
+      });
+    }
+    if (!r.removedGiftLines.length) return;
+    const byId = new Map(state.lines.map((l) => [l.id, l]));
+    const restock = new Map<number, number>();
+    for (const g of r.removedGiftLines) {
+      restock.set(g.variantId, (restock.get(g.variantId) ?? 0) + g.quantity);
+    }
+    await writeLineChanges(
+      state,
+      new Map(),
+      {
+        lineChanges: r.removedGiftLines.map((g) => ({
+          kind: 'REMOVED' as const,
+          orderLineId: g.id,
+          variantId: g.variantId,
+          previousQuantity: byId.get(g.id)?.quantity ?? g.quantity,
+          newQuantity: 0,
+        })),
+        stockMovements: [...restock].map(([variantId, quantity]) => ({ variantId, quantity })),
+      },
+      {
+        actor: w.actor,
+        operationId: w.operationId,
+        stockKey: (variantId) => `edit:${w.operationId}:${variantId}`,
+      }
+    );
+  };
+
+  /**
+   * Confirms a recalculation (spec 7.1): lines and gift lines, usage counts of the added and
+   * removed promotions, the stored selection and totals. Clears DISCOUNTS_REVIEW. Allowed whenever
+   * the order can be edited, invoiced or shipped.
+   */
+  const applyDiscounts = async (
+    rawOrderId: number | string,
+    input: { selection: string[] },
+    actor: string,
+    operationId: string
+  ): Promise<EditResult> => {
+    const orderId = Number(rawOrderId);
+    return runEdit(orderId, 'discounts', operationId, actor, {
+      prepare: async () => {
+        const selection = normalizeSelection(input?.selection);
+        assertEditable(await orders().computeOrderState(orderId), 'RECALCULATE_DISCOUNTS');
+        return selection;
+      },
+      write: async (state, selection, w) => {
+        assertEditable(state, 'RECALCULATE_DISCOUNTS');
+        const r = await discountEvaluation(state, { selection });
+        if (r.conflicts.length) throw invalidDiscounts('selection', 'PROMOTIONS_NOT_COMBINABLE');
+        if (r.rows.some((row) => row.locked && !selection.includes(row.key))) {
+          throw invalidDiscounts('selection', 'PROMOTION_GIFT_SHIPPED');
+        }
+        const order = state.order;
+        const stored = appliedOf(order);
+
+        await writeDiscountLines(state, r, w);
+        const added = r.applied.filter((a) => r.added.includes(a.promotionId));
+        if (added.length) {
+          await promotions().reserve(added, {
+            orderId,
+            customerId: order.customer?.id ?? null,
+            email: normalizeEmail(emailOf(order) ?? ''),
+            actor: w.actor,
+          });
+        }
+        if (r.removed.length) await promotions().releasePromotions(orderId, r.removed);
+
+        const flags = await w.clear(readReviewFlags(order.reviewFlags), 'DISCOUNTS_REVIEW');
+        const totals = await writeTotals(state, {
+          lines: true,
+          orderDiscount: r.orderDiscount,
+          shippingDiscount: r.shippingDiscount,
+          manualDiscounts: reconcileManual(r.manual, r.orderDiscount, r.applied),
+          promotions: {
+            ...(isRecord(order.promotions) ? order.promotions : {}),
+            applied: r.applied,
+            recalculatedAt: new Date().toISOString(),
+          },
+          reviewFlags: flags,
+        });
+
+        const amountOf = (a: AppliedPromotion) => ({
+          promotionId: a.promotionId,
+          amount: a.amount,
+        });
+        const manualIds = r.manual.map((m) => m.id);
+        return {
+          outcome: modificationOutcome(r.before, r.after),
+          difference: totals.total - r.before.total,
+          history: {
+            type: 'DISCOUNTS_RECALCULATED',
+            description: `Discounts recalculated: total ${r.before.total} → ${totals.total} cents`,
+            previousValue: { totals: r.before },
+            newValue: {
+              added: added.map(amountOf),
+              removed: stored.filter((a) => r.removed.includes(a.promotionId)).map(amountOf),
+              kept: {
+                promotions: r.applied.filter((a) => !r.added.includes(a.promotionId)).map(amountOf),
+                manual: manualIds,
+              },
+              removedManual: readManualDiscounts(order)
+                .map((m) => m.id)
+                .filter((id) => !manualIds.includes(id)),
+              totals: r.after,
+            },
+          },
+        };
+      },
+    });
+  };
+
+  /** Adds a manual discount (spec 7.2, ruling 18) on top of the order-level discount. */
+  const addManualDiscount = async (
+    rawOrderId: number | string,
+    input: ManualDiscountInput,
+    actor: string,
+    operationId: string
+  ): Promise<EditResult> => {
+    const orderId = Number(rawOrderId);
+    const build = (state: OrderState, by: string) => {
+      const items = readManualDiscounts(state.order);
+      const { discount, errors } = buildManualDiscount(input, {
+        subtotal: num(state.order.subtotal),
+        orderDiscount: num(state.order.orderDiscount),
+        nextId: Math.max(0, ...items.map((m) => m.id)) + 1,
+        at: new Date().toISOString(),
+        actor: by,
+      });
+      if (!discount) throw new EcommerceValidationError('Invalid discount', errors);
+      return { items, discount };
+    };
+    return runEdit(orderId, 'manual-discount-add', operationId, actor, {
+      prepare: async () => {
+        const state = await orders().computeOrderState(orderId);
+        assertEditable(state, 'ADD_DISCOUNT');
+        build(state, actor);
+      },
+      write: async (state, _prepared, w) => {
+        assertEditable(state, 'ADD_DISCOUNT');
+        const { items, discount } = build(state, w.actor);
+        const orderDiscount = num(state.order.orderDiscount) + discount.amount;
+        return writeManual(state, orderDiscount, [...items, discount], {
+          type: 'MANUAL_DISCOUNT_ADDED',
+          description: `Manual discount added: ${discount.amount} cents`,
+          previousValue: null,
+          newValue: {
+            id: discount.id,
+            kind: discount.kind,
+            percent: discount.percent,
+            amount: discount.amount,
+            reason: discount.reason,
+          },
+        });
+      },
+    });
+  };
+
+  /** Persists a manual list change and gives its outcome. */
+  const writeManual = async (
+    state: OrderState,
+    orderDiscount: number,
+    items: ManualDiscount[],
+    history: {
+      type: 'MANUAL_DISCOUNT_ADDED' | 'MANUAL_DISCOUNT_REMOVED';
+      description: string;
+      previousValue: object | null;
+      newValue: object;
+    }
+  ) => {
+    const before = totalsWith(state);
+    const after = totalsWith(state, undefined, orderDiscount);
+    await writeTotals(state, {
+      orderDiscount: after.orderDiscount,
+      manualDiscounts: reconcileManual(items, after.orderDiscount, appliedOf(state.order)),
+    });
+    return {
+      outcome: modificationOutcome(before, after),
+      difference: after.total - before.total,
+      history,
+    };
+  };
+
+  const manualNotFound = () => invalidDiscounts('discountId', 'MANUAL_DISCOUNT_NOT_FOUND');
+
+  /** Removes a manual discount (spec 7.2): its amount comes off the order-level discount. */
+  const removeManualDiscount = async (
+    rawOrderId: number | string,
+    rawDiscountId: number,
+    actor: string,
+    operationId: string
+  ): Promise<EditResult> => {
+    const orderId = Number(rawOrderId);
+    const discountId = Number(rawDiscountId);
+    const find = (state: OrderState) => {
+      const items = readManualDiscounts(state.order);
+      const item = items.find((m) => m.id === discountId);
+      if (!item) throw manualNotFound();
+      return { items, item };
+    };
+    return runEdit(orderId, 'manual-discount-remove', operationId, actor, {
+      prepare: async () => {
+        const state = await orders().computeOrderState(orderId);
+        assertEditable(state, 'REMOVE_DISCOUNT');
+        find(state);
+      },
+      write: async (state) => {
+        assertEditable(state, 'REMOVE_DISCOUNT');
+        const { items, item } = find(state);
+        const orderDiscount = Math.max(0, num(state.order.orderDiscount) - item.amount);
+        return writeManual(
+          state,
+          orderDiscount,
+          items.filter((m) => m.id !== discountId),
+          {
+            type: 'MANUAL_DISCOUNT_REMOVED',
+            description: `Manual discount removed: ${item.amount} cents`,
+            previousValue: {
+              id: item.id,
+              kind: item.kind,
+              percent: item.percent,
+              amount: item.amount,
+              reason: item.reason,
+            },
+            newValue: { id: item.id, amount: item.amount },
+          }
+        );
+      },
+    });
+  };
+
+  /**
+   * Dismisses a raised flag, only once the order can no longer be edited (ruling 23). Persists
+   * `reviewFlags` with its own update: `writeTotals` refuses an order that is not OPEN.
+   */
+  const dismissReviewFlag = async (
+    rawOrderId: number | string,
+    code: ReviewFlagCode,
+    actor: string,
+    operationId: string
+  ): Promise<EditResult> => {
+    const orderId = Number(rawOrderId);
+    const check = (state: OrderState) => {
+      if (!REVIEW_FLAG_CODES.includes(code)) throw invalidDiscounts('code', 'invalid');
+      if (state.editing.editable) throw invalidDiscounts('code', 'REVIEW_FLAG_NOT_DISMISSABLE');
+      const { flags, cleared } = clearFlag(readReviewFlags(state.order.reviewFlags), code);
+      if (!cleared) throw invalidDiscounts('code', 'invalid');
+      return flags;
+    };
+    return runEdit(orderId, 'review-dismiss', operationId, actor, {
+      prepare: async () => {
+        check(await orders().computeOrderState(orderId));
+      },
+      write: async (state) => {
+        const flags = check(state);
+        await strapi.db.query(uids().order).update({
+          where: { id: orderId },
+          data: { reviewFlags: { flags } },
+        });
+        return {
+          outcome: 'NONE',
+          difference: 0,
+          history: {
+            type: 'REVIEW_FLAG_DISMISSED',
+            description: `Review flag dismissed: ${code}`,
+            previousValue: { code },
+            newValue: { code },
+          },
+        };
+      },
+    });
+  };
+
   return {
     previewLines,
     applyLines,
@@ -851,6 +1241,11 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     recalculateShipping,
     editShippingLine,
     addShippingLine,
+    previewDiscounts,
+    applyDiscounts,
+    addManualDiscount,
+    removeManualDiscount,
+    dismissReviewFlag,
   };
 };
 
