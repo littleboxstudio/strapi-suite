@@ -19,6 +19,7 @@ import {
   computeCoverage,
   type CoverageOrderState,
 } from '../../../../server/src/services/modules/ecommerce/domain/orders';
+import { shippingTaxRates } from '../../../../server/src/services/modules/ecommerce/domain/shippingLines';
 import { EcommerceValidationError } from '../../../../server/src/services/modules/ecommerce/errors';
 
 type Line = CoverageOrderState['lines'][number] & {
@@ -48,7 +49,7 @@ const order = (lines: Line[], over: Partial<Omit<CoverageOrderState, 'lines'>> =
   ...over,
 });
 
-const SHIPPING = { name: 'Shipping', reference: 'PORTES', tax: 23 };
+const SHIPPING = { reference: 'PORTES', rates: [{ tax: 23, weight: 450, name: 'Shipping' }] };
 const codes = (issues: { code: string }[]) => issues.map((i) => i.code);
 
 describe('coverage mappers', () => {
@@ -330,6 +331,64 @@ describe('reconcileCoverages on net payment amounts', () => {
     ]) {
       expect(() => reconcileCoverages(o, [bad], new Map())).toThrow(EcommerceValidationError);
     }
+  });
+});
+
+describe('buildInvoiceLines shipping per VAT rate', () => {
+  const cover = (shipping: number) => ({
+    paymentId: 1,
+    lines: [],
+    shipping,
+    value: shipping,
+    excluded: 0,
+  });
+  const o = order([], { shippingTotal: 500 });
+  const rates = [
+    { tax: 23, weight: 400, name: 'Standard' },
+    { tax: 6, weight: 100, name: 'Reduced' },
+  ];
+  const view = (l: InvoiceLine) => [l.kind, l.total, l.tax, l.partial];
+
+  it('splits the covered shipping across rates by weight', () => {
+    const full = buildInvoiceLines([cover(500)], o, { reference: 'PORTES', rates });
+    expect(full.map(view)).toEqual([
+      ['SHIPPING', 400, 23, false],
+      ['SHIPPING', 100, 6, false],
+    ]);
+    expect(full.map((l) => l.name)).toEqual(['Standard', 'Reduced']);
+    const half = buildInvoiceLines([cover(250)], o, { reference: 'PORTES', rates });
+    expect(half.map(view)).toEqual([
+      ['SHIPPING', 200, 23, true],
+      ['SHIPPING', 50, 6, true],
+    ]);
+  });
+
+  it('all weights 0 with value to invoice → one line at the first rate; no rates → tax 0', () => {
+    const zero = [
+      { tax: 6, weight: 0, name: 'A' },
+      { tax: 23, weight: 0, name: 'B' },
+    ];
+    expect(buildInvoiceLines([cover(300)], o, { reference: 'P', rates: zero }).map(view)).toEqual([
+      ['SHIPPING', 300, 6, true],
+    ]);
+    expect(buildInvoiceLines([cover(300)], o, { reference: 'P', rates: [] }).map(view)).toEqual([
+      ['SHIPPING', 300, 0, true],
+    ]);
+  });
+
+  it('shipping lines 500 and -200 invoiced after paying 300 → one line of 300, never negative', () => {
+    const at = '2026-01-01T00:00:00.000Z';
+    const base = { providerId: 1, serviceId: 'a', name: 'Std', tax: 23, createdAt: at, actor: 'x' };
+    const ship = shippingTaxRates([
+      { id: 1, origin: 'CHECKOUT', amount: 500, ...base },
+      { id: 2, origin: 'RECALCULATION', amount: -200, ...base },
+    ] as any);
+    const lines = buildInvoiceLines([cover(300)], order([], { shippingTotal: 300 }), {
+      reference: 'PORTES',
+      rates: ship,
+    });
+    expect(lines.map(view)).toEqual([['SHIPPING', 300, 23, false]]);
+    expect(lines.every((l) => l.total >= 0)).toBe(true);
   });
 });
 
