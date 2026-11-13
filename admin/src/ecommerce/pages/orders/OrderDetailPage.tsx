@@ -251,15 +251,16 @@ const OrderDetailPage = () => {
             <CustomerCard customer={order.customer} />
           </FillCell>
         </Grid.Item>
-        <Grid.Item col={3} m={6} s={12} direction="column" alignItems="stretch">
-          <FillCell>
-            <AddressCard title={t('ecommerce.orders.detail.address.shipping')} address={order.shippingAddress} />
-          </FillCell>
-        </Grid.Item>
-        <Grid.Item col={3} m={6} s={12} direction="column" alignItems="stretch">
-          <FillCell>
-            <AddressCard title={t('ecommerce.orders.detail.address.billing')} address={order.billingAddress} />
-          </FillCell>
+        {/* The two addresses share the last half, one above the other. */}
+        <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
+          <Flex direction="column" alignItems="stretch" gap={6} style={{ flex: 1 }}>
+            <FillCell>
+              <AddressCard title={t('ecommerce.orders.detail.address.shipping')} address={order.shippingAddress} />
+            </FillCell>
+            <FillCell>
+              <AddressCard title={t('ecommerce.orders.detail.address.billing')} address={order.billingAddress} />
+            </FillCell>
+          </Flex>
         </Grid.Item>
       </Grid.Root>
 
