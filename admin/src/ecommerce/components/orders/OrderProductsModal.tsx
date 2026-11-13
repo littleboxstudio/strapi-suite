@@ -101,6 +101,7 @@ const OrderProductsModal = ({ order, permissions, onClose, onSaved, onAction }: 
       const result = await new ApplyOrderLines().execute(order.id, { ...buildLinesInput(lines), operationId });
       onSaved(result);
       if (result.outcome === 'NONE') {
+        toggleNotification({ type: 'success', message: t('ecommerce.orders.products.saved') });
         onClose();
       } else {
         setSaved(result);

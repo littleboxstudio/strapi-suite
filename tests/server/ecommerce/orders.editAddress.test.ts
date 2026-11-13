@@ -352,6 +352,21 @@ describe('EcommerceOrderEditingService.updateShippingAddress', () => {
     expect(JSON.stringify(ctx.tables)).toBe(before);
   });
 
+  it('an unchanged country no longer served still saves; the failed re-quote raises SHIPPING_QUOTE_FAILED', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    delete ctx.methods[0].rates.PT;
+    const res = await ctx.editing.updateShippingAddress(
+      id,
+      { address: { ...address, line1: 'Rua C 3' } },
+      'user:1',
+      'op-addr-0009'
+    );
+    expect(res).toMatchObject({ outcome: 'NONE', difference: 0 });
+    expect(orderRow(ctx, id).shippingAddress).toMatchObject({ country: 'PT', line1: 'Rua C 3' });
+    expect(flag(ctx, id, 'SHIPPING_REVIEW')).toMatchObject({ reason: 'SHIPPING_QUOTE_FAILED' });
+  });
+
   it('a malformed address is rejected', async () => {
     const ctx = setup();
     const id = await createOrder(ctx);

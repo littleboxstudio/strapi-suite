@@ -262,14 +262,20 @@ export type OrderState = {
 
 /** The order's invoicing position (design 4.4), part of `OrderState`. */
 /** What the shipping line views need from the order: covered shipping, invoices, shipments. */
+/**
+ * The context of the shipping line views. Coverage holds shipping net of the shipping discount,
+ * while lines carry gross amounts: the discount is added back before lines consume it.
+ */
 export const shippingLineContext = (
   invoicing: Pick<OrderInvoicing, 'completedPayments' | 'reconciled' | 'invoices'>,
-  hasActiveShipment: boolean
+  hasActiveShipment: boolean,
+  shippingDiscount: unknown
 ): Parameters<typeof shippingLineViews>[1] => ({
-  coveredShipping: invoicing.completedPayments.reduce(
-    (sum, p) => sum + (invoicing.reconciled.get(p.id)?.shipping ?? 0),
-    0
-  ),
+  coveredShipping:
+    invoicing.completedPayments.reduce(
+      (sum, p) => sum + (invoicing.reconciled.get(p.id)?.shipping ?? 0),
+      0
+    ) + Math.max(0, Number(shippingDiscount) || 0),
   invoices: invoicing.invoices.map((i) => ({
     kind: i.kind,
     status: i.status,
@@ -1231,7 +1237,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     });
     const shippingLines = shippingLineViews(
       readShippingLines(order),
-      shippingLineContext(invoicing, hasActiveShipment)
+      shippingLineContext(invoicing, hasActiveShipment, order.shippingDiscount)
     );
     const actions = availableActions({
       orderStatus: order.orderStatus,

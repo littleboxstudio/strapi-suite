@@ -136,6 +136,19 @@ describe('EcommerceOrderService.get: editing fields', () => {
     expect(view.shippingLines[0]).toMatchObject({ ...checkout, paid: true });
   });
 
+  it('marks the CHECKOUT line paid on a fully paid free-shipping order', async () => {
+    const c = setupCommerce();
+    const id = await createOrder(c);
+    const row = c.tables[UIDS.order].find((o: any) => o.id === id);
+    // Free shipping: the whole 500 of shipping is discounted.
+    row.shippingDiscount = row.shippingOriginal;
+    row.shippingTotal = 0;
+    row.total -= row.shippingOriginal;
+    await c.payments.addManualPayment(id, { amount: row.total, idempotencyKey: 'pay-view-free' }, 'user:1');
+    const view = await c.orders.get(id);
+    expect(view.shippingLines[0]).toMatchObject({ origin: 'CHECKOUT', amount: 500, paid: true });
+  });
+
   it('a legacy order reads its CHECKOUT line and LEGACY discount without writing', async () => {
     const c = setupCommerce();
     const id = await createOrder(c);
