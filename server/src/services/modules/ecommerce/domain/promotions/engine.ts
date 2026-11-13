@@ -161,6 +161,35 @@ const better = (a: Scored, b: Scored): boolean => {
   return false;
 };
 
+/** The stored entry of a promotion applied with these realised benefit amounts (by index). */
+export const appliedPromotionOf = (p: PromotionDefinition, amounts: number[]): AppliedPromotion => {
+  const benefits = p.benefits.map((b, index) => ({
+    index,
+    type: b.type,
+    class: BENEFIT_CLASS[b.type],
+    amount: amounts[index] ?? 0,
+    params: b,
+  }));
+  return {
+    promotionId: p.id,
+    version: p.version,
+    name: p.name,
+    displayName: p.displayName,
+    code: p.method === 'CODE' && p.code !== null ? normalizePromotionCode(p.code) : null,
+    method: p.method,
+    classes: [...classesOf(p)].sort(),
+    amount: benefits.reduce((s, b) => s + b.amount, 0),
+    benefits,
+    snapshot: {
+      eligibility: p.eligibility,
+      conditions: p.conditions,
+      stacking: p.stacking,
+      priority: p.priority,
+      perOrderLimit: p.perOrderLimit,
+    },
+  };
+};
+
 export const evaluatePromotions = (input: EvaluationInput): PromotionEvaluation => {
   const ctx: CombinationContext = {
     lines: input.lines,
@@ -303,34 +332,7 @@ export const evaluatePromotions = (input: EvaluationInput): PromotionEvaluation 
 
   const applied: AppliedPromotion[] = [...best.members]
     .sort((a, b) => b.priority - a.priority || a.id - b.id)
-    .map((p) => {
-      const amounts = best.result.benefitAmounts.get(p.id) ?? [];
-      const benefits = p.benefits.map((b, index) => ({
-        index,
-        type: b.type,
-        class: BENEFIT_CLASS[b.type],
-        amount: amounts[index] ?? 0,
-        params: b,
-      }));
-      return {
-        promotionId: p.id,
-        version: p.version,
-        name: p.name,
-        displayName: p.displayName,
-        code: p.method === 'CODE' && p.code !== null ? normalizePromotionCode(p.code) : null,
-        method: p.method,
-        classes: [...classesOf(p)].sort(),
-        amount: benefits.reduce((s, b) => s + b.amount, 0),
-        benefits,
-        snapshot: {
-          eligibility: p.eligibility,
-          conditions: p.conditions,
-          stacking: p.stacking,
-          priority: p.priority,
-          perOrderLimit: p.perOrderLimit,
-        },
-      };
-    });
+    .map((p) => appliedPromotionOf(p, best.result.benefitAmounts.get(p.id) ?? []));
 
   const r = best.result;
   return {
