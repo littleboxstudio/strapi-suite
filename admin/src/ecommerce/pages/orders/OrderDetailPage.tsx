@@ -296,13 +296,8 @@ const OrderDetailPage = () => {
         <OrderProductsModal
           key={`products-${productsKey}`}
           order={order}
-          permissions={permissions}
           onClose={() => setProductsKey(null)}
           onSaved={showResult}
-          onAction={(action) => {
-            setProductsKey(null);
-            dispatchModal({ type: 'OPEN', action });
-          }}
         />
       )}
       {canPay && modal === 'SEND_PAYMENT_INSTRUCTIONS' && (

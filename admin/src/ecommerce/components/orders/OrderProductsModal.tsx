@@ -19,30 +19,27 @@ import {
   validateLinesDraft,
   type ModificationErrorMap,
 } from '../../utils/modification';
-import { apiErrorMessageId, type OrderActionPermissions, type ToolbarAction } from '../../utils/orderDetail';
+import { apiErrorMessageId } from '../../utils/orderDetail';
 import { extractFieldErrors } from '../../utils/productForm';
 import { mintUuid } from '../../utils/variantDraft';
 import type { EditResult, LinesPreview, Order } from '../../orderTypes';
 import VariantPicker from './VariantPicker';
 import ModifyLinesEditor from './ModifyLinesEditor';
-import BalanceOutcome from './BalanceOutcome';
 
 type Props = {
   order: Order;
-  permissions: OrderActionPermissions;
   onClose: () => void;
   onSaved: (result: EditResult) => void;
-  onAction: (action: ToolbarAction) => void;
 };
 
-type Step = 'edit' | 'review' | 'result';
+type Step = 'edit' | 'review';
 
 /**
  * Adds products to the order and changes or removes its lines: edit, then Review (preview), then
- * Save, then the balance when money is due or refundable. Mount it only while open: each opening
+ * Save, which closes it (the balance and its payment actions are on the page). Mount it only while open: each opening
  * mints one operationId, so a retried save is applied once.
  */
-const OrderProductsModal = ({ order, permissions, onClose, onSaved, onAction }: Props) => {
+const OrderProductsModal = ({ order, onClose, onSaved }: Props) => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) =>
@@ -52,7 +49,6 @@ const OrderProductsModal = ({ order, permissions, onClose, onSaved, onAction }: 
   const [lines, setLines] = useState(() => linesDraftFromOrder(order));
   const [step, setStep] = useState<Step>('edit');
   const [preview, setPreview] = useState<LinesPreview | null>(null);
-  const [saved, setSaved] = useState<EditResult | null>(null);
   const [errors, setErrors] = useState<ModificationErrorMap>({});
   const [busy, setBusy] = useState(false);
 
@@ -100,13 +96,8 @@ const OrderProductsModal = ({ order, permissions, onClose, onSaved, onAction }: 
     try {
       const result = await new ApplyOrderLines().execute(order.id, { ...buildLinesInput(lines), operationId });
       onSaved(result);
-      if (result.outcome === 'NONE') {
-        toggleNotification({ type: 'success', message: t('ecommerce.orders.products.saved') });
-        onClose();
-      } else {
-        setSaved(result);
-        setStep('result');
-      }
+      toggleNotification({ type: 'success', message: t('ecommerce.orders.products.saved') });
+      onClose();
     } catch (err) {
       const fieldErrors = extractFieldErrors(err);
       if (fieldErrors?.length) {
@@ -229,14 +220,6 @@ const OrderProductsModal = ({ order, permissions, onClose, onSaved, onAction }: 
               </Typography>
             </Flex>
           )}
-          {step === 'result' && saved && (
-            <BalanceOutcome
-              order={saved.order}
-              outcome={saved.outcome as 'DUE' | 'REFUNDABLE'}
-              permissions={permissions}
-              onAction={onAction}
-            />
-          )}
         </Modal.Body>
         <Modal.Footer>
           {step === 'edit' && (
@@ -258,9 +241,6 @@ const OrderProductsModal = ({ order, permissions, onClose, onSaved, onAction }: 
                 {t('ecommerce.orders.products.save')}
               </Button>
             </>
-          )}
-          {step === 'result' && (
-            <Button onClick={onClose}>{t('ecommerce.orders.products.close')}</Button>
           )}
         </Modal.Footer>
       </Modal.Content>
