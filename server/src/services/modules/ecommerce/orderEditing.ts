@@ -32,7 +32,8 @@ import type {
 } from './domain/promotions';
 import { isRecord, type CatalogVariant } from './orderPricingHelpers';
 import type { ShippingOption, ShippingQuoteRequest } from './shipping';
-import type { OrderState, OrderView } from './orders';
+import { normalizeAddress, type OrderState, type OrderView } from './orders';
+import type { ValidationIssue } from './errors';
 
 export type EditKind =
   | 'lines'
@@ -108,6 +109,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
       providerId: string,
       serviceId: string
     ): Promise<ShippingOption | null>;
+    servedCountries(providerId: string, serviceId: string): Promise<string[]>;
   } => service('EcommerceShippingService');
   const promotions = (): {
     searchLimit(): number;
@@ -396,7 +398,104 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     });
   };
 
-  return { previewLines, applyLines };
+  // -------------------------------------------------------------------------
+  // Shipping address (spec 5, ruling 21)
+  // -------------------------------------------------------------------------
+
+  const sameAddress = (a: unknown, b: unknown): boolean => {
+    const key = (x: unknown) =>
+      JSON.stringify(Object.entries((x ?? {}) as Record<string, unknown>).sort(([k], [l]) => (k < l ? -1 : 1)));
+    return key(a) === key(b);
+  };
+
+  const countriesOf = async (state: OrderState): Promise<string[]> => {
+    const method = currentMethod(readShippingLines(state.order));
+    return method ? shipping().servedCountries(method.providerId, method.serviceId) : [];
+  };
+
+  /** The countries the order's current method serves, inside the store markets. */
+  const shippingAddressCountries = async (
+    rawOrderId: number | string
+  ): Promise<{ countries: string[] }> => {
+    const state = await orders().computeOrderState(Number(rawOrderId));
+    return { countries: await countriesOf(state) };
+  };
+
+  /**
+   * Saves the shipping address only: amounts never change. The current method is quoted again for
+   * the whole order; a different price or a failed quote raises SHIPPING_REVIEW. An unchanged
+   * address writes only the runner's idempotency row.
+   */
+  const updateShippingAddress = async (
+    rawOrderId: number | string,
+    input: { address: unknown },
+    actor: string,
+    operationId: string
+  ): Promise<EditResult> => {
+    const orderId = Number(rawOrderId);
+    return runEdit(orderId, 'address', operationId, actor, {
+      prepare: async () => {
+        const state = await orders().computeOrderState(orderId);
+        assertEditable(state, 'EDIT_ADDRESS');
+        const errors: ValidationIssue[] = [];
+        const address = normalizeAddress(input?.address, 'address', errors);
+        if (errors.length) throw new EcommerceValidationError('Invalid address', errors);
+        if (sameAddress(address, state.order.shippingAddress)) return { address, due: null };
+        if (!(await countriesOf(state)).includes(address.country)) {
+          throw new EcommerceValidationError('Invalid address', [
+            { path: 'address.country', code: 'COUNTRY_NOT_SERVED' },
+          ]);
+        }
+        // The carrier quote may be a remote call: taken before the transaction.
+        const due = await shippingDue(
+          state,
+          state.lines.map((l) => ({
+            variantId: l.variantId,
+            quantity: l.quantity,
+            orderLineId: l.id,
+          })),
+          address
+        );
+        return { address, due };
+      },
+      write: async (state, { address, due }, w) => {
+        assertEditable(state, 'EDIT_ADDRESS');
+        const before = state.order.shippingAddress ?? null;
+        if (sameAddress(address, before)) {
+          return {
+            outcome: 'NONE',
+            difference: 0,
+            history: {
+              type: 'ADDRESS_CHANGED',
+              description: 'Shipping address unchanged',
+              previousValue: null,
+              newValue: { unchanged: true },
+            },
+          };
+        }
+        let flags = readReviewFlags(state.order.reviewFlags);
+        // No quote taken (the address changed since the preparation): review it.
+        if (!due || 'failed' in due) {
+          flags = await w.raise(flags, 'SHIPPING_REVIEW', 'SHIPPING_QUOTE_FAILED');
+        } else if (due.due !== chargedShipping(readShippingLines(state.order))) {
+          flags = await w.raise(flags, 'SHIPPING_REVIEW', 'ADDRESS_CHANGED');
+        }
+        await writeTotals(state, { shippingAddress: address, reviewFlags: flags });
+        return {
+          outcome: 'NONE',
+          difference: 0,
+          history: {
+            type: 'ADDRESS_CHANGED',
+            description: 'Shipping address changed',
+            previousValue: before,
+            newValue: address,
+          },
+        };
+      },
+    });
+  };
+
+  return { previewLines, applyLines, shippingAddressCountries, updateShippingAddress };
 };
 
 export default EcommerceOrderEditingService;

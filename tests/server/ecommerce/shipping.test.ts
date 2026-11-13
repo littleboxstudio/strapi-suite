@@ -301,4 +301,24 @@ describe('EcommerceShippingService', () => {
       await expect(ctt.createShipment!({} as any, { config: {}, secrets: {} })).rejects.toMatchObject({ code: 'NOT_IMPLEMENTED' });
     });
   });
+  describe('servedCountries', () => {
+    it('a manual method serves the countries of its rates (active or not) inside the markets', async () => {
+      const s = setup({
+        countries: ['PT'],
+        methods: [method(1, { PT: FLAT(300), ES: FLAT(300) }, { active: false })],
+      });
+      expect(await s.servedCountries('manual', '1')).toEqual(['PT']);
+      expect(await s.servedCountries('manual', '99')).toEqual([]);
+    });
+
+    it('a carrier serves its configured markets inside the store markets', async () => {
+      const runtime = () => ({ config: { markets: ['PT', 'ES', 'DE'] }, secrets: {}, active: true });
+      const both = setup({ carriers: ['ctt'], runtime, countries: ['PT', 'ES'] });
+      expect((await both.servedCountries('ctt', 'x')).sort()).toEqual(['ES', 'PT']);
+      const one = setup({ carriers: ['ctt'], runtime, countries: ['PT'] });
+      expect(await one.servedCountries('ctt', 'x')).toEqual(['PT']);
+      const none = setup({ carriers: ['ctt'], runtime: () => null });
+      expect(await none.servedCountries('ctt', 'x')).toEqual([]);
+    });
+  });
 });
