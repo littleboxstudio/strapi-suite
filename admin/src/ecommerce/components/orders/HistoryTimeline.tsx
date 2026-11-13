@@ -4,6 +4,7 @@ import { getTranslation } from '../../../core/utils/getTranslation';
 import { formatCents } from '../../utils/money';
 import { historyEntryText, sortHistoryNewestFirst } from '../../utils/orderDetail';
 import type { OrderHistoryItem } from '../../orderTypes';
+import EmptyNote from './EmptyNote';
 
 /** The order's history, newest first (requirement 6.2). */
 const HistoryTimeline = ({ history }: { history: OrderHistoryItem[] }) => {
@@ -13,7 +14,7 @@ const HistoryTimeline = ({ history }: { history: OrderHistoryItem[] }) => {
   const money = (cents: number) => formatCents(cents, uiLocale);
 
   if (!history.length) {
-    return <Typography textColor="neutral600">{t('ecommerce.orders.detail.history.empty')}</Typography>;
+    return <EmptyNote>{t('ecommerce.orders.detail.history.empty')}</EmptyNote>;
   }
 
   const entries = sortHistoryNewestFirst(history);

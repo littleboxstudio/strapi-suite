@@ -3,6 +3,7 @@ import { Flex, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import type { Address } from '../../orderTypes';
 import OrderSection from './OrderSection';
+import EmptyNote from './EmptyNote';
 
 const countryName = (code: string, locale: string) => {
   try {
@@ -20,7 +21,7 @@ const AddressCard = ({ title, address }: { title: string; address: Address | nul
   if (!address) {
     return (
       <OrderSection title={title}>
-        <Typography textColor="neutral600">{t('ecommerce.orders.detail.address.none')}</Typography>
+        <EmptyNote>{t('ecommerce.orders.detail.address.none')}</EmptyNote>
       </OrderSection>
     );
   }
