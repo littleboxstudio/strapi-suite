@@ -35,9 +35,13 @@ método de entrega antes do envio, acertar portes e descontos, e acabar com o sa
 
 ## 2. Regras de disponibilidade
 
-"A encomenda pode ser alterada" = a regra atual da ação `MODIFY`: `OrderStatus = OPEN`,
-`FulfillmentStatus ≠ FULFILLED` e nenhum envio `PENDING` na transportadora. Cada botão abaixo
-soma condições a esta:
+"A encomenda pode ser alterada" = `OrderStatus = OPEN` e nenhum envio `PENDING` na
+transportadora. **[Decisão, 2026-11-13]** Ao contrário da regra atual de `MODIFY`, uma encomenda
+**totalmente enviada** (`FULFILLED`, ainda não arquivada) também pode ser alterada, mas só para
+**acrescentar** produtos (os enviados não se removem): o `FulfillmentStatus` volta a
+`PARTIALLY_FULFILLED`, o botão Enviar reaparece para as unidades novas e o arquivamento deixa de
+estar disponível até serem enviadas. As unidades novas seguem para a morada da encomenda. Cada
+botão abaixo soma condições a esta:
 
 | Ação | Condições além de "pode ser alterada" |
 |---|---|
@@ -155,7 +159,10 @@ Consequências:
 Acima da tabela de envios e entregas aparece a **tabela de portes** (uma linha por cobrança).
 
 - **Recalcular portes** (botão no topo da secção, enquanto puder ser alterada) **[Decisão]**: os
-  portes são sempre recalculados em função do **estado atual** da encomenda. **Portes devidos** =
+  portes são sempre recalculados em função do **estado atual** da encomenda. As três situações
+  **[Decisão]** usam a mesma fórmula abaixo: **totalmente enviada** → cota só os produtos
+  acrescentados (são as únicas unidades por enviar); **parcialmente enviada** → cota o que falta
+  enviar + os produtos novos; **sem envios** → cota a encomenda inteira (recálculo de raiz). **Portes devidos** =
   custo dos envios já feitos + cotação do método atual para as **unidades ainda por enviar** e a
   morada atual (como o `RECALCULATE` de hoje). Compara com os **portes cobrados** (6.1):
   - devidos > cobrados → cobrança extra (regra 6.2: substitui ou linha positiva), que entra no
