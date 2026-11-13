@@ -149,9 +149,12 @@ const VariantPicker = ({ locale, onAdd, disabled }: Props) => {
                 paddingBottom={2}
                 paddingLeft={3}
                 paddingRight={3}
+                // Strapi's row divider: 1px in the theme's border colour (light and dark).
+                borderColor="neutral150"
                 style={{
                   opacity: loading ? 0.5 : 1,
-                  ...(i > 0 ? { borderTop: '1px solid var(--strapi-neutral-150, #eaeaef)' } : {}),
+                  borderStyle: 'solid',
+                  borderWidth: i > 0 ? '1px 0 0 0' : 0,
                 }}
               >
                 <Flex direction="column" alignItems="flex-start" style={{ minWidth: 0 }}>
