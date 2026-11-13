@@ -21,6 +21,7 @@ import {
   type PromotionLocales,
 } from '../../utils/orderDetail';
 import type { OrderLine, OrderPromotion } from '../../orderTypes';
+import { PRODUCT_CELL } from './lineCells';
 
 const THUMBNAIL_SIZE = 40;
 const COLUMNS = ['product', 'sku', 'unitPrice', 'quantity', 'shipped', 'total'] as const;
@@ -91,9 +92,9 @@ const OrderLinesTable = ({ lines, promotions = [], locales = { locale: '' } }: P
                   />
                 )}
               </Td>
-              <Td style={{ maxWidth: 320 }}>
+              <Td style={{ ...PRODUCT_CELL, maxWidth: 320 }}>
                 <Flex direction="column" alignItems="flex-start" gap={1}>
-                  <Typography textColor="neutral800" fontWeight="semiBold" ellipsis>
+                  <Typography textColor="neutral800" fontWeight="semiBold">
                     {line.name}
                   </Typography>
                   {line.option && (
