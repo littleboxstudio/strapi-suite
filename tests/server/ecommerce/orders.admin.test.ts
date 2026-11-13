@@ -124,6 +124,8 @@ describe('EcommerceOrderService.get: editing fields', () => {
     expect(view.shippingLines[0]).toMatchObject({ ...checkout, providerId: 'manual', serviceId: '1', tax: 23 });
     expect(view.manualDiscounts).toEqual([]);
     expect(view.reviewFlags).toEqual([]);
+    // The top bar no longer offers MODIFY: products are edited in their section.
+    expect(view.availableActions).toEqual(['CANCEL', 'ADD_PAYMENT', 'SEND_PAYMENT_INSTRUCTIONS']);
   });
 
   it('marks the shipping line paid once the total is paid', async () => {

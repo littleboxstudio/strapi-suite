@@ -1,6 +1,7 @@
 /**
- * Helpers shared by the order flows that change lines (the order service and the editing
- * service): the simulation inputs, the carrier quote items and the line and stock writes.
+ * Helpers for the flows that change an order's lines (the editing service): the simulation
+ * inputs, the carrier quote items and the line and stock writes. The stored-shape readers
+ * (`appliedOf`, `toPaymentLike`, `toRefundLike`) are shared with the order service.
  */
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID, LtbConfigs } from '../../../config';
