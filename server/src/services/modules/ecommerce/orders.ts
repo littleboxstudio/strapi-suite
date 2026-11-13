@@ -414,7 +414,7 @@ function normalizeExpectedTotal(raw: unknown, errors: ValidationIssue[]): number
   return raw;
 }
 
-function normalizeAddress(
+export function normalizeAddress(
   raw: unknown,
   path: string,
   errors: ValidationIssue[],

@@ -194,6 +194,22 @@ const EcommerceShippingService = ({ strapi }: { strapi: Core.Strapi }) => {
       if (!adapter || !runtime || !runtime.active) throw new EcommerceCarrierError('CARRIER_NOT_CONFIGURED');
       return { adapter, runtime: { config: runtime.config, secrets: runtime.secrets } };
     },
+    /** The countries a method can ship to: its rates (manual) or markets (carrier), inside the store markets. */
+    async servedCountries(providerId: string, serviceId: string): Promise<string[]> {
+      const svc = settings();
+      const markets = (await svc.getStoreSettings()).markets ?? [];
+      let own: string[] = [];
+      if (providerId === 'manual') {
+        const method = (await svc.listManualMethods()).find((m) => String(m.id) === serviceId);
+        own = Object.entries(method?.rates ?? {})
+          .filter(([, brackets]) => Array.isArray(brackets))
+          .map(([country]) => country);
+      } else {
+        const served = (await svc.getRuntime(providerId))?.config.markets;
+        own = Array.isArray(served) ? served.filter((c): c is string => typeof c === 'string') : [];
+      }
+      return own.filter((c) => markets.includes(c));
+    },
     async findOption(
       req: ShippingQuoteRequest,
       providerId: string,
