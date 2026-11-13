@@ -47,6 +47,7 @@ import OrderSection from './OrderSection';
 import ColumnLabel from '../ColumnLabel';
 
 type Props = {
+  id?: string;
   title: string;
   orderStatus: OrderStatus;
   deliveryStatus: OrderDeliveryStatus;
@@ -84,6 +85,7 @@ const COLUMNS = ['date', 'carrier', 'items', 'tracking', 'status', 'delivery', '
 
 /** Shipments and deliveries of the order (requirement 9.5). */
 const ShipmentsSection = ({
+  id,
   title,
   orderStatus,
   deliveryStatus,
@@ -235,7 +237,7 @@ const ShipmentsSection = ({
   );
 
   return (
-    <OrderSection title={title} actions={header}>
+    <OrderSection id={id} title={title} actions={header}>
       {shipments.length === 0 ? (
         <EmptyNote>{t('ecommerce.orders.shipments.empty')}</EmptyNote>
       ) : (

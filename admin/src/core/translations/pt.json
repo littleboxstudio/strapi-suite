@@ -1680,10 +1680,10 @@
   "littlebox-strapi-suite.ecommerce.settings.integrations.enable": "Ativar",
   "littlebox-strapi-suite.ecommerce.settings.integrations.disableConfirm.title": "Desativar {name}",
   "littlebox-strapi-suite.ecommerce.settings.integrations.disableConfirm.text": "A loja deixa de usar {name} até o voltar a ativar. Continuar?",
-  "littlebox-strapi-suite.ecommerce.orders.review.reason.PRODUCTS_CHANGED": "Os produtos foram alterados.",
-  "littlebox-strapi-suite.ecommerce.orders.review.reason.ADDRESS_CHANGED": "A morada de envio foi alterada.",
-  "littlebox-strapi-suite.ecommerce.orders.review.reason.SHIPPING_CHANGED": "O valor dos portes foi alterado.",
-  "littlebox-strapi-suite.ecommerce.orders.review.reason.SHIPPING_QUOTE_FAILED": "A cotação da transportadora falhou, por isso não foi possível verificar os portes.",
+  "littlebox-strapi-suite.ecommerce.orders.review.reason.PRODUCTS_CHANGED": "Produtos alterados a {date}",
+  "littlebox-strapi-suite.ecommerce.orders.review.reason.ADDRESS_CHANGED": "Morada de entrega alterada a {date}",
+  "littlebox-strapi-suite.ecommerce.orders.review.reason.SHIPPING_CHANGED": "Portes alterados a {date}",
+  "littlebox-strapi-suite.ecommerce.orders.review.reason.SHIPPING_QUOTE_FAILED": "Não foi possível cotar o método de entrega a {date}",
   "littlebox-strapi-suite.ecommerce.orders.errors.ORDER_NOT_EDITABLE": "Esta encomenda já não pode ser editada (está cancelada, arquivada ou tem uma expedição pendente na transportadora).",
   "littlebox-strapi-suite.ecommerce.orders.errors.ORDER_HAS_SHIPMENTS": "Esta alteração não é possível porque a encomenda já tem expedições.",
   "littlebox-strapi-suite.ecommerce.orders.errors.REVIEW_FLAG_NOT_DISMISSABLE": "Este aviso só pode ser dispensado quando a encomenda já não pode ser editada.",
@@ -1694,5 +1694,12 @@
   "littlebox-strapi-suite.ecommerce.orders.errors.DISCOUNT_EXCEEDS_PRODUCTS": "O desconto não pode exceder o valor dos produtos.",
   "littlebox-strapi-suite.ecommerce.orders.errors.SHIPPING_LINE_NOT_FOUND": "O valor de portes não foi encontrado. Recarregue a encomenda.",
   "littlebox-strapi-suite.ecommerce.orders.errors.MANUAL_DISCOUNT_NOT_FOUND": "O desconto não foi encontrado. Recarregue a encomenda.",
-  "littlebox-strapi-suite.ecommerce.orders.errors.INVALID_PERCENT": "Indique uma percentagem acima de 0 e até 100, com no máximo 2 casas decimais."
+  "littlebox-strapi-suite.ecommerce.orders.errors.INVALID_PERCENT": "Indique uma percentagem acima de 0 e até 100, com no máximo 2 casas decimais.",
+  "littlebox-strapi-suite.ecommerce.orders.review.SHIPPING_REVIEW": "Os portes podem precisar de ser recalculados.",
+  "littlebox-strapi-suite.ecommerce.orders.review.DISCOUNTS_REVIEW": "Os descontos podem precisar de ser reavaliados.",
+  "littlebox-strapi-suite.ecommerce.orders.review.goTo": "Ir para a secção",
+  "littlebox-strapi-suite.ecommerce.orders.review.locked": "Esta encomenda já não pode ser alterada, por isso já não é possível recalcular.",
+  "littlebox-strapi-suite.ecommerce.orders.review.dismiss": "Dispensar",
+  "littlebox-strapi-suite.ecommerce.orders.balance.due": "Valor em dívida: {amount}",
+  "littlebox-strapi-suite.ecommerce.orders.balance.refundable": "Elegível para reembolso: {amount}"
 }

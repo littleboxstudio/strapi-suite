@@ -17,8 +17,9 @@ import { useInvoicingPermissions } from '../../hooks/useInvoicingPermissions';
 import { hasUninvoicedPayments } from '../../utils/invoiceForm';
 import { apiErrorMessageId, promotionDisplayName, type ToolbarAction } from '../../utils/orderDetail';
 import { initialOrderModalState, orderModalReducer } from '../../utils/orderModals';
-import type { InvoiceScopeInput, Order } from '../../orderTypes';
+import type { EditResult, InvoiceScopeInput, Order } from '../../orderTypes';
 import OrderHeader from '../../components/orders/OrderHeader';
+import ReviewAlerts from '../../components/orders/ReviewAlerts';
 import OrderSection from '../../components/orders/OrderSection';
 import OrderLinesTable from '../../components/orders/OrderLinesTable';
 import PaymentsOverview from '../../components/orders/PaymentsOverview';
@@ -139,6 +140,22 @@ const OrderDetailPage = () => {
     await load();
   };
 
+  /**
+   * Shows the order an edit returned (Tasks 16-18), superseding any fetch in flight; without one
+   * the order is fetched again.
+   */
+  const showResult = (result: EditResult) => {
+    if (!result.order) {
+      load();
+      return;
+    }
+    requestRef.current += 1;
+    hasOrderRef.current = true;
+    setOrder(result.order);
+    setVersion((v) => v + 1);
+    setLoadError(false);
+  };
+
   const runTransition = async (action: 'CANCEL' | 'ARCHIVE') => {
     if (busy || !order) return;
     const key = action === 'CANCEL' ? 'cancel' : 'archive';
@@ -193,6 +210,8 @@ const OrderDetailPage = () => {
         onAction={(action) => dispatchModal({ type: 'OPEN', action })}
       />
 
+      <ReviewAlerts order={order} canManage={canManage} onResult={showResult} />
+
       <OrderSection title={t('ecommerce.orders.detail.payments.title')}>
         <PaymentsOverview totals={order.totals} summary={order.summary} />
         <PaymentsTable
@@ -203,7 +222,7 @@ const OrderDetailPage = () => {
         />
       </OrderSection>
 
-      <OrderSection title={t('ecommerce.orders.detail.lines.title')}>
+      <OrderSection id="order-section-lines" title={t('ecommerce.orders.detail.lines.title')}>
         <OrderLinesTable
           lines={order.lines}
           promotions={order.promotions}
@@ -218,6 +237,7 @@ const OrderDetailPage = () => {
         onChanged={load}
       />
       <ShipmentsSection
+        id="order-section-shipments"
         title={t('ecommerce.orders.detail.sections.shipments')}
         orderStatus={order.orderStatus}
         deliveryStatus={order.shipping.deliveryStatus}
@@ -237,6 +257,7 @@ const OrderDetailPage = () => {
         />
       </OrderSection>
       <PromotionsSection
+        id="order-section-promotions"
         title={t('ecommerce.orders.detail.sections.promotions')}
         promotions={order.promotions ?? []}
         promotionCodes={order.promotionCodes}
