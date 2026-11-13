@@ -4,6 +4,7 @@ import {
   notificationErrorParts,
   actorLabel,
   financialSummaryRows,
+  paymentsOverview,
   formatAddressLine,
   formatShippedProgress,
   historyEntryText,
@@ -842,5 +843,75 @@ describe('notificationErrorParts', () => {
       expect(en[key], key).toBeTruthy();
       expect(pt[key], key).toBeTruthy();
     });
+  });
+});
+
+describe('paymentsOverview', () => {
+  const totals: OrderTotals = {
+    itemsOriginal: 15000,
+    productDiscount: 2000,
+    subtotal: 13000,
+    orderDiscount: 1300,
+    shippingOriginal: 800,
+    shippingDiscount: 800,
+    shippingTotal: 0,
+    total: 11700,
+  };
+  const summary: FinancialSummary = {
+    orderTotal: 11700,
+    total: 11700,
+    paid: 10000,
+    pendingPayments: 0,
+    refunded: 0,
+    net: 10000,
+    due: 1700,
+    excess: 0,
+    overRefunded: 0,
+  };
+
+  it('four tiles: total (products, shipping, discounts), paid, net, due owed', () => {
+    const tiles = paymentsOverview(totals, summary);
+    expect(tiles.map((t) => [t.key, t.amount])).toEqual([
+      ['total', 11700],
+      ['paid', 10000],
+      ['net', 10000],
+      ['due', 1700],
+    ]);
+    expect(tiles[0].notes).toEqual([
+      { key: 'products', amount: 15000 },
+      { key: 'shipping', amount: 800 },
+      { key: 'discounts', amount: -4100 },
+    ]);
+    expect(tiles[1].notes).toEqual([]);
+    expect(tiles[3]).toMatchObject({ tone: 'warning', notes: [] });
+  });
+
+  it('settled: paid in full; pending and refunded shown when there are any', () => {
+    const tiles = paymentsOverview(
+      { ...totals, productDiscount: 0, orderDiscount: 0, shippingDiscount: 0 },
+      { ...summary, paid: 11700, pendingPayments: 500, refunded: 200, net: 11500, due: 0 }
+    );
+    expect(tiles[0].notes.map((n) => n.key)).toEqual(['products', 'shipping']);
+    expect(tiles[1].notes).toEqual([{ key: 'pendingPayments', amount: 500 }]);
+    expect(tiles[2].notes).toEqual([{ key: 'refunded', amount: 200 }]);
+    expect(tiles[3]).toMatchObject({ tone: 'success', notes: [{ key: 'paidInFull', tone: 'success' }] });
+  });
+
+  it('an excess or over-refund replaces "paid in full"', () => {
+    const tiles = paymentsOverview(totals, { ...summary, due: 0, excess: 300, overRefunded: 100 });
+    expect(tiles[3].notes).toEqual([
+      { key: 'excess', amount: 300, tone: 'success' },
+      { key: 'overRefunded', amount: 100, tone: 'danger' },
+    ]);
+  });
+
+  it('every note has en + pt text', () => {
+    ['products', 'shipping', 'discounts', 'pendingPayments', 'refunded', 'paidInFull', 'excess', 'overRefunded'].forEach(
+      (k) => {
+        const key = `littlebox-strapi-suite.ecommerce.orders.detail.summary.notes.${k}`;
+        expect(en[key], key).toBeTruthy();
+        expect(pt[key], key).toBeTruthy();
+      }
+    );
   });
 });
