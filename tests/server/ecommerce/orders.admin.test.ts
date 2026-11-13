@@ -149,6 +149,17 @@ describe('EcommerceOrderService.get: editing fields', () => {
     expect(view.shippingLines[0]).toMatchObject({ origin: 'CHECKOUT', amount: 500, paid: true });
   });
 
+  it('never marks the CHECKOUT line paid on an unpaid free-shipping order', async () => {
+    const c = setupCommerce();
+    const id = await createOrder(c);
+    const row = c.tables[UIDS.order].find((o: any) => o.id === id);
+    row.shippingDiscount = row.shippingOriginal;
+    row.shippingTotal = 0;
+    row.total -= row.shippingOriginal;
+    const view = await c.orders.get(id);
+    expect(view.shippingLines[0]).toMatchObject({ origin: 'CHECKOUT', amount: 500, paid: false });
+  });
+
   it('a legacy order reads its CHECKOUT line and LEGACY discount without writing', async () => {
     const c = setupCommerce();
     const id = await createOrder(c);
