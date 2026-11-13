@@ -15,6 +15,7 @@ export const EMAIL_TEMPLATE_TYPES = [
   'REFUND_STARTED',
   'REFUND_COMPLETED',
   'INVOICE_AVAILABLE',
+  'CREDIT_NOTE_ISSUED',
   'STORE_CREDIT_ISSUED',
   'EMAIL_VERIFICATION',
 ] as const;
@@ -139,6 +140,11 @@ const SPECIFIC: Record<EmailTemplateType, VariableDef[]> = {
   REFUND_STARTED: REFUND,
   REFUND_COMPLETED: REFUND,
   INVOICE_AVAILABLE: [value('invoice.number', 'Invoice number')],
+  CREDIT_NOTE_ISSUED: [
+    value('creditNote.number', 'Credit note number'),
+    value('creditNote.amount', 'Amount credited'),
+    value('creditNote.invoiceNumber', 'Number of the invoice it corrects'),
+  ],
   STORE_CREDIT_ISSUED: [
     value('credit.amount', 'Credit amount'),
     value('credit.code', 'Credit code'),
@@ -229,6 +235,9 @@ const SAMPLE_VALUES: Record<string, unknown> = {
   'refund.isPartial': true,
   'refund.description': 'Refund for Linen Tote Bag',
   'invoice.number': 'FT 2026/123',
+  'creditNote.number': 'NC 2026/45',
+  'creditNote.amount': '9,90 €',
+  'creditNote.invoiceNumber': 'FT 2026/123',
   'credit.amount': '10,00 €',
   'credit.code': 'CREDIT-7Q2X',
   'credit.expiresAt': '11/11/2027',

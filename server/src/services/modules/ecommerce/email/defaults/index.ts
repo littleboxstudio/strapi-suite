@@ -10,6 +10,7 @@ import cancellation from './cancellation';
 import refundStarted from './refundStarted';
 import refundCompleted from './refundCompleted';
 import invoiceAvailable from './invoiceAvailable';
+import creditNoteIssued from './creditNoteIssued';
 import storeCreditIssued from './storeCreditIssued';
 import emailVerification from './emailVerification';
 
@@ -28,6 +29,7 @@ export const DEFAULT_TEMPLATES: Record<EmailTemplateType, DefaultTemplate> = {
   REFUND_STARTED: refundStarted,
   REFUND_COMPLETED: refundCompleted,
   INVOICE_AVAILABLE: invoiceAvailable,
+  CREDIT_NOTE_ISSUED: creditNoteIssued,
   STORE_CREDIT_ISSUED: storeCreditIssued,
   EMAIL_VERIFICATION: emailVerification,
 };
