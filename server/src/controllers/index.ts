@@ -11,6 +11,7 @@ import EcommerceProductController from './modules/ecommerce/products';
 import EcommerceSettingsController from './modules/ecommerce/settings';
 import EcommerceCustomerController from './modules/ecommerce/customers';
 import EcommerceOrderController from './modules/ecommerce/orders';
+import EcommerceOrderEditingController from './modules/ecommerce/orderEditing';
 import EcommerceRefundController from './modules/ecommerce/refunds';
 import EcommerceStoreCreditController from './modules/ecommerce/storeCredits';
 import EcommerceNotificationController from './modules/ecommerce/notifications';
@@ -35,6 +36,7 @@ export default {
   EcommerceSettingsController,
   EcommerceCustomerController,
   EcommerceOrderController,
+  EcommerceOrderEditingController,
   EcommerceRefundController,
   EcommerceStoreCreditController,
   EcommerceNotificationController,

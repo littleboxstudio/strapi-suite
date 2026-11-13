@@ -94,29 +94,10 @@ describe('EcommerceOrderController', () => {
     expect(ctx.status).toBe(201);
   });
 
-  it('applyModification splits operationId from the input', async () => {
-    const applyModification = vi.fn().mockResolvedValue({ order: {} });
-    const c = orders({ EcommerceOrderService: { applyModification } });
-    const ctx = mkCtx({
-      params: { id: '3' },
-      request: { body: { operationId: 'op-12345678', lines: [], shipping: { mode: 'KEEP' } } },
-    });
-    await c.applyModification(ctx);
-    expect(applyModification).toHaveBeenCalledWith(
-      3,
-      { lines: [], shipping: { mode: 'KEEP' } },
-      'user:7',
-      'op-12345678'
-    );
-  });
-
-  it('previewModification, shippingQuote and variantSearch delegate', async () => {
-    const previewModification = vi.fn().mockResolvedValue({ p: 1 });
+  it('shippingQuote and variantSearch delegate', async () => {
     const quoteForLines = vi.fn().mockResolvedValue({ options: [] });
     const searchVariants = vi.fn().mockResolvedValue([]);
-    const c = orders({ EcommerceOrderService: { previewModification, quoteForLines, searchVariants } });
-    await c.previewModification(mkCtx({ params: { id: '2' }, request: { body: { lines: [] } } }));
-    expect(previewModification).toHaveBeenCalledWith(2, { lines: [] });
+    const c = orders({ EcommerceOrderService: { quoteForLines, searchVariants } });
     await c.shippingQuote(
       mkCtx({ request: { body: { country: 'PT', postalCode: '1000', lines: [], locale: 'en', junk: 1 } } })
     );
