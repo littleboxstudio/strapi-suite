@@ -307,9 +307,25 @@ const EcommerceStripePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
     });
   };
 
+  /**
+   * Stripe does not know the session with the current keys (404): it belongs to another account,
+   * e.g. after the Stripe keys were changed in the settings. It can never be paid through this
+   * account, so it is closed locally only.
+   */
+  const unknownToAccount = (err: unknown): boolean =>
+    err instanceof EcommercePaymentError &&
+    err.code === 'STRIPE_REQUEST_FAILED' &&
+    err.httpStatus === 404;
+
   /** Expires a stale OPEN session at Stripe, or settles it if it was actually paid. */
   const retire = async (client: StripeClient, orderId: number, row: any): Promise<void> => {
-    const status = await client.expireCheckoutSession(row.sessionId);
+    let status: 'expired' | 'complete';
+    try {
+      status = await client.expireCheckoutSession(row.sessionId);
+    } catch (err) {
+      if (unknownToAccount(err)) return markExpired(orderId, row);
+      throw err;
+    }
     if (status === 'expired') return markExpired(orderId, row);
     // `complete`: paid before the webhook arrived (or awaiting an asynchronous method).
     const retrieved = await client.retrieveCheckoutSession(row.sessionId);
@@ -377,7 +393,20 @@ const EcommerceStripePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
       );
       // Retire every OPEN session except the reusable one: one live link per order.
       const stale = open.filter((s) => s !== reusable);
-      if (reusable && !stale.length) return toLink(reusable, true);
+      if (reusable && !stale.length) {
+        // Confirm it with the current keys before handing it out again: after a change of Stripe
+        // account the stored link points to the old account.
+        let current: RetrievedCheckoutSession | null = null;
+        try {
+          current = await client.retrieveCheckoutSession(reusable.sessionId);
+        } catch (err) {
+          if (!unknownToAccount(err)) throw err;
+        }
+        if (current?.status === 'open') return toLink(reusable, true);
+        if (current?.status === 'complete') await completeFromSession(reusable, current, 'system');
+        else await markExpired(orderId, reusable);
+        continue; // re-read: the due may have changed
+      }
       if (stale.length) {
         for (const row of stale) await retire(client, orderId, row);
         continue; // re-read: a paid session may have changed the due

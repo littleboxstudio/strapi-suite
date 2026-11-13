@@ -349,6 +349,14 @@ describe('getOrCreatePaymentLink', () => {
       purpose: 'CHECKOUT',
       actor,
     });
+    stripe.retrieveCheckoutSession.mockResolvedValueOnce({
+      id: first.sessionId,
+      status: 'open',
+      paymentStatus: 'unpaid',
+      paymentIntentId: null,
+      amountTotal: 4500,
+      metadata: {},
+    });
     const second = await stripePayments.getOrCreatePaymentLink(order.id, {
       purpose: 'CHECKOUT',
       actor,
@@ -386,6 +394,71 @@ describe('getOrCreatePaymentLink', () => {
       ['cs_1', 'CANCELLED', 4500],
       ['cs_2', 'PENDING', 3500],
     ]);
+  });
+
+  it('a session of another Stripe account (keys changed) is retired locally and replaced', async () => {
+    const { orders, stripePayments, tables } = setup();
+    const order = await createOrder(orders);
+    await stripePayments.getOrCreatePaymentLink(order.id, { purpose: 'CHECKOUT', actor });
+    // The new account does not know the old session: Stripe answers 404.
+    stripe.retrieveCheckoutSession.mockRejectedValueOnce(
+      new EcommercePaymentError('STRIPE_REQUEST_FAILED', 'x', 'invalid_request_error', 404)
+    );
+
+    const next = await stripePayments.getOrCreatePaymentLink(order.id, {
+      purpose: 'CHECKOUT',
+      actor,
+    });
+
+    expect(next).toMatchObject({ sessionId: 'cs_2', reused: false, amount: 4500 });
+    expect(stripe.expireCheckoutSession).not.toHaveBeenCalled();
+    const sessions = tables[UIDS.stripeSession];
+    expect(sessions.find((s) => s.sessionId === 'cs_1').status).toBe('EXPIRED');
+    const rows = tables[UIDS.payment].filter((p) => p.method === 'STRIPE');
+    expect(rows.map((p) => [p.externalId, p.status])).toEqual([
+      ['cs_1', 'CANCELLED'],
+      ['cs_2', 'PENDING'],
+    ]);
+  });
+
+  it('a stale session unknown to the current account is retired locally when the due changes', async () => {
+    const { orders, payments, stripePayments, tables } = setup();
+    const order = await createOrder(orders);
+    await stripePayments.getOrCreatePaymentLink(order.id, { purpose: 'CHECKOUT', actor });
+    await payments.addManualPayment(order.id, { amount: 1000, idempotencyKey: 'm-x' }, actor);
+    stripe.expireCheckoutSession.mockRejectedValueOnce(
+      new EcommercePaymentError('STRIPE_REQUEST_FAILED', 'x', 'invalid_request_error', 404)
+    );
+
+    const next = await stripePayments.getOrCreatePaymentLink(order.id, {
+      purpose: 'SUPPLEMENTARY',
+      actor,
+    });
+
+    expect(next).toMatchObject({ sessionId: 'cs_2', reused: false, amount: 3500 });
+    expect(tables[UIDS.stripeSession].find((s) => s.sessionId === 'cs_1').status).toBe('EXPIRED');
+  });
+
+  it('a reusable session already expired at Stripe is replaced', async () => {
+    const { orders, stripePayments, tables } = setup();
+    const order = await createOrder(orders);
+    await stripePayments.getOrCreatePaymentLink(order.id, { purpose: 'CHECKOUT', actor });
+    stripe.retrieveCheckoutSession.mockResolvedValueOnce({
+      id: 'cs_1',
+      status: 'expired',
+      paymentStatus: 'unpaid',
+      paymentIntentId: null,
+      amountTotal: 4500,
+      metadata: {},
+    });
+
+    const next = await stripePayments.getOrCreatePaymentLink(order.id, {
+      purpose: 'CHECKOUT',
+      actor,
+    });
+
+    expect(next).toMatchObject({ sessionId: 'cs_2', reused: false });
+    expect(tables[UIDS.stripeSession].find((s) => s.sessionId === 'cs_1').status).toBe('EXPIRED');
   });
 
   it('replaces a session that expires within the hour', async () => {
@@ -832,6 +905,14 @@ describe('fix round 1', () => {
       status: 'OPEN',
       expiresAt: new Date(Date.now() + 20 * 3600 * 1000).toISOString(),
       purpose: 'CHECKOUT',
+    });
+    stripe.retrieveCheckoutSession.mockResolvedValueOnce({
+      id: 'cs_1',
+      status: 'open',
+      paymentStatus: 'unpaid',
+      paymentIntentId: null,
+      amountTotal: 4500,
+      metadata: {},
     });
 
     const link = await stripePayments.getOrCreatePaymentLink(order.id, {
