@@ -39,7 +39,8 @@ import {
   shipmentActions,
   type ShipmentAction,
 } from '../../utils/shipmentForm';
-import type { OrderDeliveryStatus, OrderStatus, ShipmentView } from '../../orderTypes';
+import type { Address, OrderDeliveryStatus, OrderStatus, ShipmentView } from '../../orderTypes';
+import AddressCard from './AddressCard';
 import DeliveryModal from './DeliveryModal';
 import TrackingModal from './TrackingModal';
 import OrderSection from './OrderSection';
@@ -49,6 +50,8 @@ type Props = {
   orderStatus: OrderStatus;
   deliveryStatus: OrderDeliveryStatus;
   shipments: ShipmentView[];
+  /** Where the order ships to, shown at the top of the section. */
+  shippingAddress: Address | null;
   /** `orders.manage`: deliver, tracking, refresh, retry, cancel. */
   canManage: boolean;
   /** After any change: the order is fetched again. */
@@ -79,7 +82,15 @@ const ORDER_DELIVERY_VARIANT: Record<OrderDeliveryStatus, Variant> = {
 const COLUMNS = ['date', 'carrier', 'items', 'tracking', 'status', 'delivery', 'actions'] as const;
 
 /** Shipments and deliveries of the order (requirement 9.5). */
-const ShipmentsSection = ({ title, orderStatus, deliveryStatus, shipments, canManage, onChanged }: Props) => {
+const ShipmentsSection = ({
+  title,
+  orderStatus,
+  deliveryStatus,
+  shipments,
+  shippingAddress,
+  canManage,
+  onChanged,
+}: Props) => {
   const { formatMessage, formatDate, locale: uiLocale } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>, defaultMessage?: string) =>
@@ -221,6 +232,7 @@ const ShipmentsSection = ({ title, orderStatus, deliveryStatus, shipments, canMa
 
   return (
     <OrderSection title={title} actions={header}>
+      <AddressCard title={t('ecommerce.orders.detail.address.shipping')} address={shippingAddress} />
       {shipments.length === 0 ? (
         <EmptyNote>{t('ecommerce.orders.shipments.empty')}</EmptyNote>
       ) : (
