@@ -771,6 +771,15 @@ describe('EcommerceStorefrontCheckoutService', () => {
       const { s } = await t.open();
       const r = await t.checkout.placeOrder(s, t.orderInput(), 'key-0000020');
       const first = await t.checkout.paymentLink(s, r.publicId);
+      // The reused session is confirmed with the current Stripe keys.
+      stripe.retrieveCheckoutSession.mockResolvedValueOnce({
+        id: 'cs_1',
+        status: 'open',
+        paymentStatus: 'unpaid',
+        paymentIntentId: null,
+        amountTotal: 4500,
+        metadata: {},
+      });
       const second = await t.checkout.paymentLink(s, r.publicId);
       expect(first).toEqual({
         url: 'https://checkout.stripe.com/c/pay/cs_1',
