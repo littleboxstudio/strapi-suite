@@ -264,27 +264,33 @@ export type OrderState = {
 /** What the shipping line views need from the order: covered shipping, invoices, shipments. */
 /**
  * The context of the shipping line views. Coverage holds shipping net of the shipping discount,
- * while lines carry gross amounts: the discount is added back before lines consume it.
+ * while lines carry gross amounts: the discount is added back before lines consume it, but only
+ * once the order received payment (covered shipping, or else any completed payment; a fully
+ * discounted shipping is never covered), so an unpaid order never shows a line as PAID.
  */
 export const shippingLineContext = (
   invoicing: Pick<OrderInvoicing, 'completedPayments' | 'reconciled' | 'invoices'>,
   hasActiveShipment: boolean,
   shippingDiscount: unknown
-): Parameters<typeof shippingLineViews>[1] => ({
-  coveredShipping:
-    invoicing.completedPayments.reduce(
-      (sum, p) => sum + (invoicing.reconciled.get(p.id)?.shipping ?? 0),
-      0
-    ) + Math.max(0, Number(shippingDiscount) || 0),
-  invoices: invoicing.invoices.map((i) => ({
-    kind: i.kind,
-    status: i.status,
-    createdAt: i.createdAt,
-    hasShipping:
-      Array.isArray(i.lines?.lines) && i.lines.lines.some((l: any) => l?.kind === 'SHIPPING'),
-  })),
-  hasActiveShipment,
-});
+): Parameters<typeof shippingLineViews>[1] => {
+  const covered = invoicing.completedPayments.reduce(
+    (sum, p) => sum + (invoicing.reconciled.get(p.id)?.shipping ?? 0),
+    0
+  );
+  const paid =
+    covered > 0 || invoicing.completedPayments.some((p) => (Number(p?.amount) || 0) > 0);
+  return {
+    coveredShipping: covered + (paid ? Math.max(0, Number(shippingDiscount) || 0) : 0),
+    invoices: invoicing.invoices.map((i) => ({
+      kind: i.kind,
+      status: i.status,
+      createdAt: i.createdAt,
+      hasShipping:
+        Array.isArray(i.lines?.lines) && i.lines.lines.some((l: any) => l?.kind === 'SHIPPING'),
+    })),
+    hasActiveShipment,
+  };
+};
 
 export type OrderInvoicing = {
   /** The current lines as invoice reconciliation reads them. */
