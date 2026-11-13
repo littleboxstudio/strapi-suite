@@ -2,6 +2,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useNotification } from '@strapi/strapi/admin';
+import styled from 'styled-components';
 import { Box, Flex, Grid, IconButton, Loader, Typography } from '@strapi/design-system';
 import { ArrowLeft } from '@strapi/icons';
 import config from '../../../core/config';
@@ -43,6 +44,17 @@ import InvoicesSection from '../../components/orders/InvoicesSection';
 import IssueInvoiceModal from '../../components/orders/IssueInvoiceModal';
 
 /** Order management screen (requirements 3–8). The fetched order is the single source of truth. */
+/** The summary, customer and address cards of a row share its height. */
+const FillCell = styled.div`
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+
+  & > * {
+    flex: 1;
+  }
+`;
+
 const OrderDetailPage = () => {
   const { formatMessage } = useIntl();
   const navigate = useNavigate();
@@ -235,60 +247,69 @@ const OrderDetailPage = () => {
       </OrderSection>
 
       <Grid.Root gap={6}>
-        <Grid.Item col={8} s={12} direction="column" alignItems="stretch">
-          <Flex direction="column" alignItems="stretch" gap={6}>
-            <OrderSection title={t('ecommerce.orders.detail.payments.title')}>
-              <PaymentsTable
-                payments={order.payments}
-                canInvoice={canInvoice}
-                billingActive={order.billing.active}
-                onInvoice={(paymentId) => setInvoiceScope({ scope: 'PAYMENT', paymentId })}
-              />
-            </OrderSection>
-            <InvoicesSection
-              title={t('ecommerce.orders.detail.sections.invoices')}
-              order={order}
-              canInvoice={canInvoice}
-              onIssue={setInvoiceScope}
-              onChanged={load}
-            />
-            <ShipmentsSection
-              title={t('ecommerce.orders.detail.sections.shipments')}
-              orderStatus={order.orderStatus}
-              deliveryStatus={order.shipping.deliveryStatus}
-              shipments={order.shipments}
-              canManage={canManage}
-              onChanged={load}
-            />
-            <ReturnsSection title={t('ecommerce.orders.detail.sections.returns')} returns={order.returns} />
-            <OrderSection title={t('ecommerce.orders.detail.sections.refunds')}>
-              <RefundsTable
-                orderId={order.id}
-                summaries={order.refunds}
-                refreshKey={version}
-                canRefund={canRefund}
-                onChanged={load}
-              />
-            </OrderSection>
-            <PromotionsSection
-              title={t('ecommerce.orders.detail.sections.promotions')}
-              promotions={order.promotions ?? []}
-              promotionCodes={order.promotionCodes}
-              locales={{ locale: order.locale, defaultLocale }}
-            />
-          </Flex>
-        </Grid.Item>
-        <Grid.Item col={4} s={12} direction="column" alignItems="stretch">
-          <Flex direction="column" alignItems="stretch" gap={6}>
+        <Grid.Item col={3} m={6} s={12} direction="column" alignItems="stretch">
+          <FillCell>
             <OrderSection title={t('ecommerce.orders.detail.summary.title')}>
               <FinancialSummary totals={order.totals} summary={order.summary} />
             </OrderSection>
+          </FillCell>
+        </Grid.Item>
+        <Grid.Item col={3} m={6} s={12} direction="column" alignItems="stretch">
+          <FillCell>
             <CustomerCard customer={order.customer} />
+          </FillCell>
+        </Grid.Item>
+        <Grid.Item col={3} m={6} s={12} direction="column" alignItems="stretch">
+          <FillCell>
             <AddressCard title={t('ecommerce.orders.detail.address.shipping')} address={order.shippingAddress} />
+          </FillCell>
+        </Grid.Item>
+        <Grid.Item col={3} m={6} s={12} direction="column" alignItems="stretch">
+          <FillCell>
             <AddressCard title={t('ecommerce.orders.detail.address.billing')} address={order.billingAddress} />
-          </Flex>
+          </FillCell>
         </Grid.Item>
       </Grid.Root>
+
+      <OrderSection title={t('ecommerce.orders.detail.payments.title')}>
+        <PaymentsTable
+          payments={order.payments}
+          canInvoice={canInvoice}
+          billingActive={order.billing.active}
+          onInvoice={(paymentId) => setInvoiceScope({ scope: 'PAYMENT', paymentId })}
+        />
+      </OrderSection>
+      <InvoicesSection
+        title={t('ecommerce.orders.detail.sections.invoices')}
+        order={order}
+        canInvoice={canInvoice}
+        onIssue={setInvoiceScope}
+        onChanged={load}
+      />
+      <ShipmentsSection
+        title={t('ecommerce.orders.detail.sections.shipments')}
+        orderStatus={order.orderStatus}
+        deliveryStatus={order.shipping.deliveryStatus}
+        shipments={order.shipments}
+        canManage={canManage}
+        onChanged={load}
+      />
+      <ReturnsSection title={t('ecommerce.orders.detail.sections.returns')} returns={order.returns} />
+      <OrderSection title={t('ecommerce.orders.detail.sections.refunds')}>
+        <RefundsTable
+          orderId={order.id}
+          summaries={order.refunds}
+          refreshKey={version}
+          canRefund={canRefund}
+          onChanged={load}
+        />
+      </OrderSection>
+      <PromotionsSection
+        title={t('ecommerce.orders.detail.sections.promotions')}
+        promotions={order.promotions ?? []}
+        promotionCodes={order.promotionCodes}
+        locales={{ locale: order.locale, defaultLocale }}
+      />
 
       <NotificationsSection orderId={order.id} refreshKey={version} canResend={canManage} />
 

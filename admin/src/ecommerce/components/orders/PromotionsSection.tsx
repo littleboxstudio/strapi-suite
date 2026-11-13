@@ -1,7 +1,7 @@
 import { useIntl } from 'react-intl';
 import { Badge, Flex, Table, Tbody, Td, Th, Thead, Tr, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
-import EmptySection from '../../illustrations/EmptySection';
+import EmptyNote from './EmptyNote';
 import { formatCents } from '../../utils/money';
 import {
   codeStatusBadgeVariant,
@@ -61,12 +61,7 @@ const PromotionsSection = ({ title, promotions, promotionCodes, locales }: Props
   return (
     <OrderSection title={title}>
       {rows.length === 0 && !enteredCodes ? (
-        <Flex direction="column" alignItems="center" gap={2} paddingTop={2} paddingBottom={2}>
-          <EmptySection />
-          <Typography variant="pi" textColor="neutral600">
-            {t('ecommerce.orders.promotions.empty')}
-          </Typography>
-        </Flex>
+        <EmptyNote>{t('ecommerce.orders.promotions.empty')}</EmptyNote>
       ) : (
         <Flex direction="column" alignItems="stretch" gap={4}>
           {rows.length > 0 && (
