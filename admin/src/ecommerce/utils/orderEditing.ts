@@ -325,3 +325,15 @@ export function discountsSaveErrorId(err: unknown): string {
     ? 'ecommerce.orders.discounts.errors.PROMOTION_UNAVAILABLE'
     : apiErrorMessageId(err, 'ecommerce.orders.discounts.saveError');
 }
+
+/** Most digits a quantity field takes (up to 9999 units per line). */
+export const QUANTITY_MAX_DIGITS = 4;
+
+/**
+ * The quantity typed in a line's text field: digits only, at most {@link QUANTITY_MAX_DIGITS};
+ * nothing typed is 0, which the form reports as an invalid quantity.
+ */
+export function quantityFromInput(raw: string): number {
+  const digits = raw.replace(/\D/g, '').slice(0, QUANTITY_MAX_DIGITS);
+  return digits ? Number(digits) : 0;
+}

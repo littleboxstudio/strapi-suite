@@ -694,3 +694,17 @@ describe('discountsSaveErrorId', () => {
     expect(discountsSaveErrorId(new Error('network'))).toBe('ecommerce.orders.discounts.saveError');
   });
 });
+
+describe('quantityFromInput', () => {
+  it('keeps only digits; empty is 0 (shown as a validation error)', async () => {
+    const { quantityFromInput } = await import('../../../admin/src/ecommerce/utils/orderEditing');
+    expect(quantityFromInput('3')).toBe(3);
+    expect(quantityFromInput(' 12 ')).toBe(12);
+    expect(quantityFromInput('1a2')).toBe(12);
+    expect(quantityFromInput('-4')).toBe(4);
+    expect(quantityFromInput('2.5')).toBe(25);
+    expect(quantityFromInput('')).toBe(0);
+    expect(quantityFromInput('abc')).toBe(0);
+    expect(quantityFromInput('99999999')).toBe(9999);
+  });
+});

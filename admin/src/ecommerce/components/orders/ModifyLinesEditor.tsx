@@ -6,7 +6,6 @@ import {
   Field,
   Flex,
   IconButton,
-  NumberInput,
   Table,
   Tbody,
   Td,
@@ -17,6 +16,8 @@ import {
   VisuallyHidden,
 } from '@strapi/design-system';
 import { Trash } from '@strapi/icons';
+import QuantityInput from './QuantityInput';
+import { FIT_CELL, PRODUCT_CELL } from './lineCells';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { formatCents } from '../../utils/money';
 import type { ModifyLineDraft } from '../../utils/modification';
@@ -69,12 +70,11 @@ const ModifyLinesEditor = ({ lines, onQuantityChange, onRemove, onRestore, error
           const editable = !line.isGift && !line.removed;
           return (
             <Tr key={line.key}>
-              <Td style={{ maxWidth: 320 }}>
+              <Td style={PRODUCT_CELL}>
                 <Flex direction="column" alignItems="flex-start" gap={1}>
                   <Typography
                     textColor={line.removed ? 'neutral500' : 'neutral800'}
                     fontWeight="semiBold"
-                    ellipsis
                     style={line.removed ? { textDecoration: 'line-through' } : undefined}
                   >
                     {label}
@@ -104,23 +104,20 @@ const ModifyLinesEditor = ({ lines, onQuantityChange, onRemove, onRestore, error
                   )}
                 </Flex>
               </Td>
-              <Td>
+              <Td style={FIT_CELL}>
                 <Typography textColor="neutral800">{formatCents(line.unitPrice, uiLocale)}</Typography>
               </Td>
-              <Td>
+              <Td style={FIT_CELL}>
                 {editable ? (
                   <Box style={{ width: 120 }}>
                     <Field.Root name={`lines.${line.key}.quantity`} error={error}>
                       <VisuallyHidden>
                         <Field.Label>{t('ecommerce.orders.lines.quantity')}</Field.Label>
                       </VisuallyHidden>
-                      <NumberInput
-                        size="S"
+                      <QuantityInput
                         value={line.quantity}
-                        minimum={Math.max(1, line.shipped)}
-                        step={1}
                         disabled={disabled}
-                        onValueChange={(value: number | undefined) => onQuantityChange(line.key, value ?? 0)}
+                        onChange={(quantity) => onQuantityChange(line.key, quantity)}
                       />
                       <Field.Error />
                     </Field.Root>
@@ -131,12 +128,12 @@ const ModifyLinesEditor = ({ lines, onQuantityChange, onRemove, onRestore, error
                   </Typography>
                 )}
               </Td>
-              <Td>
+              <Td style={FIT_CELL}>
                 <Typography textColor={line.removed ? 'neutral500' : 'neutral800'}>
                   {formatCents(line.removed || !validQuantity ? 0 : line.unitPrice * line.quantity, uiLocale)}
                 </Typography>
               </Td>
-              <Td>
+              <Td style={FIT_CELL}>
                 <Flex justifyContent="flex-end">
                   {line.removed && (
                     <Button size="S" variant="tertiary" disabled={disabled} onClick={() => onRestore(line.key)}>

@@ -4,7 +4,6 @@ import {
   Field,
   Flex,
   IconButton,
-  NumberInput,
   Table,
   Tbody,
   Td,
@@ -15,6 +14,8 @@ import {
   VisuallyHidden,
 } from '@strapi/design-system';
 import { Trash } from '@strapi/icons';
+import QuantityInput from './QuantityInput';
+import { FIT_CELL, PRODUCT_CELL } from './lineCells';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { formatCents } from '../../utils/money';
 import { lineSubtotal, type OrderLineDraft } from '../../utils/orderForm';
@@ -62,9 +63,9 @@ const OrderLinesEditor = ({ lines, onQuantityChange, onRemove, errorFor, disable
           const error = errorFor(index);
           return (
             <Tr key={line.variantId}>
-              <Td style={{ maxWidth: 320 }}>
+              <Td style={PRODUCT_CELL}>
                 <Flex direction="column" alignItems="flex-start">
-                  <Typography textColor="neutral800" fontWeight="semiBold" ellipsis>
+                  <Typography textColor="neutral800" fontWeight="semiBold">
                     {line.option ? `${line.name} — ${line.option}` : line.name}
                   </Typography>
                   <Typography variant="pi" textColor="neutral600">
@@ -72,35 +73,30 @@ const OrderLinesEditor = ({ lines, onQuantityChange, onRemove, errorFor, disable
                   </Typography>
                 </Flex>
               </Td>
-              <Td>
+              <Td style={FIT_CELL}>
                 <Typography textColor="neutral800">{formatCents(line.unitPrice, uiLocale)}</Typography>
               </Td>
-              <Td>
+              <Td style={FIT_CELL}>
                 <Box style={{ width: 120 }}>
                   <Field.Root name={`lines.${index}.quantity`} error={error}>
                     <VisuallyHidden>
                       <Field.Label>{t('ecommerce.orders.lines.quantity')}</Field.Label>
                     </VisuallyHidden>
-                    <NumberInput
-                      size="S"
-                      value={line.quantity}
-                      minimum={1}
-                      step={1}
-                      disabled={disabled}
-                      onValueChange={(value: number | undefined) =>
-                        onQuantityChange(index, value ?? 0)
-                      }
-                    />
+                    <QuantityInput
+                        value={line.quantity}
+                        disabled={disabled}
+                        onChange={(quantity) => onQuantityChange(index, quantity)}
+                      />
                     <Field.Error />
                   </Field.Root>
                 </Box>
               </Td>
-              <Td>
+              <Td style={FIT_CELL}>
                 <Typography textColor="neutral800">
                   {formatCents(lineSubtotal(line), uiLocale)}
                 </Typography>
               </Td>
-              <Td>
+              <Td style={FIT_CELL}>
                 <Box style={{ textAlign: 'right' }}>
                   <IconButton
                     label={t('ecommerce.orders.lines.remove')}
