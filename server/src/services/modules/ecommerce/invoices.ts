@@ -26,6 +26,7 @@ import {
   type InvoiceDraft,
   type IssuedDocument,
 } from './providers/billing';
+import { readShippingLines, shippingTaxRates } from './domain/shippingLines';
 import type { ProviderRuntime } from './providers/registry';
 import type { OrderHistoryEntry } from './orderHistory';
 import type { OrderState } from './orders';
@@ -396,11 +397,12 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     }
     const coverages = payments.map((p) => invoicing.reconciled.get(p.id) as ReconciledCoverage);
     const order = state.order;
-    const method = (order.shippingMethod ?? {}) as Record<string, unknown>;
     const lines = buildInvoiceLines(coverages, invoicing.coverageOrder, {
-      name: clean(method.name) || 'Shipping',
       reference: 'SHIPPING',
-      tax: num(order.shippingTax),
+      rates: shippingTaxRates(readShippingLines(order)).map((r) => ({
+        ...r,
+        name: clean(r.name) || 'Shipping',
+      })),
     });
     return {
       payments,

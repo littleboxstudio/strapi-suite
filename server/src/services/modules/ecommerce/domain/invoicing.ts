@@ -247,7 +247,7 @@ export const invoiceableByPayment = (
 export const buildInvoiceLines = (
   coverages: ReconciledCoverage[],
   order: InvoiceOrderState,
-  shipping: { name: string; reference: string; tax: number }
+  shipping: { reference: string; rates: { tax: number; weight: number; name: string }[] }
 ): InvoiceLine[] => {
   const { lineDue, shippingDue } = coverageDues(order);
   const byLine = new Map<number, number>();
@@ -285,15 +285,25 @@ export const buildInvoiceLines = (
     });
   });
   if (shippingValue > 0) {
-    out.push({
-      orderLineId: null,
-      kind: 'SHIPPING',
-      sku: shipping.reference,
-      name: shipping.name,
-      quantity: 1,
-      total: shippingValue,
-      tax: shipping.tax,
-      partial: shippingValue !== shippingDue,
+    const { rates } = shipping;
+    const weights = rates.map((r) => r.weight);
+    const split =
+      rates.length && weights.some((w) => w > 0)
+        ? allocateProportionally(shippingValue, weights)
+        : [shippingValue];
+    split.forEach((total, i) => {
+      if (total <= 0) return;
+      const rate = rates[i];
+      out.push({
+        orderLineId: null,
+        kind: 'SHIPPING',
+        sku: shipping.reference,
+        name: rate?.name ?? 'Shipping',
+        quantity: 1,
+        total,
+        tax: rate?.tax ?? 0,
+        partial: shippingValue !== shippingDue,
+      });
     });
   }
   return out;
