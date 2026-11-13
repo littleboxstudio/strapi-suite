@@ -216,7 +216,8 @@ const PaymentInstructionsModal = ({
           <TextInput value={url} readOnly onFocus={(e: any) => e.target.select()} />
         </Field.Root>
       </Box>
-      <Button variant="secondary" onClick={() => copy(url)}>
+      {/* L = the TextInput's height (4rem), so the button lines up with the field. */}
+      <Button size="L" variant="secondary" onClick={() => copy(url)}>
         {t('ecommerce.orders.instructions.copy')}
       </Button>
     </Flex>
