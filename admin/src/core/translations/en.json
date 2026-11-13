@@ -1480,6 +1480,7 @@
   "littlebox-strapi-suite.ecommerce.orders.invoices.issue.previewError": "The invoice preview could not be loaded.",
   "littlebox-strapi-suite.ecommerce.orders.invoices.issue.uncertain": "The billing provider did not answer, so it is not known whether the invoice was issued. The payment stays reserved for this invoice: use \"Reconcile\" in the invoices list to look it up at the provider by its reference. Do not issue it again by hand.",
   "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.title": "Credit note for {number}",
+  "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.errorTitle": "Credit note not issued",
   "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.total": "Credit note total",
   "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.reason": "Reason",
   "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.reasonHint": "{count} / {max} characters",

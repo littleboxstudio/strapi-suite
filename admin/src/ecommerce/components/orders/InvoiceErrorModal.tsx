@@ -9,11 +9,19 @@ type Props = {
   detail: string | null;
   /** The server refused it, so nothing was issued (otherwise the outcome is not known). */
   refused: boolean;
+  /** Translation id of the title (an invoice by default). */
+  titleId?: string;
   onClose: () => void;
 };
 
 /** Shown in place of the issue modal when an attempt fails: what happened and what to do. */
-const InvoiceErrorModal = ({ message, detail, refused, onClose }: Props) => {
+const InvoiceErrorModal = ({
+  message,
+  detail,
+  refused,
+  titleId = 'ecommerce.orders.invoices.issue.errorTitle',
+  onClose,
+}: Props) => {
   const { formatMessage } = useIntl();
   const t = (id: string) => formatMessage({ id: getTranslation(id) });
 
@@ -21,7 +29,7 @@ const InvoiceErrorModal = ({ message, detail, refused, onClose }: Props) => {
     <Modal.Root open onOpenChange={(next: boolean) => !next && onClose()}>
       <Modal.Content>
         <Modal.Header>
-          <Modal.Title>{t('ecommerce.orders.invoices.issue.errorTitle')}</Modal.Title>
+          <Modal.Title>{t(titleId)}</Modal.Title>
         </Modal.Header>
         <Modal.Body>
           <Flex direction="column" alignItems="stretch" gap={3}>
