@@ -23,7 +23,8 @@ import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchCreditNotePreview from '../../usecases/orders/fetchCreditNotePreview';
 import IssueCreditNote from '../../usecases/orders/issueCreditNote';
 import { formatCents } from '../../utils/money';
-import { apiErrorMessageId, shouldRenewIdempotencyKey } from '../../utils/orderDetail';
+import { apiErrorDetail, apiErrorMessageId, shouldRenewIdempotencyKey } from '../../utils/orderDetail';
+import InvoiceErrorModal from './InvoiceErrorModal';
 import { extractFieldErrors } from '../../utils/productForm';
 import { mintUuid } from '../../utils/variantDraft';
 import {
@@ -73,6 +74,10 @@ const CreditNoteModal = ({ invoice, onClose, onIssued }: Props) => {
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [uncertain, setUncertain] = useState(false);
+  /** The billing provider refused it (or the request failed): shown in the error modal. */
+  const [failure, setFailure] = useState<{ message: string; detail: string | null; refused: boolean } | null>(
+    null
+  );
 
   useEffect(() => {
     let alive = true;
@@ -139,9 +144,12 @@ const CreditNoteModal = ({ invoice, onClose, onIssued }: Props) => {
     try {
       const note = await new IssueCreditNote().execute(invoice.id, input);
       if (isFailedReplay(note)) {
-        setIdempotencyKey(mintUuid());
         const id = note.error ? invoiceFailureMessageId(note.error) : null;
-        setFormError(t(id ?? 'ecommerce.orders.invoices.creditNote.error'));
+        setFailure({
+          message: t(id ?? 'ecommerce.orders.invoices.creditNote.error'),
+          detail: note.errorDetail,
+          refused: true,
+        });
         return;
       }
       if (isUncertainResult(note)) {
@@ -164,7 +172,17 @@ const CreditNoteModal = ({ invoice, onClose, onIssued }: Props) => {
       // Only a 4xx allows a new key: on a 5xx or without an answer a retry must replay this
       // request (nothing else stops a second credit note).
       if (shouldRenewIdempotencyKey(err)) setIdempotencyKey(mintUuid());
-      showServerErrors(err, input.lines);
+      if (extractFieldErrors(err)?.length) {
+        // The form's own problems stay here, to be fixed and sent again.
+        showServerErrors(err, input.lines);
+      } else {
+        // Anything else (the provider refused it, or no answer) is shown in the error modal.
+        setFailure({
+          message: t(apiErrorMessageId(err, 'ecommerce.orders.invoices.creditNote.error')),
+          detail: apiErrorDetail(err),
+          refused: shouldRenewIdempotencyKey(err),
+        });
+      }
     } finally {
       setSaving(false);
     }
@@ -172,9 +190,20 @@ const CreditNoteModal = ({ invoice, onClose, onIssued }: Props) => {
 
   const close = () => {
     if (saving) return;
-    if (uncertain) onIssued();
+    // After an attempt the order is fetched again.
+    if (uncertain || failure) onIssued();
     else onClose();
   };
+
+  if (failure) {
+    return (
+      <InvoiceErrorModal
+        {...failure}
+        titleId="ecommerce.orders.invoices.creditNote.errorTitle"
+        onClose={close}
+      />
+    );
+  }
 
   const fieldError = (key: string) => (errors[key] ? codeText(errors[key]) : undefined);
   const reasonLength = form?.reason.trim().length ?? 0;
