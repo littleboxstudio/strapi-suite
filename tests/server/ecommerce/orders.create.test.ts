@@ -256,6 +256,22 @@ describe('EcommerceOrderService.create', () => {
       promotions: { applied: [], codes: [], exhaustive: true },
     });
     expect(order.customer).toBe(1);
+    expect(order.shippingLines).toEqual({
+      lines: [
+        expect.objectContaining({
+          id: 1,
+          origin: 'CHECKOUT',
+          amount: 500,
+          tax: 23,
+          providerId: 'manual',
+          serviceId: '1',
+          name: 'Standard',
+          createdAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+        }),
+      ],
+    });
+    expect(order.manualDiscounts).toEqual({ items: [] });
+    expect(order.reviewFlags).toEqual({ flags: [] });
     expect(tables[UIDS.customer][0]).toMatchObject({ emailNormalized: 'ana@example.pt' });
 
     const lines = tables[UIDS.orderLine];

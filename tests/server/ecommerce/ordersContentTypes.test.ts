@@ -11,7 +11,7 @@ const names: Record<string, string[]> = {
     'customerSnapshot', 'shippingAddress', 'billingAddress', 'currency', 'itemsOriginal', 'productDiscount',
     'subtotal', 'orderDiscount', 'shippingOriginal', 'shippingDiscount', 'shippingTotal', 'total', 'shippingTax',
     'shippingMethod', 'promotions', 'source', 'notes', 'idempotencyKey', 'cancelledAt', 'archivedAt',
-    'lines', 'payments', 'history'],
+    'lines', 'payments', 'history', 'shippingLines', 'manualDiscounts', 'reviewFlags'],
   'order-line': ['order', 'variant', 'variantId', 'productId', 'sku', 'name', 'option', 'imageUrl', 'unitPrice',
     'unitDiscount', 'quantity', 'returnedQuantity', 'tax', 'isGift', 'promotionRefs', 'position'],
   payment: ['order', 'method', 'status', 'amount', 'currency', 'reference', 'externalId', 'idempotencyKey',
@@ -35,6 +35,13 @@ describe('ecommerce orders content-types', () => {
       for (const a of attrs) expect(schema.attributes[a]).toBeDefined();
     });
   }
+
+  it('order editing columns are json without defaults', () => {
+    const a = get('order').attributes;
+    for (const n of ['shippingLines', 'manualDiscounts', 'reviewFlags']) {
+      expect(a[n]).toEqual({ type: 'json' });
+    }
+  });
 
   it('customer', () => {
     const s = get('customer');

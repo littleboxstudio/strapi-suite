@@ -104,6 +104,15 @@
     "shippingMethod": {
       "type": "json"
     },
+    "shippingLines": {
+      "type": "json"
+    },
+    "manualDiscounts": {
+      "type": "json"
+    },
+    "reviewFlags": {
+      "type": "json"
+    },
     "promotions": {
       "type": "json",
       "default": []
