@@ -157,8 +157,13 @@ const VariantPicker = ({ locale, onAdd, disabled }: Props) => {
                   borderWidth: i > 0 ? '1px 0 0 0' : 0,
                 }}
               >
-                <Flex direction="column" alignItems="flex-start" style={{ minWidth: 0 }}>
-                  <Typography textColor="neutral800" fontWeight="semiBold" ellipsis>
+                <Flex direction="column" alignItems="flex-start" style={{ minWidth: 0, flex: 1 }}>
+                  {/* A long name wraps to further lines and the row grows with it. */}
+                  <Typography
+                    textColor="neutral800"
+                    fontWeight="semiBold"
+                    style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}
+                  >
                     {v.option ? `${v.name} — ${v.option}` : v.name}
                   </Typography>
                   <Typography variant="pi" textColor="neutral600">
