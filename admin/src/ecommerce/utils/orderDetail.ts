@@ -218,6 +218,60 @@ export function financialSummaryRows(totals: OrderTotals, summary: FinancialSumm
   return rows;
 }
 
+export type OverviewNoteKey =
+  | 'products'
+  | 'shipping'
+  | 'discounts'
+  | 'pendingPayments'
+  | 'refunded'
+  | 'paidInFull'
+  | 'excess'
+  | 'overRefunded';
+
+export type OverviewNote = { key: OverviewNoteKey; amount?: number; tone?: 'success' | 'danger' };
+
+export type OverviewTile = {
+  key: 'total' | 'paid' | 'net' | 'due';
+  amount: number;
+  /** The amount due: still owed, or settled. */
+  tone?: 'warning' | 'success';
+  notes: OverviewNote[];
+};
+
+/**
+ * The four figures at the top of the payments section, each with the small print behind it: the
+ * order total (products, shipping, discounts), paid (pending payments), net received (refunded)
+ * and the amount due (settled, eligible for refund, over-refunded). Zero extras are left out.
+ */
+export function paymentsOverview(totals: OrderTotals, summary: FinancialSummary): OverviewTile[] {
+  const discounts = totalDiscount(totals);
+  const totalNotes: OverviewNote[] = [
+    { key: 'products', amount: totals.itemsOriginal },
+    { key: 'shipping', amount: totals.shippingOriginal },
+  ];
+  if (discounts) totalNotes.push({ key: 'discounts', amount: -discounts });
+
+  const dueNotes: OverviewNote[] = [];
+  if (summary.excess) dueNotes.push({ key: 'excess', amount: summary.excess, tone: 'success' });
+  if (summary.overRefunded) dueNotes.push({ key: 'overRefunded', amount: summary.overRefunded, tone: 'danger' });
+  if (!summary.due && !dueNotes.length) dueNotes.push({ key: 'paidInFull', tone: 'success' });
+
+  return [
+    { key: 'total', amount: totals.total, notes: totalNotes },
+    {
+      key: 'paid',
+      amount: summary.paid,
+      notes: summary.pendingPayments ? [{ key: 'pendingPayments', amount: summary.pendingPayments }] : [],
+    },
+    {
+      key: 'net',
+      amount: summary.net,
+      notes: summary.refunded ? [{ key: 'refunded', amount: summary.refunded }] : [],
+    },
+    { key: 'due', amount: summary.due, tone: summary.due > 0 ? 'warning' : 'success', notes: dueNotes },
+  ];
+}
+
 // ---------------------------------------------------------------------------
 // Promotions recorded on the order (promotions requirements 3.2–3.8)
 // ---------------------------------------------------------------------------

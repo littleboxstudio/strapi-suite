@@ -22,7 +22,7 @@ import type { InvoiceScopeInput, ModificationApplied, Order } from '../../orderT
 import OrderHeader from '../../components/orders/OrderHeader';
 import OrderSection from '../../components/orders/OrderSection';
 import OrderLinesTable from '../../components/orders/OrderLinesTable';
-import FinancialSummary from '../../components/orders/FinancialSummary';
+import PaymentsOverview from '../../components/orders/PaymentsOverview';
 import CustomerCard from '../../components/orders/CustomerCard';
 import AddressCard from '../../components/orders/AddressCard';
 import PaymentsTable from '../../components/orders/PaymentsTable';
@@ -239,14 +239,7 @@ const OrderDetailPage = () => {
       />
 
       <Grid.Root gap={6}>
-        <Grid.Item col={3} m={6} s={12} direction="column" alignItems="stretch">
-          <FillCell>
-            <OrderSection title={t('ecommerce.orders.detail.summary.title')}>
-              <FinancialSummary totals={order.totals} summary={order.summary} />
-            </OrderSection>
-          </FillCell>
-        </Grid.Item>
-        <Grid.Item col={3} m={6} s={12} direction="column" alignItems="stretch">
+        <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
           <FillCell>
             <CustomerCard customer={order.customer} />
           </FillCell>
@@ -273,6 +266,7 @@ const OrderDetailPage = () => {
       </OrderSection>
 
       <OrderSection title={t('ecommerce.orders.detail.payments.title')}>
+        <PaymentsOverview totals={order.totals} summary={order.summary} />
         <PaymentsTable
           payments={order.payments}
           canInvoice={canInvoice}
