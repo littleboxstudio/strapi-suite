@@ -224,14 +224,6 @@ const OrderDetailPage = () => {
         onAction={(action) => dispatchModal({ type: 'OPEN', action })}
       />
 
-      <OrderSection title={t('ecommerce.orders.detail.lines.title')}>
-        <OrderLinesTable
-          lines={order.lines}
-          promotions={order.promotions}
-          locales={{ locale: order.locale, defaultLocale }}
-        />
-      </OrderSection>
-
       <OrderSection title={t('ecommerce.orders.detail.payments.title')}>
         <PaymentsOverview totals={order.totals} summary={order.summary} />
         <PaymentsTable
@@ -239,6 +231,14 @@ const OrderDetailPage = () => {
           canInvoice={canInvoice}
           billingActive={order.billing.active}
           onInvoice={(paymentId) => setInvoiceScope({ scope: 'PAYMENT', paymentId })}
+        />
+      </OrderSection>
+
+      <OrderSection title={t('ecommerce.orders.detail.lines.title')}>
+        <OrderLinesTable
+          lines={order.lines}
+          promotions={order.promotions}
+          locales={{ locale: order.locale, defaultLocale }}
         />
       </OrderSection>
       <InvoicesSection

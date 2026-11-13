@@ -16,7 +16,7 @@ const Tiles = styled.div`
   }
 `;
 
-/** One figure: label, the amount large, and its small print. The amount due carries a colour. */
+/** One figure: label, the amount large, and its small print. Paid carries a colour (owed or settled). */
 const Tile = styled.div<{ $tone?: OverviewTile['tone'] }>`
   display: flex;
   flex-direction: column;
@@ -34,7 +34,7 @@ const Tile = styled.div<{ $tone?: OverviewTile['tone'] }>`
   background: ${({ theme }) => theme.colors.neutral100};
 `;
 
-const NOTE_COLOR = { success: 'success600', danger: 'danger600' } as const;
+const NOTE_COLOR = { success: 'success600', warning: 'warning600', danger: 'danger600' } as const;
 
 /** The order's money at a glance, above the payments table (replaces the separate summary card). */
 const PaymentsOverview = ({ totals, summary }: { totals: OrderTotals; summary: FinancialSummary }) => {
@@ -52,7 +52,7 @@ const PaymentsOverview = ({ totals, summary }: { totals: OrderTotals; summary: F
           <Typography
             variant="beta"
             tag="p"
-            textColor={tile.tone === 'warning' ? 'warning600' : 'neutral800'}
+            textColor="neutral800"
             style={{ whiteSpace: 'nowrap' }}
           >
             {money(tile.amount)}
