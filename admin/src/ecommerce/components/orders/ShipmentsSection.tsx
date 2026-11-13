@@ -24,7 +24,7 @@ import {
 } from '@strapi/design-system';
 import { More } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
-import EmptyShipping from '../../illustrations/EmptyShipping';
+import EmptyNote from './EmptyNote';
 import CancelShipment from '../../usecases/orders/cancelShipment';
 import FetchShipmentLabel from '../../usecases/orders/fetchShipmentLabel';
 import RefreshShipmentTracking from '../../usecases/orders/refreshShipmentTracking';
@@ -222,12 +222,7 @@ const ShipmentsSection = ({ title, orderStatus, deliveryStatus, shipments, canMa
   return (
     <OrderSection title={title} actions={header}>
       {shipments.length === 0 ? (
-        <Flex direction="column" alignItems="center" gap={2} paddingTop={2} paddingBottom={2}>
-          <EmptyShipping size={96} />
-          <Typography variant="pi" textColor="neutral600">
-            {t('ecommerce.orders.shipments.empty')}
-          </Typography>
-        </Flex>
+        <EmptyNote>{t('ecommerce.orders.shipments.empty')}</EmptyNote>
       ) : (
         <Box style={{ overflowX: 'auto' }}>
           <Table colCount={COLUMNS.length} rowCount={shipments.length + 1}>

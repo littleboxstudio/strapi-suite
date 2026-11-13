@@ -1,7 +1,7 @@
 import { useIntl } from 'react-intl';
 import { Flex, Table, Tbody, Td, Th, Thead, Tr, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
-import EmptySection from '../../illustrations/EmptySection';
+import EmptyNote from './EmptyNote';
 import { formatCents } from '../../utils/money';
 import type { ReturnView } from '../../orderTypes';
 import OrderSection from './OrderSection';
@@ -17,12 +17,7 @@ const ReturnsSection = ({ title, returns }: { title: string; returns: ReturnView
   return (
     <OrderSection title={title}>
       {returns.length === 0 ? (
-        <Flex direction="column" alignItems="center" gap={2} paddingTop={2} paddingBottom={2}>
-          <EmptySection />
-          <Typography variant="pi" textColor="neutral600">
-            {t('ecommerce.orders.returns.list.empty')}
-          </Typography>
-        </Flex>
+        <EmptyNote>{t('ecommerce.orders.returns.list.empty')}</EmptyNote>
       ) : (
         <Table colCount={COLUMNS.length} rowCount={returns.length + 1}>
           <Thead>
