@@ -277,26 +277,16 @@ describe('historyEntryText', () => {
     ).toBeNull();
   });
 
-  it('has en + pt titles for every known history type', () => {
-    [
-      'ORDER_CREATED',
-      'ORDER_STATUS_CHANGED',
-      'PAYMENT_STATUS_CHANGED',
-      'FULFILLMENT_STATUS_CHANGED',
-      'LINE_ADDED',
-      'LINE_REMOVED',
-      'LINE_QUANTITY_CHANGED',
-      'ADDRESS_CHANGED',
-      'SHIPPING_CHANGED',
-      'ORDER_DISCOUNT_CHANGED',
-      'ORDER_MODIFIED',
-      'PAYMENT_CREATED',
-      'PAYMENT_COMPLETED',
-      'STOCK_MOVED',
-      'ORDER_CANCELLED',
-      'ORDER_ARCHIVED',
-      'RETURN_REGISTERED',
-    ].forEach((type) => {
+  it('has en + pt titles for every history type the server records', () => {
+    // Read from the server's OrderHistoryType union, so a new type cannot ship without a title.
+    const source: string = require('fs').readFileSync(
+      require('path').join(__dirname, '../../../server/src/services/modules/ecommerce/orderHistory.ts'),
+      'utf8'
+    );
+    const union = source.slice(source.indexOf('export type OrderHistoryType'));
+    const types = [...union.slice(0, union.indexOf(';')).matchAll(/'([A-Z_]+)'/g)].map((m) => m[1]);
+    expect(types).toContain('CREDIT_NOTE_ISSUED');
+    types.forEach((type) => {
       const key = `littlebox-strapi-suite.ecommerce.orders.history.type.${type}`;
       expect(en[key], key).toBeTruthy();
       expect(pt[key], key).toBeTruthy();
