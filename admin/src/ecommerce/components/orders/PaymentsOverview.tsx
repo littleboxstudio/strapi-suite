@@ -1,38 +1,10 @@
 import { useIntl } from 'react-intl';
-import styled from 'styled-components';
 import { Flex, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { formatCents } from '../../utils/money';
 import { paymentsOverview, type OverviewTile } from '../../utils/orderDetail';
 import type { FinancialSummary, OrderTotals } from '../../orderTypes';
-
-const Tiles = styled.div`
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-
-  @media (max-width: 1100px) {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-`;
-
-/** One figure: label, the amount large, and its small print. Paid carries a colour (owed or settled). */
-const Tile = styled.div<{ $tone?: OverviewTile['tone'] }>`
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 16px;
-  border: 1px solid ${({ theme }) => theme.colors.neutral200};
-  border-left: 4px solid
-    ${({ theme, $tone }) =>
-      $tone === 'warning'
-        ? theme.colors.warning500
-        : $tone === 'success'
-          ? theme.colors.success500
-          : theme.colors.neutral200};
-  border-radius: ${({ theme }) => theme.borderRadius};
-  background: ${({ theme }) => theme.colors.neutral100};
-`;
+import { Tile, Tiles } from './SummaryTiles';
 
 const NOTE_COLOR = { success: 'success600', warning: 'warning600', danger: 'danger600' } as const;
 

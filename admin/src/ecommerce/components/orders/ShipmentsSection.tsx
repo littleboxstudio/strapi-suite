@@ -441,10 +441,8 @@ const ShipmentsSection = ({
       {canManage && shippingModal?.kind === 'RECALCULATE' && (
         <RecalculateShippingModal
           order={order}
-          permissions={permissions}
           onClose={() => setShippingModal(null)}
           onSaved={onEdited}
-          onAction={shippingActionsFor}
         />
       )}
       {canManage && shippingModal?.kind === 'LINE' && (

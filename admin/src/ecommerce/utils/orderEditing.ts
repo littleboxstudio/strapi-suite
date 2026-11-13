@@ -14,6 +14,8 @@ import type {
   FieldError,
   ManualDiscount,
   ManualDiscountInput,
+  ModificationOutcome,
+  ModificationTotals,
   Order,
   OrderEditAction,
   OrderEditing,
@@ -336,4 +338,19 @@ export const QUANTITY_MAX_DIGITS = 4;
 export function quantityFromInput(raw: string): number {
   const digits = raw.replace(/\D/g, '').slice(0, QUANTITY_MAX_DIGITS);
   return digits ? Number(digits) : 0;
+}
+
+/**
+ * What an edit changes for the customer, from the totals before and after it: more to pay (DUE,
+ * the extra amount), money to refund (REFUNDABLE, the new excess) or nothing to act on (NONE).
+ */
+export function balanceChange(
+  before: ModificationTotals,
+  after: ModificationTotals
+): { outcome: ModificationOutcome; amount: number } {
+  const more = after.due - before.due;
+  if (more > 0) return { outcome: 'DUE', amount: more };
+  const excess = after.excess - before.excess;
+  if (excess > 0) return { outcome: 'REFUNDABLE', amount: excess };
+  return { outcome: 'NONE', amount: 0 };
 }

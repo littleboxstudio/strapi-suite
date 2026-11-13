@@ -708,3 +708,24 @@ describe('quantityFromInput', () => {
     expect(quantityFromInput('99999999')).toBe(9999);
   });
 });
+
+describe('balanceChange', () => {
+  const totals = (due: number, excess: number) =>
+    ({ itemsOriginal: 0, productDiscount: 0, subtotal: 0, orderDiscount: 0, shippingTotal: 0, total: 0, paid: 0, due, excess }) as any;
+
+  it('more to pay → DUE with the extra amount', async () => {
+    const { balanceChange } = await import('../../../admin/src/ecommerce/utils/orderEditing');
+    expect(balanceChange(totals(1000, 0), totals(1350, 0))).toEqual({ outcome: 'DUE', amount: 350 });
+  });
+
+  it('more paid than due → REFUNDABLE with the new excess', async () => {
+    const { balanceChange } = await import('../../../admin/src/ecommerce/utils/orderEditing');
+    expect(balanceChange(totals(0, 0), totals(0, 200))).toEqual({ outcome: 'REFUNDABLE', amount: 200 });
+  });
+
+  it('less to pay on an unpaid order, or no change → NONE', async () => {
+    const { balanceChange } = await import('../../../admin/src/ecommerce/utils/orderEditing');
+    expect(balanceChange(totals(1000, 0), totals(800, 0))).toEqual({ outcome: 'NONE', amount: 0 });
+    expect(balanceChange(totals(500, 0), totals(500, 0))).toEqual({ outcome: 'NONE', amount: 0 });
+  });
+});
