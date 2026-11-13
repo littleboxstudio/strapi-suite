@@ -5,6 +5,7 @@ import {
   discountSelectionToggle,
   hasRowActions,
   manualDiscountDraftToInput,
+  reviewAlertDate,
   reviewAlerts,
   shippingLineRows,
 } from '../../../admin/src/ecommerce/utils/orderEditing';
@@ -253,5 +254,33 @@ describe('translations', () => {
     const id = `littlebox-strapi-suite.${key}`;
     expect(en[id]).toBeTruthy();
     expect(pt[id]).toBeTruthy();
+  });
+});
+
+describe('reviewAlertDate', () => {
+  it('returns valid dates and null for empty or unparseable values', () => {
+    expect(reviewAlertDate('2026-11-13T10:00:00.000Z')).toBe('2026-11-13T10:00:00.000Z');
+    expect(reviewAlertDate('')).toBeNull();
+    expect(reviewAlertDate(null)).toBeNull();
+    expect(reviewAlertDate('nope')).toBeNull();
+  });
+});
+
+describe('balance action texts', () => {
+  const en = require('../../../admin/src/core/translations/en.json');
+  const pt = require('../../../admin/src/core/translations/pt.json');
+  it('every action balanceActions can return has a label in en and pt', () => {
+    const all = { canManage: true, canPay: true, canRefund: true };
+    const o = order({
+      summary: { due: 5, excess: 5 } as any,
+      availableActions: ['ADD_PAYMENT', 'SEND_PAYMENT_INSTRUCTIONS', 'REFUND'] as any,
+    });
+    const actions = balanceActions(o, all);
+    expect(actions.length).toBeGreaterThan(0);
+    actions.forEach((a) => {
+      const key = `littlebox-strapi-suite.ecommerce.orders.detail.actions.${a}`;
+      expect(en[key], key).toBeTruthy();
+      expect(pt[key], key).toBeTruthy();
+    });
   });
 });

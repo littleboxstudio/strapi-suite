@@ -1917,5 +1917,10 @@
   "littlebox-strapi-suite.ecommerce.orders.review.locked": "This order can no longer be changed, so this cannot be recalculated.",
   "littlebox-strapi-suite.ecommerce.orders.review.dismiss": "Dismiss",
   "littlebox-strapi-suite.ecommerce.orders.balance.due": "Amount due: {amount}",
-  "littlebox-strapi-suite.ecommerce.orders.balance.refundable": "Eligible for refund: {amount}"
+  "littlebox-strapi-suite.ecommerce.orders.balance.refundable": "Eligible for refund: {amount}",
+  "littlebox-strapi-suite.ecommerce.orders.review.reasonNoDate.PRODUCTS_CHANGED": "Products changed",
+  "littlebox-strapi-suite.ecommerce.orders.review.reasonNoDate.ADDRESS_CHANGED": "Shipping address changed",
+  "littlebox-strapi-suite.ecommerce.orders.review.reasonNoDate.SHIPPING_CHANGED": "Shipping changed",
+  "littlebox-strapi-suite.ecommerce.orders.review.reasonNoDate.SHIPPING_QUOTE_FAILED": "The shipping method could not be quoted",
+  "littlebox-strapi-suite.ecommerce.orders.review.dismissError": "Could not dismiss the warning."
 }

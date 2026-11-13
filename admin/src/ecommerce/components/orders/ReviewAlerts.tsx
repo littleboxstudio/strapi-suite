@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
-import { Alert, Button, Flex, Link, Typography } from '@strapi/design-system';
+import { Box, Button, Flex, Link, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import DismissReviewFlag from '../../usecases/orders/dismissReviewFlag';
-import { reviewAlerts } from '../../utils/orderEditing';
+import { reviewAlertDate, reviewAlerts } from '../../utils/orderEditing';
 import { apiErrorMessageId } from '../../utils/orderDetail';
 import { mintUuid } from '../../utils/variantDraft';
 import type { EditResult, Order } from '../../orderTypes';
@@ -35,7 +35,7 @@ const ReviewAlerts = ({ order, canManage, onResult }: Props) => {
     } catch (err) {
       toggleNotification({
         type: 'danger',
-        message: t(apiErrorMessageId(err, 'ecommerce.orders.errors.ORDER_CHANGED')),
+        message: t(apiErrorMessageId(err, 'ecommerce.orders.review.dismissError')),
       });
     } finally {
       setDismissing(null);
@@ -49,41 +49,52 @@ const ReviewAlerts = ({ order, canManage, onResult }: Props) => {
 
   return (
     <Flex direction="column" alignItems="stretch" gap={3}>
-      {alerts.map((alert) => (
-        <Alert
-          key={alert.code}
-          variant="danger"
-          title={t(`ecommerce.orders.review.${alert.code}`)}
-          closeLabel={t('ecommerce.orders.review.dismiss')}
-        >
-          <Flex direction="column" alignItems="flex-start" gap={2}>
-            <Typography>
-              {t(alert.reasonKey, {
-                date: formatDate(alert.raisedAt, { dateStyle: 'short', timeStyle: 'short' }),
-              })}
-            </Typography>
-            {alert.dismissable && (
-              <Typography variant="pi">{t('ecommerce.orders.review.locked')}</Typography>
-            )}
-            <Flex gap={3} alignItems="center">
-              <Link href={`#${alert.sectionId}`} onClick={goTo(alert.sectionId)}>
-                {t('ecommerce.orders.review.goTo')}
-              </Link>
-              {alert.dismissable && canManage && (
-                <Button
-                  variant="secondary"
-                  size="S"
-                  loading={dismissing === alert.code}
-                  disabled={dismissing !== null}
-                  onClick={() => dismiss(alert.code)}
-                >
-                  {t('ecommerce.orders.review.dismiss')}
-                </Button>
+      {alerts.map((alert) => {
+        const date = reviewAlertDate(alert.raisedAt);
+        const reason = date
+          ? t(alert.reasonKey, { date: formatDate(date, { dateStyle: 'short', timeStyle: 'short' }) })
+          : t(alert.reasonKey.replace('.review.reason.', '.review.reasonNoDate.'));
+        return (
+          <Box
+            key={alert.code}
+            role="alert"
+            background="danger100"
+            borderColor="danger200"
+            borderStyle="solid"
+            borderWidth="1px"
+            hasRadius
+            padding={4}
+          >
+            <Flex direction="column" alignItems="flex-start" gap={2}>
+              <Typography fontWeight="bold" textColor="danger700">
+                {t(`ecommerce.orders.review.${alert.code}`)}
+              </Typography>
+              <Typography textColor="danger700">{reason}</Typography>
+              {alert.dismissable && (
+                <Typography variant="pi" textColor="danger700">
+                  {t('ecommerce.orders.review.locked')}
+                </Typography>
               )}
+              <Flex gap={3} alignItems="center">
+                <Link href={`#${alert.sectionId}`} onClick={goTo(alert.sectionId)}>
+                  {t('ecommerce.orders.review.goTo')}
+                </Link>
+                {alert.dismissable && canManage && (
+                  <Button
+                    variant="secondary"
+                    size="S"
+                    loading={dismissing === alert.code}
+                    disabled={dismissing !== null}
+                    onClick={() => dismiss(alert.code)}
+                  >
+                    {t('ecommerce.orders.review.dismiss')}
+                  </Button>
+                )}
+              </Flex>
             </Flex>
-          </Flex>
-        </Alert>
-      ))}
+          </Box>
+        );
+      })}
     </Flex>
   );
 };
