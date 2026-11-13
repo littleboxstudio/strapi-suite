@@ -5,7 +5,12 @@
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID } from '../../../config';
 import { EcommerceValidationError } from './errors';
-import { createEditRunner, type OrderHistoryServiceLike, type OrderServiceLike } from './orderEditRunner';
+import {
+  createEditRunner,
+  type EditWriter,
+  type OrderHistoryServiceLike,
+  type OrderServiceLike,
+} from './orderEditRunner';
 import {
   appliedOf,
   createOrderModificationSupport,
@@ -13,9 +18,25 @@ import {
   toRefundLike,
   type QuoteUnit,
 } from './orderModificationSupport';
-import { simulateModification, type ModificationResult } from './domain/orderModification';
-import { readReviewFlags } from './domain/orderEditing';
-import { chargedShipping, currentMethod, readShippingLines } from './domain/shippingLines';
+import {
+  modificationOutcome,
+  simulateModification,
+  type ModificationResult,
+  type ModificationTotals,
+} from './domain/orderModification';
+import { readReviewFlags, type ReviewFlag } from './domain/orderEditing';
+import {
+  appendLine,
+  chargedShipping,
+  currentMethod,
+  planLineChange,
+  planRecalculation,
+  readShippingLines,
+  shippingLineViews,
+  type ShippingLine,
+  type ShippingLineView,
+  type ShippingMethodRef,
+} from './domain/shippingLines';
 import { readManualDiscounts } from './domain/manualDiscounts';
 import { previousShipmentsCost } from './domain/fulfillment';
 import {
@@ -23,7 +44,7 @@ import {
   type DiscountLine,
   type DiscountRecalculation,
 } from './domain/discountRecalculation';
-import type { Address } from './domain/orders';
+import { computeTotals, financialSummary, MAX_MONEY_CENTS, type Address } from './domain/orders';
 import type {
   AppliedPromotion,
   BenefitRef,
@@ -32,7 +53,7 @@ import type {
 } from './domain/promotions';
 import { isRecord, type CatalogVariant } from './orderPricingHelpers';
 import type { ShippingOption, ShippingQuoteRequest } from './shipping';
-import { normalizeAddress, type OrderState, type OrderView } from './orders';
+import { normalizeAddress, shippingLineContext, type OrderState, type OrderView } from './orders';
 import type { ValidationIssue } from './errors';
 
 export type EditKind =
@@ -60,6 +81,21 @@ export type LinesPreview = Pick<
 export type ShippingDue =
   | { due: number; quote: number; previousShipmentsCost: number; option: ShippingOption | null }
   | { failed: true };
+
+export type ShippingRecalculationPreview = {
+  charged: number;
+  due: number;
+  quote: number;
+  previousShipmentsCost: number;
+  mode: 'REPLACED' | 'APPENDED' | 'UNCHANGED';
+  lines: ShippingLineView[];
+  before: ModificationTotals;
+  after: ModificationTotals;
+};
+
+export type ShippingLineInput = { providerId: string; serviceId: string; amount: number };
+
+type ShippingQuoted = Exclude<ShippingDue, { failed: true }>;
 
 const num = (v: unknown): number => {
   const n = Number(v);
@@ -98,12 +134,41 @@ const emailOf = (order: any): string | null =>
 const invalidLines = (errors: { path: string; code: string }[]) =>
   new EcommerceValidationError('Invalid modification', errors);
 
+const invalidShipping = (path: string, code: string) =>
+  new EcommerceValidationError('Invalid shipping', [{ path, code }]);
+
+/** A line amount: integer cents in 0..MAX_MONEY_CENTS (ruling 7). */
+const normalizeShippingInput = (input: ShippingLineInput): ShippingLineInput => {
+  const amount: unknown = input?.amount;
+  if (
+    typeof amount !== 'number' ||
+    !Number.isInteger(amount) ||
+    amount < 0 ||
+    amount > MAX_MONEY_CENTS
+  ) {
+    throw invalidShipping('amount', 'INVALID_AMOUNT');
+  }
+  return {
+    providerId: String(input?.providerId ?? ''),
+    serviceId: String(input?.serviceId ?? ''),
+    amount,
+  };
+};
+
+/** Ruling 22: the order has a shipping discount (stored, or an applied shipping promotion). */
+const hasShippingDiscount = (order: any): boolean =>
+  num(order.shippingDiscount) > 0 ||
+  appliedOf(order).some((a) => a.classes.includes('SHIPPING_DISCOUNT'));
+
 const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
   const service = (name: string): any => strapi.plugin(PLUGIN_ID).service(name);
   const orders = (): OrderServiceLike => service('EcommerceOrderService');
   const events = (): { collector(): { emit(e: any): void; flush(): Promise<void> } } =>
     service('EcommerceEventBus');
   const shipping = (): {
+    quote(
+      req: ShippingQuoteRequest
+    ): Promise<{ options: ShippingOption[]; failures: { providerId: string; code: string }[] }>;
     findOption(
       req: ShippingQuoteRequest,
       providerId: string,
@@ -137,6 +202,29 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
   // Shared evaluations (rulings 6 and 12)
   // -------------------------------------------------------------------------
 
+  /** Every unit of the order; `quoteItems` takes off the units already reserved. */
+  const orderUnits = (state: OrderState): QuoteUnit[] =>
+    state.lines.map((l) => ({ variantId: l.variantId, quantity: l.quantity, orderLineId: l.id }));
+
+  const catalogFor = (state: OrderState, units: QuoteUnit[]) => {
+    const ids = [...new Set(units.map((u) => u.variantId))];
+    return ids.length
+      ? orders().loadCatalog(ids, state.order.locale)
+      : Promise.resolve(new Map<number, CatalogVariant>());
+  };
+
+  const quoteRequest = (
+    state: OrderState,
+    { items, subtotal }: ReturnType<typeof quoteItems>,
+    address: Address | null
+  ): ShippingQuoteRequest => ({
+    country: address?.country ?? '',
+    ...(address?.postalCode ? { postalCode: address.postalCode } : {}),
+    items,
+    subtotal,
+    locale: state.order.locale,
+  });
+
   /**
    * The shipping due for `units` (ruling 6): the cost of the ACTIVE shipments plus a quote of the
    * current method for the units not yet reserved, at `address`. No unit pending: quote 0 and no
@@ -148,24 +236,16 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     address: Address | null
   ): Promise<ShippingDue> => {
     const spent = previousShipmentsCost(state.shipments);
-    const ids = [...new Set(units.map((u) => u.variantId))];
-    const catalog = ids.length
-      ? await orders().loadCatalog(ids, state.order.locale)
-      : new Map<number, CatalogVariant>();
-    const { items, subtotal } = quoteItems(state, units, catalog);
-    if (!items.length) return { due: spent, quote: 0, previousShipmentsCost: spent, option: null };
+    const quoted = quoteItems(state, units, await catalogFor(state, units));
+    if (!quoted.items.length) {
+      return { due: spent, quote: 0, previousShipmentsCost: spent, option: null };
+    }
     const method = currentMethod(readShippingLines(state.order));
     if (!method) return { failed: true };
     let option: ShippingOption | null;
     try {
       option = await shipping().findOption(
-        {
-          country: address?.country ?? '',
-          ...(address?.postalCode ? { postalCode: address.postalCode } : {}),
-          items,
-          subtotal,
-          locale: state.order.locale,
-        },
+        quoteRequest(state, quoted, address),
         method.providerId,
         method.serviceId
       );
@@ -447,15 +527,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
           ]);
         }
         // The carrier quote may be a remote call: taken before the transaction.
-        const due = await shippingDue(
-          state,
-          state.lines.map((l) => ({
-            variantId: l.variantId,
-            quantity: l.quantity,
-            orderLineId: l.id,
-          })),
-          address
-        );
+        const due = await shippingDue(state, orderUnits(state), address);
         return { address, due };
       },
       write: async (state, { address, due }, w) => {
@@ -495,7 +567,280 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     });
   };
 
-  return { previewLines, applyLines, shippingAddressCountries, updateShippingAddress };
+  // -------------------------------------------------------------------------
+  // Shipping charges (spec 6, rulings 6, 7, 8 and 22)
+  // -------------------------------------------------------------------------
+
+  /**
+   * The options for the order at its current address (ruling 7): the pending units, or every
+   * effective unit when none is pending.
+   */
+  const optionsFor = async (state: OrderState) => {
+    const pending = orderUnits(state);
+    const catalog = await catalogFor(state, pending);
+    let quoted = quoteItems(state, pending, catalog);
+    if (!quoted.items.length) {
+      // `quoteItems` takes off the reserved units: add them back to quote the effective ones.
+      quoted = quoteItems(
+        state,
+        state.lines.map((l) => ({
+          variantId: l.variantId,
+          quantity: l.quantity - l.returnedQuantity + l.reserved,
+          orderLineId: l.id,
+        })),
+        catalog
+      );
+    }
+    return shipping().quote(quoteRequest(state, quoted, state.order.shippingAddress ?? null));
+  };
+
+  const shippingOptionsForOrder = async (rawOrderId: number | string) =>
+    optionsFor(await orders().computeOrderState(Number(rawOrderId)));
+
+  /** The offered option for `input`'s method, else `SHIPPING_METHOD_UNAVAILABLE`. */
+  const offeredMethod = async (
+    state: OrderState,
+    input: ShippingLineInput
+  ): Promise<ShippingMethodRef> => {
+    const { options } = await optionsFor(state);
+    const o = options.find(
+      (x) => x.providerId === input.providerId && x.serviceId === input.serviceId
+    );
+    if (!o) throw invalidShipping('method', 'SHIPPING_METHOD_UNAVAILABLE');
+    return { providerId: o.providerId, serviceId: o.serviceId, name: o.name, tax: o.tax };
+  };
+
+  /** The totals and balance with `shippingLines` (stored ones when absent), as `writeTotals` does. */
+  const totalsWith = (state: OrderState, shippingLines?: ShippingLine[]): ModificationTotals => {
+    const order = state.order;
+    const gross = shippingLines ? chargedShipping(shippingLines) : num(order.shippingOriginal);
+    const totals = computeTotals(
+      state.lines.map((l) => ({
+        unitPrice: l.unitPrice,
+        unitDiscount: l.unitDiscount,
+        quantity: l.quantity,
+        returnedQuantity: l.returnedQuantity,
+      })),
+      {
+        orderDiscount: num(order.orderDiscount),
+        shippingOriginal: gross,
+        shippingDiscount: Math.max(0, Math.min(num(order.shippingDiscount), gross)),
+      }
+    );
+    const s = financialSummary(
+      totals.total,
+      state.payments.map(toPaymentLike),
+      state.refunds.map(toRefundLike)
+    );
+    return { ...totals, paid: s.paid, due: s.due, excess: s.excess };
+  };
+
+  /**
+   * Persists `next` (null: the table is unchanged). Clears SHIPPING_REVIEW and raises
+   * DISCOUNTS_REVIEW when the gross changed on an order with a shipping discount (ruling 22).
+   * The shipping discount keeps its euro value, capped at the gross (ruling 8).
+   */
+  const writeShippingLines = async (
+    state: OrderState,
+    next: ShippingLine[] | null,
+    w: EditWriter
+  ) => {
+    const before = totalsWith(state);
+    const after = next ? totalsWith(state, next) : before;
+    let flags: ReviewFlag[] = await w.clear(
+      readReviewFlags(state.order.reviewFlags),
+      'SHIPPING_REVIEW'
+    );
+    const grossChanged =
+      next !== null && chargedShipping(next) !== chargedShipping(readShippingLines(state.order));
+    if (grossChanged && hasShippingDiscount(state.order)) {
+      flags = await w.raise(flags, 'DISCOUNTS_REVIEW', 'SHIPPING_CHANGED');
+    }
+    await writeTotals(state, { ...(next ? { shippingLines: next } : {}), reviewFlags: flags });
+    return {
+      before,
+      after,
+      outcome: modificationOutcome(before, after),
+      difference: after.total - before.total,
+    };
+  };
+
+  /** The due for Recalculate (ruling 6); a failed quote is `SHIPPING_QUOTE_FAILED`. */
+  const recalculationDue = async (state: OrderState): Promise<ShippingQuoted> => {
+    assertEditable(state, 'RECALCULATE_SHIPPING');
+    const due = await shippingDue(state, orderUnits(state), state.order.shippingAddress ?? null);
+    if ('failed' in due) throw invalidShipping('shipping', 'SHIPPING_QUOTE_FAILED');
+    return due;
+  };
+
+  /** The new table for `due`, under the current method (its quoted name and tax when quoted). */
+  const recalculationPlan = (state: OrderState, due: ShippingQuoted, actor: string) => {
+    const current = currentMethod(state.shippingLines)!;
+    const method: ShippingMethodRef = due.option
+      ? { ...current, name: due.option.name, tax: due.option.tax }
+      : current;
+    return planRecalculation(state.shippingLines, due.due, {
+      method,
+      at: new Date().toISOString(),
+      actor,
+    });
+  };
+
+  const previewShippingRecalculation = async (
+    rawOrderId: number | string
+  ): Promise<ShippingRecalculationPreview> => {
+    const state = await orders().computeOrderState(Number(rawOrderId));
+    const due = await recalculationDue(state);
+    const plan = recalculationPlan(state, due, 'preview');
+    return {
+      charged: plan.charged,
+      due: due.due,
+      quote: due.quote,
+      previousShipmentsCost: due.previousShipmentsCost,
+      mode: plan.mode,
+      lines: shippingLineViews(
+        plan.lines,
+        shippingLineContext(state.invoicing, state.editing.hasShipments)
+      ),
+      before: totalsWith(state),
+      after: plan.mode === 'UNCHANGED' ? totalsWith(state) : totalsWith(state, plan.lines),
+    };
+  };
+
+  /**
+   * Recalculate shipping (spec 6.3, ruling 6): gross due against charged. Equal: the table stays
+   * and the flag clears. A failed quote changes nothing.
+   */
+  const recalculateShipping = async (
+    rawOrderId: number | string,
+    actor: string,
+    operationId: string
+  ): Promise<EditResult> => {
+    const orderId = Number(rawOrderId);
+    return runEdit(orderId, 'shipping-recalculate', operationId, actor, {
+      // The carrier quote may be a remote call: taken before the transaction.
+      prepare: async () => recalculationDue(await orders().computeOrderState(orderId)),
+      write: async (state, due, w) => {
+        assertEditable(state, 'RECALCULATE_SHIPPING');
+        const plan = recalculationPlan(state, due, w.actor);
+        const r = await writeShippingLines(state, plan.mode === 'UNCHANGED' ? null : plan.lines, w);
+        return {
+          outcome: r.outcome,
+          difference: r.difference,
+          history: {
+            type: 'SHIPPING_RECALCULATED',
+            description: `Shipping recalculated: charged ${plan.charged} → due ${due.due} cents (${plan.mode})`,
+            previousValue: { lines: readShippingLines(state.order) },
+            newValue: {
+              charged: plan.charged,
+              due: due.due,
+              quote: due.quote,
+              previousShipmentsCost: due.previousShipmentsCost,
+              mode: plan.mode,
+              lines: plan.lines,
+            },
+          },
+        };
+      },
+    });
+  };
+
+  const lineNotFound = () => invalidShipping('lineId', 'SHIPPING_LINE_NOT_FOUND');
+
+  /**
+   * Edit a shipping line (ruling 7): replaced in place while not spent nor invoiced, else an
+   * EDIT line with the difference. Only before any shipment.
+   */
+  const editShippingLine = async (
+    rawOrderId: number | string,
+    rawLineId: number,
+    input: ShippingLineInput,
+    actor: string,
+    operationId: string
+  ): Promise<EditResult> => {
+    const orderId = Number(rawOrderId);
+    const lineId = Number(rawLineId);
+    return runEdit(orderId, 'shipping-line-edit', operationId, actor, {
+      prepare: async () => {
+        const state = await orders().computeOrderState(orderId);
+        assertEditable(state, 'EDIT_SHIPPING_LINE');
+        if (!state.shippingLines.some((l) => l.id === lineId)) throw lineNotFound();
+        const next = normalizeShippingInput(input);
+        return { amount: next.amount, method: await offeredMethod(state, next) };
+      },
+      write: async (state, next, w) => {
+        assertEditable(state, 'EDIT_SHIPPING_LINE');
+        if (!state.shippingLines.some((l) => l.id === lineId)) throw lineNotFound();
+        const plan = planLineChange(state.shippingLines, lineId, next, {
+          at: new Date().toISOString(),
+          actor: w.actor,
+        });
+        const r = await writeShippingLines(state, plan.mode === 'UNCHANGED' ? null : plan.lines, w);
+        return {
+          outcome: r.outcome,
+          difference: r.difference,
+          history: {
+            type: 'SHIPPING_LINE_EDITED',
+            description: `Shipping charge ${lineId} edited: ${next.method.name} ${next.amount} cents (${plan.mode})`,
+            previousValue: { lines: readShippingLines(state.order) },
+            newValue: { lineId, mode: plan.mode, lines: plan.lines },
+          },
+        };
+      },
+    });
+  };
+
+  /** Add a shipping line (ruling 7): always a MANUAL line, with or without shipments. */
+  const addShippingLine = async (
+    rawOrderId: number | string,
+    input: ShippingLineInput,
+    actor: string,
+    operationId: string
+  ): Promise<EditResult> => {
+    const orderId = Number(rawOrderId);
+    return runEdit(orderId, 'shipping-line-add', operationId, actor, {
+      prepare: async () => {
+        const state = await orders().computeOrderState(orderId);
+        assertEditable(state, 'ADD_SHIPPING_LINE');
+        const next = normalizeShippingInput(input);
+        return { amount: next.amount, method: await offeredMethod(state, next) };
+      },
+      write: async (state, next, w) => {
+        assertEditable(state, 'ADD_SHIPPING_LINE');
+        const previous = readShippingLines(state.order);
+        const lines = appendLine(previous, {
+          origin: 'MANUAL',
+          amount: next.amount,
+          ...next.method,
+          createdAt: new Date().toISOString(),
+          actor: w.actor,
+        });
+        const r = await writeShippingLines(state, lines, w);
+        return {
+          outcome: r.outcome,
+          difference: r.difference,
+          history: {
+            type: 'SHIPPING_LINE_ADDED',
+            description: `Shipping charge added: ${next.method.name} ${next.amount} cents`,
+            previousValue: { lines: previous },
+            newValue: { lineId: lines[lines.length - 1].id, lines },
+          },
+        };
+      },
+    });
+  };
+
+  return {
+    previewLines,
+    applyLines,
+    shippingAddressCountries,
+    updateShippingAddress,
+    shippingOptionsForOrder,
+    previewShippingRecalculation,
+    recalculateShipping,
+    editShippingLine,
+    addShippingLine,
+  };
 };
 
 export default EcommerceOrderEditingService;

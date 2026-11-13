@@ -20,6 +20,7 @@ import EcommerceStoreCreditService from '../../../server/src/services/modules/ec
 import EcommerceRefundService from '../../../server/src/services/modules/ecommerce/refunds';
 import EcommercePaymentService from '../../../server/src/services/modules/ecommerce/payments';
 import EcommerceStripePaymentService from '../../../server/src/services/modules/ecommerce/stripePayments';
+import EcommerceOrderEditingService from '../../../server/src/services/modules/ecommerce/orderEditing';
 import EcommerceOrderHistoryService from '../../../server/src/services/modules/ecommerce/orderHistory';
 import EcommerceStockService from '../../../server/src/services/modules/ecommerce/stock';
 import EcommerceCustomerService from '../../../server/src/services/modules/ecommerce/customers';
@@ -142,12 +143,13 @@ function setup(
       return realHistory.record(entry);
     },
   };
+  const shippingPrice = { value: 500 };
   services.EcommerceShippingService = {
     findOption: async (_req: any, providerId: string, serviceId: string) => ({
       providerId,
       serviceId,
       name: 'Standard',
-      price: 500,
+      price: shippingPrice.value,
       tax: 23,
     }),
   };
@@ -180,6 +182,7 @@ function setup(
   services.EcommerceRefundService = EcommerceRefundService({ strapi });
   services.EcommercePaymentService = EcommercePaymentService({ strapi });
   services.EcommerceStripePaymentService = EcommerceStripePaymentService({ strapi });
+  services.EcommerceOrderEditingService = EcommerceOrderEditingService({ strapi });
 
   const t = db.tables;
   t[UIDS.product].push({ id: 1, active: true });
@@ -202,6 +205,8 @@ function setup(
     orders: services.EcommerceOrderService,
     payments: services.EcommercePaymentService,
     stripePayments: services.EcommerceStripePaymentService,
+    editing: services.EcommerceOrderEditingService,
+    shippingPrice,
     tables: t,
     events,
     log,
@@ -529,6 +534,22 @@ describe('getOrCreatePaymentLink', () => {
       ['COMPLETED', 4500],
       ['PENDING', 1500],
     ]);
+  });
+});
+
+describe('after an order edit', () => {
+  it('a shipping recalculation that raises the due: the link asks for the new summary.due (spec 6.2)', async () => {
+    const { orders, editing, shippingPrice, stripePayments } = setup();
+    const order = await createOrder(orders);
+    shippingPrice.value = 650;
+    const res = await editing.recalculateShipping(order.id, actor, 'op-ship-stripe-1');
+    expect(res).toMatchObject({ outcome: 'DUE', difference: 150 });
+    expect(res.order.summary.due).toBe(4650);
+    const link = await stripePayments.getOrCreatePaymentLink(order.id, { actor });
+    expect(link).toMatchObject({ amount: 4650, reused: false });
+    expect(stripe.createCheckoutSession.mock.calls[0][0].idempotencyKey).toMatch(
+      new RegExp(`^session:${order.id}:4650:`)
+    );
   });
 });
 
