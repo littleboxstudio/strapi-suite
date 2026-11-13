@@ -225,6 +225,9 @@ Implementar o capítulo de Encomendas do documento de requisitos (pontos 1–17)
 - não há excedente por reembolsar (montante reembolsável = 0);
 - não há pagamentos `PENDING` nem reembolsos `PENDING` ou `PROCESSING`.
 
+Uma encomenda totalmente expedida que recebe produtos novos volta a `PARTIALLY_FULFILLED`, pelo que
+**Arquivar** fica indisponível até esses produtos serem expedidos (4.17).
+
 ### 4.2 Confirmação manual de entrega **[Decisão]**
 O administrador pode marcar uma expedição como **entregue manualmente**, com data. Fica registado
 no histórico com o utilizador. Isto conta para "entrega confirmada" (arquivamento, e-mail de entrega).
@@ -236,20 +239,29 @@ Além dos plugins de transportadora (CTT Expresso), existe um fornecedor **Manua
 - não geram etiqueta; o código e o link de rastreio são opcionais no envio;
 - entram no checkout como qualquer outra opção.
 
-### 4.4 Faturação por pagamento **[Decisão]**
+### 4.4 Faturação por pagamento **[Decisão, atualizada em 2026-11-13]**
 - **Cada fatura cobre o que esse pagamento pagou, no momento em que foi feito.**
 - Cada pagamento guarda uma **"fotografia de cobertura"**: as linhas (variantes × quantidade × preço,
   e os portes) acrescentadas à encomenda desde a cobertura anterior.
   - Pagamento inicial: cobre as linhas da encomenda criada e os portes.
-  - Pagamento complementar após uma modificação: cobre **só os produtos novos e a diferença de portes**.
+  - Pagamento complementar após uma edição da encomenda: cobre **só as linhas de produto novas e as
+    linhas de portes novas ou as diferenças de portes** **[Decisão, 2026-11-13]**.
+  - A cobertura mantém **um só espaço de portes, por valor**; o estado "paga" de cada linha de portes
+    é **derivado** (não guardado) **[Decisão, 2026-11-13]**.
+  - Uma linha de portes **negativa** só cria excedente reembolsável: não gera cobertura, fatura,
+    reembolso nem nota de crédito automáticos **[Decisão, 2026-11-13]**.
+  - A fatura tem **uma linha `SHIPPING` por taxa de IVA** **[Decisão, 2026-11-13]**.
 - Quando um pagamento é inferior ao valor da sua cobertura (pagamento parcial), a fatura reparte o
   valor pago **proporcionalmente** pelas linhas cobertas, tanto produtos como portes, cada uma com a
   sua taxa de IVA. O arredondamento acerta-se na última linha.
 - "Gerar fatura total" emite uma fatura com as coberturas de todos os pagamentos liquidados e ainda
   não faturados.
-- **Modificações que reduzem a encomenda** depois de faturada: o documento fiscal de regularização
+- **Edições que reduzem a encomenda** depois de faturada: o documento fiscal de regularização
   (nota de crédito) é emitido através do fornecedor ativo, a pedido do administrador. As regras
   fiscais detalhadas continuam fora de âmbito, como diz o documento de requisitos.
+- Descontos ou portes recalculados depois de faturar **só movem o saldo** (valor em dívida ou
+  excedente); a nota de crédito só é emitida a pedido do administrador, nunca automaticamente
+  **[Decisão, 2026-11-13]**.
 - **[Escolha técnica]** Moloni: as linhas referem artigos Moloni pela `reference = sku`. Se o artigo
   não existir no Moloni, é criado automaticamente.
 
@@ -290,16 +302,22 @@ Substitui "código promocional de compensação" do documento de requisitos:
   Continua a não contar como reembolso monetário.
 - Admin: os vales aparecem em Promotions, num separador "Store credit", só para consulta e ajustes registados.
 
-### 4.8 Promoções em encomendas modificadas **[Decisão]**
+### 4.8 Promoções em encomendas editadas **[Decisão, atualizada em 2026-11-13]**
 Define a política deixada em aberto no ponto 2.19 das Promoções:
-- As linhas existentes mantêm o desconto por unidade. Se a quantidade baixar, o desconto baixa na mesma proporção.
-- Os produtos acrescentados entram **sem** promoção. Não há reavaliação de promoções.
-- O desconto sobre a encomenda mantém o valor em euros, limitado ao novo subtotal.
-- Portes grátis: mantêm-se se os portes forem mantidos. Recalcular ou definir os portes à mão
-  substitui o valor e a promoção de portes deixa de se aplicar.
+- Guardar produtos **nunca reavalia** promoções: as regras das linhas mantêm-se (as linhas existentes
+  mantêm o desconto por unidade e, se a quantidade baixar, o desconto baixa na mesma proporção; os
+  produtos acrescentados entram sem promoção).
+- **Recalcular descontos** existe sempre que a encomenda pode ser alterada (também depois de faturas
+  ou expedições parciais). Considera as promoções automáticas e os códigos usados no checkout;
+  o que se mantém mas deixa de ser válido **conserva o valor guardado**. Confirmar reserva ou liberta
+  utilizações (ver 6).
+- Alterar os portes **mantém o desconto de portes em euros**, limitado ao valor bruto dos portes, e
+  marca a encomenda com `DISCOUNTS_REVIEW`. Isto substitui "a promoção de portes deixa de se aplicar".
+- O ajuste manual passa a ser o **desconto livre** (fixo ou percentual, com motivo), descrito em
+  4.17 e na especificação de edição por secções.
 - Se uma condição deixar de se cumprir (por exemplo, um mínimo), **o desconto não se perde**.
-  Aparece um aviso no resumo da modificação e o administrador pode ajustar o desconto à mão
-  (fica registado no histórico).
+  Os **avisos persistentes** (`SHIPPING_REVIEW`, `DISCOUNTS_REVIEW`, guardados na encomenda e
+  visíveis até serem resolvidos) substituem o "aviso no resumo da modificação".
 
 ### 4.9 Idioma da encomenda
 - A encomenda guarda o `locale` com que foi criada: o storefront envia-o, e nas encomendas manuais
@@ -389,6 +407,20 @@ O contrato da API da loja não muda.
 
 Portes grátis acima de um valor fazem-se com Promoções.
 
+### 4.17 Edição da encomenda por secções **[Decisão, 2026-11-13]**
+Substitui o fluxo único de modificação do requisito 16 e o botão **Modificar**, removidos (modal e
+endpoints incluídos). Cada secção da encomenda é editada por si:
+- **Produtos:** adicionar, alterar e remover linhas; as correções (`editOf`) só editam linhas originais;
+  uma encomenda totalmente expedida aceita produtos novos (4.1).
+- **Portes:** os portes são linhas (`CHECKOUT`, `RECALCULATION`, `EDIT`, `MANUAL`). Regra: **substitui-se
+  só sem expedições e sem fatura emitida; caso contrário acrescenta-se a diferença**.
+- **Descontos:** Recalcular descontos (4.8) e descontos livres fixos ou percentuais com motivo; a soma
+  dos livres fica limitada ao desconto da encomenda (primeiro os antigos, depois os mais recentes).
+- **Avisos persistentes** `SHIPPING_REVIEW` e `DISCOUNTS_REVIEW` na encomenda.
+- Nenhuma edição envia e-mails, reembolsa ou emite notas de crédito automaticamente.
+
+Detalhe completo em `docs/superpowers/specs/2026-11-13-order-editing-design.md`.
+
 ## 5. Clientes
 Implementar o capítulo 17 com esta simplificação **[Decisão]**:
 - Normalização do e-mail: `trim` + minúsculas, sem regras de fornecedor.
@@ -404,7 +436,7 @@ Implementar o capítulo 17 com esta simplificação **[Decisão]**:
 ## 6. Promoções
 Implementar os capítulos 1–3 de Promoções tal como estão, com:
 - **Vale de crédito** fora do motor de promoções (ver 4.7).
-- Política de modificação de encomendas (ver 4.8).
+- Política de edição de encomendas (ver 4.8).
 - Nome visível ao cliente (no checkout e nos e-mails) traduzível por locale **[Escolha técnica]**.
 - Fuso horário da loja: definição `ecommerce.timezone`, por defeito `Europe/Lisbon` **[Escolha técnica]**.
 - Limite técnico da procura de combinações: configurável, por defeito 12 promoções elegíveis em
@@ -502,8 +534,9 @@ admin/src/ecommerce/                     # páginas, componentes, gateways (segu
   - No vale, a devolução de saldo no cancelamento é registada como um **reembolso `COMPLETED` do
     pagamento `STORE_CREDIT`**, para que o `PaymentStatus` a reflita e a modal de Reembolso não volte
     a oferecer esse valor. Nunca se devolve o mesmo saldo duas vezes **[Escolha técnica]**.
-  - O reembolso de um pagamento `STORE_CREDIT` devolve saldo ao vale (4.7). Uma modificação de
-    encomenda não consome nem liberta utilizações de promoção, porque não há reavaliação (4.8).
+  - O reembolso de um pagamento `STORE_CREDIT` devolve saldo ao vale (4.7). Guardar produtos não
+    consome nem liberta utilizações de promoção; **confirmar Recalcular descontos reserva ou liberta
+    utilizações** (4.8) **[Decisão, 2026-11-13]**.
 - **Idempotência:** chaves únicas (`idempotencyKey` / `operationKey` / `externalEventId`) em
   pagamentos, reembolsos, faturas, expedições, notificações e movimentos.
 - **Eventos e notificações [Decisão: sem cron]:** o evento de domínio é gravado na mesma transação
