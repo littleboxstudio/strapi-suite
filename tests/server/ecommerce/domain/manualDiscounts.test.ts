@@ -50,7 +50,22 @@ describe('readManualDiscounts / manualDiscountTotal', () => {
   };
 
   it('returns the stored items', () => {
-    const order = { createdAt: CREATED, orderDiscount: 200, promotions: [], manualDiscounts: [stored] };
+    const order = { createdAt: CREATED, orderDiscount: 200, promotions: [], manualDiscounts: { items: [stored] } };
+    expect(readManualDiscounts(order)).toEqual([stored]);
+  });
+
+  it('reads an empty stored list as empty, not as the legacy item', () => {
+    const order = { createdAt: CREATED, orderDiscount: 300, promotions: [], manualDiscounts: { items: [] } };
+    expect(readManualDiscounts(order)).toEqual([]);
+  });
+
+  it('drops malformed entries', () => {
+    const order = {
+      createdAt: CREATED,
+      orderDiscount: 200,
+      promotions: [],
+      manualDiscounts: { items: [stored, { ...stored, id: 5, amount: 'x' }, { ...stored, id: 6, kind: 'NOPE' }, null] },
+    };
     expect(readManualDiscounts(order)).toEqual([stored]);
   });
 
