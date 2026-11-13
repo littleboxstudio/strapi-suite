@@ -1896,10 +1896,10 @@
   "littlebox-strapi-suite.ecommerce.settings.integrations.enable": "Enable",
   "littlebox-strapi-suite.ecommerce.settings.integrations.disableConfirm.title": "Disable {name}",
   "littlebox-strapi-suite.ecommerce.settings.integrations.disableConfirm.text": "{name} will stop being used by the store until you enable it again. Continue?",
-  "littlebox-strapi-suite.ecommerce.orders.review.reason.PRODUCTS_CHANGED": "The products changed.",
-  "littlebox-strapi-suite.ecommerce.orders.review.reason.ADDRESS_CHANGED": "The shipping address changed.",
-  "littlebox-strapi-suite.ecommerce.orders.review.reason.SHIPPING_CHANGED": "The shipping charge changed.",
-  "littlebox-strapi-suite.ecommerce.orders.review.reason.SHIPPING_QUOTE_FAILED": "The carrier quote failed, so the shipping could not be checked.",
+  "littlebox-strapi-suite.ecommerce.orders.review.reason.PRODUCTS_CHANGED": "Products changed on {date}",
+  "littlebox-strapi-suite.ecommerce.orders.review.reason.ADDRESS_CHANGED": "Shipping address changed on {date}",
+  "littlebox-strapi-suite.ecommerce.orders.review.reason.SHIPPING_CHANGED": "Shipping changed on {date}",
+  "littlebox-strapi-suite.ecommerce.orders.review.reason.SHIPPING_QUOTE_FAILED": "The shipping method could not be quoted on {date}",
   "littlebox-strapi-suite.ecommerce.orders.errors.ORDER_NOT_EDITABLE": "This order can no longer be edited (it is cancelled, archived or has a shipment pending at the carrier).",
   "littlebox-strapi-suite.ecommerce.orders.errors.ORDER_HAS_SHIPMENTS": "This change is not possible because the order already has shipments.",
   "littlebox-strapi-suite.ecommerce.orders.errors.REVIEW_FLAG_NOT_DISMISSABLE": "This notice can only be dismissed when the order can no longer be edited.",
@@ -1910,5 +1910,12 @@
   "littlebox-strapi-suite.ecommerce.orders.errors.DISCOUNT_EXCEEDS_PRODUCTS": "The discount cannot exceed the value of the products.",
   "littlebox-strapi-suite.ecommerce.orders.errors.SHIPPING_LINE_NOT_FOUND": "The shipping charge was not found. Reload the order.",
   "littlebox-strapi-suite.ecommerce.orders.errors.MANUAL_DISCOUNT_NOT_FOUND": "The discount was not found. Reload the order.",
-  "littlebox-strapi-suite.ecommerce.orders.errors.INVALID_PERCENT": "Enter a percentage above 0 and up to 100, with at most 2 decimals."
+  "littlebox-strapi-suite.ecommerce.orders.errors.INVALID_PERCENT": "Enter a percentage above 0 and up to 100, with at most 2 decimals.",
+  "littlebox-strapi-suite.ecommerce.orders.review.SHIPPING_REVIEW": "Shipping may need to be recalculated.",
+  "littlebox-strapi-suite.ecommerce.orders.review.DISCOUNTS_REVIEW": "Discounts may need to be reassessed.",
+  "littlebox-strapi-suite.ecommerce.orders.review.goTo": "Go to section",
+  "littlebox-strapi-suite.ecommerce.orders.review.locked": "This order can no longer be changed, so this cannot be recalculated.",
+  "littlebox-strapi-suite.ecommerce.orders.review.dismiss": "Dismiss",
+  "littlebox-strapi-suite.ecommerce.orders.balance.due": "Amount due: {amount}",
+  "littlebox-strapi-suite.ecommerce.orders.balance.refundable": "Eligible for refund: {amount}"
 }

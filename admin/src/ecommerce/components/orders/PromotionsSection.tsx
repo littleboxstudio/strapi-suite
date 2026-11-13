@@ -17,6 +17,7 @@ import OrderSection from './OrderSection';
 const COLUMNS = ['promotion', 'method', 'type', 'benefit', 'amount'] as const;
 
 type Props = {
+  id?: string;
   title: string;
   promotions: OrderPromotion[];
   /** Codes entered at checkout with their status; the ones that did not apply are listed. */
@@ -28,7 +29,7 @@ type Props = {
  * The promotions the order recorded (promotions requirements 3.2, 3.7 and 3.8): one row per benefit,
  * read from the stored snapshot only; a cancelled order shows its redemptions as released.
  */
-const PromotionsSection = ({ title, promotions, promotionCodes, locales }: Props) => {
+const PromotionsSection = ({ id, title, promotions, promotionCodes, locales }: Props) => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
@@ -59,7 +60,7 @@ const PromotionsSection = ({ title, promotions, promotionCodes, locales }: Props
   );
 
   return (
-    <OrderSection title={title}>
+    <OrderSection id={id} title={title}>
       {rows.length === 0 && !enteredCodes ? (
         <EmptyNote>{t('ecommerce.orders.promotions.empty')}</EmptyNote>
       ) : (
