@@ -23,6 +23,7 @@ import ResendNotification from '../../usecases/orders/resendNotification';
 import { apiErrorMessageId, notificationErrorParts } from '../../utils/orderDetail';
 import type { NotificationView } from '../../orderTypes';
 import OrderSection from './OrderSection';
+import ColumnLabel from '../ColumnLabel';
 
 type Props = {
   orderId: number;
@@ -204,7 +205,7 @@ const NotificationsSection = ({ orderId, refreshKey, canResend }: Props) => {
           <Tr>
             {COLUMNS.map((column) => (
               <Th key={column}>
-                <Typography variant="sigma">{t(`ecommerce.orders.notifications.columns.${column}`)}</Typography>
+                <ColumnLabel column={column}>{t(`ecommerce.orders.notifications.columns.${column}`)}</ColumnLabel>
               </Th>
             ))}
           </Tr>

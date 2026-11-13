@@ -39,6 +39,7 @@ import CreditNoteModal from './CreditNoteModal';
 import OrderSection from './OrderSection';
 import AddressButton from './AddressButton';
 import { ToneBadge } from './StatusBadges';
+import ColumnLabel from '../ColumnLabel';
 
 type Props = {
   title: string;
@@ -341,7 +342,7 @@ const InvoicesSection = ({ title, order, canInvoice, onIssue, onChanged }: Props
               <Tr>
                 {COLUMNS.map((c) => (
                   <Th key={c}>
-                    <Typography variant="sigma">{t(`ecommerce.orders.invoices.columns.${c}`)}</Typography>
+                    <ColumnLabel column={c}>{t(`ecommerce.orders.invoices.columns.${c}`)}</ColumnLabel>
                   </Th>
                 ))}
               </Tr>
