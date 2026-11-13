@@ -126,3 +126,30 @@ Lista de itens adiados nas revisões do plano 1 (Base e Produtos), a considerar 
 ## Order editing (plan 10)
 - Order editing: shipping line `invoiced` is derived from invoice dates (prudent); store shipping-line ids on coverages if per-line invoicing is ever needed.
 - Invoice shipping VAT split: the rates are weighted by cumulative per-rate totals instead of the amounts not yet invoiced. The split is wrong only with mixed-rate shipping methods; fix by weighting only the lines created after the last invoice with shipping.
+
+### Order editing (plan 10): deferred review minors
+
+- T1: duplicate shipping-line ids not deduplicated in readShippingLines
+- T1: unparseable invoice/line createdAt → 0 fails unsafe (invoice never counts as covering)
+- T1: planLineChange UNCHANGED ignores tax/name
+- T1: test gaps (mixed locked+replaceable+negative recalculation, partly covered FIFO, null shippingMethod checkout, method-only change on locked line)
+- T2: readReviewFlags element typing relies on non-strict narrowing; raisedAt/actor default '' (UI must handle empty)
+- T2: tests missing for FULFILLED+active shipment editable, duplicate/unknown-reason flags
+- T3: PERCENT rounding to 0 / subtotal 0 untested
+- T4: sameRefs order-sensitive; coverage gaps (conflict with locked row; removedGiftLines with returned units)
+- T4: after clamp, kept/manual row amounts can sum above persisted orderDiscount (UI won't reconcile); mixed frozen line keeps valid promo share unrepriced (concern 4)
+- T5: backfill aborts whole run on one failing row (per-row try/catch would be more robust); no failure-path/partial-row tests; checkout line createdAt vs order createdAt ms drift
+- T6: no compose-level multi-rate invoice test; all-zero-weight fallback picks highest-tax rate implicitly
+- T7: writeTotals ORDER_NOT_EDITABLE on race has no detail; failed emit after commit surfaces as error; concurrent unique-violation replay untested; LINE_ADDED id lookup by re-read (flow removed in Task 8)
+- T8: history-uniqueKey race no longer pinned (port now loses on stock key); dropped service-level line tests (INVALID_QUANTITY 400, buy3pay2 free line, only main row has uniqueKey); stale pre-lock quote for SHIPPING_REVIEW; discountEvaluation failure rolls back save (should degrade to flag); clamp not asserted in LINES_CHANGED totals; jsdom stderr line in an admin test; history description vs newValue totals from different sources
+- T9: sameAddress compares raw stored vs normalized input (optional '' keys → false change); no current method → all countries refused; coverage gaps (carrier order, market-without-rate country, prepare/write address race); duplicate import from ./errors
+- T10: orphaned doc comment orders.ts; stale due prepare→write (guard previousShipmentsCost); ruling-22 promo-class branch untested; no-op Edit records history; RECALCULATION tax vs shippingTax
+- T10: replaced corrected target can go negative when next < Σ corrections; method-only change on replaceable target with locked differently-methoded corrections may never converge (currentMethod picks correction's method)
+- T11: take-back update doesn't refresh emailNormalized/customer/promotionCode (counter asymmetry if order e-mail changed); undocumented e-mail match for own customerUses; no per-customer-limit take-back failure test
+- T12: REVIEW_FLAG_CODES duplicates domain CODES; rounding remainders make cap lenient by cents; customerId type number vs null; history kept list lacks valid flag
+- T12: removeManualDiscount reads uncapped list (pre-fix data only); removedManual history from uncapped list; doc comment indent orderEditRunner.ts:260
+- T13: controller arg shapes tested for 5/14 actions; positiveInt accepts ' 3 '/'1e0'; dismiss invalid-code path hand-rolled; tests written after code
+- T14: INVALID_PERCENT in API_ERROR_CODES (server sends INVALID_AMOUNT for percent → wrong range text); too_long admin-only; DiscountRecalculation type omits lines/removedGiftLines
+- T16: no success toast on NONE outcome (check consistency with other modals); note text repeated on both steps
+- T17: duplicated errorMap/codeText/loader across the three modals
+- T18: no retry after failed re-preview; race logic untested; legacy check thrice; RemoveDiscountModal inside PromotionsSection.tsx; prettier on PromotionsSection; reason counter trimmed vs maxLength untrimmed
