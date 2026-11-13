@@ -229,6 +229,7 @@ Cria um **desconto livre só desta encomenda** (não é uma promoção da loja):
 - **motivo** obrigatório;
 - aparece na tabela de promoções como linha "Manual" com o motivo, e no total "Total discount";
 - pode ser removido (na tabela ou no recálculo) **[Escolha]**;
+- a soma dos descontos livres nunca excede o desconto da encomenda; quando uma alteração o reduz, o excedente sai primeiro do ajuste manual anterior e depois dos descontos livres mais recentes, sem nunca aumentar nenhum **[Escolha]**;
 - recalcula o total; histórico com valor e motivo.
 
 ### 7.3 Relação com a decisão 4.8

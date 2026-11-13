@@ -86,7 +86,7 @@ Lista de itens adiados nas revisões do plano 1 (Base e Produtos), a considerar 
 ## Plan 5
 - Spec 4.15: Moloni foreign-customer handling setting deferred — needs the store accountant's input (OSS / intra-EU / non-EU rules); today non-PT customers are invoiced like domestic ones.
 - P5 final review: parked (F4): a carrier deactivated while one of its shipments is PENDING/UNCERTAIN blocks the order — `retry` and `cancel` need an active runtime (`shipping.carrierFor`) and `assertNoPendingShipment` blocks editing (`SHIPMENT_PENDING`) and CANCEL; shipments have no "mark failed". Add an issuing-carrier exception (like invoices) or a confirmed "mark failed" action. Low impact today: the only carrier (CTT) is NOT_IMPLEMENTED.
-- P5 final: invoice lines can be individually off (order total correct) when an invoiced payment's value sits on a line that later lost value (partial payments, return/modification after invoicing) — would need credit-and-reinvoice of that payment
+- P5 final: invoice lines can be individually off (order total correct) when an invoiced payment's value sits on a line that later lost value (partial payments, return/order edit after invoicing) — would need credit-and-reinvoice of that payment
 
 ## Plan 6
 - P6 final review: accepted (F4): `GET /promotions/:id` returns `eligibility.emails` in full to holders of `promotions.read` alone (redemptions mask e-mails for the same permission). Accepted: the list is admin-entered configuration and is needed to edit the promotion.
@@ -122,4 +122,6 @@ Lista de itens adiados nas revisões do plano 1 (Base e Produtos), a considerar 
 ## Storefront token generation (review of c6abbcb)
 - M2: two admins generating/regenerating at once each create a token; the last write wins, the other token is left orphaned (zero permissions, not the configured id) and that admin is shown a key the policy refuses (or one the second regenerate revokes). Fix with a compare-and-swap inside the store write transaction: re-read `storefrontApiTokenId`, require the value read at the start (null for generate); on mismatch revoke the just-created token and answer 409 (`STOREFRONT_TOKEN_EXISTS` or a new `STOREFRONT_TOKEN_CHANGED`).
 - M4: the generated token can be widened in Strapi's Settings → API Tokens (permissions added, type switched to full-access) and still passes the policy. Optional hardening: warn (log and/or admin notice) when the stored token is not `custom` or has permissions; refusing it would break hand-chosen legacy tokens.
+
+## Order editing (plan 10)
 - Order editing: shipping line `invoiced` is derived from invoice dates (prudent); store shipping-line ids on coverages if per-line invoicing is ever needed.

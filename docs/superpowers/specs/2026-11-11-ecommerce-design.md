@@ -410,7 +410,7 @@ Portes grátis acima de um valor fazem-se com Promoções.
 ### 4.17 Edição da encomenda por secções **[Decisão, 2026-11-13]**
 Substitui o fluxo único de modificação do requisito 16 e o botão **Modificar**, removidos (modal e
 endpoints incluídos). Cada secção da encomenda é editada por si:
-- **Produtos:** adicionar, alterar e remover linhas; as correções (`editOf`) só editam linhas originais;
+- **Produtos:** adicionar, alterar e remover linhas; cada correção indica a linha que corrige e só as linhas originais são editáveis;
   uma encomenda totalmente expedida aceita produtos novos (4.1).
 - **Portes:** os portes são linhas (`CHECKOUT`, `RECALCULATION`, `EDIT`, `MANUAL`). Regra: **substitui-se
   só sem expedições e sem fatura emitida; caso contrário acrescenta-se a diferença**.
