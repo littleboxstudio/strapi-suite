@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
-import { Box, Button, Flex, Modal, Typography } from '@strapi/design-system';
+import { Button, Dialog, Flex, Modal, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import PreviewOrderLines from '../../usecases/orders/previewOrderLines';
 import ApplyOrderLines from '../../usecases/orders/applyOrderLines';
@@ -9,7 +9,6 @@ import { formatCents } from '../../utils/money';
 import {
   addModifyLine,
   buildLinesInput,
-  countLines,
   linesDraftChanged,
   linesDraftFromOrder,
   removeModifyLine,
@@ -32,11 +31,11 @@ type Props = {
   onSaved: (result: EditResult) => void;
 };
 
-type Step = 'edit' | 'review';
 
 /**
- * Adds products to the order and changes or removes its lines: edit, then Review (preview), then
- * Save, which closes it (the balance and its payment actions are on the page). Mount it only while open: each opening
+ * Adds products to the order and changes or removes its lines: edit, then Save, which previews
+ * the change and asks to confirm it with the amount the customer will pay (or get back); confirming
+ * saves and closes it (the balance and its payment actions are on the page). Mount it only while open: each opening
  * mints one operationId, so a retried save is applied once.
  */
 const OrderProductsModal = ({ order, onClose, onSaved }: Props) => {
@@ -47,7 +46,6 @@ const OrderProductsModal = ({ order, onClose, onSaved }: Props) => {
 
   const [operationId] = useState(() => mintUuid());
   const [lines, setLines] = useState(() => linesDraftFromOrder(order));
-  const [step, setStep] = useState<Step>('edit');
   const [preview, setPreview] = useState<LinesPreview | null>(null);
   const [errors, setErrors] = useState<ModificationErrorMap>({});
   const [busy, setBusy] = useState(false);
@@ -78,7 +76,6 @@ const OrderProductsModal = ({ order, onClose, onSaved }: Props) => {
       } else {
         setPreview(result);
         setErrors({});
-        setStep('review');
       }
     } catch (err) {
       toggleNotification({
@@ -103,7 +100,7 @@ const OrderProductsModal = ({ order, onClose, onSaved }: Props) => {
       if (fieldErrors?.length) {
         // The lines changed under us (stock, shipped units): back to the editor with the errors.
         setErrors(toModificationErrorMap(lines, fieldErrors));
-        setStep('edit');
+        setPreview(null);
       } else {
         toggleNotification({
           type: 'danger',
@@ -116,32 +113,6 @@ const OrderProductsModal = ({ order, onClose, onSaved }: Props) => {
   };
 
   const money = (cents: number) => formatCents(cents, uiLocale);
-  const counts = preview ? countLines(preview.lineChanges) : null;
-  const rows: { label: string; before: string; after: string }[] =
-    preview && counts
-      ? [
-          {
-            label: t('ecommerce.orders.products.items'),
-            before: String(counts.before.products),
-            after: String(counts.after.products),
-          },
-          {
-            label: t('ecommerce.orders.products.units'),
-            before: String(counts.before.units),
-            after: String(counts.after.units),
-          },
-          {
-            label: t('ecommerce.orders.products.subtotal'),
-            before: money(preview.before.subtotal),
-            after: money(preview.after.subtotal),
-          },
-          {
-            label: t('ecommerce.orders.products.total'),
-            before: money(preview.before.total),
-            after: money(preview.after.total),
-          },
-        ]
-      : [];
 
   const formError = errors.form ?? errors.lines;
 
@@ -152,98 +123,69 @@ const OrderProductsModal = ({ order, onClose, onSaved }: Props) => {
           <Modal.Title>{t('ecommerce.orders.products.title', { reference: order.reference })}</Modal.Title>
         </Modal.Header>
         <Modal.Body>
-          {step === 'edit' && (
-            <Flex direction="column" alignItems="stretch" gap={4}>
-              <VariantPicker
-                locale={order.locale}
-                disabled={busy}
-                onAdd={(variant) => edit(addModifyLine(lines, variant))}
-              />
-              <ModifyLinesEditor
-                lines={lines}
-                disabled={busy}
-                errorFor={(key) => (errors[`line.${key}`] ? codeText(errors[`line.${key}`]) : undefined)}
-                onQuantityChange={(key, quantity) => edit(setModifyLineQuantity(lines, key, quantity))}
-                onRemove={(key) => edit(removeModifyLine(lines, key))}
-                onRestore={(key) => edit(restoreModifyLine(lines, key))}
-              />
-              {formError && (
-                <Typography variant="omega" textColor="danger600">
-                  {codeText(formError)}
-                </Typography>
-              )}
-              <Typography variant="pi" textColor="neutral600">
-                {t('ecommerce.orders.products.note')}
+          <Flex direction="column" alignItems="stretch" gap={4}>
+            <VariantPicker
+              locale={order.locale}
+              disabled={busy}
+              onAdd={(variant) => edit(addModifyLine(lines, variant))}
+            />
+            <ModifyLinesEditor
+              lines={lines}
+              disabled={busy}
+              errorFor={(key) => (errors[`line.${key}`] ? codeText(errors[`line.${key}`]) : undefined)}
+              onQuantityChange={(key, quantity) => edit(setModifyLineQuantity(lines, key, quantity))}
+              onRemove={(key) => edit(removeModifyLine(lines, key))}
+              onRestore={(key) => edit(restoreModifyLine(lines, key))}
+            />
+            {formError && (
+              <Typography variant="omega" textColor="danger600">
+                {codeText(formError)}
               </Typography>
-            </Flex>
-          )}
-          {step === 'review' && preview && (
-            <Flex direction="column" alignItems="stretch" gap={4}>
-              <Box
-                tag="table"
-                style={{ width: '100%', borderCollapse: 'collapse' }}
+            )}
+            <Typography variant="pi" textColor="neutral600">
+              {t('ecommerce.orders.products.note')}
+            </Typography>
+          </Flex>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="tertiary" onClick={onClose} disabled={busy}>
+            {t('ecommerce.orders.products.close')}
+          </Button>
+          <Button onClick={review} loading={busy && !preview} disabled={!linesDraftChanged(lines)}>
+            {t('ecommerce.orders.products.save')}
+          </Button>
+        </Modal.Footer>
+      </Modal.Content>
+      {preview && (
+        // A short confirmation with what the customer will have to pay (or get back).
+        <Dialog.Root open onOpenChange={(next: boolean) => !next && !busy && setPreview(null)}>
+          <Dialog.Content>
+            <Dialog.Header>{t('ecommerce.orders.products.confirm.title')}</Dialog.Header>
+            <Dialog.Body>
+              <Typography
+                variant="omega"
+                textColor={preview.outcome === 'DUE' ? 'warning600' : 'neutral800'}
+                fontWeight={preview.outcome === 'NONE' ? undefined : 'semiBold'}
+                style={{ textAlign: 'center' }}
               >
-                <thead>
-                  <tr>
-                    <th />
-                    <th style={{ textAlign: 'right' }}>
-                      <Typography variant="sigma">{t('ecommerce.orders.products.before')}</Typography>
-                    </th>
-                    <th style={{ textAlign: 'right' }}>
-                      <Typography variant="sigma">{t('ecommerce.orders.products.after')}</Typography>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.label}>
-                      <td style={{ padding: '4px 0' }}>
-                        <Typography>{row.label}</Typography>
-                      </td>
-                      <td style={{ textAlign: 'right' }}>
-                        <Typography textColor="neutral600">{row.before}</Typography>
-                      </td>
-                      <td style={{ textAlign: 'right' }}>
-                        <Typography fontWeight="semiBold">{row.after}</Typography>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </Box>
-              <Typography variant="omega" textColor="neutral700">
                 {t(`ecommerce.orders.products.outcome.${preview.outcome}`, {
                   amount: money(Math.abs(preview.difference)),
                 })}
               </Typography>
-              <Typography variant="pi" textColor="neutral600">
-                {t('ecommerce.orders.products.note')}
-              </Typography>
-            </Flex>
-          )}
-        </Modal.Body>
-        <Modal.Footer>
-          {step === 'edit' && (
-            <>
-              <Button variant="tertiary" onClick={onClose} disabled={busy}>
-                {t('ecommerce.orders.products.close')}
-              </Button>
-              <Button onClick={review} loading={busy} disabled={!linesDraftChanged(lines)}>
-                {t('ecommerce.orders.products.review')}
-              </Button>
-            </>
-          )}
-          {step === 'review' && (
-            <>
-              <Button variant="tertiary" onClick={() => setStep('edit')} disabled={busy}>
-                {t('ecommerce.orders.products.back')}
-              </Button>
-              <Button onClick={save} loading={busy}>
-                {t('ecommerce.orders.products.save')}
-              </Button>
-            </>
-          )}
-        </Modal.Footer>
-      </Modal.Content>
+            </Dialog.Body>
+            <Dialog.Footer>
+              <Flex style={{ width: '100%' }} gap={2}>
+                <Button fullWidth variant="tertiary" disabled={busy} onClick={() => setPreview(null)}>
+                  {t('ecommerce.orders.products.confirm.cancel')}
+                </Button>
+                <Button fullWidth loading={busy} onClick={save}>
+                  {t('ecommerce.orders.products.save')}
+                </Button>
+              </Flex>
+            </Dialog.Footer>
+          </Dialog.Content>
+        </Dialog.Root>
+      )}
     </Modal.Root>
   );
 };
