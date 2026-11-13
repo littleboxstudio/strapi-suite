@@ -177,17 +177,3 @@ export function toModificationErrorMap(
   return map;
 }
 
-/** Number of products (lines with units) and units, before and after the edit. */
-export function countLines(lineChanges: LinesPreview['lineChanges']): {
-  before: { products: number; units: number };
-  after: { products: number; units: number };
-} {
-  const out = { before: { products: 0, units: 0 }, after: { products: 0, units: 0 } };
-  lineChanges.forEach((c) => {
-    if (c.previousQuantity > 0) out.before.products += 1;
-    if (c.newQuantity > 0) out.after.products += 1;
-    out.before.units += c.previousQuantity;
-    out.after.units += c.newQuantity;
-  });
-  return out;
-}

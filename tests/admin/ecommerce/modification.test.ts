@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   addModifyLine,
   buildLinesInput,
-  countLines,
   linesDraftChanged,
   linesDraftFromOrder,
   removeModifyLine,
@@ -221,18 +220,6 @@ describe('toModificationErrorMap', () => {
       [`line.${keyOf(lines, 1)}`]: 'QUANTITY_BELOW_SHIPPED',
       form: 'OPERATION_ID_CONFLICT',
     });
-  });
-});
-
-describe('countLines', () => {
-  it('counts products and units before and after', () => {
-    expect(
-      countLines([
-        { kind: 'UNCHANGED', orderLineId: 1, variantId: 1, previousQuantity: 2, newQuantity: 2 },
-        { kind: 'REMOVED', orderLineId: 2, variantId: 2, previousQuantity: 1, newQuantity: 0 },
-        { kind: 'ADDED', variantId: 3, previousQuantity: 0, newQuantity: 4 },
-      ])
-    ).toEqual({ before: { products: 2, units: 3 }, after: { products: 2, units: 6 } });
   });
 });
 
