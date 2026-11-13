@@ -1,13 +1,17 @@
 import { useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
-import { Box, Button, Flex, Link, Typography } from '@strapi/design-system';
+import { Box, Button, Flex, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import DismissReviewFlag from '../../usecases/orders/dismissReviewFlag';
 import { reviewAlertDate, reviewAlerts } from '../../utils/orderEditing';
 import { apiErrorMessageId } from '../../utils/orderDetail';
 import { mintUuid } from '../../utils/variantDraft';
 import type { EditResult, Order } from '../../orderTypes';
+
+/** The review alert's colours: a fixed orange background with black text. */
+const ALERT_BACKGROUND = '#f29d41';
+const ALERT_TEXT = '#000000';
 
 type Props = {
   order: Order;
@@ -42,6 +46,16 @@ const ReviewAlerts = ({ order, canManage, onResult }: Props) => {
     }
   };
 
+  /** Title, reason and (when it can no longer be fixed) why, joined on one line. */
+  const alertText = (alert: { code: string; dismissable: boolean }, reason: string) =>
+    [
+      t(`ecommerce.orders.review.${alert.code}`),
+      reason,
+      alert.dismissable ? t('ecommerce.orders.review.locked') : null,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+
   const goTo = (sectionId: string) => (event: { preventDefault: () => void }) => {
     event.preventDefault();
     document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -58,30 +72,28 @@ const ReviewAlerts = ({ order, canManage, onResult }: Props) => {
           <Box
             key={alert.code}
             role="alert"
-            background="danger100"
-            borderColor="danger200"
-            borderStyle="solid"
-            borderWidth="1px"
             hasRadius
-            padding={4}
+            paddingTop={2}
+            paddingBottom={2}
+            paddingLeft={4}
+            paddingRight={2}
+            // Fixed warning colour, the same in light and dark mode; the text stays black on it.
+            style={{ background: ALERT_BACKGROUND, color: ALERT_TEXT }}
           >
-            <Flex direction="column" alignItems="flex-start" gap={2}>
-              <Typography fontWeight="bold" textColor="danger700">
-                {t(`ecommerce.orders.review.${alert.code}`)}
+            <Flex gap={3} alignItems="center" justifyContent="space-between">
+              {/* One line: what to review, why and since when; a long text ends in an ellipsis. */}
+              <Typography
+                variant="omega"
+                ellipsis
+                title={alertText(alert, reason)}
+                style={{ color: ALERT_TEXT, fontWeight: 'normal', minWidth: 0, flex: 1 }}
+              >
+                {alertText(alert, reason)}
               </Typography>
-              <Typography textColor="danger700">{reason}</Typography>
-              {alert.dismissable && (
-                <Typography variant="pi" textColor="danger700">
-                  {t('ecommerce.orders.review.locked')}
-                </Typography>
-              )}
-              <Flex gap={3} alignItems="center">
-                <Link href={`#${alert.sectionId}`} onClick={goTo(alert.sectionId)}>
-                  {t('ecommerce.orders.review.goTo')}
-                </Link>
+              <Flex gap={2} alignItems="center" shrink={0}>
                 {alert.dismissable && canManage && (
                   <Button
-                    variant="secondary"
+                    variant="tertiary"
                     size="S"
                     loading={dismissing === alert.code}
                     disabled={dismissing !== null}
@@ -90,6 +102,9 @@ const ReviewAlerts = ({ order, canManage, onResult }: Props) => {
                     {t('ecommerce.orders.review.dismiss')}
                   </Button>
                 )}
+                <Button variant="secondary" size="S" onClick={goTo(alert.sectionId)}>
+                  {t('ecommerce.orders.review.goTo')}
+                </Button>
               </Flex>
             </Flex>
           </Box>
