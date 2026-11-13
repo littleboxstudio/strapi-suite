@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import EcommerceOrderService from '../../../server/src/services/modules/ecommerce/orders';
+import EcommerceOrderEditingService from '../../../server/src/services/modules/ecommerce/orderEditing';
 import EcommerceShipmentService from '../../../server/src/services/modules/ecommerce/shipments';
 import EcommerceReturnService from '../../../server/src/services/modules/ecommerce/returns';
 import EcommerceInvoiceService from '../../../server/src/services/modules/ecommerce/invoices';
@@ -170,6 +171,8 @@ function setup() {
   services.EcommerceEventBus = { collector: bus.collector, subscribe: bus.subscribe };
   const orders = EcommerceOrderService({ strapi });
   services.EcommerceOrderService = orders;
+  const editing = EcommerceOrderEditingService({ strapi });
+  services.EcommerceOrderEditingService = editing;
   registerPromotionService(strapi, services);
   services.EcommerceShipmentService = EcommerceShipmentService({ strapi });
   services.EcommerceReturnService = EcommerceReturnService({ strapi });
@@ -188,6 +191,7 @@ function setup() {
   );
   return {
     orders,
+    editing,
     payments,
     tables: t,
     bus,
@@ -752,14 +756,14 @@ describe('order-level writes take a row lock first', () => {
     expect(writes[0]).toEqual(LOCK(id));
   });
 
-  it('applyModification', async () => {
-    const { orders, tables, writes } = setup();
+  it('applyLines (products save)', async () => {
+    const { orders, editing, tables, writes } = setup();
     const { id } = await createOrder(orders);
     const lines = tables[UIDS.orderLine]
       .filter((l) => l.order === id)
       .map((l) => ({ orderLineId: l.id, variantId: l.variantId, quantity: 1 }));
     writes.length = 0;
-    await orders.applyModification(id, { lines, shipping: { mode: 'KEEP' } }, 'user:1', 'op-lock-0001');
+    await editing.applyLines(id, { lines }, 'user:1', 'op-lock-0001');
     expect(writes[0]).toEqual(LOCK(id));
   });
 });

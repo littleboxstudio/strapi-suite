@@ -239,7 +239,6 @@ export const canTransition = (from: OrderStatus, to: OrderStatus): boolean =>
 
 export type OrderActionKey =
   | 'SHIP'
-  | 'MODIFY'
   | 'CANCEL'
   | 'REFUND'
   | 'ADD_PAYMENT'
@@ -262,7 +261,7 @@ export type AvailableActionsInput = {
   hasUninvoicedCompletedPayments: boolean;
 };
 
-/** Returns actions in a stable order: SHIP, MODIFY, CANCEL, REFUND, ADD_PAYMENT,
+/** Returns actions in a stable order: SHIP, CANCEL, REFUND, ADD_PAYMENT,
  * SEND_PAYMENT_INSTRUCTIONS, ARCHIVE, REGISTER_RETURN, INVOICE_TOTAL. */
 export const availableActions = (input: AvailableActionsInput): OrderActionKey[] => {
   const open = input.orderStatus === 'OPEN';
@@ -272,7 +271,6 @@ export const availableActions = (input: AvailableActionsInput): OrderActionKey[]
   // partial refund or a zero-total order would never reach).
   const settled = due === 0 && (input.summary.paid > 0 || input.summary.orderTotal === 0);
   if (open && settled && input.hasUnshippedQuantity) actions.push('SHIP');
-  if (open && input.fulfillmentStatus !== 'FULFILLED') actions.push('MODIFY');
   if (open) actions.push('CANCEL');
   if (excess > 0) actions.push('REFUND');
   if (open && due > 0) actions.push('ADD_PAYMENT', 'SEND_PAYMENT_INSTRUCTIONS');

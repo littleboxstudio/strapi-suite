@@ -296,9 +296,8 @@ describe('availableActions', () => {
     hasUninvoicedCompletedPayments: false,
   };
 
-  it('new unpaid order', () => {
+  it('new unpaid order (no MODIFY: orders are edited by section)', () => {
     expect(availableActions(base)).toEqual([
-      'MODIFY',
       'CANCEL',
       'ADD_PAYMENT',
       'SEND_PAYMENT_INSTRUCTIONS',
@@ -310,7 +309,7 @@ describe('availableActions', () => {
     const actions = availableActions({ ...base, paymentStatus: 'PAID', summary });
     expect(actions).toContain('SHIP');
     expect(actions).not.toContain('ADD_PAYMENT');
-    expect(actions).toEqual(['SHIP', 'MODIFY', 'CANCEL']);
+    expect(actions).toEqual(['SHIP', 'CANCEL']);
   });
 
   it('paid with uninvoiced completed payments offers INVOICE_TOTAL', () => {
@@ -321,7 +320,7 @@ describe('availableActions', () => {
       summary,
       hasUninvoicedCompletedPayments: true,
     });
-    expect(actions).toEqual(['SHIP', 'MODIFY', 'CANCEL', 'INVOICE_TOTAL']);
+    expect(actions).toEqual(['SHIP', 'CANCEL', 'INVOICE_TOTAL']);
   });
 
   const fulfilled = {
@@ -336,7 +335,6 @@ describe('availableActions', () => {
   it('FULFILLED without all deliveries has no ARCHIVE', () => {
     const actions = availableActions({ ...fulfilled, allShipmentsDelivered: false });
     expect(actions).not.toContain('ARCHIVE');
-    expect(actions).not.toContain('MODIFY');
     expect(actions).toEqual(['CANCEL', 'REGISTER_RETURN']);
   });
 

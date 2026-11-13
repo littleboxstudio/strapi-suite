@@ -11,7 +11,6 @@ import {
   FULFILLMENT_STATUSES,
   availableActions,
   canTransition,
-  computeTotals,
   deriveFulfillmentStatus,
   derivePaymentStatus,
   financialSummary,
@@ -27,13 +26,7 @@ import {
   type ShipmentLike,
 } from './domain/orders';
 import {
-  simulateModification,
-  type ModificationResult,
-  type ShippingModification,
-} from './domain/orderModification';
-import {
   appliedOf,
-  createOrderModificationSupport,
   toPaymentLike,
   toRefundLike,
 } from './orderModificationSupport';
@@ -49,7 +42,6 @@ import {
 } from './domain/invoicing';
 import {
   orderDeliveryStatus,
-  previousShipmentsCost,
   remainingShippingCost,
   reservedQuantities,
   type DeliveryStatus,
@@ -67,7 +59,6 @@ import { normalizeStoreCreditCode } from './storeCredits';
 import {
   type AppliedPromotion,
   type EvaluationInput,
-  type EvaluationLine,
   type GiftOption,
   type PromotionCandidate,
   type PromotionEvaluation,
@@ -350,49 +341,6 @@ export type OrderListParams = {
   fulfillmentStatus?: string;
 };
 
-/**
- * What the admin sends to preview or apply a modification. `RECALCULATE` carries no amount:
- * the service quotes it. `MANUAL` may rename the stored method.
- */
-export type OrderModificationInput = {
-  lines: { orderLineId?: number; variantId: number; quantity: number }[];
-  shipping:
-    { mode: 'KEEP' } | { mode: 'RECALCULATE' } | { mode: 'MANUAL'; amount: number; name?: string };
-  addresses?: { shipping?: Address; billing?: Address };
-  /**
-   * Manual order discount in cents ([0, MAX_MONEY_CENTS], else `INVALID_AMOUNT`): replaces the
-   * stored one before the cap at the new subtotal and is recorded in the history.
-   */
-  orderDiscount?: number;
-};
-
-export type OrderModificationOutcome = Pick<ModificationResult, 'outcome' | 'difference'>;
-
-type NormalizedModification = {
-  lines: { orderLineId?: number; variantId: number; quantity: number }[];
-  shipping: OrderModificationInput['shipping'];
-  addresses: { shipping?: Address; billing?: Address };
-  /** As sent (validated by the simulation); absent = keep the stored discount. */
-  orderDiscount?: number;
-};
-
-const SHIPPING_MODES = ['KEEP', 'RECALCULATE', 'MANUAL'] as const;
-const OPERATION_ID_MIN = 8;
-const OPERATION_ID_MAX = 64;
-
-/** Key-sorted JSON, so two equal addresses compare equal whatever their key order. */
-const canonical = (v: unknown): string =>
-  JSON.stringify(
-    v && typeof v === 'object'
-      ? Object.fromEntries(Object.entries(v as object).sort(([a], [b]) => a.localeCompare(b)))
-      : (v ?? null)
-  );
-
-const operationConflict = () =>
-  new EcommerceValidationError('Invalid modification', [
-    { path: 'operationId', code: 'OPERATION_ID_CONFLICT' },
-  ]);
-
 const ADDRESS_REQUIRED = [
   'firstName',
   'lastName',
@@ -524,7 +472,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
   const events = (): {
     collector(): { emit(e: any): void; flush(): Promise<void> };
   } => service('EcommerceEventBus');
-  /** The only way the order service reaches promotions (create, cancel, get, quote, modify). */
+  /** The only way the order service reaches promotions (create, cancel, get, quote). */
   const promotions = (): {
     evaluate(input: Omit<EvaluationInput, 'searchLimit' | 'onConditionError'>): PromotionEvaluation;
     loadCandidates(p: { codes: string[]; email: string | null; emailVerified?: boolean }): Promise<PromotionCandidate[]>;
@@ -542,10 +490,6 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       opts: { operationId?: string }
     ): Promise<{ promotionId: number; promotionCode: string | null }[]>;
     redemptionStatuses(orderId: number): Promise<Map<number, 'RESERVED' | 'RELEASED'>>;
-    unmet(
-      applied: AppliedPromotion[],
-      ctx: { lines: EvaluationLine[]; email: string | null }
-    ): { promotionId: number; name: string }[];
   } => service('EcommercePromotionService');
   const paymentService = (): {
     applyStoreCredit(p: {
@@ -640,8 +584,6 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     num,
   });
   const { priceCart, quote, assertLinesAvailable, assertPricedStock, assertCodesUsable } = pricing;
-  const { toModificationCurrent, toModificationCatalog, quoteItems, writeLineChanges } =
-    createOrderModificationSupport(strapi);
 
   const validateInput = async (input: CreateOrderInput) => {
     const errors: ValidationIssue[] = [];
@@ -749,7 +691,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
 
   /**
    * A carrier shipment being created (or of uncertain outcome) reserves units the order must
-   * keep: cancelling or modifying the order waits until it is settled.
+   * keep: cancelling the order waits until it is settled (editing checks it in `orderEditing`).
    */
   const assertNoPendingShipment = (shipments: LoadedShipment[]): void => {
     if (shipments.some((s) => s.status === 'PENDING')) {
@@ -1296,11 +1238,8 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       hasPendingRefunds,
       hasUninvoicedCompletedPayments: [...invoicing.invoiceable.values()].some((v) => v > 0),
     }).filter(
-      (a) =>
-        // In-flight refunds already claim part of the excess.
-        (a !== 'REFUND' || refundableAmount(summary, inFlightRefunds) > 0) &&
-        // A PENDING shipment's units must stay on the order.
-        (a !== 'MODIFY' || !hasPendingShipment)
+      // In-flight refunds already claim part of the excess.
+      (a) => a !== 'REFUND' || refundableAmount(summary, inFlightRefunds) > 0
     );
     return {
       order,
@@ -1737,470 +1676,6 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
   const archive = (orderId: number, actor: string) =>
     transition(orderId, actor, 'ARCHIVE', 'ARCHIVED');
 
-  // -------------------------------------------------------------------------
-  // Modification (design 4.8)
-  // -------------------------------------------------------------------------
-
-  const normalizeModification = async (
-    input: OrderModificationInput
-  ): Promise<NormalizedModification> => {
-    const errors: ValidationIssue[] = [];
-    const rawLines: any[] | null = Array.isArray(input?.lines) ? input.lines : null;
-    if (!rawLines) errors.push({ path: 'lines', code: 'required' });
-    // Quantities and line ids are validated by the simulation, with per-line paths.
-    const lines = (rawLines ?? []).map((l) => ({
-      ...(l?.orderLineId !== undefined && l?.orderLineId !== null
-        ? { orderLineId: Number(l.orderLineId) }
-        : {}),
-      variantId: Number(l?.variantId),
-      quantity: l?.quantity,
-    }));
-
-    const raw = (input?.shipping ?? {}) as Record<string, unknown>;
-    const mode = raw.mode as (typeof SHIPPING_MODES)[number];
-    let shippingInput: OrderModificationInput['shipping'] = { mode: 'KEEP' };
-    if (!SHIPPING_MODES.includes(mode)) {
-      errors.push({ path: 'shipping.mode', code: 'required' });
-    } else if (mode === 'MANUAL') {
-      const name = clean(raw.name);
-      shippingInput = { mode, amount: raw.amount as number, ...(name ? { name } : {}) };
-    } else {
-      shippingInput = { mode };
-    }
-
-    const addresses: NormalizedModification['addresses'] = {};
-    const a = input?.addresses;
-    if (a?.shipping) {
-      const store = await service('EcommerceSettingsService').getStoreSettings();
-      addresses.shipping = normalizeAddress(
-        a.shipping,
-        'addresses.shipping',
-        errors,
-        store?.markets ?? []
-      );
-    }
-    if (a?.billing) addresses.billing = normalizeAddress(a.billing, 'addresses.billing', errors);
-
-    if (errors.length) throw new EcommerceValidationError('Invalid modification', errors);
-    return {
-      lines,
-      shipping: shippingInput,
-      addresses,
-      ...(input?.orderDiscount !== undefined ? { orderDiscount: input.orderDiscount } : {}),
-    };
-  };
-
-  /** The order (MODIFY must be available) and the catalog of every variant involved. */
-  const loadModificationContext = async (orderId: number, n: NormalizedModification) => {
-    const state = await computeOrderState(orderId);
-    assertNoPendingShipment(state.shipments);
-    assertAction(state, 'MODIFY');
-    const ids = new Set<number>(state.lines.map((l) => l.variantId));
-    for (const l of n.lines) {
-      if (Number.isSafeInteger(l.variantId) && l.variantId > 0) ids.add(l.variantId);
-    }
-    const catalog = ids.size
-      ? await loadCatalog([...ids], state.order.locale)
-      : new Map<number, CatalogVariant>();
-    return { state, catalog };
-  };
-
-  type ModificationContext = Awaited<ReturnType<typeof loadModificationContext>>;
-
-  const runSimulation = (
-    ctx: ModificationContext,
-    n: NormalizedModification,
-    shippingInput: ShippingModification
-  ): ModificationResult =>
-    simulateModification(
-      toModificationCurrent(ctx.state),
-      {
-        lines: n.lines,
-        shipping: shippingInput,
-        addresses: n.addresses,
-        ...(n.orderDiscount !== undefined ? { orderDiscount: n.orderDiscount } : {}),
-      },
-      toModificationCatalog(ctx.catalog),
-      { unmet: (applied, c) => promotions().unmet(applied, c) }
-    );
-
-  /**
-   * The shipping input for the simulation. `RECALCULATE` quotes the order's method for the
-   * units still to ship after the modification, at the (new) shipping address. When the lines
-   * themselves are invalid no quote is requested: `invalidDraft` carries those errors instead.
-   */
-  const resolveShipping = async (
-    ctx: ModificationContext,
-    n: NormalizedModification
-  ): Promise<{
-    input: ShippingModification;
-    option: ShippingOption | null;
-    invalidDraft?: ModificationResult;
-  }> => {
-    if (n.shipping.mode === 'KEEP') return { input: { mode: 'KEEP' }, option: null };
-    if (n.shipping.mode === 'MANUAL') {
-      return { input: { mode: 'MANUAL', amount: n.shipping.amount }, option: null };
-    }
-
-    const { state, catalog } = ctx;
-    const draft = runSimulation(ctx, n, { mode: 'KEEP' });
-    if (draft.errors.length) {
-      return {
-        input: { mode: 'KEEP' },
-        option: null,
-        invalidDraft: { ...draft, shipping: { ...draft.shipping, mode: 'RECALCULATE' } },
-      };
-    }
-    // Items and subtotal share one base: the units not yet reserved by a shipment.
-    const { items, subtotal } = quoteItems(
-      state,
-      draft.lineChanges.map((c) => ({
-        variantId: c.variantId,
-        quantity: c.newQuantity,
-        orderLineId: c.orderLineId,
-        sourceOrderLineId: c.sourceOrderLineId,
-      })),
-      catalog
-    );
-    const destination: Address | null = n.addresses.shipping ?? state.order.shippingAddress;
-    const method = (state.order.shippingMethod ?? {}) as Record<string, unknown>;
-    const option = await shipping().findOption(
-      {
-        country: destination?.country ?? '',
-        postalCode: destination?.postalCode,
-        items,
-        subtotal,
-        locale: state.order.locale,
-      },
-      String(method.providerId ?? ''),
-      String(method.serviceId ?? '')
-    );
-    if (!option) {
-      throw new EcommerceValidationError('Invalid modification', [
-        { path: 'shipping', code: 'SHIPPING_QUOTE_FAILED' },
-      ]);
-    }
-    return {
-      input: {
-        mode: 'RECALCULATE',
-        quote: num(option.price),
-        previousShipmentsCost: previousShipmentsCost(state.shipments),
-      },
-      option,
-    };
-  };
-
-  const previewModification = async (
-    rawOrderId: number | string,
-    input: OrderModificationInput
-  ): Promise<ModificationResult> => {
-    const orderId = Number(rawOrderId);
-    const n = await normalizeModification(input);
-    const ctx = await loadModificationContext(orderId, n);
-    const { input: shippingInput, invalidDraft } = await resolveShipping(ctx, n);
-    return invalidDraft ?? runSimulation(ctx, n, shippingInput);
-  };
-
-  /** The ORDER_MODIFIED history row's unique key: one application per operationId. */
-  const modificationKey = (operationId: string) => `modify:${operationId}`;
-
-  /** The outcome of an earlier application of `operationId` on this order, if any. */
-  const findAppliedModification = async (
-    orderId: number,
-    operationId: string
-  ): Promise<OrderModificationOutcome | null> => {
-    const q = strapi.db.query(uids().orderHistory);
-    const uniqueKey = modificationKey(operationId);
-    const row = await q.findOne({ where: { uniqueKey, order: { id: orderId } } });
-    if (row) {
-      return {
-        outcome: row.newValue?.outcome ?? 'NONE',
-        difference: num(row.newValue?.difference),
-      };
-    }
-    // The stock keys embed the operationId: reusing one from another order is a client bug.
-    if (await q.findOne({ where: { uniqueKey } })) {
-      throw operationConflict();
-    }
-    return null;
-  };
-
-  const applyModification = async (
-    rawOrderId: number | string,
-    input: OrderModificationInput,
-    actor: string,
-    rawOperationId: string
-  ): Promise<{ order: OrderView } & OrderModificationOutcome> => {
-    const orderId = Number(rawOrderId);
-    const operationId = typeof rawOperationId === 'string' ? rawOperationId.trim() : '';
-    if (operationId.length < OPERATION_ID_MIN || operationId.length > OPERATION_ID_MAX) {
-      throw new EcommerceValidationError('Invalid modification', [
-        { path: 'operationId', code: 'required' },
-      ]);
-    }
-
-    // A replay returns the current order before any precondition: the first request may
-    // already have changed what is available.
-    const replay = async () => {
-      const applied = await findAppliedModification(orderId, operationId);
-      return applied ? { order: await get(orderId), ...applied } : null;
-    };
-    const earlier = await replay();
-    if (earlier) return earlier;
-
-    const n = await normalizeModification(input);
-    // The carrier quote may be a remote call: it is taken before the transaction and used
-    // as-is inside it. A quote gone stale meanwhile is accepted (design 9.2: no locking).
-    const {
-      input: shippingInput,
-      option,
-      invalidDraft,
-    } = await resolveShipping(await loadModificationContext(orderId, n), n);
-    if (invalidDraft) {
-      throw new EcommerceValidationError('Invalid modification', invalidDraft.errors);
-    }
-
-    const collector = events().collector();
-    let outcome: OrderModificationOutcome;
-    try {
-      outcome = await strapi.db.transaction(async () => {
-        await lockOrder(orderId);
-        if (await findAppliedModification(orderId, operationId)) throw operationConflict();
-        const ctx = await loadModificationContext(orderId, n);
-        const result = runSimulation(ctx, n, shippingInput);
-        if (result.errors.length) {
-          throw new EcommerceValidationError('Invalid modification', result.errors);
-        }
-        await writeModification(ctx, n, result, option, actor, operationId);
-        await recalculate(orderId, { actor, operationId });
-        collector.emit({
-          type: 'ORDER_MODIFIED',
-          orderId,
-          payload: { outcome: result.outcome, difference: result.difference },
-        });
-        return { outcome: result.outcome, difference: result.difference };
-      });
-    } catch (err) {
-      // A concurrent request with the same operationId committed first (the unique key of its
-      // ORDER_MODIFIED row or of a stock move was taken): that is the answer.
-      const isConflict =
-        err instanceof EcommerceValidationError &&
-        (err as any).errors?.some?.((e: ValidationIssue) => e.code === 'OPERATION_ID_CONFLICT');
-      if (isConflict || isUniqueViolation(err)) {
-        const winner = await replay();
-        if (winner) return winner;
-      }
-      throw err;
-    }
-    await collector.flush();
-    return { order: await get(orderId), ...outcome };
-  };
-
-  /** Persists a validated simulation: lines, stock, addresses, shipping, totals and history. */
-  const writeModification = async (
-    ctx: ModificationContext,
-    n: NormalizedModification,
-    result: ModificationResult,
-    option: ShippingOption | null,
-    actor: string,
-    operationId: string
-  ): Promise<void> => {
-    const u = uids();
-    const { state, catalog } = ctx;
-    const order = state.order;
-    const orderId = order.id as number;
-    const record = (entry: Omit<OrderHistoryEntry, 'orderId' | 'actor' | 'operationId'>) =>
-      history().record({ ...entry, orderId, actor, operationId });
-
-    // --- Lines and stock -----------------------------------------------------
-    await writeLineChanges(state, catalog, result, {
-      actor,
-      operationId,
-      stockKey: (variantId) => `modify:${operationId}:${variantId}`,
-    });
-    const byId = new Map(state.lines.map((l) => [l.id, l]));
-    // The created lines, in creation (position) order: one per ADDED change.
-    const createdLines: any[] = (
-      await strapi.db.query(u.orderLine).findMany({ where: { order: orderId } })
-    )
-      .filter((l: any) => !byId.has(l.id))
-      .sort(byPosition);
-    let created = 0;
-    for (const change of result.lineChanges) {
-      if (change.kind === 'UNCHANGED') continue;
-      if (change.kind === 'ADDED') {
-        const row = createdLines[created++];
-        await record({
-          type: 'LINE_ADDED',
-          description: `Added ${change.newQuantity} × ${row.sku}`,
-          previousValue: null,
-          newValue: {
-            orderLineId: row.id,
-            variantId: row.variantId,
-            sku: row.sku,
-            name: row.name,
-            option: row.option,
-            unitPrice: num(row.unitPrice),
-            quantity: change.newQuantity,
-          },
-        });
-        continue;
-      }
-      const line = byId.get(change.orderLineId!)!;
-      const ref = {
-        orderLineId: line.id,
-        variantId: line.variantId,
-        sku: line.sku,
-        name: line.name,
-        option: line.option,
-      };
-      if (change.kind === 'REMOVED') {
-        await record({
-          type: 'LINE_REMOVED',
-          description: `Removed ${change.previousQuantity} × ${line.sku}`,
-          previousValue: { ...ref, quantity: change.previousQuantity },
-          newValue: null,
-        });
-      } else {
-        await record({
-          type: 'LINE_QUANTITY_CHANGED',
-          description: `Quantity of ${line.sku} changed from ${change.previousQuantity} to ${change.newQuantity}`,
-          previousValue: { ...ref, quantity: change.previousQuantity },
-          newValue: { ...ref, quantity: change.newQuantity },
-        });
-      }
-    }
-
-    // --- Addresses -----------------------------------------------------------
-    const data: Record<string, unknown> = {};
-    for (const [kind, field] of [
-      ['shipping', 'shippingAddress'],
-      ['billing', 'billingAddress'],
-    ] as const) {
-      const next = n.addresses[kind];
-      const previous = order[field] ?? null;
-      if (!next || canonical(next) === canonical(previous)) continue;
-      data[field] = next;
-      await record({
-        type: 'ADDRESS_CHANGED',
-        description: `${kind === 'shipping' ? 'Shipping' : 'Billing'} address changed`,
-        previousValue: { [field]: previous },
-        newValue: { [field]: next },
-      });
-    }
-
-    // --- Shipping ------------------------------------------------------------
-    const s = result.shipping;
-    if (s.mode !== 'KEEP') {
-      const previousMethod = (order.shippingMethod ?? null) as Record<string, unknown> | null;
-      let method: Record<string, unknown>;
-      if (s.mode === 'RECALCULATE' && option) {
-        method = {
-          providerId: option.providerId,
-          serviceId: option.serviceId,
-          name: option.name,
-          price: num(option.price),
-          tax: num(option.tax),
-          ...(option.estimatedDays !== undefined ? { estimatedDays: option.estimatedDays } : {}),
-        };
-        data.shippingTax = num(option.tax);
-      } else {
-        // MANUAL keeps the carrier ids; only the price (and optionally the name) change.
-        const name = n.shipping.mode === 'MANUAL' ? n.shipping.name : undefined;
-        method = {
-          ...(previousMethod ?? {}),
-          price: s.shippingOriginal,
-          ...(name ? { name } : {}),
-        };
-      }
-      data.shippingMethod = method;
-      await record({
-        type: 'SHIPPING_CHANGED',
-        description: `Shipping ${s.mode === 'MANUAL' ? 'set manually' : 'recalculated'}: ${s.previousCharged} → ${s.newCharged} cents`,
-        previousValue: {
-          charged: s.previousCharged,
-          shippingOriginal: num(order.shippingOriginal),
-          shippingDiscount: num(order.shippingDiscount),
-          shippingMethod: previousMethod,
-        },
-        newValue: {
-          mode: s.mode,
-          previousCharged: s.previousCharged,
-          newCharged: s.newCharged,
-          ...(s.quote !== undefined ? { quote: s.quote } : {}),
-          ...(s.previousShipmentsCost !== undefined
-            ? { previousShipmentsCost: s.previousShipmentsCost }
-            : {}),
-          shippingMethod: method,
-        },
-      });
-    }
-
-    // --- Totals --------------------------------------------------------------
-    const storedLines: any[] = await strapi.db.query(u.orderLine).findMany({
-      where: { order: orderId },
-    });
-    const previousDiscount = num(order.orderDiscount);
-    // The simulation validated it: a manual discount replaces the stored one before the cap.
-    const manualDiscount = n.orderDiscount !== undefined;
-    const totals = computeTotals(
-      storedLines.map((l) => ({
-        unitPrice: num(l.unitPrice),
-        unitDiscount: num(l.unitDiscount),
-        quantity: num(l.quantity),
-        returnedQuantity: num(l.returnedQuantity),
-      })),
-      {
-        orderDiscount: manualDiscount ? num(n.orderDiscount) : previousDiscount,
-        shippingOriginal: s.shippingOriginal,
-        shippingDiscount: s.shippingDiscount,
-      }
-    );
-    // One entry per modification: the manual adjustment, or else the cap.
-    if (totals.orderDiscount !== previousDiscount) {
-      const description = manualDiscount
-        ? `Order discount adjusted manually: ${previousDiscount} → ${totals.orderDiscount} cents`
-        : `Order discount capped at the new subtotal: ${previousDiscount} → ${totals.orderDiscount} cents`;
-      await record({
-        type: 'ORDER_DISCOUNT_CHANGED',
-        description,
-        previousValue: { orderDiscount: previousDiscount },
-        newValue: { orderDiscount: totals.orderDiscount },
-      });
-    }
-
-    // Conditional on OPEN: a concurrent cancel or archive that committed first leaves 0 rows,
-    // and throwing rolls this modification back.
-    const { count } = await strapi.db.query(u.order).updateMany({
-      where: { id: orderId, orderStatus: 'OPEN' },
-      data: {
-        ...data,
-        itemsOriginal: totals.itemsOriginal,
-        productDiscount: totals.productDiscount,
-        subtotal: totals.subtotal,
-        orderDiscount: totals.orderDiscount,
-        shippingOriginal: s.shippingOriginal,
-        shippingDiscount: s.shippingDiscount,
-        shippingTotal: totals.shippingTotal,
-        total: totals.total,
-      },
-    });
-    assertAction(state, 'MODIFY', count > 0);
-
-    await record({
-      type: 'ORDER_MODIFIED',
-      uniqueKey: modificationKey(operationId),
-      description: `Order modified: total ${result.before.total} → ${totals.total} cents (${result.outcome})`,
-      previousValue: { totals: result.before },
-      newValue: {
-        operationId,
-        outcome: result.outcome,
-        difference: result.difference,
-        totals: result.after,
-      },
-    });
-  };
-
   /**
    * Shipping options for a draft order. The caller sends only variant ids and quantities;
    * weight and dimensions come from the catalog.
@@ -2328,8 +1803,6 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     assertAction,
     cancel,
     archive,
-    previewModification,
-    applyModification,
     lockOrder,
     loadCatalog,
   };

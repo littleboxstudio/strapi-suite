@@ -538,7 +538,7 @@ describe('orders with promotions: create', () => {
     );
   });
 
-  it('"buy 3, pay 2" creates two lines of the same variant; a modification by orderLineId still works', async () => {
+  it('"buy 3, pay 2" creates two lines of the same variant; a products save by orderLineId still works', async () => {
     addPromotion({
       benefits: {
         items: [
@@ -561,14 +561,13 @@ describe('orders with promotions: create', () => {
     const deducts = c.tables[UIDS.stockMovement].filter((m) => m.type === 'ORDER_DEDUCT');
     expect(deducts.map((m) => m.quantity)).toEqual([-3]);
 
-    const res = await c.orders.applyModification(
+    const res = await c.editing.applyLines(
       order.id,
       {
         lines: [
           { orderLineId: lines[0].id, variantId: 10, quantity: 3 },
           { orderLineId: lines[1].id, variantId: 10, quantity: 1 },
         ],
-        shipping: { mode: 'KEEP' },
       },
       'user:1',
       'op-mod-0001'

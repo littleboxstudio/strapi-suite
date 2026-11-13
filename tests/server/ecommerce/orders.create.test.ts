@@ -740,7 +740,7 @@ describe('EcommerceOrderService.list / get', () => {
       shipments: [],
       promotions: [],
       summary: { orderTotal: 7000, total: 7000, paid: 0, due: 7000, excess: 0 },
-      availableActions: ['MODIFY', 'CANCEL', 'ADD_PAYMENT', 'SEND_PAYMENT_INSTRUCTIONS'],
+      availableActions: ['CANCEL', 'ADD_PAYMENT', 'SEND_PAYMENT_INSTRUCTIONS'],
     });
     expect(view.lines).toHaveLength(2);
     expect(view.lines[0]).toMatchObject({ variantId: 10, quantity: 2, shipped: 0, pending: 2 });
@@ -770,7 +770,7 @@ describe('EcommerceOrderService.list / get', () => {
       actor: 'user:2',
     });
     // The settled payment is not invoiced yet.
-    expect(view.availableActions).toEqual(['SHIP', 'MODIFY', 'CANCEL', 'INVOICE_TOTAL']);
+    expect(view.availableActions).toEqual(['SHIP', 'CANCEL', 'INVOICE_TOTAL']);
     // No change → no new entry.
     await service.recalculate(id);
     expect(tables[UIDS.orderHistory]).toHaveLength(2);

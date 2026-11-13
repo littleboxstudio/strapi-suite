@@ -209,12 +209,7 @@ describe('EcommerceInvoiceService.issue', () => {
     const { c, inv, provider } = setup();
     const id = await order(c, [2500], 1); // 1 × 2000 + 500
     const paymentId = paymentRows(c, id)[0].id;
-    await c.orders.applyModification(
-      id,
-      { lines: [{ variantId: 11, quantity: 1 }], shipping: { mode: 'KEEP' } },
-      'user:1',
-      'op-replace-01'
-    );
+    await c.editing.applyLines(id, { lines: [{ variantId: 11, quantity: 1 }] }, 'user:1', 'op-replace-01');
     const newLine = lineIdOf(c, id, 11);
 
     const view = await inv.issue(id, paymentScope(paymentId), { idempotencyKey: 'k1' }, 'user:1');
