@@ -257,9 +257,12 @@ const OrderDetailPage = () => {
         orderStatus={order.orderStatus}
         deliveryStatus={order.shipping.deliveryStatus}
         shipments={order.shipments}
-        shippingAddress={order.shippingAddress}
+        order={order}
+        permissions={permissions}
         canManage={canManage}
         onChanged={load}
+        onEdited={showResult}
+        onAction={(action) => dispatchModal({ type: 'OPEN', action })}
       />
       <ReturnsSection title={t('ecommerce.orders.detail.sections.returns')} returns={order.returns} />
       <OrderSection title={t('ecommerce.orders.detail.sections.refunds')}>

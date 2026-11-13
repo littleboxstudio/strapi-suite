@@ -1,4 +1,5 @@
 import { MAX_MONEY_CENTS, parseMoneyToCents } from './money';
+import { ADDRESS_REQUIRED_FIELDS, type AddressForm } from './orderForm';
 import { allowedToolbarActions, type OrderActionPermissions, type ToolbarAction } from './orderDetail';
 import type {
   DiscountRow,
@@ -8,7 +9,9 @@ import type {
   OrderEditAction,
   OrderEditing,
   ReviewFlagCode,
+  ShippingLineInput,
   ShippingLineView,
+  ShippingOption,
 } from '../orderTypes';
 
 /** The order offers `action` (the server decides; the UI only hides buttons). */
@@ -77,6 +80,71 @@ export function shippingLineRows(
     ],
     actions: canEditLine ? ['EDIT'] : [],
   }));
+}
+
+/** The amount a line stands for: with its corrections when it has any. */
+export function shippingLineAmount(line: ShippingLineView): number {
+  return line.effectiveAmount ?? line.amount;
+}
+
+/** Why the shipping address cannot be edited (`address.locked.<reason>`), or null when it can. */
+export function addressLockReason(editing: OrderEditing): string | null {
+  if (editing.blockedBy) return editing.blockedBy;
+  if (editing.hasShipments) return 'HAS_SHIPMENTS';
+  return null;
+}
+
+/**
+ * The countries the address select offers: the ones the current method serves, plus the address's
+ * own country so the field is never shown empty (the server refuses it if it changed elsewhere).
+ */
+export function allowedCountryCodes(served: string[], current: string): string[] {
+  const code = current.trim().toUpperCase();
+  return code && !served.includes(code) ? [...served, code] : served;
+}
+
+/** The empty required fields of a shipping address form, under the server's `address.*` paths. */
+export function shippingAddressErrors(form: AddressForm): FieldError[] {
+  return ADDRESS_REQUIRED_FIELDS.filter((f) => !form[f].trim()).map((f) => ({
+    path: `address.${f}`,
+    code: 'required',
+  }));
+}
+
+type MethodRef = { providerId: string; serviceId: string };
+
+/** The method of the newest line that chose one; RECALCULATION lines inherit it (spec 6.1). */
+export function currentShippingMethod(lines: ShippingLineView[]): MethodRef | null {
+  const chosen = [...lines].reverse().find((l) => l.origin !== 'RECALCULATION');
+  return chosen ? { providerId: chosen.providerId, serviceId: chosen.serviceId } : null;
+}
+
+export const shippingOptionKey = (o: MethodRef): string => `${o.providerId}:${o.serviceId}`;
+
+/** The option selected when the modal opens: `preferred` when offered, else the first one. */
+export function defaultShippingOptionKey(options: ShippingOption[], preferred: MethodRef | null): string | null {
+  const match = preferred && options.find((o) => shippingOptionKey(o) === shippingOptionKey(preferred));
+  const option = match || options[0];
+  return option ? shippingOptionKey(option) : null;
+}
+
+/** The chosen method and the price typed in euros as the server input; `input` is null on errors. */
+export function shippingLineDraftToInput(
+  option: ShippingOption | null,
+  price: string
+): { input: ShippingLineInput | null; errors: FieldError[] } {
+  const errors: FieldError[] = [];
+  if (!option) errors.push({ path: 'method', code: 'required' });
+  const amount = parseMoneyToCents(price.trim());
+  if (amount === null || amount > MAX_MONEY_CENTS) errors.push({ path: 'amount', code: 'INVALID_AMOUNT' });
+  return option && !errors.length
+    ? { input: { providerId: option.providerId, serviceId: option.serviceId, amount: amount as number }, errors }
+    : { input: null, errors };
+}
+
+/** The field of the shipping line modal a server error path belongs to. */
+export function shippingLineErrorKey(path: string): 'amount' | 'method' | 'form' {
+  return path === 'amount' || path === 'method' ? path : 'form';
 }
 
 /** The Actions column is shown only when some row has an action. */
