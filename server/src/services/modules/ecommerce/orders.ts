@@ -28,12 +28,15 @@ import {
 } from './domain/orders';
 import {
   simulateModification,
-  type CatalogVariant as ModificationCatalogVariant,
-  type ExistingLine,
-  type ModificationCurrent,
   type ModificationResult,
   type ShippingModification,
 } from './domain/orderModification';
+import {
+  appliedOf,
+  createOrderModificationSupport,
+  toPaymentLike,
+  toRefundLike,
+} from './orderModificationSupport';
 import { refundableAmount } from './domain/refunds';
 import {
   invoiceableByPayment,
@@ -70,7 +73,14 @@ import {
   type PromotionEvaluation,
 } from './domain/promotions';
 import { createOrderPricing } from './orderPricing';
-import { checkoutLine } from './domain/shippingLines';
+import {
+  checkoutLine,
+  readShippingLines,
+  shippingLineViews,
+  type ShippingLineView,
+} from './domain/shippingLines';
+import { orderEditing, readReviewFlags, type OrderEditing, type ReviewFlag } from './domain/orderEditing';
+import { readManualDiscounts, type ManualDiscount } from './domain/manualDiscounts';
 import { MAX_STORE_CREDIT_CODE_LENGTH } from './domain/storefront/limits';
 import {
   MAX_PROMOTION_CODES,
@@ -228,6 +238,11 @@ export type OrderView = {
   summary: FinancialSummary;
   availableActions: OrderActionKey[];
   history: Record<string, unknown>[];
+  editing: OrderEditing;
+  shippingLines: ShippingLineView[];
+  /** The stored manual discounts (a legacy order reads its LEGACY item). */
+  manualDiscounts: ManualDiscount[];
+  reviewFlags: ReviewFlag[];
 };
 
 export type OrderState = {
@@ -248,6 +263,10 @@ export type OrderState = {
   summary: FinancialSummary;
   actions: OrderActionKey[];
   invoicing: OrderInvoicing;
+  /** Which edits the order offers (plan 10). */
+  editing: OrderEditing;
+  /** The shipping charges table, with paid / invoiced / spent per line. */
+  shippingLines: ShippingLineView[];
 };
 
 /** The order's invoicing position (design 4.4), part of `OrderState`. */
@@ -395,12 +414,6 @@ const toPage = (page: unknown): number => {
 };
 const byPosition = (a: any, b: any) =>
   (a.position ?? 0) - (b.position ?? 0) || (a.id ?? 0) - (b.id ?? 0);
-
-/** The promotions an order stored (`{ applied, … }`); a legacy `[]` reads as none. */
-const appliedOf = (order: any): AppliedPromotion[] =>
-  isRecord(order?.promotions) && Array.isArray(order.promotions.applied)
-    ? order.promotions.applied.filter(isRecord)
-    : [];
 
 /** The stored code statuses (`promotions.codes`); malformed entries and a legacy `[]` read as none. */
 const promotionCodesOf = (order: any): OrderPromotionCodeView[] => {
@@ -627,6 +640,8 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     num,
   });
   const { priceCart, quote, assertLinesAvailable, assertPricedStock, assertCodesUsable } = pricing;
+  const { toModificationCurrent, toModificationCatalog, quoteItems, writeLineChanges } =
+    createOrderModificationSupport(strapi);
 
   const validateInput = async (input: CreateOrderInput) => {
     const errors: ValidationIssue[] = [];
@@ -758,14 +773,6 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     financialSummary(num(order.total), payments, refunds, {
       orderCancelled: order.orderStatus === 'CANCELLED',
     });
-
-  const toPaymentLike = (p: any): PaymentLike => ({ status: p.status, amount: num(p.amount) });
-  const toRefundLike = (r: any): RefundLike => ({
-    status: r.status,
-    amount: num(r.amount),
-    kind: r.kind === 'STORE_CREDIT' ? 'STORE_CREDIT' : 'MONEY',
-    promoted: r.metadata?.promotedFromFailed === true,
-  });
 
 
   const create = async (input: CreateOrderInput, ctx: CreateOrderContext): Promise<CreatedOrder> => {
@@ -1255,6 +1262,26 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     const inFlightRefunds = inFlight.reduce((s, r) => s + num(r.amount), 0);
     const hasPendingRefunds = inFlight.length > 0;
     const invoicing = await loadInvoicing(order, lines, payments, refunds);
+    const hasActiveShipment = shipments.some((s) => s.status === 'ACTIVE');
+    const editing = orderEditing({
+      orderStatus: order.orderStatus,
+      hasPendingShipment,
+      hasActiveShipment,
+    });
+    const shippingLines = shippingLineViews(readShippingLines(order), {
+      coveredShipping: invoicing.completedPayments.reduce(
+        (sum, p) => sum + (invoicing.reconciled.get(p.id)?.shipping ?? 0),
+        0
+      ),
+      invoices: invoicing.invoices.map((i) => ({
+        kind: i.kind,
+        status: i.status,
+        createdAt: i.createdAt,
+        hasShipping:
+          Array.isArray(i.lines?.lines) && i.lines.lines.some((l: any) => l?.kind === 'SHIPPING'),
+      })),
+      hasActiveShipment,
+    });
     const actions = availableActions({
       orderStatus: order.orderStatus,
       paymentStatus: order.paymentStatus,
@@ -1287,6 +1314,8 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       summary,
       actions,
       invoicing,
+      editing,
+      shippingLines,
     };
   };
 
@@ -1301,6 +1330,8 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       summary,
       actions,
       invoicing,
+      editing,
+      shippingLines,
     } = await computeOrderState(id);
     const shipmentViews: ShipmentView[] = await service('EcommerceShipmentService').listForOrder(
       id,
@@ -1422,6 +1453,10 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         operationId: h.operationId ?? null,
         createdAt: h.createdAt,
       })),
+      editing,
+      shippingLines,
+      manualDiscounts: readManualDiscounts(order),
+      reviewFlags: readReviewFlags(order.reviewFlags),
     };
   };
 
@@ -1772,53 +1807,6 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
 
   type ModificationContext = Awaited<ReturnType<typeof loadModificationContext>>;
 
-  const toModificationCurrent = (state: OrderState): ModificationCurrent => ({
-    lines: state.lines.map((l): ExistingLine => ({
-      id: l.id,
-      variantId: l.variantId,
-      productId: l.productId,
-      sku: l.sku,
-      name: l.name,
-      option: l.option ?? '',
-      tax: l.tax,
-      shipped: l.shipped,
-      isGift: l.isGift,
-      unitPrice: l.unitPrice,
-      unitDiscount: l.unitDiscount,
-      quantity: l.quantity,
-      returnedQuantity: l.returnedQuantity,
-    })),
-    orderDiscount: num(state.order.orderDiscount),
-    shippingOriginal: num(state.order.shippingOriginal),
-    shippingDiscount: num(state.order.shippingDiscount),
-    payments: state.payments.map(toPaymentLike),
-    refunds: state.refunds.map(toRefundLike),
-    promotions: appliedOf(state.order),
-    email:
-      typeof state.order.customerSnapshot?.email === 'string'
-        ? state.order.customerSnapshot.email
-        : null,
-  });
-
-  const toModificationCatalog = (catalog: Map<number, CatalogVariant>) => {
-    const out = new Map<number, ModificationCatalogVariant>();
-    for (const [id, c] of catalog) {
-      out.set(id, {
-        variantId: c.variantId,
-        productId: c.productId,
-        sku: c.sku,
-        name: c.name,
-        option: c.option ?? '',
-        unitPrice: c.price,
-        tax: c.tax,
-        imageUrl: c.imageUrl,
-        stock: c.stock,
-        active: c.active,
-      });
-    }
-    return out;
-  };
-
   const runSimulation = (
     ctx: ModificationContext,
     n: NormalizedModification,
@@ -1864,30 +1852,16 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       };
     }
     // Items and subtotal share one base: the units not yet reserved by a shipment.
-    const linesById = new Map(state.lines.map((l) => [l.id, l]));
-    const items: ShippingQuoteRequest['items'] = [];
-    let subtotal = 0;
-    for (const c of draft.lineChanges) {
-      const line = c.orderLineId !== undefined ? linesById.get(c.orderLineId) : undefined;
-      const quantity = c.newQuantity - (line?.reserved ?? 0);
-      if (quantity <= 0) continue;
-      const v = catalog.get(c.variantId);
-      const source = c.sourceOrderLineId !== undefined ? linesById.get(c.sourceOrderLineId) : undefined;
-      const unitNet = line
-        ? line.unitPrice - line.unitDiscount
-        : source
-          ? source.unitPrice
-          : (v?.price ?? 0);
-      subtotal += unitNet * quantity;
-      items.push({
+    const { items, subtotal } = quoteItems(
+      state,
+      draft.lineChanges.map((c) => ({
         variantId: c.variantId,
-        quantity,
-        weight: v?.weight ?? 0,
-        width: v?.width ?? 0,
-        height: v?.height ?? 0,
-        depth: v?.depth ?? 0,
-      });
-    }
+        quantity: c.newQuantity,
+        orderLineId: c.orderLineId,
+        sourceOrderLineId: c.sourceOrderLineId,
+      })),
+      catalog
+    );
     const destination: Address | null = n.addresses.shipping ?? state.order.shippingAddress;
     const method = (state.order.shippingMethod ?? {}) as Record<string, unknown>;
     const option = await shipping().findOption(
@@ -2038,64 +2012,40 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     const record = (entry: Omit<OrderHistoryEntry, 'orderId' | 'actor' | 'operationId'>) =>
       history().record({ ...entry, orderId, actor, operationId });
 
-    // --- Lines ---------------------------------------------------------------
+    // --- Lines and stock -----------------------------------------------------
+    await writeLineChanges(state, catalog, result, {
+      actor,
+      operationId,
+      stockKey: (variantId) => `modify:${operationId}:${variantId}`,
+    });
     const byId = new Map(state.lines.map((l) => [l.id, l]));
-    let position = Math.max(-1, ...(order.lines ?? []).map((l: any) => num(l.position))) + 1;
+    // The created lines, in creation (position) order: one per ADDED change.
+    const createdLines: any[] = (
+      await strapi.db.query(u.orderLine).findMany({ where: { order: orderId } })
+    )
+      .filter((l: any) => !byId.has(l.id))
+      .sort(byPosition);
+    let created = 0;
     for (const change of result.lineChanges) {
       if (change.kind === 'UNCHANGED') continue;
       if (change.kind === 'ADDED') {
-        // Extra units of a discounted line copy that line's snapshot at its full price.
-        const source =
-          change.sourceOrderLineId !== undefined ? byId.get(change.sourceOrderLineId) : undefined;
-        const c = source
-          ? {
-              variantId: source.variantId,
-              productId: source.productId,
-              sku: source.sku,
-              name: source.name,
-              option: source.option,
-              imageUrl: source.imageUrl,
-              price: source.unitPrice,
-              tax: source.tax,
-            }
-          : catalog.get(change.variantId)!;
-        const created = await strapi.db.query(u.orderLine).create({
-          data: {
-            order: orderId,
-            variant: c.variantId,
-            variantId: c.variantId,
-            productId: c.productId,
-            sku: c.sku,
-            name: c.name,
-            option: c.option,
-            imageUrl: c.imageUrl,
-            unitPrice: c.price,
-            unitDiscount: 0,
-            quantity: change.newQuantity,
-            returnedQuantity: 0,
-            tax: c.tax,
-            isGift: false,
-            promotionRefs: { refs: [] },
-            position: position++,
-          },
-        });
+        const row = createdLines[created++];
         await record({
           type: 'LINE_ADDED',
-          description: `Added ${change.newQuantity} × ${c.sku}`,
+          description: `Added ${change.newQuantity} × ${row.sku}`,
           previousValue: null,
           newValue: {
-            orderLineId: created.id,
-            variantId: c.variantId,
-            sku: c.sku,
-            name: c.name,
-            option: c.option,
-            unitPrice: c.price,
+            orderLineId: row.id,
+            variantId: row.variantId,
+            sku: row.sku,
+            name: row.name,
+            option: row.option,
+            unitPrice: num(row.unitPrice),
             quantity: change.newQuantity,
           },
         });
         continue;
       }
-
       const line = byId.get(change.orderLineId!)!;
       const ref = {
         orderLineId: line.id,
@@ -2104,16 +2054,6 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         name: line.name,
         option: line.option,
       };
-      // A line with nothing shipped or returned leaves no trace on the order; otherwise it
-      // stays with quantity 0 (the simulation rejects going below the shipped units).
-      if (change.newQuantity === 0 && line.shipped === 0 && line.returnedQuantity === 0) {
-        await strapi.db.query(u.orderLine).delete({ where: { id: line.id } });
-      } else {
-        await strapi.db.query(u.orderLine).update({
-          where: { id: line.id },
-          data: { quantity: change.newQuantity },
-        });
-      }
       if (change.kind === 'REMOVED') {
         await record({
           type: 'LINE_REMOVED',
@@ -2129,21 +2069,6 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
           newValue: { ...ref, quantity: change.newQuantity },
         });
       }
-    }
-
-    // --- Stock ---------------------------------------------------------------
-    for (const m of result.stockMovements) {
-      const { applied } = await stock().move({
-        variantId: m.variantId,
-        quantity: m.quantity,
-        type: m.quantity < 0 ? 'ORDER_DEDUCT' : 'ORDER_RESTOCK',
-        operationKey: `modify:${operationId}:${m.variantId}`,
-        orderId,
-        reason: `Order #${order.reference} modified`,
-        actor,
-      });
-      // The key already exists: this operationId was used elsewhere. Roll everything back.
-      if (!applied) throw operationConflict();
     }
 
     // --- Addresses -----------------------------------------------------------
@@ -2406,6 +2331,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     previewModification,
     applyModification,
     lockOrder,
+    loadCatalog,
   };
 };
 
