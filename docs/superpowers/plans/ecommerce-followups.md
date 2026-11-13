@@ -78,14 +78,14 @@ Lista de itens adiados nas revisões do plano 1 (Base e Produtos), a considerar 
 - P4 Task 6: minor (deferred): with Stripe disabled, cancel can't expire open checkout sessions; their PENDING payments stay on the cancelled order
 - P4 Task 6: minor (deferred): stock.ts (plan 3) uses strapi.db.connection instead of a schema-aware connection (PostgreSQL non-default schema)
 - P4 Task 6: note: refunds.resume after Stripe's ~24h idempotency window can double-refund if the first call reached Stripe — UI warns the admin
-- P4 final review: parked (F6/M3): an order modification can raise the total while a Stripe refund is PROCESSING; when it completes a `due` reappears for money being refunded (block MODIFY while hasPendingRefunds, or require after.excess >= inFlight)
+- P4 final review: parked (F6/M3): an order edit (add products, shipping charges, recalculate discounts) can raise the total while a Stripe refund is PROCESSING; when it completes a `due` reappears for money being refunded (block those edit actions while hasPendingRefunds, or require after.excess >= inFlight)
 - P4 final review: parked (F10/M7): sendPaymentInstructions has no idempotency key; a double submit / network retry sends two e-mails and two history entries (UI ref guard exists; the Stripe link itself is reused)
 - P4 final review: note: refunds made directly in the Stripe dashboard (`charge.refunded` for refunds we didn't create) are ignored by design
-- P4 final review: over-refund is recomputed on read: a promoted-from-failed refund can mask a later real amount due after a modification raises the total — persist overRefunded at promotion time
+- P4 final review: over-refund is recomputed on read: a promoted-from-failed refund can mask a later real amount due after an order edit raises the total — persist overRefunded at promotion time
 
 ## Plan 5
 - Spec 4.15: Moloni foreign-customer handling setting deferred — needs the store accountant's input (OSS / intra-EU / non-EU rules); today non-PT customers are invoiced like domestic ones.
-- P5 final review: parked (F4): a carrier deactivated while one of its shipments is PENDING/UNCERTAIN blocks the order — `retry` and `cancel` need an active runtime (`shipping.carrierFor`) and `assertNoPendingShipment` blocks MODIFY/CANCEL; shipments have no "mark failed". Add an issuing-carrier exception (like invoices) or a confirmed "mark failed" action. Low impact today: the only carrier (CTT) is NOT_IMPLEMENTED.
+- P5 final review: parked (F4): a carrier deactivated while one of its shipments is PENDING/UNCERTAIN blocks the order — `retry` and `cancel` need an active runtime (`shipping.carrierFor`) and `assertNoPendingShipment` blocks editing (`SHIPMENT_PENDING`) and CANCEL; shipments have no "mark failed". Add an issuing-carrier exception (like invoices) or a confirmed "mark failed" action. Low impact today: the only carrier (CTT) is NOT_IMPLEMENTED.
 - P5 final: invoice lines can be individually off (order total correct) when an invoiced payment's value sits on a line that later lost value (partial payments, return/modification after invoicing) — would need credit-and-reinvoice of that payment
 
 ## Plan 6
@@ -97,7 +97,7 @@ Lista de itens adiados nas revisões do plano 1 (Base e Produtos), a considerar 
 - The quote should return the gift option names, so the admin order form does not need `promotions.read` to show them.
 - The customer-facing order view (plan 7) must expose only `displayName` + amounts of the applied promotions (never the internal name, code of other customers, conditions or snapshot).
 - `orders.ts` is ~2650 lines: split `priceCart`/`quote` (promotion pricing) into a sibling module.
-- P6 final: modify modal shows a raised discounted line as discounted price × new qty (e.g. €0) before preview; the preview/server add the extra units at full price — show the split in the editor
+- P6 final: Products modal (`OrderProductsModal`, which still uses `ModifyLinesEditor`) shows a raised discounted line as discounted price × new qty (e.g. €0) before preview; the preview/server add the extra units at full price — show the split in the editor
 - P6 final: admin OrderLine type lacks `sourceOrderLineId`
 
 ## Plan 7
@@ -122,3 +122,4 @@ Lista de itens adiados nas revisões do plano 1 (Base e Produtos), a considerar 
 ## Storefront token generation (review of c6abbcb)
 - M2: two admins generating/regenerating at once each create a token; the last write wins, the other token is left orphaned (zero permissions, not the configured id) and that admin is shown a key the policy refuses (or one the second regenerate revokes). Fix with a compare-and-swap inside the store write transaction: re-read `storefrontApiTokenId`, require the value read at the start (null for generate); on mismatch revoke the just-created token and answer 409 (`STOREFRONT_TOKEN_EXISTS` or a new `STOREFRONT_TOKEN_CHANGED`).
 - M4: the generated token can be widened in Strapi's Settings → API Tokens (permissions added, type switched to full-access) and still passes the policy. Optional hardening: warn (log and/or admin notice) when the stored token is not `custom` or has permissions; refusing it would break hand-chosen legacy tokens.
+- Order editing: shipping line `invoiced` is derived from invoice dates (prudent); store shipping-line ids on coverages if per-line invoicing is ever needed.
