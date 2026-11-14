@@ -552,7 +552,7 @@ describe('EcommercePaymentService.addManualPayment', () => {
     const { id } = await createOrder(orders);
     await payments.addManualPayment(id, { amount: 8000, idempotencyKey: 'k' }, 'user:1');
     const order = await orders.get(id);
-    expect(order.paymentStatus).toBe('PAID');
+    expect(order.paymentStatus).toBe('REFUND_DUE');
     expect(order.summary).toMatchObject({ due: 0, excess: 1000 });
     expect(order.availableActions).toContain('REFUND');
   });

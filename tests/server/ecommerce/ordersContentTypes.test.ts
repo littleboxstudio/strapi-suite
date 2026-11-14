@@ -111,7 +111,7 @@ describe('ecommerce orders content-types', () => {
 
   it('payment status enums of the order', () => {
     const a = get('order').attributes;
-    expect(a.paymentStatus.enum).toHaveLength(5);
+    expect(a.paymentStatus.enum).toHaveLength(6);
     expect(a.fulfillmentStatus.enum).toHaveLength(3);
   });
 
