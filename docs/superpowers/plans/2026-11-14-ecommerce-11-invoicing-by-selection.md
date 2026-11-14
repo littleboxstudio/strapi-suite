@@ -57,8 +57,8 @@ These settle what the spec leaves to the builder (decision, then why).
     3. Selection issues, from `priceSelection`:
        - `lines.<i>.orderLineId`: `unknown_line` or `duplicate`;
        - `lines.<i>.quantity`: `invalid` (not an integer ≥ 1), or `QUANTITY_EXCEEDS_UNINVOICED` (409);
-       - `shippingLineIds.<i>`: `SHIPPING_LINE_NOT_INVOICEABLE` (409);
-       - `paymentIds.<i>`: `PAYMENT_NOT_INVOICEABLE` (409, existing);
+       - `shippingLineIds.<i>`: `duplicate` (an id already listed), or `SHIPPING_LINE_NOT_INVOICEABLE` (409);
+       - `paymentIds.<i>`: `duplicate` (an id already listed), or `PAYMENT_NOT_INVOICEABLE` (409, existing);
        - `lines`: `required` when nothing is selected; `paymentIds`: `required` when no payment is chosen;
        - `paymentIds`: `INVOICE_TOTALS_DIFFER` (400) when the selected total ≠ the payments total or the total is 0.
     4. `expectedTotal` ≠ the computed total → `TOTAL_CHANGED` (409, existing).
@@ -100,6 +100,21 @@ These settle what the spec leaves to the builder (decision, then why).
     - The credit-note routes keep their paths. Preview returns `CreditNoteOptions`; issue takes ruling 13's input.
     - The storefront API is unchanged.
 18. **Modal defaults.** Every product at its full remaining quantity, every available shipping line ticked, and every available payment ticked (the common single-payment case is one click). The modal fetches the selection on open and after any change.
+
+### Amendments (pre-flight)
+
+Applied before execution (scan in `.superpowers/sdd/2026-11-14-ecommerce-11-invoicing-by-selection/progress.md`, "Pre-flight scan"):
+
+- A1. Ruling 11.3 and Task 1: repeated `shippingLineIds` / `paymentIds` entries are refused (`duplicate`), so a shipping line or payment can never be priced twice.
+- A2. Task 3: `OrderInvoicing` also exposes `positionOrder: PositionOrder`, which Tasks 5 (`fitsPosition`) and 6 (`creditOptions`) consume. `coverageOrder` is gone after Task 6. `blockingExcess` is passed into `loadInvoicing` by `computeOrderState`. `coveredShipping` reads `payment.coverage.shipping.value` inline, never through `toPaymentCoverage`, which Task 6 deletes.
+- A3. Task 4 migrates the existing `InvoiceDraft` fixtures and assertions to the new required `name` (`name: ''`, the fallback path) in `moloniProvider.test.ts` and `invoices.test.ts`.
+- A4. Task 5 migrates every old-signature `issue` call in `invoices.test.ts` (activeProvider, late success, getPdf, credit notes) and rewrites the `payments[].invoice` / `INVOICE_TOTAL` assertions of the ported tests. The credit-note suggestion tests are deleted in Task 5 (moved from Task 6): new-format allocations no longer carry the coverage they rely on. `commerceSetup.ts` is added to the Task 5 files.
+- A5. Dead code is removed in the task that orphans it: Task 5 removes `isMismatch`, the view's per-payment invoice maps and `NOTHING_TO_INVOICE` from the billing error codes. Task 6 removes `shippingTaxRates` (with its tests), `creditedLinesOf`, `returnIdsOf`, `lineKey` and the private helpers that only the deleted domain functions use. Task 6 keeps `STORE_CREDIT_METHOD_NAME`. The Task 6 grep no longer matches surviving names.
+- A6. Task 7 adds the six new error-code translations, moved from Tasks 8 and 9, because `API_ERROR_CODES` is checked against en/pt. It also updates the "covers every code the invoicing endpoints return" test.
+- A7. Task 8: `IssueInvoiceModal` gets a `payments` prop for the method and date join. The header button reuses `ecommerce.orders.invoices.generate`.
+- A8. Task 9 also edits the gateway and the `fetchCreditNotePreview` use case (the type rename). RETURN counts as available when some `returnable[].units > 0`, because Task 2 lists lines with 0 units.
+- A9. Task 2 lists `invoices.ts` among its files (the `creditLine` import).
+- A10. Task 1: the all-zero-weights fixture is built through a reachable path, because the pool comes from the order and the documents.
 
 ## Global Constraints
 
@@ -192,7 +207,7 @@ These settle what the spec leaves to the builder (decision, then why).
     - SHIPPING line without `shippingLineId` → the CHECKOUT line is invoiced;
     - a table with lines [EDIT id 1, MANUAL id 2] → line 1 is invoiced.
   - Negative shipping line −200 → `available: false`. The pool is 300 and goes to line 1 alone.
-  - All-zero weights (a gift line 0 € only, pool 100) → split by `remainingQuantity`.
+  - All-zero weights, reached through documents (the pool comes from the order): lines A (1 × 1000) and gift G (1 × 0), `orderDiscount` 500, an ISSUED invoice of A × 1 (500), then `orderDiscount` 0. The pool is 500 and only G has units left (weight 0), so it is split by `remainingQuantity`: G `remainingValue` 500.
   - Review Focus 3: invoice A × 1 = `selectedValue(1760, 2, 1)` = 880. Then `orderDiscount` 300 → 500: A's remaining value + B's = 2000 − 880. Σ of the invoiced and remaining parts = the new products due.
   - `selectedValue(1000, 3, 1) === 333`, `selectedValue(1000, 3, 3) === 1000`, `selectedValue(667, 2, 2) === 667`.
   - `paymentNets`:
@@ -203,7 +218,7 @@ These settle what the spec leaves to the builder (decision, then why).
     - a linked refund above its payment amount → the excess goes to the pool.
   - `priceSelection`:
     - a full valid selection → totals equal and payments' value = their net;
-    - every issue code of ruling 11.3 at its path (`lines.1.quantity`/`QUANTITY_EXCEEDS_UNINVOICED`, `shippingLineIds.0`/`SHIPPING_LINE_NOT_INVOICEABLE`, `paymentIds.0`/`PAYMENT_NOT_INVOICEABLE`, `paymentIds`/`INVOICE_TOTALS_DIFFER`, `lines`/`required`, `lines.0.orderLineId`/`duplicate`);
+    - every issue code of ruling 11.3 at its path (`lines.1.quantity`/`QUANTITY_EXCEEDS_UNINVOICED`, `shippingLineIds.0`/`SHIPPING_LINE_NOT_INVOICEABLE`, `paymentIds.0`/`PAYMENT_NOT_INVOICEABLE`, `paymentIds`/`INVOICE_TOTALS_DIFFER`, `lines`/`required`, `lines.0.orderLineId`/`duplicate`, `shippingLineIds.1`/`duplicate`, `paymentIds.1`/`duplicate`);
     - a payment with net 0 → `PAYMENT_NOT_INVOICEABLE`.
   - `fitsPosition`: a FAILED doc with A × 2 when A has 1 left → false; a shipping id already invoiced → false; otherwise true.
 - [ ] **Step 2: Run** `npx vitest run tests/server/ecommerce/domain/invoiceSelection.test.ts`. Expected: FAIL (module not found).
@@ -217,6 +232,7 @@ These settle what the spec leaves to the builder (decision, then why).
 
 **Files:**
 - Create: `server/src/services/modules/ecommerce/domain/creditNotes.ts`
+- Modify: `server/src/services/modules/ecommerce/invoices.ts` (delete its local `creditLine` and import it from `domain/creditNotes`)
 - Test: `tests/server/ecommerce/domain/creditNotes.test.ts`
 
 **Interfaces:**
@@ -248,8 +264,8 @@ These settle what the spec leaves to the builder (decision, then why).
 
 **Files:**
 - Modify: `server/src/services/modules/ecommerce/orders.ts`:
-  - `OrderInvoicing` gains `docs`, `position`, `paymentNets`, `availablePaymentIds`, `blockingExcess`, `coveredShipping` and `canIssue`;
-  - `loadInvoicing` computes them; the old fields stay until Task 6;
+  - `OrderInvoicing` gains `positionOrder`, `docs`, `position`, `paymentNets`, `availablePaymentIds`, `blockingExcess`, `coveredShipping` and `canIssue`;
+  - `loadInvoicing` computes them. `blockingExcess` is the exception: `computeOrderState` computes it and passes it in as a new argument; the old fields stay until Task 6;
   - `shippingLineContext` is rewritten (ruling 16).
 - Modify: `server/src/services/modules/ecommerce/domain/shippingLines.ts`. `shippingLineViews` ctx becomes `{ coveredShipping: number; invoicedLineIds: number[]; hasActiveShipment: boolean }`, and the date rule (`INVOICED_STATUSES`, `timeOf` for invoices) is removed.
 - Modify: `server/src/services/modules/ecommerce/orderEditing.ts` (the one `shippingLineContext` call)
@@ -258,6 +274,7 @@ These settle what the spec leaves to the builder (decision, then why).
 **Interfaces:**
 - Consumes: Task 1.
 - Produces, on `OrderState.invoicing`:
+  - `positionOrder: PositionOrder` (the input of `invoicingPosition`; Tasks 5 and 6 pass it to `fitsPosition` and `creditOptions`)
   - `docs: InvoiceDoc[]` (live INVOICE and CREDIT_NOTE rows, by id; `paymentIds` from active allocations)
   - `position: InvoicingPosition`
   - `paymentNets: Map<number, number>`
@@ -277,7 +294,8 @@ These settle what the spec leaves to the builder (decision, then why).
 - [ ] **Step 3: Implement.**
   - `loadInvoicing` builds `PositionOrder` from `lines`, `order.orderDiscount`, `order.shippingTotal`, `order.shippingTax` and `readShippingLines(order)`. It builds `docs` with `readInvoiceDoc(row, paymentIdsOf(row.id))`.
   - `paymentNets` gets the completed payments, the refunds and the set of payments with an active allocation.
-  - `blockingExcess` is computed in `computeOrderState`, after `summary` and `inFlightRefunds`.
+  - `blockingExcess = refundableAmount(summary, inFlightRefunds)` is computed in `computeOrderState`, after `summary` and `inFlightRefunds` and before the `loadInvoicing` call. It is passed to `loadInvoicing` as an argument.
+  - `coveredShipping` reads `payment.coverage.shipping.value` with a small inline parser in `orders.ts`. It does not call `toPaymentCoverage`, which Task 6 deletes.
   - `canIssue = order.orderStatus === 'OPEN' && (position.lines.some((l) => l.remainingQuantity > 0) || position.shipping.some((s) => s.available)) && availablePaymentIds.length > 0`.
 - [ ] **Step 4: Run** those tests, then `npx vitest run tests/server/ecommerce/orders.editShipping.test.ts tests/server/ecommerce/orders.editDiscounts.test.ts tests/server/ecommerce/orderEditing.runner.test.ts`. Expected: PASS.
 - [ ] **Step 5: Commit** `feat(ecommerce): invoicing position in the order state; shipping lines invoiced by id`.
@@ -295,15 +313,16 @@ These settle what the spec leaves to the builder (decision, then why).
 - Modify: `server/src/services/modules/ecommerce/providers/billing/moloni/provider.ts`
 - Modify: `server/src/services/modules/ecommerce/invoices.ts` (the current draft sets `name: paymentMethodName(p.method, p.metadata?.methodLabel)`)
 - Modify: `admin/src/core/translations/en.json`, `pt.json`: the help texts of `…moloni.fields.paymentMethodId.help` and `…storeCreditPaymentMethodId.help`
-- Test: `tests/server/ecommerce/providers/moloniProvider.test.ts`, `tests/server/ecommerce/domain/invoicing.test.ts`
+- Test: `tests/server/ecommerce/providers/moloniProvider.test.ts`, `tests/server/ecommerce/domain/invoicing.test.ts`, `tests/server/ecommerce/invoices.test.ts` (the `draft.payments` `toEqual` in "Review Focus 3: a paid line replaced…" adds `name: ''`)
 
 **Interfaces:**
-- Produces:
+- Produces (in `domain/invoicing.ts`):
   - `export const STORE_CREDIT_METHOD_NAME = 'Crédito em carteira'`
   - `export function paymentMethodName(method: string, methodLabel: unknown): string` (ruling 12)
   - Moloni: `issue` resolves `payment_method_id` per draft payment (ruling 12). The provider never reads `draft.payments[].method` except for `STORE_CREDIT`.
 
 - [ ] **Step 1: Write the failing tests** (`moloniFake`):
+  - Existing fixtures first: the base `draft()` payment and every inline draft payment in `moloniProvider.test.ts` get `name: ''`. That is the fallback path, so they keep today's ids and `happyRoutes` needs no `paymentMethods/insert`. The test "uses the configured document set and payment methods…" keeps its store-credit payment on `storeCreditPaymentMethodId` 99.
   - "payment methods are matched by name, ignoring case and outer spaces": `paymentMethods/getAll` → `[{ payment_method_id: 7, name: ' mb way ' }]`; draft payment `name: 'MB WAY'` → `payments[0].payment_method_id === 7`; `paymentMethods/insert` is not called.
   - "a missing method is created before the customer and the document": getAll → `[{ payment_method_id: 1, name: 'Numerário' }]`; insert → `{ valid: 1, payment_method_id: 9 }`. The document uses 9. `paths()` shows `paymentMethods/insert` before `customers/getByVat` and `invoiceReceipts/insert`. getAll was called twice (the uncached re-read), and the insert body has `name: 'MB WAY'`.
   - "one draft with two payments of the same name resolves it once".
@@ -330,14 +349,17 @@ These settle what the spec leaves to the builder (decision, then why).
 - Modify: `server/src/services/modules/ecommerce/invoices.ts`:
   - remove `InvoiceScope`, `normalizeScope`, `compose` and `preview`;
   - add `selection` and the new `issue`;
-  - `recordLateSuccess` gets the `fitsPosition` check (ruling 14);
-  - `NOTHING_TO_INVOICE` is no longer thrown.
+  - `recordLateSuccess` gets the `fitsPosition` check (ruling 14), with `state.invoicing.position` and `state.invoicing.positionOrder`;
+  - `NOTHING_TO_INVOICE` is no longer thrown;
+  - delete `isMismatch`, which only `issue` used.
+- Modify: `server/src/services/modules/ecommerce/errors.ts` (remove `NOTHING_TO_INVOICE` from the billing error codes)
 - Modify: `server/src/controllers/modules/ecommerce/invoices.ts` (`selection`, `issue`; delete `scopeOf`)
 - Modify: `server/src/routes/ecommerce/admin-invoices.ts` (`GET /orders/:id/invoice-selection` → `${I}.selection`, `orders.read`)
 - Modify: `server/src/controllers/modules/ecommerce/errors.ts` (`CONFLICT_CODES` += `INVOICE_EXCESS_UNRESOLVED`, `QUANTITY_EXCEEDS_UNINVOICED`, `SHIPPING_LINE_NOT_INVOICEABLE`)
 - Modify: `server/src/services/modules/ecommerce/domain/orders.ts` (`OrderActionKey` `INVOICE_TOTAL` → `ISSUE_INVOICE`; input `hasUninvoicedCompletedPayments` → `canIssueInvoice`)
-- Modify: `server/src/services/modules/ecommerce/orders.ts` (pass `canIssueInvoice: invoicing.canIssue`; the view drops `payments[].invoice` and adds `invoicing: { hasUninvoicedPayments }`)
-- Test: `tests/server/ecommerce/invoices.test.ts` (the issue, reconcile and late-success sections ported), `tests/server/ecommerce/invoicesController.test.ts`, `tests/server/ecommerce/fulfillmentRoutes.test.ts`, `tests/server/ecommerce/notifications.test.ts` (callers of `inv.issue`), `tests/server/ecommerce/domain/orders.test.ts`, `tests/server/ecommerce/orders.create.test.ts`
+- Modify: `server/src/services/modules/ecommerce/orders.ts` (pass `canIssueInvoice: invoicing.canIssue`; the view drops `payments[].invoice` and the maps only it used, `activeInvoiceOf` and `statusOfInvoice`, and adds `invoicing: { hasUninvoicedPayments }`)
+- Modify: `tests/server/ecommerce/helpers/commerceSetup.ts` (`testIssueAll`)
+- Test: `tests/server/ecommerce/invoices.test.ts` (the issue, reconcile and late-success sections ported, plus every other call of the old `issue` signature in the file), `tests/server/ecommerce/invoicesController.test.ts`, `tests/server/ecommerce/fulfillmentRoutes.test.ts`, `tests/server/ecommerce/notifications.test.ts` (callers of `inv.issue`), `tests/server/ecommerce/domain/orders.test.ts`, `tests/server/ecommerce/orders.create.test.ts`
 
 **Interfaces:**
 - Consumes: Tasks 1, 3, 4.
@@ -362,8 +384,18 @@ These settle what the spec leaves to the builder (decision, then why).
   - "a late success after the same units were invoiced with another payment → DUPLICATE_INVOICE, no customer event".
   - "a cancelled order refuses new invoices" (`ACTION_NOT_AVAILABLE`).
   - "repeating issue with the same idempotencyKey returns the same invoice and calls the provider once".
-  - Port these unchanged except for the call: reconcile found, not found and markFailed; "a definitive error → no document kept …"; "a refusal reaches the caller …"; "an unexpected error keeps its class and message …"; "logs and falls back to UTC …".
+  - Port these with the new call: reconcile found, not found and markFailed; "reconcile keeps the state …"; "a provider without a declared maximum …"; "a definitive error → no document kept …"; "a refusal reaches the caller …"; "an unexpected error keeps its class and message …"; "logs and falls back to UTC …"; "a payment that is not COMPLETED … → PAYMENT_NOT_INVOICEABLE" (now `paymentIds.0`); "a refunded payment is invoiced net of its refunds".
+    - Their assertions on `payments[].invoice` (`invoiceable`, `invoiceId`, `status`) become `invoicing.hasUninvoicedPayments` and `(await inv.selection(id)).payments`.
+    - `INVOICE_TOTAL` becomes `ISSUE_INVOICE`.
+  - Every other old-signature call in the file moves to `testIssueAll` or to the new input (`paymentIds: [id]` with the full selection):
+    - the `activeProvider` describe;
+    - the late-success describe (both cases, with their `payments[].invoice` assertions rewritten as above);
+    - `getPdf`;
+    - the kept credit-note tests.
+
+    Task 6 rewrites the credit-note section afterwards, but it must stay green here.
   - Delete with their replacements above: "Review Focus 3: a paid line replaced …", "total invoice with two payments …", "a coverage mismatch …", "a refund without a payment is attributed first …" and "INVOICE_TOTAL only with uninvoiced payments".
+  - Also delete the credit-note suggestion tests here; this moves them from Task 6. They are "a return after invoicing is suggested …", "… an order discount …", "units returned on a cancelled order …", the "a refund and a credit note never both remove the same value" block and "suggestions over two invoices …". They issue per-payment invoices, and they rely on allocation coverages, which new-format allocations no longer carry. `creditPosition` stays until Task 6.
   - `domain/orders.test.ts`: "paid with something to invoice offers ISSUE_INVOICE"; `orders.create.test.ts:773` expects `['SHIP', 'CANCEL', 'ISSUE_INVOICE']`.
   - Controller:
     - "selection passes the id";
@@ -392,12 +424,13 @@ These settle what the spec leaves to the builder (decision, then why).
 - Modify: `server/src/services/modules/ecommerce/invoices.ts`:
   - `creditNotePreview` returns `CreditNoteOptions`, and `issueCreditNote` takes `CreditNoteInput` (ruling 13);
   - `recordIssued` releases the original's allocations for an ISSUED CORRECTION;
-  - delete `creditPosition` and the old suggestion logic.
+  - delete `creditPosition` and the old suggestion logic, with the helpers only they use: `creditedLinesOf`, `returnIdsOf`, `lineKey` and the `allocateProportionally` / `OrderStatus` imports.
 - Modify: `server/src/controllers/modules/ecommerce/invoices.ts` (`issueCreditNote` validation)
 - Modify: `server/src/controllers/modules/ecommerce/errors.ts` (`CONFLICT_CODES` += `QUANTITY_EXCEEDS_CREDITABLE`, `SHIPPING_NOT_CREDITABLE`)
-- Modify: `server/src/services/modules/ecommerce/domain/invoicing.ts`. Delete `CoverageValue`, `ReconciledCoverage`, `InvoicedCoverage`, `InvoiceOrderState`, `OverInvoiced`, `toInvoicedCoverage`, `toPaymentCoverage`, `reconcileCoverages`, `invoiceableByPayment`, `buildInvoiceLines`, `overInvoiced`, `uninvoicedByPayment`, `creditNoteBudget`, `suggestCreditNote` and `validateCreditNoteRequest`. Keep `InvoiceLine`, `InvoiceCustomer`, `invoiceCustomer`, `issueDate`, `readInvoiceLines` and `paymentMethodName`.
+- Modify: `server/src/services/modules/ecommerce/domain/invoicing.ts`. Delete `CoverageValue`, `ReconciledCoverage`, `InvoicedCoverage`, `InvoiceOrderState`, `OverInvoiced`, `toInvoicedCoverage`, `toPaymentCoverage`, `reconcileCoverages`, `invoiceableByPayment`, `buildInvoiceLines`, `overInvoiced`, `uninvoicedByPayment`, `creditNoteBudget`, `suggestCreditNote` and `validateCreditNoteRequest`, plus the private helpers and imports that only they use (`parseLines`, `isCents`, `lineKey`, …). Keep `InvoiceLine`, `InvoiceCustomer`, `invoiceCustomer`, `issueDate`, `readInvoiceLines`, `STORE_CREDIT_METHOD_NAME` and `paymentMethodName`.
+- Modify: `server/src/services/modules/ecommerce/domain/shippingLines.ts`. Delete `shippingTaxRates`; its only caller, `compose`, went in Task 5.
 - Modify: `server/src/services/modules/ecommerce/orders.ts`. `OrderInvoicing` drops `coverageOrder`, `refunded`, `reconciled` and `invoiceable`. Delete `refundedByPayment`. `completedPayments`, `allocations` and `invoices` stay.
-- Test: `tests/server/ecommerce/invoices.test.ts` (credit notes section rewritten), `tests/server/ecommerce/invoicesController.test.ts`, `tests/server/ecommerce/notifications.test.ts` (the `issueCreditNote` call), `tests/server/ecommerce/domain/invoicing.test.ts` (delete the describes of the deleted functions: coverage mappers, reconcileCoverages ×2, buildInvoiceLines ×2, overInvoiced, credit notes, uninvoicedByPayment, creditNoteBudget). Also any `refundedByPayment` test in `tests/server/ecommerce/orders.*.test.ts` (grep).
+- Test: `tests/server/ecommerce/invoices.test.ts` (credit notes section rewritten), `tests/server/ecommerce/invoicesController.test.ts`, `tests/server/ecommerce/notifications.test.ts` (the `issueCreditNote` call), `tests/server/ecommerce/domain/invoicing.test.ts` (delete the describes of the deleted functions: coverage mappers, reconcileCoverages ×2, buildInvoiceLines ×2, overInvoiced, credit notes, uninvoicedByPayment, creditNoteBudget, and the `shippingTaxRates` import), `tests/server/ecommerce/domain/shippingLines.test.ts` (delete the `shippingTaxRates` describe and import). Also any `refundedByPayment` test in `tests/server/ecommerce/orders.*.test.ts` (grep).
 
 **Interfaces:**
 - Consumes: Task 2 (`creditOptions`, `buildCreditLines`), Task 3.
@@ -414,15 +447,15 @@ These settle what the spec leaves to the builder (decision, then why).
   - "CORRECTION after a RETURN credit credits only what is left; the returned unit is not offered again".
   - "RETURN above the returnable units → QUANTITY_EXCEEDS_CREDITABLE (409)"; "RETURN with nothing → lines required"; "CORRECTION with lines → invalid".
   - Keep (ported to the new input): "the draft reuses the original customerData and locale, payments [] and the original"; "repeating issueCreditNote with the same key …"; "credit note on an invoice that is not ISSUED → ACTION_NOT_AVAILABLE; provider without creditNotes → NOT_SUPPORTED"; "reconcile of a credit note found → INVOICE_ISSUED with kind CREDIT_NOTE"; "a cancelled order allows a CORRECTION credit note".
-  - Delete the suggestion tests ("a return after invoicing is suggested …", "… an order discount …", "units returned on a cancelled order …", the "a refund and a credit note never both remove the same value" block, "suggestions over two invoices …"). Spec 6 replaces suggestions with the chosen reason.
+  - The suggestion tests are already gone (deleted in Task 5). Spec 6 replaces suggestions with the chosen reason.
   - Controller: "credit note issue validates creditType (RETURN | CORRECTION), lines (index ≥ 0, quantity ≥ 1), shippingIndexes, reason ≤ 500 and idempotencyKey"; "QUANTITY_EXCEEDS_CREDITABLE is a 409".
   - Notifications: the `CREDIT_NOTE_ISSUED` e-mail with PDF still goes out (`issueCreditNote(view.id, { creditType: 'CORRECTION', reason: 'x', idempotencyKey: 'c1' }, actor)`).
 - [ ] **Step 2: Run** `npx vitest run tests/server/ecommerce/invoices.test.ts tests/server/ecommerce/invoicesController.test.ts`. Expected: FAIL.
 - [ ] **Step 3: Implement.**
-  - `issueCreditNote`'s `prepare` reloads the ISSUED original, computes `creditOptions(readInvoiceDoc(original, …), state.invoicing.docs, positionOrder)`, then `buildCreditLines`. Issues throw before any row.
+  - `issueCreditNote`'s `prepare` reloads the ISSUED original, computes `creditOptions(readInvoiceDoc(original, …), state.invoicing.docs, state.invoicing.positionOrder)`, then `buildCreditLines`. Issues throw before any row.
   - Metadata `{ locale, reason, creditType, creditedLines }`; the draft is unchanged otherwise.
   - The release in `recordIssued`: `if (row.kind === 'CREDIT_NOTE' && row.metadata?.creditType === 'CORRECTION') await releaseAllocations(idOf(row.creditedInvoice))`. The history `newValue` adds `creditType`.
-  - Then delete the old domain and state code. `grep -rn "reconcileCoverages\|invoiceable\|refundedByPayment\|creditNoteBudget" server tests` → nothing.
+  - Then delete the old domain and state code. `grep -rnE "reconcileCoverages|invoiceableByPayment|invoicing\.invoiceable|refundedByPayment|creditNoteBudget|shippingTaxRates|toPaymentCoverage|coverageOrder" server tests` → nothing. A plain `invoiceable` would also match names that survive on purpose, such as `notInvoiceable` and test titles.
 - [ ] **Step 4: Run** the focused tests and `npx vitest run tests/server/ecommerce`. Expected: PASS.
 - [ ] **Step 5: Commit** `feat(ecommerce): credit notes by reason (return, correction); remove payment coverage reconciliation`.
 - [ ] **Step 6: Phase gate.** Run `npx vitest run` and the three typechecks. Expected: all green.
@@ -467,10 +500,15 @@ These settle what the spec leaves to the builder (decision, then why).
     - `excess: 1000` → `canIssue: false` even when equal;
     - a quantity above the remaining → the error and `canIssue: false`.
   - `buildIssueInvoiceInput` leaves quantity 0 out and sets `expectedTotal`.
-  - `orderDetail.test.ts`: delete the `paymentRowHasActions` describe; in the toolbar test, `INVOICE_TOTAL` → `ISSUE_INVOICE`.
+  - `orderDetail.test.ts`:
+    - delete the `paymentRowHasActions` describe;
+    - in the toolbar test, `INVOICE_TOTAL` → `ISSUE_INVOICE`;
+    - in "covers every code the invoicing endpoints return", drop `NOTHING_TO_INVOICE` and add the six new codes. The existing `it.each(API_ERROR_CODES)` en/pt check then covers them.
   - `invoiceForm.test.ts`: delete the `hasUninvoicedPayments` describe.
 - [ ] **Step 2: Run** `npx vitest run tests/admin/ecommerce/invoiceSelection.test.ts`. Expected: FAIL.
-- [ ] **Step 3: Implement.** Remove the translation keys this task no longer uses (`detail.payments.invoice.*`, `detail.payments.actions`) from en and pt.
+- [ ] **Step 3: Implement.**
+  - Remove the translation keys this task no longer uses (`detail.payments.invoice.*`, `detail.payments.actions`) from en and pt.
+  - Add the `ecommerce.orders.errors.` messages of the six codes added to `API_ERROR_CODES`, because `orderDetail.test.ts` requires an en and a pt message for every code. Use the texts listed in Task 8 (`INVOICE_EXCESS_UNRESOLVED`, `INVOICE_TOTALS_DIFFER`, `QUANTITY_EXCEEDS_UNINVOICED`, `SHIPPING_LINE_NOT_INVOICEABLE`) and Task 9 (`QUANTITY_EXCEEDS_CREDITABLE`, `SHIPPING_NOT_CREDITABLE`). Tasks 8 and 9 then only change `PAYMENT_NOT_INVOICEABLE` and remove keys.
 - [ ] **Step 4: Run** `npx tsc -p admin/tsconfig.json --noEmit && npx vitest run tests/admin`. Expected: PASS.
 - [ ] **Step 5: Commit** `feat(ecommerce): admin invoice selection model; payments lose the per-payment invoice action`.
 
@@ -479,7 +517,7 @@ These settle what the spec leaves to the builder (decision, then why).
 ### Task 8: Gerar fatura modal
 
 **Files:**
-- Rewrite: `admin/src/ecommerce/components/orders/IssueInvoiceModal.tsx`. Props: `{ orderId: number; canRefund: boolean; onClose(): void; onIssued(): void; onRefund(): void }`. Keep the existing behaviour around attempts:
+- Rewrite: `admin/src/ecommerce/components/orders/IssueInvoiceModal.tsx`. Props: `{ orderId: number; payments: OrderPayment[]; canRefund: boolean; onClose(): void; onIssued(): void; onRefund(): void }`. `payments` is `order.payments`, for the method and date join. Keep the existing behaviour around attempts:
   - one idempotency key per opening;
   - `InvoiceErrorModal` on a refusal;
   - the uncertain box;
@@ -489,12 +527,12 @@ These settle what the spec leaves to the builder (decision, then why).
   - three sub-tables with `ColumnLabel` headings, each with `EmptyNote` when empty:
     - **Products**: product (name, option, sku), net unit price (`unitValue`), to invoice (`remainingQuantity`), quantity to invoice (`QuantityInput`, error "At most {max}."), value (`selectedValue`);
     - **Shipping**: a checkbox, name, date and value;
-    - **Payments**: a checkbox, method (`methodLabel` or the translated method, joined from `order.payments` by id), date, paid, refunded, net;
+    - **Payments**: a checkbox, method (`methodLabel` or the translated method, joined from the `payments` prop by id), date, paid, refunded, net;
   - below them **Selected total** and **Payments total**, and when they differ "Difference: {amount}";
   - with `excess > 0`, a warning box "{amount} was paid in excess. Refund it before invoicing." with a **Refund** button (`canRefund`) that calls `onRefund`; **Generate** stays disabled.
   - **Generate** is enabled only when `invoiceSelectionTotals(...).canIssue`.
 - Delete: `admin/src/ecommerce/usecases/orders/fetchInvoicePreview.ts`; in `orderTypes.ts`, `InvoiceScopeInput`, `InvoicePreview` and `IssueInvoiceInput`; `fetchInvoicePreview` from the gateway. The gateway's `issueInvoice(orderId, input: IssueInvoiceSelectionInput)` and `usecases/orders/issueInvoice.ts` take the new input.
-- Modify: `InvoicesSection.tsx`. The header button **Generate invoice** (`variant="secondary" size="S"`, disabled without billing) is shown when `canInvoice && order.availableActions.includes('ISSUE_INVOICE')`. `onIssue: () => void`.
+- Modify: `InvoicesSection.tsx`. The header button **Generate invoice** (the existing key `ecommerce.orders.invoices.generate`, `variant="secondary" size="S"`, disabled without billing) is shown when `canInvoice && order.availableActions.includes('ISSUE_INVOICE')`. `onIssue: () => void`.
 - Modify: `OrderDetailPage.tsx`. `invoiceOpen: boolean` replaces `invoiceScope`, and `invoiceKey` remounts the modal per opening. `onRefund` closes it and runs `dispatchModal({ type: 'OPEN', action: 'REFUND' })`.
 - Modify: translations (en / pt), under `ecommerce.orders.invoices.issue.`:
   - `products` "Products" / "Produtos"
@@ -525,7 +563,7 @@ These settle what the spec leaves to the builder (decision, then why).
   - `confirm` "Generate" / "Gerar" (new value)
   - `previewError` "The invoice data could not be loaded." / "Não foi possível carregar os dados da fatura." (new value)
 
-  Error codes, `ecommerce.orders.errors.`:
+  Error codes, `ecommerce.orders.errors.` (the first four are added in Task 7, see A6; they are listed here for their texts):
   - `INVOICE_EXCESS_UNRESOLVED` "This order has money paid in excess. Refund it before invoicing." / "A encomenda tem valor pago a mais. Faça o reembolso antes de faturar."
   - `INVOICE_TOTALS_DIFFER` "The selected total must equal the payments total." / "O total selecionado tem de ser igual ao total dos pagamentos."
   - `QUANTITY_EXCEEDS_UNINVOICED` "A quantity is above what is left to invoice. Reload the order." / "Uma quantidade é superior à que falta faturar. Volte a carregar a encomenda."
@@ -548,14 +586,15 @@ These settle what the spec leaves to the builder (decision, then why).
 
 **Files:**
 - Modify: `admin/src/ecommerce/orderTypes.ts`: `CreditNotePreview` becomes `CreditNoteOptions`, and `CreditNoteInput` takes the ruling 13 shape.
+- Modify (they import `CreditNotePreview`): `admin/src/ecommerce/gateways/ecommerceOrdersGateway.ts` (`fetchCreditNotePreview(invoiceId): Promise<CreditNoteOptions>`) and `admin/src/ecommerce/usecases/orders/fetchCreditNotePreview.ts`.
 - Modify: `admin/src/ecommerce/utils/invoiceForm.ts`. Replace `emptyCreditNoteForm`, `validateCreditNoteForm`, `creditNoteTotal` and `buildCreditNoteInput` with:
   - `export type CreditNoteForm = { creditType: 'RETURN' | 'CORRECTION'; quantities: Record<number, number>; shipping: number[]; reason: string }`
-  - `export function emptyCreditNoteForm(options: CreditNoteOptions): CreditNoteForm` (`RETURN` when something is returnable, else `CORRECTION`; quantities empty)
+  - `export function emptyCreditNoteForm(options: CreditNoteOptions): CreditNoteForm` (`RETURN` when some `returnable[].units > 0`, else `CORRECTION`; quantities empty)
   - `export function validateCreditNoteForm(form, options): FormErrors`: `quantities.<index>` `exceeds_creditable`; `lines` `required` (RETURN with nothing); `reason` `required` / `too_long`
   - `export function creditNoteTotal(form, options): number` (RETURN: Σ `selectedValue(valueLeft, unitsLeft, k)` + the shipping values; CORRECTION: `options.correction.total`)
   - `export function buildCreditNoteInput(form, idempotencyKey): CreditNoteInput`
 - Rewrite: `admin/src/ecommerce/components/orders/CreditNoteModal.tsx`.
-  - A radio group **Reason**: Return / Correction, each with its hint. RETURN is disabled with the hint `nothingReturnable` when `returnable` is empty.
+  - A radio group **Reason**: Return / Correction, each with its hint. RETURN is disabled with the hint `nothingReturnable` when no `returnable` entry has `units > 0`. Task 2 also lists lines with 0 units.
   - RETURN shows a returnable lines table (name, returned not credited, quantity to credit via `QuantityInput`, value) and a "Shipping to credit" checkbox list.
   - CORRECTION shows `correction.lines` read-only (name, quantity, amount).
   - Then the details text area (the existing `reason` field, max 500), the total, and confirm.
@@ -574,7 +613,7 @@ These settle what the spec leaves to the builder (decision, then why).
   - `reason` (new value) "Details" / "Detalhes"
   - `nothing` (new value) "Choose at least one unit or shipping line to credit." / "Escolha pelo menos uma unidade ou linha de portes a creditar."
 
-  Error codes, `ecommerce.orders.errors.`:
+  Error codes, `ecommerce.orders.errors.` (added in Task 7, see A6; listed here for their texts):
   - `QUANTITY_EXCEEDS_CREDITABLE` "A quantity is above what can be credited. Reload the invoice." / "Uma quantidade é superior à que se pode creditar. Volte a carregar a fatura."
   - `SHIPPING_NOT_CREDITABLE` "This shipping line can no longer be credited." / "Esta linha de portes já não pode ser creditada."
 
@@ -582,7 +621,7 @@ These settle what the spec leaves to the builder (decision, then why).
 - Test: `tests/admin/ecommerce/invoiceForm.test.ts` (rewrite the four credit-note describes)
 
 - [ ] **Step 1: Write the failing tests:**
-  - `emptyCreditNoteForm` → `RETURN` with returnable lines, `CORRECTION` without.
+  - `emptyCreditNoteForm` → `RETURN` with a returnable line of `units: 1`; `CORRECTION` when `returnable` is empty and also when every entry has `units: 0`.
   - `validateCreditNoteForm`: RETURN quantity 2 with `units: 1` → `quantities.0: exceeds_creditable`; RETURN empty → `lines: required`; CORRECTION needs only the reason; a reason of 501 characters → `too_long`.
   - `creditNoteTotal` RETURN with `{ unitsLeft: 3, valueLeft: 1000 }` and k 1, plus shipping 500 → 833. CORRECTION → `correction.total`.
   - `buildCreditNoteInput`: CORRECTION has no `lines` or `shippingIndexes`; RETURN leaves quantity 0 out.
