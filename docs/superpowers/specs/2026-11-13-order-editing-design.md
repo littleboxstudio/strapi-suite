@@ -154,15 +154,15 @@ A morada de faturação fica como está hoje (só leitura) **[Escolha: fora dest
 **[Decisão]** Os portes deixam de ser um valor único e passam a ser **linhas de portes**. Cada
 linha: método (fornecedor, serviço, nome), valor (cêntimos, pode ser **negativo**), taxa de IVA,
 origem (`CHECKOUT`, `RECALCULATION`, `EDIT`, `MANUAL`), data, utilizador, e se já está **gasta**
-(existe qualquer envio na encomenda **[Escolha]**) ou **faturada** (incluída numa fatura emitida).
+(existe qualquer envio na encomenda **[Escolha]**) ou **faturada** (incluída numa fatura em vigor, não anulada por uma Correção).
 **Portes cobrados** = soma de todas as linhas (incluindo manuais e negativas).
 **Método atual** = o método da linha mais recente que escolheu um método (`CHECKOUT`, `EDIT` ou
 `MANUAL`); as linhas de diferença (`RECALCULATION`) herdam o método e não o mudam **[Escolha]**. O total de portes da
 encomenda é a soma das linhas, menos o desconto de portes das promoções.
 
 - Encomendas existentes: migração para uma linha `CHECKOUT` com os portes atuais.
-- O que o cliente pagou de portes continua a vir das coberturas dos pagamentos (4.4); a tabela
-  mostra, por linha, o valor e se está paga/faturada/gasta **[Escolha: colunas exatas ao builder]**.
+- A faturação dos portes segue o design de faturação por seleção (4.4); a tabela
+  mostra, por linha, o valor e se está faturada/gasta **[Escolha: colunas exatas ao builder]**.
 - A API do storefront não muda: `shippingTotal` etc. continuam a ser os totais.
 
 ### 6.2 Regra única de substituir ou acrescentar
@@ -271,15 +271,14 @@ A parte que não vem das promoções gravadas migra para uma linha "Manual" com 
 
 ## 8. Faturação
 
-- Cada pagamento continua a cobrir o que foi acrescentado desde a cobertura anterior (4.4): linhas
-  de produto novas e **linhas de portes novas / diferenças**. As coberturas passam a referir linhas
-  de portes **[Escolha: forma exata ao builder]**.
+- A faturação segue [`2026-11-14-invoicing-by-selection-design.md`](2026-11-14-invoicing-by-selection-design.md)
+  (substitui as coberturas por pagamento). As linhas de portes faturam-se **individualmente, por
+  id**: uma linha de fatura por linha de portes, cada uma com o seu IVA **[Decisão]**.
 - Faturas emitidas nunca mudam. Um recálculo de descontos ou de portes depois de faturar só mexe
-  no saldo: o que falta pagar entra na cobertura do próximo pagamento; o que sobra é excedente
-  reembolsável.
-- Uma linha de portes **negativa** só cria excedente; não entra em nenhuma fatura. A regularização
-  fiscal é a nota de crédito, emitida só a pedido do lojista **[Decisão]**.
-- Linhas de portes com taxas de IVA diferentes: uma linha de portes por taxa na fatura **[Escolha]**.
+  no saldo; o que sobra é excedente reembolsável.
+- Uma linha de portes **negativa** só baixa o valor dos portes e cria excedente; não entra em
+  nenhuma fatura. A regularização fiscal é a nota de crédito, emitida só a pedido do lojista
+  **[Decisão]**.
 - Um desconto acrescentado depois de faturar reduz o total; o excedente segue para Reembolsar e a
   nota de crédito fica a pedido do lojista **[Decisão]**.
 
