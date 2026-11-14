@@ -103,7 +103,6 @@ export class EcommerceBillingError extends Error {
       | 'BILLING_TAX_NOT_FOUND'
       | 'BILLING_EXEMPTION_REASON_MISSING'
       | 'NOT_SUPPORTED'
-      | 'NOTHING_TO_INVOICE'
       | 'INVOICE_PDF_UNAVAILABLE',
     message: string = code,
     /** True when the provider may have processed the request (the outcome is unknown). */

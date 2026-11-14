@@ -293,7 +293,7 @@ describe('availableActions', () => {
     allShipmentsDelivered: false,
     hasPendingPayments: false,
     hasPendingRefunds: false,
-    hasUninvoicedCompletedPayments: false,
+    canIssueInvoice: false,
   };
 
   it('new unpaid order (no MODIFY: orders are edited by section)', () => {
@@ -312,15 +312,15 @@ describe('availableActions', () => {
     expect(actions).toEqual(['SHIP', 'CANCEL']);
   });
 
-  it('paid with uninvoiced completed payments offers INVOICE_TOTAL', () => {
+  it('paid with something to invoice offers ISSUE_INVOICE', () => {
     const summary = financialSummary(10000, [{ status: 'COMPLETED', amount: 10000 }], []);
     const actions = availableActions({
       ...base,
       paymentStatus: 'PAID',
       summary,
-      hasUninvoicedCompletedPayments: true,
+      canIssueInvoice: true,
     });
-    expect(actions).toEqual(['SHIP', 'CANCEL', 'INVOICE_TOTAL']);
+    expect(actions).toEqual(['SHIP', 'CANCEL', 'ISSUE_INVOICE']);
   });
 
   const fulfilled = {
@@ -376,7 +376,7 @@ describe('availableActions', () => {
         ...fulfilled,
         orderStatus: 'ARCHIVED',
         allShipmentsDelivered: true,
-        hasUninvoicedCompletedPayments: true,
+        canIssueInvoice: true,
       }),
     ).toEqual([]);
   });
@@ -391,7 +391,7 @@ describe('fix round 1', () => {
     allShipmentsDelivered: false,
     hasPendingPayments: false,
     hasPendingRefunds: false,
-    hasUninvoicedCompletedPayments: false,
+    canIssueInvoice: false,
   };
   const withSummary = (summary: ReturnType<typeof financialSummary>) => ({
     ...actionBase,

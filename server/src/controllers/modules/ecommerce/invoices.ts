@@ -10,10 +10,13 @@ import {
   nonNegativeCents,
   objectList,
   optionalBoolean,
+  positiveInt,
   requiredString,
 } from './validation';
 
 const MSG = 'Invalid invoice';
+/** Most entries in each list of an invoice selection. */
+const MAX_LIST = 200;
 
 const EcommerceInvoiceController = ({ strapi }: { strapi: Core.Strapi }) => {
   const invoices = (): any => strapi.plugin(PLUGIN_ID).service('EcommerceInvoiceService');
@@ -39,38 +42,40 @@ const EcommerceInvoiceController = ({ strapi }: { strapi: Core.Strapi }) => {
     }
   };
 
-  /** `{ scope: 'PAYMENT', paymentId } | { scope: 'TOTAL' }` → the service's scope. */
-  const scopeOf = (scope: unknown, paymentId: unknown) => {
-    if (scope === 'TOTAL') return { type: 'TOTAL' as const };
-    if (scope === 'PAYMENT') {
-      if (typeof paymentId !== 'number' || !Number.isInteger(paymentId) || paymentId < 1) {
-        return fail(MSG, 'paymentId', 'invalid');
-      }
-      return { type: 'PAYMENT' as const, paymentId };
-    }
-    return fail(MSG, 'scope', 'invalid');
+  /** An array (absent → empty) of at most `MAX_LIST` entries. */
+  const list = (path: string, v: unknown): unknown[] => {
+    if (v === undefined) return [];
+    if (!Array.isArray(v)) return fail(MSG, path, 'invalid');
+    if (v.length > MAX_LIST) return fail(MSG, path, 'too_long');
+    return v;
   };
 
+  const ids = (path: string, v: unknown): number[] =>
+    list(path, v).map((id, i) => positiveInt(MSG, `${path}.${i}`, id));
+
   return {
-    preview: (ctx: any) =>
-      run(
-        ctx,
-        (id) => {
-          const q = asObject(ctx.query);
-          const scope = scopeOf(q.scope, q.scope === 'PAYMENT' ? toInt(q.paymentId) : undefined);
-          return invoices().preview(id, scope);
-        },
-        { notFound: 'Order not found' }
-      ),
+    selection: (ctx: any) =>
+      run(ctx, (id) => invoices().selection(id), { notFound: 'Order not found' }),
 
     issue: (ctx: any) =>
       run(
         ctx,
         (id) => {
           const b = asObject(ctx.request?.body);
-          const scope = scopeOf(b.scope, b.paymentId);
-          const idempotencyKey = requiredString(MSG, 'idempotencyKey', b.idempotencyKey, MAX_KEY);
-          return invoices().issue(id, scope, { idempotencyKey }, actorOf(ctx));
+          const input = {
+            lines: list('lines', b.lines).map((raw, i) => {
+              const l = asObject(raw);
+              return {
+                orderLineId: positiveInt(MSG, `lines.${i}.orderLineId`, l.orderLineId),
+                quantity: positiveInt(MSG, `lines.${i}.quantity`, l.quantity),
+              };
+            }),
+            shippingLineIds: ids('shippingLineIds', b.shippingLineIds),
+            paymentIds: ids('paymentIds', b.paymentIds),
+            expectedTotal: nonNegativeCents(MSG, 'expectedTotal', b.expectedTotal),
+            idempotencyKey: requiredString(MSG, 'idempotencyKey', b.idempotencyKey, MAX_KEY),
+          };
+          return invoices().issue(id, input, actorOf(ctx));
         },
         { status: 201, notFound: 'Order not found' }
       ),
