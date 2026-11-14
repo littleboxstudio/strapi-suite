@@ -806,6 +806,7 @@
   "littlebox-strapi-suite.ecommerce.orders.refund.reasons.RETURN": "Devolução",
   "littlebox-strapi-suite.ecommerce.orders.refund.reasons.OTHER": "Outro",
   "littlebox-strapi-suite.ecommerce.orders.refund.description": "Descrição",
+  "littlebox-strapi-suite.ecommerce.orders.refund.descriptionNotice": "O cliente vai ver este texto nos e-mails do reembolso.",
   "littlebox-strapi-suite.ecommerce.orders.refund.method": "Método de reembolso",
   "littlebox-strapi-suite.ecommerce.orders.refund.methods.MANUAL_TRANSFER": "Transferência bancária",
   "littlebox-strapi-suite.ecommerce.orders.refund.methods.STORE_CREDIT": "Crédito em loja",
