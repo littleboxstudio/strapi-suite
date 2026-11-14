@@ -34,6 +34,7 @@ import {
 } from '../../utils/refundForm';
 import type { FieldError, RefundMethod, RefundPreview } from '../../orderTypes';
 import { Tile, Tiles } from './SummaryTiles';
+import NoticeBar from './NoticeBar';
 
 type Props = {
   orderId: number;
@@ -256,16 +257,8 @@ const RefundModal = ({ orderId, reference, initial, onClose, onSubmitting, onRef
           <Textarea value={form.description} onChange={(e: any) => update('description', e.target.value)} />
           <Field.Error />
         </Field.Root>
-        {/* The description goes into the refund e-mails the customer receives. */}
-        <Box
-          hasRadius
-          padding={3}
-          style={{ background: '#ffffff', border: '1px solid #f29d41', marginTop: -8 }}
-        >
-          <Typography variant="pi" style={{ color: '#c2410c' }}>
-            {t('ecommerce.orders.refund.descriptionNotice')}
-          </Typography>
-        </Box>
+        {/* The description goes into the refund e-mails the customer receives (same look as the top notices). */}
+        <NoticeBar text={t('ecommerce.orders.refund.descriptionNotice')} />
 
         <Field.Root name="method" error={errors.method}>
           <Field.Label>{t('ecommerce.orders.refund.method')}</Field.Label>
