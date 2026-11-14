@@ -300,7 +300,7 @@ const InvoicesSection = ({ title, order, canInvoice, onIssue, onChanged }: Props
     <Flex gap={2} alignItems="center">
       <AddressButton title={t('ecommerce.orders.detail.address.billing')} address={order.billingAddress} />
       {canTotal && (
-        <Button size="S" disabled={!billingActive} onClick={() => onIssue({ scope: 'TOTAL' })}>
+        <Button size="S" variant="secondary" disabled={!billingActive} onClick={() => onIssue({ scope: 'TOTAL' })}>
           {t('ecommerce.orders.invoices.generateTotal')}
         </Button>
       )}
