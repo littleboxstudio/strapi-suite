@@ -470,6 +470,7 @@
   "littlebox-strapi-suite.ecommerce.orders.status.payment.PAID": "Paga",
   "littlebox-strapi-suite.ecommerce.orders.status.payment.PARTIALLY_REFUNDED": "Parcialmente reembolsada",
   "littlebox-strapi-suite.ecommerce.orders.status.payment.REFUNDED": "Reembolsada",
+  "littlebox-strapi-suite.ecommerce.orders.status.payment.REFUND_DUE": "Reembolso pendente",
   "littlebox-strapi-suite.ecommerce.orders.status.fulfillment.UNFULFILLED": "Por enviar",
   "littlebox-strapi-suite.ecommerce.orders.status.fulfillment.PARTIALLY_FULFILLED": "Parcialmente enviada",
   "littlebox-strapi-suite.ecommerce.orders.status.fulfillment.FULFILLED": "Enviada",

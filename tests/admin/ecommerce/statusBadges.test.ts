@@ -52,7 +52,7 @@ describe('order status badges', () => {
     const keys = [ORDER_STATUS_BADGES, PAYMENT_STATUS_BADGES, FULFILLMENT_STATUS_BADGES].flatMap((m) =>
       Object.values(m).map((b) => `littlebox-strapi-suite.${b.labelKey}`)
     );
-    expect(keys).toHaveLength(11);
+    expect(keys).toHaveLength(12);
     for (const key of keys) {
       expect(en[key], key).toEqual(expect.any(String));
       expect(pt[key], key).toEqual(expect.any(String));

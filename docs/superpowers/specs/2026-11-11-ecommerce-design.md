@@ -335,12 +335,16 @@ Define a política deixada em aberto no ponto 2.19 das Promoções:
 Com `paid` = liquidados, `refunded` = reembolsos monetários concluídos e reembolsos de vale,
 `net = paid − refunded` e `total` = total atual:
 1. `refunded > 0` e `net ≤ 0` → `REFUNDED`
-2. `refunded > 0`, `total > 0` e `net ≥ total` → `PAID` (só foi devolvido o excedente: o que fica
+2. `excess > 0` (há dinheiro a devolver: pago a mais, devolução ou encomenda cancelada com valor
+   retido) → `REFUND_DUE` ("Reembolso pendente"); um reembolso Stripe em processamento mantém este
+   estado até ser concluído **[Decisão, 2026-11-14]**
+3. `refunded > 0`, `total > 0` e `net ≥ total` → `PAID` (só foi devolvido o excedente: o que fica
    cobre a encomenda) **[Decisão, 2026-11-14]**
-3. `refunded > 0` → `PARTIALLY_REFUNDED`
-4. `paid = 0` → `PENDING`
-5. `net < total` → `PARTIALLY_PAID`
-6. caso contrário → `PAID`
+4. `refunded > 0` → `PARTIALLY_REFUNDED`
+5. `total = 0` → `PAID`
+6. `paid = 0` → `PENDING`
+7. `net < total` → `PARTIALLY_PAID`
+8. caso contrário → `PAID`
 
 O dashboard mostra sempre também os saldos detalhados (ponto 9.3).
 

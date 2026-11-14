@@ -11,6 +11,7 @@ export const PAYMENT_STATUSES = [
   'PAID',
   'PARTIALLY_REFUNDED',
   'REFUNDED',
+  'REFUND_DUE',
 ] as const;
 export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
 
@@ -177,10 +178,13 @@ export const financialSummary = (
 /** Rules 4/5 compare against the real `orderTotal` (not the effective total),
  * so a cancelled, partially paid order stays PARTIALLY_PAID. */
 export const derivePaymentStatus = (
-  summary: Pick<FinancialSummary, 'paid' | 'refunded' | 'net' | 'orderTotal'>
+  summary: Pick<FinancialSummary, 'paid' | 'refunded' | 'net' | 'orderTotal' | 'excess'>
 ): PaymentStatus => {
-  const { paid, refunded, net, orderTotal: total } = summary;
+  const { paid, refunded, net, excess, orderTotal: total } = summary;
   if (refunded > 0 && net <= 0) return 'REFUNDED';
+  // Money is owed back to the customer (overpaid, returned or cancelled): it stays visible
+  // until the refund is completed.
+  if (excess > 0) return 'REFUND_DUE';
   // Only the excess went back (what is kept still covers the order): the order is paid.
   if (refunded > 0 && total > 0 && net >= total) return 'PAID';
   if (refunded > 0) return 'PARTIALLY_REFUNDED';

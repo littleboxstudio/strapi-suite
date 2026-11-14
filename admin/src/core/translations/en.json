@@ -686,6 +686,7 @@
   "littlebox-strapi-suite.ecommerce.orders.status.payment.PAID": "Paid",
   "littlebox-strapi-suite.ecommerce.orders.status.payment.PARTIALLY_REFUNDED": "Partially refunded",
   "littlebox-strapi-suite.ecommerce.orders.status.payment.REFUNDED": "Refunded",
+  "littlebox-strapi-suite.ecommerce.orders.status.payment.REFUND_DUE": "Refund due",
   "littlebox-strapi-suite.ecommerce.orders.status.fulfillment.UNFULFILLED": "Unfulfilled",
   "littlebox-strapi-suite.ecommerce.orders.status.fulfillment.PARTIALLY_FULFILLED": "Partially fulfilled",
   "littlebox-strapi-suite.ecommerce.orders.status.fulfillment.FULFILLED": "Fulfilled",

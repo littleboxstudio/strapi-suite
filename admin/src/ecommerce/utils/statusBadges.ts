@@ -32,6 +32,7 @@ export const PAYMENT_STATUS_BADGES = badges<PaymentStatus>('payment', {
   PAID: 'success',
   PARTIALLY_REFUNDED: 'secondary',
   REFUNDED: 'neutral',
+  REFUND_DUE: 'danger',
 });
 
 export const FULFILLMENT_STATUS_BADGES = badges<FulfillmentStatus>('fulfillment', {

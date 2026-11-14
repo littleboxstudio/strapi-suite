@@ -48,7 +48,8 @@
         "PARTIALLY_PAID",
         "PAID",
         "PARTIALLY_REFUNDED",
-        "REFUNDED"
+        "REFUNDED",
+        "REFUND_DUE"
       ],
       "default": "PENDING"
     },

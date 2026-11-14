@@ -583,7 +583,7 @@ describe('getOrCreatePaymentLink', () => {
     });
     const view = await orders.get(order.id);
     expect(view.summary.paid).toBe(5500);
-    expect(view.paymentStatus).toBe('PAID');
+    expect(view.paymentStatus).toBe('REFUND_DUE');
     const completedHistory = tables[UIDS.orderHistory].filter(
       (h) => h.type === 'PAYMENT_COMPLETED' && h.actor === 'system'
     );

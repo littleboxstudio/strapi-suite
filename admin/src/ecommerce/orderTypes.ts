@@ -11,7 +11,7 @@ import type {
 } from './promotionTypes';
 
 export type OrderStatus = 'OPEN' | 'ARCHIVED' | 'CANCELLED';
-export type PaymentStatus = 'PENDING' | 'PARTIALLY_PAID' | 'PAID' | 'PARTIALLY_REFUNDED' | 'REFUNDED';
+export type PaymentStatus = 'PENDING' | 'PARTIALLY_PAID' | 'PAID' | 'PARTIALLY_REFUNDED' | 'REFUNDED' | 'REFUND_DUE';
 export type FulfillmentStatus = 'UNFULFILLED' | 'PARTIALLY_FULFILLED' | 'FULFILLED';
 
 export type Pagination = { page: number; pageSize: number; total: number; pageCount: number };
