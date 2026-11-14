@@ -233,7 +233,7 @@ const OrderDetailPage = () => {
         actions={
           canManage && canEdit(order, 'ADD_PRODUCTS') ? (
             <Button variant="secondary" size="S" onClick={() => setProductsKey((k) => (k ?? 0) + 1)}>
-              {t('ecommerce.orders.products.add')}
+              {t('ecommerce.orders.products.edit')}
             </Button>
           ) : undefined
         }
