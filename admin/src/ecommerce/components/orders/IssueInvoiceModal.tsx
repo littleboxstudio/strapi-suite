@@ -29,6 +29,8 @@ import {
   buildIssueInvoiceInput,
   defaultInvoiceSelectionForm,
   invoiceSelectionTotals,
+  isSelectionChanged,
+  quantityErrorMessage,
   selectedValue,
   selectionPayments,
   strandedValue,
@@ -78,8 +80,9 @@ const IssueInvoiceModal = ({ orderId, payments, canRefund, onClose, onIssued, on
   const money = (cents: number) => formatCents(cents, uiLocale);
   const date = (iso: string | null) => (iso ? formatDate(iso, { dateStyle: 'medium', timeStyle: 'short' }) : '—');
 
-  // One key per opening: after an attempt the modal can only be closed, so there is no second one.
-  const [idempotencyKey] = useState(() => mintUuid());
+  // One key per opening, renewed when a refusal (4xx) brings a fresh selection to confirm again;
+  // after any other attempt the modal can only be closed.
+  const [idempotencyKey, setIdempotencyKey] = useState(() => mintUuid());
   const [selection, setSelection] = useState<InvoiceSelectionView | null>(null);
   const [form, setForm] = useState<InvoiceSelectionForm | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -92,16 +95,20 @@ const IssueInvoiceModal = ({ orderId, payments, canRefund, onClose, onIssued, on
   // The provider did not answer: the outcome is unknown until the invoice is reconciled.
   const [uncertain, setUncertain] = useState(false);
 
-  useEffect(() => {
-    let alive = true;
+  /** Fetches the selection and resets the form to its defaults. */
+  const load = (alive: () => boolean = () => true) =>
     new FetchInvoiceSelection()
       .execute(orderId)
       .then((view) => {
-        if (!alive) return;
+        if (!alive()) return;
         setSelection(view);
         setForm(defaultInvoiceSelectionForm(view));
       })
-      .catch((err) => alive && setLoadError(t(apiErrorMessageId(err, `${p}.previewError`))));
+      .catch((err) => alive() && setLoadError(t(apiErrorMessageId(err, `${p}.previewError`))));
+
+  useEffect(() => {
+    let alive = true;
+    load(() => alive);
     return () => {
       alive = false;
     };
@@ -152,6 +159,14 @@ const IssueInvoiceModal = ({ orderId, payments, canRefund, onClose, onIssued, on
       );
       onIssued();
     } catch (err) {
+      if (isSelectionChanged(err)) {
+        // The order changed since the selection was fetched (nothing was recorded): fetch it again
+        // and let the admin review and confirm, with a new key.
+        if (shouldRenewIdempotencyKey(err)) setIdempotencyKey(mintUuid());
+        toggleNotification({ type: 'warning', message: t(`${p}.selectionChanged`) });
+        await load();
+        return;
+      }
       // A refusal records nothing: the error modal shows the provider's message, with only Close,
       // so the cause is fixed before another attempt.
       setError(t(apiErrorMessageId(err, `${p}.error`)));
@@ -230,9 +245,11 @@ const IssueInvoiceModal = ({ orderId, payments, canRefund, onClose, onIssued, on
               <Tbody>
                 {view.lines.map((line) => {
                   const quantity = values.quantities[line.orderLineId] ?? 0;
-                  const fieldError = errors[`quantities.${line.orderLineId}`]
-                    ? t(`${p}.atMost`, { max: line.remainingQuantity })
-                    : undefined;
+                  const message = quantityErrorMessage(
+                    errors[`quantities.${line.orderLineId}`],
+                    line.remainingQuantity
+                  );
+                  const fieldError = message ? t(message.id, message.values) : undefined;
                   const value = fieldError ? 0 : selectedValue(line.remainingValue, line.remainingQuantity, quantity);
                   return (
                     <Tr key={line.orderLineId}>

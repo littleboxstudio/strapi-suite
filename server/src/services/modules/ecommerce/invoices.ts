@@ -24,7 +24,12 @@ import {
   type InvoiceDraft,
   type IssuedDocument,
 } from './providers/billing';
-import { buildCreditLines, creditOptions, type CreditOptions } from './domain/creditNotes';
+import {
+  buildCreditLines,
+  creditOptions,
+  exceedsCreditable,
+  type CreditOptions,
+} from './domain/creditNotes';
 import type { ShippingLineOrigin } from './domain/shippingLines';
 import type { ProviderRuntime } from './providers/registry';
 import type { OrderHistoryEntry } from './orderHistory';
@@ -113,6 +118,8 @@ export type CreditNoteOptions = {
   returnable: CreditOptions['returnable'];
   /** SHIPPING lines a RETURN may add whole. */
   shipping: CreditOptions['shipping'];
+  /** Another credit note on this invoice is PENDING or UNCERTAIN: a CORRECTION waits for it. */
+  correctionBlocked: boolean;
 };
 
 export type CreditNoteInput = {
@@ -502,7 +509,9 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
         ? `${describe(row)} ${doc.number} issued after it was marked failed (${row.error ?? 'FAILED'})` +
           (warnings.includes('DUPLICATE_INVOICE')
             ? ': what it invoices was invoiced again meanwhile, issue a credit note'
-            : '')
+            : warnings.includes('DUPLICATE_CREDIT_NOTE')
+              ? ': what it credits was credited again meanwhile, issue a corrective invoice'
+              : '')
         : `${describe(row)} ${doc.number} issued (${num(row.total)} cents)`,
       previousValue: ctx.late ? { status: row.status, error: row.error ?? null } : null,
       newValue: {
@@ -574,12 +583,28 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   /**
+   * Whether a late credit note credits what is no longer there: its invoice was annulled
+   * meanwhile, or another credit note took the value, units or returned units it credits. The row
+   * is FAILED, so `docs` count it out.
+   */
+  const lateCreditNoteDuplicates = async (row: any, invoicing: OrderState['invoicing']) => {
+    const originalId = idOf(row.creditedInvoice);
+    const original = originalId === null ? null : await findRow({ id: originalId });
+    if (!original || invoicing.position.annulledInvoiceIds.includes(original.id)) return true;
+    const invoice = readInvoiceDoc(original, []);
+    const options = creditOptions(invoice, invoicing.docs, invoicing.positionOrder);
+    return exceedsCreditable(readInvoiceDoc(row, []), invoice, options);
+  };
+
+  /**
    * The provider issued a document for a row an admin had already made FAILED (markFailed, or a
    * reconcile that found nothing yet). The document exists, so it is recorded ISSUED. Each
    * allocation is re-claimed only when its payment has no other active allocation (checked by a
-   * query under the order lock). A payment invoiced again meanwhile, or units or shipping lines
-   * the position no longer has left (`fitsPosition`), flag it DUPLICATE_INVOICE and the customer
-   * event is not emitted.
+   * query under the order lock). A payment invoiced again or refunded meanwhile (its net is below
+   * the allocation), or units or shipping lines the position no longer has left (`fitsPosition`),
+   * flag it DUPLICATE_INVOICE; a credit note whose value was credited again (or whose invoice was
+   * annulled) meanwhile is flagged DUPLICATE_CREDIT_NOTE. A flagged document emits no customer
+   * event.
    */
   const recordLateSuccess = async (
     row: any,
@@ -589,9 +614,10 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
   ) => {
     // The row is FAILED, so the position is computed without it (ruling 14).
     const { invoicing } = await orders().computeOrderState(orderId);
-    let duplicate =
-      row.kind === 'INVOICE' &&
-      !fitsPosition(invoicing.position, readInvoiceDoc(row, []), invoicing.positionOrder);
+    const creditNote = row.kind === 'CREDIT_NOTE';
+    let duplicate = creditNote
+      ? await lateCreditNoteDuplicates(row, invoicing)
+      : !fitsPosition(invoicing.position, readInvoiceDoc(row, []), invoicing.positionOrder);
     const q = strapi.db.query(uids().invoiceAllocation);
     const rows: any[] = await q.findMany({
       where: { invoice: { id: row.id } },
@@ -601,6 +627,8 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     for (const a of rows) {
       const paymentId = idOf(a.payment);
       if (paymentId === null) continue;
+      // Refunded meanwhile: the payment no longer holds what this invoice says it paid.
+      if (num(a.amount) > (invoicing.paymentNets.get(paymentId) ?? 0)) duplicate = true;
       const active = await q.count({
         where: { payment: { id: paymentId }, uniqueKey: { $null: false } },
       });
@@ -610,7 +638,8 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
       }
       await q.update({ where: { id: a.id }, data: { uniqueKey: `payment:${paymentId}` } });
     }
-    const warnings = ['ISSUED_AFTER_FAILED', ...(duplicate ? ['DUPLICATE_INVOICE'] : [])];
+    const flag = creditNote ? 'DUPLICATE_CREDIT_NOTE' : 'DUPLICATE_INVOICE';
+    const warnings = ['ISSUED_AFTER_FAILED', ...(duplicate ? [flag] : [])];
     strapi.log?.warn?.(
       `[ecommerce] ${describe(row).toLowerCase()} ${row.id} issued after it was marked failed: ${warnings.join(', ')}`
     );
@@ -991,6 +1020,15 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     return { invoice, options: creditOptions(invoice, docs, positionOrder) };
   };
 
+  /** A credit note on `invoiceId` is PENDING or UNCERTAIN: a CORRECTION must wait for it. */
+  const creditNoteInProgress = (invoiceId: number, state: OrderState): boolean =>
+    state.invoicing.docs.some(
+      (d) =>
+        d.kind === 'CREDIT_NOTE' &&
+        d.creditedInvoiceId === invoiceId &&
+        (d.status === 'PENDING' || d.status === 'UNCERTAIN')
+    );
+
   const creditNotePreview = async (invoiceId: number | string): Promise<CreditNoteOptions> => {
     const row = await loadIssuedInvoice(Number(invoiceId));
     const state = await orders().computeOrderState(idOf(row.order) as number);
@@ -1006,6 +1044,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
       correction: { lines: correction.lines, total: correction.total },
       returnable: options.returnable,
       shipping: options.shipping,
+      correctionBlocked: creditNoteInProgress(row.id, state),
     };
   };
 
@@ -1048,6 +1087,10 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
         const state = await orders().computeOrderState(orderId);
         const { invoice, options } = creditOptionsOf(original, state);
         const creditType = input?.creditType;
+        // A CORRECTION credits everything left: it waits until no other credit note is unknown.
+        if (creditType === 'CORRECTION' && creditNoteInProgress(original.id, state)) {
+          throw invalid('creditType', 'CREDIT_NOTE_IN_PROGRESS');
+        }
         const built = buildCreditLines(invoice, options, {
           creditType,
           lines: Array.isArray(input?.lines) ? input.lines : [],

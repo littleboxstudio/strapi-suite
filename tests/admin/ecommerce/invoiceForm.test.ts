@@ -29,6 +29,7 @@ const options = (overrides: Partial<CreditNoteOptions> = {}): CreditNoteOptions 
   correction: { lines: [], total: 1500 },
   returnable: [{ index: 0, units: 1, unitsLeft: 3, valueLeft: 1000 }],
   shipping: [{ index: 1, value: 500 }],
+  correctionBlocked: false,
   ...overrides,
 });
 
@@ -274,7 +275,7 @@ describe('invoiceFailureMessageId', () => {
     expect(pt[key]).toEqual(expect.any(String));
   });
 
-  it.each(['TOTAL_MISMATCH', 'RECEIPT_FAILED', 'ISSUED_AFTER_FAILED', 'DUPLICATE_INVOICE'])(
+  it.each(['TOTAL_MISMATCH', 'RECEIPT_FAILED', 'ISSUED_AFTER_FAILED', 'DUPLICATE_INVOICE', 'DUPLICATE_CREDIT_NOTE'])(
     'warning %s has an en and a pt message',
     (code) => {
       const key = `${P}ecommerce.orders.invoices.warnings.${code}`;
@@ -283,9 +284,26 @@ describe('invoiceFailureMessageId', () => {
     }
   );
 
-  it('DUPLICATE_INVOICE asks to cancel the duplicate at the provider', () => {
-    expect(en[`${P}ecommerce.orders.invoices.warnings.DUPLICATE_INVOICE`]).toMatch(/cancel/i);
-    expect(pt[`${P}ecommerce.orders.invoices.warnings.DUPLICATE_INVOICE`]).toMatch(/anule/i);
+  it('DUPLICATE_INVOICE asks for a credit note on one of them (Moloni documents cannot be cancelled)', () => {
+    expect(en[`${P}ecommerce.orders.invoices.warnings.DUPLICATE_INVOICE`]).toMatch(/credit note on one of them/);
+    expect(pt[`${P}ecommerce.orders.invoices.warnings.DUPLICATE_INVOICE`]).toMatch(/nota de crédito de uma delas/);
+    expect(en[`${P}ecommerce.orders.invoices.warnings.DUPLICATE_INVOICE`]).not.toMatch(/cancel/i);
+    expect(pt[`${P}ecommerce.orders.invoices.warnings.DUPLICATE_INVOICE`]).not.toMatch(/anule/i);
+  });
+
+  it('DUPLICATE_CREDIT_NOTE asks for a corrective invoice', () => {
+    expect(en[`${P}ecommerce.orders.invoices.warnings.DUPLICATE_CREDIT_NOTE`]).toMatch(/corrective invoice/);
+    expect(pt[`${P}ecommerce.orders.invoices.warnings.DUPLICATE_CREDIT_NOTE`]).toMatch(/fatura/);
+  });
+
+  it('a blocked Correction explains why, in en and pt', () => {
+    expect(en[`${P}ecommerce.orders.invoices.creditNote.correctionBlocked`]).toEqual(expect.any(String));
+    expect(pt[`${P}ecommerce.orders.invoices.creditNote.correctionBlocked`]).toBe(
+      'Há uma nota de crédito desta fatura por confirmar. Reconcilie-a primeiro.'
+    );
+    expect(pt[`${P}ecommerce.orders.errors.CREDIT_NOTE_IN_PROGRESS`]).toBe(
+      'Há uma nota de crédito desta fatura por confirmar. Reconcilie-a primeiro.'
+    );
   });
 });
 

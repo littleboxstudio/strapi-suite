@@ -76,4 +76,9 @@ describe('paymentMethodName', () => {
     expect(paymentMethodName('MANUAL', null)).toBe('');
     expect(paymentMethodName('MANUAL', 42)).toBe('');
   });
+
+  it('caps a manual label at 64 characters (Moloni method names)', () => {
+    expect(paymentMethodName('MANUAL', `  ${'a'.repeat(100)}  `)).toBe('a'.repeat(64));
+    expect(paymentMethodName('MANUAL', `${'a'.repeat(63)}   b`)).toBe('a'.repeat(63));
+  });
 });

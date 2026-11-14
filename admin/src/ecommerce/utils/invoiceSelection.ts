@@ -1,5 +1,6 @@
 import type { InvoiceSelectionView, IssueInvoiceSelectionInput, OrderPayment } from '../orderTypes';
 import type { FormErrors } from './shipmentForm';
+import { apiErrorCode } from './orderDetail';
 
 type SelectionLine = InvoiceSelectionView['lines'][number];
 
@@ -111,4 +112,30 @@ export function selectionPayments(view: InvoiceSelectionView, payments: OrderPay
       date: payment ? (payment.completedAt ?? payment.createdAt) : null,
     };
   });
+}
+
+/**
+ * The message of a quantity error: "at most {max}" above the remaining units, the generic invalid
+ * text otherwise (a non-integer or negative quantity). Ids without the plugin prefix.
+ */
+export function quantityErrorMessage(
+  code: string | undefined,
+  max: number
+): { id: string; values?: Record<string, number> } | null {
+  if (!code) return null;
+  if (code === 'exceeds_remaining') return { id: 'ecommerce.orders.invoices.issue.atMost', values: { max } };
+  return { id: 'ecommerce.orders.errors.invalid' };
+}
+
+/** Refusals that mean the order changed since the selection was fetched: fetch it again. */
+const SELECTION_CHANGED_CODES = [
+  'TOTAL_CHANGED',
+  'QUANTITY_EXCEEDS_UNINVOICED',
+  'SHIPPING_LINE_NOT_INVOICEABLE',
+  'PAYMENT_NOT_INVOICEABLE',
+];
+
+export function isSelectionChanged(err: unknown): boolean {
+  const code = apiErrorCode(err);
+  return code !== null && SELECTION_CHANGED_CODES.includes(code);
 }
