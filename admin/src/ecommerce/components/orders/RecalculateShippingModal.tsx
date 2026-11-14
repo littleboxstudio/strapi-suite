@@ -6,7 +6,7 @@ import { getTranslation } from '../../../core/utils/getTranslation';
 import PreviewShippingRecalculation from '../../usecases/orders/previewShippingRecalculation';
 import RecalculateShipping from '../../usecases/orders/recalculateShipping';
 import { formatCents } from '../../utils/money';
-import { balanceChange, shippingLineRows } from '../../utils/orderEditing';
+import { balanceAfter, shippingLineRows } from '../../utils/orderEditing';
 import { apiErrorMessageId } from '../../utils/orderDetail';
 import { mintUuid } from '../../utils/variantDraft';
 import type { EditResult, Order, ShippingRecalculationPreview } from '../../orderTypes';
@@ -106,7 +106,7 @@ const RecalculateShippingModal = ({ order, onClose, onSaved }: Props) => {
     </Tile>
   );
 
-  const change = preview ? balanceChange(preview.before, preview.after) : null;
+  const change = preview ? balanceAfter(preview.after) : null;
 
   const body = () => {
     if (loadError) {
@@ -182,7 +182,7 @@ const RecalculateShippingModal = ({ order, onClose, onSaved }: Props) => {
                 fontWeight={change.outcome === 'NONE' ? undefined : 'semiBold'}
                 style={{ textAlign: 'center' }}
               >
-                {t(`ecommerce.orders.products.outcome.${change.outcome}`, { amount: money(change.amount) })}
+                {t(`ecommerce.orders.edit.balance.${change.outcome}`, { amount: money(change.amount) })}
               </Typography>
             </Dialog.Body>
             <Dialog.Footer>

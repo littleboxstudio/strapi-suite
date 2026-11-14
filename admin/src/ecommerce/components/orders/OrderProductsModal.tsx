@@ -19,6 +19,7 @@ import {
   type ModificationErrorMap,
 } from '../../utils/modification';
 import { apiErrorMessageId } from '../../utils/orderDetail';
+import { balanceAfter } from '../../utils/orderEditing';
 import { extractFieldErrors } from '../../utils/productForm';
 import { mintUuid } from '../../utils/variantDraft';
 import type { EditResult, LinesPreview, Order } from '../../orderTypes';
@@ -34,7 +35,7 @@ type Props = {
 
 /**
  * Adds products to the order and changes or removes its lines: edit, then Save, which previews
- * the change and asks to confirm it with the amount the customer will pay (or get back); confirming
+ * the change and asks to confirm it with what the customer will still owe (or be refunded) in total; confirming
  * saves and closes it (the balance and its payment actions are on the page). Mount it only while open: each opening
  * mints one operationId, so a retried save is applied once.
  */
@@ -113,6 +114,8 @@ const OrderProductsModal = ({ order, onClose, onSaved }: Props) => {
   };
 
   const money = (cents: number) => formatCents(cents, uiLocale);
+  /** What the customer will owe (or be owed) in total once the change is saved. */
+  const after = preview ? balanceAfter(preview.after) : null;
 
   const formError = errors.form ?? errors.lines;
 
@@ -156,7 +159,7 @@ const OrderProductsModal = ({ order, onClose, onSaved }: Props) => {
           </Button>
         </Modal.Footer>
       </Modal.Content>
-      {preview && (
+      {preview && after && (
         // A short confirmation with what the customer will have to pay (or get back).
         <Dialog.Root open onOpenChange={(next: boolean) => !next && !busy && setPreview(null)}>
           <Dialog.Content>
@@ -164,13 +167,11 @@ const OrderProductsModal = ({ order, onClose, onSaved }: Props) => {
             <Dialog.Body>
               <Typography
                 variant="omega"
-                textColor={preview.outcome === 'DUE' ? 'warning600' : 'neutral800'}
-                fontWeight={preview.outcome === 'NONE' ? undefined : 'semiBold'}
+                textColor={after.outcome === 'DUE' ? 'warning600' : 'neutral800'}
+                fontWeight={after.outcome === 'NONE' ? undefined : 'semiBold'}
                 style={{ textAlign: 'center' }}
               >
-                {t(`ecommerce.orders.products.outcome.${preview.outcome}`, {
-                  amount: money(Math.abs(preview.difference)),
-                })}
+                {t(`ecommerce.orders.edit.balance.${after.outcome}`, { amount: money(after.amount) })}
               </Typography>
             </Dialog.Body>
             <Dialog.Footer>

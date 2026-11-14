@@ -341,16 +341,12 @@ export function quantityFromInput(raw: string): number {
 }
 
 /**
- * What an edit changes for the customer, from the totals before and after it: more to pay (DUE,
- * the extra amount), money to refund (REFUNDABLE, the new excess) or nothing to act on (NONE).
+ * Where the order stands after an edit, for the confirmation: what the customer still has to pay
+ * in total (DUE, the whole amount pending, not only what the edit adds), the refund they are owed
+ * (REFUNDABLE, the excess paid) or nothing (NONE).
  */
-export function balanceChange(
-  before: ModificationTotals,
-  after: ModificationTotals
-): { outcome: ModificationOutcome; amount: number } {
-  const more = after.due - before.due;
-  if (more > 0) return { outcome: 'DUE', amount: more };
-  const excess = after.excess - before.excess;
-  if (excess > 0) return { outcome: 'REFUNDABLE', amount: excess };
+export function balanceAfter(after: ModificationTotals): { outcome: ModificationOutcome; amount: number } {
+  if (after.due > 0) return { outcome: 'DUE', amount: after.due };
+  if (after.excess > 0) return { outcome: 'REFUNDABLE', amount: after.excess };
   return { outcome: 'NONE', amount: 0 };
 }
