@@ -230,7 +230,7 @@ describe('order payment endpoints', () => {
       .fn()
       .mockRejectedValue(new EcommerceValidationError('x', [{ path: 'idempotencyKey', code: 'IDEMPOTENCY_KEY_CONFLICT' }]));
     const c = createOrders({ strapi: strapiWith({ EcommercePaymentService: { addManualPayment } }) });
-    const ctx = body({ amount: 100, idempotencyKey: 'k' });
+    const ctx = body({ amount: 100, methodLabel: 'MB WAY', idempotencyKey: 'k' });
     await c.addPayment(ctx);
     expect(ctx.status).toBe(409);
     expect(ctx.body.error.details.code).toBe('IDEMPOTENCY_KEY_CONFLICT');

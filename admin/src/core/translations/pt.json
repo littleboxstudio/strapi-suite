@@ -598,6 +598,7 @@
   "littlebox-strapi-suite.ecommerce.orders.detail.addPayment.amount": "Valor recebido",
   "littlebox-strapi-suite.ecommerce.orders.detail.addPayment.reference": "Referência ou ID da transação",
   "littlebox-strapi-suite.ecommerce.orders.detail.addPayment.method": "Método de pagamento",
+  "littlebox-strapi-suite.ecommerce.orders.detail.addPayment.methodNotice": "Este método de pagamento vai aparecer na fatura.",
   "littlebox-strapi-suite.ecommerce.orders.detail.addPayment.methodPlaceholder": "ex.: Transferência bancária",
   "littlebox-strapi-suite.ecommerce.orders.detail.addPayment.submit": "Adicionar pagamento",
   "littlebox-strapi-suite.ecommerce.orders.detail.addPayment.cancel": "Cancelar",

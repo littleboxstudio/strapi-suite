@@ -814,6 +814,7 @@
   "littlebox-strapi-suite.ecommerce.orders.detail.addPayment.amount": "Amount received",
   "littlebox-strapi-suite.ecommerce.orders.detail.addPayment.reference": "Reference or transaction ID",
   "littlebox-strapi-suite.ecommerce.orders.detail.addPayment.method": "Payment method",
+  "littlebox-strapi-suite.ecommerce.orders.detail.addPayment.methodNotice": "This payment method will appear on the invoice.",
   "littlebox-strapi-suite.ecommerce.orders.detail.addPayment.methodPlaceholder": "e.g. Bank transfer",
   "littlebox-strapi-suite.ecommerce.orders.detail.addPayment.submit": "Add payment",
   "littlebox-strapi-suite.ecommerce.orders.detail.addPayment.cancel": "Cancel",
