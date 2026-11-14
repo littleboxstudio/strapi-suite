@@ -985,3 +985,23 @@ describe('paymentsOverview', () => {
     );
   });
 });
+
+describe('paymentLinkOutdated', () => {
+  it('a pending payment above what is still due means the sent link asks for the wrong amount', async () => {
+    const { paymentLinkOutdated } = await import('../../../admin/src/ecommerce/utils/orderDetail');
+    expect(paymentLinkOutdated({ pendingPayments: 13480, due: 10490 } as any)).toBe(true);
+    expect(paymentLinkOutdated({ pendingPayments: 10490, due: 10490 } as any)).toBe(false);
+    expect(paymentLinkOutdated({ pendingPayments: 0, due: 10490 } as any)).toBe(false);
+    expect(paymentLinkOutdated({ pendingPayments: 500, due: 0 } as any)).toBe(true);
+  });
+});
+
+describe('paymentRowHasActions', () => {
+  it('an invoice badge or a Generate invoice button counts as an action', async () => {
+    const { paymentRowHasActions } = await import('../../../admin/src/ecommerce/utils/orderDetail');
+    expect(paymentRowHasActions({ invoice: null } as any, true)).toBe(false);
+    expect(paymentRowHasActions({ invoice: { status: 'ISSUED', invoiceable: 0 } } as any, false)).toBe(true);
+    expect(paymentRowHasActions({ invoice: { status: null, invoiceable: 500 } } as any, true)).toBe(true);
+    expect(paymentRowHasActions({ invoice: { status: null, invoiceable: 500 } } as any, false)).toBe(false);
+  });
+});

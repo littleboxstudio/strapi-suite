@@ -1,17 +1,15 @@
 import { useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
-import { Box, Button, Flex, Typography } from '@strapi/design-system';
+import { Button, Flex } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import DismissReviewFlag from '../../usecases/orders/dismissReviewFlag';
 import { reviewAlertDate, reviewAlerts } from '../../utils/orderEditing';
 import { apiErrorMessageId } from '../../utils/orderDetail';
 import { mintUuid } from '../../utils/variantDraft';
 import type { EditResult, Order } from '../../orderTypes';
+import NoticeBar from './NoticeBar';
 
-/** The review alert's colours: a fixed dark amber background with white text. */
-const ALERT_BACKGROUND = '#43311a';
-const ALERT_TEXT = '#ffffff';
 
 type Props = {
   order: Order;
@@ -69,28 +67,11 @@ const ReviewAlerts = ({ order, canManage, onResult }: Props) => {
           ? t(alert.reasonKey, { date: formatDate(date, { dateStyle: 'short', timeStyle: 'short' }) })
           : t(alert.reasonKey.replace('.review.reason.', '.review.reasonNoDate.'));
         return (
-          <Box
+          <NoticeBar
             key={alert.code}
-            role="alert"
-            hasRadius
-            paddingTop={2}
-            paddingBottom={2}
-            paddingLeft={4}
-            paddingRight={2}
-            // Fixed warning colour, the same in light and dark mode; the text stays white on it.
-            style={{ background: ALERT_BACKGROUND, color: ALERT_TEXT }}
-          >
-            <Flex gap={3} alignItems="center" justifyContent="space-between">
-              {/* One line: what to review, why and since when; a long text ends in an ellipsis. */}
-              <Typography
-                variant="omega"
-                ellipsis
-                title={alertText(alert, reason)}
-                style={{ color: ALERT_TEXT, fontWeight: 'normal', minWidth: 0, flex: 1 }}
-              >
-                {alertText(alert, reason)}
-              </Typography>
-              <Flex gap={2} alignItems="center" shrink={0}>
+            text={alertText(alert, reason)}
+            actions={
+              <>
                 {alert.dismissable && canManage && (
                   <Button
                     variant="tertiary"
@@ -105,9 +86,9 @@ const ReviewAlerts = ({ order, canManage, onResult }: Props) => {
                 <Button variant="secondary" size="S" onClick={goTo(alert.sectionId)}>
                   {t('ecommerce.orders.review.goTo')}
                 </Button>
-              </Flex>
-            </Flex>
-          </Box>
+              </>
+            }
+          />
         );
       })}
     </Flex>

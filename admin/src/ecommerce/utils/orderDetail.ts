@@ -8,6 +8,7 @@ import type {
   Order,
   OrderActionKey,
   OrderHistoryItem,
+  OrderPayment,
   OrderPromotion,
   OrderPromotionCode,
   OrderStatus,
@@ -599,4 +600,18 @@ export function notificationErrorParts(error: string | null): { code: string; de
   const match = /^([A-Z][A-Z_]*)(?::\s*(.+))?$/s.exec(error.trim());
   if (!match) return { code: '', detail: error.trim() };
   return { code: match[1], detail: match[2]?.trim() || null };
+}
+
+/**
+ * The payment awaiting confirmation (e.g. a Stripe link already sent) asks for more than the order
+ * still owes: the order changed after the link was made, so the customer needs a new one.
+ */
+export function paymentLinkOutdated(summary: Pick<FinancialSummary, 'pendingPayments' | 'due'>): boolean {
+  return summary.pendingPayments > 0 && summary.pendingPayments > summary.due;
+}
+
+/** A payment row shows something in its Actions column: its invoice badge or "Generate invoice". */
+export function paymentRowHasActions(payment: Pick<OrderPayment, 'invoice'>, canGenerate: boolean): boolean {
+  if (payment.invoice?.status) return true;
+  return canGenerate && (payment.invoice?.invoiceable ?? 0) > 0;
 }

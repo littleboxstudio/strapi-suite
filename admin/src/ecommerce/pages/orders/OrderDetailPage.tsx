@@ -15,12 +15,13 @@ import { useOrderPermissions } from '../../hooks/useOrderPermissions';
 import { usePaymentPermissions } from '../../hooks/usePaymentPermissions';
 import { useInvoicingPermissions } from '../../hooks/useInvoicingPermissions';
 import { hasUninvoicedPayments } from '../../utils/invoiceForm';
-import { apiErrorMessageId, promotionDisplayName, type ToolbarAction } from '../../utils/orderDetail';
+import { apiErrorMessageId, paymentLinkOutdated, promotionDisplayName, type ToolbarAction } from '../../utils/orderDetail';
 import { canEdit } from '../../utils/orderEditing';
 import { initialOrderModalState, orderModalReducer } from '../../utils/orderModals';
 import type { EditResult, InvoiceScopeInput, Order } from '../../orderTypes';
 import OrderHeader from '../../components/orders/OrderHeader';
 import ReviewAlerts from '../../components/orders/ReviewAlerts';
+import NoticeBar from '../../components/orders/NoticeBar';
 import OrderSection from '../../components/orders/OrderSection';
 import OrderProductsModal from '../../components/orders/OrderProductsModal';
 import OrderLinesTable from '../../components/orders/OrderLinesTable';
@@ -216,6 +217,23 @@ const OrderDetailPage = () => {
       />
 
       <ReviewAlerts order={order} canManage={canManage} onResult={showResult} />
+      {order.orderStatus === 'OPEN' && paymentLinkOutdated(order.summary) && (
+        // The link sent to the customer asks for more than the order now owes.
+        <NoticeBar
+          text={t('ecommerce.orders.paymentLinkOutdated.text')}
+          actions={
+            canPay && order.availableActions.includes('SEND_PAYMENT_INSTRUCTIONS') ? (
+              <Button
+                variant="secondary"
+                size="S"
+                onClick={() => dispatchModal({ type: 'OPEN', action: 'SEND_PAYMENT_INSTRUCTIONS' })}
+              >
+                {t('ecommerce.orders.detail.actions.SEND_PAYMENT_INSTRUCTIONS')}
+              </Button>
+            ) : undefined
+          }
+        />
+      )}
 
       <OrderSection title={t('ecommerce.orders.detail.payments.title')}>
         <PaymentsOverview totals={order.totals} summary={order.summary} />
