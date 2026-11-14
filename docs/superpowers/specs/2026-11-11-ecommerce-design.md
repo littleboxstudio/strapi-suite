@@ -239,31 +239,37 @@ Além dos plugins de transportadora (CTT Expresso), existe um fornecedor **Manua
 - não geram etiqueta; o código e o link de rastreio são opcionais no envio;
 - entram no checkout como qualquer outra opção.
 
-### 4.4 Faturação por pagamento **[Decisão, atualizada em 2026-11-13]**
-- **Cada fatura cobre o que esse pagamento pagou, no momento em que foi feito.**
-- Cada pagamento guarda uma **"fotografia de cobertura"**: as linhas (variantes × quantidade × preço,
-  e os portes) acrescentadas à encomenda desde a cobertura anterior.
-  - Pagamento inicial: cobre as linhas da encomenda criada e os portes.
-  - Pagamento complementar após uma edição da encomenda: cobre **só as linhas de produto novas e as
-    linhas de portes novas ou as diferenças de portes** **[Decisão, 2026-11-13]**.
-  - A cobertura mantém **um só espaço de portes, por valor**; o estado "paga" de cada linha de portes
-    é **derivado** (não guardado) **[Decisão, 2026-11-13]**.
-  - Uma linha de portes **negativa** só cria excedente reembolsável: não gera cobertura, fatura,
-    reembolso nem nota de crédito automáticos **[Decisão, 2026-11-13]**.
-  - A fatura tem **uma linha `SHIPPING` por taxa de IVA** **[Decisão, 2026-11-13]**.
-- Quando um pagamento é inferior ao valor da sua cobertura (pagamento parcial), a fatura reparte o
-  valor pago **proporcionalmente** pelas linhas cobertas, tanto produtos como portes, cada uma com a
-  sua taxa de IVA. O arredondamento acerta-se na última linha.
-- "Gerar fatura total" emite uma fatura com as coberturas de todos os pagamentos liquidados e ainda
-  não faturados.
-- **Edições que reduzem a encomenda** depois de faturada: o documento fiscal de regularização
-  (nota de crédito) é emitido através do fornecedor ativo, a pedido do administrador. As regras
-  fiscais detalhadas continuam fora de âmbito, como diz o documento de requisitos.
-- Descontos ou portes recalculados depois de faturar **só movem o saldo** (valor em dívida ou
-  excedente); a nota de crédito só é emitida a pedido do administrador, nunca automaticamente
-  **[Decisão, 2026-11-13]**.
-- **[Escolha técnica]** Moloni: as linhas referem artigos Moloni pela `reference = sku`. Se o artigo
-  não existir no Moloni, é criado automaticamente.
+### 4.4 Faturação por seleção **[Decisão, atualizada em 2026-11-14]**
+Detalhe e razões em [`2026-11-14-invoicing-by-selection-design.md`](2026-11-14-invoicing-by-selection-design.md),
+que é a referência para esta secção.
+- **O lojista escolhe o que faturar**, na modal "Gerar fatura" (botão de secção na encomenda; a
+  ação por pagamento desaparece): **produtos com quantidades** (parte da quantidade pode ficar
+  para outra fatura), **linhas de portes positivas** (cada uma individualmente, com o seu IVA) e
+  **pagamentos inteiros**. Só se oferece o que ainda não foi faturado. A fatura só se emite quando
+  o **total selecionado é igual ao total dos pagamentos, ao cêntimo**; o servidor valida de novo.
+- **Excedente bloqueia:** se a encomenda tem valor pago a mais, a emissão fica bloqueada até se
+  **Reembolsar**. Valor que sobra sem unidades por faturar fica para uma nota de crédito de
+  **Correção** e nova fatura. Uma linha de portes negativa só baixa o valor dos portes e cria
+  excedente; nunca se fatura.
+- **Dois conjuntos (produtos e portes) e a sua repartição [Escolha]:** os descontos de encomenda
+  repartem-se proporcionalmente pelas linhas de produto, o desconto de portes pelas linhas de
+  portes; a repartição é determinística e soma o total da encomenda ao cêntimo. Os valores já
+  faturados ficam fixos; o que falta reparte-se pelas quantidades ainda por faturar.
+- **Pagamentos pelo valor líquido [Escolha]:** valor pago − reembolsos desse pagamento (dinheiro e
+  crédito em carteira, incluindo os ainda em curso), para a fatura poder sair logo após o reembolso.
+- **Moloni:** um pagamento Moloni por pagamento escolhido; o método é procurado **pelo nome** e
+  **criado automaticamente** se não existir (se falhar, nada é emitido). Artigos pela
+  `reference = sku`, criados se não existirem **[Escolha técnica]**.
+- **Notas de crédito por motivo [Decisão]**, sempre a pedido do administrador, nunca automáticas:
+  - **Devolução:** credita as unidades devolvidas que já estavam faturadas (e, opcionalmente,
+    portes da fatura); essas unidades não voltam a ficar por faturar;
+  - **Correção:** anula a fatura inteira; quando emitida (`ISSUED`), liberta produtos, portes e
+    pagamentos para se emitir a fatura certa.
+- **Faturas antigas (por pagamento)** continuam válidas e leem-se como faturadas: as suas linhas
+  e os pagamentos que cobriram deixam de estar disponíveis; nenhum documento é alterado.
+- Faturas emitidas nunca mudam. Descontos ou portes recalculados depois de faturar só movem o
+  saldo (valor em dívida ou excedente); a nota de crédito só é emitida a pedido do administrador
+  **[Decisão, 2026-11-13]**. As regras fiscais detalhadas continuam fora de âmbito.
 
 ### 4.5 Devoluções **[Decisão]**
 Nova ação **Registar devolução** no ecrã da encomenda, que não existia no documento de requisitos:
@@ -350,7 +356,9 @@ Consequências:
 - depois do reembolso, a dívida e o excedente voltam a zero e a encomenda pode ser arquivada (4.1);
 - "Adicionar pagamento" não aparece por engano;
 - a quantidade enviada e o `FulfillmentStatus` não mudam;
-- a nota de crédito correspondente é emitida a pedido do administrador, pelo mesmo mecanismo de 4.4.
+- a nota de crédito de **Devolução** credita as unidades devolvidas que já tinham sido faturadas;
+  unidades devolvidas antes de faturar simplesmente não se faturam (2026-11-14). É emitida a pedido
+  do administrador, pelo mecanismo de 4.4.
 
 ### 4.13 Links nos e-mails e no Stripe **[Escolha técnica]**
 - Definições: `storefrontUrl` e caminhos configuráveis para sucesso, cancelamento e "pagar encomenda".

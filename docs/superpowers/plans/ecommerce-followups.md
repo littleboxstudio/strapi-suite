@@ -55,7 +55,7 @@ Lista de itens adiados nas revisões do plano 1 (Base e Produtos), a considerar 
 
 ## Plano 3 (Clientes e Encomendas): pendentes
 - **Corrida rara:** uma gravação de produto que apaga uma variante ao mesmo tempo que uma encomenda é criada pode registar um ORDER_DEDUCT sem desconto (com aviso no log).
-- **Cobertura de pagamentos:** substituir uma linha paga por outra do mesmo preço deixa a nova sem cobertura (a 'fatura total' do plano 5 tem de tratar isto).
+- ~~**Cobertura de pagamentos:** substituir uma linha paga por outra do mesmo preço deixa a nova sem cobertura (a 'fatura total' do plano 5 tem de tratar isto).~~ **Resolvido pelo plano 11 (faturação por seleção).**
 - **Pesquisa por e-mail:** a pesquisa de encomendas usa o e-mail atual do cliente e não o snapshot da encomenda.
 - **Eventos:** são entregues em memória depois do commit, sem outbox; uma falha do processo entre o commit e o envio pode perder um e-mail.
 - Task 1: minor (deferred): monetary integers/payment enums without defaults — services must always set them
@@ -86,12 +86,12 @@ Lista de itens adiados nas revisões do plano 1 (Base e Produtos), a considerar 
 ## Plan 5
 - Spec 4.15: Moloni foreign-customer handling setting deferred — needs the store accountant's input (OSS / intra-EU / non-EU rules); today non-PT customers are invoiced like domestic ones.
 - P5 final review: parked (F4): a carrier deactivated while one of its shipments is PENDING/UNCERTAIN blocks the order — `retry` and `cancel` need an active runtime (`shipping.carrierFor`) and `assertNoPendingShipment` blocks editing (`SHIPMENT_PENDING`) and CANCEL; shipments have no "mark failed". Add an issuing-carrier exception (like invoices) or a confirmed "mark failed" action. Low impact today: the only carrier (CTT) is NOT_IMPLEMENTED.
-- P5 final: invoice lines can be individually off (order total correct) when an invoiced payment's value sits on a line that later lost value (partial payments, return/order edit after invoicing) — would need credit-and-reinvoice of that payment
+- ~~P5 final: invoice lines can be individually off (order total correct) when an invoiced payment's value sits on a line that later lost value (partial payments, return/order edit after invoicing) — would need credit-and-reinvoice of that payment~~ **Resolvido pelo plano 11 (faturação por seleção).**
 
 ## Plan 6
 - P6 final review: accepted (F4): `GET /promotions/:id` returns `eligibility.emails` in full to holders of `promotions.read` alone (redemptions mask e-mails for the same permission). Accepted: the list is admin-entered configuration and is needed to edit the promotion.
 - P6 final review: parked (F5): on create, the third (final) promotion evaluation can change the gift set after the second (last) shipping quote, so the stored shipping price was quoted for a slightly different parcel. Rare and bounded by the two-quote design; add a comment or a `SHIPPING_UNAVAILABLE`-style refusal when the signatures still differ.
-- Gift lines at €0 are omitted from invoices (recorded decision). Confirm with the store accountant whether offers must appear on the invoice with a 100% discount.
+- ~~Gift lines at €0 are omitted from invoices (recorded decision). Confirm with the store accountant whether offers must appear on the invoice with a 100% discount.~~ **Resolvido pelo plano 11 (faturação por seleção).** (Ofertas a 0 passam a constar da fatura.)
 - Requirement 1.8 (extra verification for high-value or e-mail-restricted promotions) needs a verified storefront identity: plan 7.
 - Storefront (plan 7): surface `giftChoices` and the `CodeStatus` messages to the customer.
 - The quote should return the gift option names, so the admin order form does not need `promotions.read` to show them.
@@ -124,13 +124,13 @@ Lista de itens adiados nas revisões do plano 1 (Base e Produtos), a considerar 
 - M4: the generated token can be widened in Strapi's Settings → API Tokens (permissions added, type switched to full-access) and still passes the policy. Optional hardening: warn (log and/or admin notice) when the stored token is not `custom` or has permissions; refusing it would break hand-chosen legacy tokens.
 
 ## Order editing (plan 10)
-- Order editing: shipping line `invoiced` is derived from invoice dates (prudent); store shipping-line ids on coverages if per-line invoicing is ever needed.
-- Invoice shipping VAT split: the rates are weighted by cumulative per-rate totals instead of the amounts not yet invoiced. The split is wrong only with mixed-rate shipping methods; fix by weighting only the lines created after the last invoice with shipping.
+- ~~Order editing: shipping line `invoiced` is derived from invoice dates (prudent); store shipping-line ids on coverages if per-line invoicing is ever needed.~~ **Resolvido pelo plano 11 (faturação por seleção).**
+- ~~Invoice shipping VAT split: the rates are weighted by cumulative per-rate totals instead of the amounts not yet invoiced. The split is wrong only with mixed-rate shipping methods; fix by weighting only the lines created after the last invoice with shipping.~~ **Resolvido pelo plano 11 (faturação por seleção).**
 
 ### Order editing (plan 10): deferred review minors
 
 - T1: duplicate shipping-line ids not deduplicated in readShippingLines
-- T1: unparseable invoice/line createdAt → 0 fails unsafe (invoice never counts as covering)
+- ~~T1: unparseable invoice/line createdAt → 0 fails unsafe (invoice never counts as covering)~~ **Resolvido pelo plano 11 (faturação por seleção).**
 - T1: planLineChange UNCHANGED ignores tax/name
 - T1: test gaps (mixed locked+replaceable+negative recalculation, partly covered FIFO, null shippingMethod checkout, method-only change on locked line)
 - T2: readReviewFlags element typing relies on non-strict narrowing; raisedAt/actor default '' (UI must handle empty)
@@ -139,7 +139,7 @@ Lista de itens adiados nas revisões do plano 1 (Base e Produtos), a considerar 
 - T4: sameRefs order-sensitive; coverage gaps (conflict with locked row; removedGiftLines with returned units)
 - T4: after clamp, kept/manual row amounts can sum above persisted orderDiscount (UI won't reconcile); mixed frozen line keeps valid promo share unrepriced (concern 4)
 - T5: backfill aborts whole run on one failing row (per-row try/catch would be more robust); no failure-path/partial-row tests; checkout line createdAt vs order createdAt ms drift
-- T6: no compose-level multi-rate invoice test; all-zero-weight fallback picks highest-tax rate implicitly
+- ~~T6: no compose-level multi-rate invoice test; all-zero-weight fallback picks highest-tax rate implicitly~~ **Resolvido pelo plano 11 (faturação por seleção).**
 - T7: writeTotals ORDER_NOT_EDITABLE on race has no detail; failed emit after commit surfaces as error; concurrent unique-violation replay untested; LINE_ADDED id lookup by re-read (flow removed in Task 8)
 - T8: history-uniqueKey race no longer pinned (port now loses on stock key); dropped service-level line tests (INVALID_QUANTITY 400, buy3pay2 free line, only main row has uniqueKey); stale pre-lock quote for SHIPPING_REVIEW; discountEvaluation failure rolls back save (should degrade to flag); clamp not asserted in LINES_CHANGED totals; jsdom stderr line in an admin test; history description vs newValue totals from different sources
 - T9: sameAddress compares raw stored vs normalized input (optional '' keys → false change); no current method → all countries refused; coverage gaps (carrier order, market-without-rate country, prepare/write address race); duplicate import from ./errors
@@ -153,3 +153,5 @@ Lista de itens adiados nas revisões do plano 1 (Base e Produtos), a considerar 
 - T16: no success toast on NONE outcome (check consistency with other modals); note text repeated on both steps
 - T17: duplicated errorMap/codeText/loader across the three modals
 - T18: no retry after failed re-preview; race logic untested; legacy check thrice; RemoveDiscountModal inside PromotionsSection.tsx; prettier on PromotionsSection; reason counter trimmed vs maxLength untrimmed
+- Invoicing by selection (plan 11): value left in the products pool with no units left to invoice (e.g. a discount removed after invoicing everything) cannot be invoiced by selection: regularize with a Correção and re-invoice.
+- Invoicing by selection (plan 11): Moloni `paymentMethods/insert` shape built from the public docs, not verified on a live account.
