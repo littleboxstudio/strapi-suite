@@ -1731,6 +1731,7 @@
   "littlebox-strapi-suite.ecommerce.orders.review.SHIPPING_REVIEW": "Os portes podem precisar de ser recalculados.",
   "littlebox-strapi-suite.ecommerce.orders.review.DISCOUNTS_REVIEW": "Os descontos podem precisar de ser reavaliados.",
   "littlebox-strapi-suite.ecommerce.orders.review.goTo": "Ir para a secção",
+  "littlebox-strapi-suite.ecommerce.orders.amountDue.text": "O cliente ainda tem {amount} por pagar.",
   "littlebox-strapi-suite.ecommerce.orders.paymentLinkOutdated.text": "O link de pagamento enviado ao cliente já não é válido: a encomenda mudou. É preciso gerar um novo.",
   "littlebox-strapi-suite.ecommerce.orders.refundAvailable.text": "O cliente pagou {amount} a mais do que o valor atual da encomenda. Faça o reembolso.",
   "littlebox-strapi-suite.ecommerce.orders.review.locked": "Esta encomenda já não pode ser alterada, por isso já não é possível recalcular.",

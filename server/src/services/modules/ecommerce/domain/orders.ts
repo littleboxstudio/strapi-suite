@@ -178,9 +178,12 @@ export const financialSummary = (
 /** Rules 4/5 compare against the real `orderTotal` (not the effective total),
  * so a cancelled, partially paid order stays PARTIALLY_PAID. */
 export const derivePaymentStatus = (
-  summary: Pick<FinancialSummary, 'paid' | 'refunded' | 'net' | 'orderTotal' | 'excess'>
+  summary: Pick<FinancialSummary, 'paid' | 'refunded' | 'net' | 'orderTotal' | 'excess' | 'due'>
 ): PaymentStatus => {
-  const { paid, refunded, net, excess, orderTotal: total } = summary;
+  const { paid, refunded, net, excess, due, orderTotal: total } = summary;
+  // After a refund the order costs more again (e.g. products added): the customer owes money,
+  // so it is a payment state, not a refund one.
+  if (refunded > 0 && due > 0) return net > 0 ? 'PARTIALLY_PAID' : 'PENDING';
   if (refunded > 0 && net <= 0) return 'REFUNDED';
   // Money is still owed back to the customer (overpaid, returned or cancelled): part of it went
   // back already, or none of it yet. A processing refund does not count until it completes.
