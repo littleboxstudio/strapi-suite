@@ -325,7 +325,8 @@ export function paymentsOverview(totals: OrderTotals, summary: FinancialSummary)
   }
 
   return [
-    { key: 'total', amount: totals.total, notes: [] },
+    // The products before any discount: products + shipping − discounts = what the order costs.
+    { key: 'total', amount: totals.itemsOriginal, notes: [] },
     { key: 'shipping', amount: totals.shippingOriginal, notes: [] },
     { key: 'discounts', amount: discounts ? -discounts : 0, notes: [] },
     { key: 'paid', amount: summary.paid, tone: summary.due > 0 ? 'warning' : 'success', notes: paidNotes },
