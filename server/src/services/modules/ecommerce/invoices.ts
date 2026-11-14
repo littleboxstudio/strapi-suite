@@ -93,6 +93,11 @@ export type InvoiceSelectionView = {
   payments: { paymentId: number; amount: number; refunded: number; net: number }[];
   /** Excess to refund before invoicing (ruling 10). */
   excess: number;
+  /**
+   * Value no remaining unit or available shipping line can carry (the order changed after it was
+   * invoiced): never selectable, a Correction credit note and a new invoice take it up.
+   */
+  stranded: { products: number; shipping: number };
 };
 
 export type IssueInvoiceInput = SelectionRequest & { expectedTotal: number; idempotencyKey: string };
@@ -387,7 +392,9 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     const state = await orders().computeOrderState(Number(rawOrderId));
     const { invoicing } = state;
     const excess = invoicing.blockingExcess;
-    if (state.order.orderStatus !== 'OPEN') return { lines: [], shipping: [], payments: [], excess };
+    if (state.order.orderStatus !== 'OPEN') {
+      return { lines: [], shipping: [], payments: [], excess, stranded: { products: 0, shipping: 0 } };
+    }
     const orderLines = new Map(state.lines.map((l) => [l.id, l]));
     const shippingLines = new Map(invoicing.positionOrder.shippingLines.map((l) => [l.id, l]));
     const available = new Set(invoicing.availablePaymentIds);
@@ -428,6 +435,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
           return { paymentId: p.id as number, amount, refunded: amount - net, net };
         }),
       excess,
+      stranded: { ...invoicing.position.stranded },
     };
   };
 

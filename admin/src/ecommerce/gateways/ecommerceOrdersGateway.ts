@@ -21,11 +21,9 @@ import type {
   DiscountRecalculation,
   EditResult,
   DeliveryInput,
-  InvoicePreview,
-  InvoiceScopeInput,
   InvoiceSelectionView,
   InvoiceView,
-  IssueInvoiceInput,
+  IssueInvoiceSelectionInput,
   IssueStoreCreditInput,
   LinesInput,
   LinesPreview,
@@ -146,8 +144,7 @@ export default interface EcommerceOrdersGateway {
 
   // Invoices and credit notes (read: orders.read; write: invoicing.manage)
   fetchInvoiceSelection(orderId: number): Promise<InvoiceSelectionView>;
-  fetchInvoicePreview(orderId: number, scope: InvoiceScopeInput): Promise<InvoicePreview>;
-  issueInvoice(orderId: number, input: IssueInvoiceInput): Promise<InvoiceView>;
+  issueInvoice(orderId: number, input: IssueInvoiceSelectionInput): Promise<InvoiceView>;
   /** Looks the document up at the provider by its reference, or (`markFailed`) gives it up. */
   reconcileInvoice(invoiceId: number, markFailed: boolean): Promise<InvoiceView>;
   /** The invoice PDF from its provider; an error carries the API body like the JSON calls. */
@@ -419,11 +416,7 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
     return this.httpClient.get(`${this.orders}/${orderId}/invoice-selection`);
   }
 
-  async fetchInvoicePreview(orderId: number, scope: InvoiceScopeInput): Promise<InvoicePreview> {
-    return this.httpClient.get(`${this.orders}/${orderId}/invoice-preview${objectToQueryString(scope)}`);
-  }
-
-  async issueInvoice(orderId: number, input: IssueInvoiceInput): Promise<InvoiceView> {
+  async issueInvoice(orderId: number, input: IssueInvoiceSelectionInput): Promise<InvoiceView> {
     return this.httpClient.post(`${this.orders}/${orderId}/invoices`, input);
   }
 

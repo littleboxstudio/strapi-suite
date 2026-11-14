@@ -4,10 +4,12 @@ import {
   defaultInvoiceSelectionForm,
   invoiceSelectionTotals,
   selectedValue,
+  selectionPayments,
+  strandedValue,
   unitValue,
   validateInvoiceSelection,
 } from '../../../admin/src/ecommerce/utils/invoiceSelection';
-import type { InvoiceSelectionView } from '../../../admin/src/ecommerce/orderTypes';
+import type { InvoiceSelectionView, OrderPayment } from '../../../admin/src/ecommerce/orderTypes';
 
 const view = (over: Partial<InvoiceSelectionView> = {}): InvoiceSelectionView => ({
   lines: [
@@ -17,6 +19,7 @@ const view = (over: Partial<InvoiceSelectionView> = {}): InvoiceSelectionView =>
   shipping: [{ shippingLineId: 9, name: 'CTT', tax: 23, origin: 'CHECKOUT', createdAt: '2026-01-01', value: 500 }],
   payments: [{ paymentId: 7, amount: 4500, refunded: 0, net: 4500 }],
   excess: 0,
+  stranded: { products: 0, shipping: 0 },
   ...over,
 });
 
@@ -90,5 +93,53 @@ describe('buildIssueInvoiceInput', () => {
       expectedTotal: 2500,
       idempotencyKey: 'key',
     });
+  });
+});
+
+describe('strandedValue', () => {
+  it('adds the product and shipping value no line can carry', () => {
+    expect(strandedValue(view())).toBe(0);
+    expect(strandedValue(view({ stranded: { products: 300, shipping: 200 } }))).toBe(500);
+  });
+});
+
+describe('selectionPayments', () => {
+  const payment = (over: Partial<OrderPayment>): OrderPayment => ({
+    id: 7,
+    method: 'MANUAL',
+    status: 'COMPLETED',
+    amount: 4500,
+    currency: 'EUR',
+    reference: null,
+    externalId: null,
+    coverage: null,
+    methodLabel: 'MB Way',
+    completedAt: '2026-02-01T10:00:00.000Z',
+    actor: null,
+    createdAt: '2026-01-31T10:00:00.000Z',
+    ...over,
+  });
+
+  it('joins each selectable payment with its method and date (completed, else created)', () => {
+    const v = view({
+      payments: [
+        { paymentId: 7, amount: 4500, refunded: 500, net: 4000 },
+        { paymentId: 8, amount: 1000, refunded: 0, net: 1000 },
+      ],
+    });
+    const rows = selectionPayments(v, [
+      payment({ id: 8, method: 'STRIPE', methodLabel: null, completedAt: null }),
+      payment({}),
+    ]);
+    expect(rows).toEqual([
+      { paymentId: 7, amount: 4500, refunded: 500, net: 4000, method: 'MANUAL', methodLabel: 'MB Way', date: '2026-02-01T10:00:00.000Z' },
+      { paymentId: 8, amount: 1000, refunded: 0, net: 1000, method: 'STRIPE', methodLabel: null, date: '2026-01-31T10:00:00.000Z' },
+    ]);
+  });
+
+  it('keeps a payment the order does not list, without method or date', () => {
+    expect(selectionPayments(view(), [])).toEqual([
+      { paymentId: 7, amount: 4500, refunded: 0, net: 4500, method: null, methodLabel: null, date: null },
+    ]);
   });
 });

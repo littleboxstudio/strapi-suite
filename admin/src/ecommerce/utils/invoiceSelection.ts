@@ -1,4 +1,4 @@
-import type { InvoiceSelectionView, IssueInvoiceSelectionInput } from '../orderTypes';
+import type { InvoiceSelectionView, IssueInvoiceSelectionInput, OrderPayment } from '../orderTypes';
 import type { FormErrors } from './shipmentForm';
 
 type SelectionLine = InvoiceSelectionView['lines'][number];
@@ -83,4 +83,32 @@ export function buildIssueInvoiceInput(
     expectedTotal: invoiceSelectionTotals(view, form).selected,
     idempotencyKey,
   };
+}
+
+/**
+ * Value of the order no remaining unit or shipping line can carry (it changed after it was
+ * invoiced): never selectable, a Correction credit note and a new invoice take it up.
+ */
+export const strandedValue = (view: InvoiceSelectionView): number =>
+  view.stranded.products + view.stranded.shipping;
+
+export type SelectionPaymentRow = InvoiceSelectionView['payments'][number] & {
+  method: string | null;
+  methodLabel: string | null;
+  /** Completed, else created; null when the order does not list the payment. */
+  date: string | null;
+};
+
+/** The selectable payments, each joined with the order's payment for its method and date. */
+export function selectionPayments(view: InvoiceSelectionView, payments: OrderPayment[]): SelectionPaymentRow[] {
+  const byId = new Map(payments.map((p) => [p.id, p]));
+  return view.payments.map((row) => {
+    const payment = byId.get(row.paymentId);
+    return {
+      ...row,
+      method: payment?.method ?? null,
+      methodLabel: payment?.methodLabel ?? null,
+      date: payment ? (payment.completedAt ?? payment.createdAt) : null,
+    };
+  });
 }
