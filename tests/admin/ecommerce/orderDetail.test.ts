@@ -1044,21 +1044,27 @@ describe('paymentLinkOutdated', () => {
 });
 
 describe('payment section actions', () => {
-  it('Add payment and Send payment instructions move to the Payments section, same rules', async () => {
-    const { allowedToolbarActions, headerActions, paymentSectionActions } = await import(
+  it('Add payment, Send payment instructions and Refund move to the sections, same rules', async () => {
+    const { allowedToolbarActions, headerActions, paymentSectionActions, refundSectionActions } = await import(
       '../../../admin/src/ecommerce/utils/orderDetail'
     );
     const available: any[] = ['SHIP', 'CANCEL', 'ADD_PAYMENT', 'SEND_PAYMENT_INSTRUCTIONS', 'REFUND'];
     const all = allowedToolbarActions(available, { canManage: true, canPay: true, canRefund: true });
-    expect(paymentSectionActions(all)).toEqual(['ADD_PAYMENT', 'SEND_PAYMENT_INSTRUCTIONS']);
-    expect(headerActions(all)).not.toContain('ADD_PAYMENT');
-    expect(headerActions(all)).not.toContain('SEND_PAYMENT_INSTRUCTIONS');
-    expect(headerActions(all)).toEqual(all.filter((a: string) => !a.includes('PAYMENT')));
+    // Refund also sits in the Payments section (and in Refunds and credits), no longer in the header.
+    expect(paymentSectionActions(all)).toEqual(['ADD_PAYMENT', 'SEND_PAYMENT_INSTRUCTIONS', 'REFUND']);
+    expect(headerActions(all)).toEqual(['SHIP', 'CANCEL']);
     // The permission rules are unchanged: Add payment needs orders.manage, Send payment
     // instructions needs payments.manage.
     const noPay = allowedToolbarActions(available, { canManage: true, canPay: false, canRefund: true });
-    expect(paymentSectionActions(noPay)).toEqual(['ADD_PAYMENT']);
+    expect(paymentSectionActions(noPay)).toEqual(['ADD_PAYMENT', 'REFUND']);
     const noManage = allowedToolbarActions(available, { canManage: false, canPay: true, canRefund: true });
-    expect(paymentSectionActions(noManage)).toEqual(['SEND_PAYMENT_INSTRUCTIONS']);
+    expect(paymentSectionActions(noManage)).toEqual(['SEND_PAYMENT_INSTRUCTIONS', 'REFUND']);
+    // Refund still needs refunds.manage and the REFUND action (an excess to refund).
+    const noRefund = allowedToolbarActions(available, { canManage: true, canPay: true, canRefund: false });
+    expect(paymentSectionActions(noRefund)).not.toContain('REFUND');
+    const noExcess = allowedToolbarActions(['SHIP', 'CANCEL'] as any[], { canManage: true, canPay: true, canRefund: true });
+    expect(paymentSectionActions(noExcess)).toEqual([]);
+    expect(refundSectionActions(all)).toEqual(['REFUND']);
+    expect(refundSectionActions(noRefund)).toEqual([]);
   });
 });
