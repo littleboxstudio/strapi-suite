@@ -258,6 +258,8 @@ export type CreditNoteOptions = {
   returnable: { index: number; units: number; unitsLeft: number; valueLeft: number }[];
   /** SHIPPING lines a RETURN may add whole. */
   shipping: { index: number; value: number }[];
+  /** Another credit note on this invoice is pending or uncertain: Correction waits for it. */
+  correctionBlocked: boolean;
 };
 
 export type CreditNoteInput = {

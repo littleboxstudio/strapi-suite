@@ -94,6 +94,21 @@ describe('EcommerceOrderController', () => {
     expect(ctx.status).toBe(201);
   });
 
+  it('addPayment refuses a methodLabel above 255 characters without calling the service', async () => {
+    const addManualPayment = vi.fn();
+    const c = orders({ EcommercePaymentService: { addManualPayment } });
+    const ctx = mkCtx({
+      params: { id: '3' },
+      request: { body: { amount: 500, methodLabel: 'x'.repeat(256), idempotencyKey: 'abcdefgh' } },
+    });
+    await c.addPayment(ctx);
+    expect(ctx.badRequest).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ errors: [{ path: 'methodLabel', code: 'too_long' }] })
+    );
+    expect(addManualPayment).not.toHaveBeenCalled();
+  });
+
   it('shippingQuote and variantSearch delegate', async () => {
     const quoteForLines = vi.fn().mockResolvedValue({ options: [] });
     const searchVariants = vi.fn().mockResolvedValue([]);

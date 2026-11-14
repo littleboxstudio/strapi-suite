@@ -615,6 +615,7 @@ describe('apiErrorCode / apiErrorMessageId', () => {
         'SHIPPING_LINE_NOT_INVOICEABLE',
         'QUANTITY_EXCEEDS_CREDITABLE',
         'SHIPPING_NOT_CREDITABLE',
+        'CREDIT_NOTE_IN_PROGRESS',
         'exceeds_creditable',
         'coverage_mismatch',
       ])

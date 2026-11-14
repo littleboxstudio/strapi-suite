@@ -117,6 +117,7 @@ const EcommerceOrderController = ({ strapi }: { strapi: Core.Strapi }) => {
         ctx,
         (id) => {
           const { amount, reference, methodLabel, idempotencyKey } = body(ctx);
+          optionalString('Invalid payment', 'methodLabel', methodLabel);
           return payments().addManualPayment(
             id,
             { amount, reference, methodLabel, idempotencyKey },

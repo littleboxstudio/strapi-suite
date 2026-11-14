@@ -216,7 +216,7 @@ describe('EcommerceInvoiceController', () => {
     expect(issueCreditNote).toHaveBeenCalledTimes(2);
   });
 
-  it.each(['QUANTITY_EXCEEDS_CREDITABLE', 'SHIPPING_NOT_CREDITABLE'])('credit note %s is a 409', async (code) => {
+  it.each(['QUANTITY_EXCEEDS_CREDITABLE', 'SHIPPING_NOT_CREDITABLE', 'CREDIT_NOTE_IN_PROGRESS'])('credit note %s is a 409', async (code) => {
     const issueCreditNote = vi.fn().mockRejectedValue(new EcommerceValidationError('x', [{ path: 'p', code }]));
     const c = createInvoices({ strapi: strapiWith({ issueCreditNote }) });
     const ctx = body({ creditType: 'RETURN', lines: [{ index: 0, quantity: 1 }], reason: 'r', idempotencyKey: 'k' });

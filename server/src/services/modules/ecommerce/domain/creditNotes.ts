@@ -141,6 +141,22 @@ export function creditOptions(
   return { creditable, unitsLeft, returnable, shipping };
 }
 
+/**
+ * Whether `creditNote` (left out of `options`, e.g. a FAILED row a late success turns ISSUED)
+ * credits more than `invoice` still has: a line's value above its creditable value, a whole ITEM
+ * line's units above its units left, or (RETURN) units above the returnable ones.
+ */
+export function exceedsCreditable(creditNote: InvoiceDoc, invoice: InvoiceDoc, options: CreditOptions): boolean {
+  return creditNote.creditedLines.some((e) => {
+    const line = invoice.lines[e.index];
+    if (!line || e.value > (options.creditable[e.index] ?? 0)) return true;
+    if (!isWholeItem(line) || e.quantity <= 0) return false;
+    if (e.quantity > (options.unitsLeft[e.index] ?? 0)) return true;
+    if (creditNote.creditType !== 'RETURN') return false;
+    return e.quantity > (options.returnable.find((r) => r.index === e.index)?.units ?? 0);
+  });
+}
+
 type Built = {
   lines: InvoiceLine[];
   creditedLines: CreditedLine[];

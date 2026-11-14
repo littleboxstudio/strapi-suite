@@ -129,9 +129,13 @@ const CreditNoteModal = ({ invoice, onClose, onIssued }: Props) => {
   }, [invoice.id]);
 
   const locked = saving || uncertain;
-  /** A Correction with nothing left to credit: nothing to send. */
+  /**
+   * A Correction with nothing left to credit, or waiting for another credit note on the invoice
+   * to be confirmed: nothing to send.
+   */
   const nothingToCorrect =
-    form?.creditType === 'CORRECTION' && options?.correction.lines.length === 0;
+    form?.creditType === 'CORRECTION' &&
+    (options?.correction.lines.length === 0 || options?.correctionBlocked === true);
 
   const clear = (keys: string[]) => {
     setFormError(null);
@@ -396,15 +400,17 @@ const CreditNoteModal = ({ invoice, onClose, onIssued }: Props) => {
             }
           >
             {CREDIT_TYPES.map((type) => {
-              const disabled = locked || (type === 'RETURN' && !returnable);
+              const unavailable =
+                type === 'RETURN'
+                  ? !returnable && `${p}.nothingReturnable`
+                  : o.correctionBlocked && `${p}.correctionBlocked`;
+              const disabled = locked || !!unavailable;
               return (
                 <Radio.Item key={type} value={type} disabled={disabled}>
                   <Flex direction="column" alignItems="flex-start" gap={1}>
                     <Typography>{t(`${p}.types.${type}`)}</Typography>
                     <Typography variant="pi" textColor="neutral600">
-                      {type === 'RETURN' && !returnable
-                        ? t(`${p}.nothingReturnable`)
-                        : t(`${p}.types.${type}.hint`)}
+                      {t(unavailable || `${p}.types.${type}.hint`)}
                     </Typography>
                   </Flex>
                 </Radio.Item>

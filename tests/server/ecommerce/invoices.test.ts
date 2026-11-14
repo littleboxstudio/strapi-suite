@@ -967,6 +967,31 @@ describe('EcommerceInvoiceService: a late provider success after the row was mad
       expect(h.some((x) => x.newValue.warnings?.includes('DUPLICATE_INVOICE'))).toBe(true);
     });
   }
+
+  it('the payment was refunded meanwhile (its net is below the allocation) → DUPLICATE_INVOICE, no customer event', async () => {
+    const { c, inv, provider } = setup();
+    const id = await order(c);
+    const paymentId = paymentRows(c, id)[0].id;
+    provider.issue.mockImplementationOnce(async (draft: InvoiceDraft) => {
+      const row = invoiceRows(c)[0];
+      row.createdAt = STALE();
+      await inv.reconcile(row.id, { markFailed: true }, 'user:7');
+      c.tables[UIDS.refund].push({
+        id: 1,
+        order: id,
+        payment: paymentId,
+        method: 'MANUAL_TRANSFER',
+        kind: 'MONEY',
+        status: 'COMPLETED',
+        amount: 500,
+      });
+      return issued(draft);
+    });
+    const first = await inv.issue(id, everything(c, id, [paymentId], 'k1'), 'user:1');
+    expect(first.status).toBe('ISSUED');
+    expect(first.warnings).toEqual(expect.arrayContaining(['ISSUED_AFTER_FAILED', 'DUPLICATE_INVOICE']));
+    expect(c.events.filter((e) => e.type === 'INVOICE_ISSUED')).toEqual([]);
+  });
 });
 
 describe('EcommerceInvoiceService.getPdf', () => {
@@ -1294,6 +1319,138 @@ describe('EcommerceInvoiceService credit notes', () => {
       kind: 'CREDIT_NOTE',
     });
     expect(creditHistory(c)).toHaveLength(1);
+  });
+
+  const STALE = () => new Date(Date.now() - 6 * 60 * 1000).toISOString();
+  const ret = (key: string) => ({
+    creditType: 'RETURN',
+    lines: [{ index: 0, quantity: 1 }],
+    reason: 'Returned',
+    idempotencyKey: key,
+  });
+  /** Marks the PENDING credit note FAILED while the provider is still working on it. */
+  const failPendingCreditNote = async (c: Commerce, inv: any) => {
+    const row = invoiceRows(c).find((r) => r.kind === 'CREDIT_NOTE' && r.status === 'PENDING');
+    row.createdAt = STALE();
+    await inv.reconcile(row.id, { markFailed: true }, 'user:7');
+  };
+
+  it('a late RETURN after the same returned unit was credited again → DUPLICATE_CREDIT_NOTE, no customer event', async () => {
+    const { c, inv, provider } = setup();
+    const id = await order(c);
+    const view = await testIssueAll(c, id, 'k1');
+    await returnUnits(c, id);
+    let second: any;
+    provider.issue.mockImplementationOnce(async (draft: InvoiceDraft) => {
+      await failPendingCreditNote(c, inv);
+      second = await inv.issueCreditNote(view.id, ret('cn2'), 'user:1');
+      return issued(draft);
+    });
+    const first = await inv.issueCreditNote(view.id, ret('cn1'), 'user:1');
+    expect(second.status).toBe('ISSUED');
+    expect(first.status).toBe('ISSUED');
+    expect(first.warnings).toEqual(
+      expect.arrayContaining(['ISSUED_AFTER_FAILED', 'DUPLICATE_CREDIT_NOTE'])
+    );
+    expect(first.warnings).not.toContain('DUPLICATE_INVOICE');
+    expect(c.events.filter((e) => e.type === 'INVOICE_ISSUED').map((e) => e.payload)).toEqual([
+      { invoiceId: view.id, kind: 'INVOICE' },
+      { invoiceId: second.id, kind: 'CREDIT_NOTE' },
+    ]);
+    const late = creditHistory(c).find((h) => h.newValue.invoiceId === first.id);
+    expect(late.description).toMatch(/corrective invoice/);
+    expect(late.newValue.warnings).toContain('DUPLICATE_CREDIT_NOTE');
+  });
+
+  it('a late RETURN with nothing credited meanwhile is not a duplicate', async () => {
+    const { c, inv, provider } = setup();
+    const id = await order(c);
+    const view = await testIssueAll(c, id, 'k1');
+    await returnUnits(c, id);
+    provider.issue.mockImplementationOnce(async (draft: InvoiceDraft) => {
+      await failPendingCreditNote(c, inv);
+      return issued(draft);
+    });
+    const first = await inv.issueCreditNote(view.id, ret('cn1'), 'user:1');
+    expect(first.warnings).toEqual(['ISSUED_AFTER_FAILED']);
+    expect(c.events.filter((e) => e.type === 'INVOICE_ISSUED').map((e) => e.payload)).toEqual([
+      { invoiceId: view.id, kind: 'INVOICE' },
+      { invoiceId: first.id, kind: 'CREDIT_NOTE' },
+    ]);
+  });
+
+  it('a late CORRECTION after another CORRECTION → DUPLICATE_CREDIT_NOTE; the re-invoiced payment stays claimed', async () => {
+    const { c, inv, provider } = setup();
+    const id = await order(c);
+    const paymentId = paymentRows(c, id)[0].id;
+    const view = await testIssueAll(c, id, 'k1');
+    let second: any;
+    let reinvoice: any;
+    provider.issue.mockImplementationOnce(async (draft: InvoiceDraft) => {
+      await failPendingCreditNote(c, inv);
+      second = await inv.issueCreditNote(view.id, correction('cn2'), 'user:1');
+      reinvoice = await inv.issue(id, everything(c, id, [paymentId], 'k2'), 'user:1');
+      return issued(draft);
+    });
+    const first = await inv.issueCreditNote(view.id, correction('cn1'), 'user:1');
+    expect(second.status).toBe('ISSUED');
+    expect(reinvoice.status).toBe('ISSUED');
+    expect(first.status).toBe('ISSUED');
+    expect(first.warnings).toEqual(
+      expect.arrayContaining(['ISSUED_AFTER_FAILED', 'DUPLICATE_CREDIT_NOTE'])
+    );
+    const byInvoice = (invoiceId: number) =>
+      allocations(c).find((a) => a.invoice === invoiceId).uniqueKey;
+    expect(byInvoice(view.id)).toBeNull();
+    expect(byInvoice(reinvoice.id)).toBe(`payment:${paymentId}`);
+    expect((await inv.selection(id)).payments).toEqual([]);
+    expect(c.events.filter((e) => e.type === 'INVOICE_ISSUED').map((e) => e.payload)).toEqual([
+      { invoiceId: view.id, kind: 'INVOICE' },
+      { invoiceId: second.id, kind: 'CREDIT_NOTE' },
+      { invoiceId: reinvoice.id, kind: 'INVOICE' },
+    ]);
+  });
+
+  it('a CORRECTION that ends FAILED keeps the original invoice and its payments claimed', async () => {
+    const { c, inv, provider } = setup();
+    const id = await order(c);
+    const paymentId = paymentRows(c, id)[0].id;
+    const view = await testIssueAll(c, id, 'k1');
+    provider.issue.mockRejectedValueOnce(new EcommerceBillingError('BILLING_REQUEST_FAILED'));
+    expect(await codesOf(inv.issueCreditNote(view.id, correction('cn1'), 'user:1'))).toEqual([
+      'BILLING_REQUEST_FAILED',
+    ]);
+    expect(allocations(c)[0].uniqueKey).toBe(`payment:${paymentId}`);
+
+    provider.issue.mockRejectedValueOnce(new Error('socket hang up'));
+    const cn = await inv.issueCreditNote(view.id, correction('cn2'), 'user:1');
+    expect(cn.status).toBe('UNCERTAIN');
+    expect((await inv.reconcile(cn.id, { markFailed: true }, 'user:1')).status).toBe('FAILED');
+    expect(allocations(c)[0].uniqueKey).toBe(`payment:${paymentId}`);
+    expect(await inv.selection(id)).toMatchObject({ lines: [], shipping: [], payments: [] });
+    expect((await inv.creditNotePreview(view.id)).correction.total).toBe(4500);
+  });
+
+  it('a CORRECTION while another credit note on the invoice is unconfirmed → CREDIT_NOTE_IN_PROGRESS', async () => {
+    const { c, inv, provider } = setup();
+    const id = await order(c);
+    const view = await testIssueAll(c, id, 'k1');
+    await returnUnits(c, id);
+    expect((await inv.creditNotePreview(view.id)).correctionBlocked).toBe(false);
+    provider.issue.mockRejectedValueOnce(new Error('socket hang up'));
+    const pending = await inv.issueCreditNote(view.id, ret('cn1'), 'user:1');
+    expect(pending.status).toBe('UNCERTAIN');
+
+    expect((await inv.creditNotePreview(view.id)).correctionBlocked).toBe(true);
+    const err: any = await inv.issueCreditNote(view.id, correction('cn2'), 'user:1').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(EcommerceValidationError);
+    expect(err.errors).toEqual([{ path: 'creditType', code: 'CREDIT_NOTE_IN_PROGRESS' }]);
+    expect(invoiceRows(c)).toHaveLength(2);
+
+    await inv.reconcile(pending.id, { markFailed: true }, 'user:1');
+    expect((await inv.creditNotePreview(view.id)).correctionBlocked).toBe(false);
+    const cn = await inv.issueCreditNote(view.id, correction('cn3'), 'user:1');
+    expect(cn).toMatchObject({ status: 'ISSUED', total: 4500 });
   });
 
   it('a cancelled order allows a CORRECTION credit note', async () => {

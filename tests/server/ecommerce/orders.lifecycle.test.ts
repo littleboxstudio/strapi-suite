@@ -532,6 +532,11 @@ describe('EcommercePaymentService.addManualPayment', () => {
     expect(await issues(payments.addManualPayment(id, { amount: 100 } as any, 'user:1'))).toEqual([
       { path: 'idempotencyKey', code: 'required' },
     ]);
+    expect(
+      await issues(
+        payments.addManualPayment(id, { amount: 100, methodLabel: 'x'.repeat(256), idempotencyKey: 'k' }, 'user:1')
+      )
+    ).toEqual([{ path: 'methodLabel', code: 'too_long' }]);
     expect(tables[UIDS.payment]).toHaveLength(0);
   });
 

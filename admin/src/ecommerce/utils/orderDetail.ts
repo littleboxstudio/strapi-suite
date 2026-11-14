@@ -9,7 +9,6 @@ import type {
   Order,
   OrderActionKey,
   OrderHistoryItem,
-  OrderPayment,
   OrderPromotion,
   OrderPromotionCode,
   OrderStatus,
@@ -571,6 +570,7 @@ export const API_ERROR_CODES = [
   'SHIPPING_LINE_NOT_INVOICEABLE',
   'QUANTITY_EXCEEDS_CREDITABLE',
   'SHIPPING_NOT_CREDITABLE',
+  'CREDIT_NOTE_IN_PROGRESS',
   'exceeds_creditable',
   'coverage_mismatch',
   // Promotions on orders (plan 6)

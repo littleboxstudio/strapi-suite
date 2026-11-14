@@ -3,6 +3,8 @@ import {
   buildIssueInvoiceInput,
   defaultInvoiceSelectionForm,
   invoiceSelectionTotals,
+  isSelectionChanged,
+  quantityErrorMessage,
   selectedValue,
   selectionPayments,
   strandedValue,
@@ -141,5 +143,35 @@ describe('selectionPayments', () => {
     expect(selectionPayments(view(), [])).toEqual([
       { paymentId: 7, amount: 4500, refunded: 0, net: 4500, method: null, methodLabel: null, date: null },
     ]);
+  });
+});
+
+describe('quantityErrorMessage', () => {
+  it('says "at most" only above the remaining units; an invalid quantity says so', () => {
+    expect(quantityErrorMessage('exceeds_remaining', 3)).toEqual({
+      id: 'ecommerce.orders.invoices.issue.atMost',
+      values: { max: 3 },
+    });
+    expect(quantityErrorMessage('invalid', 3)).toEqual({ id: 'ecommerce.orders.errors.invalid' });
+    expect(quantityErrorMessage(undefined, 3)).toBeNull();
+  });
+});
+
+describe('isSelectionChanged', () => {
+  const conflict = (code: string, status = 409) => ({
+    response: { data: { error: { status, details: { code, errors: [{ path: 'p', code }] } } } },
+  });
+
+  it.each(['TOTAL_CHANGED', 'QUANTITY_EXCEEDS_UNINVOICED', 'SHIPPING_LINE_NOT_INVOICEABLE', 'PAYMENT_NOT_INVOICEABLE'])(
+    '%s means the order changed: the selection is fetched again',
+    (code) => {
+      expect(isSelectionChanged(conflict(code))).toBe(true);
+    }
+  );
+
+  it('other refusals and failures do not', () => {
+    expect(isSelectionChanged(conflict('INVOICE_EXCESS_UNRESOLVED'))).toBe(false);
+    expect(isSelectionChanged(conflict('BILLING_REQUEST_FAILED', 502))).toBe(false);
+    expect(isSelectionChanged(new Error('network'))).toBe(false);
   });
 });

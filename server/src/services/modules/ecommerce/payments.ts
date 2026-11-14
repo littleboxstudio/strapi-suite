@@ -37,6 +37,9 @@ export type PaymentView = {
   methodLabel: string | null;
 };
 
+/** Longest manual payment method label (the controllers' MAX_SHORT). */
+const MAX_METHOD_LABEL = 255;
+
 const clean = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
 const num = (v: unknown): number => {
   const n = Number(v);
@@ -156,6 +159,11 @@ const EcommercePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
     }
     const reference = clean(input?.reference) || null;
     const methodLabel = clean(input?.methodLabel) || null;
+    if (methodLabel && methodLabel.length > MAX_METHOD_LABEL) {
+      throw new EcommerceValidationError('Invalid payment', [
+        { path: 'methodLabel', code: 'too_long' },
+      ]);
+    }
 
     const collector = events().collector();
     const operationId = randomUUID();
@@ -408,7 +416,7 @@ const EcommercePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
         ]);
       }
       methodLabel = clean((input as { methodLabel?: unknown }).methodLabel) || undefined;
-      if (methodLabel && methodLabel.length > 255) {
+      if (methodLabel && methodLabel.length > MAX_METHOD_LABEL) {
         throw new EcommerceValidationError('Invalid payment instructions', [
           { path: 'methodLabel', code: 'too_long' },
         ]);
