@@ -1022,7 +1022,7 @@
   "littlebox-strapi-suite.ecommerce.orders.refund.reasons.RETURN": "Return",
   "littlebox-strapi-suite.ecommerce.orders.refund.reasons.OTHER": "Other",
   "littlebox-strapi-suite.ecommerce.orders.refund.description": "Description",
-  "littlebox-strapi-suite.ecommerce.orders.refund.descriptionNotice": "The customer will see this text in the refund e-mails.",
+  "littlebox-strapi-suite.ecommerce.orders.refund.descriptionNotice": "The customer will see this description in the refund e-mails.",
   "littlebox-strapi-suite.ecommerce.orders.refund.method": "Refund method",
   "littlebox-strapi-suite.ecommerce.orders.refund.methods.MANUAL_TRANSFER": "Bank transfer",
   "littlebox-strapi-suite.ecommerce.orders.refund.methods.STORE_CREDIT": "Store credit",
