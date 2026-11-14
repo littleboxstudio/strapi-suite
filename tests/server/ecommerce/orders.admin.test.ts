@@ -180,4 +180,64 @@ describe('EcommerceOrderService.get: editing fields', () => {
     expect(view.reviewFlags).toEqual([]);
     expect(c.tables).toEqual(before);
   });
+
+  it('a legacy invoice with shipping marks the CHECKOUT line invoiced, a later MANUAL line is not', async () => {
+    const c = setupCommerce();
+    const id = await createOrder(c);
+    const row = c.tables[UIDS.order].find((o: any) => o.id === id);
+    const [checkoutRow] = (await c.orders.get(id)).shippingLines;
+    const { paid: _p, invoiced: _i, spent: _s, ...checkoutLine } = checkoutRow;
+    // A MANUAL line added after checkout, before a legacy (plan 10) invoice without line ids.
+    row.shippingLines = {
+      lines: [
+        checkoutLine,
+        { ...checkoutLine, id: 2, origin: 'MANUAL', amount: 300, createdAt: '2026-11-02T10:00:00.000Z' },
+      ],
+    };
+    c.tables[UIDS.invoice].push({
+      id: 1,
+      order: id,
+      kind: 'INVOICE',
+      status: 'ISSUED',
+      createdAt: '2026-11-03T10:00:00.000Z',
+      lines: { lines: [{ kind: 'SHIPPING', total: 500 }] },
+    });
+    const view = await c.orders.get(id);
+    expect(view.shippingLines.map((l) => [l.id, l.origin, l.invoiced])).toEqual([
+      [1, 'CHECKOUT', true],
+      [2, 'MANUAL', false],
+    ]);
+  });
+});
+
+describe('EcommerceOrderService.computeOrderState: invoicing position', () => {
+  it('computeOrderState exposes the invoicing position', async () => {
+    const c = setupCommerce();
+    const id = await createOrder(c);
+    await c.payments.addManualPayment(id, { amount: 4500, idempotencyKey: 'pay-position' }, 'user:1');
+    const paymentId = c.tables[UIDS.payment].find((p: any) => p.order === id).id;
+
+    const { invoicing } = await c.orders.computeOrderState(id);
+    expect(invoicing.availablePaymentIds).toEqual([paymentId]);
+    expect(invoicing.paymentNets.get(paymentId)).toBe(4500);
+    expect(invoicing.canIssue).toBe(true);
+    expect(invoicing.blockingExcess).toBe(0);
+    expect(invoicing.docs).toEqual([]);
+    expect(invoicing.coveredShipping).toBe(500);
+    expect(invoicing.positionOrder).toMatchObject({ orderDiscount: 0, shippingTotal: 500 });
+    expect(invoicing.position.lines).toEqual([
+      expect.objectContaining({ remainingQuantity: 2, remainingValue: 4000 }),
+    ]);
+    expect(invoicing.position.shipping).toEqual([
+      expect.objectContaining({ shippingLineId: 1, available: true, remainingValue: 500 }),
+    ]);
+
+    await c.editing.addManualDiscount(
+      id,
+      { kind: 'FIXED', value: 1000, reason: 'Gesture' },
+      'user:1',
+      'op-position-discount'
+    );
+    expect((await c.orders.computeOrderState(id)).invoicing.blockingExcess).toBe(1000);
+  });
 });
