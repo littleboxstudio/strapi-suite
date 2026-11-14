@@ -19,6 +19,7 @@ import {
   apiErrorMessageId,
   paymentLinkOutdated,
   paymentSectionActions,
+  refundSectionActions,
   promotionDisplayName,
   type ToolbarAction,
 } from '../../utils/orderDetail';
@@ -214,7 +215,26 @@ const OrderDetailPage = () => {
   }
 
   /** Add payment / Send payment instructions, shown in the Payments section. */
-  const paymentActions = paymentSectionActions(allowedToolbarActions(order.availableActions, permissions));
+  const allowedActions = allowedToolbarActions(order.availableActions, permissions);
+  const paymentActions = paymentSectionActions(allowedActions);
+  /** Refund, also shown in the Refunds and credits section. */
+  const refundActions = refundSectionActions(allowedActions);
+  const sectionButtons = (actions: ToolbarAction[]) =>
+    actions.length ? (
+      <Flex gap={2}>
+        {actions.map((action) => (
+          <Button
+            key={action}
+            size="S"
+            variant="secondary"
+            disabled={busy}
+            onClick={() => dispatchModal({ type: 'OPEN', action })}
+          >
+            {t(`ecommerce.orders.detail.actions.${action}`)}
+          </Button>
+        ))}
+      </Flex>
+    ) : undefined;
 
   return (
     <Flex direction="column" alignItems="stretch" gap={6}>
@@ -249,24 +269,8 @@ const OrderDetailPage = () => {
 
       <OrderSection
         title={t('ecommerce.orders.detail.payments.title')}
-        actions={
-          // Same availability and permission rules as in the top bar, which no longer shows them.
-          paymentActions.length ? (
-            <Flex gap={2}>
-              {paymentActions.map((action) => (
-                <Button
-                  key={action}
-                  size="S"
-                  variant="secondary"
-                  disabled={busy}
-                  onClick={() => dispatchModal({ type: 'OPEN', action })}
-                >
-                  {t(`ecommerce.orders.detail.actions.${action}`)}
-                </Button>
-              ))}
-            </Flex>
-          ) : undefined
-        }
+        // Same availability and permission rules as in the top bar, which no longer shows them.
+        actions={sectionButtons(paymentActions)}
       >
         <PaymentsOverview totals={order.totals} summary={order.summary} />
         <PaymentsTable payments={order.payments} />
@@ -313,7 +317,10 @@ const OrderDetailPage = () => {
         onAction={(action) => dispatchModal({ type: 'OPEN', action })}
       />
       <ReturnsSection title={t('ecommerce.orders.detail.sections.returns')} returns={order.returns} />
-      <OrderSection title={t('ecommerce.orders.detail.sections.refunds')}>
+      <OrderSection
+        title={t('ecommerce.orders.detail.sections.refunds')}
+        actions={sectionButtons(refundActions)}
+      >
         <RefundsTable
           orderId={order.id}
           summaries={order.refunds}
