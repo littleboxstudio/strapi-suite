@@ -216,24 +216,26 @@ const OrderDetailPage = () => {
         onAction={(action) => dispatchModal({ type: 'OPEN', action })}
       />
 
-      <ReviewAlerts order={order} canManage={canManage} onResult={showResult} />
-      {order.orderStatus === 'OPEN' && paymentLinkOutdated(order.summary) && (
-        // The link sent to the customer asks for more than the order now owes.
-        <NoticeBar
-          text={t('ecommerce.orders.paymentLinkOutdated.text')}
-          actions={
-            canPay && order.availableActions.includes('SEND_PAYMENT_INSTRUCTIONS') ? (
-              <Button
-                variant="secondary"
-                size="S"
-                onClick={() => dispatchModal({ type: 'OPEN', action: 'SEND_PAYMENT_INSTRUCTIONS' })}
-              >
-                {t('ecommerce.orders.detail.actions.SEND_PAYMENT_INSTRUCTIONS')}
-              </Button>
-            ) : undefined
-          }
-        />
-      )}
+      {/* Every notice of the order in one stack, 12px apart. */}
+      <ReviewAlerts order={order} canManage={canManage} onResult={showResult}>
+        {order.orderStatus === 'OPEN' && paymentLinkOutdated(order.summary) && (
+          // The link sent to the customer asks for another amount than the order now owes.
+          <NoticeBar
+            text={t('ecommerce.orders.paymentLinkOutdated.text')}
+            actions={
+              canPay && order.availableActions.includes('SEND_PAYMENT_INSTRUCTIONS') ? (
+                <Button
+                  variant="secondary"
+                  size="S"
+                  onClick={() => dispatchModal({ type: 'OPEN', action: 'SEND_PAYMENT_INSTRUCTIONS' })}
+                >
+                  {t('ecommerce.orders.detail.actions.SEND_PAYMENT_INSTRUCTIONS')}
+                </Button>
+              ) : undefined
+            }
+          />
+        )}
+      </ReviewAlerts>
 
       <OrderSection title={t('ecommerce.orders.detail.payments.title')}>
         <PaymentsOverview totals={order.totals} summary={order.summary} />
