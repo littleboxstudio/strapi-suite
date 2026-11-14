@@ -422,7 +422,7 @@ describe('EcommerceInvoiceService.issue', () => {
     const view = await testIssueAll(c, id, 'k1');
     expect(view.total).toBe(4500);
     expect(view.lines).toContainEqual(
-      expect.objectContaining({ orderLineId: 900, name: 'Shirt - S', quantity: 1, total: 0 })
+      expect.objectContaining({ orderLineId: 900, name: 'Shirt - S', quantity: 1, total: 0, grossTotal: 200 })
     );
   });
 
@@ -442,7 +442,7 @@ describe('EcommerceInvoiceService.issue', () => {
     const view = await testIssueAll(c, id, 'k1');
     expect(view.total).toBe(4300);
     expect(view.lines).toContainEqual(
-      expect.objectContaining({ kind: 'SHIPPING', shippingLineId: 1, total: 300 })
+      expect.objectContaining({ kind: 'SHIPPING', shippingLineId: 1, total: 300, grossTotal: 500 })
     );
   });
 

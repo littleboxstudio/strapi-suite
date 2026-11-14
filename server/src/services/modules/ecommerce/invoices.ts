@@ -839,6 +839,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
               name: line.option ? `${line.name} - ${line.option}` : line.name,
               quantity: l.quantity,
               total: l.value,
+              grossTotal: line.unitPrice * l.quantity,
               tax: line.tax,
               partial: false,
             };
@@ -852,6 +853,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
               name: clean(line.name) || 'Shipping',
               quantity: 1,
               total: s.value,
+              grossTotal: line.amount,
               tax: line.tax,
               partial: false,
               shippingLineId: s.shippingLineId,

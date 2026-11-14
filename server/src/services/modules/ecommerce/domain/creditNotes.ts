@@ -6,7 +6,7 @@
  * are ISSUED, PENDING or UNCERTAIN count, so nothing is credited twice.
  */
 import type { ValidationIssue } from '../errors';
-import { isObject, num, type InvoiceLine } from './invoicing';
+import { isObject, num, withTotal, type InvoiceLine } from './invoicing';
 import {
   invoicingPosition,
   selectedValue,
@@ -44,9 +44,8 @@ export const creditLine = (line: InvoiceLine, value: number): InvoiceLine => {
   const scaled = line.quantity * value;
   const whole = line.total > 0 && scaled % line.total === 0 && scaled / line.total >= 1;
   return {
-    ...line,
+    ...withTotal(line, value),
     quantity: whole ? scaled / line.total : 1,
-    total: value,
     partial: whole ? line.partial : true,
   };
 };
@@ -222,7 +221,7 @@ export function buildCreditLines(
       const value = selectedValue(option.valueLeft, option.unitsLeft, quantity);
       entries.push({
         index: option.index,
-        line: { ...invoice.lines[option.index], quantity, total: value, partial: false },
+        line: { ...withTotal(invoice.lines[option.index], value), quantity, partial: false },
         value,
         quantity,
       });
