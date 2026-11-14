@@ -242,16 +242,30 @@ export type IssueInvoiceSelectionInput = {
   idempotencyKey: string;
 };
 
-export type CreditNotePreview = {
+export type CreditType = 'RETURN' | 'CORRECTION';
+
+/** What a credit note on an issued invoice can still credit, by reason. */
+export type CreditNoteOptions = {
   lines: InvoiceLine[];
-  /** Per line index: what can still be credited. */
+  /** Per line index: cents still creditable. */
   creditable: number[];
-  /** Per line index: the server's suggestion (returns, then over-invoiced value). */
-  suggested: number[];
+  /** The CORRECTION credit note: everything still creditable. */
+  correction: { lines: InvoiceLine[]; total: number };
+  /**
+   * Per ITEM line with whole units left: the units a RETURN may credit (`units`, maybe 0), and the
+   * units and value left on the line (the value of `k` units is `selectedValue(valueLeft, unitsLeft, k)`).
+   */
+  returnable: { index: number; units: number; unitsLeft: number; valueLeft: number }[];
+  /** SHIPPING lines a RETURN may add whole. */
+  shipping: { index: number; value: number }[];
 };
 
 export type CreditNoteInput = {
-  lines: { index: number; value: number }[];
+  creditType: CreditType;
+  /** RETURN only: units per ITEM line index of the invoice. */
+  lines?: { index: number; quantity: number }[];
+  /** RETURN only: SHIPPING line indexes of the invoice, credited whole. */
+  shippingIndexes?: number[];
   reason: string;
   idempotencyKey: string;
 };

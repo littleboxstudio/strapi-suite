@@ -1,65 +1,105 @@
-import { formatAmountInput, parseMoneyToCents } from './money';
 import { API_ERROR_CODES } from './orderDetail';
+import { selectedValue } from './invoiceSelection';
 import type { FormErrors } from './shipmentForm';
 import type { BadgeVariant } from './statusBadges';
-import type { CreditNoteInput, CreditNotePreview, InvoiceView } from '../orderTypes';
+import type { CreditNoteInput, CreditNoteOptions, CreditType, InvoiceView } from '../orderTypes';
 
 /** Mirrors the server limit of the credit note reason. */
 export const MAX_CREDIT_NOTE_REASON = 500;
 
-/** One amount per invoice line (`index` is the line's position in the invoice). */
-export type CreditNoteLineDraft = { index: number; amount: string };
-export type CreditNoteForm = { lines: CreditNoteLineDraft[]; reason: string };
+/**
+ * A credit note: the reason (RETURN credits chosen returned units and whole shipping lines;
+ * CORRECTION credits everything left), units per ITEM line index, ticked SHIPPING line indexes,
+ * and the details text.
+ */
+export type CreditNoteForm = {
+  creditType: CreditType;
+  quantities: Record<number, number>;
+  shipping: number[];
+  reason: string;
+};
 
-/** Every invoice line, prefilled with the server suggestion (capped by what is creditable). */
+/** A RETURN is possible: some line has returned units left to credit (lines with 0 are listed too). */
+export const hasReturnable = (options: Pick<CreditNoteOptions, 'returnable'>): boolean =>
+  options.returnable.some((r) => r.units > 0);
+
+/** RETURN when something is returnable, else CORRECTION; nothing chosen. */
 export function emptyCreditNoteForm(
-  preview: Pick<CreditNotePreview, 'lines' | 'creditable' | 'suggested'>,
-  locale: string
+  options: Pick<CreditNoteOptions, 'returnable'>
 ): CreditNoteForm {
   return {
-    lines: preview.lines.map((_, index) => {
-      const value = Math.min(preview.suggested[index] ?? 0, preview.creditable[index] ?? 0);
-      return { index, amount: value > 0 ? formatAmountInput(value, locale) : '' };
-    }),
+    creditType: hasReturnable(options) ? 'RETURN' : 'CORRECTION',
+    quantities: {},
+    shipping: [],
     reason: '',
   };
 }
 
-/** An empty amount counts as 0; null when the text is not an amount. */
-const amountOf = (text: string): number | null => (text.trim() ? parseMoneyToCents(text) : 0);
+const quantityOf = (form: CreditNoteForm, index: number): number => form.quantities[index] ?? 0;
 
 /**
- * Each amount ≤ the creditable value of its line (`lines.<index>`: invalid_amount /
- * exceeds_creditable), a total above 0 (`lines: required`) and a reason of at most 500 characters.
+ * RETURN: each quantity ≤ its line's returnable units (`quantities.<index>`: exceeds_creditable)
+ * and at least one unit or shipping line (`lines`: required). Both: a reason of at most 500
+ * characters.
  */
-export function validateCreditNoteForm(form: CreditNoteForm, creditable: number[]): FormErrors {
+export function validateCreditNoteForm(
+  form: CreditNoteForm,
+  options: CreditNoteOptions
+): FormErrors {
   const errors: FormErrors = {};
-  let total = 0;
-  for (const line of form.lines) {
-    const value = amountOf(line.amount);
-    if (value === null) errors[`lines.${line.index}`] = 'invalid_amount';
-    else if (value > (creditable[line.index] ?? 0)) errors[`lines.${line.index}`] = 'exceeds_creditable';
-    else total += value;
+  if (form.creditType === 'RETURN') {
+    let chosen = form.shipping.some((index) => options.shipping.some((s) => s.index === index));
+    for (const r of options.returnable) {
+      const quantity = quantityOf(form, r.index);
+      if (quantity > r.units) errors[`quantities.${r.index}`] = 'exceeds_creditable';
+      else if (quantity > 0) chosen = true;
+    }
+    if (!chosen && !Object.keys(errors).length) errors.lines = 'required';
   }
-  if (!total && !Object.keys(errors).length) errors.lines = 'required';
   const reason = form.reason.trim();
   if (!reason) errors.reason = 'required';
   else if (reason.length > MAX_CREDIT_NOTE_REASON) errors.reason = 'too_long';
   return errors;
 }
 
-/** Σ of the valid amounts, in cents. */
-export function creditNoteTotal(form: CreditNoteForm): number {
-  return form.lines.reduce((sum, line) => sum + (amountOf(line.amount) ?? 0), 0);
+/** Value of `quantity` units of a returnable line (as the server); 0 when above its units. */
+export const returnValue = (
+  line: CreditNoteOptions['returnable'][number],
+  quantity: number
+): number =>
+  quantity > 0 && quantity <= line.units
+    ? selectedValue(line.valueLeft, line.unitsLeft, quantity)
+    : 0;
+
+/** Total in cents: RETURN Σ the chosen units and ticked shipping lines; CORRECTION all that is left. */
+export function creditNoteTotal(form: CreditNoteForm, options: CreditNoteOptions): number {
+  if (form.creditType === 'CORRECTION') return options.correction.total;
+  const lines = options.returnable.reduce(
+    (sum, r) => sum + returnValue(r, quantityOf(form, r.index)),
+    0
+  );
+  const shipping = options.shipping
+    .filter((s) => form.shipping.includes(s.index))
+    .reduce((sum, s) => sum + s.value, 0);
+  return lines + shipping;
 }
 
 /** The request body of a form `validateCreditNoteForm` accepted. */
-export function buildCreditNoteInput(form: CreditNoteForm, idempotencyKey: string): CreditNoteInput {
+export function buildCreditNoteInput(
+  form: CreditNoteForm,
+  idempotencyKey: string
+): CreditNoteInput {
+  const reason = form.reason.trim();
+  if (form.creditType === 'CORRECTION') return { creditType: 'CORRECTION', reason, idempotencyKey };
+  const lines = Object.entries(form.quantities)
+    .map(([index, quantity]) => ({ index: Number(index), quantity }))
+    .filter((l) => l.quantity > 0)
+    .sort((a, b) => a.index - b.index);
   return {
-    lines: form.lines
-      .map((l) => ({ index: l.index, value: amountOf(l.amount) ?? 0 }))
-      .filter((l) => l.value > 0),
-    reason: form.reason.trim(),
+    creditType: 'RETURN',
+    lines,
+    shippingIndexes: [...form.shipping],
+    reason,
     idempotencyKey,
   };
 }

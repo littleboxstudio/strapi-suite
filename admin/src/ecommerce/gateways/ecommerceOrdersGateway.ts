@@ -17,7 +17,7 @@ import type {
   CreateRefundInput,
   CreateShipmentInput,
   CreditNoteInput,
-  CreditNotePreview,
+  CreditNoteOptions,
   DiscountRecalculation,
   EditResult,
   DeliveryInput,
@@ -149,7 +149,7 @@ export default interface EcommerceOrdersGateway {
   reconcileInvoice(invoiceId: number, markFailed: boolean): Promise<InvoiceView>;
   /** The invoice PDF from its provider; an error carries the API body like the JSON calls. */
   fetchInvoicePdf(invoiceId: number): Promise<Blob>;
-  fetchCreditNotePreview(invoiceId: number): Promise<CreditNotePreview>;
+  fetchCreditNotePreview(invoiceId: number): Promise<CreditNoteOptions>;
   issueCreditNote(invoiceId: number, input: CreditNoteInput): Promise<InvoiceView>;
 }
 
@@ -428,7 +428,7 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
     return this.fetchBlob(`${this.base}/invoices/${invoiceId}/pdf`);
   }
 
-  async fetchCreditNotePreview(invoiceId: number): Promise<CreditNotePreview> {
+  async fetchCreditNotePreview(invoiceId: number): Promise<CreditNoteOptions> {
     return this.httpClient.get(`${this.base}/invoices/${invoiceId}/credit-note/preview`);
   }
 
