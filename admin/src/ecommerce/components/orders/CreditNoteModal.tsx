@@ -129,6 +129,9 @@ const CreditNoteModal = ({ invoice, onClose, onIssued }: Props) => {
   }, [invoice.id]);
 
   const locked = saving || uncertain;
+  /** A Correction with nothing left to credit: nothing to send. */
+  const nothingToCorrect =
+    form?.creditType === 'CORRECTION' && options?.correction.lines.length === 0;
 
   const clear = (keys: string[]) => {
     setFormError(null);
@@ -166,7 +169,7 @@ const CreditNoteModal = ({ invoice, onClose, onIssued }: Props) => {
   };
 
   const submit = async () => {
-    if (saving || uncertain || !form || !options) return;
+    if (saving || uncertain || nothingToCorrect || !form || !options) return;
     const local = validateCreditNoteForm(form, options);
     if (Object.keys(local).length) {
       setErrors(local);
@@ -345,36 +348,34 @@ const CreditNoteModal = ({ invoice, onClose, onIssued }: Props) => {
               )}
             </Flex>
           )}
-        {errors.lines && (
-          <Typography variant="pi" textColor="danger600">
-            {t(`${p}.nothing`)}
-          </Typography>
-        )}
       </>
     );
   };
 
-  /** Read-only: a Correction credits every line still creditable (never empty: the action needs one). */
-  const correctionBody = (o: CreditNoteOptions) => (
-    <Table colCount={CORRECTION_COLUMNS.length} rowCount={o.correction.lines.length + 1}>
-      {heading(CORRECTION_COLUMNS, (c) => t(`ecommerce.orders.invoices.lines.${c}`))}
-      <Tbody>
-        {o.correction.lines.map((line, i) => (
-          <Tr key={i}>
-            <Td style={PRODUCT_CELL}>
-              <Typography textColor="neutral800">{lineName(line)}</Typography>
-            </Td>
-            <Td style={FIT_CELL}>
-              <Typography textColor="neutral800">{line.quantity}</Typography>
-            </Td>
-            <Td style={FIT_CELL}>
-              <Typography textColor="neutral800">{money(line.total)}</Typography>
-            </Td>
-          </Tr>
-        ))}
-      </Tbody>
-    </Table>
-  );
+  /** Read-only: a Correction credits every line still creditable. */
+  const correctionBody = (o: CreditNoteOptions) =>
+    o.correction.lines.length === 0 ? (
+      <EmptyNote>{t(`${p}.nothingCreditable`)}</EmptyNote>
+    ) : (
+      <Table colCount={CORRECTION_COLUMNS.length} rowCount={o.correction.lines.length + 1}>
+        {heading(CORRECTION_COLUMNS, (c) => t(`ecommerce.orders.invoices.lines.${c}`))}
+        <Tbody>
+          {o.correction.lines.map((line, i) => (
+            <Tr key={i}>
+              <Td style={PRODUCT_CELL}>
+                <Typography textColor="neutral800">{lineName(line)}</Typography>
+              </Td>
+              <Td style={FIT_CELL}>
+                <Typography textColor="neutral800">{line.quantity}</Typography>
+              </Td>
+              <Td style={FIT_CELL}>
+                <Typography textColor="neutral800">{money(line.total)}</Typography>
+              </Td>
+            </Tr>
+          ))}
+        </Tbody>
+      </Table>
+    );
 
   const body = (o: CreditNoteOptions, values: CreditNoteForm) => {
     const returnable = hasReturnable(o);
@@ -387,7 +388,11 @@ const CreditNoteModal = ({ invoice, onClose, onIssued }: Props) => {
             value={values.creditType}
             aria-label={t(`${p}.creditType`)}
             onValueChange={(value: string) =>
-              update({ creditType: value as CreditType }, ['lines', 'shipping'])
+              // Every error of the other reason's selection goes with it; the details stay.
+              update(
+                { creditType: value as CreditType },
+                Object.keys(errors).filter((k) => k !== 'reason')
+              )
             }
           >
             {CREDIT_TYPES.map((type) => {
@@ -409,6 +414,11 @@ const CreditNoteModal = ({ invoice, onClose, onIssued }: Props) => {
         </Field.Root>
 
         {values.creditType === 'RETURN' ? returnBody(o, values) : correctionBody(o)}
+        {errors.lines && (
+          <Typography variant="pi" textColor="danger600">
+            {t(values.creditType === 'RETURN' ? `${p}.nothing` : `${p}.nothingCreditable`)}
+          </Typography>
+        )}
 
         <Field.Root
           name="reason"
@@ -470,7 +480,11 @@ const CreditNoteModal = ({ invoice, onClose, onIssued }: Props) => {
             {t(uncertain ? 'ecommerce.orders.invoices.close' : 'ecommerce.orders.invoices.back')}
           </Button>
           {!uncertain && (
-            <Button onClick={submit} loading={saving} disabled={!form || saving}>
+            <Button
+              onClick={submit}
+              loading={saving}
+              disabled={!form || saving || nothingToCorrect}
+            >
               {t(`${p}.confirm`)}
             </Button>
           )}
