@@ -118,6 +118,23 @@ export type ManualMethod = {
 
 export type ManualMethodInput = Partial<Omit<ManualMethod, 'id' | 'deletable'>>;
 
+/** DPD Portugal services (stored in the `dpd-portugal` integration config). */
+export type DpdServiceId = 'EXPRESS' | 'PICKUP';
+
+export type DpdService = {
+  active: boolean;
+  name: Record<string, string>;
+  /** VAT rate (%). */
+  tax: number;
+  /** Weight brackets per store market; a market without one has no such service. */
+  rates: MarketRates;
+};
+
+export type DpdServices = Record<DpdServiceId, DpdService>;
+
+/** PUT result: the integration is turned off when no service is active. */
+export type DpdServicesSaveResult = { services: DpdServices; active: boolean };
+
 export type EmailTemplateType =
   | 'ORDER_CONFIRMATION'
   | 'PAYMENT_CONFIRMATION'

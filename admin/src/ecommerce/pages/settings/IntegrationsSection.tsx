@@ -12,6 +12,7 @@ import { IntegrationCard, type TestState } from '../../components/settings/Integ
 import { ActiveToggleButton } from '../../components/settings/ActiveToggleButton';
 import { IntegrationConfigModal } from '../../components/settings/IntegrationConfigModal';
 import { ManualMethodsTable } from '../../components/settings/ManualMethodsTable';
+import { DpdServicesSection } from '../../components/settings/DpdServicesSection';
 import StripeWebhookModal from '../../components/settings/StripeWebhookModal';
 import { extractFieldErrors } from '../../utils/productForm';
 import { extractErrorCode } from '../../utils/settingsForm';
@@ -98,13 +99,21 @@ const IntegrationsSection = ({ category, readOnly, markets }: Props) => {
     } catch (err) {
       const fieldErrors = extractFieldErrors(err);
       const code = extractErrorCode(err);
-      if (fieldErrors) {
+      // DPD Portugal: no active service (fixed in its services table, not in Configure).
+      const noService = fieldErrors?.find((e) => e.path === 'services');
+      const configErrors = fieldErrors?.filter((e) => e.path !== 'services') ?? [];
+      if (noService && configErrors.length === 0) {
+        toggleNotification({
+          type: 'warning',
+          message: t(`ecommerce.settings.errors.${noService.code}`),
+        });
+      } else if (fieldErrors) {
         toggleNotification({
           type: 'warning',
           message: t('ecommerce.settings.integrations.activateMissing'),
         });
         if (integration.fields.length > 0) {
-          setConfiguring({ id: integration.id, errors: integrationErrorMap(fieldErrors) });
+          setConfiguring({ id: integration.id, errors: integrationErrorMap(configErrors) });
         }
       } else if (code) {
         toggleNotification({ type: 'danger', message: t(`ecommerce.settings.errors.${code}`) });
@@ -193,6 +202,19 @@ const IntegrationsSection = ({ category, readOnly, markets }: Props) => {
                     busy={toggling === integration.id}
                     onChange={(active) => onToggleActive(integration, active)}
                   />
+                )
+              }
+            />
+          )}
+          {integration.id === 'dpd-portugal' && (
+            <DpdServicesSection
+              readOnly={readOnly}
+              markets={markets ?? NO_MARKETS}
+              integrationActive={integration.active}
+              onIntegrationActiveChange={(active) =>
+                setIntegrations(
+                  (list) =>
+                    list?.map((i) => (i.id === integration.id ? { ...i, active } : i)) ?? list
                 )
               }
             />
