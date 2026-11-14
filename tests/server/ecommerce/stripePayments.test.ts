@@ -19,7 +19,9 @@ import EcommerceInvoiceService from '../../../server/src/services/modules/ecomme
 import EcommerceStoreCreditService from '../../../server/src/services/modules/ecommerce/storeCredits';
 import EcommerceRefundService from '../../../server/src/services/modules/ecommerce/refunds';
 import EcommercePaymentService from '../../../server/src/services/modules/ecommerce/payments';
-import EcommerceStripePaymentService from '../../../server/src/services/modules/ecommerce/stripePayments';
+import EcommerceStripePaymentService, {
+  subscribeStripeSessionRetirement,
+} from '../../../server/src/services/modules/ecommerce/stripePayments';
 import EcommerceOrderEditingService from '../../../server/src/services/modules/ecommerce/orderEditing';
 import EcommerceOrderHistoryService from '../../../server/src/services/modules/ecommerce/orderHistory';
 import EcommerceStockService from '../../../server/src/services/modules/ecommerce/stock';
@@ -109,7 +111,13 @@ const HOUR = 3600;
 const nowSec = () => Math.floor(Date.now() / 1000);
 
 function setup(
-  opts: { storefrontUrl?: string | null; stripeActive?: boolean; stripeConfig?: Record<string, unknown> } = {}
+  opts: {
+    storefrontUrl?: string | null;
+    stripeActive?: boolean;
+    stripeConfig?: Record<string, unknown>;
+    /** Subscribes the outdated-session retirement to the bus, as `bootstrap` does. */
+    retire?: boolean;
+  } = {}
 ) {
   const db = createFakeDb(Object.values(UIDS), RELATIONS, {
     enforceUnique: [UIDS.stockMovement, UIDS.order, UIDS.payment, UIDS.stripeSession],
@@ -153,6 +161,7 @@ function setup(
       tax: 23,
     }),
   };
+  const stripeState = { active: opts.stripeActive ?? true, runtimeFails: false };
   services.EcommerceSettingsService = {
     getActiveProviders: async () => [],
     getStoreSettings: async () => ({
@@ -160,17 +169,19 @@ function setup(
       storefrontUrl:
         opts.storefrontUrl === undefined ? 'https://shop.example/' : opts.storefrontUrl,
     }),
-    getRuntime: async (id: string) =>
-      id === 'stripe'
+    getRuntime: async (id: string) => {
+      if (stripeState.runtimeFails) throw new Error('db down');
+      return id === 'stripe'
         ? {
             config: opts.stripeConfig ?? {
               paymentSuccessPath: '/checkout/success',
               paymentCancelPath: '/checkout/cancel',
             },
             secrets: { secretKey: 'sk_test_x' },
-            active: opts.stripeActive ?? true,
+            active: stripeState.active,
           }
-        : null,
+        : null;
+    },
   };
   services.EcommerceEventBus = { collector: bus.collector, subscribe: bus.subscribe };
   services.EcommerceOrderService = EcommerceOrderService({ strapi });
@@ -201,6 +212,7 @@ function setup(
   bus.subscribe('*', async (e) => {
     events.push(e);
   });
+  if (opts.retire) subscribeStripeSessionRetirement(strapi);
   return {
     orders: services.EcommerceOrderService,
     payments: services.EcommercePaymentService,
@@ -210,6 +222,7 @@ function setup(
     tables: t,
     events,
     log,
+    stripeState,
     failNextHistory: (type: string) => failHistory.add(type),
   };
 }
@@ -1134,5 +1147,180 @@ describe('verification fixes (plan 4, task 10)', () => {
     tables[UIDS.payment][0].externalId = null;
     await payments.addManualPayment(order.id, { amount: 4500, idempotencyKey: 'm-full' }, actor);
     expect(tables[UIDS.payment][0].status).toBe('PENDING');
+  });
+});
+
+describe('retiring outdated links when the amount due changes', () => {
+  const withLink = async (opts: Parameters<typeof setup>[0] = {}) => {
+    const ctx = setup({ retire: true, ...opts });
+    const order = await createOrder(ctx.orders);
+    await ctx.stripePayments.getOrCreatePaymentLink(order.id, { purpose: 'CHECKOUT', actor });
+    expect(ctx.tables[UIDS.stripeSession][0]).toMatchObject({ status: 'OPEN', amount: 4500 });
+    return { ...ctx, order };
+  };
+  const session = (tables: any, id = 'cs_1') =>
+    tables[UIDS.stripeSession].find((s: any) => s.sessionId === id);
+  const stripePaymentOf = (tables: any, id = 'cs_1') =>
+    tables[UIDS.payment].find((p: any) => p.id === session(tables, id).payment);
+
+  it('a manual payment of the full due retires the link', async () => {
+    const { orders, payments, tables, order } = await withLink();
+    await payments.addManualPayment(order.id, { amount: 4500, idempotencyKey: 'm-full' }, actor);
+
+    expect(stripe.expireCheckoutSession).toHaveBeenCalledWith('cs_1');
+    expect(session(tables).status).toBe('EXPIRED');
+    expect(stripePaymentOf(tables).status).toBe('CANCELLED');
+    const view = await orders.get(order.id);
+    expect(view.summary).toMatchObject({ due: 0, pendingPayments: 0, paid: 4500 });
+  });
+
+  it('a partial manual payment retires the link for the old amount', async () => {
+    const { orders, payments, tables, order } = await withLink();
+    await payments.addManualPayment(order.id, { amount: 1000, idempotencyKey: 'm-part' }, actor);
+
+    expect(stripe.expireCheckoutSession).toHaveBeenCalledWith('cs_1');
+    expect(session(tables).status).toBe('EXPIRED');
+    expect(stripePaymentOf(tables).status).toBe('CANCELLED');
+    const view = await orders.get(order.id);
+    expect(view.summary).toMatchObject({ due: 3500, pendingPayments: 0 });
+  });
+
+  it('an edit that raises the due retires the link', async () => {
+    const { editing, shippingPrice, tables, order } = await withLink();
+    shippingPrice.value = 650;
+    const res = await editing.recalculateShipping(order.id, actor, 'op-ship-up');
+    expect(res.order.summary.due).toBe(4650);
+    expect(session(tables).status).toBe('EXPIRED');
+    expect(stripePaymentOf(tables).status).toBe('CANCELLED');
+    expect(res.order.summary.pendingPayments).toBe(0);
+  });
+
+  it('an edit that lowers the due retires the link', async () => {
+    const { editing, shippingPrice, tables, order } = await withLink();
+    shippingPrice.value = 300;
+    const res = await editing.recalculateShipping(order.id, actor, 'op-ship-down');
+    expect(res.order.summary.due).toBe(4300);
+    expect(stripe.expireCheckoutSession).toHaveBeenCalledWith('cs_1');
+    expect(session(tables).status).toBe('EXPIRED');
+  });
+
+  it('an edit that keeps the due keeps the link', async () => {
+    const { editing, tables, order, events } = await withLink();
+    const res = await editing.recalculateShipping(order.id, actor, 'op-ship-same');
+    expect(res.order.summary.due).toBe(4500);
+    expect(events.some((e) => e.type === 'ORDER_MODIFIED')).toBe(true);
+    expect(stripe.expireCheckoutSession).not.toHaveBeenCalled();
+    expect(session(tables).status).toBe('OPEN');
+    expect(stripePaymentOf(tables).status).toBe('PENDING');
+  });
+
+  it('a link already paid at Stripe is settled, not cancelled', async () => {
+    const { orders, payments, tables, order } = await withLink();
+    stripe.expireCheckoutSession.mockResolvedValueOnce('complete');
+    stripe.retrieveCheckoutSession.mockResolvedValueOnce({
+      id: 'cs_1',
+      status: 'complete',
+      paymentStatus: 'paid',
+      paymentIntentId: 'pi_1',
+      amountTotal: 4500,
+      metadata: {},
+    });
+    await payments.addManualPayment(order.id, { amount: 1000, idempotencyKey: 'm-part' }, actor);
+
+    expect(session(tables).status).toBe('COMPLETE');
+    expect(stripePaymentOf(tables).status).toBe('COMPLETED');
+    const view = await orders.get(order.id);
+    expect(view.summary).toMatchObject({ paid: 5500, due: 0, pendingPayments: 0 });
+  });
+
+  it('a link unknown to the current Stripe account (404) is closed locally', async () => {
+    const { payments, tables, order } = await withLink();
+    stripe.expireCheckoutSession.mockRejectedValueOnce(
+      new EcommercePaymentError('STRIPE_REQUEST_FAILED', 'x', 'invalid_request_error', 404)
+    );
+    await payments.addManualPayment(order.id, { amount: 1000, idempotencyKey: 'm-part' }, actor);
+    expect(session(tables).status).toBe('EXPIRED');
+    expect(stripePaymentOf(tables).status).toBe('CANCELLED');
+  });
+
+  it('Stripe not configured: nothing changes and nothing fails', async () => {
+    const { payments, tables, order, stripeState, log } = await withLink();
+    stripeState.active = false;
+    await payments.addManualPayment(order.id, { amount: 1000, idempotencyKey: 'm-part' }, actor);
+    expect(stripe.expireCheckoutSession).not.toHaveBeenCalled();
+    expect(session(tables).status).toBe('OPEN');
+    expect(stripePaymentOf(tables).status).toBe('PENDING');
+    expect(log.error).not.toHaveBeenCalled();
+  });
+
+  it('Stripe unreachable: the payment still succeeds, the link stays open, only the order id and error name are logged', async () => {
+    const { orders, payments, tables, order, log } = await withLink();
+    stripe.expireCheckoutSession.mockRejectedValueOnce(
+      new EcommercePaymentError('STRIPE_UNREACHABLE', 'Could not reach Stripe.')
+    );
+    const view = await payments.addManualPayment(
+      order.id,
+      { amount: 1000, idempotencyKey: 'm-part' },
+      actor
+    );
+    expect(view).toBeTruthy();
+    expect(tables[UIDS.payment].find((p: any) => p.method === 'MANUAL').status).toBe('COMPLETED');
+    expect(session(tables).status).toBe('OPEN');
+    expect((await orders.get(order.id)).summary.paid).toBe(1000);
+    expect(log.error).toHaveBeenCalledTimes(1);
+    const line = log.error.mock.calls[0][0] as string;
+    expect(line).toContain(`order ${order.id}`);
+    expect(line).toContain('EcommercePaymentError');
+    expect(line).not.toContain('Could not reach');
+  });
+
+  it('a failure before any Stripe call is swallowed and the edit still succeeds', async () => {
+    const { editing, shippingPrice, tables, order, stripeState, log } = await withLink();
+    stripeState.runtimeFails = true;
+    shippingPrice.value = 650;
+    const res = await editing.recalculateShipping(order.id, actor, 'op-ship-fail');
+    expect(res.order.summary.due).toBe(4650);
+    expect(session(tables).status).toBe('OPEN');
+    expect(log.error).toHaveBeenCalledTimes(1);
+    expect(log.error.mock.calls[0][0]).not.toContain('db down');
+  });
+
+  it('one failing session does not stop the others', async () => {
+    const { payments, tables, order } = await withLink();
+    // A second OPEN session for another amount (e.g. left by a concurrent request).
+    tables[UIDS.payment].push({
+      id: 900,
+      order: order.id,
+      method: 'STRIPE',
+      status: 'PENDING',
+      amount: 4000,
+      currency: 'EUR',
+      externalId: 'cs_x',
+    });
+    tables[UIDS.stripeSession].push({
+      id: 900,
+      order: order.id,
+      payment: 900,
+      sessionId: 'cs_x',
+      amount: 4000,
+      status: 'OPEN',
+      expiresAt: new Date(Date.now() + 20 * HOUR * 1000).toISOString(),
+      purpose: 'CHECKOUT',
+    });
+    stripe.expireCheckoutSession.mockImplementation(async (id: string) => {
+      if (id === 'cs_1') throw new EcommercePaymentError('STRIPE_UNREACHABLE', 'x');
+      return 'expired';
+    });
+    await payments.addManualPayment(order.id, { amount: 1000, idempotencyKey: 'm-part' }, actor);
+    expect(session(tables, 'cs_1').status).toBe('OPEN');
+    expect(session(tables, 'cs_x').status).toBe('EXPIRED');
+    expect(tables[UIDS.payment].find((p: any) => p.id === 900).status).toBe('CANCELLED');
+  });
+
+  it('keeps an OPEN link whose amount equals the new due', async () => {
+    const { stripePayments, tables, order } = await withLink();
+    await stripePayments.retireOutdatedSessions(order.id);
+    expect(stripe.expireCheckoutSession).not.toHaveBeenCalled();
+    expect(session(tables).status).toBe('OPEN');
   });
 });

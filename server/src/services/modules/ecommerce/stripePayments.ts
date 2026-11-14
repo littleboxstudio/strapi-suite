@@ -9,6 +9,7 @@ import {
   type StripeClient,
 } from './providers/payments/stripeClient';
 import { coverageFor } from './payments';
+import type { DomainEventHandler, DomainEventType } from './events';
 import type { OrderHistoryEntry } from './orderHistory';
 import type { OrderState } from './orders';
 import { PATH_RE, type ProviderRuntime } from './providers/registry';
@@ -598,6 +599,41 @@ const EcommerceStripePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   /**
+   * After the amount due changed (a payment, an edit, a refund, a return): retires every OPEN
+   * session whose amount is no longer the due (all of them when nothing is due), as
+   * `expireOpenSessions` does; a session for the current due is kept. Does nothing when Stripe
+   * is not configured. Each session is independent: a failure is logged (order id and error
+   * name only) and the others are still retired. The state is re-read after each retirement,
+   * since settling a session that was actually paid changes the due.
+   */
+  const retireOutdatedSessions = async (rawOrderId: number | string): Promise<void> => {
+    const orderId = Number(rawOrderId);
+    if (!Number.isSafeInteger(orderId) || orderId <= 0) return;
+    if (!(await sessionsOf(orderId, 'OPEN')).length) return;
+    const rt = await settings().getRuntime('stripe');
+    if (!rt || !rt.active || !str(rt, 'secretKey')) return;
+    const client = createStripeClient(rt);
+    // Every session is tried at most once: a failed one (or one Stripe leaves open) is not retried.
+    const tried = new Set<number>();
+    for (;;) {
+      const open = (await sessionsOf(orderId, 'OPEN')).filter((s) => !tried.has(s.id));
+      if (!open.length) return;
+      const { due } = (await orders().computeOrderState(orderId)).summary;
+      const row = open.find((s) => num(s.amount) !== due);
+      if (!row) return;
+      tried.add(row.id);
+      try {
+        await retire(client, orderId, row);
+      } catch (err) {
+        const name = err instanceof Error ? err.name : typeof err;
+        strapi.log?.error(
+          `[ecommerce] could not retire an outdated Stripe session of order ${orderId}: ${name}`
+        );
+      }
+    }
+  };
+
+  /**
    * True when a Checkout Session of the order is COMPLETE and its STRIPE payment still PENDING:
    * an asynchronous method (e.g. Multibanco) awaiting confirmation. The order view does not
    * carry session states, so the storefront status reads it here.
@@ -615,8 +651,45 @@ const EcommerceStripePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
     getOrCreatePaymentLink,
     completeFromSession,
     expireOpenSessions,
+    retireOutdatedSessions,
     hasPendingCompletedStripeSession,
   };
 };
+
+/** Domain events after which the amount due may have changed (cancellation is handled apart). */
+export const DUE_CHANGING_EVENTS: DomainEventType[] = [
+  'PAYMENT_COMPLETED',
+  'ORDER_MODIFIED',
+  'REFUND_COMPLETED',
+  'REFUND_FAILED',
+  'RETURN_REGISTERED',
+];
+
+/**
+ * Subscribes the retirement of outdated payment links to the domain events that change the
+ * amount due (from `bootstrap`). Runs after the commit; never throws: a failure is logged with
+ * the order id and the error name only and never undoes the operation. Retiring emits no event
+ * of its own; settling a session Stripe reports paid emits PAYMENT_COMPLETED, which re-enters
+ * here and only sees the sessions still OPEN.
+ */
+export function subscribeStripeSessionRetirement(strapi: Core.Strapi): void {
+  const handler: DomainEventHandler = async (event) => {
+    const orderId = event.orderId;
+    if (orderId === undefined || orderId === null) return;
+    try {
+      await strapi
+        .plugin(PLUGIN_ID)
+        .service('EcommerceStripePaymentService')
+        .retireOutdatedSessions(orderId);
+    } catch (err) {
+      const name = err instanceof Error ? err.name : typeof err;
+      strapi.log?.error?.(
+        `[ecommerce] could not retire the outdated Stripe sessions of order ${orderId}: ${name}`
+      );
+    }
+  };
+  const bus = strapi.plugin(PLUGIN_ID).service('EcommerceEventBus');
+  for (const type of DUE_CHANGING_EVENTS) bus.subscribe(type, handler);
+}
 
 export default EcommerceStripePaymentService;
