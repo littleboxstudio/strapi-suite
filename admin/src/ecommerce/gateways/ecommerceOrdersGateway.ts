@@ -23,6 +23,7 @@ import type {
   DeliveryInput,
   InvoicePreview,
   InvoiceScopeInput,
+  InvoiceSelectionView,
   InvoiceView,
   IssueInvoiceInput,
   IssueStoreCreditInput,
@@ -144,6 +145,7 @@ export default interface EcommerceOrdersGateway {
   registerReturn(orderId: number, input: RegisterReturnInput): Promise<ReturnRegistered>;
 
   // Invoices and credit notes (read: orders.read; write: invoicing.manage)
+  fetchInvoiceSelection(orderId: number): Promise<InvoiceSelectionView>;
   fetchInvoicePreview(orderId: number, scope: InvoiceScopeInput): Promise<InvoicePreview>;
   issueInvoice(orderId: number, input: IssueInvoiceInput): Promise<InvoiceView>;
   /** Looks the document up at the provider by its reference, or (`markFailed`) gives it up. */
@@ -411,6 +413,10 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
 
   async registerReturn(orderId: number, input: RegisterReturnInput): Promise<ReturnRegistered> {
     return this.httpClient.post(`${this.orders}/${orderId}/returns`, input);
+  }
+
+  async fetchInvoiceSelection(orderId: number): Promise<InvoiceSelectionView> {
+    return this.httpClient.get(`${this.orders}/${orderId}/invoice-selection`);
   }
 
   async fetchInvoicePreview(orderId: number, scope: InvoiceScopeInput): Promise<InvoicePreview> {

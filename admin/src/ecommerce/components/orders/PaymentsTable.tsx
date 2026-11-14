@@ -1,13 +1,11 @@
 import { useIntl } from 'react-intl';
-import { Badge, Box, Button, Flex, Table, Tbody, Td, Th, Thead, Tr, Typography } from '@strapi/design-system';
+import { Badge, Box, Table, Tbody, Td, Th, Thead, Tr, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { formatCents } from '../../utils/money';
-import { invoiceStatusTone } from '../../utils/invoiceForm';
-import { paymentRowHasActions } from '../../utils/orderDetail';
 import type { OrderPayment } from '../../orderTypes';
 import ColumnLabel from '../ColumnLabel';
 
-const COLUMNS = ['method', 'amount', 'reference', 'status', 'date', 'actions'] as const;
+const COLUMNS = ['method', 'amount', 'reference', 'status', 'date'] as const;
 
 const STATUS_VARIANT: Record<string, 'warning' | 'success' | 'neutral' | 'danger'> = {
   PENDING: 'warning',
@@ -16,17 +14,10 @@ const STATUS_VARIANT: Record<string, 'warning' | 'success' | 'neutral' | 'danger
   FAILED: 'danger',
 };
 
-type Props = {
-  payments: OrderPayment[];
-  /** `invoicing.manage`: "Generate invoice" on payments with something left to invoice. */
-  canInvoice?: boolean;
-  /** No active billing provider: the button stays disabled (the invoices section says why). */
-  billingActive?: boolean;
-  onInvoice?: (paymentId: number) => void;
-};
+type Props = { payments: OrderPayment[] };
 
-/** The order's individual payments (requirement 7.2), with their invoice. */
-const PaymentsTable = ({ payments, canInvoice = false, billingActive = false, onInvoice }: Props) => {
+/** The order's individual payments (requirement 7.2). */
+const PaymentsTable = ({ payments }: Props) => {
   const { formatMessage, formatDate, locale: uiLocale } = useIntl();
   const t = (id: string, defaultMessage?: string) =>
     formatMessage({ id: getTranslation(id), defaultMessage });
@@ -41,16 +32,11 @@ const PaymentsTable = ({ payments, canInvoice = false, billingActive = false, on
     );
   }
 
-  const canGenerate = canInvoice && !!onInvoice;
-  // No row has anything in Actions: the column goes away.
-  const showActions = payments.some((p) => paymentRowHasActions(p, canGenerate));
-  const columns = showActions ? COLUMNS : COLUMNS.filter((c) => c !== 'actions');
-
   return (
-    <Table colCount={columns.length} rowCount={payments.length + 1}>
+    <Table colCount={COLUMNS.length} rowCount={payments.length + 1}>
       <Thead>
         <Tr>
-          {columns.map((column) => (
+          {COLUMNS.map((column) => (
             <Th key={column}>
               <ColumnLabel column={column}>{t(`ecommerce.orders.detail.payments.${column}`)}</ColumnLabel>
             </Th>
@@ -85,22 +71,6 @@ const PaymentsTable = ({ payments, canInvoice = false, billingActive = false, on
                   {date ? formatDate(date, { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
                 </Typography>
               </Td>
-              {showActions && (
-              <Td>
-                <Flex gap={2} justifyContent="flex-end" alignItems="center" wrap="wrap">
-                  {p.invoice?.status && (
-                    <Badge variant={invoiceStatusTone(p.invoice.status)} size="S">
-                      {t(`ecommerce.orders.detail.payments.invoice.${p.invoice.status}`, p.invoice.status)}
-                    </Badge>
-                  )}
-                  {canInvoice && onInvoice && (p.invoice?.invoiceable ?? 0) > 0 && (
-                    <Button size="S" variant="secondary" disabled={!billingActive} onClick={() => onInvoice(p.id)}>
-                      {t('ecommerce.orders.invoices.generate')}
-                    </Button>
-                  )}
-                </Flex>
-              </Td>
-              )}
             </Tr>
           );
         })}

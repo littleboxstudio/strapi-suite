@@ -14,7 +14,6 @@ import ArchiveOrder from '../../usecases/orders/archiveOrder';
 import { useOrderPermissions } from '../../hooks/useOrderPermissions';
 import { usePaymentPermissions } from '../../hooks/usePaymentPermissions';
 import { useInvoicingPermissions } from '../../hooks/useInvoicingPermissions';
-import { hasUninvoicedPayments } from '../../utils/invoiceForm';
 import {
   allowedToolbarActions,
   apiErrorMessageId,
@@ -269,12 +268,7 @@ const OrderDetailPage = () => {
         }
       >
         <PaymentsOverview totals={order.totals} summary={order.summary} />
-        <PaymentsTable
-          payments={order.payments}
-          canInvoice={canInvoice}
-          billingActive={order.billing.active}
-          onInvoice={(paymentId) => setInvoiceScope({ scope: 'PAYMENT', paymentId })}
-        />
+        <PaymentsTable payments={order.payments} />
       </OrderSection>
 
       <OrderSection
@@ -422,7 +416,7 @@ const OrderDetailPage = () => {
         text={
           <Flex direction="column" gap={3}>
             <Typography>{t('ecommerce.orders.detail.archive.text', { reference: order.reference })}</Typography>
-            {hasUninvoicedPayments(order.payments) && (
+            {order.invoicing.hasUninvoicedPayments && (
               <Box padding={3} background="warning100" hasRadius>
                 <Typography variant="omega" textColor="warning700">
                   {t('ecommerce.orders.detail.archive.uninvoiced')}

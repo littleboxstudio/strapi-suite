@@ -4,7 +4,6 @@ import {
   buildCreditNoteInput,
   creditNoteTotal,
   emptyCreditNoteForm,
-  hasUninvoicedPayments,
   invoiceActions,
   invoiceHasDetails,
   isDetailAction,
@@ -165,13 +164,6 @@ describe('invoiceActions', () => {
       'MARK_FAILED',
     ]);
     expect(invoiceActions({ ...invoice, status: 'FAILED' }, true)).toEqual([]);
-  });
-});
-
-describe('hasUninvoicedPayments', () => {
-  it('is true when a payment still has an invoiceable amount', () => {
-    expect(hasUninvoicedPayments([{ invoice: { invoiceable: 0 } }, { invoice: { invoiceable: 100 } }])).toBe(true);
-    expect(hasUninvoicedPayments([{ invoice: { invoiceable: 0 } }, {}])).toBe(false);
   });
 });
 

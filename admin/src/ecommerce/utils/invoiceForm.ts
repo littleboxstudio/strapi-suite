@@ -125,11 +125,6 @@ export function invoiceHasDetails(
   );
 }
 
-/** Some payment still has an amount to invoice (archiving does not require it). */
-export function hasUninvoicedPayments(payments: { invoice?: { invoiceable: number } | null }[]): boolean {
-  return payments.some((p) => (p.invoice?.invoiceable ?? 0) > 0);
-}
-
 /** `error` values the server stores on a FAILED invoice that are not API error codes. */
 const FAILURE_CODES = ['MARKED_FAILED', 'NOT_FOUND_AT_PROVIDER'];
 

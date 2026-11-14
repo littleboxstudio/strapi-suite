@@ -440,7 +440,7 @@ const ACTION_PERMISSION: { action: OrderActionKey; needs: 'canManage' | 'canPay'
 ];
 
 export type OrderActionPermissions = { canManage: boolean; canPay: boolean; canRefund: boolean };
-/** Toolbar actions. INVOICE_TOTAL is a button of the invoices section, not of the toolbar. */
+/** Toolbar actions. ISSUE_INVOICE is a button of the invoices section, not of the toolbar. */
 export type ToolbarAction =
   | 'SHIP'
   | 'ADD_PAYMENT'
@@ -565,7 +565,12 @@ export const API_ERROR_CODES = [
   'BILLING_EXEMPTION_REASON_MISSING',
   'INVOICE_PDF_UNAVAILABLE',
   'PAYMENT_NOT_INVOICEABLE',
-  'NOTHING_TO_INVOICE',
+  'INVOICE_EXCESS_UNRESOLVED',
+  'INVOICE_TOTALS_DIFFER',
+  'QUANTITY_EXCEEDS_UNINVOICED',
+  'SHIPPING_LINE_NOT_INVOICEABLE',
+  'QUANTITY_EXCEEDS_CREDITABLE',
+  'SHIPPING_NOT_CREDITABLE',
   'exceeds_creditable',
   'coverage_mismatch',
   // Promotions on orders (plan 6)
@@ -657,10 +662,4 @@ export function notificationErrorParts(error: string | null): { code: string; de
  */
 export function paymentLinkOutdated(summary: Pick<FinancialSummary, 'pendingPayments' | 'due'>): boolean {
   return summary.pendingPayments > 0 && summary.pendingPayments !== summary.due;
-}
-
-/** A payment row shows something in its Actions column: its invoice badge or "Generate invoice". */
-export function paymentRowHasActions(payment: Pick<OrderPayment, 'invoice'>, canGenerate: boolean): boolean {
-  if (payment.invoice?.status) return true;
-  return canGenerate && (payment.invoice?.invoiceable ?? 0) > 0;
 }

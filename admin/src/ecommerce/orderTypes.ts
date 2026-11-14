@@ -111,7 +111,7 @@ export type OrderActionKey =
   | 'SEND_PAYMENT_INSTRUCTIONS'
   | 'ARCHIVE'
   | 'REGISTER_RETURN'
-  | 'INVOICE_TOTAL';
+  | 'ISSUE_INVOICE';
 
 export type OrderLine = {
   id: number;
@@ -156,18 +156,10 @@ export type OrderPayment = {
   completedAt: string | null;
   actor: string | null;
   createdAt: string;
-  /** Its active invoice, and what is still left to invoice (0 when the order is not OPEN). */
-  invoice?: PaymentInvoiceInfo;
 };
 
 export type InvoiceStatus = 'PENDING' | 'ISSUED' | 'FAILED' | 'UNCERTAIN';
 export type InvoiceKind = 'INVOICE' | 'CREDIT_NOTE';
-
-export type PaymentInvoiceInfo = {
-  invoiceable: number;
-  invoiceId: number | null;
-  status: InvoiceStatus | null;
-};
 
 export type InvoiceLine = {
   orderLineId: number | null;
@@ -179,6 +171,8 @@ export type InvoiceLine = {
   total: number;
   /** VAT rate (%). */
   tax: number;
+  /** The order's shipping line a SHIPPING line invoices (absent on legacy documents). */
+  shippingLineId?: number | null;
   /** Only part of the line's value is covered by this document. */
   partial: boolean;
 };
@@ -215,6 +209,42 @@ export type InvoiceScopeInput = { scope: 'PAYMENT'; paymentId: number } | { scop
 export type InvoicePreview = { lines: InvoiceLine[]; total: number; paymentIds: number[] };
 
 export type IssueInvoiceInput = InvoiceScopeInput & { idempotencyKey: string };
+
+/** What a new invoice can still take: empty lists when the order is not OPEN. */
+export type InvoiceSelectionView = {
+  /** Order lines with units left to invoice. */
+  lines: {
+    orderLineId: number;
+    sku: string;
+    name: string;
+    option: string | null;
+    tax: number;
+    isGift: boolean;
+    remainingQuantity: number;
+    remainingValue: number;
+  }[];
+  /** Available shipping lines (positive, not invoiced). */
+  shipping: {
+    shippingLineId: number;
+    name: string;
+    tax: number;
+    origin: ShippingLineOrigin;
+    createdAt: string;
+    value: number;
+  }[];
+  /** Available payments, in settlement order: `net` = amount − refunded. */
+  payments: { paymentId: number; amount: number; refunded: number; net: number }[];
+  /** Excess to refund before invoicing. */
+  excess: number;
+};
+
+export type IssueInvoiceSelectionInput = {
+  lines: { orderLineId: number; quantity: number }[];
+  shippingLineIds: number[];
+  paymentIds: number[];
+  expectedTotal: number;
+  idempotencyKey: string;
+};
 
 export type CreditNotePreview = {
   lines: InvoiceLine[];
@@ -299,6 +329,8 @@ export type Order = {
   /** Invoices and credit notes, oldest first. */
   invoices: InvoiceView[];
   billing: OrderBilling;
+  /** Some payment is available to invoice (the archive warning). */
+  invoicing: { hasUninvoicedPayments: boolean };
   /** Oldest first. */
   shipments: ShipmentView[];
   /** Oldest first. */
