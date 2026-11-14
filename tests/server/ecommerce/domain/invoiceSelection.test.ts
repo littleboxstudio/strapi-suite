@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  invoicingPosition,
+  invoicingPosition as computePosition,
   paymentNets,
   priceSelection,
   fitsPosition,
@@ -105,6 +105,29 @@ const creditNote = (
   ...over,
 });
 
+const total = (values: number[]) => values.reduce((s, v) => s + v, 0);
+
+/**
+ * The position, checked against the invariant Σ invoiced + Σ remainingValue + stranded = order
+ * total whenever it is checkable (no pool invoiced above its due).
+ */
+const invoicingPosition = (order: PositionOrder, docs: InvoiceDoc[]): InvoicingPosition => {
+  const p = computePosition(order, docs);
+  expect(p.stranded.products).toBeGreaterThanOrEqual(0);
+  expect(p.stranded.shipping).toBeGreaterThanOrEqual(0);
+  if (p.products.invoiced <= p.products.due && p.shippingPool.invoiced <= p.shippingPool.due) {
+    expect(
+      p.products.invoiced +
+        p.shippingPool.invoiced +
+        total(p.lines.map((l) => l.remainingValue)) +
+        total(p.shipping.map((s) => s.remainingValue)) +
+        p.stranded.products +
+        p.stranded.shipping
+    ).toBe(p.products.due + p.shippingPool.due);
+  }
+  return p;
+};
+
 const lineOf = (p: InvoicingPosition, id: number) => p.lines.find((l) => l.orderLineId === id)!;
 const shipOf = (p: InvoicingPosition, id: number) =>
   p.shipping.find((s) => s.shippingLineId === id)!;
@@ -138,6 +161,7 @@ describe('invoicingPosition', () => {
       { shippingLineId: 1, amount: 500, invoiced: false, available: true, remainingValue: 500 },
     ]);
     expect(p.annulledInvoiceIds).toEqual([]);
+    expect(p.stranded).toEqual({ products: 0, shipping: 0 });
   });
 
   it('an ISSUED invoice consumes its units, value and shipping lines', () => {
@@ -161,6 +185,7 @@ describe('invoicingPosition', () => {
       remainingValue: 0,
     });
     expect(p.shippingPool).toEqual({ due: 500, invoiced: 500, remaining: 0 });
+    expect(p.stranded).toEqual({ products: 0, shipping: 0 });
   });
 
   it('an UNCERTAIN or PENDING invoice counts like an ISSUED one; a FAILED one is ignored', () => {
@@ -314,6 +339,29 @@ describe('invoicingPosition', () => {
     expect(p.products).toEqual({ due: 1000, invoiced: 500, remaining: 500 });
     expect(lineOf(p, A)).toMatchObject({ remainingQuantity: 0, remainingValue: 0 });
     expect(lineOf(p, G)).toMatchObject({ remainingQuantity: 1, remainingValue: 500 });
+  });
+
+  it('product value with no units left to carry it is stranded, never put on a line', () => {
+    const lines = [
+      { id: A, unitPrice: 1000, unitDiscount: 0, quantity: 1, returnedQuantity: 0, tax: 23 },
+    ];
+    const docs = [invoice(100, [item(A, 1, 500), ship(500, 1)])];
+    const p = invoicingPosition(baseOrder({ lines, orderDiscount: 0 }), docs);
+    expect(p.products).toEqual({ due: 1000, invoiced: 500, remaining: 500 });
+    expect(p.stranded).toEqual({ products: 500, shipping: 0 });
+    expect(total(p.lines.map((l) => l.remainingValue))).toBe(0);
+    expect(p.lines.filter((l) => l.remainingQuantity > 0)).toEqual([]);
+    expect(p.shipping.filter((s) => s.available)).toEqual([]);
+  });
+
+  it('shipping credited by a RETURN stays invoiced; its value is stranded', () => {
+    const cn = creditNote(200, 100, 'RETURN', [ship(500, 1)], {
+      creditedLines: [{ index: 1, value: 500, quantity: 0 }],
+    });
+    const p = invoicingPosition(baseOrder(), [firstInvoice(), cn]);
+    expect(shipOf(p, 1)).toMatchObject({ invoiced: true, available: false, remainingValue: 0 });
+    expect(p.shippingPool).toEqual({ due: 500, invoiced: 0, remaining: 500 });
+    expect(p.stranded).toEqual({ products: 0, shipping: 500 });
   });
 
   it('invoiced parts stay fixed when the order discount changes (Review Focus 3)', () => {
