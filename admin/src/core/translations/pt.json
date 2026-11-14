@@ -728,7 +728,7 @@
   "littlebox-strapi-suite.ecommerce.orders.modify.lines.removed": "Removido",
   "littlebox-strapi-suite.ecommerce.orders.modify.lines.restore": "Repor",
   "littlebox-strapi-suite.ecommerce.orders.modify.lines.cannotRemove": "Não é possível remover produtos já enviados",
-  "littlebox-strapi-suite.ecommerce.orders.products.add": "Adicionar produtos",
+  "littlebox-strapi-suite.ecommerce.orders.products.edit": "Editar produtos",
   "littlebox-strapi-suite.ecommerce.orders.products.title": "Produtos da encomenda #{reference}",
   "littlebox-strapi-suite.ecommerce.orders.products.save": "Guardar",
   "littlebox-strapi-suite.ecommerce.orders.products.confirm.title": "Guardar as alterações aos produtos?",
