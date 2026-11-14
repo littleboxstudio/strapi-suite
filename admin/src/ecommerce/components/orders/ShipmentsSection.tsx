@@ -249,16 +249,15 @@ const ShipmentsSection = ({
     return null;
   };
 
+  /** The order's delivery status, next to the section title. */
+  const deliveryBadge = (
+    <Badge variant={ORDER_DELIVERY_VARIANT[deliveryStatus] ?? 'neutral'} size="S">
+      {t(`ecommerce.orders.shipments.orderDelivery.${deliveryStatus}`, undefined, deliveryStatus)}
+    </Badge>
+  );
+
   const header = (
     <Flex gap={4} alignItems="center">
-      <Flex gap={2} alignItems="center">
-        <Typography variant="pi" textColor="neutral600">
-          {t('ecommerce.orders.shipments.deliveryStatus')}
-        </Typography>
-        <Badge variant={ORDER_DELIVERY_VARIANT[deliveryStatus] ?? 'neutral'} size="S">
-          {t(`ecommerce.orders.shipments.orderDelivery.${deliveryStatus}`, undefined, deliveryStatus)}
-        </Badge>
-      </Flex>
       <ShippingAddressModal order={order} canManage={canManage} onSaved={onEdited} />
       {sectionActions.map((action) => (
         <Button key={action} size="S" variant="secondary" disabled={actionBusy} onClick={() => onAction(action)}>
@@ -279,7 +278,7 @@ const ShipmentsSection = ({
   );
 
   return (
-    <OrderSection id={id} title={title} actions={header}>
+    <OrderSection id={id} title={title} titleAside={deliveryBadge} actions={header}>
       <Typography variant="sigma" textColor="neutral700" tag="h3">
         {t('ecommerce.orders.shippingCharges.title')}
       </Typography>

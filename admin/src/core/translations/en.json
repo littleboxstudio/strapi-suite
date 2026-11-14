@@ -1236,7 +1236,6 @@
   "littlebox-strapi-suite.ecommerce.orders.ship.success": "Shipment created.",
   "littlebox-strapi-suite.ecommerce.orders.ship.error": "Could not create the shipment.",
   "littlebox-strapi-suite.ecommerce.orders.ship.uncertain": "The carrier did not confirm the shipment. Its units stay reserved: use \"Retry\" in Shipments to check with the carrier.",
-  "littlebox-strapi-suite.ecommerce.orders.shipments.deliveryStatus": "Delivery",
   "littlebox-strapi-suite.ecommerce.orders.shipments.orderDelivery.NONE": "Not shipped",
   "littlebox-strapi-suite.ecommerce.orders.shipments.orderDelivery.IN_TRANSIT": "In transit",
   "littlebox-strapi-suite.ecommerce.orders.shipments.orderDelivery.PARTIALLY_DELIVERED": "Partially delivered",

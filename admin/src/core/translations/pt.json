@@ -1020,7 +1020,6 @@
   "littlebox-strapi-suite.ecommerce.orders.ship.success": "Expedição criada.",
   "littlebox-strapi-suite.ecommerce.orders.ship.error": "Não foi possível criar a expedição.",
   "littlebox-strapi-suite.ecommerce.orders.ship.uncertain": "A transportadora não confirmou a expedição. As unidades ficam reservadas: use \"Tentar de novo\" nas Expedições para confirmar junto da transportadora.",
-  "littlebox-strapi-suite.ecommerce.orders.shipments.deliveryStatus": "Entrega",
   "littlebox-strapi-suite.ecommerce.orders.shipments.orderDelivery.NONE": "Por enviar",
   "littlebox-strapi-suite.ecommerce.orders.shipments.orderDelivery.IN_TRANSIT": "Em trânsito",
   "littlebox-strapi-suite.ecommerce.orders.shipments.orderDelivery.PARTIALLY_DELIVERED": "Parcialmente entregue",
