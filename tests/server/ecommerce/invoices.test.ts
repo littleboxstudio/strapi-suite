@@ -238,6 +238,7 @@ describe('EcommerceInvoiceService.selection', () => {
       ],
       payments: [{ paymentId, amount: 4500, refunded: 0, net: 4500 }],
       excess: 0,
+      stranded: { products: 0, shipping: 0 },
     });
   });
 
@@ -245,7 +246,12 @@ describe('EcommerceInvoiceService.selection', () => {
     const { c, inv } = setup();
     const id = await order(c);
     await c.orders.cancel(id, 'user:1');
-    expect(await inv.selection(id)).toMatchObject({ lines: [], shipping: [], payments: [] });
+    expect(await inv.selection(id)).toMatchObject({
+      lines: [],
+      shipping: [],
+      payments: [],
+      stranded: { products: 0, shipping: 0 },
+    });
   });
 });
 
@@ -1091,7 +1097,8 @@ describe('EcommerceInvoiceService credit notes', () => {
       expect.objectContaining({ kind: 'ITEM', quantity: 1, total: 2000 }),
       expect.objectContaining({ kind: 'SHIPPING', quantity: 1, total: 500, shippingLineId: 1 }),
     ]);
-    expect((await inv.selection(id)).shipping).toEqual([]);
+    // Its value has no line left to carry it: stranded, shown by the modal, never selectable.
+    expect(await inv.selection(id)).toMatchObject({ shipping: [], stranded: { products: 0, shipping: 500 } });
     expect((await inv.creditNotePreview(view.id)).shipping).toEqual([]);
     const order1 = await c.orders.get(id);
     expect(order1.shippingLines.find((l: any) => l.id === 1).invoiced).toBe(true);

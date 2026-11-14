@@ -1,6 +1,6 @@
 import Registry from '../../../core/di/registry';
 import EcommerceOrdersGateway from '../../gateways/ecommerceOrdersGateway';
-import type { InvoiceView, IssueInvoiceInput } from '../../orderTypes';
+import type { InvoiceView, IssueInvoiceSelectionInput } from '../../orderTypes';
 
 export default class IssueInvoice {
   gateway: EcommerceOrdersGateway;
@@ -9,7 +9,7 @@ export default class IssueInvoice {
     this.gateway = Registry.getInstance().inject('ecommerceOrdersGateway');
   }
 
-  async execute(orderId: number, input: IssueInvoiceInput): Promise<InvoiceView> {
+  async execute(orderId: number, input: IssueInvoiceSelectionInput): Promise<InvoiceView> {
     return this.gateway.issueInvoice(orderId, input);
   }
 }

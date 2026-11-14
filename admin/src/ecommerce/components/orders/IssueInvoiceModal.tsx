@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import {
   Badge,
   Box,
   Button,
+  Checkbox,
+  Field,
   Flex,
   Loader,
   Modal,
@@ -15,41 +17,71 @@ import {
   Thead,
   Tr,
   Typography,
+  VisuallyHidden,
 } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
-import FetchInvoicePreview from '../../usecases/orders/fetchInvoicePreview';
+import FetchInvoiceSelection from '../../usecases/orders/fetchInvoiceSelection';
 import IssueInvoice from '../../usecases/orders/issueInvoice';
 import { formatCents } from '../../utils/money';
 import { apiErrorDetail, apiErrorMessageId, shouldRenewIdempotencyKey } from '../../utils/orderDetail';
 import { invoiceFailureMessageId, isFailedReplay, isUncertainResult, issuedWarnings } from '../../utils/invoiceForm';
+import {
+  buildIssueInvoiceInput,
+  defaultInvoiceSelectionForm,
+  invoiceSelectionTotals,
+  selectedValue,
+  selectionPayments,
+  strandedValue,
+  unitValue,
+  validateInvoiceSelection,
+  type InvoiceSelectionForm,
+} from '../../utils/invoiceSelection';
 import InvoiceErrorModal from './InvoiceErrorModal';
+import EmptyNote from './EmptyNote';
+import QuantityInput from './QuantityInput';
+import { FIT_CELL, PRODUCT_CELL } from './lineCells';
+import ColumnLabel from '../ColumnLabel';
 import { mintUuid } from '../../utils/variantDraft';
-import type { InvoicePreview, InvoiceScopeInput } from '../../orderTypes';
+import type { InvoiceSelectionView, OrderPayment } from '../../orderTypes';
 
 type Props = {
   orderId: number;
-  /** One payment, or every payment with something left to invoice. */
-  scope: InvoiceScopeInput;
+  /** The order's payments: the method and date of each selectable payment. */
+  payments: OrderPayment[];
+  /** `payments.refund`: the excess box offers Refund. */
+  canRefund: boolean;
   onClose: () => void;
   /** After a document was recorded (issued or uncertain): the order is fetched again. */
   onIssued: () => void;
+  /** Refund the excess first: the page swaps this modal for the refund one. */
+  onRefund: () => void;
 };
 
-const COLUMNS = ['name', 'quantity', 'total', 'tax'] as const;
+const PRODUCT_COLUMNS = ['product', 'unitValue', 'remaining', 'quantity', 'value'] as const;
+const SHIPPING_COLUMNS = ['select', 'name', 'date', 'value'] as const;
+const PAYMENT_COLUMNS = ['select', 'method', 'date', 'paid', 'refunded', 'net'] as const;
+
+const toggle = (ids: number[], id: number, on: boolean) =>
+  on ? (ids.includes(id) ? ids : [...ids, id]) : ids.filter((x) => x !== id);
 
 /**
- * Previews and issues the invoice of one payment or of the whole order (design 4.4).
- * Mount it only while open: each opening mints a new idempotency key.
+ * Issues an invoice from a selection of products, shipping lines and payments: it can be issued
+ * when the selected total equals the ticked payments' net. Mount it only while open: each opening
+ * mints a new idempotency key.
  */
-const IssueInvoiceModal = ({ orderId, scope, onClose, onIssued }: Props) => {
-  const { formatMessage, locale: uiLocale } = useIntl();
+const IssueInvoiceModal = ({ orderId, payments, canRefund, onClose, onIssued, onRefund }: Props) => {
+  const { formatMessage, formatDate, locale: uiLocale } = useIntl();
   const { toggleNotification } = useNotification();
-  const t = (id: string, values?: Record<string, any>) => formatMessage({ id: getTranslation(id) }, values);
+  const t = (id: string, values?: Record<string, any>, defaultMessage?: string) =>
+    formatMessage({ id: getTranslation(id), defaultMessage }, values);
+  const p = 'ecommerce.orders.invoices.issue';
   const money = (cents: number) => formatCents(cents, uiLocale);
+  const date = (iso: string | null) => (iso ? formatDate(iso, { dateStyle: 'medium', timeStyle: 'short' }) : '—');
 
   // One key per opening: after an attempt the modal can only be closed, so there is no second one.
   const [idempotencyKey] = useState(() => mintUuid());
-  const [preview, setPreview] = useState<InvoicePreview | null>(null);
+  const [selection, setSelection] = useState<InvoiceSelectionView | null>(null);
+  const [form, setForm] = useState<InvoiceSelectionForm | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** The billing provider's message of a refusal (what it rejected and why). */
@@ -62,27 +94,40 @@ const IssueInvoiceModal = ({ orderId, scope, onClose, onIssued }: Props) => {
 
   useEffect(() => {
     let alive = true;
-    new FetchInvoicePreview()
-      .execute(orderId, scope)
-      .then((p) => alive && setPreview(p))
-      .catch((err) => alive && setLoadError(t(apiErrorMessageId(err, 'ecommerce.orders.invoices.issue.previewError'))));
+    new FetchInvoiceSelection()
+      .execute(orderId)
+      .then((view) => {
+        if (!alive) return;
+        setSelection(view);
+        setForm(defaultInvoiceSelectionForm(view));
+      })
+      .catch((err) => alive && setLoadError(t(apiErrorMessageId(err, `${p}.previewError`))));
     return () => {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderId, scope.scope, scope.scope === 'PAYMENT' ? scope.paymentId : null]);
+  }, [orderId]);
 
   const failureText = (code: string | null) => {
     const id = code ? invoiceFailureMessageId(code) : null;
-    return t(id ?? 'ecommerce.orders.invoices.issue.error');
+    return t(id ?? `${p}.error`);
   };
 
+  const totals = selection && form ? invoiceSelectionTotals(selection, form) : null;
+  const errors = selection && form ? validateInvoiceSelection(selection, form) : {};
+  /** An attempt was made and did not end in an issued invoice: only Close remains. */
+  const attempted = uncertain || error !== null;
+  const locked = saving || attempted;
+
   const submit = async () => {
-    if (saving || !preview) return;
+    if (saving || attempted || !selection || !form || !totals?.canIssue) return;
     setSaving(true);
     setError(null);
     try {
-      const invoice = await new IssueInvoice().execute(orderId, { ...scope, idempotencyKey });
+      const invoice = await new IssueInvoice().execute(
+        orderId,
+        buildIssueInvoiceInput(selection, form, idempotencyKey)
+      );
       if (isFailedReplay(invoice)) {
         // The provider refused it: say why; the attempt is in the invoices list.
         setError(failureText(invoice.error));
@@ -99,26 +144,23 @@ const IssueInvoiceModal = ({ orderId, scope, onClose, onIssued }: Props) => {
         warnings.length
           ? {
               type: 'warning',
-              message: t('ecommerce.orders.invoices.issue.warnings', {
+              message: t(`${p}.warnings`, {
                 warnings: warnings.map((w) => t(`ecommerce.orders.invoices.warnings.${w}`)).join(' '),
               }),
             }
-          : { type: 'success', message: t('ecommerce.orders.invoices.issue.success') }
+          : { type: 'success', message: t(`${p}.success`) }
       );
       onIssued();
     } catch (err) {
       // A refusal records nothing: the error modal shows the provider's message, with only Close,
       // so the cause is fixed before another attempt.
-      setError(t(apiErrorMessageId(err, 'ecommerce.orders.invoices.issue.error')));
+      setError(t(apiErrorMessageId(err, `${p}.error`)));
       setErrorDetail(apiErrorDetail(err));
       setRefused(shouldRenewIdempotencyKey(err));
     } finally {
       setSaving(false);
     }
   };
-
-  /** An attempt was made and did not end in an issued invoice: only Close remains. */
-  const attempted = uncertain || error !== null;
 
   const close = () => {
     if (saving) return;
@@ -132,82 +174,238 @@ const IssueInvoiceModal = ({ orderId, scope, onClose, onIssued }: Props) => {
     return <InvoiceErrorModal message={error} detail={errorDetail} refused={refused} onClose={close} />;
   }
 
+  const heading = (columns: readonly string[]) => (
+    <Thead>
+      <Tr>
+        {columns.map((c) => (
+          <Th key={c}>
+            <ColumnLabel column={c}>{t(`${p}.columns.${c}`)}</ColumnLabel>
+          </Th>
+        ))}
+      </Tr>
+    </Thead>
+  );
+
+  const block = (title: string, content: ReactNode) => (
+    <Flex direction="column" alignItems="stretch" gap={2}>
+      <Typography variant="sigma" textColor="neutral600">
+        {title}
+      </Typography>
+      {content}
+    </Flex>
+  );
+
+  const body = (view: InvoiceSelectionView, values: InvoiceSelectionForm) => {
+    const paymentRows = selectionPayments(view, payments);
+    const stranded = strandedValue(view);
+    return (
+      <>
+        {view.excess > 0 && (
+          <Flex padding={3} background="warning100" hasRadius gap={3} justifyContent="space-between" alignItems="center">
+            <Typography variant="omega" textColor="warning700">
+              {t(`${p}.excess`, { amount: money(view.excess) })}
+            </Typography>
+            {canRefund && (
+              <Button size="S" variant="secondary" disabled={locked} onClick={onRefund}>
+                {t(`${p}.refund`)}
+              </Button>
+            )}
+          </Flex>
+        )}
+        {stranded > 0 && (
+          <Box padding={3} background="warning100" hasRadius>
+            <Typography variant="omega" textColor="warning700">
+              {t(`${p}.stranded`, { amount: money(stranded) })}
+            </Typography>
+          </Box>
+        )}
+
+        {block(
+          t(`${p}.products`),
+          view.lines.length === 0 ? (
+            <EmptyNote>{t(`${p}.noProducts`)}</EmptyNote>
+          ) : (
+            <Table colCount={PRODUCT_COLUMNS.length} rowCount={view.lines.length + 1}>
+              {heading(PRODUCT_COLUMNS)}
+              <Tbody>
+                {view.lines.map((line) => {
+                  const quantity = values.quantities[line.orderLineId] ?? 0;
+                  const fieldError = errors[`quantities.${line.orderLineId}`]
+                    ? t(`${p}.atMost`, { max: line.remainingQuantity })
+                    : undefined;
+                  const value = fieldError ? 0 : selectedValue(line.remainingValue, line.remainingQuantity, quantity);
+                  return (
+                    <Tr key={line.orderLineId}>
+                      <Td style={PRODUCT_CELL}>
+                        <Flex direction="column" alignItems="flex-start" gap={1}>
+                          <Typography textColor="neutral800" fontWeight="semiBold">
+                            {line.option ? `${line.name} — ${line.option}` : line.name}
+                          </Typography>
+                          <Typography variant="pi" textColor="neutral600">
+                            {line.sku}
+                          </Typography>
+                          {line.isGift && <Badge size="S">{t(`${p}.gift`)}</Badge>}
+                        </Flex>
+                      </Td>
+                      <Td style={FIT_CELL}>
+                        <Typography textColor="neutral800">{money(unitValue(line))}</Typography>
+                      </Td>
+                      <Td style={FIT_CELL}>
+                        <Typography textColor="neutral800">{line.remainingQuantity}</Typography>
+                      </Td>
+                      <Td style={FIT_CELL}>
+                        <Box style={{ width: 120 }}>
+                          <Field.Root name={`quantities.${line.orderLineId}`} error={fieldError}>
+                            <VisuallyHidden>
+                              <Field.Label>{t(`${p}.columns.quantity`)}</Field.Label>
+                            </VisuallyHidden>
+                            <QuantityInput
+                              value={quantity}
+                              disabled={locked}
+                              onChange={(q) =>
+                                setForm((f) => f && { ...f, quantities: { ...f.quantities, [line.orderLineId]: q } })
+                              }
+                            />
+                            <Field.Error />
+                          </Field.Root>
+                        </Box>
+                      </Td>
+                      <Td style={FIT_CELL}>
+                        <Typography textColor="neutral800">{money(value)}</Typography>
+                      </Td>
+                    </Tr>
+                  );
+                })}
+              </Tbody>
+            </Table>
+          )
+        )}
+
+        {block(
+          t(`${p}.shipping`),
+          view.shipping.length === 0 ? (
+            <EmptyNote>{t(`${p}.noShipping`)}</EmptyNote>
+          ) : (
+            <Table colCount={SHIPPING_COLUMNS.length} rowCount={view.shipping.length + 1}>
+              {heading(SHIPPING_COLUMNS)}
+              <Tbody>
+                {view.shipping.map((line) => (
+                  <Tr key={line.shippingLineId}>
+                    <Td style={FIT_CELL}>
+                      <Checkbox
+                        aria-label={line.name}
+                        disabled={locked}
+                        checked={values.shipping.includes(line.shippingLineId)}
+                        onCheckedChange={(checked: boolean | 'indeterminate') =>
+                          setForm((f) => f && { ...f, shipping: toggle(f.shipping, line.shippingLineId, checked === true) })
+                        }
+                      />
+                    </Td>
+                    <Td style={PRODUCT_CELL}>
+                      <Typography textColor="neutral800">{line.name}</Typography>
+                    </Td>
+                    <Td style={FIT_CELL}>
+                      <Typography textColor="neutral800">{date(line.createdAt)}</Typography>
+                    </Td>
+                    <Td style={FIT_CELL}>
+                      <Typography textColor="neutral800">{money(line.value)}</Typography>
+                    </Td>
+                  </Tr>
+                ))}
+              </Tbody>
+            </Table>
+          )
+        )}
+
+        {block(
+          t(`${p}.payments`),
+          paymentRows.length === 0 ? (
+            <EmptyNote>{t(`${p}.noPayments`)}</EmptyNote>
+          ) : (
+            <Table colCount={PAYMENT_COLUMNS.length} rowCount={paymentRows.length + 1}>
+              {heading(PAYMENT_COLUMNS)}
+              <Tbody>
+                {paymentRows.map((row) => {
+                  const method =
+                    row.methodLabel ||
+                    (row.method
+                      ? t(`ecommerce.orders.detail.payments.methods.${row.method}`, undefined, row.method)
+                      : `#${row.paymentId}`);
+                  return (
+                    <Tr key={row.paymentId}>
+                      <Td style={FIT_CELL}>
+                        <Checkbox
+                          aria-label={method}
+                          disabled={locked}
+                          checked={values.payments.includes(row.paymentId)}
+                          onCheckedChange={(checked: boolean | 'indeterminate') =>
+                            setForm((f) => f && { ...f, payments: toggle(f.payments, row.paymentId, checked === true) })
+                          }
+                        />
+                      </Td>
+                      <Td style={PRODUCT_CELL}>
+                        <Typography textColor="neutral800">{method}</Typography>
+                      </Td>
+                      <Td style={FIT_CELL}>
+                        <Typography textColor="neutral800">{date(row.date)}</Typography>
+                      </Td>
+                      <Td style={FIT_CELL}>
+                        <Typography textColor="neutral800">{money(row.amount)}</Typography>
+                      </Td>
+                      <Td style={FIT_CELL}>
+                        <Typography textColor="neutral800">{money(row.refunded)}</Typography>
+                      </Td>
+                      <Td style={FIT_CELL}>
+                        <Typography textColor="neutral800" fontWeight="semiBold">
+                          {money(row.net)}
+                        </Typography>
+                      </Td>
+                    </Tr>
+                  );
+                })}
+              </Tbody>
+            </Table>
+          )
+        )}
+
+        {totals && (
+          <Flex direction="column" alignItems="flex-end" gap={1}>
+            <Flex gap={2}>
+              <Typography>{t(`${p}.selectedTotal`)}</Typography>
+              <Typography fontWeight="bold">{money(totals.selected)}</Typography>
+            </Flex>
+            <Flex gap={2}>
+              <Typography>{t(`${p}.paymentsTotal`)}</Typography>
+              <Typography fontWeight="bold">{money(totals.payments)}</Typography>
+            </Flex>
+            {totals.difference !== 0 && (
+              <Typography textColor="danger600">{t(`${p}.difference`, { amount: money(totals.difference) })}</Typography>
+            )}
+          </Flex>
+        )}
+      </>
+    );
+  };
+
   return (
     <Modal.Root open onOpenChange={(next: boolean) => !next && close()}>
-      <Modal.Content style={{ maxWidth: 820, width: '100%' }}>
+      <Modal.Content style={{ maxWidth: 920, width: '100%' }}>
         <Modal.Header>
-          <Modal.Title>
-            {t(scope.scope === 'TOTAL' ? 'ecommerce.orders.invoices.issue.titleTotal' : 'ecommerce.orders.invoices.issue.title')}
-          </Modal.Title>
+          <Modal.Title>{t(`${p}.title`)}</Modal.Title>
         </Modal.Header>
         <Modal.Body>
-          <Flex direction="column" alignItems="stretch" gap={4}>
+          <Flex direction="column" alignItems="stretch" gap={5}>
             {loadError && <Typography textColor="danger600">{loadError}</Typography>}
-            {!loadError && !preview && (
+            {!loadError && !selection && (
               <Flex justifyContent="center" padding={6}>
                 <Loader small />
               </Flex>
             )}
-            {preview && (
-              <>
-                <Table colCount={COLUMNS.length} rowCount={preview.lines.length + 1}>
-                  <Thead>
-                    <Tr>
-                      {COLUMNS.map((c) => (
-                        <Th key={c}>
-                          <Typography variant="sigma">{t(`ecommerce.orders.invoices.lines.${c}`)}</Typography>
-                        </Th>
-                      ))}
-                    </Tr>
-                  </Thead>
-                  <Tbody>
-                    {preview.lines.map((line, i) => (
-                      <Tr key={i}>
-                        <Td style={{ maxWidth: 320 }}>
-                          <Flex gap={2} alignItems="center">
-                            <Typography textColor="neutral800" ellipsis>
-                              {line.kind === 'SHIPPING' ? t('ecommerce.orders.invoices.lines.shipping', { name: line.name }) : line.name}
-                            </Typography>
-                            {line.partial && (
-                              <Badge size="S" variant="secondary">
-                                {t('ecommerce.orders.invoices.lines.partial')}
-                              </Badge>
-                            )}
-                          </Flex>
-                          {line.sku && line.kind === 'ITEM' && (
-                            <Typography variant="pi" textColor="neutral600">
-                              {line.sku}
-                            </Typography>
-                          )}
-                        </Td>
-                        <Td>
-                          <Typography textColor="neutral800">{line.quantity}</Typography>
-                        </Td>
-                        <Td>
-                          <Typography textColor="neutral800">{money(line.total)}</Typography>
-                        </Td>
-                        <Td>
-                          <Typography textColor="neutral800">{line.tax}%</Typography>
-                        </Td>
-                      </Tr>
-                    ))}
-                  </Tbody>
-                </Table>
-                <Flex justifyContent="flex-end" gap={2}>
-                  <Typography fontWeight="bold">{t('ecommerce.orders.invoices.total')}</Typography>
-                  <Typography fontWeight="bold">{money(preview.total)}</Typography>
-                </Flex>
-                {preview.lines.some((l) => l.partial) && (
-                  <Typography variant="pi" textColor="neutral600">
-                    {t('ecommerce.orders.invoices.lines.partialHint')}
-                  </Typography>
-                )}
-              </>
-            )}
+            {selection && form && body(selection, form)}
             {uncertain && (
               <Box padding={3} background="warning100" hasRadius>
                 <Typography variant="omega" textColor="warning700">
-                  {t('ecommerce.orders.invoices.issue.uncertain')}
+                  {t(`${p}.uncertain`)}
                 </Typography>
               </Box>
             )}
@@ -218,8 +416,8 @@ const IssueInvoiceModal = ({ orderId, scope, onClose, onIssued }: Props) => {
             {t(attempted ? 'ecommerce.orders.invoices.close' : 'ecommerce.orders.invoices.back')}
           </Button>
           {!attempted && (
-            <Button onClick={submit} loading={saving} disabled={!preview || saving}>
-              {t('ecommerce.orders.invoices.issue.confirm')}
+            <Button onClick={submit} loading={saving} disabled={saving || !totals?.canIssue}>
+              {t(`${p}.confirm`)}
             </Button>
           )}
         </Modal.Footer>

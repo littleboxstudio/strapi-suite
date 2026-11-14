@@ -204,12 +204,6 @@ export type InvoiceView = {
 
 export type OrderBilling = { active: boolean; providerId: string | null };
 
-export type InvoiceScopeInput = { scope: 'PAYMENT'; paymentId: number } | { scope: 'TOTAL' };
-
-export type InvoicePreview = { lines: InvoiceLine[]; total: number; paymentIds: number[] };
-
-export type IssueInvoiceInput = InvoiceScopeInput & { idempotencyKey: string };
-
 /** What a new invoice can still take: empty lists when the order is not OPEN. */
 export type InvoiceSelectionView = {
   /** Order lines with units left to invoice. */
@@ -236,6 +230,8 @@ export type InvoiceSelectionView = {
   payments: { paymentId: number; amount: number; refunded: number; net: number }[];
   /** Excess to refund before invoicing. */
   excess: number;
+  /** Value no remaining unit or shipping line can carry (the order changed after it was invoiced). */
+  stranded: { products: number; shipping: number };
 };
 
 export type IssueInvoiceSelectionInput = {

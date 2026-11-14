@@ -24,7 +24,7 @@ import {
 } from '../../utils/orderDetail';
 import { canEdit } from '../../utils/orderEditing';
 import { initialOrderModalState, orderModalReducer } from '../../utils/orderModals';
-import type { EditResult, InvoiceScopeInput, Order } from '../../orderTypes';
+import type { EditResult, Order } from '../../orderTypes';
 import OrderHeader from '../../components/orders/OrderHeader';
 import ReviewAlerts from '../../components/orders/ReviewAlerts';
 import NoticeBar from '../../components/orders/NoticeBar';
@@ -73,8 +73,9 @@ const OrderDetailPage = () => {
   const [busy, setBusy] = useState(false);
   // Bumped on every order (re)load: refunds and notifications refetch with it.
   const [version, setVersion] = useState(0);
-  // The invoice being issued (one payment or the whole order); null when the modal is closed.
-  const [invoiceScope, setInvoiceScope] = useState<InvoiceScopeInput | null>(null);
+  // The Generate invoice modal; `invoiceKey` remounts it per opening (one idempotency key each).
+  const [invoiceOpen, setInvoiceOpen] = useState(false);
+  const [invoiceKey, setInvoiceKey] = useState(0);
   // The Add products modal; `productsKey` remounts it per opening (one operationId each).
   const [productsKey, setProductsKey] = useState<number | null>(null);
   const hasOrderRef = useRef(false);
@@ -131,7 +132,7 @@ const OrderDetailPage = () => {
     setOrder(null);
     setLoadError(false);
     dispatchModal({ type: 'RESET' });
-    setInvoiceScope(null);
+    setInvoiceOpen(false);
     setProductsKey(null);
     if (!Number.isInteger(orderId) || orderId < 1) {
       setLoadError(true);
@@ -292,7 +293,10 @@ const OrderDetailPage = () => {
         title={t('ecommerce.orders.detail.sections.invoices')}
         order={order}
         canInvoice={canInvoice}
-        onIssue={setInvoiceScope}
+        onIssue={() => {
+          setInvoiceKey((k) => k + 1);
+          setInvoiceOpen(true);
+        }}
         onChanged={load}
       />
       <ShipmentsSection
@@ -383,14 +387,21 @@ const OrderDetailPage = () => {
           }}
         />
       )}
-      {canInvoice && invoiceScope && (
+      {canInvoice && invoiceOpen && (
         <IssueInvoiceModal
+          key={`invoice-${invoiceKey}`}
           orderId={order.id}
-          scope={invoiceScope}
-          onClose={() => setInvoiceScope(null)}
+          payments={order.payments}
+          canRefund={canRefund}
+          onClose={() => setInvoiceOpen(false)}
           onIssued={() => {
-            setInvoiceScope(null);
+            setInvoiceOpen(false);
             load();
+          }}
+          onRefund={() => {
+            // Hand-off: the excess is refunded first; Generate invoice is then opened again by hand.
+            setInvoiceOpen(false);
+            dispatchModal({ type: 'OPEN', action: 'REFUND' });
           }}
         />
       )}

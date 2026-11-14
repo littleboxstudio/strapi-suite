@@ -33,7 +33,7 @@ import {
   isDetailAction,
   type InvoiceAction,
 } from '../../utils/invoiceForm';
-import type { InvoiceScopeInput, InvoiceView, Order } from '../../orderTypes';
+import type { InvoiceView, Order } from '../../orderTypes';
 import CreditNoteModal from './CreditNoteModal';
 import OrderSection from './OrderSection';
 import AddressButton from './AddressButton';
@@ -45,8 +45,8 @@ type Props = {
   order: Pick<Order, 'availableActions' | 'billing' | 'invoices' | 'invoicing' | 'payments' | 'billingAddress'>;
   /** `invoicing.manage`: issue, reconcile, credit notes. Without it those buttons are hidden. */
   canInvoice: boolean;
-  /** Opens the invoice modal (owned by the page, shared with the payments table). */
-  onIssue: (scope: InvoiceScopeInput) => void;
+  /** Opens the Generate invoice modal (owned by the page, which hands off to Refund). */
+  onIssue: () => void;
   /** After any change: the order is fetched again. */
   onChanged: () => void;
 };
@@ -97,9 +97,9 @@ const InvoicesSection = ({ title, order, canInvoice, onIssue, onChanged }: Props
 
   const invoices = order.invoices;
   const billingActive = order.billing.active;
-  const canTotal = canInvoice && order.availableActions.includes('ISSUE_INVOICE');
+  const canIssue = canInvoice && order.availableActions.includes('ISSUE_INVOICE');
   // Something to invoice and no provider to do it: say where to configure one.
-  const showBillingHint = canInvoice && !billingActive && (canTotal || order.invoicing.hasUninvoicedPayments);
+  const showBillingHint = canInvoice && !billingActive && (canIssue || order.invoicing.hasUninvoicedPayments);
   const duplicates = invoices.filter((i) => i.warnings.includes('DUPLICATE_INVOICE'));
 
   const openPdf = async (invoice: InvoiceView) => {
@@ -298,9 +298,9 @@ const InvoicesSection = ({ title, order, canInvoice, onIssue, onChanged }: Props
   const headerActions = (
     <Flex gap={2} alignItems="center">
       <AddressButton title={t('ecommerce.orders.detail.address.billing')} address={order.billingAddress} />
-      {canTotal && (
-        <Button size="S" variant="secondary" disabled={!billingActive} onClick={() => onIssue({ scope: 'TOTAL' })}>
-          {t('ecommerce.orders.invoices.generateTotal')}
+      {canIssue && (
+        <Button size="S" variant="secondary" disabled={!billingActive} onClick={onIssue}>
+          {t('ecommerce.orders.invoices.generate')}
         </Button>
       )}
     </Flex>
