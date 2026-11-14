@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import { Button, Flex } from '@strapi/design-system';
@@ -17,17 +17,19 @@ type Props = {
   canManage: boolean;
   /** The server's answer to a dismissal (the updated order). */
   onResult: (result: EditResult) => void;
+  /** Other notices of the page, shown after the review alerts in the same stack (12px apart). */
+  children?: ReactNode;
 };
 
 /** One red alert per open review flag, at the top of the order page. */
-const ReviewAlerts = ({ order, canManage, onResult }: Props) => {
+const ReviewAlerts = ({ order, canManage, onResult, children }: Props) => {
   const { formatMessage, formatDate } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
   const [dismissing, setDismissing] = useState<string | null>(null);
   const alerts = reviewAlerts(order);
-  if (alerts.length === 0) return null;
+  if (alerts.length === 0 && !children) return null;
 
   const dismiss = async (code: (typeof alerts)[number]['code']) => {
     if (dismissing) return;
@@ -91,6 +93,7 @@ const ReviewAlerts = ({ order, canManage, onResult }: Props) => {
           />
         );
       })}
+      {children}
     </Flex>
   );
 };
