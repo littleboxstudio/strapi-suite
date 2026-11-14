@@ -29,7 +29,6 @@ export type ShippingLineView = ShippingLine & {
 type PlanMode = 'REPLACED' | 'APPENDED' | 'UNCHANGED';
 
 const ORIGINS: ShippingLineOrigin[] = ['CHECKOUT', 'RECALCULATION', 'EDIT', 'MANUAL'];
-const INVOICED_STATUSES = ['ISSUED', 'PENDING', 'UNCERTAIN'];
 
 const num = (v: unknown): number => {
   const n = Number(v);
@@ -38,11 +37,6 @@ const num = (v: unknown): number => {
 
 const isObject = (v: unknown): v is Record<string, any> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
-
-const timeOf = (iso: string): number => {
-  const t = Date.parse(iso);
-  return Number.isFinite(t) ? t : 0;
-};
 
 const byId = (a: { id: number }, b: { id: number }): number => a.id - b.id;
 
@@ -130,13 +124,12 @@ export function shippingLineViews(
   lines: ShippingLine[],
   ctx: {
     coveredShipping: number;
-    invoices: { kind: string; status: string; createdAt: string; hasShipping: boolean }[];
+    /** Lines an invoice counts (the invoicing position). */
+    invoicedLineIds: number[];
     hasActiveShipment: boolean;
   }
 ): ShippingLineView[] {
-  const issued = ctx.invoices.filter(
-    (i) => i.kind === 'INVOICE' && INVOICED_STATUSES.includes(i.status) && i.hasShipping
-  );
+  const invoiced = new Set(ctx.invoicedLineIds);
   let remaining = Math.max(0, ctx.coveredShipping);
   return [...lines].sort(byId).map((l) => {
     let paid = false;
@@ -146,12 +139,11 @@ export function shippingLineViews(
     } else if (l.amount > 0) {
       remaining = 0;
     }
-    const at = timeOf(l.createdAt);
     const corrections = correctionsOf(lines, l.id);
     return {
       ...l,
       paid,
-      invoiced: issued.some((i) => timeOf(i.createdAt) >= at),
+      invoiced: invoiced.has(l.id),
       spent: ctx.hasActiveShipment,
       ...(corrections.length ? { effectiveAmount: l.amount + chargedShipping(corrections) } : {}),
     };

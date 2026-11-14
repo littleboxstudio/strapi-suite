@@ -40,7 +40,7 @@ const view = (over: Partial<ShippingLineView> = {}): ShippingLineView => ({
 
 const ctx = (over: Partial<Parameters<typeof shippingLineViews>[1]> = {}) => ({
   coveredShipping: 0,
-  invoices: [],
+  invoicedLineIds: [],
   hasActiveShipment: false,
   ...over,
 });
@@ -154,28 +154,17 @@ describe('shippingLineViews', () => {
     expect(views.map((v) => v.paid)).toEqual([true, false]);
   });
 
-  it('marks invoiced lines by invoice date, kind, status and shipping', () => {
+  it('marks invoiced lines by id', () => {
     const lines = [line(), line({ id: 2, createdAt: '2026-11-03T10:00:00.000Z' })];
-    const inv = (over: object = {}) => ({
-      kind: 'INVOICE',
-      status: 'ISSUED',
-      createdAt: '2026-11-02T10:00:00.000Z',
-      hasShipping: true,
-      ...over,
-    });
-    expect(shippingLineViews(lines, ctx({ invoices: [inv()] })).map((v) => v.invoiced)).toEqual([true, false]);
-    expect(
-      shippingLineViews(lines, ctx({ invoices: [inv({ status: 'UNCERTAIN' })] })).map((v) => v.invoiced)
-    ).toEqual([true, false]);
-    expect(
-      shippingLineViews(lines, ctx({ invoices: [inv({ kind: 'CREDIT_NOTE' })] })).map((v) => v.invoiced)
-    ).toEqual([false, false]);
-    expect(
-      shippingLineViews(lines, ctx({ invoices: [inv({ status: 'FAILED' })] })).map((v) => v.invoiced)
-    ).toEqual([false, false]);
-    expect(
-      shippingLineViews(lines, ctx({ invoices: [inv({ hasShipping: false })] })).map((v) => v.invoiced)
-    ).toEqual([false, false]);
+    expect(shippingLineViews(lines, ctx({ invoicedLineIds: [1] })).map((v) => v.invoiced)).toEqual([
+      true,
+      false,
+    ]);
+    expect(shippingLineViews(lines, ctx({ invoicedLineIds: [2] })).map((v) => v.invoiced)).toEqual([
+      false,
+      true,
+    ]);
+    expect(shippingLineViews(lines, ctx()).map((v) => v.invoiced)).toEqual([false, false]);
   });
 
   it('spent follows the active shipment for every line', () => {

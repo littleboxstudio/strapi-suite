@@ -41,6 +41,14 @@ import {
   type ReconciledCoverage,
 } from './domain/invoicing';
 import {
+  invoicingPosition,
+  paymentNets,
+  readInvoiceDoc,
+  type InvoiceDoc,
+  type InvoicingPosition,
+  type PositionOrder,
+} from './domain/invoiceSelection';
+import {
   orderDeliveryStatus,
   remainingShippingCost,
   reservedQuantities,
@@ -264,39 +272,47 @@ export type OrderState = {
   shippingLines: ShippingLineView[];
 };
 
-/** The order's invoicing position (design 4.4), part of `OrderState`. */
-/** What the shipping line views need from the order: covered shipping, invoices, shipments. */
 /**
- * The context of the shipping line views. Coverage holds shipping net of the shipping discount,
- * while lines carry gross amounts: the discount is added back before lines consume it, but only
- * once the order received payment (covered shipping, or else any completed payment; a fully
- * discounted shipping is never covered), so an unpaid order never shows a line as PAID.
+ * The context of the shipping line views (ruling 16). Invoiced lines come from the invoicing
+ * position. Covered shipping is net of the shipping discount, while lines carry gross amounts:
+ * the discount is added back before lines consume it, but only once the order received payment
+ * (covered shipping, or else any completed payment; a fully discounted shipping is never
+ * covered), so an unpaid order never shows a line as PAID.
  */
 export const shippingLineContext = (
-  invoicing: Pick<OrderInvoicing, 'completedPayments' | 'reconciled' | 'invoices'>,
+  invoicing: Pick<OrderInvoicing, 'position' | 'coveredShipping' | 'completedPayments'>,
   hasActiveShipment: boolean,
   shippingDiscount: unknown
 ): Parameters<typeof shippingLineViews>[1] => {
-  const covered = invoicing.completedPayments.reduce(
-    (sum, p) => sum + (invoicing.reconciled.get(p.id)?.shipping ?? 0),
-    0
-  );
+  const covered = invoicing.coveredShipping;
   const paid =
     covered > 0 || invoicing.completedPayments.some((p) => (Number(p?.amount) || 0) > 0);
   return {
     coveredShipping: covered + (paid ? Math.max(0, Number(shippingDiscount) || 0) : 0),
-    invoices: invoicing.invoices.map((i) => ({
-      kind: i.kind,
-      status: i.status,
-      createdAt: i.createdAt,
-      hasShipping:
-        Array.isArray(i.lines?.lines) && i.lines.lines.some((l: any) => l?.kind === 'SHIPPING'),
-    })),
+    invoicedLineIds: invoicing.position.shipping
+      .filter((s) => s.invoiced)
+      .map((s) => s.shippingLineId),
     hasActiveShipment,
   };
 };
 
+/** The order's invoicing position (design 4.4; plan 11), part of `OrderState`. */
 export type OrderInvoicing = {
+  /** The order as the invoicing position reads it. */
+  positionOrder: PositionOrder;
+  /** Live (ISSUED, PENDING, UNCERTAIN) invoices and credit notes, by id. */
+  docs: InvoiceDoc[];
+  position: InvoicingPosition;
+  /** Per COMPLETED payment: its amount net of the held refunds attributed to it (ruling 8). */
+  paymentNets: Map<number, number>;
+  /** COMPLETED payments without an active allocation and with net > 0, in settlement order. */
+  availablePaymentIds: number[];
+  /** Excess that must be refunded before invoicing (ruling 10). */
+  blockingExcess: number;
+  /** Settlement shipping coverage of the COMPLETED payments, capped at the shipping total. */
+  coveredShipping: number;
+  /** Whether an invoice can be issued now (ruling 15). */
+  canIssue: boolean;
   /** The current lines as invoice reconciliation reads them. */
   coverageOrder: InvoiceOrderState;
   /** COMPLETED payments in settlement order (`completedAt`, then id). */
@@ -316,6 +332,13 @@ const IN_FLIGHT_REFUND = ['PENDING', 'PROCESSING'];
 /** Refunds that hold (or will hold) the money back: never invoiced. */
 const HELD_REFUND = ['PENDING', 'PROCESSING', 'COMPLETED'];
 const ACTIVE_INVOICE = ['ISSUED', 'PENDING', 'UNCERTAIN'];
+
+/** `payment.coverage.shipping.value` (plan 3 settlement coverage) in cents; 0 when malformed. */
+const coverageShippingOf = (coverage: unknown): number => {
+  const value =
+    isRecord(coverage) && isRecord(coverage.shipping) ? Number(coverage.shipping.value) : 0;
+  return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+};
 
 const idOf = (v: any): number | null =>
   v && typeof v === 'object' ? (v.id ?? null) : v == null ? null : Number(v);
@@ -1120,7 +1143,8 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     order: any,
     lines: OrderLineView[],
     payments: any[],
-    refunds: any[]
+    refunds: any[],
+    blockingExcess: number
   ): Promise<OrderInvoicing> => {
     const u = uids();
     const [allocationRows, invoices] = await Promise.all([
@@ -1213,7 +1237,53 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     if (order.orderStatus !== 'OPEN') {
       invoiceable = new Map([...invoiceable.keys()].map((id) => [id, 0]));
     }
+
+    const positionOrder: PositionOrder = {
+      lines: lines.map((l) => ({
+        id: l.id,
+        unitPrice: l.unitPrice,
+        unitDiscount: l.unitDiscount,
+        quantity: l.quantity,
+        returnedQuantity: l.returnedQuantity,
+        tax: l.tax,
+      })),
+      orderDiscount: num(order.orderDiscount),
+      shippingTotal: num(order.shippingTotal),
+      shippingTax: num(order.shippingTax),
+      shippingLines: readShippingLines(order),
+    };
+    const paymentIdsOf = (invoiceId: number) =>
+      allocations.filter((a) => a.invoiceId === invoiceId).map((a) => a.paymentId);
+    const docs = invoices.map((row) => readInvoiceDoc(row, paymentIdsOf(row.id)));
+    const position = invoicingPosition(positionOrder, docs);
+    const allocated = new Set(allocations.map((a) => a.paymentId));
+    const nets = paymentNets(
+      amounts,
+      refunds.map((r) => ({ status: r.status, amount: num(r.amount), paymentId: idOf(r.payment) })),
+      allocated
+    );
+    const availablePaymentIds = completedPayments
+      .filter((p) => !allocated.has(p.id) && (nets.get(p.id) ?? 0) > 0)
+      .map((p) => p.id as number);
+    const coveredShipping = Math.min(
+      Math.max(0, num(order.shippingTotal)),
+      completedPayments.reduce((sum, p) => sum + coverageShippingOf(p.coverage), 0)
+    );
+    const canIssue =
+      order.orderStatus === 'OPEN' &&
+      (position.lines.some((l) => l.remainingQuantity > 0) ||
+        position.shipping.some((s) => s.available)) &&
+      availablePaymentIds.length > 0;
+
     return {
+      positionOrder,
+      docs,
+      position,
+      paymentNets: nets,
+      availablePaymentIds,
+      blockingExcess,
+      coveredShipping,
+      canIssue,
       coverageOrder,
       completedPayments,
       refunded,
@@ -1245,7 +1315,9 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     const inFlight = refunds.filter((r) => IN_FLIGHT_REFUND.includes(r.status));
     const inFlightRefunds = inFlight.reduce((s, r) => s + num(r.amount), 0);
     const hasPendingRefunds = inFlight.length > 0;
-    const invoicing = await loadInvoicing(order, lines, payments, refunds);
+    // In-flight refunds already claim part of the excess.
+    const blockingExcess = refundableAmount(summary, inFlightRefunds);
+    const invoicing = await loadInvoicing(order, lines, payments, refunds, blockingExcess);
     const hasActiveShipment = shipments.some((s) => s.status === 'ACTIVE');
     const editing = orderEditing({
       orderStatus: order.orderStatus,
@@ -1269,10 +1341,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       hasPendingPayments: payments.some((p) => p.status === 'PENDING'),
       hasPendingRefunds,
       hasUninvoicedCompletedPayments: [...invoicing.invoiceable.values()].some((v) => v > 0),
-    }).filter(
-      // In-flight refunds already claim part of the excess.
-      (a) => a !== 'REFUND' || refundableAmount(summary, inFlightRefunds) > 0
-    );
+    }).filter((a) => a !== 'REFUND' || blockingExcess > 0);
     return {
       order,
       lines,
