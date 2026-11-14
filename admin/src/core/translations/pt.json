@@ -1720,6 +1720,7 @@
   "littlebox-strapi-suite.ecommerce.orders.errors.SHIPPING_METHOD_UNAVAILABLE": "Este método de envio não está disponível para a encomenda.",
   "littlebox-strapi-suite.ecommerce.orders.errors.DISCOUNT_EXCEEDS_PRODUCTS": "O desconto não pode exceder o valor dos produtos.",
   "littlebox-strapi-suite.ecommerce.orders.errors.SHIPPING_LINE_NOT_FOUND": "O valor de portes não foi encontrado. Recarregue a encomenda.",
+  "littlebox-strapi-suite.ecommerce.orders.errors.SHIPPING_LINE_PAID": "Este valor de portes já está pago e não pode ser editado.",
   "littlebox-strapi-suite.ecommerce.orders.errors.MANUAL_DISCOUNT_NOT_FOUND": "O desconto não foi encontrado. Recarregue a encomenda.",
   "littlebox-strapi-suite.ecommerce.orders.errors.INVALID_PERCENT": "Indique uma percentagem acima de 0 e até 100, com no máximo 2 casas decimais.",
   "littlebox-strapi-suite.ecommerce.orders.review.SHIPPING_REVIEW": "Os portes podem precisar de ser recalculados.",

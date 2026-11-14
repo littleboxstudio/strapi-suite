@@ -627,6 +627,18 @@ describe('EcommerceOrderEditingService.editShippingLine', () => {
     ).toEqual([{ path: 'order', code: 'ORDER_HAS_SHIPMENTS' }]);
   });
 
+  it('a paid line cannot be edited: SHIPPING_LINE_PAID', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    await ctx.payments.addManualPayment(id, { amount: 7000, idempotencyKey: 'pay-0002' }, 'user:1');
+    expect(
+      await issues(
+        ctx.editing.editShippingLine(id, 1, { ...standard, amount: 700 }, 'user:1', 'op-line-0020')
+      )
+    ).toEqual([{ path: 'lineId', code: 'SHIPPING_LINE_PAID' }]);
+    expect(storedLines(ctx, id)).toMatchObject([{ id: 1, amount: 500 }]);
+  });
+
   it('an unknown line id is SHIPPING_LINE_NOT_FOUND', async () => {
     const ctx = setup();
     const id = await createOrder(ctx);

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
-import { Box, Button, Field, Flex, Loader, Modal, Radio, TextInput, Typography } from '@strapi/design-system';
+import { Button, Field, Flex, Loader, Modal, Radio, TextInput, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchShippingOptions from '../../usecases/orders/fetchShippingOptions';
 import EditShippingLine from '../../usecases/orders/editShippingLine';
@@ -21,6 +21,7 @@ import { mintUuid } from '../../utils/variantDraft';
 import type { EditResult, FieldError, Order, ShippingLineView, ShippingOption, ShippingQuote } from '../../orderTypes';
 import BalanceOutcome from './BalanceOutcome';
 import EmptyNote from './EmptyNote';
+import NoticeBar from './NoticeBar';
 
 type Props = {
   order: Order;
@@ -178,13 +179,11 @@ const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, o
       );
     }
     const failureNote = failures.length > 0 && (
-      <Box padding={3} background="warning100" borderColor="warning200" hasRadius>
-        <Typography textColor="warning700" variant="pi">
-          {t('ecommerce.orders.shipping.failures', {
-            providers: failures.map((f) => f.providerId).join(', '),
-          })}
-        </Typography>
-      </Box>
+      <NoticeBar
+        text={t('ecommerce.orders.shipping.failures', {
+          providers: failures.map((f) => f.providerId).join(', '),
+        })}
+      />
     );
     if (!options.length) {
       return failureNote || <EmptyNote>{t('ecommerce.orders.shippingCharges.noMethods')}</EmptyNote>;

@@ -1936,6 +1936,7 @@
   "littlebox-strapi-suite.ecommerce.orders.errors.SHIPPING_METHOD_UNAVAILABLE": "This shipping method is not available for the order.",
   "littlebox-strapi-suite.ecommerce.orders.errors.DISCOUNT_EXCEEDS_PRODUCTS": "The discount cannot exceed the value of the products.",
   "littlebox-strapi-suite.ecommerce.orders.errors.SHIPPING_LINE_NOT_FOUND": "The shipping charge was not found. Reload the order.",
+  "littlebox-strapi-suite.ecommerce.orders.errors.SHIPPING_LINE_PAID": "This shipping charge is already paid and cannot be edited.",
   "littlebox-strapi-suite.ecommerce.orders.errors.MANUAL_DISCOUNT_NOT_FOUND": "The discount was not found. Reload the order.",
   "littlebox-strapi-suite.ecommerce.orders.errors.INVALID_PERCENT": "Enter a percentage above 0 and up to 100, with at most 2 decimals.",
   "littlebox-strapi-suite.ecommerce.orders.review.SHIPPING_REVIEW": "Shipping may need to be recalculated.",
