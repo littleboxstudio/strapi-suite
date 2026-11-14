@@ -192,7 +192,7 @@ describe('invoiceActions', () => {
   };
 
   it('an issued invoice: PDF and a credit note while something is left to credit', () => {
-    expect(invoiceActions(invoice, true)).toEqual(['PDF', 'CREDIT_NOTE']);
+    expect(invoiceActions(invoice, true)).toEqual(['CREDIT_NOTE', 'PDF']);
     expect(invoiceActions({ ...invoice, credited: 1000 }, true)).toEqual(['PDF']);
   });
 
