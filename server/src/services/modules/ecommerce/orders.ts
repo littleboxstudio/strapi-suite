@@ -1128,7 +1128,11 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     const completedPayments = payments
       .filter((p) => p.status === 'COMPLETED')
       .sort((a, b) => time(a.completedAt) - time(b.completedAt) || a.id - b.id);
-    const amounts = completedPayments.map((p) => ({ id: p.id, amount: num(p.amount) }));
+    const amounts = completedPayments.map((p) => ({
+      id: p.id,
+      amount: num(p.amount),
+      at: time(p.completedAt ?? p.createdAt),
+    }));
 
     const positionOrder: PositionOrder = {
       lines: lines.map((l) => ({
@@ -1149,10 +1153,19 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     const docs = invoices.map((row) => readInvoiceDoc(row, paymentIdsOf(row.id)));
     const position = invoicingPosition(positionOrder, docs);
     const allocated = new Set(allocations.map((a) => a.paymentId));
+    const allocatedAmounts = new Map<number, number>();
+    allocations.forEach((a) =>
+      allocatedAmounts.set(a.paymentId, (allocatedAmounts.get(a.paymentId) ?? 0) + a.amount)
+    );
     const nets = paymentNets(
       amounts,
-      refunds.map((r) => ({ status: r.status, amount: num(r.amount), paymentId: idOf(r.payment) })),
-      allocated
+      refunds.map((r) => ({
+        status: r.status,
+        amount: num(r.amount),
+        paymentId: idOf(r.payment),
+        at: time(r.createdAt),
+      })),
+      allocatedAmounts
     );
     const availablePaymentIds = completedPayments
       .filter((p) => !allocated.has(p.id) && (nets.get(p.id) ?? 0) > 0)
