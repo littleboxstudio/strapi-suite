@@ -12,6 +12,8 @@ import {
   issueDate,
   uninvoicedByPayment,
   creditNoteBudget,
+  paymentMethodName,
+  STORE_CREDIT_METHOD_NAME,
   type InvoiceLine,
   type InvoicedCoverage,
 } from '../../../../server/src/services/modules/ecommerce/domain/invoicing';
@@ -828,5 +830,16 @@ describe('creditNoteBudget', () => {
     expect(
       creditNoteBudget({ ...order, status: 'CANCELLED' }, { invoiced: 5000, credited: 1000, invoiceable: 0, kept: 10500 })
     ).toBe(4000);
+  });
+});
+
+describe('paymentMethodName', () => {
+  it('Stripe, store credit and manual payments name their Moloni method', () => {
+    expect(paymentMethodName('STRIPE', 'x')).toBe('Stripe');
+    expect(paymentMethodName('STORE_CREDIT', null)).toBe('Crédito em carteira');
+    expect(STORE_CREDIT_METHOD_NAME).toBe('Crédito em carteira');
+    expect(paymentMethodName('MANUAL', '  MB WAY ')).toBe('MB WAY');
+    expect(paymentMethodName('MANUAL', null)).toBe('');
+    expect(paymentMethodName('MANUAL', 42)).toBe('');
   });
 });

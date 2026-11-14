@@ -13,6 +13,7 @@ import {
   creditNoteBudget,
   invoiceCustomer,
   overInvoiced,
+  paymentMethodName,
   readInvoiceLines,
   suggestCreditNote,
   validateCreditNoteRequest,
@@ -777,6 +778,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
           // Σ amounts = total (the lines are built from these coverages).
           payments: composed.payments.map((p, i) => ({
             method: p.method,
+            name: paymentMethodName(p.method, p.metadata?.methodLabel),
             amount: composed.coverages[i].value,
             date: dateIn(p.completedAt, tz),
           })),

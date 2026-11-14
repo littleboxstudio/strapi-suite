@@ -229,7 +229,7 @@ describe('EcommerceInvoiceService.issue', () => {
     expect(draft.lines.map((l) => l.sku)).not.toContain('SH-M');
     expect(draft.total).toBe(2500);
     expect(draft.payments).toEqual([
-      { method: 'MANUAL', amount: 2500, date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) },
+      { method: 'MANUAL', name: '', amount: 2500, date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) },
     ]);
   });
 

@@ -88,7 +88,41 @@ function context(rt: ProviderRuntime) {
     return Number(country.country_id);
   }
 
-  return { client, idOf, taxId, countryId };
+  const methodKey = (name: string) => name.trim().toLowerCase();
+
+  /**
+   * The id of the payment method with this name (case and outer spaces ignored). On a miss the
+   * list is read again uncached, and the method is created when it is still missing. Not a
+   * document write: a failure leaves no document behind. The name is never put in an error.
+   */
+  async function paymentMethodIdByName(name: string): Promise<number> {
+    const key = `${companyId}:paymentMethods/getAll`;
+    const read = async (): Promise<any[]> => {
+      const hit = lookups.get(key);
+      if (hit && Date.now() - hit.at < LOOKUP_TTL_MS) return hit.list;
+      const body = await client.call<unknown>('paymentMethods/getAll');
+      const items = Array.isArray(body) ? body : [];
+      lookups.set(key, { at: Date.now(), list: items });
+      return items;
+    };
+    const find = (items: any[]) => {
+      const hit = items.find((m) => typeof m?.name === 'string' && methodKey(m.name) === methodKey(name));
+      const id = Number(hit?.payment_method_id);
+      return Number.isInteger(id) && id > 0 ? id : null;
+    };
+    const cached = find(await read());
+    if (cached) return cached;
+    lookups.delete(key);
+    const fresh = find(await read());
+    if (fresh) return fresh;
+    const res = await client.call<any>('paymentMethods/insert', { name: name.trim() });
+    lookups.delete(key);
+    const id = Number(res?.payment_method_id);
+    if (!Number.isInteger(id) || id <= 0) throw requestFailed('Moloni did not return the new payment method id.');
+    return id;
+  }
+
+  return { client, idOf, taxId, countryId, methodKey, paymentMethodIdByName };
 }
 
 type Ctx = ReturnType<typeof context>;
@@ -321,18 +355,27 @@ export const moloniProvider: BillingProvider = {
     const documentSetId = await ctx.idOf('documentSetId', 'documentSets/getAll', 'document_set_id');
     let paymentMethod: Promise<number> | null = null;
     const paymentMethodId = () => (paymentMethod ??= ctx.idOf('paymentMethodId', 'paymentMethods/getAll', 'payment_method_id'));
-    const payments = isCredit
-      ? []
-      : await Promise.all(
-          draft.payments.map(async (p) => ({
-            payment_method_id:
-              p.method === 'STORE_CREDIT'
-                ? configuredId(rt, 'storeCreditPaymentMethodId') ?? (await paymentMethodId())
-                : await paymentMethodId(),
-            date: p.date,
-            value: euros(p.amount),
-          }))
-        );
+    // One lookup (and maybe one insert) per method name, before the customer and the document.
+    const byName = new Map<string, Promise<number>>();
+    const methodOf = (p: InvoiceDraft['payments'][number]): Promise<number> => {
+      const storeCreditId = p.method === 'STORE_CREDIT' ? configuredId(rt, 'storeCreditPaymentMethodId') : null;
+      if (storeCreditId) return Promise.resolve(storeCreditId);
+      const name = p.name.trim();
+      if (!name) return paymentMethodId();
+      const key = ctx.methodKey(name);
+      let id = byName.get(key);
+      if (!id) {
+        id = ctx.paymentMethodIdByName(name);
+        byName.set(key, id);
+      }
+      return id;
+    };
+    const payments: { payment_method_id: number; date: string; value: number }[] = [];
+    if (!isCredit) {
+      for (const p of draft.payments) {
+        payments.push({ payment_method_id: await methodOf(p), date: p.date, value: euros(p.amount) });
+      }
+    }
 
     const customer = await customerId(ctx, draft, paymentMethodId);
     const shippingReference = str(rt, 'shippingReference') || DEFAULT_SHIPPING_REFERENCE;

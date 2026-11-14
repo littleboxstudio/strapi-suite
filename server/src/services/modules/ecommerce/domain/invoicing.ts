@@ -531,6 +531,23 @@ export const validateCreditNoteRequest = (
 };
 
 // ---------------------------------------------------------------------------
+// Payment methods
+// ---------------------------------------------------------------------------
+
+/** The billing payment method name of store-credit payments. */
+export const STORE_CREDIT_METHOD_NAME = 'Crédito em carteira';
+
+/**
+ * The billing payment method name of a payment: "Stripe", the store-credit name, or the manual
+ * payment's trimmed label ('' when it has none: the provider then uses its configured method).
+ */
+export function paymentMethodName(method: string, methodLabel: unknown): string {
+  if (method === 'STRIPE') return 'Stripe';
+  if (method === 'STORE_CREDIT') return STORE_CREDIT_METHOD_NAME;
+  return typeof methodLabel === 'string' ? methodLabel.trim() : '';
+}
+
+// ---------------------------------------------------------------------------
 // Dates
 // ---------------------------------------------------------------------------
 

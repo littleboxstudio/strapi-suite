@@ -38,7 +38,7 @@ const draft = (over: Partial<InvoiceDraft> = {}): InvoiceDraft => ({
     { orderLineId: null, kind: 'SHIPPING', sku: 'PORTES', name: 'Shipping', quantity: 1, total: 615, tax: 23, partial: false },
   ],
   total: 3075,
-  payments: [{ method: 'STRIPE', amount: 3075, date: '2026-11-10' }],
+  payments: [{ method: 'STRIPE', name: '', amount: 3075, date: '2026-11-10' }],
   ...over,
 });
 
@@ -148,7 +148,7 @@ describe('moloniProvider.issue (FR, default)', () => {
       draft({
         lines: [{ orderLineId: 1, kind: 'ITEM', sku: 'SKU-1', name: 'Mug', quantity: 3, total: 1000, tax: 23, partial: false }],
         total: 1000,
-        payments: [{ method: 'STRIPE', amount: 1000, date: '2026-11-10' }],
+        payments: [{ method: 'STRIPE', name: '', amount: 1000, date: '2026-11-10' }],
       }),
       rt()
     );
@@ -161,8 +161,8 @@ describe('moloniProvider.issue (FR, default)', () => {
     await moloniProvider.issue(
       draft({
         payments: [
-          { method: 'STORE_CREDIT', amount: 1000, date: '2026-11-09' },
-          { method: 'MANUAL', amount: 2075, date: '2026-11-10' },
+          { method: 'STORE_CREDIT', name: '', amount: 1000, date: '2026-11-09' },
+          { method: 'MANUAL', name: '', amount: 2075, date: '2026-11-10' },
         ],
       }),
       rt({ documentSetId: 6, paymentMethodId: 32, storeCreditPaymentMethodId: 99 })
@@ -175,13 +175,119 @@ describe('moloniProvider.issue (FR, default)', () => {
     ]);
   });
 
-  it('store credit falls back to paymentMethodId', async () => {
-    const m = moloniFake(happyRoutes());
-    await moloniProvider.issue(
-      draft({ payments: [{ method: 'STORE_CREDIT', amount: 3075, date: '2026-11-09' }] }),
-      rt({ paymentMethodId: 32 })
+  it('payment methods are matched by name, ignoring case and outer spaces', async () => {
+    const m = moloniFake(happyRoutes({ 'paymentMethods/getAll': () => [{ payment_method_id: 1, name: 'Numerário' }, { payment_method_id: 7, name: ' mb way ' }] }));
+    await moloniProvider.issue(draft({ payments: [{ method: 'MANUAL', name: 'MB WAY', amount: 3075, date: '2026-11-10' }] }), rt());
+    expect(m.of('invoiceReceipts/insert')[0].body.payments[0].payment_method_id).toBe(7);
+    expect(m.of('paymentMethods/insert')).toHaveLength(0);
+  });
+
+  it('a missing method is created before the customer and the document', async () => {
+    const m = moloniFake(
+      happyRoutes({
+        'paymentMethods/getAll': () => [{ payment_method_id: 1, name: 'Numerário' }],
+        'paymentMethods/insert': () => ({ valid: 1, payment_method_id: 9 }),
+      })
     );
+    await moloniProvider.issue(draft({ payments: [{ method: 'MANUAL', name: 'MB WAY', amount: 3075, date: '2026-11-10' }] }), rt());
+    expect(m.of('invoiceReceipts/insert')[0].body.payments[0].payment_method_id).toBe(9);
+    const p = m.paths();
+    expect(p.indexOf('paymentMethods/insert')).toBeLessThan(p.indexOf('customers/getByVat'));
+    expect(p.indexOf('paymentMethods/insert')).toBeLessThan(p.indexOf('invoiceReceipts/insert'));
+    // The cached list is read again, uncached, before creating.
+    expect(m.of('paymentMethods/getAll')).toHaveLength(2);
+    expect(m.of('paymentMethods/insert')).toHaveLength(1);
+    expect(m.of('paymentMethods/insert')[0].body).toMatchObject({ company_id: 42, name: 'MB WAY' });
+  });
+
+  it('one draft with two payments of the same name resolves it once', async () => {
+    const m = moloniFake(
+      happyRoutes({
+        'paymentMethods/getAll': () => [],
+        'paymentMethods/insert': () => ({ valid: 1, payment_method_id: 9 }),
+      })
+    );
+    await moloniProvider.issue(
+      draft({
+        payments: [
+          { method: 'MANUAL', name: 'MB WAY', amount: 1000, date: '2026-11-09' },
+          { method: 'MANUAL', name: ' mb way', amount: 2075, date: '2026-11-10' },
+        ],
+      }),
+      rt()
+    );
+    expect(m.of('invoiceReceipts/insert')[0].body.payments.map((x: any) => x.payment_method_id)).toEqual([9, 9]);
+    expect(m.of('paymentMethods/insert')).toHaveLength(1);
+    expect(m.of('paymentMethods/getAll')).toHaveLength(2);
+  });
+
+  it("store credit uses storeCreditPaymentMethodId when configured, otherwise 'Crédito em carteira'", async () => {
+    const storeCredit = draft({
+      payments: [{ method: 'STORE_CREDIT', name: 'Crédito em carteira', amount: 3075, date: '2026-11-09' }],
+    });
+    const routes = happyRoutes({
+      'paymentMethods/getAll': () => [
+        { payment_method_id: 31, name: 'Numerário' },
+        { payment_method_id: 33, name: 'crédito em carteira' },
+      ],
+    });
+    let m = moloniFake(routes);
+    await moloniProvider.issue(storeCredit, rt({ storeCreditPaymentMethodId: 99, paymentMethodId: 32 }));
+    expect(m.of('invoiceReceipts/insert')[0].body.payments[0].payment_method_id).toBe(99);
+    expect(m.of('paymentMethods/getAll')).toHaveLength(0);
+
+    __resetMoloniLookupsForTests();
+    vi.unstubAllGlobals();
+    m = moloniFake(routes);
+    await moloniProvider.issue(storeCredit, rt({ paymentMethodId: 32 }));
+    expect(m.of('invoiceReceipts/insert')[0].body.payments[0].payment_method_id).toBe(33);
+    expect(m.of('paymentMethods/insert')).toHaveLength(0);
+  });
+
+  it('an empty name uses paymentMethodId (the configured id, else the first of the list)', async () => {
+    const empty = draft({ payments: [{ method: 'STRIPE', name: '', amount: 3075, date: '2026-11-10' }] });
+    let m = moloniFake(happyRoutes());
+    await moloniProvider.issue(empty, rt({ paymentMethodId: 32 }));
     expect(m.of('invoiceReceipts/insert')[0].body.payments[0].payment_method_id).toBe(32);
+
+    __resetMoloniLookupsForTests();
+    vi.unstubAllGlobals();
+    m = moloniFake(happyRoutes());
+    await moloniProvider.issue(empty, rt());
+    expect(m.of('invoiceReceipts/insert')[0].body.payments[0].payment_method_id).toBe(31);
+    expect(m.of('paymentMethods/insert')).toHaveLength(0);
+  });
+
+  it('a refused paymentMethods/insert fails before the customer and the document, without the name', async () => {
+    const m = moloniFake(
+      happyRoutes({
+        'paymentMethods/getAll': () => [{ payment_method_id: 1, name: 'Numerário' }],
+        'paymentMethods/insert': () => [{ code: '1', field: 'name', description: 'MB WAY já existe' }],
+      })
+    );
+    const err: any = await fail(
+      moloniProvider.issue(draft({ payments: [{ method: 'MANUAL', name: 'MB WAY', amount: 3075, date: '2026-11-10' }] }), rt())
+    );
+    expect(err).toBeInstanceOf(EcommerceBillingError);
+    expect(err.code).toBe('BILLING_REQUEST_FAILED');
+    expect(err.uncertain).toBe(false);
+    expect(err.message).not.toMatch(/MB WAY/);
+    expect(m.of('customers/getByVat')).toHaveLength(0);
+    expect(m.of('customers/insert')).toHaveLength(0);
+    expect(m.of('invoiceReceipts/insert')).toHaveLength(0);
+  });
+
+  it('an inserted method without an id is a plain failure, without the name', async () => {
+    const m = moloniFake(
+      happyRoutes({ 'paymentMethods/getAll': () => [], 'paymentMethods/insert': () => ({ valid: 1 }) })
+    );
+    const err: any = await fail(
+      moloniProvider.issue(draft({ payments: [{ method: 'MANUAL', name: 'MB WAY', amount: 3075, date: '2026-11-10' }] }), rt())
+    );
+    expect(err.code).toBe('BILLING_REQUEST_FAILED');
+    expect(err.uncertain).toBe(false);
+    expect(err.message).toBe('Moloni did not return the new payment method id.');
+    expect(m.of('customers/getByVat')).toHaveLength(0);
   });
 
   it('customer without NIF uses Consumidor Final 999999990', async () => {
@@ -286,7 +392,7 @@ describe('moloniProvider.issue (FR, default)', () => {
         draft({
           lines: [{ orderLineId: 1, kind: 'ITEM', sku: 'BOOK', name: 'Book', quantity: 1, total: 1000, tax: 0, partial: false }],
           total: 1000,
-          payments: [{ method: 'STRIPE', amount: 1000, date: '2026-11-10' }],
+          payments: [{ method: 'STRIPE', name: '', amount: 1000, date: '2026-11-10' }],
         }),
         rt()
       )
@@ -307,7 +413,7 @@ describe('moloniProvider.issue (FR, default)', () => {
       draft({
         lines: [{ orderLineId: 1, kind: 'ITEM', sku: 'BOOK', name: 'Book', quantity: 1, total: 1000, tax: 0, partial: false }],
         total: 1000,
-        payments: [{ method: 'STRIPE', amount: 1000, date: '2026-11-10' }],
+        payments: [{ method: 'STRIPE', name: '', amount: 1000, date: '2026-11-10' }],
       }),
       rt({ exemptionReason: 'M07' })
     );
@@ -325,7 +431,7 @@ describe('moloniProvider.issue (FR, default)', () => {
         draft({
           lines: [{ orderLineId: 1, kind: 'ITEM', sku: 'X', name: 'X', quantity: 1, total: 1130, tax: 13, partial: false }],
           total: 1130,
-          payments: [{ method: 'STRIPE', amount: 1130, date: '2026-11-10' }],
+          payments: [{ method: 'STRIPE', name: '', amount: 1130, date: '2026-11-10' }],
         }),
         rt()
       )
@@ -361,7 +467,7 @@ describe('moloniProvider.issue (FR, default)', () => {
   it('FR payments not adding up to the total -> BILLING_REQUEST_FAILED, nothing inserted', async () => {
     const m = moloniFake(happyRoutes());
     const err: any = await fail(
-      moloniProvider.issue(draft({ payments: [{ method: 'STRIPE', amount: 3000, date: '2026-11-10' }] }), rt())
+      moloniProvider.issue(draft({ payments: [{ method: 'STRIPE', name: '', amount: 3000, date: '2026-11-10' }] }), rt())
     );
     expect(err).toBeInstanceOf(EcommerceBillingError);
     expect(err.code).toBe('BILLING_REQUEST_FAILED');
@@ -376,8 +482,8 @@ describe('moloniProvider.issue (FR, default)', () => {
       moloniProvider.issue(
         draft({
           payments: [
-            { method: 'STRIPE', amount: 3000, date: '2026-11-10' },
-            { method: 'MANUAL', amount: 100, date: '2026-11-10' },
+            { method: 'STRIPE', name: '', amount: 3000, date: '2026-11-10' },
+            { method: 'MANUAL', name: '', amount: 100, date: '2026-11-10' },
           ],
         }),
         rt({ documentType: 'FT' })
