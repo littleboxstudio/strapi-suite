@@ -335,10 +335,12 @@ Define a política deixada em aberto no ponto 2.19 das Promoções:
 Com `paid` = liquidados, `refunded` = reembolsos monetários concluídos e reembolsos de vale,
 `net = paid − refunded` e `total` = total atual:
 1. `refunded > 0` e `net ≤ 0` → `REFUNDED`
-2. `refunded > 0` → `PARTIALLY_REFUNDED`
-3. `paid = 0` → `PENDING`
-4. `net < total` → `PARTIALLY_PAID`
-5. caso contrário → `PAID`
+2. `refunded > 0`, `total > 0` e `net ≥ total` → `PAID` (só foi devolvido o excedente: o que fica
+   cobre a encomenda) **[Decisão, 2026-11-14]**
+3. `refunded > 0` → `PARTIALLY_REFUNDED`
+4. `paid = 0` → `PENDING`
+5. `net < total` → `PARTIALLY_PAID`
+6. caso contrário → `PAID`
 
 O dashboard mostra sempre também os saldos detalhados (ponto 9.3).
 

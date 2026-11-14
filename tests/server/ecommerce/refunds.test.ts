@@ -216,7 +216,7 @@ describe('cancel releases store credit', () => {
 });
 
 describe('EcommerceRefundService.create', () => {
-  it('manual transfer: COMPLETED MONEY refund → PARTIALLY_REFUNDED, then REFUNDED', async () => {
+  it('manual transfer: COMPLETED MONEY refund of the excess → PAID, then REFUNDED', async () => {
     const c = setupCommerce();
     const orderId = await createOrder(c);
     await payManual(c, orderId, 6000); // excess 1500
@@ -227,7 +227,7 @@ describe('EcommerceRefundService.create', () => {
       actor
     );
     expect(r).toMatchObject({ method: 'MANUAL_TRANSFER', kind: 'MONEY', status: 'COMPLETED', amount: 1500, reference: 'TRF-1' });
-    expect(order(c, orderId).paymentStatus).toBe('PARTIALLY_REFUNDED');
+    expect(order(c, orderId).paymentStatus).toBe('PAID');
     expect(c.tables[UIDS.orderHistory].some((h) => h.type === 'REFUND_COMPLETED')).toBe(true);
     expect(c.events.filter((e) => e.type === 'REFUND_COMPLETED')).toEqual([
       expect.objectContaining({ orderId, payload: expect.objectContaining({ refundId: r.id, kind: 'MONEY', amount: 1500 }) }),
@@ -342,7 +342,7 @@ describe('EcommerceRefundService.create', () => {
     expect(r).toMatchObject({ kind: 'STORE_CREDIT', status: 'COMPLETED', storeCredit: expect.objectContaining({ id: paid.credit.id }) });
     expect(c2.tables[UIDS.storeCredit]).toHaveLength(1);
     expect(balanceOf(c2, paid.credit.id)).toBe(1000);
-    expect(order(c2, o2).paymentStatus).toBe('PARTIALLY_REFUNDED');
+    expect(order(c2, o2).paymentStatus).toBe('PAID');
   });
 
   it('F2: an excess funded by store credit is never refunded as money', async () => {
@@ -437,7 +437,7 @@ describe('Stripe refunds', () => {
       status: 'PROCESSED',
     });
     expect(refundsOf(c)[0].status).toBe('COMPLETED');
-    expect(order(c, orderId).paymentStatus).toBe('PARTIALLY_REFUNDED');
+    expect(order(c, orderId).paymentStatus).toBe('PAID');
   });
 
   it('Review Focus 2 at the service: 30 € over two 20 € payments, newest first, one refund each', async () => {
@@ -455,7 +455,7 @@ describe('Stripe refunds', () => {
       [802, 2000, 'COMPLETED'],
       [801, 1000, 'COMPLETED'],
     ]);
-    expect(order(c, orderId).paymentStatus).toBe('PARTIALLY_REFUNDED');
+    expect(order(c, orderId).paymentStatus).toBe('PAID');
     expect(c.events.filter((e) => e.type === 'REFUND_COMPLETED')).toHaveLength(2);
   });
 
@@ -693,7 +693,7 @@ describe('fix round 1', () => {
       const h = c.tables[UIDS.orderHistory].filter((x) => x.type === 'REFUND_COMPLETED');
       expect(h).toHaveLength(1);
       expect(h[0].previousValue).toMatchObject({ refundId: r.id, status: 'FAILED' });
-      expect(order(c, orderId).paymentStatus).toBe('PARTIALLY_REFUNDED');
+      expect(order(c, orderId).paymentStatus).toBe('PAID');
       expect((await c.refunds.preview(orderId)).refundable).toBe(2000);
     });
 
@@ -744,7 +744,7 @@ describe('fix round 1', () => {
 
       stripe.retrieveRefund.mockResolvedValueOnce({ id: 're_mb', status: 'succeeded', failureReason: null });
       expect(await c.refunds.refresh(r.id, 'user:2')).toMatchObject({ status: 'COMPLETED' });
-      expect(order(c, orderId).paymentStatus).toBe('PARTIALLY_REFUNDED');
+      expect(order(c, orderId).paymentStatus).toBe('PAID');
       const h = c.tables[UIDS.orderHistory].filter((x) => x.type === 'REFUND_COMPLETED');
       expect(h).toHaveLength(1);
       expect(h[0].actor).toBe('user:2');
@@ -815,7 +815,7 @@ describe('fix round 1', () => {
         metadata: expect.objectContaining({ orderId: String(orderId), refundId: String(id), paymentId: '802' }),
       });
       expect(view).toMatchObject({ id, status: 'COMPLETED', externalId: 're_rs' });
-      expect(order(c, orderId).paymentStatus).toBe('PARTIALLY_REFUNDED');
+      expect(order(c, orderId).paymentStatus).toBe('PAID');
       expect(refundsOf(c)).toHaveLength(1);
     });
 
