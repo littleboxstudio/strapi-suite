@@ -10,9 +10,9 @@ import {
 beforeEach(() => __resetRegistryForTests());
 
 describe('provider registry', () => {
-  it('has the 5 built-in definitions with categories', () => {
+  it('has the 6 built-in definitions with categories', () => {
     const byId = Object.fromEntries(getProviderDefinitions().map((d) => [d.id, d]));
-    expect(Object.keys(byId).sort()).toEqual(['ctt-expresso', 'manual', 'moloni', 'resend', 'stripe']);
+    expect(Object.keys(byId).sort()).toEqual(['ctt-expresso', 'dpd-portugal', 'manual', 'moloni', 'resend', 'stripe']);
     expect(byId.stripe.category).toBe('payment');
     expect(byId.moloni.category).toBe('billing');
     expect(byId.moloni.exclusive).toBe(true);

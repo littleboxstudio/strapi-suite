@@ -161,6 +161,20 @@ describe('EcommerceSettingsController — domain errors', () => {
     await c.deleteShippingMethod(ctx2);
     expect(ctx2.status).toBe(204);
   });
+
+  it('reads and saves the DPD Portugal services with the calling admin', async () => {
+    const getDpdServices = vi.fn().mockResolvedValue({ EXPRESS: {}, PICKUP: {} });
+    const saveDpdServices = vi.fn().mockResolvedValue({ services: { EXPRESS: {}, PICKUP: {} }, active: false });
+    const c = mocked({ EcommerceSettingsService: { getDpdServices, saveDpdServices } });
+    const ctx = mkCtx();
+    await c.getDpdServices(ctx);
+    expect(ctx.body).toEqual({ EXPRESS: {}, PICKUP: {} });
+    const body = { EXPRESS: { active: true } };
+    const ctx2 = mkCtx({ request: { body } });
+    await c.saveDpdServices(ctx2);
+    expect(saveDpdServices).toHaveBeenCalledWith(body, '7');
+    expect(ctx2.body).toEqual({ services: { EXPRESS: {}, PICKUP: {} }, active: false });
+  });
 });
 
 describe('EcommerceSettingsController — conflicts', () => {
