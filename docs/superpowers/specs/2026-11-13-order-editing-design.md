@@ -110,6 +110,31 @@ o botão **Adicionar produtos**, que abre a modal de produtos:
   depois **descontos**. Só acende avisos; não altera nada.
 - Histórico: uma entrada com as linhas acrescentadas, alteradas e removidas e o total antes/depois.
 
+### 4.1 Desconto manual por linha **[Decisão, 2026-11-14]**
+
+Na modal **Editar produtos** e no ecrã de **criar encomenda manual**, cada linha tem um campo
+**"Desconto %"** opcional:
+
+- valor de 0 (exclusivo) a 100, com até 2 casas decimais; vazio = sem desconto manual
+  **[Decisão: basta a percentagem, sem motivo]**;
+- o desconto por unidade é `round(preço unitário × % / 100)` em cêntimos **[Escolha]**; a linha
+  guarda a percentagem para a mostrar ("−10 %");
+- só se pode pôr, mudar ou tirar numa linha **sem unidades enviadas** **[Decisão]**; o efeito no
+  dinheiro trata-se pelo saldo (pagar mais ou reembolso), como as outras alterações;
+- numa linha que tinha desconto de uma promoção, a % manual **substitui-o**: a linha deixa de
+  pertencer a essa promoção e acende `DISCOUNTS_REVIEW` **[Escolha]**. Tirar a % deixa a linha ao
+  preço cheio (também acende `DISCOUNTS_REVIEW` se a linha tinha promoção);
+- acrescentar unidades a uma linha com % manual mantém a % em toda a linha (sem dividir a linha,
+  ao contrário das linhas com desconto de promoção) **[Escolha]**;
+- **Recalcular descontos** trata as linhas com % manual como fixas: mantêm o desconto e não recebem
+  promoções de produto, mas contam (ao preço líquido) para as bases das promoções sobre a
+  encomenda **[Decisão]**;
+- ao criar uma encomenda manual, as promoções avaliam-se com as linhas com % manual fixas, da
+  mesma forma;
+- a ficha da encomenda mostra a % na linha; a fatura já usa o preço líquido de cada linha;
+- histórico: a alteração de produtos regista a % de cada linha alterada;
+- a API do storefront **nunca** aceita este campo (campos desconhecidos são ignorados).
+
 ## 5. Morada de entrega
 
 A modal **Shipping address** (botão no cabeçalho de Shipments):
