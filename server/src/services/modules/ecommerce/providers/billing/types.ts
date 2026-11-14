@@ -16,7 +16,8 @@ export type InvoiceDraft = {
   customer: InvoiceCustomer;
   lines: InvoiceLine[];
   total: number;
-  payments: { method: 'STRIPE' | 'MANUAL' | 'STORE_CREDIT'; amount: number; date: string }[];
+  /** `name`: the billing payment method name (`paymentMethodName`); '' uses the configured method. */
+  payments: { method: 'STRIPE' | 'MANUAL' | 'STORE_CREDIT'; name: string; amount: number; date: string }[];
   /** Credit notes: the document being credited. */
   original?: { externalId: string; total: number };
   reason?: string;
