@@ -713,11 +713,20 @@ export type ReviewReason =
 
 export type ReviewFlag = { code: ReviewFlagCode; reason: ReviewReason; raisedAt: string; actor: string };
 
+/** NEW_UNITS: the order was fully shipped and got products since (spec 6.3). */
+export type ShippingRecalculationKind = 'WHOLE_ORDER' | 'NEW_UNITS';
+
+/** NEW_UNITS: the method picked for the products added since the shipment. */
+export type ShippingRecalculationInput = { providerId?: string; serviceId?: string };
+
 export type ShippingRecalculationPreview = {
+  kind: ShippingRecalculationKind;
   charged: number;
-  due: number;
+  invoiced: number;
   quote: number;
-  previousShipmentsCost: number;
+  method: { providerId: string; serviceId: string; name: string; tax: number } | null;
+  options: ShippingOption[];
+  needsMethod: boolean;
   mode: 'REPLACED' | 'APPENDED' | 'UNCHANGED';
   lines: ShippingLineView[];
   before: ModificationTotals;

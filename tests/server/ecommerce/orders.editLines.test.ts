@@ -760,7 +760,7 @@ describe('products save on a FULFILLED order (Review Focus 2)', () => {
     ]);
   });
 
-  it('adding a variant: PARTIALLY_FULFILLED, SHIP back once settled, no ARCHIVE; the quote prices only the new units', async () => {
+  it('adding a variant: PARTIALLY_FULFILLED, SHIP back once settled, no ARCHIVE; no quote, shipping to review (method to pick)', async () => {
     const ctx = setup();
     const id = await createOrder(ctx);
     await ctx.payments.addManualPayment(id, { amount: 7000, idempotencyKey: 'pay-1' }, 'user:1');
@@ -777,12 +777,8 @@ describe('products save on a FULFILLED order (Review Focus 2)', () => {
 
     expect(res.order.fulfillmentStatus).toBe('PARTIALLY_FULFILLED');
     expect(res.order.availableActions).not.toContain('ARCHIVE');
-    expect(ctx.findOption).toHaveBeenCalledTimes(1);
-    expect(ctx.findOption.mock.calls[0][0]).toMatchObject({
-      items: [{ variantId: 12, quantity: 1, weight: 0.3, width: 0, height: 0, depth: 0 }],
-      subtotal: 1500,
-    });
-    // Due = 500 already spent + 500 for the new unit ≠ 500 charged.
+    // Spec 6.3: fully shipped, the new units' method is picked in Recalculate shipping.
+    expect(ctx.findOption).not.toHaveBeenCalled();
     expect(flag(ctx, id, 'SHIPPING_REVIEW')).toMatchObject({ reason: 'PRODUCTS_CHANGED' });
 
     await ctx.payments.addManualPayment(id, { amount: 1500, idempotencyKey: 'pay-2' }, 'user:1');

@@ -204,24 +204,46 @@ export function planLineChange(
   };
 }
 
+/** Kept by a recalculation: an invoice includes the line or one of its corrections (spec 6.3). */
+const invoicedIn = (lines: ShippingLineView[], l: ShippingLineView): boolean =>
+  l.invoiced || correctionsOf(lines, l.id).some((c) => c.invoiced);
+
+/** The method of the most recent invoiced line: a recalculation charges the same company. */
+export function invoicedMethod(lines: ShippingLineView[]): ShippingMethodRef | null {
+  const latest = [...lines].sort(byId).reverse().find((l) => l.invoiced);
+  return latest
+    ? { providerId: latest.providerId, serviceId: latest.serviceId, name: latest.name, tax: latest.tax }
+    : null;
+}
+
+/**
+ * Recalculate shipping (spec 6.3): `due` is what the lines in scope should charge. Invoiced lines
+ * (and lines with an invoiced correction) stay; every other line in scope is dropped and one
+ * RECALCULATION line charges `due` minus the invoiced ones (negative: money back to the customer).
+ * Lines out of scope are never touched nor counted.
+ */
 export function planRecalculation(
   lines: ShippingLineView[],
   due: number,
-  meta: { method: ShippingMethodRef; at: string; actor: string }
-): { lines: ShippingLine[]; mode: PlanMode; charged: number; delta: number } {
+  meta: { method: ShippingMethodRef; at: string; actor: string },
+  inScope: (l: ShippingLineView) => boolean = () => true
+): { lines: ShippingLine[]; mode: PlanMode; charged: number; invoiced: number; delta: number } {
   const base = lines.map(plain);
-  const charged = chargedShipping(base);
+  const scoped = lines.filter(inScope);
+  const charged = chargedShipping(scoped);
+  const invoicedLines = scoped.filter((l) => invoicedIn(lines, l));
+  const invoiced = chargedShipping(invoicedLines);
   const delta = due - charged;
-  if (delta === 0) return { lines: base, mode: 'UNCHANGED', charged, delta };
+  if (delta === 0) return { lines: base, mode: 'UNCHANGED', charged, invoiced, delta };
 
-  const locked = lines.filter((l) => !replaceableIn(lines, l)).map(plain);
-  const amount = due - chargedShipping(locked);
-  const dropped = locked.length < base.length;
+  const keep = lines.filter((l) => !inScope(l) || invoicedIn(lines, l)).map(plain);
+  const amount = due - invoiced;
+  const dropped = keep.length < base.length;
   const out =
-    amount === 0 && locked.length
-      ? locked
+    amount === 0 && keep.length
+      ? keep
       : [
-          ...locked,
+          ...keep,
           {
             id: nextShippingLineId(base),
             origin: 'RECALCULATION' as const,
@@ -231,5 +253,5 @@ export function planRecalculation(
             actor: meta.actor,
           },
         ];
-  return { lines: out, mode: dropped ? 'REPLACED' : 'APPENDED', charged, delta };
+  return { lines: out, mode: dropped ? 'REPLACED' : 'APPENDED', charged, invoiced, delta };
 }

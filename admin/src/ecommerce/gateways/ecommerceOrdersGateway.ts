@@ -47,6 +47,7 @@ import type {
   ReviewFlagCode,
   ShipmentView,
   ShippingLineInput,
+  ShippingRecalculationInput,
   ShippingRecalculationPreview,
   TrackingInput,
   StoreCredit,
@@ -96,8 +97,14 @@ export default interface EcommerceOrdersGateway {
   ): Promise<EditResult>;
   /** Quotes the order's pending units at its current address. */
   fetchShippingOptions(id: number): Promise<ShippingQuote>;
-  previewShippingRecalculation(id: number): Promise<ShippingRecalculationPreview>;
-  recalculateShipping(id: number, input: { operationId: string }): Promise<EditResult>;
+  previewShippingRecalculation(
+    id: number,
+    input?: ShippingRecalculationInput
+  ): Promise<ShippingRecalculationPreview>;
+  recalculateShipping(
+    id: number,
+    input: ShippingRecalculationInput & { operationId: string }
+  ): Promise<EditResult>;
   editShippingLine(
     id: number,
     lineId: number,
@@ -261,11 +268,17 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
     return this.httpClient.get(`${this.orders}/${id}/shipping-options`);
   }
 
-  async previewShippingRecalculation(id: number): Promise<ShippingRecalculationPreview> {
-    return this.httpClient.post(`${this.orders}/${id}/shipping/recalculate/preview`, {});
+  async previewShippingRecalculation(
+    id: number,
+    input: ShippingRecalculationInput = {}
+  ): Promise<ShippingRecalculationPreview> {
+    return this.httpClient.post(`${this.orders}/${id}/shipping/recalculate/preview`, input);
   }
 
-  async recalculateShipping(id: number, input: { operationId: string }): Promise<EditResult> {
+  async recalculateShipping(
+    id: number,
+    input: ShippingRecalculationInput & { operationId: string }
+  ): Promise<EditResult> {
     return this.httpClient.post(`${this.orders}/${id}/shipping/recalculate`, input);
   }
 

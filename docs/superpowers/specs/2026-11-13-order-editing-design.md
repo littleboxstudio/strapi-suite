@@ -170,7 +170,9 @@ encomenda é a soma das linhas, menos o desconto de portes das promoções.
 
 **[Decisão]** Uma linha de portes **pode ser substituída** (valor e/ou método) **só se não há
 nenhum envio e nenhuma fatura emitida a inclui**. Caso contrário, qualquer alteração cria **uma
-linha nova com a diferença** (positiva ou negativa).
+linha nova com a diferença** (positiva ou negativa). Esta regra vale para **Edit**; o
+**Recalcular portes** segue a sua própria regra (6.3, **[Decisão, 2026-11-14]**): só a fatura
+impede substituir uma linha.
 
 Consequências:
 - diferença positiva → aumenta o valor em dívida; **Adicionar pagamento** e **Enviar instruções de
@@ -184,21 +186,30 @@ Consequências:
 
 Acima da tabela de envios e entregas aparece a **tabela de portes** (uma linha por cobrança).
 
-- **Recalcular portes** (botão no topo da secção, enquanto puder ser alterada) **[Decisão]**: os
-  portes são sempre recalculados em função do **estado atual** da encomenda. As três situações
-  **[Decisão]** usam a mesma fórmula abaixo: **totalmente enviada** → cota só os produtos
-  acrescentados (são as únicas unidades por enviar); **parcialmente enviada** → cota o que falta
-  enviar + os produtos novos; **sem envios** → cota a encomenda inteira (recálculo de raiz). **Portes devidos** =
-  custo dos envios já feitos + cotação do método atual para as **unidades ainda por enviar** e a
-  morada atual (como o `RECALCULATE` de hoje). Compara com os **portes cobrados** (6.1):
-  - devidos > cobrados → cobrança extra (regra 6.2: substitui ou linha positiva), que entra no
-    próximo pagamento;
-  - devidos < cobrados → a diferença volta ao cliente pelo fluxo de reembolso existente (regra 6.2:
-    substitui ou linha negativa → excedente → Reembolsar);
-  - iguais → nada muda (o aviso apaga-se).
+- **Recalcular portes** (botão no topo da secção, enquanto puder ser alterada) **[Decisão, 2026-11-14]**.
+  "Faturada" é por linha: só conta como porte faturado a linha incluída numa fatura em vigor (ou
+  com uma correção faturada); pode haver linhas faturadas e por faturar na mesma encomenda.
+  - **Não enviada** ou **parcialmente enviada**: cota a **encomenda inteira** (todas as unidades,
+    enviadas ou não) para a morada atual, com o método da linha faturada mais recente (a **mesma
+    empresa** do que já foi faturado) ou, sem linhas faturadas, com o método atual. As linhas
+    faturadas ficam; as **não faturadas** (mesmo pagas ou com envios) são **substituídas** por uma
+    linha `RECALCULATION` = cotação − portes faturados. Sem linhas faturadas é o recálculo do porte
+    atual; com linhas faturadas, positivo → cobrança extra no próximo pagamento; negativo →
+    excedente → **Elegível para reembolso** / Reembolsar (nunca reembolso automático).
+  - **Enviada** (estava totalmente enviada e depois acrescentaram produtos — a última mudança de
+    estado de envio foi `FULFILLED` → parcial, feita por uma edição de produtos): cota **só os
+    produtos acrescentados desde então** e o lojista **escolhe o método** (lista dos métodos que
+    servem a morada e o peso, com preço). Acrescenta uma linha `RECALCULATION` com essa cotação e
+    esse método; as linhas anteriores ao envio não mudam. As linhas criadas depois do envio que
+    não estejam faturadas são substituídas (recalcular duas vezes não cobra duas vezes). Uma
+    encomenda `FULFILLED` sem produtos novos não muda. Um envio anulado (sem edição de produtos)
+    não conta como "enviada": volta ao caso parcial.
+  - Cotação igual ao cobrado → nada muda (o aviso apaga-se).
   Comparação sempre em valores **brutos**: o desconto de portes das promoções não entra; mudar os
   portes brutos nunca mexe nos descontos, só acende `DISCOUNTS_REVIEW` se houver promoção de portes
   **[Decisão]**. Mostra o resultado antes de confirmar **[Escolha]**. Apaga `SHIPPING_REVIEW`.
+  Depois de guardar produtos numa encomenda "enviada", o `SHIPPING_REVIEW` acende sem cotar (o
+  método é escolhido no recálculo).
 - **Edit** (coluna Actions, só sem envios e só em linhas **não pagas** **[Decisão, 2026-11-14]**): abre a modal de portes. Lista **só os métodos que servem
   o país da morada e aguentam o peso** da encomenda, cada um com o **preço sugerido** (cotação); o
   lojista escolhe o método e pode **alterar o preço**. Guardar segue 6.2. Apaga `SHIPPING_REVIEW`.
