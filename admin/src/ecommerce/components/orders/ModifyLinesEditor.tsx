@@ -17,23 +17,44 @@ import {
 } from '@strapi/design-system';
 import { Trash } from '@strapi/icons';
 import QuantityInput from './QuantityInput';
+import DiscountPercentInput from './DiscountPercentInput';
 import { FIT_CELL, PRODUCT_CELL } from './lineCells';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { formatCents } from '../../utils/money';
-import type { ModifyLineDraft } from '../../utils/modification';
+import {
+  modifyLineDiscountEditable,
+  modifyLineUnitPrice,
+  type ModifyLineDraft,
+} from '../../utils/modification';
 
 type Props = {
   lines: ModifyLineDraft[];
   onQuantityChange: (key: string, quantity: number) => void;
+  /** The typed manual discount percent of a line (spec 4.1). */
+  onDiscountChange: (key: string, discount: string) => void;
   onRemove: (key: string) => void;
   onRestore: (key: string) => void;
   /** Translated error of a line, or undefined. */
   errorFor: (key: string) => string | undefined;
+  /** Translated error of a line's discount field, or undefined. */
+  discountErrorFor: (key: string) => string | undefined;
   disabled?: boolean;
 };
 
-/** Lines of the modification draft: existing lines can be changed, removed (and restored); gifts are read-only. */
-const ModifyLinesEditor = ({ lines, onQuantityChange, onRemove, onRestore, errorFor, disabled }: Props) => {
+/**
+ * Lines of the modification draft: existing lines can be changed, removed (and restored); gifts are
+ * read-only. A manual discount percent goes on lines with nothing shipped (spec 4.1).
+ */
+const ModifyLinesEditor = ({
+  lines,
+  onQuantityChange,
+  onDiscountChange,
+  onRemove,
+  onRestore,
+  errorFor,
+  discountErrorFor,
+  disabled,
+}: Props) => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
@@ -49,10 +70,10 @@ const ModifyLinesEditor = ({ lines, onQuantityChange, onRemove, onRestore, error
   }
 
   return (
-    <Table colCount={5} rowCount={lines.length}>
+    <Table colCount={6} rowCount={lines.length}>
       <Thead>
         <Tr>
-          {(['product', 'unitPrice', 'quantity', 'subtotal'] as const).map((column) => (
+          {(['product', 'unitPrice', 'quantity', 'discount', 'subtotal'] as const).map((column) => (
             <Th key={column}>
               <Typography variant="sigma">{t(`ecommerce.orders.lines.${column}`)}</Typography>
             </Th>
@@ -68,6 +89,8 @@ const ModifyLinesEditor = ({ lines, onQuantityChange, onRemove, onRestore, error
           const label = line.option ? `${line.name} — ${line.option}` : line.name;
           const validQuantity = Number.isSafeInteger(line.quantity) && line.quantity > 0;
           const editable = !line.isGift && !line.removed;
+          const unitPrice = modifyLineUnitPrice(line);
+          const discountError = discountErrorFor(line.key);
           return (
             <Tr key={line.key}>
               <Td style={PRODUCT_CELL}>
@@ -105,7 +128,7 @@ const ModifyLinesEditor = ({ lines, onQuantityChange, onRemove, onRestore, error
                 </Flex>
               </Td>
               <Td style={FIT_CELL}>
-                <Typography textColor="neutral800">{formatCents(line.unitPrice, uiLocale)}</Typography>
+                <Typography textColor="neutral800">{formatCents(unitPrice, uiLocale)}</Typography>
               </Td>
               <Td style={FIT_CELL}>
                 {editable ? (
@@ -129,8 +152,23 @@ const ModifyLinesEditor = ({ lines, onQuantityChange, onRemove, onRestore, error
                 )}
               </Td>
               <Td style={FIT_CELL}>
+                <Box style={{ width: 80 }}>
+                  <Field.Root name={`lines.${line.key}.discountPercent`} error={discountError}>
+                    <VisuallyHidden>
+                      <Field.Label>{t('ecommerce.orders.lines.discount')}</Field.Label>
+                    </VisuallyHidden>
+                    <DiscountPercentInput
+                      value={line.discount}
+                      disabled={disabled || !modifyLineDiscountEditable(line)}
+                      onChange={(discount) => onDiscountChange(line.key, discount)}
+                    />
+                    <Field.Error />
+                  </Field.Root>
+                </Box>
+              </Td>
+              <Td style={FIT_CELL}>
                 <Typography textColor={line.removed ? 'neutral500' : 'neutral800'}>
-                  {formatCents(line.removed || !validQuantity ? 0 : line.unitPrice * line.quantity, uiLocale)}
+                  {formatCents(line.removed || !validQuantity ? 0 : unitPrice * line.quantity, uiLocale)}
                 </Typography>
               </Td>
               <Td style={FIT_CELL}>

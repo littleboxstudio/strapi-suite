@@ -7,6 +7,7 @@ import {
   emptyAddressForm,
   emptyOrderForm,
   lineSubtotal,
+  lineUnitNet,
   sumPreviewTotals,
   toOrderErrorMap,
   validateOrderForm,
@@ -340,7 +341,7 @@ describe('promotion codes', () => {
 describe('order quote', () => {
   const quote = (over: Partial<OrderQuote> = {}): OrderQuote => ({
     lines: [
-      { sourceIndex: 0, variantId: 1, productId: 10, unitPrice: 1250, quantity: 2, unitDiscount: 0, isGift: false, refs: [], sku: 'MUG', name: 'Mug', option: null, imageUrl: null, tax: 23 },
+      { sourceIndex: 0, variantId: 1, productId: 10, unitPrice: 1250, quantity: 2, unitDiscount: 0, manualDiscountPercent: null, isGift: false, refs: [], sku: 'MUG', name: 'Mug', option: null, imageUrl: null, tax: 23 },
       {
         sourceIndex: null,
         variantId: 31,
@@ -348,6 +349,7 @@ describe('order quote', () => {
         unitPrice: 300,
         quantity: 1,
         unitDiscount: 300,
+        manualDiscountPercent: null,
         isGift: true,
         refs: [{ promotionId: 4, benefitIndex: 0, amount: 300 }],
         sku: 'SOCK-B',
@@ -600,5 +602,30 @@ describe('pruneGiftChoices', () => {
     // Unchanged choices keep their identity (no re-quote loop).
     const kept = { 4: 30 };
     expect(pruneGiftChoices(kept, q)).toBe(kept);
+  });
+});
+
+describe('manual line discount on a new order (spec 4.1)', () => {
+  it('the line subtotal uses the discounted unit price', () => {
+    expect(lineSubtotal(line({ unitPrice: 2000, quantity: 2, discount: '10' }))).toBe(3600);
+    expect(lineUnitNet(line({ unitPrice: 2000, discount: '12,5' }))).toBe(1750);
+    expect(lineUnitNet(line({ unitPrice: 2000, discount: 'x' }))).toBe(2000);
+  });
+
+  it('flags an invalid percent on its line', () => {
+    const form = { ...validForm(), lines: [line(), line({ variantId: 2, discount: '101' })] };
+    expect(validateOrderForm(form)).toEqual([{ path: 'lines.1.discountPercent', code: 'INVALID_PERCENT' }]);
+  });
+
+  it('create and quote send the percent only when one is set', () => {
+    const form = { ...validForm(), lines: [line({ discount: '15' }), line({ variantId: 2, discount: '' })] };
+    expect(buildCreateOrderInput(form, 'k').lines).toEqual([
+      { variantId: 1, quantity: 1, discountPercent: 15 },
+      { variantId: 2, quantity: 1 },
+    ]);
+    expect(buildQuoteInput(form, {}).lines).toEqual([
+      { variantId: 1, quantity: 1, discountPercent: 15 },
+      { variantId: 2, quantity: 1 },
+    ]);
   });
 });

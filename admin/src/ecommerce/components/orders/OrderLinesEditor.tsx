@@ -15,21 +15,34 @@ import {
 } from '@strapi/design-system';
 import { Trash } from '@strapi/icons';
 import QuantityInput from './QuantityInput';
+import DiscountPercentInput from './DiscountPercentInput';
 import { FIT_CELL, PRODUCT_CELL } from './lineCells';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { formatCents } from '../../utils/money';
-import { lineSubtotal, type OrderLineDraft } from '../../utils/orderForm';
+import { lineSubtotal, lineUnitNet, type OrderLineDraft } from '../../utils/orderForm';
 
 type Props = {
   lines: OrderLineDraft[];
   onQuantityChange: (index: number, quantity: number) => void;
+  /** The typed manual discount percent of line `index` (spec 4.1). */
+  onDiscountChange: (index: number, discount: string) => void;
   onRemove: (index: number) => void;
   /** Translated error of line `index` (quantity or variant), or undefined. */
   errorFor: (index: number) => string | undefined;
+  /** Translated error of line `index`'s discount, or undefined. */
+  discountErrorFor: (index: number) => string | undefined;
   disabled?: boolean;
 };
 
-const OrderLinesEditor = ({ lines, onQuantityChange, onRemove, errorFor, disabled }: Props) => {
+const OrderLinesEditor = ({
+  lines,
+  onQuantityChange,
+  onDiscountChange,
+  onRemove,
+  errorFor,
+  discountErrorFor,
+  disabled,
+}: Props) => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
@@ -45,10 +58,10 @@ const OrderLinesEditor = ({ lines, onQuantityChange, onRemove, errorFor, disable
   }
 
   return (
-    <Table colCount={5} rowCount={lines.length}>
+    <Table colCount={6} rowCount={lines.length}>
       <Thead>
         <Tr>
-          {(['product', 'unitPrice', 'quantity', 'subtotal'] as const).map((column) => (
+          {(['product', 'unitPrice', 'quantity', 'discount', 'subtotal'] as const).map((column) => (
             <Th key={column}>
               <Typography variant="sigma">{t(`ecommerce.orders.lines.${column}`)}</Typography>
             </Th>
@@ -61,6 +74,7 @@ const OrderLinesEditor = ({ lines, onQuantityChange, onRemove, errorFor, disable
       <Tbody>
         {lines.map((line, index) => {
           const error = errorFor(index);
+          const discountError = discountErrorFor(index);
           return (
             <Tr key={line.variantId}>
               <Td style={PRODUCT_CELL}>
@@ -74,7 +88,7 @@ const OrderLinesEditor = ({ lines, onQuantityChange, onRemove, errorFor, disable
                 </Flex>
               </Td>
               <Td style={FIT_CELL}>
-                <Typography textColor="neutral800">{formatCents(line.unitPrice, uiLocale)}</Typography>
+                <Typography textColor="neutral800">{formatCents(lineUnitNet(line), uiLocale)}</Typography>
               </Td>
               <Td style={FIT_CELL}>
                 <Box style={{ width: 120 }}>
@@ -87,6 +101,21 @@ const OrderLinesEditor = ({ lines, onQuantityChange, onRemove, errorFor, disable
                         disabled={disabled}
                         onChange={(quantity) => onQuantityChange(index, quantity)}
                       />
+                    <Field.Error />
+                  </Field.Root>
+                </Box>
+              </Td>
+              <Td style={FIT_CELL}>
+                <Box style={{ width: 80 }}>
+                  <Field.Root name={`lines.${index}.discountPercent`} error={discountError}>
+                    <VisuallyHidden>
+                      <Field.Label>{t('ecommerce.orders.lines.discount')}</Field.Label>
+                    </VisuallyHidden>
+                    <DiscountPercentInput
+                      value={line.discount ?? ''}
+                      disabled={disabled}
+                      onChange={(discount) => onDiscountChange(index, discount)}
+                    />
                     <Field.Error />
                   </Field.Root>
                 </Box>

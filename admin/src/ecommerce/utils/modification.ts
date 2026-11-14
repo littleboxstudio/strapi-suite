@@ -1,4 +1,5 @@
 import type { FieldError, LinesPreview, Order, VariantSearchResult } from '../orderTypes';
+import { lineUnitDiscount, parseDiscountPercent, percentToInput } from './lineDiscount';
 
 /**
  * One line of the products draft. Existing lines keep their `orderLineId`; removing one only
@@ -14,6 +15,12 @@ export type ModifyLineDraft = {
   sku: string;
   /** Price per unit after the product discount, for display only. */
   unitPrice: number;
+  /** Price per unit before any discount (the base of the manual percent, spec 4.1). */
+  listPrice: number;
+  /** The manual discount percent as typed ('' = none). */
+  discount: string;
+  /** The line's manual percent before the edit (null = none, and for new lines). */
+  originalDiscountPercent: number | null;
   quantity: number;
   /** Quantity on the order before the edit (0 for new lines). */
   originalQuantity: number;
@@ -27,7 +34,8 @@ export type ModifyLineDraft = {
 /** First code per UI key: `line.<key>`, `lines`, `form`. */
 export type ModificationErrorMap = Record<string, string>;
 
-export function linesDraftFromOrder(order: Order): ModifyLineDraft[] {
+/** `locale` writes a stored percent with the UI's decimal separator. */
+export function linesDraftFromOrder(order: Order, locale = 'en'): ModifyLineDraft[] {
   return order.lines.map((l) => ({
     key: `line-${l.id}`,
     orderLineId: l.id,
@@ -36,6 +44,9 @@ export function linesDraftFromOrder(order: Order): ModifyLineDraft[] {
     option: l.option,
     sku: l.sku,
     unitPrice: l.unitPrice - l.unitDiscount,
+    listPrice: l.unitPrice,
+    discount: percentToInput(l.manualDiscountPercent ?? null, locale),
+    originalDiscountPercent: l.manualDiscountPercent ?? null,
     quantity: l.quantity,
     originalQuantity: l.quantity,
     shipped: l.shipped,
@@ -64,6 +75,9 @@ export function addModifyLine(lines: ModifyLineDraft[], v: VariantSearchResult):
       option: v.option,
       sku: v.sku,
       unitPrice: v.price,
+      listPrice: v.price,
+      discount: '',
+      originalDiscountPercent: null,
       quantity: 1,
       originalQuantity: 0,
       shipped: 0,
@@ -82,6 +96,36 @@ export function setModifyLineQuantity(
   return lines.map((l) => (l.key === key && !l.isGift ? { ...l, quantity } : l));
 }
 
+/** A manual percent goes only on a line with nothing shipped, not a gift, not removed. */
+export function modifyLineDiscountEditable(line: ModifyLineDraft): boolean {
+  return !line.isGift && !line.removed && line.shipped === 0;
+}
+
+/** Sets the typed percent of a line (ignored where it cannot be edited). */
+export function setModifyLineDiscount(
+  lines: ModifyLineDraft[],
+  key: string,
+  discount: string
+): ModifyLineDraft[] {
+  return lines.map((l) => (l.key === key && modifyLineDiscountEditable(l) ? { ...l, discount } : l));
+}
+
+/**
+ * The unit price shown for a line: with the typed percent on its list price; with no percent, the
+ * list price once a percent is removed, else the line's own net price (a promotion discount).
+ */
+export function modifyLineUnitPrice(line: ModifyLineDraft): number {
+  const parsed = parseDiscountPercent(line.discount);
+  if (!parsed.ok) return line.unitPrice;
+  if (parsed.value !== null) return line.listPrice - lineUnitDiscount(line.listPrice, parsed.value);
+  return line.originalDiscountPercent !== null ? line.listPrice : line.unitPrice;
+}
+
+const discountChanged = (l: ModifyLineDraft) => {
+  const parsed = parseDiscountPercent(l.discount);
+  return !parsed.ok || parsed.value !== l.originalDiscountPercent;
+};
+
 export function removeModifyLine(lines: ModifyLineDraft[], key: string): ModifyLineDraft[] {
   const line = lines.find((l) => l.key === key);
   if (!line || line.isGift) return lines;
@@ -98,7 +142,7 @@ export function linesDraftChanged(lines: ModifyLineDraft[]): boolean {
   return lines.some((l) => {
     if (l.isGift) return false;
     if (l.orderLineId === undefined) return !l.removed;
-    return l.removed || l.quantity !== l.originalQuantity;
+    return l.removed || l.quantity !== l.originalQuantity || discountChanged(l);
   });
 }
 
@@ -107,9 +151,16 @@ export function sentLines(lines: ModifyLineDraft[]): ModifyLineDraft[] {
   return lines.filter((l) => l.isGift || !l.removed);
 }
 
+/** The percent sent for a line: only a valid one that is set (absent = none, spec 4.1). */
+const sentPercent = (l: ModifyLineDraft): { discountPercent?: number } => {
+  if (l.isGift) return {};
+  const parsed = parseDiscountPercent(l.discount);
+  return parsed.ok && parsed.value !== null ? { discountPercent: parsed.value } : {};
+};
+
 /** Request body of `lines/preview` and (with an operationId) `lines`. */
 export function buildLinesInput(lines: ModifyLineDraft[]): {
-  lines: { orderLineId?: number; variantId: number; quantity: number }[];
+  lines: { orderLineId?: number; variantId: number; quantity: number; discountPercent?: number }[];
 } {
   return {
     lines: sentLines(lines).map((l) =>
@@ -118,8 +169,9 @@ export function buildLinesInput(lines: ModifyLineDraft[]): {
             orderLineId: l.orderLineId,
             variantId: l.variantId,
             quantity: l.isGift ? l.originalQuantity : l.quantity,
+            ...sentPercent(l),
           }
-        : { variantId: l.variantId, quantity: l.quantity }
+        : { variantId: l.variantId, quantity: l.quantity, ...sentPercent(l) }
     ),
   };
 }
@@ -137,6 +189,9 @@ export function validateLinesDraft(lines: ModifyLineDraft[]): FieldError[] {
     else if (l.quantity < l.shipped) {
       errors.push({ path: `lines.${i}.quantity`, code: 'QUANTITY_BELOW_SHIPPED' });
     }
+    if (!parseDiscountPercent(l.discount).ok) {
+      errors.push({ path: `lines.${i}.discountPercent`, code: 'INVALID_PERCENT' });
+    }
   });
   lines.forEach((l) => {
     if (l.removed && !l.isGift && l.orderLineId !== undefined && l.shipped > 0) {
@@ -147,6 +202,7 @@ export function validateLinesDraft(lines: ModifyLineDraft[]): FieldError[] {
 }
 
 const LINE_PATH = /^lines\.(\d+)(\.|$)/;
+const DISCOUNT_PATH = /^lines\.(\d+)\.discountPercent$/;
 const REMOVED_PATH = /^removed\.(\d+)$/;
 
 /** Server (or local) error paths → the UI keys of the products draft. First code per key wins. */
@@ -160,6 +216,13 @@ export function toModificationErrorMap(
     if (!(key in map)) map[key] = code;
   };
   errors.forEach(({ path, code }) => {
+    // Discount errors are shown on the line's discount field (`discount.<key>`).
+    const discount = DISCOUNT_PATH.exec(path);
+    if (discount) {
+      const draft = sent[Number(discount[1])];
+      put(draft ? `discount.${draft.key}` : 'form', code);
+      return;
+    }
     const line = LINE_PATH.exec(path);
     if (line) {
       const draft = sent[Number(line[1])];

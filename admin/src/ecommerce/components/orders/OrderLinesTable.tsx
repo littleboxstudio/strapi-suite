@@ -20,6 +20,7 @@ import {
   pendingLabel,
   type PromotionLocales,
 } from '../../utils/orderDetail';
+import { formatLineDiscount } from '../../utils/lineDiscount';
 import type { OrderLine, OrderPromotion } from '../../orderTypes';
 import { PRODUCT_CELL } from './lineCells';
 
@@ -132,6 +133,14 @@ const OrderLinesTable = ({ lines, promotions = [], locales = { locale: '' } }: P
                   {line.unitDiscount > 0 && !line.isGift && (
                     <Typography variant="pi" textColor="success600" style={{ whiteSpace: 'nowrap' }}>
                       {t('ecommerce.orders.detail.lines.unitDiscount', { amount: money(line.unitDiscount) })}
+                    </Typography>
+                  )}
+                  {line.manualDiscountPercent != null && (
+                    // Spec 4.1: the admin's manual percent on this line.
+                    <Typography variant="pi" textColor="success600" style={{ whiteSpace: 'nowrap' }}>
+                      {t('ecommerce.orders.detail.lines.manualDiscount', {
+                        percent: formatLineDiscount(line.manualDiscountPercent, uiLocale),
+                      })}
                     </Typography>
                   )}
                   <Typography textColor="neutral800">{money(finalPrice)}</Typography>

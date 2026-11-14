@@ -4,7 +4,10 @@ import {
   buildLinesInput,
   linesDraftChanged,
   linesDraftFromOrder,
+  modifyLineDiscountEditable,
+  modifyLineUnitPrice,
   removeModifyLine,
+  setModifyLineDiscount,
   restoreModifyLine,
   setModifyLineQuantity,
   toModificationErrorMap,
@@ -23,6 +26,7 @@ const orderLine = (over: Partial<OrderLine> = {}): OrderLine => ({
   imageUrl: null,
   unitPrice: 1250,
   unitDiscount: 250,
+  manualDiscountPercent: null,
   quantity: 2,
   returnedQuantity: 0,
   tax: 23,
@@ -237,5 +241,78 @@ describe('linesDraftChanged', () => {
     const key = keyOf(lines, 1);
     expect(linesDraftChanged(restoreModifyLine(removeModifyLine(lines, key), key))).toBe(false);
     expect(linesDraftChanged(setModifyLineQuantity(lines, key, 2))).toBe(false);
+  });
+});
+
+describe('manual line discount in the products draft (spec 4.1)', () => {
+  const plain = () =>
+    order({
+      lines: [
+        orderLine({ unitDiscount: 0 }),
+        orderLine({ id: 11, variantId: 2, sku: 'TEE', quantity: 1, shipped: 1, unitDiscount: 0 }),
+        orderLine({ id: 12, variantId: 3, sku: 'GIFT', quantity: 1, isGift: true, unitDiscount: 1250 }),
+        orderLine({ id: 13, variantId: 4, sku: 'HAT', quantity: 1, unitDiscount: 125, manualDiscountPercent: 10 }),
+      ],
+    } as any);
+
+  it('copies the list price and the stored percent (as typed in the UI locale)', () => {
+    const lines = linesDraftFromOrder(plain(), 'pt');
+    expect(lines[0]).toMatchObject({ listPrice: 1250, discount: '', originalDiscountPercent: null });
+    expect(lines[3]).toMatchObject({ listPrice: 1250, unitPrice: 1125, discount: '10', originalDiscountPercent: 10 });
+  });
+
+  it('only lines with nothing shipped, not gifts and not removed take a discount', () => {
+    const lines = linesDraftFromOrder(plain());
+    expect(lines.map(modifyLineDiscountEditable)).toEqual([true, false, false, true]);
+    const changed = setModifyLineDiscount(lines, keyOf(lines, 2), '10');
+    expect(changed).toEqual(lines);
+    expect(setModifyLineDiscount(lines, keyOf(lines, 3, true), '10')).toEqual(lines);
+  });
+
+  it('the unit price shown follows the typed percent', () => {
+    let lines = linesDraftFromOrder(plain());
+    lines = setModifyLineDiscount(lines, keyOf(lines, 1), '20');
+    expect(modifyLineUnitPrice(lines[0])).toBe(1000);
+    lines = setModifyLineDiscount(lines, keyOf(lines, 4), '');
+    expect(modifyLineUnitPrice(lines[3])).toBe(1250);
+    // A line with a promotion discount and no percent keeps its net price.
+    const promo = linesDraftFromOrder(order());
+    expect(modifyLineUnitPrice(promo[0])).toBe(1000);
+  });
+
+  it('a changed percent is a change; sent only when set; invalid → INVALID_PERCENT', () => {
+    let lines = linesDraftFromOrder(plain());
+    expect(linesDraftChanged(lines)).toBe(false);
+    lines = setModifyLineDiscount(lines, keyOf(lines, 1), '12,5');
+    lines = setModifyLineDiscount(lines, keyOf(lines, 4), '');
+    expect(linesDraftChanged(lines)).toBe(true);
+    expect(buildLinesInput(lines).lines).toEqual([
+      { orderLineId: 10, variantId: 1, quantity: 2, discountPercent: 12.5 },
+      { orderLineId: 11, variantId: 2, quantity: 1 },
+      { orderLineId: 12, variantId: 3, quantity: 1 },
+      { orderLineId: 13, variantId: 4, quantity: 1 },
+    ]);
+    lines = setModifyLineDiscount(lines, keyOf(lines, 1), '0');
+    expect(validateLinesDraft(lines)).toEqual([{ path: 'lines.0.discountPercent', code: 'INVALID_PERCENT' }]);
+  });
+
+  it('a new line can take a percent', () => {
+    let lines = addModifyLine(linesDraftFromOrder(plain()), variant());
+    lines = setModifyLineDiscount(lines, keyOf(lines, 5), '50');
+    expect(buildLinesInput(lines).lines.at(-1)).toEqual({ variantId: 5, quantity: 1, discountPercent: 50 });
+    expect(modifyLineUnitPrice(lines.at(-1)!)).toBe(450);
+  });
+
+  it('discount errors go to the discount field of the line', () => {
+    const lines = linesDraftFromOrder(plain());
+    expect(
+      toModificationErrorMap(lines, [
+        { path: 'lines.0.discountPercent', code: 'INVALID_PERCENT' },
+        { path: 'lines.1.discountPercent', code: 'DISCOUNT_LINE_SHIPPED' },
+      ])
+    ).toEqual({
+      [`discount.${lines[0].key}`]: 'INVALID_PERCENT',
+      [`discount.${lines[1].key}`]: 'DISCOUNT_LINE_SHIPPED',
+    });
   });
 });

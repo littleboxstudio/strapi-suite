@@ -123,6 +123,8 @@ export type OrderLine = {
   imageUrl: string | null;
   unitPrice: number;
   unitDiscount: number;
+  /** The admin's manual discount percent (spec 4.1); null = none. */
+  manualDiscountPercent: number | null;
   quantity: number;
   returnedQuantity: number;
   tax: number;
@@ -396,7 +398,8 @@ export const MAX_PROMOTION_CODES = 5;
 
 /** `POST orders/quote`: prices a cart with promotions, writes nothing. */
 export type OrderQuoteInput = {
-  lines: { variantId: number; quantity: number }[];
+  /** `discountPercent`: the manual line discount (spec 4.1); omitted when none. */
+  lines: { variantId: number; quantity: number; discountPercent?: number }[];
   locale: string;
   email?: string | null;
   promotionCodes?: string[];
@@ -413,6 +416,8 @@ export type OrderQuoteLine = {
   unitPrice: number;
   quantity: number;
   unitDiscount: number;
+  /** The manual discount percent (spec 4.1); null = none. */
+  manualDiscountPercent: number | null;
   isGift: boolean;
   refs: { promotionId: number; benefitIndex: number; amount: number }[];
   sku: string;
@@ -469,7 +474,8 @@ export type CreateOrderInput = {
   shippingAddress: Address;
   billingAddress: Address;
   locale: string;
-  lines: { variantId: number; quantity: number }[];
+  /** `discountPercent`: the manual line discount (spec 4.1); omitted when none. */
+  lines: { variantId: number; quantity: number; discountPercent?: number }[];
   shipping: { providerId: string; serviceId: string };
   notes?: string;
   /** Required by the server: a repeated key returns the order created first. */
@@ -573,7 +579,7 @@ export type LinesPreview = {
   before: ModificationTotals;
   after: ModificationTotals;
   lineChanges: {
-    kind: 'ADDED' | 'REMOVED' | 'QUANTITY_CHANGED' | 'UNCHANGED';
+    kind: 'ADDED' | 'REMOVED' | 'QUANTITY_CHANGED' | 'DISCOUNT_CHANGED' | 'UNCHANGED';
     orderLineId?: number;
     variantId: number;
     previousQuantity: number;
@@ -586,7 +592,8 @@ export type LinesPreview = {
 };
 
 export type LinesInput = {
-  lines: { orderLineId?: number; variantId: number; quantity: number }[];
+  /** `discountPercent`: the manual line discount (spec 4.1); null = none. */
+  lines: { orderLineId?: number; variantId: number; quantity: number; discountPercent?: number | null }[];
 };
 
 // ---------------------------------------------------------------------------
