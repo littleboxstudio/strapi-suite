@@ -629,7 +629,8 @@ describe('EcommerceStripeWebhookService.handle', () => {
       const { orderId, refund } = await seedRefund(s, 'COMPLETED');
       await s.orders.recalculate(orderId, {});
       const order = () => s.tables[UIDS.order].find((o) => o.id === orderId);
-      expect(order().paymentStatus).toBe('PARTIALLY_REFUNDED');
+      // The refund leaves the order owing money: a payment state.
+      expect(order().paymentStatus).toBe('PARTIALLY_PAID');
 
       expect(
         await deliver(

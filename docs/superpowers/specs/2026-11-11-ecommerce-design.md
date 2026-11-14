@@ -334,7 +334,10 @@ Define a política deixada em aberto no ponto 2.19 das Promoções:
 ### 4.10 Cálculo do PaymentStatus (prioridade determinística) **[Escolha técnica]**
 Com `paid` = liquidados, `refunded` = reembolsos monetários concluídos e reembolsos de vale,
 `net = paid − refunded` e `total` = total atual:
-1. `refunded > 0` e `net ≤ 0` → `REFUNDED`
+0. `refunded > 0` e `due > 0` (depois de um reembolso a encomenda voltou a custar mais, ex.:
+   produtos acrescentados; o cliente deve dinheiro) → `PARTIALLY_PAID` se `net > 0`, senão
+   `PENDING`. Estados de reembolso só quando não há nada por pagar **[Decisão, 2026-11-14]**
+1. `refunded > 0` e `net ≤ 0` → `REFUNDED` (a encomenda ficou sem valor)
 2. `excess > 0` (há dinheiro a devolver: pago a mais, devolução ou encomenda cancelada com valor
    retido): se já houve algum reembolso (`refunded > 0`) → `PARTIALLY_REFUNDED`; se ainda não houve
    → `REFUND_DUE` ("Reembolso pendente"). Um reembolso Stripe em processamento só conta quando é

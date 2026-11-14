@@ -473,6 +473,7 @@ describe('shipping charges texts', () => {
     'ecommerce.orders.shippingCharges.columns.actions',
     'ecommerce.orders.shippingCharges.charged',
     'ecommerce.orders.shippingCharges.invoiced',
+    'ecommerce.orders.amountDue.text',
     'ecommerce.orders.shippingCharges.pickMethod',
     'ecommerce.orders.shippingCharges.pickMethodFirst',
     'ecommerce.orders.errors.SHIPPING_METHOD_REQUIRED',

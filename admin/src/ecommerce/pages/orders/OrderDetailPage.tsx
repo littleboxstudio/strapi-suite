@@ -249,6 +249,34 @@ const OrderDetailPage = () => {
 
       {/* Every notice of the order in one stack, 12px apart. */}
       <ReviewAlerts order={order} canManage={canManage} onResult={showResult}>
+        {order.orderStatus === 'OPEN' && order.summary.due > 0 && (
+          // The customer still owes money: Add payment / Send payment instructions (the latter
+          // stays on the outdated-link notice when that one shows).
+          <NoticeBar
+            text={t('ecommerce.orders.amountDue.text', { amount: formatCents(order.summary.due, uiLocale) })}
+            actions={
+              paymentActions.length ? (
+                <>
+                  {paymentActions
+                    .filter(
+                      (a) => !(a === 'SEND_PAYMENT_INSTRUCTIONS' && paymentLinkOutdated(order.summary))
+                    )
+                    .map((action) => (
+                      <Button
+                        key={action}
+                        variant="secondary"
+                        size="S"
+                        disabled={busy}
+                        onClick={() => dispatchModal({ type: 'OPEN', action })}
+                      >
+                        {t(`ecommerce.orders.detail.actions.${action}`)}
+                      </Button>
+                    ))}
+                </>
+              ) : undefined
+            }
+          />
+        )}
         {order.orderStatus === 'OPEN' && paymentLinkOutdated(order.summary) && (
           // The link sent to the customer asks for another amount than the order now owes.
           <NoticeBar

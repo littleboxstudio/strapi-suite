@@ -113,13 +113,30 @@ describe('financialSummary / derivePaymentStatus', () => {
     expect(derivePaymentStatus(s)).toBe('PENDING');
   });
 
-  it('REFUNDED when fully refunded', () => {
-    const s = financialSummary(10000, [{ status: 'COMPLETED', amount: 10000 }], [
+  it('REFUNDED when fully refunded and the order has no value left', () => {
+    const s = financialSummary(0, [{ status: 'COMPLETED', amount: 10000 }], [
       { status: 'COMPLETED', amount: 10000, kind: 'MONEY' },
     ]);
     expect(s.refunded).toBe(10000);
     expect(s.net).toBe(0);
     expect(derivePaymentStatus(s)).toBe('REFUNDED');
+  });
+
+  it('fully refunded while the order still costs money: PENDING (the customer owes it)', () => {
+    const s = financialSummary(10000, [{ status: 'COMPLETED', amount: 10000 }], [
+      { status: 'COMPLETED', amount: 10000, kind: 'MONEY' },
+    ]);
+    expect(s.due).toBe(10000);
+    expect(derivePaymentStatus(s)).toBe('PENDING');
+  });
+
+  it('refunded, then the order costs more (products added): PARTIALLY_PAID while money is owed', () => {
+    // Paid 10000, the order went down to 9000 and 1000 went back; then it grew to 9500.
+    const s = financialSummary(9500, [{ status: 'COMPLETED', amount: 10000 }], [
+      { status: 'COMPLETED', amount: 1000, kind: 'MONEY' },
+    ]);
+    expect(s).toMatchObject({ net: 9000, due: 500, excess: 0 });
+    expect(derivePaymentStatus(s)).toBe('PARTIALLY_PAID');
   });
 
   it('F4: a refund promoted from FAILED beyond the excess is over-refunded, never an amount due', () => {
@@ -167,9 +184,9 @@ describe('financialSummary / derivePaymentStatus', () => {
     expect(derivePaymentStatus(s)).toBe('PARTIALLY_REFUNDED');
   });
 
-  it('refunded in part with nothing more owed back stays PARTIALLY_REFUNDED', () => {
+  it('refunded in part with nothing owed either way (cancelled) stays PARTIALLY_REFUNDED', () => {
     expect(
-      derivePaymentStatus({ paid: 10000, refunded: 4000, net: 6000, orderTotal: 10000, excess: 0 })
+      derivePaymentStatus({ paid: 10000, refunded: 4000, net: 6000, orderTotal: 10000, excess: 0, due: 0 })
     ).toBe('PARTIALLY_REFUNDED');
   });
 
@@ -198,7 +215,8 @@ describe('financialSummary / derivePaymentStatus', () => {
     ]);
     expect(s.refunded).toBe(2000);
     expect(s.net).toBe(8000);
-    expect(derivePaymentStatus(s)).toBe('PARTIALLY_REFUNDED');
+    // 2000 is owed again by the customer: a payment state.
+    expect(derivePaymentStatus(s)).toBe('PARTIALLY_PAID');
   });
 
   it('PAID becomes PARTIALLY_PAID when the total grows (Review Focus 4)', () => {
@@ -535,7 +553,7 @@ describe('fix round 1', () => {
     expect(s.net).toBe(-2000);
     expect(s.due).toBe(7000);
     expect(s.due).toBeGreaterThan(s.total);
-    expect(derivePaymentStatus(s)).toBe('REFUNDED');
+    expect(derivePaymentStatus(s)).toBe('PENDING');
   });
 });
 
