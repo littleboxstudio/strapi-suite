@@ -968,10 +968,10 @@ describe('paymentsOverview', () => {
     overRefunded: 0,
   };
 
-  it('four tiles: total, shipping, discounts, paid with the amount still pending', () => {
+  it('four tiles: products before discounts, shipping, discounts, paid with the amount still pending', () => {
     const tiles = paymentsOverview(totals, summary);
     expect(tiles.map((t) => [t.key, t.amount])).toEqual([
-      ['total', 11700],
+      ['total', 15000],
       ['shipping', 800],
       ['discounts', -4100],
       ['paid', 10000],
