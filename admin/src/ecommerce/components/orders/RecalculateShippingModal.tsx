@@ -184,7 +184,12 @@ const RecalculateShippingModal = ({ order, onClose, onSaved }: Props) => {
           </Typography>
         ) : (
           <>
-            <Tiles>
+            {/* One column per figure: Invoiced only on a whole-order recalculation. */}
+            <Tiles
+              style={{
+                gridTemplateColumns: `repeat(${preview.kind === 'WHOLE_ORDER' ? 3 : 2}, minmax(0, 1fr))`,
+              }}
+            >
               {tile('charged', preview.charged)}
               {preview.kind === 'WHOLE_ORDER' && tile('invoiced', preview.invoiced)}
               {tile('quote', preview.quote, preview.quote !== preview.charged ? 'warning' : undefined)}
