@@ -40,7 +40,6 @@ import type {
   Paginated,
   PaymentInstructionsInput,
   PaymentInstructionsResult,
-  PaymentLink,
   PaymentView,
   RefundPreview,
   RefundView,
@@ -110,7 +109,6 @@ export default interface EcommerceOrdersGateway {
   dismissReviewFlag(id: number, code: ReviewFlagCode, input: { operationId: string }): Promise<EditResult>;
 
   // Payment links and instructions (payments.manage), store credit payment (orders.manage)
-  createPaymentLink(orderId: number): Promise<PaymentLink>;
   sendPaymentInstructions(
     orderId: number,
     input: PaymentInstructionsInput
@@ -302,10 +300,6 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
     input: { operationId: string }
   ): Promise<EditResult> {
     return this.httpClient.post(`${this.orders}/${id}/review-flags/${code}/dismiss`, input);
-  }
-
-  async createPaymentLink(orderId: number): Promise<PaymentLink> {
-    return this.httpClient.post(`${this.orders}/${orderId}/payment-link`, {});
   }
 
   async sendPaymentInstructions(

@@ -13,7 +13,6 @@ import {
   Typography,
 } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
-import CreatePaymentLink from '../../usecases/orders/createPaymentLink';
 import SendPaymentInstructions from '../../usecases/orders/sendPaymentInstructions';
 import FetchOrderNotifications from '../../usecases/orders/fetchOrderNotifications';
 import { formatCents } from '../../utils/money';
@@ -25,7 +24,7 @@ import {
   defaultInstructionsText,
   findNewNotification,
 } from '../../utils/refundForm';
-import type { NotificationView, PaymentLink } from '../../orderTypes';
+import type { NotificationView } from '../../orderTypes';
 
 type Mode = 'MANUAL' | 'STRIPE';
 
@@ -68,7 +67,7 @@ const PaymentInstructionsModal = ({
   onClose,
   onSent,
 }: Props) => {
-  const { formatMessage, formatDate, locale: uiLocale } = useIntl();
+  const { formatMessage, locale: uiLocale } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
@@ -80,8 +79,6 @@ const PaymentInstructionsModal = ({
   );
   const [methodLabel, setMethodLabel] = useState('');
   const [errors, setErrors] = useState<ErrorMap>({});
-  const [link, setLink] = useState<PaymentLink | null>(null);
-  const [generating, setGenerating] = useState(false);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState<{ url?: string } | null>(null);
   const [notification, setNotification] = useState<NotificationView | null>(null);
@@ -114,22 +111,6 @@ const PaymentInstructionsModal = ({
       toggleNotification({ type: 'success', message: t('ecommerce.orders.instructions.copied') });
     } catch {
       toggleNotification({ type: 'danger', message: t('ecommerce.orders.instructions.copyError') });
-    }
-  };
-
-  const generate = async () => {
-    if (generating) return;
-    setGenerating(true);
-    try {
-      const created = await new CreatePaymentLink().execute(orderId);
-      if (mounted.current) setLink(created);
-    } catch (err) {
-      toggleNotification({
-        type: 'danger',
-        message: t(apiErrorMessageId(err, 'ecommerce.orders.instructions.linkError')),
-      });
-    } finally {
-      if (mounted.current) setGenerating(false);
     }
   };
 
@@ -251,12 +232,13 @@ const PaymentInstructionsModal = ({
               {amounts.map((row) => {
                 const strong = 'strong' in row && row.strong;
                 return (
-                  <Flex key={row.label} justifyContent="space-between" gap={4}>
+                  // "Amount due: €12.00", left-aligned.
+                  <Flex key={row.label} justifyContent="flex-start" gap={1}>
                     <Typography
                       textColor={strong ? 'neutral800' : 'neutral600'}
                       fontWeight={strong ? 'bold' : undefined}
                     >
-                      {row.label}
+                      {`${row.label}:`}
                     </Typography>
                     <Typography
                       textColor="neutral800"
@@ -329,29 +311,10 @@ const PaymentInstructionsModal = ({
                     </Field.Root>
                   </Flex>
                 ) : (
-                  <Flex direction="column" alignItems="stretch" gap={3}>
-                    <Typography variant="omega" textColor="neutral600">
-                      {t('ecommerce.orders.instructions.stripeHint')}
-                    </Typography>
-                    {link ? (
-                      <>
-                        {linkBox(link.url)}
-                        <Typography variant="pi" textColor="neutral600">
-                          {t('ecommerce.orders.instructions.linkDetails', {
-                            amount: money(link.amount),
-                            date: formatDate(link.expiresAt, { dateStyle: 'medium', timeStyle: 'short' }),
-                          })}
-                          {link.reused ? ` · ${t('ecommerce.orders.instructions.linkReused')}` : ''}
-                        </Typography>
-                      </>
-                    ) : (
-                      <Box>
-                        <Button variant="secondary" onClick={generate} loading={generating}>
-                          {t('ecommerce.orders.instructions.generate')}
-                        </Button>
-                      </Box>
-                    )}
-                  </Flex>
+                  // The link is made when the e-mail is sent, and shown on the next step.
+                  <Typography variant="omega" textColor="neutral600">
+                    {t('ecommerce.orders.instructions.stripeHint')}
+                  </Typography>
                 )}
               </>
             )}
@@ -368,7 +331,7 @@ const PaymentInstructionsModal = ({
               <Button variant="tertiary" onClick={onClose} disabled={sending}>
                 {dismissLabel ?? t('ecommerce.orders.instructions.cancel')}
               </Button>
-              <Button onClick={send} loading={sending} disabled={generating}>
+              <Button onClick={send} loading={sending}>
                 {t('ecommerce.orders.instructions.send')}
               </Button>
             </>
