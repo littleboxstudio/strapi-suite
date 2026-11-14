@@ -277,6 +277,14 @@ const RefundModal = ({ orderId, reference, initial, onClose, onSubmitting, onRef
                 }
               >
                 {t(`ecommerce.orders.refund.methods.${method}`)}
+                {method === 'STRIPE' && (
+                  // Why Stripe is (un)available, right after the option, in italics.
+                  <Typography variant="pi" textColor="neutral600" style={{ fontStyle: 'italic', marginLeft: 8 }}>
+                    {preview.hasStripe
+                      ? t('ecommerce.orders.refund.stripeRefundable', { amount: money(preview.stripeRefundable) })
+                      : t('ecommerce.orders.refund.stripeUnavailable')}
+                  </Typography>
+                )}
               </Radio.Item>
             ))}
           </Radio.Group>
@@ -316,11 +324,6 @@ const RefundModal = ({ orderId, reference, initial, onClose, onSubmitting, onRef
           </>
         )}
 
-        <Typography variant="pi" textColor="neutral600">
-          {preview.hasStripe
-            ? t('ecommerce.orders.refund.stripeRefundable', { amount: money(preview.stripeRefundable) })
-            : t('ecommerce.orders.refund.stripeUnavailable')}
-        </Typography>
         {errors.form && <Typography textColor="danger600">{errors.form}</Typography>}
       </Flex>
     );
