@@ -27,6 +27,7 @@ import {
   type InvoiceDraft,
   type IssuedDocument,
 } from './providers/billing';
+import { creditLine } from './domain/creditNotes';
 import { readShippingLines, shippingTaxRates } from './domain/shippingLines';
 import type { ProviderRuntime } from './providers/registry';
 import type { OrderHistoryEntry } from './orderHistory';
@@ -149,21 +150,6 @@ const withoutErrorDetail = (metadata: any) => {
 
 const lineKey = (l: InvoiceLine): number | 'SHIPPING' =>
   l.kind === 'SHIPPING' || l.orderLineId === null ? 'SHIPPING' : l.orderLineId;
-
-/**
- * A credit-note line: the original line with `total = value`, keeping the quantity ratio when it
- * comes out whole (otherwise quantity 1, partial).
- */
-const creditLine = (line: InvoiceLine, value: number): InvoiceLine => {
-  const scaled = line.quantity * value;
-  const whole = line.total > 0 && scaled % line.total === 0 && scaled / line.total >= 1;
-  return {
-    ...line,
-    quantity: whole ? scaled / line.total : 1,
-    total: value,
-    partial: whole ? line.partial : true,
-  };
-};
 
 /**
  * Invoicing (design 4.4): one invoice per settled payment or for every uninvoiced payment, each
