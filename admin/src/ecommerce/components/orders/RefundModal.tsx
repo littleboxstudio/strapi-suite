@@ -32,6 +32,7 @@ import {
   type RefundInitial,
 } from '../../utils/refundForm';
 import type { FieldError, RefundMethod, RefundPreview } from '../../orderTypes';
+import { Tile, Tiles } from './SummaryTiles';
 
 type Props = {
   orderId: number;
@@ -200,12 +201,20 @@ const RefundModal = ({ orderId, reference, initial, onClose, onSubmitting, onRef
       );
     }
 
+    // The figures as tiles, like the payments overview; the refundable one is highlighted.
     const amounts = (
-      <Flex direction="column" alignItems="stretch" gap={2}>
-        {amountRows(preview).map((row) =>
-          summaryRow(t(`ecommerce.orders.refund.summary.${row.key}`), money(row.amount), !!row.strong)
-        )}
-      </Flex>
+      <Tiles style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+        {amountRows(preview).map((row) => (
+          <Tile key={row.key} $tone={row.strong ? 'success' : undefined}>
+            <Typography variant="sigma" textColor="neutral600">
+              {t(`ecommerce.orders.refund.summary.${row.key}`)}
+            </Typography>
+            <Typography variant="beta" tag="p" textColor="neutral800" style={{ whiteSpace: 'nowrap' }}>
+              {money(row.amount)}
+            </Typography>
+          </Tile>
+        ))}
+      </Tiles>
     );
 
     if (preview.refundable <= 0) {
