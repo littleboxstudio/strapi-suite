@@ -24,6 +24,8 @@ const expected: [string, string, string, string][] = [
   ['POST', `${B}/shipping-methods`, 'createShippingMethod', P.settingsManage],
   ['PUT', `${B}/shipping-methods/:id`, 'updateShippingMethod', P.settingsManage],
   ['DELETE', `${B}/shipping-methods/:id`, 'deleteShippingMethod', P.settingsManage],
+  ['GET', `${B}/carriers/dpd-portugal/services`, 'getDpdServices', P.settingsRead],
+  ['PUT', `${B}/carriers/dpd-portugal/services`, 'saveDpdServices', P.settingsManage],
   ['GET', `${B}/email-templates`, 'listEmailTemplates', P.settingsRead],
   ['GET', T, 'getEmailTemplate', P.settingsRead],
   ['PUT', T, 'saveEmailTemplate', P.settingsManage],
