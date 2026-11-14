@@ -13,6 +13,7 @@ import {
   creditNoteBudget,
   invoiceCustomer,
   overInvoiced,
+  readInvoiceLines,
   suggestCreditNote,
   validateCreditNoteRequest,
   type InvoiceCustomer,
@@ -91,24 +92,6 @@ const invalid = (path: string, code: string) =>
   new EcommerceValidationError('Invalid invoice request', [{ path, code }]);
 const notAvailable = () => invalid('action', 'ACTION_NOT_AVAILABLE');
 const notInvoiceable = () => invalid('paymentId', 'PAYMENT_NOT_INVOICEABLE');
-
-/** The stored `lines` JSON (`{ lines: [...] }`), malformed entries dropped. */
-const linesOf = (row: any): InvoiceLine[] => {
-  const raw = row?.lines?.lines;
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .filter((l: any) => l && typeof l === 'object')
-    .map((l: any) => ({
-      orderLineId: l.orderLineId == null ? null : Number(l.orderLineId),
-      kind: l.kind === 'SHIPPING' ? 'SHIPPING' : 'ITEM',
-      sku: typeof l.sku === 'string' ? l.sku : '',
-      name: typeof l.name === 'string' ? l.name : '',
-      quantity: num(l.quantity),
-      total: num(l.total),
-      tax: num(l.tax),
-      partial: l.partial === true,
-    }));
-};
 
 /** `metadata.creditedLines` of a credit note: what it credited per original line index. */
 const creditedLinesOf = (row: any): { index: number; value: number }[] => {
@@ -320,7 +303,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
       number: r.number ?? null,
       series: r.series ?? null,
       total: num(r.total),
-      lines: linesOf(r),
+      lines: readInvoiceLines(r.lines),
       creditedInvoiceId: idOf(r.creditedInvoice),
       credited: creditRows
         .filter((cn) => idOf(cn.creditedInvoice) === r.id)
@@ -929,7 +912,9 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     const invoices = rows.filter((r) => r.kind === 'INVOICE' && r.status === 'ISSUED');
     const creditNotes = rows.filter((r) => r.kind === 'CREDIT_NOTE' && LIVE.includes(r.status));
 
-    const lines = new Map<number, InvoiceLine[]>(invoices.map((r) => [r.id, linesOf(r)]));
+    const lines = new Map<number, InvoiceLine[]>(
+      invoices.map((r) => [r.id, readInvoiceLines(r.lines)])
+    );
     const credited = new Map<number, number[]>(
       invoices.map((r) => [r.id, lines.get(r.id)!.map(() => 0)])
     );
@@ -945,7 +930,10 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
       { ...state.invoicing.coverageOrder, status: state.order.orderStatus as OrderStatus },
       [
         ...invoices.map((r) => ({ kind: 'INVOICE' as const, lines: lines.get(r.id)! })),
-        ...creditNotes.map((r) => ({ kind: 'CREDIT_NOTE' as const, lines: linesOf(r) })),
+        ...creditNotes.map((r) => ({
+          kind: 'CREDIT_NOTE' as const,
+          lines: readInvoiceLines(r.lines),
+        })),
       ]
     );
     const remaining = new Map(over);
@@ -1056,7 +1044,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     const row = await loadIssuedInvoice(Number(invoiceId));
     const state = await orders().computeOrderState(idOf(row.order) as number);
     const position = await creditPosition(state);
-    const lines = linesOf(row);
+    const lines = readInvoiceLines(row.lines);
     const credited = position.credited.get(row.id) ?? lines.map(() => 0);
     return {
       lines,
@@ -1097,7 +1085,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
         const original = await loadIssuedInvoice(first.id);
         const state = await orders().computeOrderState(orderId);
         const position = await creditPosition(state);
-        const originalLines = linesOf(original);
+        const originalLines = readInvoiceLines(original.lines);
         const alreadyCredited = position.credited.get(original.id) ?? originalLines.map(() => 0);
         const requested = Array.isArray(input?.lines) ? input.lines : [];
         const issues: ValidationIssue[] = validateCreditNoteRequest(
