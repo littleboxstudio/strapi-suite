@@ -193,7 +193,8 @@ const PaymentInstructionsModal = ({
     <Flex gap={2} alignItems="flex-end">
       <Box style={{ flex: 1, minWidth: 0 }}>
         <Field.Root name="paymentLink">
-          <Field.Label>{t('ecommerce.orders.instructions.link')}</Field.Label>
+          {/* Same size as the modal's text (Field.Label alone is the small caption size). */}
+          <Field.Label style={{ fontSize: '1.4rem' }}>{t('ecommerce.orders.instructions.link')}</Field.Label>
           <TextInput value={url} readOnly onFocus={(e: any) => e.target.select()} />
         </Field.Root>
       </Box>
@@ -228,6 +229,8 @@ const PaymentInstructionsModal = ({
         </Modal.Header>
         <Modal.Body>
           <Flex direction="column" alignItems="stretch" gap={5}>
+            {/* The amounts are for choosing how to ask; once sent, only the link and the result show. */}
+            {!sent && (
             <Flex direction="column" alignItems="stretch" gap={2}>
               {amounts.map((row) => {
                 const strong = 'strong' in row && row.strong;
@@ -251,6 +254,7 @@ const PaymentInstructionsModal = ({
                 );
               })}
             </Flex>
+            )}
 
             {sent ? (
               <Flex direction="column" alignItems="stretch" gap={4}>
