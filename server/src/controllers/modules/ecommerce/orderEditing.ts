@@ -48,6 +48,11 @@ const EcommerceOrderEditingController = ({ strapi }: { strapi: Core.Strapi }) =>
       return editing().updateShippingAddress(id, input, actorOf(ctx), operationId);
     }),
 
+    updateBillingAddress: handle([], (ctx, id) => {
+      const { operationId, input } = splitBody(ctx);
+      return editing().updateBillingAddress(id, input, actorOf(ctx), operationId);
+    }),
+
     previewLines: handle([], (ctx, id) => editing().previewLines(id, body(ctx))),
 
     applyLines: handle([], (ctx, id) => {

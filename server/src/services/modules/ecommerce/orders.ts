@@ -69,7 +69,14 @@ import {
   shippingLineViews,
   type ShippingLineView,
 } from './domain/shippingLines';
-import { orderEditing, readReviewFlags, type OrderEditing, type ReviewFlag } from './domain/orderEditing';
+import {
+  billingAddressLock,
+  orderEditing,
+  readReviewFlags,
+  type BillingAddressLock,
+  type OrderEditing,
+  type ReviewFlag,
+} from './domain/orderEditing';
 import { readManualDiscounts, type ManualDiscount } from './domain/manualDiscounts';
 import { MAX_STORE_CREDIT_CODE_LENGTH } from './domain/storefront/limits';
 import { storedDiscountPercent } from './domain/lineDiscounts';
@@ -234,6 +241,8 @@ export type OrderView = {
   availableActions: OrderActionKey[];
   history: Record<string, unknown>[];
   editing: OrderEditing;
+  /** Why the billing address cannot change, or null while it can. */
+  billingAddressLock: BillingAddressLock | null;
   shippingLines: ShippingLineView[];
   /** The stored manual discounts (a legacy order reads its LEGACY item). */
   manualDiscounts: ManualDiscount[];
@@ -260,6 +269,8 @@ export type OrderState = {
   invoicing: OrderInvoicing;
   /** Which edits the order offers (plan 10). */
   editing: OrderEditing;
+  /** Why the billing address cannot change, or null while it can. */
+  billingAddressLock: BillingAddressLock | null;
   /** The shipping charges table, with paid / invoiced / spent per line. */
   shippingLines: ShippingLineView[];
 };
@@ -1201,6 +1212,10 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       hasPendingShipment,
       hasActiveShipment,
     });
+    const billingLock = billingAddressLock({
+      orderStatus: order.orderStatus,
+      hasInvoice: invoicing.docs.some((d) => d.kind === 'INVOICE'),
+    });
     const shippingLines = shippingLineViews(
       readShippingLines(order),
       shippingLineContext(invoicing, hasActiveShipment, order.shippingDiscount)
@@ -1232,6 +1247,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       actions,
       invoicing,
       editing,
+      billingAddressLock: billingLock,
       shippingLines,
     };
   };
@@ -1248,6 +1264,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       actions,
       invoicing,
       editing,
+      billingAddressLock: billingLock,
       shippingLines,
     } = await computeOrderState(id);
     const shipmentViews: ShipmentView[] = await service('EcommerceShipmentService').listForOrder(
@@ -1363,6 +1380,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         createdAt: h.createdAt,
       })),
       editing,
+      billingAddressLock: billingLock,
       shippingLines,
       manualDiscounts: readManualDiscounts(order),
       reviewFlags: readReviewFlags(order.reviewFlags),

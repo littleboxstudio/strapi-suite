@@ -72,6 +72,7 @@ import type { ValidationIssue } from './errors';
 export type EditKind =
   | 'lines'
   | 'address'
+  | 'billing-address'
   | 'shipping-recalculate'
   | 'shipping-line-edit'
   | 'shipping-line-add'
@@ -663,6 +664,60 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
             previousValue: before,
             newValue: address,
           },
+        };
+      },
+    });
+  };
+
+  /**
+   * Saves the billing address only: amounts and shipping never change. It can change until the
+   * order has its first invoice (`BILLING_ADDRESS_LOCKED`, detail = the reason); the invoices
+   * keep the customer they were issued with.
+   */
+  const updateBillingAddress = async (
+    rawOrderId: number | string,
+    input: { address: unknown },
+    actor: string,
+    operationId: string
+  ): Promise<EditResult> => {
+    const orderId = Number(rawOrderId);
+    const assertBillingEditable = (state: OrderState) => {
+      if (state.billingAddressLock) {
+        throw new EcommerceValidationError('Billing address locked', [
+          { path: 'order', code: 'BILLING_ADDRESS_LOCKED', detail: state.billingAddressLock },
+        ]);
+      }
+    };
+    return runEdit(orderId, 'billing-address', operationId, actor, {
+      prepare: async () => {
+        const state = await orders().computeOrderState(orderId);
+        assertBillingEditable(state);
+        const errors: ValidationIssue[] = [];
+        const address = normalizeAddress(input?.address, 'address', errors);
+        if (errors.length) throw new EcommerceValidationError('Invalid address', errors);
+        return { address };
+      },
+      write: async (state, { address }) => {
+        assertBillingEditable(state);
+        const before = state.order.billingAddress ?? null;
+        const unchanged = sameAddress(address, before);
+        if (!unchanged) await writeTotals(state, { billingAddress: address });
+        return {
+          outcome: 'NONE',
+          difference: 0,
+          history: unchanged
+            ? {
+                type: 'ADDRESS_CHANGED',
+                description: 'Billing address unchanged',
+                previousValue: null,
+                newValue: { unchanged: true },
+              }
+            : {
+                type: 'ADDRESS_CHANGED',
+                description: 'Billing address changed',
+                previousValue: { billingAddress: before },
+                newValue: { billingAddress: address },
+              },
         };
       },
     });
@@ -1270,6 +1325,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     previewShippingRecalculation,
     recalculateShipping,
     editShippingLine,
+    updateBillingAddress,
     addShippingLine,
     previewDiscounts,
     applyDiscounts,

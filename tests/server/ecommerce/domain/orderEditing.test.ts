@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  billingAddressLock,
   orderEditing,
   readReviewFlags,
   raiseFlag,
@@ -58,6 +59,15 @@ describe('orderEditing', () => {
       blockedBy: 'ARCHIVED',
       actions: [],
     });
+  });
+});
+
+describe('billingAddressLock', () => {
+  it('open without invoice: null; an invoice or a closed order locks it', () => {
+    expect(billingAddressLock({ orderStatus: 'OPEN', hasInvoice: false })).toBeNull();
+    expect(billingAddressLock({ orderStatus: 'OPEN', hasInvoice: true })).toBe('INVOICED');
+    expect(billingAddressLock({ orderStatus: 'CANCELLED', hasInvoice: false })).toBe('CANCELLED');
+    expect(billingAddressLock({ orderStatus: 'ARCHIVED', hasInvoice: true })).toBe('ARCHIVED');
   });
 });
 

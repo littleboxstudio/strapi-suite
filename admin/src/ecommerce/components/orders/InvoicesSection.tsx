@@ -33,16 +33,23 @@ import {
   isDetailAction,
   type InvoiceAction,
 } from '../../utils/invoiceForm';
-import type { InvoiceView, Order } from '../../orderTypes';
+import type { EditResult, InvoiceView, Order } from '../../orderTypes';
 import CreditNoteModal from './CreditNoteModal';
 import OrderSection from './OrderSection';
-import AddressButton from './AddressButton';
+import BillingAddressModal from './BillingAddressModal';
 import { ToneBadge } from './StatusBadges';
 import ColumnLabel from '../ColumnLabel';
 
 type Props = {
   title: string;
-  order: Pick<Order, 'availableActions' | 'billing' | 'invoices' | 'invoicing' | 'payments' | 'billingAddress'>;
+  order: Pick<
+    Order,
+    'id' | 'availableActions' | 'billing' | 'invoices' | 'invoicing' | 'payments' | 'billingAddress' | 'billingAddressLock'
+  >;
+  /** `orders.manage`: edit the billing address (until the first invoice). */
+  canManage: boolean;
+  /** After the billing address is saved. */
+  onEdited: (result: EditResult) => void;
   /** `invoicing.manage`: issue, reconcile, credit notes. Without it those buttons are hidden. */
   canInvoice: boolean;
   /** Opens the Generate invoice modal (owned by the page, which hands off to Refund). */
@@ -79,7 +86,7 @@ const NOTE_BOX: Record<string, { background: string; text: string }> = {
 };
 
 /** The invoices and credit notes of the order (design 4.4). */
-const InvoicesSection = ({ title, order, canInvoice, onIssue, onChanged }: Props) => {
+const InvoicesSection = ({ title, order, canInvoice, canManage, onEdited, onIssue, onChanged }: Props) => {
   const { formatMessage, formatDate, locale: uiLocale } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>, defaultMessage?: string) =>
@@ -297,7 +304,7 @@ const InvoicesSection = ({ title, order, canInvoice, onIssue, onChanged }: Props
 
   const headerActions = (
     <Flex gap={2} alignItems="center">
-      <AddressButton title={t('ecommerce.orders.detail.address.billing')} address={order.billingAddress} />
+      <BillingAddressModal order={order} canManage={canManage} onSaved={onEdited} />
       {canIssue && (
         <Button size="S" variant="secondary" disabled={!billingActive} onClick={onIssue}>
           {t('ecommerce.orders.invoices.generate')}

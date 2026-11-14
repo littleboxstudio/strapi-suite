@@ -56,6 +56,22 @@ export function orderEditing(input: {
   return { editable: true, blockedBy: null, hasShipments, actions };
 }
 
+/** Why the billing address can no longer change; it is fixed by the first invoice. */
+export type BillingAddressLock = 'CANCELLED' | 'ARCHIVED' | 'INVOICED';
+
+/**
+ * The billing address can change while the order is open and has no invoice (ISSUED, PENDING or
+ * UNCERTAIN, legacy ones included); shipments do not matter.
+ */
+export function billingAddressLock(input: {
+  orderStatus: OrderStatus;
+  hasInvoice: boolean;
+}): BillingAddressLock | null {
+  if (input.orderStatus === 'CANCELLED') return 'CANCELLED';
+  if (input.orderStatus === 'ARCHIVED') return 'ARCHIVED';
+  return input.hasInvoice ? 'INVOICED' : null;
+}
+
 export type ReviewFlagCode = 'SHIPPING_REVIEW' | 'DISCOUNTS_REVIEW';
 export type ReviewReason =
   | 'PRODUCTS_CHANGED'

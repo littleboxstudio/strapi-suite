@@ -96,6 +96,7 @@ export type TotalsWrite = {
   reviewFlags?: ReviewFlag[];
   promotions?: object;
   shippingAddress?: Address;
+  billingAddress?: Address;
 };
 
 const issue = (message: string, i: ValidationIssue) => new EcommerceValidationError(message, [i]);
@@ -309,6 +310,7 @@ export function createEditRunner(
     );
     if (data.promotions) changes.promotions = data.promotions;
     if (data.shippingAddress) changes.shippingAddress = data.shippingAddress;
+    if (data.billingAddress) changes.billingAddress = data.billingAddress;
 
     const { count } = await strapi.db.query(u.order).updateMany({
       where: { id: order.id, orderStatus: 'OPEN' },
