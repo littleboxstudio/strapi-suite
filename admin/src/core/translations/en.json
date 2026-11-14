@@ -1467,7 +1467,7 @@
   "littlebox-strapi-suite.ecommerce.orders.invoices.issue.columns.net": "Net value",
   "littlebox-strapi-suite.ecommerce.orders.invoices.issue.selectedTotal": "Selected total",
   "littlebox-strapi-suite.ecommerce.orders.invoices.issue.paymentsTotal": "Payments total",
-  "littlebox-strapi-suite.ecommerce.orders.invoices.issue.difference": "Difference: {amount}",
+  "littlebox-strapi-suite.ecommerce.orders.invoices.issue.difference": "Difference",
   "littlebox-strapi-suite.ecommerce.orders.invoices.issue.excess": "{amount} was paid in excess. Refund it before invoicing.",
   "littlebox-strapi-suite.ecommerce.orders.invoices.issue.refund": "Refund",
   "littlebox-strapi-suite.ecommerce.orders.invoices.issue.stranded": "Part of the order value ({amount}) no longer has a line to invoice, because the order changed after it was invoiced. Issue a Correction credit note and invoice again.",

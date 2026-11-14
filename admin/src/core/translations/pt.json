@@ -1251,7 +1251,7 @@
   "littlebox-strapi-suite.ecommerce.orders.invoices.issue.columns.net": "Valor líquido",
   "littlebox-strapi-suite.ecommerce.orders.invoices.issue.selectedTotal": "Total selecionado",
   "littlebox-strapi-suite.ecommerce.orders.invoices.issue.paymentsTotal": "Total dos pagamentos",
-  "littlebox-strapi-suite.ecommerce.orders.invoices.issue.difference": "Diferença: {amount}",
+  "littlebox-strapi-suite.ecommerce.orders.invoices.issue.difference": "Diferença",
   "littlebox-strapi-suite.ecommerce.orders.invoices.issue.excess": "Há {amount} pagos a mais. Faça o reembolso antes de faturar.",
   "littlebox-strapi-suite.ecommerce.orders.invoices.issue.refund": "Reembolsar",
   "littlebox-strapi-suite.ecommerce.orders.invoices.issue.stranded": "Parte do valor da encomenda ({amount}) já não tem linha por faturar, porque a encomenda mudou depois de faturada. Emita uma nota de crédito de Correção e volte a faturar.",

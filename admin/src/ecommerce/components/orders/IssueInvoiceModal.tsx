@@ -42,6 +42,7 @@ import InvoiceErrorModal from './InvoiceErrorModal';
 import EmptyNote from './EmptyNote';
 import QuantityInput from './QuantityInput';
 import { FIT_CELL, PRODUCT_CELL } from './lineCells';
+import { Tile, Tiles } from './SummaryTiles';
 import ColumnLabel from '../ColumnLabel';
 import { mintUuid } from '../../utils/variantDraft';
 import type { InvoiceSelectionView, OrderPayment } from '../../orderTypes';
@@ -386,19 +387,31 @@ const IssueInvoiceModal = ({ orderId, payments, canRefund, onClose, onIssued, on
         )}
 
         {totals && (
-          <Flex direction="column" alignItems="flex-end" gap={1}>
-            <Flex gap={2}>
-              <Typography>{t(`${p}.selectedTotal`)}</Typography>
-              <Typography fontWeight="bold">{money(totals.selected)}</Typography>
-            </Flex>
-            <Flex gap={2}>
-              <Typography>{t(`${p}.paymentsTotal`)}</Typography>
-              <Typography fontWeight="bold">{money(totals.payments)}</Typography>
-            </Flex>
-            {totals.difference !== 0 && (
-              <Typography textColor="danger600">{t(`${p}.difference`, { amount: money(totals.difference) })}</Typography>
-            )}
-          </Flex>
+          // The three figures at the end, as tiles like the payments overview.
+          <Tiles style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+            {[
+              { key: 'selectedTotal', amount: totals.selected },
+              { key: 'paymentsTotal', amount: totals.payments },
+              { key: 'difference', amount: totals.difference },
+            ].map((tile) => (
+              <Tile
+                key={tile.key}
+                $tone={tile.key === 'difference' ? (tile.amount === 0 ? 'success' : 'warning') : undefined}
+              >
+                <Typography variant="sigma" textColor="neutral600">
+                  {t(`${p}.${tile.key}`)}
+                </Typography>
+                <Typography
+                  variant="beta"
+                  tag="p"
+                  textColor={tile.key === 'difference' && tile.amount !== 0 ? 'warning600' : 'neutral800'}
+                  style={{ whiteSpace: 'nowrap' }}
+                >
+                  {money(tile.amount)}
+                </Typography>
+              </Tile>
+            ))}
+          </Tiles>
         )}
       </>
     );
