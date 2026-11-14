@@ -603,11 +603,12 @@ export function notificationErrorParts(error: string | null): { code: string; de
 }
 
 /**
- * The payment awaiting confirmation (e.g. a Stripe link already sent) asks for more than the order
- * still owes: the order changed after the link was made, so the customer needs a new one.
+ * The payment awaiting confirmation (e.g. a Stripe link already sent) asks for a different amount
+ * than the order now owes, more or less: the order changed after the link was made, so the
+ * customer needs a new one.
  */
 export function paymentLinkOutdated(summary: Pick<FinancialSummary, 'pendingPayments' | 'due'>): boolean {
-  return summary.pendingPayments > 0 && summary.pendingPayments > summary.due;
+  return summary.pendingPayments > 0 && summary.pendingPayments !== summary.due;
 }
 
 /** A payment row shows something in its Actions column: its invoice badge or "Generate invoice". */

@@ -993,6 +993,8 @@ describe('paymentLinkOutdated', () => {
     expect(paymentLinkOutdated({ pendingPayments: 10490, due: 10490 } as any)).toBe(false);
     expect(paymentLinkOutdated({ pendingPayments: 0, due: 10490 } as any)).toBe(false);
     expect(paymentLinkOutdated({ pendingPayments: 500, due: 0 } as any)).toBe(true);
+    // A link for less than what is now due: the customer would still owe the rest.
+    expect(paymentLinkOutdated({ pendingPayments: 6200, due: 9190 } as any)).toBe(true);
   });
 });
 
