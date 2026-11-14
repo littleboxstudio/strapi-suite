@@ -181,6 +181,8 @@ export const derivePaymentStatus = (
 ): PaymentStatus => {
   const { paid, refunded, net, orderTotal: total } = summary;
   if (refunded > 0 && net <= 0) return 'REFUNDED';
+  // Only the excess went back (what is kept still covers the order): the order is paid.
+  if (refunded > 0 && total > 0 && net >= total) return 'PAID';
   if (refunded > 0) return 'PARTIALLY_REFUNDED';
   // A zero-total order (e.g. fully discounted) has nothing to pay.
   if (total === 0) return 'PAID';

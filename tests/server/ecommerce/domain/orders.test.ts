@@ -145,13 +145,20 @@ describe('financialSummary / derivePaymentStatus', () => {
     expect(due.due).toBe(2000);
   });
 
-  it('PARTIALLY_REFUNDED with due 0', () => {
+  it('PAID when only the excess was refunded (what is kept covers the order)', () => {
     const s = financialSummary(7000, [{ status: 'COMPLETED', amount: 10000 }], [
       { status: 'COMPLETED', amount: 3000, kind: 'MONEY' },
     ]);
     expect(s.due).toBe(0);
     expect(s.excess).toBe(0);
-    expect(derivePaymentStatus(s)).toBe('PARTIALLY_REFUNDED');
+    expect(derivePaymentStatus(s)).toBe('PAID');
+  });
+
+  it('a cancelled order refunded in part stays PARTIALLY_REFUNDED', () => {
+    // orderTotal is the real total (10000); the customer got 4000 back of 10000 paid.
+    expect(
+      derivePaymentStatus({ paid: 10000, refunded: 4000, net: 6000, orderTotal: 10000 })
+    ).toBe('PARTIALLY_REFUNDED');
   });
 
   it('store-credit refunds count; non-completed refunds do not', () => {
@@ -405,11 +412,11 @@ describe('fix round 1', () => {
     expect(availableActions(withSummary(summary))).toContain('SHIP');
   });
 
-  it('SHIP available when PARTIALLY_REFUNDED with due 0', () => {
+  it('SHIP available when only the excess was refunded (PAID, due 0)', () => {
     const summary = financialSummary(5000, [{ status: 'COMPLETED', amount: 10000 }], [
       { status: 'COMPLETED', amount: 5000, kind: 'MONEY' },
     ]);
-    expect(derivePaymentStatus(summary)).toBe('PARTIALLY_REFUNDED');
+    expect(derivePaymentStatus(summary)).toBe('PAID');
     expect(summary.due).toBe(0);
     expect(availableActions(withSummary(summary))).toContain('SHIP');
   });
