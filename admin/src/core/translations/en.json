@@ -1939,6 +1939,7 @@
   "littlebox-strapi-suite.ecommerce.orders.review.DISCOUNTS_REVIEW": "Discounts may need to be reassessed.",
   "littlebox-strapi-suite.ecommerce.orders.review.goTo": "Go to section",
   "littlebox-strapi-suite.ecommerce.orders.paymentLinkOutdated.text": "The payment link sent to the customer is no longer valid: the order changed. Generate a new one.",
+  "littlebox-strapi-suite.ecommerce.orders.refundAvailable.text": "The customer paid {amount} more than the order now costs. Refund it.",
   "littlebox-strapi-suite.ecommerce.orders.review.locked": "This order can no longer be changed, so this cannot be recalculated.",
   "littlebox-strapi-suite.ecommerce.orders.review.dismiss": "Dismiss",
   "littlebox-strapi-suite.ecommerce.orders.balance.due": "Amount due: {amount}",

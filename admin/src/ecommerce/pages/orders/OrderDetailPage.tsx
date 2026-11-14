@@ -48,10 +48,11 @@ import ShipOrderModal from '../../components/orders/ShipOrderModal';
 import RegisterReturnModal from '../../components/orders/RegisterReturnModal';
 import InvoicesSection from '../../components/orders/InvoicesSection';
 import IssueInvoiceModal from '../../components/orders/IssueInvoiceModal';
+import { formatCents } from '../../utils/money';
 
 /** Order management screen (requirements 3–8). The fetched order is the single source of truth. */
 const OrderDetailPage = () => {
-  const { formatMessage } = useIntl();
+  const { formatMessage, locale: uiLocale } = useIntl();
   const navigate = useNavigate();
   const { toggleNotification } = useNotification();
   const params = useParams<{ id: string }>();
@@ -260,6 +261,24 @@ const OrderDetailPage = () => {
                   onClick={() => dispatchModal({ type: 'OPEN', action: 'SEND_PAYMENT_INSTRUCTIONS' })}
                 >
                   {t('ecommerce.orders.detail.actions.SEND_PAYMENT_INSTRUCTIONS')}
+                </Button>
+              ) : undefined
+            }
+          />
+        )}
+        {order.availableActions.includes('REFUND') && order.summary.excess > 0 && (
+          // The customer paid more than the order now costs: remind the merchant to refund it.
+          <NoticeBar
+            text={t('ecommerce.orders.refundAvailable.text', { amount: formatCents(order.summary.excess, uiLocale) })}
+            actions={
+              refundActions.length ? (
+                <Button
+                  variant="secondary"
+                  size="S"
+                  disabled={busy}
+                  onClick={() => dispatchModal({ type: 'OPEN', action: 'REFUND' })}
+                >
+                  {t('ecommerce.orders.detail.actions.REFUND')}
                 </Button>
               ) : undefined
             }
