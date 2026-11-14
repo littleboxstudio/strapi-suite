@@ -311,41 +311,62 @@ export function invoicingPosition(order: PositionOrder, docs: InvoiceDoc[]): Inv
 /**
  * Net value of each COMPLETED payment (`payments`, in settlement order; ruling 8): its amount
  * minus the held refunds (COMPLETED, PROCESSING, PENDING) attributed to it. A refund linked to one
- * of these payments counts on it up to its amount; refunds without a payment and any overflow go
- * to a pool, attributed latest payment first: payments not invoiced, then invoiced ones. Refunds
- * linked to any other payment are ignored.
+ * of these payments counts on it up to its amount; refunds linked to any other payment are
+ * ignored. Refunds without a payment, and any overflow, are attributed refund by refund (oldest
+ * first) so that issued invoices stay true and a later payment never takes an earlier refund:
+ *   1. what invoiced payments hold beyond their allocations (latest first);
+ *   2. payments not invoiced settled before the refund (latest first);
+ *   3. payments not invoiced settled after it (oldest first);
+ *   4. last resort, the allocated part of invoiced payments (latest first).
+ * `allocated`: active allocation per invoiced payment (a Set reads as fully allocated). Without
+ * timestamps (`at`) every payment counts as settled before the refund.
  */
 export function paymentNets(
-  payments: { id: number; amount: number }[],
-  refunds: { status: string; amount: number; paymentId: number | null }[],
-  invoicedPaymentIds: Set<number>
+  payments: { id: number; amount: number; at?: number | null }[],
+  refunds: { status: string; amount: number; paymentId: number | null; at?: number | null }[],
+  allocated: Map<number, number> | Set<number>
 ): Map<number, number> {
   const nets = new Map(payments.map((p) => [p.id, Math.max(0, num(p.amount))]));
-  let pool = 0;
+  const allocationOf = (id: number): number =>
+    allocated instanceof Map ? Math.max(0, allocated.get(id) ?? 0) : allocated.has(id) ? nets.get(id) ?? 0 : 0;
+  const invoiced = (id: number) => (allocated instanceof Map ? allocated.has(id) : allocated.has(id));
+  const pool: { amount: number; at: number | null }[] = [];
   for (const r of refunds) {
     if (!HELD_REFUND.includes(r.status)) continue;
     const amount = Math.max(0, num(r.amount));
+    const at = r.at ?? null;
     if (r.paymentId == null) {
-      pool += amount;
+      pool.push({ amount, at });
       continue;
     }
     const net = nets.get(r.paymentId);
     if (net === undefined) continue;
     const taken = Math.min(net, amount);
     nets.set(r.paymentId, net - taken);
-    pool += amount - taken;
+    if (amount > taken) pool.push({ amount: amount - taken, at });
   }
+  // Refunds without a time go last, in their given order.
+  const ordered = pool
+    .map((r, i) => ({ ...r, i }))
+    .sort((a, b) => (a.at ?? Infinity) - (b.at ?? Infinity) || a.i - b.i);
+
   const latestFirst = [...payments].reverse();
-  const order = [
-    ...latestFirst.filter((p) => !invoicedPaymentIds.has(p.id)),
-    ...latestFirst.filter((p) => invoicedPaymentIds.has(p.id)),
-  ];
-  for (const p of order) {
-    if (pool <= 0) break;
-    const net = nets.get(p.id)!;
-    const taken = Math.min(net, pool);
-    nets.set(p.id, net - taken);
-    pool -= taken;
+  const oldestFirst = payments;
+  for (const refund of ordered) {
+    let left = refund.amount;
+    const before = (p: { at?: number | null }) => refund.at == null || p.at == null || p.at <= refund.at;
+    const take = (id: number, cap: number) => {
+      if (left <= 0 || cap <= 0) return;
+      const taken = Math.min(cap, left);
+      nets.set(id, nets.get(id)! - taken);
+      left -= taken;
+    };
+    for (const p of latestFirst) {
+      if (invoiced(p.id)) take(p.id, nets.get(p.id)! - allocationOf(p.id));
+    }
+    for (const p of latestFirst) if (!invoiced(p.id) && before(p)) take(p.id, nets.get(p.id)!);
+    for (const p of oldestFirst) if (!invoiced(p.id) && !before(p)) take(p.id, nets.get(p.id)!);
+    for (const p of latestFirst) if (invoiced(p.id)) take(p.id, nets.get(p.id)!);
   }
   return nets;
 }

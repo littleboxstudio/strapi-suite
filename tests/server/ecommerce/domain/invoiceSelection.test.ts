@@ -515,6 +515,60 @@ describe('paymentNets', () => {
   });
 });
 
+describe('paymentNets: refunds over time and issued invoices', () => {
+  const T = (h: number) => Date.UTC(2026, 10, 14, h);
+
+  it('a payment made after a refund never takes it; a new payment keeps its whole value', () => {
+    const payments = [
+      { id: 1, amount: 5000, at: T(1) },
+      { id: 2, amount: 3000, at: T(5) },
+    ];
+    const refund = { status: 'COMPLETED', amount: 1000, paymentId: null, at: T(3) };
+    expect(paymentNets(payments, [refund], new Map())).toEqual(
+      new Map([
+        [1, 4000],
+        [2, 3000],
+      ])
+    );
+  });
+
+  it('an issued invoice stays true: its allocations are never cut while other money is free', () => {
+    // Invoice used 1000 + 2370 of payment 2 (3990); refunds 1620 + 3990 came before payments 2 and 3.
+    const payments = [
+      { id: 1, amount: 1000, at: T(1) },
+      { id: 2, amount: 3990, at: T(5) },
+      { id: 3, amount: 3990, at: T(6) },
+      { id: 4, amount: 3690, at: T(20) },
+    ];
+    const refunds = [
+      { status: 'COMPLETED', amount: 3610, paymentId: null, at: T(4) },
+      { status: 'COMPLETED', amount: 2000, paymentId: null, at: T(7) },
+    ];
+    const allocated = new Map([
+      [1, 1000],
+      [2, 2370],
+    ]);
+    const nets = paymentNets(payments, refunds, allocated);
+    expect(nets).toEqual(
+      new Map([
+        [1, 1000],
+        [2, 2370],
+        [3, 0],
+        [4, 3690],
+      ])
+    );
+  });
+
+  it('only as a last resort does a refund cut an allocated payment', () => {
+    const nets = paymentNets(
+      [{ id: 1, amount: 1000, at: T(1) }],
+      [{ status: 'COMPLETED', amount: 300, paymentId: null, at: T(2) }],
+      new Map([[1, 1000]])
+    );
+    expect(nets.get(1)).toBe(700);
+  });
+});
+
 describe('priceSelection', () => {
   const position = () => invoicingPosition(baseOrder(), []);
   const available = [

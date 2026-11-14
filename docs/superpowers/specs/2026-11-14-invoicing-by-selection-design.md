@@ -143,7 +143,12 @@ os documentos emitidos.
 5. **Valor líquido de um pagamento** = valor − reembolsos `COMPLETED`, `PROCESSING` e `PENDING`
    desse pagamento (incluindo crédito na carteira), para a fatura poder sair logo depois do passo
    Reembolsar. Reembolsar um pagamento já faturado continua possível e pede nota de crédito, como
-   hoje.
+   hoje. Um reembolso **sem pagamento associado** (ex.: transferência manual) é atribuído, por
+   ordem de data dos reembolsos **[Decisão, 2026-11-14]**: (1) ao que os pagamentos já faturados
+   têm além do que as faturas usaram; (2) aos pagamentos por faturar feitos **antes** do reembolso
+   (o mais recente primeiro); (3) aos feitos depois (o mais antigo primeiro); (4) em último caso, à
+   parte faturada. Assim as faturas emitidas continuam certas e um pagamento novo nunca absorve
+   reembolsos anteriores (antes, o pagamento mais recente ficava com tudo e mudava as contas).
 6. **Métodos no Moloni:** Stripe → sempre "Stripe"; vale → se `storeCreditPaymentMethodId` estiver
    configurado usa-o (lojas já configuradas), senão procura/cria "Crédito em carteira"; manual →
    o nome do método (vazio → `paymentMethodId` configurado, como hoje). Se `paymentMethods/insert`
