@@ -19,6 +19,7 @@ import {
   apiErrorMessageId,
   paymentLinkOutdated,
   paymentSectionActions,
+  shipmentSectionActions,
   refundSectionActions,
   promotionDisplayName,
   type ToolbarAction,
@@ -220,6 +221,8 @@ const OrderDetailPage = () => {
   const paymentActions = paymentSectionActions(allowedActions);
   /** Refund, also shown in the Refunds and credits section. */
   const refundActions = refundSectionActions(allowedActions);
+  /** Ship, in the Shipments and deliveries section. */
+  const shipActions = shipmentSectionActions(allowedActions);
   const sectionButtons = (actions: ToolbarAction[]) =>
     actions.length ? (
       <Flex gap={2}>
@@ -364,6 +367,8 @@ const OrderDetailPage = () => {
         onChanged={load}
         onEdited={showResult}
         onAction={(action) => dispatchModal({ type: 'OPEN', action })}
+        sectionActions={shipActions}
+        actionBusy={busy}
       />
       <ReturnsSection title={t('ecommerce.orders.detail.sections.returns')} returns={order.returns} />
       <OrderSection

@@ -1956,7 +1956,7 @@
   "littlebox-strapi-suite.ecommerce.orders.balance.refundable": "Eligible for refund: {amount}",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.title": "Shipping charges",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.recalculate": "Recalculate shipping",
-  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.add": "Add shipping",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.add": "Add shipping charge",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.edit": "Edit",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.editTitle": "Edit shipping charge",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.origin.CHECKOUT": "Checkout",
