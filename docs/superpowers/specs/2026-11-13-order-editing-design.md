@@ -48,7 +48,7 @@ botão abaixo soma condições a esta:
 | Adicionar produtos (modal de produtos) | nenhuma |
 | Alterar morada de entrega | nenhum envio (nem parcial) **[Decisão]** |
 | Recalcular portes | nenhuma |
-| Edit numa linha de portes (trocar método/preço) | nenhum envio **[Decisão]** |
+| Edit numa linha de portes (trocar método/preço) | nenhum envio **[Decisão]**; a linha não pode estar paga (`SHIPPING_LINE_PAID`) **[Decisão, 2026-11-14]** |
 | Adicionar portes (linha manual) | nenhuma **[Escolha]** |
 | Recalcular descontos | nenhuma **[Decisão, 2026-11-13]**: se ainda se podem acrescentar ou remover produtos, ainda se podem aplicar descontos, mesmo com faturas emitidas ou envios parciais |
 | Adicionar desconto (livre) | nenhuma **[Decisão]** |
@@ -198,7 +198,7 @@ Acima da tabela de envios e entregas aparece a **tabela de portes** (uma linha p
   Comparação sempre em valores **brutos**: o desconto de portes das promoções não entra; mudar os
   portes brutos nunca mexe nos descontos, só acende `DISCOUNTS_REVIEW` se houver promoção de portes
   **[Decisão]**. Mostra o resultado antes de confirmar **[Escolha]**. Apaga `SHIPPING_REVIEW`.
-- **Edit** (coluna Actions, só sem envios): abre a modal de portes. Lista **só os métodos que servem
+- **Edit** (coluna Actions, só sem envios e só em linhas **não pagas** **[Decisão, 2026-11-14]**): abre a modal de portes. Lista **só os métodos que servem
   o país da morada e aguentam o peso** da encomenda, cada um com o **preço sugerido** (cotação); o
   lojista escolhe o método e pode **alterar o preço**. Guardar segue 6.2. Apaga `SHIPPING_REVIEW`.
 - **Adicionar portes** (botão no topo): a mesma modal, mas cria **sempre uma linha nova** (ex.:

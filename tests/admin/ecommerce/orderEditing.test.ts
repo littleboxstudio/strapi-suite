@@ -166,6 +166,8 @@ describe('shippingLineRows', () => {
     const lines = [line()];
     expect(shippingLineRows(lines, editing(), true)[0].actions).toEqual(['EDIT']);
     expect(shippingLineRows(lines, editing(), false)[0].actions).toEqual([]);
+    // A paid line is never edited.
+    expect(shippingLineRows([{ ...lines[0], paid: true }], editing(), true)[0].actions).toEqual([]);
     expect(shippingLineRows(lines, editing({ actions: ['ADD_PRODUCTS'] }), true)[0].actions).toEqual([]);
   });
 
@@ -298,6 +300,7 @@ describe('translations', () => {
     'ecommerce.orders.errors.SHIPPING_METHOD_UNAVAILABLE',
     'ecommerce.orders.errors.DISCOUNT_EXCEEDS_PRODUCTS',
     'ecommerce.orders.errors.SHIPPING_LINE_NOT_FOUND',
+    'ecommerce.orders.errors.SHIPPING_LINE_PAID',
     'ecommerce.orders.errors.MANUAL_DISCOUNT_NOT_FOUND',
     'ecommerce.orders.errors.INVALID_PERCENT',
     'ecommerce.orders.products.saved',

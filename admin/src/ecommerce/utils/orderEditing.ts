@@ -104,7 +104,8 @@ export function shippingLineRows(
       ...(line.invoiced ? (['INVOICED'] as const) : []),
       ...(line.spent ? (['SPENT'] as const) : []),
     ],
-    actions: canEditLine && line.editOf == null ? ['EDIT'] : [],
+    // A paid line is never edited (the server refuses it too).
+    actions: canEditLine && line.editOf == null && !line.paid ? ['EDIT'] : [],
     correctionOf: line.editOf ?? null,
     now: line.effectiveAmount !== undefined && line.effectiveAmount !== line.amount ? line.effectiveAmount : null,
   }));

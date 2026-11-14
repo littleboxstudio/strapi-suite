@@ -866,6 +866,10 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   const lineNotFound = () => invalidShipping('lineId', 'SHIPPING_LINE_NOT_FOUND');
+  /** A paid shipping line is never edited (a new line can still be added). */
+  const assertLineNotPaid = (lines: ShippingLineView[], lineId: number) => {
+    if (lines.some((l) => l.id === lineId && l.paid)) throw invalidShipping('lineId', 'SHIPPING_LINE_PAID');
+  };
   /** A correction line (`editOf`) is edited through its target, never by itself. */
   const editableLine = (lines: ShippingLine[], lineId: number): boolean =>
     lines.some((l) => l.id === lineId && l.editOf == null);
@@ -888,12 +892,14 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         const state = await orders().computeOrderState(orderId);
         assertEditable(state, 'EDIT_SHIPPING_LINE');
         if (!editableLine(state.shippingLines, lineId)) throw lineNotFound();
+        assertLineNotPaid(state.shippingLines, lineId);
         const next = normalizeShippingInput(input);
         return { amount: next.amount, method: await offeredMethod(state, next) };
       },
       write: async (state, next, w) => {
         assertEditable(state, 'EDIT_SHIPPING_LINE');
         if (!editableLine(state.shippingLines, lineId)) throw lineNotFound();
+        assertLineNotPaid(state.shippingLines, lineId);
         const plan = planLineChange(state.shippingLines, lineId, next, {
           at: new Date().toISOString(),
           actor: w.actor,
