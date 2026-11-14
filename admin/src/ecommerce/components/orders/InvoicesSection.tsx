@@ -25,7 +25,6 @@ import ReconcileInvoice from '../../usecases/orders/reconcileInvoice';
 import { formatCents } from '../../utils/money';
 import { apiErrorMessageId } from '../../utils/orderDetail';
 import {
-  hasUninvoicedPayments,
   invoiceActions,
   canMarkFailed,
   invoiceFailureMessageId,
@@ -43,7 +42,7 @@ import ColumnLabel from '../ColumnLabel';
 
 type Props = {
   title: string;
-  order: Pick<Order, 'availableActions' | 'billing' | 'invoices' | 'payments' | 'billingAddress'>;
+  order: Pick<Order, 'availableActions' | 'billing' | 'invoices' | 'invoicing' | 'payments' | 'billingAddress'>;
   /** `invoicing.manage`: issue, reconcile, credit notes. Without it those buttons are hidden. */
   canInvoice: boolean;
   /** Opens the invoice modal (owned by the page, shared with the payments table). */
@@ -98,9 +97,9 @@ const InvoicesSection = ({ title, order, canInvoice, onIssue, onChanged }: Props
 
   const invoices = order.invoices;
   const billingActive = order.billing.active;
-  const canTotal = canInvoice && order.availableActions.includes('INVOICE_TOTAL');
+  const canTotal = canInvoice && order.availableActions.includes('ISSUE_INVOICE');
   // Something to invoice and no provider to do it: say where to configure one.
-  const showBillingHint = canInvoice && !billingActive && (canTotal || hasUninvoicedPayments(order.payments));
+  const showBillingHint = canInvoice && !billingActive && (canTotal || order.invoicing.hasUninvoicedPayments);
   const duplicates = invoices.filter((i) => i.warnings.includes('DUPLICATE_INVOICE'));
 
   const openPdf = async (invoice: InvoiceView) => {

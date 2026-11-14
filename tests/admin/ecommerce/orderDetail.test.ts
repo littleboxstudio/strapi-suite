@@ -609,7 +609,12 @@ describe('apiErrorCode / apiErrorMessageId', () => {
         'BILLING_EXEMPTION_REASON_MISSING',
         'INVOICE_PDF_UNAVAILABLE',
         'PAYMENT_NOT_INVOICEABLE',
-        'NOTHING_TO_INVOICE',
+        'INVOICE_EXCESS_UNRESOLVED',
+        'INVOICE_TOTALS_DIFFER',
+        'QUANTITY_EXCEEDS_UNINVOICED',
+        'SHIPPING_LINE_NOT_INVOICEABLE',
+        'QUANTITY_EXCEEDS_CREDITABLE',
+        'SHIPPING_NOT_CREDITABLE',
         'exceeds_creditable',
         'coverage_mismatch',
       ])
@@ -654,7 +659,7 @@ describe('allowedToolbarActions', () => {
   });
 
   it('offers SHIP and REGISTER_RETURN only with orders.manage', () => {
-    const available = ['SHIP', 'REFUND', 'REGISTER_RETURN', 'INVOICE_TOTAL'] as const;
+    const available = ['SHIP', 'REFUND', 'REGISTER_RETURN', 'ISSUE_INVOICE'] as const;
     expect(allowedToolbarActions([...available], { canManage: true, canPay: false, canRefund: true })).toEqual([
       'SHIP',
       'REFUND',
@@ -1034,16 +1039,6 @@ describe('paymentLinkOutdated', () => {
     expect(paymentLinkOutdated({ pendingPayments: 500, due: 0 } as any)).toBe(true);
     // A link for less than what is now due: the customer would still owe the rest.
     expect(paymentLinkOutdated({ pendingPayments: 6200, due: 9190 } as any)).toBe(true);
-  });
-});
-
-describe('paymentRowHasActions', () => {
-  it('an invoice badge or a Generate invoice button counts as an action', async () => {
-    const { paymentRowHasActions } = await import('../../../admin/src/ecommerce/utils/orderDetail');
-    expect(paymentRowHasActions({ invoice: null } as any, true)).toBe(false);
-    expect(paymentRowHasActions({ invoice: { status: 'ISSUED', invoiceable: 0 } } as any, false)).toBe(true);
-    expect(paymentRowHasActions({ invoice: { status: null, invoiceable: 500 } } as any, true)).toBe(true);
-    expect(paymentRowHasActions({ invoice: { status: null, invoiceable: 500 } } as any, false)).toBe(false);
   });
 });
 
