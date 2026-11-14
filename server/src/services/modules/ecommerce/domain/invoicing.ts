@@ -63,7 +63,7 @@ export type InvoiceOrderState = Omit<CoverageOrderState, 'lines'> & {
 
 export type OverInvoiced = Map<number | 'SHIPPING', number>;
 
-const isObject = (v: unknown): v is Record<string, unknown> =>
+export const isObject = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === 'object' && !Array.isArray(v);
 
 /** Non-negative integer cents, or 0. */
@@ -74,7 +74,8 @@ const cents = (v: unknown): number => {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
 };
 
-const num = (v: unknown): number => {
+/** A finite number, or 0. */
+export const num = (v: unknown): number => {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 };

@@ -7,7 +7,7 @@
  * net values.
  */
 import { allocateProportionally, coverageDues } from './orders';
-import { readInvoiceLines, type InvoiceLine } from './invoicing';
+import { isObject, num, readInvoiceLines, type InvoiceLine } from './invoicing';
 import type { ShippingLine } from './shippingLines';
 import type { ValidationIssue } from '../errors';
 
@@ -67,6 +67,12 @@ export type InvoicingPosition = {
   shipping: PositionShipping[];
   products: PoolPosition;
   shippingPool: PoolPosition;
+  /**
+   * Cents (≥ 0) of each pool that no remaining unit or available shipping line can carry (e.g. a
+   * discount lowered after every unit was invoiced, or invoiced shipping credited by a RETURN).
+   * Never selectable; settled with a CORRECTION credit note and a new invoice.
+   */
+  stranded: { products: number; shipping: number };
   annulledInvoiceIds: number[];
 };
 
@@ -86,14 +92,6 @@ export type PricedSelection = {
 
 const COUNTED_INVOICE: InvoiceDoc['status'][] = ['ISSUED', 'PENDING', 'UNCERTAIN'];
 const HELD_REFUND = ['COMPLETED', 'PROCESSING', 'PENDING'];
-
-const isObject = (v: unknown): v is Record<string, any> =>
-  !!v && typeof v === 'object' && !Array.isArray(v);
-
-const num = (v: unknown): number => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
-};
 
 /** A non-negative whole number of units. */
 const units = (v: number): number => Math.max(0, Math.floor(num(v)));
@@ -115,7 +113,7 @@ export function readInvoiceDoc(row: unknown, paymentIds: number[]): InvoiceDoc {
       ? metadata.creditType
       : null;
   // An unknown status never counts.
-  const status: InvoiceDoc['status'] = COUNTED_INVOICE.includes(r.status) ? r.status : 'FAILED';
+  const status = COUNTED_INVOICE.find((s) => s === r.status) ?? 'FAILED';
   const rawCredited = Array.isArray(metadata.creditedLines) ? metadata.creditedLines : [];
   return {
     id: Number(r.id),
@@ -125,16 +123,14 @@ export function readInvoiceDoc(row: unknown, paymentIds: number[]): InvoiceDoc {
     creditType,
     lines: readInvoiceLines(r.lines),
     paymentIds: [...paymentIds],
-    creditedLines: rawCredited
-      .filter(
-        (e: unknown) => isObject(e) && Number.isInteger(e.index) && Number.isFinite(Number(e.value))
-      )
-      .map((e: Record<string, any>) => ({
-        index: e.index as number,
-        value: num(e.value),
-        // Legacy entries have no quantity: they credited no units (ruling 13).
-        quantity: Number.isInteger(e.quantity) && e.quantity > 0 ? (e.quantity as number) : 0,
-      })),
+    creditedLines: rawCredited.filter(isObject).flatMap((e) => {
+      const { index, quantity } = e;
+      if (typeof index !== 'number' || !Number.isInteger(index)) return [];
+      if (!Number.isFinite(Number(e.value))) return [];
+      // Legacy entries have no quantity: they credited no units (ruling 13).
+      const units = typeof quantity === 'number' && Number.isInteger(quantity) && quantity > 0;
+      return [{ index, value: num(e.value), quantity: units ? quantity : 0 }];
+    }),
   };
 }
 
@@ -177,19 +173,19 @@ const duesOf = (order: PositionOrder): Map<number, number> => {
  * UNCERTAIN; an invoice with an ISSUED CORRECTION credit note is annulled and left out with its
  * credit notes; ISSUED RETURN credit notes (legacy ones included) reduce the invoiced value and
  * units. Each pool's remaining value is split over what is left, so already invoiced parts stay
- * fixed and Σ invoiced + remaining equals the order total.
+ * fixed. Value no remaining unit or available shipping line can carry is `stranded`, never put
+ * on a line: Σ invoiced + Σ remainingValue + stranded equals the order total.
  */
 export function invoicingPosition(order: PositionOrder, docs: InvoiceDoc[]): InvoicingPosition {
   const lineDue = duesOf(order);
   const legacyTarget = legacyShippingTarget(order.shippingLines);
 
-  const annulled = new Set(
-    docs
-      .filter(
-        (d) => d.kind === 'CREDIT_NOTE' && d.status === 'ISSUED' && d.creditType === 'CORRECTION'
-      )
-      .map((d) => d.creditedInvoiceId)
-  );
+  const annulled = new Set<number>();
+  for (const d of docs) {
+    if (d.kind !== 'CREDIT_NOTE' || d.status !== 'ISSUED' || d.creditType !== 'CORRECTION')
+      continue;
+    if (d.creditedInvoiceId !== null) annulled.add(d.creditedInvoiceId);
+  }
   const invoices = docs.filter((d) => d.kind === 'INVOICE' && COUNTED_INVOICE.includes(d.status));
   const annulledInvoiceIds = invoices.filter((d) => annulled.has(d.id)).map((d) => d.id);
   const counted = new Map(invoices.filter((d) => !annulled.has(d.id)).map((d) => [d.id, d]));
@@ -300,7 +296,12 @@ export function invoicingPosition(order: PositionOrder, docs: InvoiceDoc[]): Inv
     remainingValue: shippingSplit[i],
   }));
 
-  return { lines, shipping, products, shippingPool, annulledInvoiceIds };
+  const stranded = {
+    products: products.remaining - sum(split),
+    shipping: shippingPool.remaining - sum(shippingSplit),
+  };
+
+  return { lines, shipping, products, shippingPool, stranded, annulledInvoiceIds };
 }
 
 // ---------------------------------------------------------------------------
@@ -397,7 +398,7 @@ export function priceSelection(
     }
     seenLines.add(line.orderLineId);
     const quantity = e.quantity;
-    if (!Number.isInteger(quantity) || quantity < 1) {
+    if (typeof quantity !== 'number' || !Number.isInteger(quantity) || quantity < 1) {
       issues.push({ path: `lines.${i}.quantity`, code: 'invalid' });
       return;
     }
