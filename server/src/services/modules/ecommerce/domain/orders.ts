@@ -182,9 +182,9 @@ export const derivePaymentStatus = (
 ): PaymentStatus => {
   const { paid, refunded, net, excess, orderTotal: total } = summary;
   if (refunded > 0 && net <= 0) return 'REFUNDED';
-  // Money is owed back to the customer (overpaid, returned or cancelled): it stays visible
-  // until the refund is completed.
-  if (excess > 0) return 'REFUND_DUE';
+  // Money is still owed back to the customer (overpaid, returned or cancelled): part of it went
+  // back already, or none of it yet. A processing refund does not count until it completes.
+  if (excess > 0) return refunded > 0 ? 'PARTIALLY_REFUNDED' : 'REFUND_DUE';
   // Only the excess went back (what is kept still covers the order): the order is paid.
   if (refunded > 0 && total > 0 && net >= total) return 'PAID';
   if (refunded > 0) return 'PARTIALLY_REFUNDED';

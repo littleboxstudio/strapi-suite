@@ -155,7 +155,7 @@ describe('financialSummary / derivePaymentStatus', () => {
     expect(derivePaymentStatus(s)).toBe('PAID');
   });
 
-  it('a cancelled order refunded in part is REFUND_DUE while money is still held', () => {
+  it('a cancelled order refunded in part is PARTIALLY_REFUNDED while money is still held', () => {
     // orderTotal is the real total (10000); the customer got 4000 back of 10000 paid.
     const s = financialSummary(
       10000,
@@ -164,7 +164,7 @@ describe('financialSummary / derivePaymentStatus', () => {
       { orderCancelled: true }
     );
     expect(s.excess).toBe(6000);
-    expect(derivePaymentStatus(s)).toBe('REFUND_DUE');
+    expect(derivePaymentStatus(s)).toBe('PARTIALLY_REFUNDED');
   });
 
   it('refunded in part with nothing more owed back stays PARTIALLY_REFUNDED', () => {
@@ -179,6 +179,12 @@ describe('financialSummary / derivePaymentStatus', () => {
       { status: 'PROCESSING', amount: 1000, kind: 'MONEY' },
     ]);
     expect(derivePaymentStatus(processing)).toBe('REFUND_DUE');
+    // Part of the excess went back, part is still owed: PARTIALLY_REFUNDED.
+    const half = financialSummary(9000, payments, [
+      { status: 'COMPLETED', amount: 500, kind: 'MONEY' },
+    ]);
+    expect(half.excess).toBe(500);
+    expect(derivePaymentStatus(half)).toBe('PARTIALLY_REFUNDED');
     const done = financialSummary(9000, payments, [
       { status: 'COMPLETED', amount: 1000, kind: 'MONEY' },
     ]);
