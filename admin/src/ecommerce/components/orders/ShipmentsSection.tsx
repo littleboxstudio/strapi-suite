@@ -67,6 +67,10 @@ type Props = {
   onEdited: (result: EditResult) => void;
   /** A balance button of an edit's result step (add payment, refund, …). */
   onAction: (action: ToolbarAction) => void;
+  /** The section's own actions (Ship), allowed for this order and user. */
+  sectionActions?: ToolbarAction[];
+  /** An order action is running: the section's actions wait. */
+  actionBusy?: boolean;
 };
 
 /** The open shipping modal; it unmounts on close, so each opening mints its own operationId. */
@@ -108,6 +112,8 @@ const ShipmentsSection = ({
   onChanged,
   onEdited,
   onAction,
+  sectionActions = [],
+  actionBusy = false,
 }: Props) => {
   const { formatMessage, formatDate, locale: uiLocale } = useIntl();
   const { toggleNotification } = useNotification();
@@ -253,6 +259,11 @@ const ShipmentsSection = ({
           {t(`ecommerce.orders.shipments.orderDelivery.${deliveryStatus}`, undefined, deliveryStatus)}
         </Badge>
       </Flex>
+      {sectionActions.map((action) => (
+        <Button key={action} size="S" variant="secondary" disabled={actionBusy} onClick={() => onAction(action)}>
+          {t(`ecommerce.orders.detail.actions.${action}`)}
+        </Button>
+      ))}
       <ShippingAddressModal order={order} canManage={canManage} onSaved={onEdited} />
       {canManage && canEdit(order, 'RECALCULATE_SHIPPING') && (
         <Button size="S" variant="secondary" onClick={() => setShippingModal({ kind: 'RECALCULATE' })}>

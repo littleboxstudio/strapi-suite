@@ -1045,14 +1045,17 @@ describe('paymentLinkOutdated', () => {
 
 describe('payment section actions', () => {
   it('Add payment, Send payment instructions and Refund move to the sections, same rules', async () => {
-    const { allowedToolbarActions, headerActions, paymentSectionActions, refundSectionActions } = await import(
+    const { allowedToolbarActions, headerActions, paymentSectionActions, refundSectionActions, shipmentSectionActions } =
+      await import(
       '../../../admin/src/ecommerce/utils/orderDetail'
     );
     const available: any[] = ['SHIP', 'CANCEL', 'ADD_PAYMENT', 'SEND_PAYMENT_INSTRUCTIONS', 'REFUND'];
     const all = allowedToolbarActions(available, { canManage: true, canPay: true, canRefund: true });
     // Refund also sits in the Payments section (and in Refunds and credits), no longer in the header.
     expect(paymentSectionActions(all)).toEqual(['ADD_PAYMENT', 'SEND_PAYMENT_INSTRUCTIONS', 'REFUND']);
-    expect(headerActions(all)).toEqual(['SHIP', 'CANCEL']);
+    // Ship sits in the Shipments and deliveries section.
+    expect(headerActions(all)).toEqual(['CANCEL']);
+    expect(shipmentSectionActions(all)).toEqual(['SHIP']);
     // The permission rules are unchanged: Add payment needs orders.manage, Send payment
     // instructions needs payments.manage.
     const noPay = allowedToolbarActions(available, { canManage: true, canPay: false, canRefund: true });

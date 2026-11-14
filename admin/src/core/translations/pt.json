@@ -1740,7 +1740,7 @@
   "littlebox-strapi-suite.ecommerce.orders.balance.refundable": "Elegível para reembolso: {amount}",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.title": "Cobranças de portes",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.recalculate": "Recalcular portes",
-  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.add": "Adicionar portes",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.add": "Adicionar cobrança de portes",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.edit": "Editar",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.editTitle": "Editar cobrança de portes",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.origin.CHECKOUT": "Checkout",

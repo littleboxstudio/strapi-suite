@@ -488,9 +488,17 @@ export function paymentSectionActions(allowed: ToolbarAction[]): ToolbarAction[]
   return allowed.filter((a) => PAYMENT_SECTION_ACTIONS.includes(a));
 }
 
+/** Actions shown in the Shipments and deliveries section. */
+export const SHIPMENT_SECTION_ACTIONS: ToolbarAction[] = ['SHIP'];
+
+/** The allowed actions that belong to the Shipments and deliveries section. */
+export function shipmentSectionActions(allowed: ToolbarAction[]): ToolbarAction[] {
+  return allowed.filter((a) => SHIPMENT_SECTION_ACTIONS.includes(a));
+}
+
 /** The allowed actions that stay in the top bar. */
 export function headerActions(allowed: ToolbarAction[]): ToolbarAction[] {
-  return allowed.filter((a) => !PAYMENT_SECTION_ACTIONS.includes(a));
+  return allowed.filter((a) => !PAYMENT_SECTION_ACTIONS.includes(a) && !SHIPMENT_SECTION_ACTIONS.includes(a));
 }
 
 /**
