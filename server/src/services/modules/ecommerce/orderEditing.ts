@@ -35,6 +35,7 @@ import {
   appendLine,
   chargedShipping,
   currentMethod,
+  invoicedMethod,
   planLineChange,
   planRecalculation,
   readShippingLines,
@@ -49,7 +50,6 @@ import {
   reconcileManualDiscounts,
   type ManualDiscount,
 } from './domain/manualDiscounts';
-import { previousShipmentsCost } from './domain/fulfillment';
 import { releaseLineRefs } from './domain/lineDiscounts';
 import {
   recalculateDiscounts,
@@ -95,26 +95,43 @@ export type LinesPreview = Pick<
   'errors' | 'before' | 'after' | 'lineChanges' | 'stockMovements' | 'outcome' | 'difference'
 >;
 
+/**
+ * Spec 6.3. `WHOLE_ORDER` (no shipment, or partially shipped): the whole order is quoted.
+ * `NEW_UNITS` (fully shipped, then products added): only the units still to ship, under a method
+ * the user picks.
+ */
+export type RecalculationKind = 'WHOLE_ORDER' | 'NEW_UNITS';
+
+/** A quote of the whole order: `due` is what the shipping charges should add up to. */
 export type ShippingDue =
-  | { due: number; quote: number; previousShipmentsCost: number; option: ShippingOption | null }
+  | { due: number; method: ShippingMethodRef; option: ShippingOption | null }
   | { failed: true };
 
 export type ShippingRecalculationPreview = {
+  kind: RecalculationKind;
+  /** The charges in scope (WHOLE_ORDER: every line; NEW_UNITS: the lines since the full shipment). */
   charged: number;
-  due: number;
+  /** The invoiced charges in scope: they stay, the new line charges the quote minus them. */
+  invoiced: number;
   quote: number;
-  previousShipmentsCost: number;
+  /** The method quoted; null while NEW_UNITS waits for a pick or there is nothing to quote. */
+  method: ShippingMethodRef | null;
+  /** NEW_UNITS with units to ship: the methods for those units, with their price. */
+  options: ShippingOption[];
+  /** NEW_UNITS with units to ship and no method picked yet. */
+  needsMethod: boolean;
   mode: 'REPLACED' | 'APPENDED' | 'UNCHANGED';
   lines: ShippingLineView[];
   before: ModificationTotals;
   after: ModificationTotals;
 };
 
+/** NEW_UNITS: the method picked for the units to ship. */
+export type ShippingRecalculationInput = { providerId?: unknown; serviceId?: unknown };
+
 export type ShippingLineInput = { providerId: string; serviceId: string; amount: number };
 
 export type ManualDiscountInput = { kind: 'FIXED' | 'PERCENT'; value: number; reason: string };
-
-type ShippingQuoted = Exclude<ShippingDue, { failed: true }>;
 
 const num = (v: unknown): number => {
   const n = Number(v);
@@ -263,23 +280,34 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     locale: state.order.locale,
   });
 
+  /** `units` counted whole: `quoteItems` takes off the reserved units, so they are added back. */
+  const wholeUnits = (state: OrderState, units: QuoteUnit[]): QuoteUnit[] => {
+    const byLine = new Map(state.lines.map((l) => [l.id, l]));
+    return units.map((u) => {
+      const line = u.orderLineId !== undefined ? byLine.get(u.orderLineId) : undefined;
+      return line ? { ...u, quantity: u.quantity - line.returnedQuantity + line.reserved } : u;
+    });
+  };
+
+  /** The method a whole-order quote uses: the invoiced company's, else the current one. */
+  const wholeOrderMethod = (state: OrderState): ShippingMethodRef | null =>
+    invoicedMethod(state.shippingLines) ?? currentMethod(readShippingLines(state.order));
+
   /**
-   * The shipping due for `units` (ruling 6): the cost of the ACTIVE shipments plus a quote of the
-   * current method for the units not yet reserved, at `address`. No unit pending: quote 0 and no
-   * carrier call. No current method, no option or a carrier error: `{ failed: true }`.
+   * The shipping the whole order should be charged (spec 6.3): a quote of every unit of `units`
+   * (shipped or not) at `address`, under the invoiced company's method (else the current one).
+   * Nothing to ship: 0, no carrier call. No method, no option or a carrier error: `{ failed }`.
    */
   const shippingDue = async (
     state: OrderState,
     units: QuoteUnit[],
     address: Address | null
   ): Promise<ShippingDue> => {
-    const spent = previousShipmentsCost(state.shipments);
-    const quoted = quoteItems(state, units, await catalogFor(state, units));
-    if (!quoted.items.length) {
-      return { due: spent, quote: 0, previousShipmentsCost: spent, option: null };
-    }
-    const method = currentMethod(readShippingLines(state.order));
+    const whole = wholeUnits(state, units);
+    const quoted = quoteItems(state, whole, await catalogFor(state, whole));
+    const method = wholeOrderMethod(state);
     if (!method) return { failed: true };
+    if (!quoted.items.length) return { due: 0, method, option: null };
     let option: ShippingOption | null;
     try {
       option = await shipping().findOption(
@@ -294,9 +322,45 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
       return { failed: true };
     }
     if (!option) return { failed: true };
-    const quote = num(option.price);
-    return { due: spent + quote, quote, previousShipmentsCost: spent, option };
+    return { due: num(option.price), method, option };
   };
+
+  const timeOf = (v: unknown): number => {
+    const t = new Date(v as any).getTime();
+    return Number.isFinite(t) ? t : 0;
+  };
+
+  /**
+   * Spec 6.3: an order that was fully shipped and then got products (the last fulfillment change
+   * was FULFILLED → partial, by a products edit) recalculates only the units added since
+   * (`NEW_UNITS`, `since` = that change; a still FULFILLED order has none). Any other order
+   * with shipments, or without, is quoted whole (`WHOLE_ORDER`).
+   */
+  const recalculationBasis = (
+    state: OrderState
+  ): { kind: 'WHOLE_ORDER' } | { kind: 'NEW_UNITS'; since: number | null } => {
+    if (!state.editing.hasShipments) return { kind: 'WHOLE_ORDER' };
+    if (state.order.fulfillmentStatus === 'FULFILLED') return { kind: 'NEW_UNITS', since: null };
+    const history: any[] = [...(state.order.history ?? [])].sort((a, b) => num(a.id) - num(b.id));
+    const last = history.filter((h) => h.type === 'FULFILLMENT_STATUS_CHANGED').pop();
+    const byProductsEdit =
+      last?.previousValue?.fulfillmentStatus === 'FULFILLED' &&
+      last.operationId &&
+      history.some(
+        (h) =>
+          h.operationId === last.operationId &&
+          (h.type === 'LINES_CHANGED' || h.type === 'ORDER_MODIFIED')
+      );
+    return byProductsEdit
+      ? { kind: 'NEW_UNITS', since: timeOf(last.createdAt) }
+      : { kind: 'WHOLE_ORDER' };
+  };
+
+  /** The charges a NEW_UNITS recalculation works on: the lines created after `since`. */
+  const sinceScope =
+    (since: number | null) =>
+    (l: ShippingLineView): boolean =>
+      since !== null && timeOf(l.createdAt) > since;
 
   /**
    * The order's discounts against today's promotions (ruling 12), with the stored selection.
@@ -494,18 +558,22 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         const state = await loadForLines(orderId);
         const { result: draft } = await simulateLines(state, lines);
         if (draft.errors.length) throw invalidLines(draft.errors);
+        const units: QuoteUnit[] = draft.lineChanges.map((c) => ({
+          variantId: c.variantId,
+          quantity: c.newQuantity,
+          orderLineId: c.orderLineId,
+          sourceOrderLineId: c.sourceOrderLineId,
+          ...(c.discount ? { unitDiscount: c.discount.unitDiscount } : {}),
+        }));
+        // Fully shipped before (spec 6.3): units to ship need a method picked in Recalculate.
+        // Edits only add there, so the basis (and its NEW_UNITS) holds after this one too.
+        const basis = recalculationBasis(state).kind;
+        if (basis === 'NEW_UNITS') {
+          const pending = quoteItems(state, units, await catalogFor(state, units));
+          return { lines, due: pending.items.length ? ('NEW_UNITS' as const) : null };
+        }
         // The carrier quote may be a remote call: taken before the transaction.
-        const due = await shippingDue(
-          state,
-          draft.lineChanges.map((c) => ({
-            variantId: c.variantId,
-            quantity: c.newQuantity,
-            orderLineId: c.orderLineId,
-            sourceOrderLineId: c.sourceOrderLineId,
-            ...(c.discount ? { unitDiscount: c.discount.unitDiscount } : {}),
-          })),
-          state.order.shippingAddress ?? null
-        );
+        const due = await shippingDue(state, units, state.order.shippingAddress ?? null);
         return { lines, due };
       },
       write: async (state, { lines, due }, w) => {
@@ -519,7 +587,11 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         });
 
         let flags = readReviewFlags(state.order.reviewFlags);
-        if ('failed' in due) {
+        if (due === 'NEW_UNITS') {
+          flags = await w.raise(flags, 'SHIPPING_REVIEW', 'PRODUCTS_CHANGED');
+        } else if (due === null) {
+          // Nothing to review.
+        } else if ('failed' in due) {
           flags = await w.raise(flags, 'SHIPPING_REVIEW', 'SHIPPING_QUOTE_FAILED');
         } else if (due.due !== chargedShipping(readShippingLines(state.order))) {
           flags = await w.raise(flags, 'SHIPPING_REVIEW', 'PRODUCTS_CHANGED');
@@ -835,39 +907,112 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     };
   };
 
-  /** The due for Recalculate (ruling 6); a failed quote is `SHIPPING_QUOTE_FAILED`. */
-  const recalculationDue = async (state: OrderState): Promise<ShippingQuoted> => {
-    assertEditable(state, 'RECALCULATE_SHIPPING');
-    const due = await shippingDue(state, orderUnits(state), state.order.shippingAddress ?? null);
-    if ('failed' in due) throw invalidShipping('shipping', 'SHIPPING_QUOTE_FAILED');
-    return due;
+  type Recalculation = {
+    kind: RecalculationKind;
+    /** The charges the recalculation works on. */
+    scope: (l: ShippingLineView) => boolean;
+    quote: number;
+    method: ShippingMethodRef | null;
+    options: ShippingOption[];
+    needsMethod: boolean;
   };
 
-  /** The new table for `due`, under the current method (its quoted name and tax when quoted). */
-  const recalculationPlan = (state: OrderState, due: ShippingQuoted, actor: string) => {
-    const current = currentMethod(state.shippingLines);
-    if (!current) throw invalidShipping('shipping', 'SHIPPING_QUOTE_FAILED');
-    const method: ShippingMethodRef = due.option
-      ? { ...current, name: due.option.name, tax: due.option.tax }
-      : current;
-    return planRecalculation(state.shippingLines, due.due, {
-      method,
-      at: new Date().toISOString(),
-      actor,
+  const pickedMethod = (input?: ShippingRecalculationInput) => {
+    const providerId = typeof input?.providerId === 'string' ? input.providerId.trim() : '';
+    const serviceId = typeof input?.serviceId === 'string' ? input.serviceId.trim() : '';
+    return providerId && serviceId ? { providerId, serviceId } : null;
+  };
+
+  /**
+   * NEW_UNITS: the units added since the full shipment (`since`), shipped or not: each line's
+   * quantity minus what the ACTIVE shipments made up to then carried. Counted whole (the reserved
+   * units are added back, `quoteItems` takes them off).
+   */
+  const unitsSince = (state: OrderState, since: number): QuoteUnit[] => {
+    const before = new Map<number, number>();
+    state.shipmentRows.forEach((row: any, i: number) => {
+      const s = state.shipments[i];
+      if (!s || s.status !== 'ACTIVE' || timeOf(row.createdAt) > since) return;
+      s.items.forEach((it) => before.set(it.orderLineId, (before.get(it.orderLineId) ?? 0) + it.quantity));
     });
+    return state.lines
+      .map((l) => ({
+        variantId: l.variantId,
+        quantity: Math.max(0, l.quantity - (before.get(l.id) ?? 0)) + l.reserved,
+        orderLineId: l.id,
+      }))
+      .filter((u) => u.quantity > 0);
+  };
+
+  /** The quote Recalculate works with (spec 6.3). May call the carriers: never in a transaction. */
+  const recalculationQuote = async (
+    state: OrderState,
+    input: ShippingRecalculationInput | undefined,
+    use: 'preview' | 'apply'
+  ): Promise<Recalculation> => {
+    assertEditable(state, 'RECALCULATE_SHIPPING');
+    const address = state.order.shippingAddress ?? null;
+    const basis = recalculationBasis(state);
+    if (basis.kind === 'WHOLE_ORDER') {
+      const due = await shippingDue(state, orderUnits(state), address);
+      if ('failed' in due) throw invalidShipping('shipping', 'SHIPPING_QUOTE_FAILED');
+      const method = due.option ? { ...due.method, name: due.option.name, tax: due.option.tax } : due.method;
+      return { kind: 'WHOLE_ORDER', scope: () => true, quote: due.due, method, options: [], needsMethod: false };
+    }
+    const scope = sinceScope(basis.since);
+    const none = { kind: 'NEW_UNITS' as const, scope, quote: 0, method: null, options: [], needsMethod: false };
+    if (basis.since === null) return none;
+    const units = unitsSince(state, basis.since);
+    const quoted = quoteItems(state, units, await catalogFor(state, units));
+    if (!quoted.items.length) return none;
+    const picked = pickedMethod(input);
+    if (!picked && use === 'apply') throw invalidShipping('method', 'SHIPPING_METHOD_REQUIRED');
+    const { options, failures } = await shipping().quote(quoteRequest(state, quoted, address));
+    if (!picked) return { ...none, options, needsMethod: true };
+    const o = options.find((x) => x.providerId === picked.providerId && x.serviceId === picked.serviceId);
+    if (!o) {
+      const failed =
+        failures.some((f) => f.providerId === picked.providerId) &&
+        !options.some((x) => x.providerId === picked.providerId);
+      throw failed
+        ? invalidShipping('shipping', 'SHIPPING_QUOTE_FAILED')
+        : invalidShipping('method', 'SHIPPING_METHOD_UNAVAILABLE');
+    }
+    return {
+      ...none,
+      quote: num(o.price),
+      method: { providerId: o.providerId, serviceId: o.serviceId, name: o.name, tax: o.tax },
+      options,
+    };
+  };
+
+  /** The new table: the charges in scope become the quote (invoiced ones stay). */
+  const recalculationPlan = (state: OrderState, r: Recalculation, actor: string) => {
+    const meta = { at: new Date().toISOString(), actor };
+    // Nothing quoted (no units, or no method picked yet): the due is what is charged, unchanged.
+    if (!r.method) {
+      const charged = chargedShipping(state.shippingLines.filter(r.scope));
+      const placeholder = { providerId: '', serviceId: '', name: '', tax: 0 };
+      return planRecalculation(state.shippingLines, charged, { method: placeholder, ...meta }, r.scope);
+    }
+    return planRecalculation(state.shippingLines, r.quote, { method: r.method, ...meta }, r.scope);
   };
 
   const previewShippingRecalculation = async (
-    rawOrderId: number | string
+    rawOrderId: number | string,
+    input?: ShippingRecalculationInput
   ): Promise<ShippingRecalculationPreview> => {
     const state = await orders().computeOrderState(Number(rawOrderId));
-    const due = await recalculationDue(state);
-    const plan = recalculationPlan(state, due, 'preview');
+    const r = await recalculationQuote(state, input, 'preview');
+    const plan = recalculationPlan(state, r, 'preview');
     return {
+      kind: r.kind,
       charged: plan.charged,
-      due: due.due,
-      quote: due.quote,
-      previousShipmentsCost: due.previousShipmentsCost,
+      invoiced: plan.invoiced,
+      quote: r.quote,
+      method: r.method,
+      options: r.options,
+      needsMethod: r.needsMethod,
       mode: plan.mode,
       lines: shippingLineViews(
         plan.lines,
@@ -883,34 +1028,38 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   /**
-   * Recalculate shipping (spec 6.3, ruling 6): gross due against charged. Equal: the table stays
-   * and the flag clears. A failed quote changes nothing.
+   * Recalculate shipping (spec 6.3). WHOLE_ORDER: the whole order is quoted under the invoiced
+   * company's method (else the current one); the non-invoiced charges are replaced by one line
+   * of the quote minus the invoiced charges (negative: money back). NEW_UNITS: the units added
+   * since the full shipment, under the picked method (`input`), the same way over the charges
+   * made since. Equal: the table stays and the flag clears. A failed quote changes nothing.
    */
   const recalculateShipping = async (
     rawOrderId: number | string,
     actor: string,
-    operationId: string
+    operationId: string,
+    input?: ShippingRecalculationInput
   ): Promise<EditResult> => {
     const orderId = Number(rawOrderId);
     return runEdit(orderId, 'shipping-recalculate', operationId, actor, {
       // The carrier quote may be a remote call: taken before the transaction.
-      prepare: async () => recalculationDue(await orders().computeOrderState(orderId)),
-      write: async (state, due, w) => {
+      prepare: async () => recalculationQuote(await orders().computeOrderState(orderId), input, 'apply'),
+      write: async (state, r, w) => {
         assertEditable(state, 'RECALCULATE_SHIPPING');
-        const plan = recalculationPlan(state, due, w.actor);
-        const r = await writeShippingLines(state, plan.mode === 'UNCHANGED' ? null : plan.lines, w);
+        const plan = recalculationPlan(state, r, w.actor);
+        const r2 = await writeShippingLines(state, plan.mode === 'UNCHANGED' ? null : plan.lines, w);
         return {
-          outcome: r.outcome,
-          difference: r.difference,
+          outcome: r2.outcome,
+          difference: r2.difference,
           history: {
             type: 'SHIPPING_RECALCULATED',
-            description: `Shipping recalculated: charged ${plan.charged} → due ${due.due} cents (${plan.mode})`,
+            description: `Shipping recalculated (${r.kind}): charged ${plan.charged} → quote ${r.quote} cents (${plan.mode})`,
             previousValue: { lines: readShippingLines(state.order) },
             newValue: {
+              basis: r.kind,
               charged: plan.charged,
-              due: due.due,
-              quote: due.quote,
-              previousShipmentsCost: due.previousShipmentsCost,
+              invoiced: plan.invoiced,
+              quote: r.quote,
               mode: plan.mode,
               lines: plan.lines,
             },

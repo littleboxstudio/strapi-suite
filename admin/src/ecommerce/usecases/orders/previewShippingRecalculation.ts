@@ -1,6 +1,6 @@
 import Registry from '../../../core/di/registry';
 import EcommerceOrdersGateway from '../../gateways/ecommerceOrdersGateway';
-import type { ShippingRecalculationPreview } from '../../orderTypes';
+import type { ShippingRecalculationInput, ShippingRecalculationPreview } from '../../orderTypes';
 
 export default class PreviewShippingRecalculation {
   gateway: EcommerceOrdersGateway;
@@ -9,7 +9,7 @@ export default class PreviewShippingRecalculation {
     this.gateway = Registry.getInstance().inject('ecommerceOrdersGateway');
   }
 
-  async execute(id: number): Promise<ShippingRecalculationPreview> {
-    return this.gateway.previewShippingRecalculation(id);
+  async execute(id: number, input?: ShippingRecalculationInput): Promise<ShippingRecalculationPreview> {
+    return this.gateway.previewShippingRecalculation(id, input);
   }
 }

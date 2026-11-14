@@ -10,6 +10,7 @@ import {
   planLineChange,
   appendLine,
   planRecalculation,
+  invoicedMethod,
   type ShippingLine,
   type ShippingLineView,
 } from '../../../../server/src/services/modules/ecommerce/domain/shippingLines';
@@ -301,13 +302,40 @@ describe('planRecalculation', () => {
     ]);
   });
 
-  it('appends a correction when every line is locked', () => {
-    const r = planRecalculation([view({ spent: true })], 350, meta);
+  it('keeps invoiced lines and appends the quote minus them (negative: money back)', () => {
+    const r = planRecalculation([view({ invoiced: true })], 350, meta);
     expect(r.mode).toBe('APPENDED');
     expect(r.delta).toBe(-150);
+    expect(r.invoiced).toBe(500);
     expect(r.lines).toHaveLength(2);
     expect(r.lines[0]).toEqual(line());
     expect(r.lines[1]).toMatchObject({ id: 2, origin: 'RECALCULATION', amount: -150 });
+  });
+
+  it('a shipment or a payment does not keep a line: only an invoice does', () => {
+    const r = planRecalculation(
+      [view({ spent: true, paid: true, amount: 500 }), view({ id: 2, amount: 300, invoiced: true })],
+      1000,
+      meta
+    );
+    expect(r.mode).toBe('REPLACED');
+    expect(r.lines.map((l) => [l.id, l.origin, l.amount])).toEqual([
+      [2, 'CHECKOUT', 300],
+      [3, 'RECALCULATION', 700],
+    ]);
+  });
+
+  it('only the lines in scope are counted and replaced', () => {
+    const lines = [
+      view({ spent: true, invoiced: true }),
+      view({ id: 2, origin: 'RECALCULATION', amount: 400, createdAt: '2026-11-04T00:00:00.000Z' }),
+    ];
+    const r = planRecalculation(lines, 600, meta, (l) => l.id === 2);
+    expect(r).toMatchObject({ mode: 'REPLACED', charged: 400, invoiced: 0, delta: 200 });
+    expect(r.lines.map((l) => [l.id, l.amount])).toEqual([
+      [1, 500],
+      [3, 600],
+    ]);
   });
 
   it('is unchanged when due equals charged', () => {
@@ -329,9 +357,18 @@ describe('planRecalculation', () => {
     ]);
   });
 
-  it('leaves out a zero recalculation line when locked lines exist', () => {
-    const r = planRecalculation([view({ spent: true, amount: 500 }), view({ id: 2, amount: 300 })], 500, meta);
+  it('leaves out a zero recalculation line when invoiced lines exist', () => {
+    const r = planRecalculation([view({ invoiced: true, amount: 500 }), view({ id: 2, amount: 300 })], 500, meta);
     expect(r.mode).toBe('REPLACED');
     expect(r.lines).toEqual([line({ amount: 500 })]);
+  });
+});
+
+describe('invoicedMethod', () => {
+  it('is the method of the most recent invoiced line, or null', () => {
+    expect(invoicedMethod([view()])).toBeNull();
+    expect(
+      invoicedMethod([view({ invoiced: true }), view({ id: 2, ...B, invoiced: true }), view({ id: 3 })])
+    ).toEqual(B);
   });
 });
