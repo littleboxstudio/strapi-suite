@@ -2,7 +2,7 @@
  * Manual per-line discount (spec 4.1): a percentage the admin sets on an order line. Pure: no
  * Strapi imports. Money is integer cents.
  */
-import { percentOf } from './promotions';
+import { percentOf, type AppliedPromotion, type BenefitRef } from './promotions';
 
 /** 0 < p ≤ 100 with at most 2 decimals. */
 export const isDiscountPercent = (v: unknown): v is number =>
@@ -29,4 +29,28 @@ export const storedDiscountPercent = (raw: unknown): number | null => {
   if (raw === null || raw === undefined || raw === '') return null;
   const n = Number(raw);
   return isDiscountPercent(n) ? n : null;
+};
+
+/**
+ * Takes the refs of a line whose promotion discount a manual percent replaced (spec 4.1) off the
+ * stored promotions: each ref's amount leaves its benefit and its promotion's total, never below
+ * 0. Refs of promotions the order does not store are ignored. `released` is what was taken.
+ */
+export const releaseLineRefs = (
+  applied: AppliedPromotion[],
+  refs: BenefitRef[]
+): { applied: AppliedPromotion[]; released: BenefitRef[] } => {
+  const out = applied.map((a) => ({ ...a, benefits: a.benefits.map((b) => ({ ...b })) }));
+  const released: BenefitRef[] = [];
+  for (const ref of refs) {
+    const promotion = out.find((a) => a.promotionId === ref.promotionId);
+    const benefit = promotion?.benefits.find((b) => b.index === ref.benefitIndex);
+    if (!promotion || !benefit) continue;
+    const amount = Math.min(Math.max(ref.amount, 0), benefit.amount);
+    if (amount <= 0) continue;
+    benefit.amount -= amount;
+    promotion.amount = promotion.benefits.reduce((s, b) => s + b.amount, 0);
+    released.push({ promotionId: ref.promotionId, benefitIndex: ref.benefitIndex, amount });
+  }
+  return { applied: out, released };
 };

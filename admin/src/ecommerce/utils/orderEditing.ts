@@ -1,5 +1,5 @@
 import { MAX_MONEY_CENTS, parseMoneyToCents } from './money';
-import { parseDiscountPercent } from './lineDiscount';
+import { formatLineDiscount, parseDiscountPercent } from './lineDiscount';
 import { ADDRESS_REQUIRED_FIELDS, type AddressForm } from './orderForm';
 import {
   allowedToolbarActions,
@@ -360,3 +360,38 @@ export {
   parseDiscountPercent,
   percentToInput,
 } from './lineDiscount';
+
+/** What a line needs to list its manual discount (an order line or a quote line). */
+type ManualDiscountLine = {
+  name: string;
+  option: string | null;
+  manualDiscountPercent: number | null;
+  unitDiscount: number;
+  quantity: number;
+  returnedQuantity?: number;
+  isGift: boolean;
+};
+
+export type ManualLineDiscountRow = { key: string; label: string; amount: number };
+
+/**
+ * The manual line discounts (spec 4.1) as rows of a discounts list: "<product> −10 %" and the
+ * unit discount × the units kept (returned units excluded).
+ */
+export function manualLineDiscountRows(lines: ManualDiscountLine[], locale: string): ManualLineDiscountRow[] {
+  const rows: ManualLineDiscountRow[] = [];
+  lines.forEach((l, i) => {
+    if (l.isGift || l.manualDiscountPercent === null || l.manualDiscountPercent === undefined) return;
+    const name = l.option ? `${l.name} — ${l.option}` : l.name;
+    rows.push({
+      key: `line-${i}`,
+      label: `${name} ${formatLineDiscount(l.manualDiscountPercent, locale)}`,
+      amount: l.unitDiscount * Math.max(0, l.quantity - (l.returnedQuantity ?? 0)),
+    });
+  });
+  return rows;
+}
+
+export function manualLineDiscountTotal(rows: Pick<ManualLineDiscountRow, 'amount'>[]): number {
+  return rows.reduce((s, r) => s + r.amount, 0);
+}

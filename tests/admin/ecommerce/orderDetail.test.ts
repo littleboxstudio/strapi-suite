@@ -113,6 +113,45 @@ describe('historyEntryText for order editing', () => {
     historyEntryText(entry({ type, previousValue, newValue }), t, money).change;
   const sl = (amount: number) => ({ id: 1, amount });
 
+  it('LINES_CHANGED that only changed line discounts shows the percents (spec 4.1)', () => {
+    const changed = (over: Record<string, unknown>) => ({
+      orderLineId: 1,
+      name: 'Camisa Linho',
+      option: null,
+      previousQuantity: 1,
+      quantity: 1,
+      ...over,
+    });
+    const next = (lines: unknown[]) => ({ added: [], removed: [], changed: lines, totals: { total: 900 } });
+    const prev = { totals: { total: 1000 } };
+    expect(
+      historyEntryText(
+        entry({
+          type: 'LINES_CHANGED',
+          previousValue: prev,
+          newValue: next([changed({ previousDiscountPercent: 10, discountPercent: 12.5 })]),
+        }),
+        t,
+        money,
+        'pt'
+      ).change
+    ).toEqual({ before: 'Camisa Linho: −10 %', after: 'Camisa Linho: −12,5 %' });
+    expect(
+      change(
+        'LINES_CHANGED',
+        prev,
+        next([
+          changed({ previousDiscountPercent: null, discountPercent: 10 }),
+          changed({ orderLineId: 2, name: 'Mug', option: 'Blue', previousDiscountPercent: 5, discountPercent: null }),
+        ])
+      )
+    ).toEqual({ before: 'Camisa Linho: — · Mug — Blue: −5 %', after: 'Camisa Linho: −10 % · Mug — Blue: —' });
+    // A quantity change too: the totals, as before.
+    expect(
+      change('LINES_CHANGED', prev, next([changed({ quantity: 2, previousDiscountPercent: null, discountPercent: 10 })]))
+    ).toEqual({ before: '€10.00', after: '€9.00' });
+  });
+
   it('LINES_CHANGED and DISCOUNTS_RECALCULATED show the total before and after', () => {
     expect(change('LINES_CHANGED', { totals: { total: 2000 } }, { totals: { total: 3550 } })).toEqual({
       before: '€20.00',

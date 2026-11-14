@@ -1,4 +1,5 @@
 import { fulfillmentStatusBadge, orderStatusBadge, paymentStatusBadge, type StatusBadge } from './statusBadges';
+import { formatLineDiscount } from './lineDiscount';
 import type {
   Address,
   AppliedPromotion,
@@ -96,10 +97,37 @@ function chargedOf(lines: unknown): number | null {
   return sum;
 }
 
+/**
+ * A products change that only set, changed or removed manual line discounts (spec 4.1): the
+ * percents per line ("Camisa Linho: −10 %" → "Camisa Linho: −15 %"); null for any other change.
+ */
+function discountOnlyChange(next: unknown, locale: string): HistoryText['change'] {
+  const changed = field(next, 'changed');
+  const added = field(next, 'added');
+  const removed = field(next, 'removed');
+  if (!Array.isArray(changed) || !changed.length) return null;
+  if ((Array.isArray(added) && added.length) || (Array.isArray(removed) && removed.length)) return null;
+  const only = changed.every(
+    (c) => field(c, 'quantity') === field(c, 'previousQuantity') && field(c, 'discountPercent') !== undefined
+  );
+  if (!only) return null;
+  const percent = (v: unknown) => (isNumber(v) ? formatLineDiscount(v, locale) : '—');
+  const label = (c: unknown) => {
+    const name = String(field(c, 'name') ?? '');
+    const option = field(c, 'option');
+    return typeof option === 'string' && option ? `${name} — ${option}` : name;
+  };
+  return {
+    before: changed.map((c) => `${label(c)}: ${percent(field(c, 'previousDiscountPercent'))}`).join(' · '),
+    after: changed.map((c) => `${label(c)}: ${percent(field(c, 'discountPercent'))}`).join(' · '),
+  };
+}
+
 function historyChange(
   entry: OrderHistoryItem,
   t: Translate,
-  money: (cents: number) => string
+  money: (cents: number) => string,
+  locale: string
 ): HistoryText['change'] {
   const { type, previousValue: prev, newValue: next } = entry;
 
@@ -136,6 +164,11 @@ function historyChange(
     const after = field(next, 'newCharged');
     if (!isNumber(before) || !isNumber(after)) return null;
     return { before: money(before), after: money(after) };
+  }
+
+  if (type === 'LINES_CHANGED') {
+    const discounts = discountOnlyChange(next, locale);
+    if (discounts) return discounts;
   }
 
   if (type === 'LINES_CHANGED' || type === 'DISCOUNTS_RECALCULATED') {
@@ -191,13 +224,15 @@ function historyDetail(entry: OrderHistoryItem, t: Translate, money: (cents: num
 export function historyEntryText(
   entry: OrderHistoryItem,
   t: (id: string, values?: Record<string, string | number>, defaultMessage?: string) => string,
-  money: (cents: number) => string
+  money: (cents: number) => string,
+  /** Formats the percents of manual line discounts (spec 4.1). */
+  locale = 'en'
 ): HistoryText {
   return {
     title: t(`ecommerce.orders.history.type.${entry.type}`, undefined, entry.type),
     description: entry.description,
     actor: actorLabel(entry.actor, t),
-    change: historyChange(entry, t, money),
+    change: historyChange(entry, t, money, locale),
     detail: historyDetail(entry, t, money),
   };
 }

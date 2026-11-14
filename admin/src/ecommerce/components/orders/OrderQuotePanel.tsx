@@ -18,6 +18,7 @@ import { getTranslation } from '../../../core/utils/getTranslation';
 import { formatCents } from '../../utils/money';
 import { codeStatusBadgeVariant, promotionDisplayName } from '../../utils/orderDetail';
 import { giftSelectors, type PromotionCodeError } from '../../utils/orderForm';
+import { manualLineDiscountRows } from '../../utils/orderEditing';
 import { MAX_PROMOTION_CODES, type OrderQuote } from '../../orderTypes';
 import OrderSection from './OrderSection';
 
@@ -81,6 +82,8 @@ const OrderQuotePanel = ({
     promotionDisplayName(p, locale, defaultLocale) ?? t('ecommerce.orders.promotions.fallbackName');
   const selectors = quote ? giftSelectors(quote) : [];
   const gifts = quote ? quote.lines.filter((l) => l.isGift) : [];
+  // Spec 4.1: the manual line discounts, which the "Product discounts" total includes.
+  const lineDiscounts = quote ? manualLineDiscountRows(quote.lines, uiLocale) : [];
 
   const row = (label: string, value: string, strong = false) => (
     <Flex justifyContent="space-between" gap={4}>
@@ -189,7 +192,7 @@ const OrderQuotePanel = ({
               <Typography variant="sigma" textColor="neutral600">
                 {t('ecommerce.orders.quote.applied')}
               </Typography>
-              {quote.promotions.length === 0 ? (
+              {quote.promotions.length === 0 && lineDiscounts.length === 0 ? (
                 <Typography variant="pi" textColor="neutral600">
                   {t('ecommerce.orders.quote.noPromotions')}
                 </Typography>
@@ -210,6 +213,19 @@ const OrderQuotePanel = ({
                   </Flex>
                 ))
               )}
+              {lineDiscounts.map((r) => (
+                <Flex key={r.key} justifyContent="space-between" gap={4}>
+                  <Flex direction="column" alignItems="flex-start">
+                    <Typography textColor="neutral800">{t('ecommerce.orders.discounts.manualLineName')}</Typography>
+                    <Typography variant="pi" textColor="neutral600">
+                      {r.label}
+                    </Typography>
+                  </Flex>
+                  <Typography textColor="neutral800" style={{ whiteSpace: 'nowrap' }}>
+                    {discount(r.amount)}
+                  </Typography>
+                </Flex>
+              ))}
               {gifts.map((g) => (
                 <Flex key={`gift-${g.variantId}`} gap={2} alignItems="center">
                   <Badge size="S" variant="success">

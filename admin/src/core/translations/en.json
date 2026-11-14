@@ -1993,6 +1993,7 @@
   "littlebox-strapi-suite.ecommerce.orders.discounts.giftShipped": "Its gift was already shipped.",
   "littlebox-strapi-suite.ecommerce.orders.discounts.manual": "Manual",
   "littlebox-strapi-suite.ecommerce.orders.discounts.manualName": "Manual discount",
+  "littlebox-strapi-suite.ecommerce.orders.discounts.manualLineName": "Manual line discount",
   "littlebox-strapi-suite.ecommerce.orders.discounts.kind.FIXED": "Fixed amount",
   "littlebox-strapi-suite.ecommerce.orders.discounts.kind.PERCENT": "Percentage",
   "littlebox-strapi-suite.ecommerce.orders.discounts.value": "Value",

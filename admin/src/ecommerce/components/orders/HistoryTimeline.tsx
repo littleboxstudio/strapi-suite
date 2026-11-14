@@ -22,7 +22,7 @@ const HistoryTimeline = ({ history }: { history: OrderHistoryItem[] }) => {
   return (
     <Flex direction="column" alignItems="stretch" gap={0} tag="ol" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
       {entries.map((entry, index) => {
-        const text = historyEntryText(entry, t, money);
+        const text = historyEntryText(entry, t, money, uiLocale);
         const last = index === entries.length - 1;
         return (
           <Flex key={entry.id} tag="li" gap={3} alignItems="stretch">

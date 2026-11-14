@@ -20,6 +20,8 @@ import {
   hasRowActions,
   manualDiscountPercent,
   manualDiscountRows,
+  manualLineDiscountRows,
+  manualLineDiscountTotal,
   orderDiscountTotal,
 } from '../../utils/orderEditing';
 import { mintUuid } from '../../utils/variantDraft';
@@ -78,6 +80,8 @@ const PromotionsSection = ({
   const unapplied = unappliedPromotionCodes(promotionCodes);
   const { canManage } = permissions;
   const manualRows = manualDiscountRows(order, canManage);
+  // Spec 4.1: each line with a manual percent is listed too, so the total matches the order.
+  const lineRows = manualLineDiscountRows(order.lines ?? [], uiLocale);
   const showActions = hasRowActions(manualRows);
   const columns = showActions ? COLUMNS : COLUMNS.filter((c) => c !== 'actions');
 
@@ -126,7 +130,7 @@ const PromotionsSection = ({
     </Flex>
   );
 
-  const hasRows = rows.length > 0 || manualRows.length > 0;
+  const hasRows = rows.length > 0 || manualRows.length > 0 || lineRows.length > 0;
 
   return (
     <OrderSection id={id} title={title} actions={header || undefined}>
@@ -135,7 +139,7 @@ const PromotionsSection = ({
       ) : (
         <Flex direction="column" alignItems="stretch" gap={4}>
           {hasRows && (
-            <Table colCount={columns.length} rowCount={rows.length + manualRows.length + 2}>
+            <Table colCount={columns.length} rowCount={rows.length + manualRows.length + lineRows.length + 2}>
               <Thead>
                 <Tr>
                   {columns.map((c) => (
@@ -239,6 +243,34 @@ const PromotionsSection = ({
                     </Tr>
                   );
                 })}
+                {lineRows.map((r) => (
+                  <Tr key={r.key}>
+                    <Td style={{ maxWidth: 260 }}>
+                      <Typography textColor="neutral800" fontWeight="semiBold">
+                        {t('ecommerce.orders.discounts.manualLineName')}
+                      </Typography>
+                    </Td>
+                    <Td>
+                      <Typography textColor="neutral800">{t('ecommerce.orders.discounts.manual')}</Typography>
+                    </Td>
+                    <Td>
+                      <Typography textColor="neutral800">
+                        {t('ecommerce.orders.promotions.classes.PRODUCT_DISCOUNT')}
+                      </Typography>
+                    </Td>
+                    <Td style={{ maxWidth: 320 }}>
+                      <Typography textColor="neutral800" style={{ overflowWrap: 'anywhere' }}>
+                        {r.label}
+                      </Typography>
+                    </Td>
+                    <Td>
+                      <Typography textColor="neutral800" style={{ whiteSpace: 'nowrap' }}>
+                        {discount(r.amount)}
+                      </Typography>
+                    </Td>
+                    {showActions && <Td />}
+                  </Tr>
+                ))}
                 {/* The total: one cell across the first columns, the amount under Amount. */}
                 <Tr>
                   <Td colSpan={4} style={{ textAlign: 'right', paddingRight: 15 }}>
@@ -248,7 +280,10 @@ const PromotionsSection = ({
                   </Td>
                   <Td>
                     <Typography fontWeight="bold" textColor="neutral800" style={{ whiteSpace: 'nowrap' }}>
-                      {discount(orderDiscountTotal(promotions, order.manualDiscounts ?? []))}
+                      {discount(
+                        orderDiscountTotal(promotions, order.manualDiscounts ?? []) +
+                          manualLineDiscountTotal(lineRows)
+                      )}
                     </Typography>
                   </Td>
                   {showActions && <Td />}
