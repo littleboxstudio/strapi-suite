@@ -6,6 +6,7 @@ import type { ValidationIssue } from './errors';
 import type { PromotionEvaluation } from './domain/promotions';
 
 import { MAX_PROMOTION_CODES } from './domain/storefront/limits';
+import { readDiscountPercent } from './domain/lineDiscounts';
 
 export { MAX_PROMOTION_CODES };
 
@@ -27,7 +28,13 @@ export type CatalogVariant = {
   active: boolean;
 };
 
-export type MergedLine = { index: number; variantId: number; quantity: number };
+/** `discountPercent`: the admin's manual line discount (spec 4.1), only when one is set. */
+export type MergedLine = {
+  index: number;
+  variantId: number;
+  quantity: number;
+  discountPercent?: number;
+};
 
 export const isRecord = (v: unknown): v is Record<string, any> =>
   !!v && typeof v === 'object' && !Array.isArray(v);
@@ -45,8 +52,16 @@ export const giftSignature = (e: PromotionEvaluation): string =>
     [...quantitiesByVariant(e.lines.filter((l) => l.isGift)).entries()].sort((a, b) => a[0] - b[0])
   );
 
-/** Order lines with repeated variants summed into the first occurrence. */
-export function normalizeLines(raw: unknown, errors: ValidationIssue[]): MergedLine[] {
+/**
+ * Order lines with repeated variants summed into the first occurrence. With `discounts` (admin
+ * only, spec 4.1) each line may carry `discountPercent`; repeated variants must agree on it.
+ * Without it the field is ignored (storefront: unknown fields are ignored).
+ */
+export function normalizeLines(
+  raw: unknown,
+  errors: ValidationIssue[],
+  options: { discounts?: boolean } = {}
+): MergedLine[] {
   const rawLines: any[] = Array.isArray(raw) ? raw : [];
   if (!rawLines.length) errors.push({ path: 'lines', code: 'required' });
   const merged = new Map<number, MergedLine>();
@@ -61,9 +76,30 @@ export function normalizeLines(raw: unknown, errors: ValidationIssue[]): MergedL
       errors.push({ path: `lines.${i}.quantity`, code: 'INVALID_QUANTITY' });
       return;
     }
+    let discountPercent: number | null = null;
+    if (options.discounts) {
+      const parsed = readDiscountPercent(l?.discountPercent);
+      if (!parsed.ok) {
+        errors.push({ path: `lines.${i}.discountPercent`, code: 'INVALID_PERCENT' });
+        return;
+      }
+      discountPercent = parsed.value;
+    }
     const prev = merged.get(variantId);
-    if (prev) prev.quantity += quantity;
-    else merged.set(variantId, { index: i, variantId, quantity });
+    if (prev) {
+      if ((prev.discountPercent ?? null) !== discountPercent) {
+        errors.push({ path: `lines.${i}.discountPercent`, code: 'INVALID_PERCENT' });
+        return;
+      }
+      prev.quantity += quantity;
+    } else {
+      merged.set(variantId, {
+        index: i,
+        variantId,
+        quantity,
+        ...(discountPercent !== null ? { discountPercent } : {}),
+      });
+    }
   });
   return [...merged.values()];
 }

@@ -933,6 +933,25 @@ describe('EcommerceStorefrontCheckoutService', () => {
       expect(t.c.tables[UIDS.order]).toHaveLength(0);
     });
 
+    it('spec 4.1: a discountPercent on a storefront line is ignored (no manual discount)', async () => {
+      const t = setup();
+      const { s } = await t.open();
+      const quoted = await t.checkout.quote(
+        s,
+        t.cart({ lines: [{ variantId: 10, quantity: 2, discountPercent: 50 }] })
+      );
+      expect(quoted.totals).toMatchObject({ subtotal: 4000 });
+      const r = await t.checkout.placeOrder(
+        s,
+        t.orderInput({ lines: [{ variantId: 10, quantity: 2, discountPercent: 50 }] }),
+        'key-0000060'
+      );
+      expect(r.total).toBe(4500);
+      const [line] = t.c.tables[UIDS.orderLine];
+      expect(line.unitDiscount).toBe(0);
+      expect(line.manualDiscountPercent ?? null).toBeNull();
+    });
+
     it('F2: a replay never clears the cart rebuilt since the order', async () => {
       const t = setup();
       const { token, s } = await t.open();

@@ -17,6 +17,7 @@ import {
   type AppliedPromotion,
   type EvaluationLine,
 } from './promotions';
+import { manualUnitDiscount, readDiscountPercent } from './lineDiscounts';
 
 export type ExistingLine = LineAmounts & {
   id: number;
@@ -28,6 +29,10 @@ export type ExistingLine = LineAmounts & {
   tax: number;
   shipped: number;
   isGift: boolean;
+  /** The manual discount percent (spec 4.1); absent/null = none. */
+  manualDiscountPercent?: number | null;
+  /** Promotions that discounted this line (absent = none). */
+  promotionIds?: number[];
 };
 
 export type ShippingModification =
@@ -41,7 +46,11 @@ export type ShippingModification =
   | { mode: 'MANUAL'; amount: number };
 
 export type ModificationInput = {
-  lines: { orderLineId?: number; variantId: number; quantity: number }[];
+  /**
+   * `discountPercent` (spec 4.1): the line's manual discount; absent, null or '' = none (a line
+   * that had one loses it). Only the admin editing flows pass it.
+   */
+  lines: { orderLineId?: number; variantId: number; quantity: number; discountPercent?: unknown }[];
   shipping: ShippingModification;
   addresses?: { shipping?: Address; billing?: Address };
   /**
@@ -70,7 +79,9 @@ export type ModificationErrorCode =
   | 'VARIANT_UNAVAILABLE'
   | 'INVALID_QUANTITY'
   | 'INVALID_AMOUNT'
-  | 'LINES_REQUIRED';
+  | 'LINES_REQUIRED'
+  | 'INVALID_PERCENT'
+  | 'DISCOUNT_LINE_SHIPPED';
 
 export type ModificationTotals = OrderTotals & { paid: number; due: number; excess: number };
 
@@ -85,8 +96,19 @@ export const modificationOutcome = (
       ? 'REFUNDABLE'
       : 'NONE';
 
+/** A line's manual discount set, changed or removed (spec 4.1). */
+export type LineDiscountChange = {
+  previousPercent: number | null;
+  percent: number | null;
+  /** The line's new unit discount: the manual one, or 0 when the percent is removed. */
+  unitDiscount: number;
+  /** The line had a promotion discount: its refs go and the discounts need a review. */
+  replacedPromotion: boolean;
+};
+
 export type LineChange = {
-  kind: 'ADDED' | 'REMOVED' | 'QUANTITY_CHANGED' | 'UNCHANGED';
+  /** DISCOUNT_CHANGED: same quantity, only the manual discount changed. */
+  kind: 'ADDED' | 'REMOVED' | 'QUANTITY_CHANGED' | 'DISCOUNT_CHANGED' | 'UNCHANGED';
   orderLineId?: number;
   variantId: number;
   previousQuantity: number;
@@ -96,6 +118,8 @@ export type LineChange = {
    * at the source line's full price, snapshot and tax (design 4.8: no promotion for them).
    */
   sourceOrderLineId?: number;
+  /** Present only when the manual discount changes (or an added line carries one). */
+  discount?: LineDiscountChange;
 };
 
 export type ModificationResult = {
@@ -170,6 +194,7 @@ type AddedLine = {
   quantity: number;
   /** Extra units of a discounted existing line (see `LineChange.sourceOrderLineId`). */
   sourceOrderLineId?: number;
+  discount?: LineDiscountChange;
 };
 
 export const simulateModification = (
@@ -181,6 +206,8 @@ export const simulateModification = (
   const errors: ModificationResult['errors'] = [];
   const lineError = (index: number, code: ModificationErrorCode) =>
     errors.push({ path: `lines.${index}.quantity`, code });
+  const percentError = (index: number, code: ModificationErrorCode) =>
+    errors.push({ path: `lines.${index}.discountPercent`, code });
 
   // --- Resolve input lines -------------------------------------------------
   const byId = new Map(current.lines.map((l) => [l.id, l]));
@@ -192,6 +219,8 @@ export const simulateModification = (
   const addedVariants = new Set<number>();
   /** Lines of an ambiguous entry (see below): kept unchanged, not claimed. */
   const keptUnchanged = new Set<number>();
+  /** Existing line id → its manual discount change (spec 4.1). */
+  const discounts = new Map<number, LineDiscountChange>();
 
   input.lines.forEach((entry, index) => {
     let target: ExistingLine | undefined;
@@ -233,10 +262,42 @@ export const simulateModification = (
         lineError(index, 'QUANTITY_BELOW_SHIPPED');
         return;
       }
+      // Spec 4.1: the manual discount is set, changed or removed only on a line with nothing
+      // shipped (a removed line ignores it). It replaces a promotion discount.
+      const previousPercent = target.manualDiscountPercent ?? null;
+      let discount: LineDiscountChange | undefined;
+      if (entry.quantity > 0) {
+        const parsed = readDiscountPercent(entry.discountPercent);
+        if (!parsed.ok) {
+          percentError(index, 'INVALID_PERCENT');
+          return;
+        }
+        if (parsed.value !== previousPercent) {
+          if (target.isGift) {
+            percentError(index, 'INVALID_PERCENT');
+            return;
+          }
+          if (target.shipped > 0) {
+            percentError(index, 'DISCOUNT_LINE_SHIPPED');
+            return;
+          }
+          discount = {
+            previousPercent,
+            percent: parsed.value,
+            unitDiscount:
+              parsed.value === null ? 0 : manualUnitDiscount(target.unitPrice, parsed.value),
+            replacedPromotion: (target.promotionIds?.length ?? 0) > 0,
+          };
+          discounts.set(target.id, discount);
+        }
+      }
+      const percentAfter = discount ? discount.percent : previousPercent;
+      const unitDiscountAfter = discount ? discount.unitDiscount : target.unitDiscount;
       // Design 4.8: units added by a modification enter without promotion. A discounted line
       // (promotion prize, split line) keeps its discount for the units it has; the extra units
-      // become a separate line at that line's full price.
-      if (target.unitDiscount > 0 && entry.quantity > target.quantity) {
+      // become a separate line at that line's full price. A line with a manual percent keeps it
+      // on every unit (spec 4.1: no split).
+      if (unitDiscountAfter > 0 && percentAfter === null && entry.quantity > target.quantity) {
         requested.set(target.id, target.quantity);
         added.push({
           inputIndex: index,
@@ -268,12 +329,31 @@ export const simulateModification = (
     }
     addedVariants.add(entry.variantId);
     if (entry.quantity === 0) return;
+    const parsed = readDiscountPercent(entry.discountPercent);
+    if (!parsed.ok) {
+      percentError(index, 'INVALID_PERCENT');
+      return;
+    }
     const variant = catalog.get(entry.variantId);
     if (!variant || !variant.active) {
       lineError(index, 'VARIANT_UNAVAILABLE');
       return;
     }
-    added.push({ inputIndex: index, variant, quantity: entry.quantity });
+    added.push({
+      inputIndex: index,
+      variant,
+      quantity: entry.quantity,
+      ...(parsed.value !== null
+        ? {
+            discount: {
+              previousPercent: null,
+              percent: parsed.value,
+              unitDiscount: manualUnitDiscount(variant.unitPrice, parsed.value),
+              replacedPromotion: false,
+            },
+          }
+        : {}),
+    });
   });
 
   // Existing lines omitted from the input are removed (gift lines are kept).
@@ -332,9 +412,23 @@ export const simulateModification = (
   // --- Line changes --------------------------------------------------------
   const lineChanges: LineChange[] = current.lines.map((line) => {
     const q = newQuantity.get(line.id)!;
+    const discount = q > 0 ? discounts.get(line.id) : undefined;
     const kind: LineChange['kind'] =
-      q === line.quantity ? 'UNCHANGED' : q === 0 ? 'REMOVED' : 'QUANTITY_CHANGED';
-    return { kind, orderLineId: line.id, variantId: line.variantId, previousQuantity: line.quantity, newQuantity: q };
+      q === line.quantity
+        ? discount
+          ? 'DISCOUNT_CHANGED'
+          : 'UNCHANGED'
+        : q === 0
+          ? 'REMOVED'
+          : 'QUANTITY_CHANGED';
+    return {
+      kind,
+      orderLineId: line.id,
+      variantId: line.variantId,
+      previousQuantity: line.quantity,
+      newQuantity: q,
+      ...(discount ? { discount } : {}),
+    };
   });
   for (const a of added) {
     lineChanges.push({
@@ -343,6 +437,7 @@ export const simulateModification = (
       previousQuantity: 0,
       newQuantity: a.quantity,
       ...(a.sourceOrderLineId !== undefined ? { sourceOrderLineId: a.sourceOrderLineId } : {}),
+      ...(a.discount ? { discount: a.discount } : {}),
     });
   }
 
@@ -390,11 +485,16 @@ export const simulateModification = (
   const afterLines: LineAmounts[] = [
     ...current.lines.map((l) => ({
       unitPrice: l.unitPrice,
-      unitDiscount: l.unitDiscount,
+      unitDiscount: discounts.get(l.id)?.unitDiscount ?? l.unitDiscount,
       quantity: newQuantity.get(l.id)!,
       returnedQuantity: l.returnedQuantity,
     })),
-    ...added.map((a) => ({ unitPrice: a.variant.unitPrice, unitDiscount: 0, quantity: a.quantity, returnedQuantity: 0 })),
+    ...added.map((a) => ({
+      unitPrice: a.variant.unitPrice,
+      unitDiscount: a.discount?.unitDiscount ?? 0,
+      quantity: a.quantity,
+      returnedQuantity: 0,
+    })),
   ];
   const afterTotals = computeTotals(afterLines, {
     orderDiscount: requestedDiscount,
@@ -411,21 +511,29 @@ export const simulateModification = (
 
   const promotions = current.promotions ?? [];
   if (promotions.length) {
-    // Customer lines after the modification at original price (no gifts), net of returns.
+    // Customer lines after the modification at original price (no gifts), net of returns. A
+    // line with a manual percent counts at its net price, frozen (spec 4.1).
     const conditionLines: EvaluationLine[] = [
       ...current.lines
         .filter((l) => !l.isGift)
-        .map((l) => ({
-          variantId: l.variantId,
-          productId: l.productId,
-          unitPrice: l.unitPrice,
-          quantity: newQuantity.get(l.id)! - l.returnedQuantity,
-        })),
+        .map((l) => {
+          const d = discounts.get(l.id);
+          const percent = d ? d.percent : (l.manualDiscountPercent ?? null);
+          const unitDiscount = d ? d.unitDiscount : l.unitDiscount;
+          return {
+            variantId: l.variantId,
+            productId: l.productId,
+            unitPrice: percent === null ? l.unitPrice : l.unitPrice - unitDiscount,
+            quantity: newQuantity.get(l.id)! - l.returnedQuantity,
+            ...(percent === null ? {} : { frozen: true }),
+          };
+        }),
       ...added.map((a) => ({
         variantId: a.variant.variantId,
         productId: a.variant.productId,
-        unitPrice: a.variant.unitPrice,
+        unitPrice: a.variant.unitPrice - (a.discount?.unitDiscount ?? 0),
         quantity: a.quantity,
+        ...(a.discount ? { frozen: true } : {}),
       })),
     ].filter((l) => l.quantity > 0);
     const unmet = options.unmet ?? ((a, c) => unmetAppliedPromotions(a, c));

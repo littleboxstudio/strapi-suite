@@ -1066,3 +1066,196 @@ describe('simulateModification: discounted lines keep their discount, extra unit
     ]);
   });
 });
+
+describe('simulateModification: manual line discount (spec 4.1)', () => {
+  const current = (lines: ExistingLine[]) => ({
+    lines,
+    orderDiscount: 0,
+    shippingOriginal: 0,
+    shippingDiscount: 0,
+    payments: paid(6000),
+    refunds: [],
+  });
+  const catalog = () => catalogOf(variant({ variantId: 101, productId: 1, unitPrice: 3500 }), variant());
+
+  it('setting 10 % on a full-price line: unit discount round(price × 10 %), DISCOUNT_CHANGED', () => {
+    const r = simulateModification(
+      current([existing({ id: 1, unitPrice: 1999, quantity: 2 })]),
+      { lines: [{ orderLineId: 1, variantId: 101, quantity: 2, discountPercent: 10 }], shipping: keep },
+      catalog(),
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.lineChanges).toEqual([
+      {
+        kind: 'DISCOUNT_CHANGED',
+        orderLineId: 1,
+        variantId: 101,
+        previousQuantity: 2,
+        newQuantity: 2,
+        discount: { previousPercent: null, percent: 10, unitDiscount: 200, replacedPromotion: false },
+      },
+    ]);
+    expect(r.after.subtotal).toBe(2 * 1799);
+    expect(r.after.productDiscount).toBe(400);
+    expect(r.stockMovements).toEqual([]);
+    expect(r.discountWarnings).toEqual([]);
+  });
+
+  it('an unchanged percent is no change', () => {
+    const r = simulateModification(
+      current([existing({ id: 1, unitPrice: 2000, unitDiscount: 200, manualDiscountPercent: 10 })]),
+      { lines: [{ orderLineId: 1, variantId: 101, quantity: 1, discountPercent: 10 }], shipping: keep },
+      catalog(),
+    );
+    expect(r.lineChanges).toEqual([
+      { kind: 'UNCHANGED', orderLineId: 1, variantId: 101, previousQuantity: 1, newQuantity: 1 },
+    ]);
+    expect(r.difference).toBe(0);
+  });
+
+  it('a line without a manual percent and no field keeps its promotion discount', () => {
+    const r = simulateModification(
+      current([existing({ id: 1, unitPrice: 2000, unitDiscount: 500, promotionIds: [7] })]),
+      { lines: [{ orderLineId: 1, variantId: 101, quantity: 1 }], shipping: keep },
+      catalog(),
+    );
+    expect(r.lineChanges[0].kind).toBe('UNCHANGED');
+    expect(r.after.subtotal).toBe(1500);
+  });
+
+  it('replacing a promotion discount: the manual one wins and the change says so', () => {
+    const r = simulateModification(
+      current([existing({ id: 1, unitPrice: 2000, unitDiscount: 500, promotionIds: [7] })]),
+      { lines: [{ orderLineId: 1, variantId: 101, quantity: 1, discountPercent: 5 }], shipping: keep },
+      catalog(),
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.lineChanges[0].discount).toEqual({
+      previousPercent: null,
+      percent: 5,
+      unitDiscount: 100,
+      replacedPromotion: true,
+    });
+    expect(r.after.subtotal).toBe(1900);
+    expect(r.difference).toBe(400);
+  });
+
+  it('removing the percent returns the line to full price', () => {
+    const r = simulateModification(
+      current([existing({ id: 1, unitPrice: 2000, unitDiscount: 200, manualDiscountPercent: 10 })]),
+      { lines: [{ orderLineId: 1, variantId: 101, quantity: 1, discountPercent: null }], shipping: keep },
+      catalog(),
+    );
+    expect(r.lineChanges[0]).toMatchObject({
+      kind: 'DISCOUNT_CHANGED',
+      discount: { previousPercent: 10, percent: null, unitDiscount: 0, replacedPromotion: false },
+    });
+    expect(r.after.subtotal).toBe(2000);
+  });
+
+  it('an absent field on a manual line removes it too (the editor always sends the percent)', () => {
+    const r = simulateModification(
+      current([existing({ id: 1, unitPrice: 2000, unitDiscount: 200, manualDiscountPercent: 10 })]),
+      { lines: [{ orderLineId: 1, variantId: 101, quantity: 1 }], shipping: keep },
+      catalog(),
+    );
+    expect(r.lineChanges[0].discount).toMatchObject({ percent: null, unitDiscount: 0 });
+  });
+
+  it('a line with shipped units cannot change its discount: DISCOUNT_LINE_SHIPPED', () => {
+    const r = simulateModification(
+      current([existing({ id: 1, unitPrice: 2000, quantity: 2, shipped: 1 })]),
+      { lines: [{ orderLineId: 1, variantId: 101, quantity: 2, discountPercent: 10 }], shipping: keep },
+      catalog(),
+    );
+    expect(r.errors).toEqual([{ path: 'lines.0.discountPercent', code: 'DISCOUNT_LINE_SHIPPED' }]);
+  });
+
+  it('a shipped line keeps a percent it already has', () => {
+    const r = simulateModification(
+      current([existing({ id: 1, unitPrice: 2000, unitDiscount: 200, manualDiscountPercent: 10, quantity: 2, shipped: 1 })]),
+      { lines: [{ orderLineId: 1, variantId: 101, quantity: 3, discountPercent: 10 }], shipping: keep },
+      catalog(),
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.after.subtotal).toBe(3 * 1800);
+  });
+
+  it('a gift line cannot take a percent; invalid values are INVALID_PERCENT', () => {
+    const r = simulateModification(
+      current([
+        existing({ id: 1, unitPrice: 2000, quantity: 1 }),
+        existing({ id: 2, variantId: 102, unitPrice: 1000, unitDiscount: 1000, isGift: true }),
+      ]),
+      {
+        lines: [
+          { orderLineId: 1, variantId: 101, quantity: 1, discountPercent: 100.5 },
+          { orderLineId: 2, variantId: 102, quantity: 1, discountPercent: 10 },
+          { variantId: 201, quantity: 1, discountPercent: 1.234 },
+        ],
+        shipping: keep,
+      },
+      catalog(),
+    );
+    expect(r.errors).toEqual([
+      { path: 'lines.0.discountPercent', code: 'INVALID_PERCENT' },
+      { path: 'lines.1.discountPercent', code: 'INVALID_PERCENT' },
+      { path: 'lines.2.discountPercent', code: 'INVALID_PERCENT' },
+    ]);
+  });
+
+  it('adding units to a manual line keeps the percent on the whole line (no split)', () => {
+    const r = simulateModification(
+      current([existing({ id: 1, unitPrice: 2000, unitDiscount: 200, manualDiscountPercent: 10, quantity: 1 })]),
+      { lines: [{ orderLineId: 1, variantId: 101, quantity: 3, discountPercent: 10 }], shipping: keep },
+      catalog(),
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.lineChanges).toEqual([
+      { kind: 'QUANTITY_CHANGED', orderLineId: 1, variantId: 101, previousQuantity: 1, newQuantity: 3 },
+    ]);
+    expect(r.after.subtotal).toBe(3 * 1800);
+  });
+
+  it('a promotion line raised with a new percent: the whole line takes it (no split)', () => {
+    const r = simulateModification(
+      current([existing({ id: 1, unitPrice: 2000, unitDiscount: 500, promotionIds: [7], quantity: 1 })]),
+      { lines: [{ orderLineId: 1, variantId: 101, quantity: 2, discountPercent: 20 }], shipping: keep },
+      catalog(),
+    );
+    expect(r.lineChanges).toEqual([
+      {
+        kind: 'QUANTITY_CHANGED',
+        orderLineId: 1,
+        variantId: 101,
+        previousQuantity: 1,
+        newQuantity: 2,
+        discount: { previousPercent: null, percent: 20, unitDiscount: 400, replacedPromotion: true },
+      },
+    ]);
+    expect(r.after.subtotal).toBe(2 * 1600);
+  });
+
+  it('a new line can carry a percent (priced on the catalog price)', () => {
+    const r = simulateModification(
+      current([existing({ id: 1, unitPrice: 2000 })]),
+      {
+        lines: [
+          { orderLineId: 1, variantId: 101, quantity: 1 },
+          { variantId: 201, quantity: 2, discountPercent: 50 },
+        ],
+        shipping: keep,
+      },
+      catalog(),
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.lineChanges[1]).toEqual({
+      kind: 'ADDED',
+      variantId: 201,
+      previousQuantity: 0,
+      newQuantity: 2,
+      discount: { previousPercent: null, percent: 50, unitDiscount: 1250, replacedPromotion: false },
+    });
+    expect(r.after.subtotal).toBe(2000 + 2 * 1250);
+  });
+});

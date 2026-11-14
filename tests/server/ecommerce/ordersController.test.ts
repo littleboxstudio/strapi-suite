@@ -240,6 +240,15 @@ describe('EcommerceOrderController promotions', () => {
     expect(quote).toHaveBeenCalledTimes(1);
   });
 
+  it('the admin quote allows manual line discounts (spec 4.1)', async () => {
+    const quote = vi.fn().mockResolvedValue({});
+    await run('quote', { lines: [{ variantId: 1, quantity: 1, discountPercent: 10 }] }, { quote });
+    expect(quote).toHaveBeenCalledWith(
+      expect.objectContaining({ lines: [{ variantId: 1, quantity: 1, discountPercent: 10 }] }),
+      { manualDiscounts: true }
+    );
+  });
+
   it('create PROMOTION_UNAVAILABLE is a 409 carrying the code as detail', async () => {
     const err = new EcommerceValidationError('x', [
       { path: 'promotions.7', code: 'PROMOTION_UNAVAILABLE', detail: 'SUMMER' },
@@ -279,7 +288,10 @@ describe('EcommerceOrderController promotions', () => {
     const c = orders({ EcommerceOrderService: { quote } });
     const ctx = mkCtx({ request: { body: { lines: [], promotionCodes: ['SUMMER'] } } });
     await c.quote(ctx);
-    expect(quote).toHaveBeenCalledWith({ lines: [], promotionCodes: ['SUMMER'] });
+    expect(quote).toHaveBeenCalledWith(
+      { lines: [], promotionCodes: ['SUMMER'] },
+      { manualDiscounts: true }
+    );
     expect(ctx.body).toEqual(result);
     expect(ctx.body.codes).toBeDefined();
     expect(ctx.body.totals).toBeDefined();

@@ -51,6 +51,8 @@ export type QuoteUnit = {
   quantity: number;
   orderLineId?: number;
   sourceOrderLineId?: number;
+  /** The unit discount after the change (a manual discount set or removed, spec 4.1). */
+  unitDiscount?: number;
 };
 
 export function createOrderModificationSupport(strapi: Core.Strapi) {
@@ -76,6 +78,8 @@ export function createOrderModificationSupport(strapi: Core.Strapi) {
       unitDiscount: l.unitDiscount,
       quantity: l.quantity,
       returnedQuantity: l.returnedQuantity,
+      manualDiscountPercent: l.manualDiscountPercent,
+      promotionIds: l.promotionIds,
     })),
     orderDiscount: num(state.order.orderDiscount),
     shippingOriginal: num(state.order.shippingOriginal),
@@ -129,10 +133,10 @@ export function createOrderModificationSupport(strapi: Core.Strapi) {
       const source =
         u.sourceOrderLineId !== undefined ? linesById.get(u.sourceOrderLineId) : undefined;
       const unitNet = line
-        ? line.unitPrice - line.unitDiscount
+        ? line.unitPrice - (u.unitDiscount ?? line.unitDiscount)
         : source
           ? source.unitPrice
-          : (v?.price ?? 0);
+          : (v?.price ?? 0) - (u.unitDiscount ?? 0);
       subtotal += unitNet * quantity;
       items.push({
         variantId: u.variantId,
@@ -192,7 +196,8 @@ export function createOrderModificationSupport(strapi: Core.Strapi) {
             option: c.option,
             imageUrl: c.imageUrl,
             unitPrice: c.price,
-            unitDiscount: 0,
+            unitDiscount: change.discount?.unitDiscount ?? 0,
+            manualDiscountPercent: change.discount?.percent ?? null,
             quantity: change.newQuantity,
             returnedQuantity: 0,
             tax: c.tax,
@@ -207,9 +212,19 @@ export function createOrderModificationSupport(strapi: Core.Strapi) {
       if (change.newQuantity === 0 && line.shipped === 0 && line.returnedQuantity === 0) {
         await strapi.db.query(u.orderLine).delete({ where: { id: line.id } });
       } else {
+        // A manual discount set or removed (spec 4.1) replaces any promotion discount: no refs.
         await strapi.db.query(u.orderLine).update({
           where: { id: line.id },
-          data: { quantity: change.newQuantity },
+          data: {
+            quantity: change.newQuantity,
+            ...(change.discount
+              ? {
+                  unitDiscount: change.discount.unitDiscount,
+                  manualDiscountPercent: change.discount.percent,
+                  promotionRefs: { refs: [] },
+                }
+              : {}),
+          },
         });
       }
     }
