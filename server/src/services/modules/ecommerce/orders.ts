@@ -73,6 +73,7 @@ import {
 import { orderEditing, readReviewFlags, type OrderEditing, type ReviewFlag } from './domain/orderEditing';
 import { readManualDiscounts, type ManualDiscount } from './domain/manualDiscounts';
 import { MAX_STORE_CREDIT_CODE_LENGTH } from './domain/storefront/limits';
+import { storedDiscountPercent } from './domain/lineDiscounts';
 import {
   MAX_PROMOTION_CODES,
   isRecord,
@@ -99,7 +100,8 @@ export type CreateOrderInput = {
   shippingAddress: Address;
   billingAddress: Address;
   locale: string;
-  lines: { variantId: number; quantity: number }[];
+  /** `discountPercent`: manual line discount (spec 4.1), read only for `source: 'admin'`. */
+  lines: { variantId: number; quantity: number; discountPercent?: number | null }[];
   shipping: { providerId: string; serviceId: string };
   notes?: string;
   idempotencyKey?: string;
@@ -156,6 +158,8 @@ export type OrderLineView = {
   imageUrl: string | null;
   unitPrice: number;
   unitDiscount: number;
+  /** The admin's manual discount percent (spec 4.1); null = none. */
+  manualDiscountPercent: number | null;
   quantity: number;
   returnedQuantity: number;
   tax: number;
@@ -616,7 +620,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
   });
   const { priceCart, quote, assertLinesAvailable, assertPricedStock, assertCodesUsable } = pricing;
 
-  const validateInput = async (input: CreateOrderInput) => {
+  const validateInput = async (input: CreateOrderInput, source: OrderSource) => {
     const errors: ValidationIssue[] = [];
     const store = await service('EcommerceSettingsService').getStoreSettings();
     const countries: string[] = store?.markets ?? [];
@@ -649,7 +653,8 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     const serviceId = clean(input?.shipping?.serviceId);
     if (!providerId || !serviceId) errors.push({ path: 'shipping', code: 'required' });
 
-    const lines = normalizeLines(input?.lines, errors);
+    // The storefront never sets a manual line discount (spec 4.1): the field is ignored.
+    const lines = normalizeLines(input?.lines, errors, { discounts: source === 'admin' });
     const promotionFields = normalizePromotionFields(input, errors);
     const expectedTotal = normalizeExpectedTotal(input?.expectedTotal, errors);
     const storeCreditCode = normalizeStoreCreditCodeInput(input?.storeCreditCode, errors);
@@ -757,7 +762,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       if (existing) return { ...existing, replayed: true };
     }
 
-    const v = await validateInput(input);
+    const v = await validateInput(input, ctx.source);
 
     // Catalog, availability, promotions and the shipping quote are read before the transaction:
     // carrier quotes may be remote calls and must not hold a database transaction open.
@@ -910,6 +915,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
               imageUrl: c.imageUrl,
               unitPrice: l.unitPrice,
               unitDiscount: l.unitDiscount,
+              manualDiscountPercent: l.manualDiscountPercent ?? null,
               quantity: l.quantity,
               returnedQuantity: 0,
               tax: c.tax,
@@ -942,7 +948,11 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
             reference,
             source: ctx.source,
             total: totals.total,
-            lines: v.lines.map((l) => ({ variantId: l.variantId, quantity: l.quantity })),
+            lines: v.lines.map((l) => ({
+              variantId: l.variantId,
+              quantity: l.quantity,
+              ...(l.discountPercent !== undefined ? { discountPercent: l.discountPercent } : {}),
+            })),
           },
           actor: ctx.actor,
           operationId,
@@ -1088,6 +1098,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       imageUrl: l.imageUrl ?? null,
       unitPrice: num(l.unitPrice),
       unitDiscount: num(l.unitDiscount),
+      manualDiscountPercent: storedDiscountPercent(l.manualDiscountPercent),
       quantity,
       returnedQuantity: num(l.returnedQuantity),
       tax: num(l.tax),

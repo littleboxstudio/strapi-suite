@@ -5,6 +5,7 @@
 import type { Core } from '@strapi/strapi';
 import { EcommerceValidationError, type ValidationIssue } from './errors';
 import { isValidEmailFormat } from './domain/email';
+import { manualUnitDiscount } from './domain/lineDiscounts';
 import type { ShippingOption, ShippingQuoteRequest } from './shipping';
 import {
   normalizePromotionCode,
@@ -25,7 +26,8 @@ import {
 } from './orderPricingHelpers';
 
 export type OrderQuoteInput = {
-  lines: { variantId: number; quantity: number }[];
+  /** `discountPercent` is read only with `QuoteOptions.manualDiscounts` (admin, spec 4.1). */
+  lines: { variantId: number; quantity: number; discountPercent?: number | null }[];
   locale: string;
   email?: string | null;
   promotionCodes?: string[];
@@ -35,7 +37,15 @@ export type OrderQuoteInput = {
   emailVerified?: boolean;
 };
 
+/** A priced line; `manualDiscountPercent` is set on a line with an admin manual discount. */
+export type ManualPricedLine = PricedLine & { manualDiscountPercent?: number };
+
+/** Admin-only pricing options (the storefront never passes them). */
+export type QuoteOptions = { manualDiscounts?: boolean };
+
 export type OrderQuoteLine = PricedLine & {
+  /** The manual discount percent (spec 4.1); null = none. */
+  manualDiscountPercent: number | null;
   sku: string;
   name: string;
   option: string | null;
@@ -91,7 +101,8 @@ export type PricingDestination = {
 };
 
 export type PricedCart = {
-  evaluation: PromotionEvaluation;
+  /** Lines with a manual discount carry it at full price (see `priceCart`). */
+  evaluation: Omit<PromotionEvaluation, 'lines'> & { lines: ManualPricedLine[] };
   /** The instant every evaluation of this cart used (stored as `evaluatedAt`). */
   evaluatedAt: Date;
   option: ShippingOption | null;
@@ -190,6 +201,10 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
    *    the shipping price belongs to another parcel: SHIPPING_UNAVAILABLE rather than a wrong price.
    *
    * `emailVerified` goes to the engine as is (absent = trusted, the admin).
+   *
+   * A line with `discountPercent` (admin only, spec 4.1) is evaluated frozen at its net price:
+   * it takes no line-level promotion but counts in the order-level bases. The evaluation then
+   * shows it at its full price with the manual unit discount (subtotal and total unchanged).
    */
   const priceCart = async (p: {
     lines: MergedLine[];
@@ -211,13 +226,50 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
       for (const [id, entry] of await loadCatalog(missing, p.locale)) catalog.set(id, entry);
     }
 
-    const lines = p.lines.map((l) => {
-      const c = catalog.get(l.variantId)!;
-      return { variantId: l.variantId, productId: c.productId, unitPrice: c.price, quantity: l.quantity };
+    const manual = p.lines.map((l) => {
+      if (l.discountPercent === undefined) return null;
+      const price = catalog.get(l.variantId)!.price;
+      return { percent: l.discountPercent, unitPrice: price, unitDiscount: manualUnitDiscount(price, l.discountPercent) };
     });
+    const lines = p.lines.map((l, i) => {
+      const c = catalog.get(l.variantId)!;
+      const m = manual[i];
+      return m
+        ? {
+            variantId: l.variantId,
+            productId: c.productId,
+            unitPrice: m.unitPrice - m.unitDiscount,
+            quantity: l.quantity,
+            frozen: true,
+          }
+        : { variantId: l.variantId, productId: c.productId, unitPrice: c.price, quantity: l.quantity };
+    });
+    /** Frozen lines back at full price with their manual discount. */
+    const withManual = (e: PromotionEvaluation): PricedCart['evaluation'] => {
+      if (!manual.some(Boolean)) return e;
+      let added = 0;
+      const out: ManualPricedLine[] = e.lines.map((l) => {
+        const m = l.sourceIndex === null ? null : manual[l.sourceIndex];
+        if (!m) return l;
+        added += m.unitDiscount * l.quantity;
+        return {
+          ...l,
+          unitPrice: m.unitPrice,
+          unitDiscount: l.unitDiscount + m.unitDiscount,
+          manualDiscountPercent: m.percent,
+        };
+      });
+      return {
+        ...e,
+        lines: out,
+        itemsOriginal: e.itemsOriginal + added,
+        productDiscount: e.productDiscount + added,
+        totalDiscount: e.totalDiscount + added,
+      };
+    };
     const now = new Date();
     const evaluate = (shippingPrice: number | null) =>
-      promo.evaluate({
+      withManual(promo.evaluate({
         lines,
         email: p.email,
         ...verified,
@@ -227,7 +279,7 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
         gifts,
         giftChoices: p.giftChoices,
         now,
-      });
+      }));
 
     const first = evaluate(null);
     const destination = p.destination;
@@ -356,11 +408,11 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
   };
 
   /** A cart priced with its promotions, without writing anything (plan 7's entry point). */
-  const quote = async (input: OrderQuoteInput): Promise<OrderQuote> => {
+  const quote = async (input: OrderQuoteInput, options: QuoteOptions = {}): Promise<OrderQuote> => {
     const errors: ValidationIssue[] = [];
     const locale = clean(input?.locale);
     if (!locale) errors.push({ path: 'locale', code: 'required' });
-    const lines = normalizeLines(input?.lines, errors);
+    const lines = normalizeLines(input?.lines, errors, { discounts: options.manualDiscounts === true });
     const { promotionCodes, giftChoices } = normalizePromotionFields(input, errors);
     const email = clean(input?.email) || null;
     const emailVerified = typeof input?.emailVerified === 'boolean' ? input.emailVerified : undefined;
@@ -409,6 +461,7 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
         const c = priced.catalog.get(l.variantId);
         return {
           ...l,
+          manualDiscountPercent: l.manualDiscountPercent ?? null,
           sku: c?.sku ?? '',
           name: c?.name ?? '',
           option: c?.option ?? null,

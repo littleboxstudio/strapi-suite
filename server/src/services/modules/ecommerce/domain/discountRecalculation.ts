@@ -35,7 +35,13 @@ export type DiscountLine = LineAmounts & {
   isGift: boolean;
   shipped: number;
   refs: BenefitRef[];
+  /** The manual discount percent (spec 4.1): the line is frozen at its net price. */
+  manualDiscountPercent?: number | null;
 };
+
+/** A line with a manual percent keeps its discount and takes no promotion (spec 4.1). */
+const isManual = (l: DiscountLine) =>
+  l.manualDiscountPercent !== undefined && l.manualDiscountPercent !== null;
 
 export type DiscountContext = {
   lines: DiscountLine[];
@@ -163,12 +169,20 @@ const classify = (ctx: DiscountContext): Classified => {
     .filter((l) => !l.isGift && effective(l) > 0)
     .map((line) => ({
       line,
-      input: {
-        variantId: line.variantId,
-        productId: line.productId,
-        unitPrice: line.unitPrice,
-        quantity: effective(line),
-      },
+      input: isManual(line)
+        ? {
+            variantId: line.variantId,
+            productId: line.productId,
+            unitPrice: line.unitPrice - line.unitDiscount,
+            quantity: effective(line),
+            frozen: true,
+          }
+        : {
+            variantId: line.variantId,
+            productId: line.productId,
+            unitPrice: line.unitPrice,
+            quantity: effective(line),
+          },
     }));
   const evaluation = evaluatePromotions({
     lines: evaluationLines.map((e) => e.input),
@@ -291,8 +305,10 @@ export function recalculateDiscounts(
   const keptIds = new Set([...keptInvalid, ...pricedIds]);
 
   // Frozen lines keep their discount: they enter the combination at their net price, taking no
-  // line-level benefit but counting in the order-level bases and the buy thresholds.
-  const isFrozen = (l: DiscountLine) => l.refs.some((r) => keptInvalid.has(r.promotionId));
+  // line-level benefit but counting in the order-level bases and the buy thresholds. A line with
+  // a manual percent is always frozen (its evaluation input already is).
+  const isFrozen = (l: DiscountLine) =>
+    isManual(l) || l.refs.some((r) => keptInvalid.has(r.promotionId));
   const combination = applyCombination(priced, {
     lines: evaluationLines.map(({ line, input }) =>
       isFrozen(line)

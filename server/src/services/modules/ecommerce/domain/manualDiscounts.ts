@@ -4,6 +4,7 @@
  */
 import { MAX_MONEY_CENTS } from './orders';
 import { percentOf } from './promotions';
+import { isDiscountPercent } from './lineDiscounts';
 
 export type ManualDiscount = {
   id: number;
@@ -125,12 +126,7 @@ export const manualDiscountTotal = (items: ManualDiscount[]): number =>
   items.reduce((sum, item) => sum + item.amount, 0);
 
 /** Percent in (0, 100] with at most two decimals. */
-const isPercent = (v: unknown): v is number =>
-  typeof v === 'number' &&
-  Number.isFinite(v) &&
-  v > 0 &&
-  v <= 100 &&
-  Math.abs(v * 100 - Math.round(v * 100)) < 1e-9;
+const isPercent = isDiscountPercent;
 
 export function buildManualDiscount(
   input: unknown,

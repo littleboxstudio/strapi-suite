@@ -547,3 +547,31 @@ describe('recalculateDiscounts — gift lines', () => {
     expect(r.removedGiftLines).toEqual([]);
   });
 });
+
+describe('recalculateDiscounts — manual line discount (spec 4.1)', () => {
+  const productPromo = promo(1, [{ type: 'PRODUCT_PERCENT', target: T(1, 2), percent: 50, maxQuantity: null }]);
+  const orderPromo = promo(2, [{ type: 'ORDER_PERCENT', percent: 10 }]);
+  // Line 1: 2 × 2000 with a manual 10 % (unit discount 200). Line 2: 1 × 1000 at full price.
+  const lines = [
+    line(1, 1, 2000, 2, { unitDiscount: 200, manualDiscountPercent: 10 }),
+    line(2, 2, 1000, 1),
+  ];
+
+  it('a manual line takes no product promotion and keeps its unit discount', () => {
+    const r = recalculateDiscounts(ctx({ lines, candidates: [productPromo] }));
+    expect(r.rows).toHaveLength(1);
+    expect(r.rows[0]).toMatchObject({ kind: 'NEW', amount: 500 });
+    const priced = recalculateDiscounts(ctx({ lines, candidates: [productPromo] }), ['p:1']);
+    expect(priced.lines).toEqual([
+      { id: 2, unitDiscount: 500, refs: [{ promotionId: 1, benefitIndex: 0, amount: 500 }] },
+    ]);
+    expect(priced.after.subtotal).toBe(2 * 1800 + 500);
+  });
+
+  it('a manual line counts at its net price in an order-level base', () => {
+    const r = recalculateDiscounts(ctx({ lines, candidates: [orderPromo] }), ['p:2']);
+    // 10 % of (2 × 1800 + 1000).
+    expect(r.orderDiscount).toBe(460);
+    expect(r.lines).toEqual([]);
+  });
+});

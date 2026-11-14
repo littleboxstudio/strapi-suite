@@ -83,7 +83,10 @@ export type EditOutcome = { outcome: 'DUE' | 'REFUNDABLE' | 'NONE'; difference: 
 
 export type EditResult = { order: OrderView } & EditOutcome;
 
-export type LinesInput = { lines: { orderLineId?: number; variantId: number; quantity: number }[] };
+/** `discountPercent`: the line's manual discount (spec 4.1); absent, null or '' = none. */
+export type LinesInput = {
+  lines: { orderLineId?: number; variantId: number; quantity: number; discountPercent?: unknown }[];
+};
 
 export type LinesPreview = Pick<
   ModificationResult,
@@ -316,6 +319,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         quantity: l.quantity,
         returnedQuantity: l.returnedQuantity,
         refs: refsOf(rawById.get(l.id)?.promotionRefs),
+        manualDiscountPercent: l.manualDiscountPercent,
       }));
     const applied = appliedOf(order);
     const appliedIds = applied.map((a) => a.promotionId);
@@ -370,6 +374,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         : {}),
       variantId: Number(l?.variantId),
       quantity: l?.quantity,
+      ...(l?.discountPercent !== undefined ? { discountPercent: l.discountPercent } : {}),
     }));
   };
 
@@ -445,10 +450,22 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
           unitPrice: source ? source.unitPrice : num(v?.price),
           quantity: c.newQuantity,
           ...(source ? { sourceOrderLineId: source.id } : {}),
+          ...(c.discount ? { discountPercent: c.discount.percent } : {}),
         });
-      } else if (c.kind === 'QUANTITY_CHANGED') {
+      } else if (c.kind === 'QUANTITY_CHANGED' || c.kind === 'DISCOUNT_CHANGED') {
         const l = byId.get(c.orderLineId!)!;
-        changed.push({ ...ref(l), previousQuantity: c.previousQuantity, quantity: c.newQuantity });
+        changed.push({
+          ...ref(l),
+          previousQuantity: c.previousQuantity,
+          quantity: c.newQuantity,
+          // Spec 4.1: the manual discount before and after, when it changed.
+          ...(c.discount
+            ? {
+                previousDiscountPercent: c.discount.previousPercent,
+                discountPercent: c.discount.percent,
+              }
+            : {}),
+        });
       } else if (c.kind === 'REMOVED') {
         const l = byId.get(c.orderLineId!)!;
         removed.push({ ...ref(l), quantity: c.previousQuantity });
@@ -483,6 +500,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
             quantity: c.newQuantity,
             orderLineId: c.orderLineId,
             sourceOrderLineId: c.sourceOrderLineId,
+            ...(c.discount ? { unitDiscount: c.discount.unitDiscount } : {}),
           })),
           state.order.shippingAddress ?? null
         );
@@ -505,9 +523,11 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
           flags = await w.raise(flags, 'SHIPPING_REVIEW', 'PRODUCTS_CHANGED');
         }
         const unmet = result.discountWarnings.some((d) => d.code === 'PROMOTION_CONDITION_UNMET');
+        // Spec 4.1: a manual percent that replaced (or a removal that dropped) a promotion discount.
+        const replaced = result.lineChanges.some((c) => c.discount?.replacedPromotion);
         const written = await orders().computeOrderState(state.order.id);
         const wouldApply = (await discountEvaluation(written)).rows.some((r) => r.kind === 'NEW');
-        if (unmet || wouldApply) {
+        if (unmet || wouldApply || replaced) {
           flags = await w.raise(flags, 'DISCOUNTS_REVIEW', 'PRODUCTS_CHANGED');
         }
 

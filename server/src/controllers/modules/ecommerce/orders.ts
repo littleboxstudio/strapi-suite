@@ -95,7 +95,8 @@ const EcommerceOrderController = ({ strapi }: { strapi: Core.Strapi }) => {
         () => {
           const input = body(ctx);
           const promo = promotionFields('Invalid order', asObject(input));
-          return orders().quote({ ...input, ...promo });
+          // Admin only: lines may carry a manual discount percent (spec 4.1).
+          return orders().quote({ ...input, ...promo }, { manualDiscounts: true });
         },
         undefined,
         true

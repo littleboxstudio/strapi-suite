@@ -48,6 +48,9 @@
       "type": "integer",
       "default": 0
     },
+    "manualDiscountPercent": {
+      "type": "decimal"
+    },
     "quantity": {
       "type": "integer",
       "required": true

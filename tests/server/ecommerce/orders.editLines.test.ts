@@ -791,3 +791,224 @@ describe('products save on a FULFILLED order (Review Focus 2)', () => {
     expect(view.availableActions).not.toContain('ARCHIVE');
   });
 });
+
+describe('manual line discount (spec 4.1)', () => {
+  const halfOff = (ctx: Ctx, variantIds: number[]) =>
+    addPromotion(ctx, {
+      name: 'Half off',
+      benefits: {
+        items: [
+          { type: 'PRODUCT_PERCENT', target: { productIds: [], variantIds }, percent: 50, maxQuantity: null },
+        ],
+      },
+    });
+  const withPercent = (ctx: Ctx, id: number, variantId: number, discountPercent: unknown) =>
+    lineInputs(ctx, id).map((l) => (l.variantId === variantId ? { ...l, discountPercent } : l));
+
+  it('products save: 10 % on a line stores the percent and the unit discount; history and view show it', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    const res = await ctx.editing.applyLines(
+      id,
+      { lines: withPercent(ctx, id, 10, 10) },
+      'user:1',
+      'op-pct-0001'
+    );
+    const line10 = linesOf(ctx, id).find((l) => l.variantId === 10);
+    expect(line10).toMatchObject({
+      quantity: 2,
+      unitDiscount: 200,
+      manualDiscountPercent: 10,
+      promotionRefs: { refs: [] },
+    });
+    expect(res).toMatchObject({ outcome: 'NONE', difference: -400 });
+    expect(orderRow(ctx, id)).toMatchObject({ productDiscount: 400, subtotal: 6100, total: 6600 });
+    const view = res.order.lines.find((l: any) => l.variantId === 10);
+    expect(view).toMatchObject({ manualDiscountPercent: 10, unitDiscount: 200 });
+    expect(res.order.lines.find((l: any) => l.variantId === 11).manualDiscountPercent).toBeNull();
+    const [entry] = historyOf(ctx, id, 'LINES_CHANGED');
+    expect(entry.newValue.changed).toEqual([
+      expect.objectContaining({
+        orderLineId: line10.id,
+        previousQuantity: 2,
+        quantity: 2,
+        previousDiscountPercent: null,
+        discountPercent: 10,
+      }),
+    ]);
+    expect(flag(ctx, id, 'DISCOUNTS_REVIEW')).toBeUndefined();
+  });
+
+  it('the preview prices the discount and writes nothing', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    const before = JSON.stringify(ctx.tables);
+    const preview = await ctx.editing.previewLines(id, { lines: withPercent(ctx, id, 11, 20) });
+    expect(JSON.stringify(ctx.tables)).toBe(before);
+    expect(preview.errors).toEqual([]);
+    expect(preview.after).toMatchObject({ subtotal: 6000, total: 6500 });
+  });
+
+  it('replacing a promotion discount drops its refs and raises DISCOUNTS_REVIEW', async () => {
+    const ctx = setup();
+    halfOff(ctx, [10]);
+    const id = await createOrder(ctx);
+    expect(linesOf(ctx, id).find((l) => l.variantId === 10)).toMatchObject({ unitDiscount: 1000 });
+    await ctx.editing.applyLines(id, { lines: withPercent(ctx, id, 10, 5) }, 'user:1', 'op-pct-0002');
+    expect(linesOf(ctx, id).find((l) => l.variantId === 10)).toMatchObject({
+      unitDiscount: 100,
+      manualDiscountPercent: 5,
+      promotionRefs: { refs: [] },
+    });
+    expect(flag(ctx, id, 'DISCOUNTS_REVIEW')).toMatchObject({ reason: 'PRODUCTS_CHANGED' });
+  });
+
+  it('removing the percent returns the line to full price', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    await ctx.editing.applyLines(id, { lines: withPercent(ctx, id, 10, 10) }, 'user:1', 'op-pct-0003');
+    await ctx.editing.applyLines(id, { lines: withPercent(ctx, id, 10, null) }, 'user:1', 'op-pct-0004');
+    expect(linesOf(ctx, id).find((l) => l.variantId === 10)).toMatchObject({
+      unitDiscount: 0,
+      manualDiscountPercent: null,
+    });
+    expect(orderRow(ctx, id)).toMatchObject({ subtotal: 6500 });
+    const entries = historyOf(ctx, id, 'LINES_CHANGED');
+    expect(entries[1].newValue.changed[0]).toMatchObject({
+      previousDiscountPercent: 10,
+      discountPercent: null,
+    });
+  });
+
+  it('a new line can be added with a percent', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    await ctx.editing.applyLines(
+      id,
+      { lines: [...lineInputs(ctx, id), { variantId: 12, quantity: 2, discountPercent: 50 }] },
+      'user:1',
+      'op-pct-0005'
+    );
+    expect(linesOf(ctx, id).find((l) => l.variantId === 12)).toMatchObject({
+      unitPrice: 1500,
+      unitDiscount: 750,
+      manualDiscountPercent: 50,
+    });
+    const [entry] = historyOf(ctx, id, 'LINES_CHANGED');
+    expect(entry.newValue.added[0]).toMatchObject({ variantId: 12, discountPercent: 50 });
+  });
+
+  it('a line with shipped units → DISCOUNT_LINE_SHIPPED; invalid → INVALID_PERCENT', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    shipEverything(ctx, id);
+    expect(
+      await issues(ctx.editing.applyLines(id, { lines: withPercent(ctx, id, 10, 10) }, 'user:1', 'op-pct-0006'))
+    ).toEqual([{ path: 'lines.0.discountPercent', code: 'DISCOUNT_LINE_SHIPPED' }]);
+    const ctx2 = setup();
+    const id2 = await createOrder(ctx2);
+    expect(
+      (await ctx2.editing.previewLines(id2, { lines: withPercent(ctx2, id2, 11, 0) })).errors
+    ).toEqual([{ path: 'lines.1.discountPercent', code: 'INVALID_PERCENT' }]);
+  });
+
+  it('recalculate discounts leaves a manual line out of product promotions', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    await ctx.editing.applyLines(id, { lines: withPercent(ctx, id, 10, 10) }, 'user:1', 'op-pct-0007');
+    halfOff(ctx, [10, 11]);
+    const r = await ctx.editing.previewDiscounts(id, {});
+    const row = r.rows.find((x: any) => x.kind === 'NEW');
+    expect(row).toMatchObject({ amount: 1250 });
+    const priced = await ctx.editing.previewDiscounts(id, { selection: [row!.key] });
+    const line10 = linesOf(ctx, id).find((l) => l.variantId === 10);
+    expect(priced.lines.map((l: any) => l.id)).not.toContain(line10.id);
+  });
+});
+
+describe('manual order creation with a line discount (spec 4.1)', () => {
+  const createWith = (ctx: Ctx, lines: any[], source: 'admin' | 'storefront' = 'admin') =>
+    ctx.orders.create(
+      {
+        customer: { firstName: 'Ana', lastName: 'Silva', email: 'ana@example.pt' },
+        shippingAddress: address,
+        billingAddress: address,
+        locale: 'en',
+        lines,
+        shipping: { providerId: 'manual', serviceId: '1' },
+      },
+      { actor: 'user:1', source }
+    );
+
+  it('the line keeps its percent; promotions are evaluated with it frozen at its net price', async () => {
+    const ctx = setup();
+    addPromotion(ctx, {
+      name: 'Half off',
+      benefits: {
+        items: [
+          {
+            type: 'PRODUCT_PERCENT',
+            target: { productIds: [], variantIds: [10, 11] },
+            percent: 50,
+            maxQuantity: null,
+          },
+        ],
+      },
+    });
+    const { id } = await createWith(ctx, [
+      { variantId: 10, quantity: 2, discountPercent: 10 },
+      { variantId: 11, quantity: 1 },
+    ]);
+    const lines = linesOf(ctx, id);
+    expect(lines.find((l) => l.variantId === 10)).toMatchObject({
+      unitPrice: 2000,
+      unitDiscount: 200,
+      manualDiscountPercent: 10,
+      promotionRefs: { refs: [] },
+    });
+    expect(lines.find((l) => l.variantId === 11)).toMatchObject({
+      unitPrice: 2500,
+      unitDiscount: 1250,
+      manualDiscountPercent: null,
+    });
+    expect(orderRow(ctx, id)).toMatchObject({
+      itemsOriginal: 6500,
+      productDiscount: 1650,
+      subtotal: 4850,
+      total: 5350,
+    });
+  });
+
+  it('an order-level promotion counts a manual line at its net price', async () => {
+    const ctx = setup();
+    addPromotion(ctx, { name: '10 %' });
+    const { id } = await createWith(ctx, [{ variantId: 10, quantity: 2, discountPercent: 50 }]);
+    // 10 % of 2 × 1000.
+    expect(orderRow(ctx, id)).toMatchObject({ subtotal: 2000, orderDiscount: 200 });
+  });
+
+  it('the admin quote prices it; the default quote (storefront) ignores it', async () => {
+    const ctx = setup();
+    const input = { lines: [{ variantId: 10, quantity: 2, discountPercent: 25 }], locale: 'en' };
+    const admin = await ctx.orders.quote(input as any, { manualDiscounts: true });
+    expect(admin.totals).toMatchObject({ itemsOriginal: 4000, productDiscount: 1000, subtotal: 3000 });
+    expect(admin.lines[0]).toMatchObject({ unitPrice: 2000, unitDiscount: 500, manualDiscountPercent: 25 });
+    const plain = await ctx.orders.quote(input as any);
+    expect(plain.totals).toMatchObject({ subtotal: 4000, productDiscount: 0 });
+  });
+
+  it('an invalid percent → INVALID_PERCENT on the line', async () => {
+    const ctx = setup();
+    expect(await issues(createWith(ctx, [{ variantId: 10, quantity: 1, discountPercent: 120 }]))).toEqual([
+      { path: 'lines.0.discountPercent', code: 'INVALID_PERCENT' },
+    ]);
+  });
+
+  it('a storefront order never takes the field', async () => {
+    const ctx = setup();
+    const { id } = await createWith(ctx, [{ variantId: 10, quantity: 2, discountPercent: 50 }], 'storefront');
+    expect(linesOf(ctx, id)[0]).toMatchObject({ unitDiscount: 0 });
+    expect(linesOf(ctx, id)[0].manualDiscountPercent ?? null).toBeNull();
+    expect(orderRow(ctx, id)).toMatchObject({ subtotal: 4000 });
+  });
+});
