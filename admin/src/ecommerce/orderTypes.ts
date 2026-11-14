@@ -356,6 +356,8 @@ export type Order = {
   history: OrderHistoryItem[];
   /** Which edits the order offers (order editing by section). */
   editing: OrderEditing;
+  /** Why the billing address cannot change (the first invoice fixes it), or null while it can. */
+  billingAddressLock: BillingAddressLock | null;
   /** The shipping charges table, oldest first. */
   shippingLines: ShippingLineView[];
   /** The manual order discounts (a legacy order reads its LEGACY item). */
@@ -655,6 +657,8 @@ export type OrderEditAction =
   | 'REMOVE_DISCOUNT';
 
 export type EditBlockReason = 'CANCELLED' | 'ARCHIVED' | 'SHIPMENT_PENDING';
+
+export type BillingAddressLock = 'CANCELLED' | 'ARCHIVED' | 'INVOICED';
 
 export type OrderEditing = {
   editable: boolean;

@@ -90,6 +90,10 @@ export default interface EcommerceOrdersGateway {
     id: number,
     input: { address: Address; operationId: string }
   ): Promise<EditResult>;
+  updateBillingAddress(
+    id: number,
+    input: { address: Address; operationId: string }
+  ): Promise<EditResult>;
   /** Quotes the order's pending units at its current address. */
   fetchShippingOptions(id: number): Promise<ShippingQuote>;
   previewShippingRecalculation(id: number): Promise<ShippingRecalculationPreview>;
@@ -244,6 +248,13 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
     input: { address: Address; operationId: string }
   ): Promise<EditResult> {
     return this.httpClient.put(`${this.orders}/${id}/shipping-address`, input);
+  }
+
+  async updateBillingAddress(
+    id: number,
+    input: { address: Address; operationId: string }
+  ): Promise<EditResult> {
+    return this.httpClient.put(`${this.orders}/${id}/billing-address`, input);
   }
 
   async fetchShippingOptions(id: number): Promise<ShippingQuote> {

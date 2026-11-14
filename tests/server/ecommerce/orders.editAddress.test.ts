@@ -397,3 +397,84 @@ describe('EcommerceOrderEditingService.updateShippingAddress', () => {
     expect(errors[0]).toMatchObject({ path: 'order', code: 'ORDER_NOT_EDITABLE' });
   });
 });
+
+describe('EcommerceOrderEditingService.updateBillingAddress', () => {
+  const billingAddress = { ...newAddress, company: 'Empresa Lda', nif: '501234567' };
+  const issueInvoice = (ctx: Ctx, orderId: number, status = 'ISSUED') => {
+    ctx.tables[UIDS.invoice].push({
+      id: ctx.tables[UIDS.invoice].length + 1,
+      order: orderId,
+      kind: 'INVOICE',
+      status,
+      createdAt: new Date(Date.now() + 1000).toISOString(),
+      lines: { lines: [] },
+    });
+  };
+
+  it('saves the billing address before any invoice: shipping and amounts stay, history before/after', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    const shipping = structuredClone(orderRow(ctx, id).shippingAddress);
+    const before = structuredClone(orderRow(ctx, id).billingAddress);
+    const total = orderRow(ctx, id).total;
+    ctx.findOption.mockClear();
+    const res = await ctx.editing.updateBillingAddress(id, { address: billingAddress }, 'user:1', 'op-bill-0001');
+    expect(res).toMatchObject({ outcome: 'NONE', difference: 0 });
+    expect(res.order.billingAddressLock).toBeNull();
+    expect(orderRow(ctx, id).billingAddress).toMatchObject({ company: 'Empresa Lda', nif: '501234567', city: 'Madrid' });
+    expect(orderRow(ctx, id).shippingAddress).toEqual(shipping);
+    expect(orderRow(ctx, id).total).toBe(total);
+    expect(ctx.findOption).not.toHaveBeenCalled();
+    const [entry] = historyOf(ctx, id, 'ADDRESS_CHANGED');
+    expect(entry).toMatchObject({ uniqueKey: 'edit:op-bill-0001', actor: 'user:1' });
+    expect(entry.previousValue).toEqual({ billingAddress: before });
+    expect(entry.newValue).toMatchObject({ billingAddress: { nif: '501234567' } });
+    expect(flagsOf(ctx, id)).toEqual([]);
+  });
+
+  it('can still change with shipments', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    shipEverything(ctx, id);
+    await ctx.editing.updateBillingAddress(id, { address: billingAddress }, 'user:1', 'op-bill-0002');
+    expect(orderRow(ctx, id).billingAddress.nif).toBe('501234567');
+  });
+
+  it.each(['ISSUED', 'PENDING', 'UNCERTAIN'])('an %s invoice locks it: BILLING_ADDRESS_LOCKED / INVOICED', async (status) => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    const before = structuredClone(orderRow(ctx, id).billingAddress);
+    issueInvoice(ctx, id, status);
+    expect((await ctx.orders.get(id)).billingAddressLock).toBe('INVOICED');
+    expect(
+      await issues(ctx.editing.updateBillingAddress(id, { address: billingAddress }, 'user:1', 'op-bill-0003'))
+    ).toEqual([{ path: 'order', code: 'BILLING_ADDRESS_LOCKED', detail: 'INVOICED' }]);
+    expect(orderRow(ctx, id).billingAddress).toEqual(before);
+  });
+
+  it('a FAILED invoice does not lock it', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    issueInvoice(ctx, id, 'FAILED');
+    await ctx.editing.updateBillingAddress(id, { address: billingAddress }, 'user:1', 'op-bill-0004');
+    expect(orderRow(ctx, id).billingAddress.nif).toBe('501234567');
+  });
+
+  it('a cancelled order gives BILLING_ADDRESS_LOCKED / CANCELLED', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    await ctx.orders.cancel(id, 'user:1');
+    expect(
+      await issues(ctx.editing.updateBillingAddress(id, { address: billingAddress }, 'user:1', 'op-bill-0005'))
+    ).toEqual([{ path: 'order', code: 'BILLING_ADDRESS_LOCKED', detail: 'CANCELLED' }]);
+  });
+
+  it('a malformed address is rejected', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    const errors = await issues(
+      ctx.editing.updateBillingAddress(id, { address: { ...billingAddress, city: '' } }, 'user:1', 'op-bill-0006')
+    );
+    expect(errors).toContainEqual(expect.objectContaining({ path: 'address.city', code: 'required' }));
+  });
+});

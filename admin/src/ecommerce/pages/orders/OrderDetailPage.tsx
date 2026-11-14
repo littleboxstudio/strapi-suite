@@ -316,6 +316,8 @@ const OrderDetailPage = () => {
         title={t('ecommerce.orders.detail.sections.invoices')}
         order={order}
         canInvoice={canInvoice}
+        canManage={canManage}
+        onEdited={showResult}
         onIssue={() => {
           setInvoiceKey((k) => k + 1);
           setInvoiceOpen(true);

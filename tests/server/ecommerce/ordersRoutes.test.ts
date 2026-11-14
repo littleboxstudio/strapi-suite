@@ -31,6 +31,7 @@ const orders: [string, string, string, string][] = [
 const editing: [string, string, string, string][] = [
   ['GET', `${O}/:id/shipping-address/countries`, 'shippingAddressCountries', P.ordersManage],
   ['PUT', `${O}/:id/shipping-address`, 'updateShippingAddress', P.ordersManage],
+  ['PUT', `${O}/:id/billing-address`, 'updateBillingAddress', P.ordersManage],
   ['POST', `${O}/:id/lines/preview`, 'previewLines', P.ordersManage],
   ['POST', `${O}/:id/lines`, 'applyLines', P.ordersManage],
   ['GET', `${O}/:id/shipping-options`, 'shippingOptions', P.ordersManage],

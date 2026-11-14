@@ -47,6 +47,7 @@ botão abaixo soma condições a esta:
 |---|---|
 | Adicionar produtos (modal de produtos) | nenhuma |
 | Alterar morada de entrega | nenhum envio (nem parcial) **[Decisão]** |
+| Alterar morada de faturação (botão Billing address da secção Invoices) | nenhuma fatura (`ISSUED`, `PENDING` ou `UNCERTAIN`, incluindo as antigas) e encomenda aberta; envios não contam (`BILLING_ADDRESS_LOCKED`, detalhe `INVOICED`/`CANCELLED`/`ARCHIVED`) **[Decisão, 2026-11-14]** |
 | Recalcular portes | nenhuma |
 | Edit numa linha de portes (trocar método/preço) | nenhum envio **[Decisão]**; a linha não pode estar paga (`SHIPPING_LINE_PAID`) **[Decisão, 2026-11-14]** |
 | Adicionar portes (linha manual) | nenhuma **[Escolha]** |

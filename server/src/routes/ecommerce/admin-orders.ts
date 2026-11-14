@@ -45,6 +45,7 @@ export default [
   // Order editing by section: every route needs orders.manage, including the quoting GETs.
   edit('GET', '/:id/shipping-address/countries', 'shippingAddressCountries', manage),
   edit('PUT', '/:id/shipping-address', 'updateShippingAddress', manage),
+  edit('PUT', '/:id/billing-address', 'updateBillingAddress', manage),
   edit('POST', '/:id/lines/preview', 'previewLines', manage),
   edit('POST', '/:id/lines', 'applyLines', manage),
   edit('GET', '/:id/shipping-options', 'shippingOptions', manage),
