@@ -132,14 +132,16 @@ export function invoiceActions(
   canInvoice: boolean
 ): InvoiceAction[] {
   const actions: InvoiceAction[] = [];
+  if (canInvoice) {
+    if (invoice.reconcilable && (invoice.status === 'UNCERTAIN' || invoice.status === 'PENDING')) {
+      actions.push('RECONCILE', 'MARK_FAILED');
+    }
+    if (invoice.kind === 'INVOICE' && invoice.status === 'ISSUED' && invoice.total - invoice.credited > 0) {
+      actions.push('CREDIT_NOTE');
+    }
+  }
+  // The PDF comes last, after the credit note.
   if (invoice.status === 'ISSUED') actions.push('PDF');
-  if (!canInvoice) return actions;
-  if (invoice.reconcilable && (invoice.status === 'UNCERTAIN' || invoice.status === 'PENDING')) {
-    actions.push('RECONCILE', 'MARK_FAILED');
-  }
-  if (invoice.kind === 'INVOICE' && invoice.status === 'ISSUED' && invoice.total - invoice.credited > 0) {
-    actions.push('CREDIT_NOTE');
-  }
   return actions;
 }
 
