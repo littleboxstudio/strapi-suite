@@ -259,12 +259,12 @@ const ShipmentsSection = ({
           {t(`ecommerce.orders.shipments.orderDelivery.${deliveryStatus}`, undefined, deliveryStatus)}
         </Badge>
       </Flex>
+      <ShippingAddressModal order={order} canManage={canManage} onSaved={onEdited} />
       {sectionActions.map((action) => (
         <Button key={action} size="S" variant="secondary" disabled={actionBusy} onClick={() => onAction(action)}>
           {t(`ecommerce.orders.detail.actions.${action}`)}
         </Button>
       ))}
-      <ShippingAddressModal order={order} canManage={canManage} onSaved={onEdited} />
       {canManage && canEdit(order, 'RECALCULATE_SHIPPING') && (
         <Button size="S" variant="secondary" onClick={() => setShippingModal({ kind: 'RECALCULATE' })}>
           {t('ecommerce.orders.shippingCharges.recalculate')}
