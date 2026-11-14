@@ -151,16 +151,21 @@ export function sentLines(lines: ModifyLineDraft[]): ModifyLineDraft[] {
   return lines.filter((l) => l.isGift || !l.removed);
 }
 
-/** The percent sent for a line: only a valid one that is set (absent = none, spec 4.1). */
-const sentPercent = (l: ModifyLineDraft): { discountPercent?: number } => {
+/**
+ * The percent sent for a line (spec 4.1): a valid one that is set; null when the user cleared the
+ * line's stored percent (remove it); nothing otherwise (absent = keep the line's current one).
+ */
+const sentPercent = (l: ModifyLineDraft): { discountPercent?: number | null } => {
   if (l.isGift) return {};
   const parsed = parseDiscountPercent(l.discount);
-  return parsed.ok && parsed.value !== null ? { discountPercent: parsed.value } : {};
+  if (!parsed.ok) return {};
+  if (parsed.value !== null) return { discountPercent: parsed.value };
+  return l.originalDiscountPercent !== null ? { discountPercent: null } : {};
 };
 
 /** Request body of `lines/preview` and (with an operationId) `lines`. */
 export function buildLinesInput(lines: ModifyLineDraft[]): {
-  lines: { orderLineId?: number; variantId: number; quantity: number; discountPercent?: number }[];
+  lines: { orderLineId?: number; variantId: number; quantity: number; discountPercent?: number | null }[];
 } {
   return {
     lines: sentLines(lines).map((l) =>

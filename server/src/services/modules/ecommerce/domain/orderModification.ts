@@ -47,8 +47,9 @@ export type ShippingModification =
 
 export type ModificationInput = {
   /**
-   * `discountPercent` (spec 4.1): the line's manual discount; absent, null or '' = none (a line
-   * that had one loses it). Only the admin editing flows pass it.
+   * `discountPercent` (spec 4.1): the line's manual discount. Absent = keep the line's current
+   * one (none for a new line); null or '' = none (a line that had one loses it). Only the admin
+   * editing flows pass it.
    */
   lines: { orderLineId?: number; variantId: number; quantity: number; discountPercent?: unknown }[];
   shipping: ShippingModification;
@@ -266,7 +267,7 @@ export const simulateModification = (
       // shipped (a removed line ignores it). It replaces a promotion discount.
       const previousPercent = target.manualDiscountPercent ?? null;
       let discount: LineDiscountChange | undefined;
-      if (entry.quantity > 0) {
+      if (entry.quantity > 0 && entry.discountPercent !== undefined) {
         const parsed = readDiscountPercent(entry.discountPercent);
         if (!parsed.ok) {
           percentError(index, 'INVALID_PERCENT');

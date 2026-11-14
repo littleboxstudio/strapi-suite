@@ -49,8 +49,13 @@ export function lineUnitDiscount(unitPrice: number, percent: number): number {
   return Math.min(unitPrice, Math.floor((unitPrice * basis + 5000) / 10000));
 }
 
+/** The locale's decimal separator, always with Latin digits (the field takes only 0-9). */
 const percentNumber = (percent: number, locale: string) =>
-  new Intl.NumberFormat(locale || 'en', { maximumFractionDigits: 2, useGrouping: false }).format(percent);
+  new Intl.NumberFormat(locale || 'en', {
+    maximumFractionDigits: 2,
+    useGrouping: false,
+    numberingSystem: 'latn',
+  } as Intl.NumberFormatOptions).format(percent);
 
 /** "−10 %": the manual discount shown on a line. */
 export function formatLineDiscount(percent: number, locale: string): string {

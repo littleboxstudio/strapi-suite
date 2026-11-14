@@ -50,6 +50,7 @@ import {
   type ManualDiscount,
 } from './domain/manualDiscounts';
 import { previousShipmentsCost } from './domain/fulfillment';
+import { releaseLineRefs } from './domain/lineDiscounts';
 import {
   recalculateDiscounts,
   type DiscountLine,
@@ -525,13 +526,33 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         const unmet = result.discountWarnings.some((d) => d.code === 'PROMOTION_CONDITION_UNMET');
         // Spec 4.1: a manual percent that replaced (or a removal that dropped) a promotion discount.
         const replaced = result.lineChanges.some((c) => c.discount?.replacedPromotion);
+        // Their promotion discount leaves the stored promotions too, so the promotions, the
+        // manual discounts and the line discounts keep adding up to the order's discounts.
+        const rawById = new Map<number, any>((state.order.lines ?? []).map((l: any) => [l.id, l]));
+        const releasedRefs = result.lineChanges
+          .filter((c) => c.discount && c.orderLineId !== undefined)
+          .flatMap((c) => refsOf(rawById.get(c.orderLineId!)?.promotionRefs));
+        const release = releasedRefs.length
+          ? releaseLineRefs(appliedOf(state.order), releasedRefs)
+          : null;
         const written = await orders().computeOrderState(state.order.id);
         const wouldApply = (await discountEvaluation(written)).rows.some((r) => r.kind === 'NEW');
         if (unmet || wouldApply || replaced) {
           flags = await w.raise(flags, 'DISCOUNTS_REVIEW', 'PRODUCTS_CHANGED');
         }
 
-        const totals = await writeTotals(state, { lines: true, reviewFlags: flags });
+        const totals = await writeTotals(state, {
+          lines: true,
+          reviewFlags: flags,
+          ...(release?.released.length
+            ? {
+                promotions: {
+                  ...(isRecord(state.order.promotions) ? state.order.promotions : {}),
+                  applied: release.applied,
+                },
+              }
+            : {}),
+        });
         return {
           outcome: result.outcome,
           difference: result.difference,
@@ -541,6 +562,9 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
             previousValue: { totals: result.before },
             newValue: {
               ...describeChanges(state, catalog, result.lineChanges),
+              ...(release?.released.length
+                ? { releasedPromotionDiscounts: release.released }
+                : {}),
               totals: result.after,
             },
           },

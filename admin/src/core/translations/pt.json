@@ -1777,6 +1777,7 @@
   "littlebox-strapi-suite.ecommerce.orders.discounts.giftShipped": "A oferta já foi enviada.",
   "littlebox-strapi-suite.ecommerce.orders.discounts.manual": "Manual",
   "littlebox-strapi-suite.ecommerce.orders.discounts.manualName": "Desconto manual",
+  "littlebox-strapi-suite.ecommerce.orders.discounts.manualLineName": "Desconto manual na linha",
   "littlebox-strapi-suite.ecommerce.orders.discounts.kind.FIXED": "Valor fixo",
   "littlebox-strapi-suite.ecommerce.orders.discounts.kind.PERCENT": "Percentagem",
   "littlebox-strapi-suite.ecommerce.orders.discounts.value": "Valor",

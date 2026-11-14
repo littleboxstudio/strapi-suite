@@ -286,11 +286,12 @@ describe('manual line discount in the products draft (spec 4.1)', () => {
     lines = setModifyLineDiscount(lines, keyOf(lines, 1), '12,5');
     lines = setModifyLineDiscount(lines, keyOf(lines, 4), '');
     expect(linesDraftChanged(lines)).toBe(true);
+    // A cleared percent is sent as null (remove); an untouched line without one sends nothing.
     expect(buildLinesInput(lines).lines).toEqual([
       { orderLineId: 10, variantId: 1, quantity: 2, discountPercent: 12.5 },
       { orderLineId: 11, variantId: 2, quantity: 1 },
       { orderLineId: 12, variantId: 3, quantity: 1 },
-      { orderLineId: 13, variantId: 4, quantity: 1 },
+      { orderLineId: 13, variantId: 4, quantity: 1, discountPercent: null },
     ]);
     lines = setModifyLineDiscount(lines, keyOf(lines, 1), '0');
     expect(validateLinesDraft(lines)).toEqual([{ path: 'lines.0.discountPercent', code: 'INVALID_PERCENT' }]);

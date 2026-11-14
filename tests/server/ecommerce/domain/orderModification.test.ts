@@ -1153,13 +1153,38 @@ describe('simulateModification: manual line discount (spec 4.1)', () => {
     expect(r.after.subtotal).toBe(2000);
   });
 
-  it('an absent field on a manual line removes it too (the editor always sends the percent)', () => {
-    const r = simulateModification(
-      current([existing({ id: 1, unitPrice: 2000, unitDiscount: 200, manualDiscountPercent: 10 })]),
-      { lines: [{ orderLineId: 1, variantId: 101, quantity: 1 }], shipping: keep },
+  it('an absent field keeps the manual percent of the line; an empty string removes it', () => {
+    const line = existing({ id: 1, unitPrice: 2000, unitDiscount: 200, manualDiscountPercent: 10 });
+    const kept = simulateModification(
+      current([line]),
+      { lines: [{ orderLineId: 1, variantId: 101, quantity: 2 }], shipping: keep },
       catalog(),
     );
-    expect(r.lineChanges[0].discount).toMatchObject({ percent: null, unitDiscount: 0 });
+    expect(kept.lineChanges[0]).toEqual({
+      kind: 'QUANTITY_CHANGED',
+      orderLineId: 1,
+      variantId: 101,
+      previousQuantity: 1,
+      newQuantity: 2,
+    });
+    expect(kept.after.subtotal).toBe(2 * 1800);
+    const removed = simulateModification(
+      current([line]),
+      { lines: [{ orderLineId: 1, variantId: 101, quantity: 1, discountPercent: '' }], shipping: keep },
+      catalog(),
+    );
+    expect(removed.lineChanges[0].discount).toMatchObject({ percent: null, unitDiscount: 0 });
+  });
+
+  it('adding units to a partly shipped manual line (field absent) keeps the percent, no error', () => {
+    const r = simulateModification(
+      current([existing({ id: 1, unitPrice: 2000, unitDiscount: 200, manualDiscountPercent: 10, quantity: 2, shipped: 2 })]),
+      { lines: [{ orderLineId: 1, variantId: 101, quantity: 4 }], shipping: keep },
+      catalog(),
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.lineChanges).toHaveLength(1);
+    expect(r.after.subtotal).toBe(4 * 1800);
   });
 
   it('a line with shipped units cannot change its discount: DISCOUNT_LINE_SHIPPED', () => {

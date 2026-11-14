@@ -19,6 +19,8 @@ import {
   hasRowActions,
   manualDiscountPercent,
   discountPercentFromInput,
+  manualLineDiscountRows,
+  manualLineDiscountTotal,
   formatLineDiscount,
   lineUnitDiscount,
   parseDiscountPercent,
@@ -765,6 +767,12 @@ describe('line discount percent helpers (spec 4.1)', () => {
     expect(lineUnitDiscount(2000, 100)).toBe(2000);
   });
 
+  it('never formats with non-Latin digits', () => {
+    expect(percentToInput(12.5, 'ar-EG')).toMatch(/^12[.,٫]5$/);
+    expect(percentToInput(12.5, 'ar-EG')).not.toMatch(/[٠-٩]/);
+    expect(formatLineDiscount(10, 'ar-EG')).toBe('−10 %');
+  });
+
   it('formats a percent for display and for the input', () => {
     expect(formatLineDiscount(10, 'en')).toBe('−10 %');
     expect(formatLineDiscount(12.5, 'pt')).toBe('−12,5 %');
@@ -782,5 +790,31 @@ describe('line discount percent helpers (spec 4.1)', () => {
       expect(en[`littlebox-strapi-suite.${key}`]).toBeTruthy();
       expect(pt[`littlebox-strapi-suite.${key}`]).toBeTruthy();
     }
+  });
+});
+
+describe('manual line discounts in the discounts table (spec 4.1)', () => {
+  const lines = [
+    { name: 'Camisa', option: 'M', manualDiscountPercent: 10, unitDiscount: 200, quantity: 3, returnedQuantity: 1, isGift: false },
+    { name: 'Mug', option: null, manualDiscountPercent: null, unitDiscount: 500, quantity: 1, returnedQuantity: 0, isGift: false },
+    { name: 'Hat', option: null, manualDiscountPercent: 12.5, unitDiscount: 250, quantity: 2, isGift: false },
+  ];
+
+  it('one row per line with a manual percent: label, percent and unit discount × kept units', () => {
+    expect(manualLineDiscountRows(lines, 'pt')).toEqual([
+      { key: 'line-0', label: 'Camisa — M −10 %', amount: 400 },
+      { key: 'line-2', label: 'Hat −12,5 %', amount: 500 },
+    ]);
+  });
+
+  it('adds up', () => {
+    expect(manualLineDiscountTotal(manualLineDiscountRows(lines, 'en'))).toBe(900);
+    expect(manualLineDiscountTotal([])).toBe(0);
+  });
+
+  it('texts exist in en and pt', () => {
+    const id = 'littlebox-strapi-suite.ecommerce.orders.discounts.manualLineName';
+    expect(en[id]).toBeTruthy();
+    expect(pt[id]).toBeTruthy();
   });
 });

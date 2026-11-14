@@ -863,6 +863,44 @@ describe('manual line discount (spec 4.1)', () => {
     expect(flag(ctx, id, 'DISCOUNTS_REVIEW')).toMatchObject({ reason: 'PRODUCTS_CHANGED' });
   });
 
+  it('the released promotion discount leaves the stored promotions: the discounts add up', async () => {
+    const ctx = setup();
+    halfOff(ctx, [10]);
+    const id = await createOrder(ctx);
+    expect(orderRow(ctx, id).promotions.applied[0]).toMatchObject({ amount: 2000 });
+    const res = await ctx.editing.applyLines(
+      id,
+      { lines: withPercent(ctx, id, 10, 5) },
+      'user:1',
+      'op-pct-0010'
+    );
+    const order = orderRow(ctx, id);
+    const [promo] = order.promotions.applied;
+    expect(promo).toMatchObject({ amount: 0, benefits: [{ amount: 0 }] });
+    const promotionSum = order.promotions.applied.reduce((s: number, a: any) => s + a.amount, 0);
+    const manualOrder = (order.manualDiscounts?.items ?? []).reduce((s: number, m: any) => s + m.amount, 0);
+    const manualLines = res.order.lines
+      .filter((l: any) => l.manualDiscountPercent !== null)
+      .reduce((s: number, l: any) => s + l.unitDiscount * (l.quantity - l.returnedQuantity), 0);
+    expect(promotionSum + manualOrder + manualLines).toBe(order.productDiscount + order.orderDiscount);
+    const [entry] = historyOf(ctx, id, 'LINES_CHANGED');
+    expect(entry.newValue.releasedPromotionDiscounts).toEqual([
+      { promotionId: promo.promotionId, benefitIndex: 0, amount: 2000 },
+    ]);
+  });
+
+  it('adding units to a shipped line with a manual percent keeps it on the whole line', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    await ctx.editing.applyLines(id, { lines: withPercent(ctx, id, 10, 10) }, 'user:1', 'op-pct-0011');
+    shipEverything(ctx, id);
+    const lines = lineInputs(ctx, id).map((l) => (l.variantId === 10 ? { ...l, quantity: 3 } : l));
+    await ctx.editing.applyLines(id, { lines }, 'user:1', 'op-pct-0012');
+    expect(linesOf(ctx, id).filter((l) => l.variantId === 10)).toEqual([
+      expect.objectContaining({ quantity: 3, unitDiscount: 200, manualDiscountPercent: 10 }),
+    ]);
+  });
+
   it('removing the percent returns the line to full price', async () => {
     const ctx = setup();
     const id = await createOrder(ctx);
