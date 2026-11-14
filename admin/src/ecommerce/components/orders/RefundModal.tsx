@@ -201,10 +201,11 @@ const RefundModal = ({ orderId, reference, initial, onClose, onSubmitting, onRef
       );
     }
 
-    // The figures as tiles, like the payments overview; the refundable one is highlighted.
+    // The figures as tiles on one row, like the payments overview; the refundable one is highlighted.
+    const figures = amountRows(preview);
     const amounts = (
-      <Tiles style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
-        {amountRows(preview).map((row) => (
+      <Tiles style={{ gridTemplateColumns: `repeat(${figures.length}, minmax(0, 1fr))` }}>
+        {figures.map((row) => (
           <Tile key={row.key} $tone={row.strong ? 'success' : undefined}>
             <Typography variant="sigma" textColor="neutral600">
               {t(`ecommerce.orders.refund.summary.${row.key}`)}
