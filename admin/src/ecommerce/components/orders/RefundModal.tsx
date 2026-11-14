@@ -206,7 +206,8 @@ const RefundModal = ({ orderId, reference, initial, onClose, onSubmitting, onRef
     const amounts = (
       <Tiles style={{ gridTemplateColumns: `repeat(${figures.length}, minmax(0, 1fr))` }}>
         {figures.map((row) => (
-          <Tile key={row.key} $tone={row.strong ? 'success' : undefined}>
+          // Label on top, value at the bottom: values line up even when a label wraps to 2 lines.
+          <Tile key={row.key} $tone={row.strong ? 'success' : undefined} style={{ justifyContent: 'space-between' }}>
             <Typography variant="sigma" textColor="neutral600">
               {t(`ecommerce.orders.refund.summary.${row.key}`)}
             </Typography>
