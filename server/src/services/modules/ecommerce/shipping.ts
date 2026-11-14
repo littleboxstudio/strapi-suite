@@ -8,6 +8,9 @@ import type { CarrierAdapter, CarrierCallOptions } from './providers/carriers/ty
 import type { ManualMethod, StoreSettings } from './settings';
 import { orderWeightGrams, priceForWeight } from './domain/shippingRates';
 import { marketOf } from './domain/markets';
+import { DPD_SERVICE_IDS, dpdServedMarkets, readDpdServices } from './domain/dpdServices';
+import type { DpdServiceId } from './domain/dpdServices';
+import { DPD_PORTUGAL_ID } from './providers/definitions/dpd-portugal';
 
 export type ShippingQuoteRequest = {
   country: string;
@@ -15,6 +18,10 @@ export type ShippingQuoteRequest = {
   items: { variantId: number; quantity: number; weight: number; width: number; height: number; depth: number }[];
   subtotal: number;
   locale: string;
+  /** Filled by `quote` before calling adapters: the address's market (`marketOf`). */
+  market?: string;
+  /** Filled by `quote` before calling adapters: the fallback locale for option names. */
+  defaultLocale?: string;
 };
 
 export type ShippingOption = {
@@ -24,6 +31,8 @@ export type ShippingOption = {
   price: number;
   tax: number;
   estimatedDays?: number;
+  /** The storefront/admin must ask for a pickup point (DPD Pickup). Only ever `true`. */
+  requiresPickupPoint?: boolean;
 };
 
 export type CarrierQuoter = (
@@ -58,7 +67,7 @@ export function __resetCarrierQuotersForTests(): void {
 const pickOption = (o: unknown, providerId: string): ShippingOption | null => {
   const x = o as Partial<ShippingOption> | null;
   if (!x || typeof x !== 'object') return null;
-  const { price, tax, name, serviceId, estimatedDays } = x;
+  const { price, tax, name, serviceId, estimatedDays, requiresPickupPoint } = x;
   const valid =
     typeof price === 'number' &&
     Number.isInteger(price) &&
@@ -77,6 +86,7 @@ const pickOption = (o: unknown, providerId: string): ShippingOption | null => {
   if (!valid) return null;
   const option: ShippingOption = { providerId, serviceId, name, price, tax };
   if (estimatedDays !== undefined) option.estimatedDays = estimatedDays;
+  if (requiresPickupPoint === true) option.requiresPickupPoint = true;
   return option;
 };
 
@@ -84,6 +94,22 @@ const failureCode = (error: unknown): string => {
   const raw = (error as { code?: unknown } | null)?.code;
   if (raw === 'CARRIER_NOT_CONFIGURED') return 'NOT_CONFIGURED';
   return typeof raw === 'string' && /^[A-Z_]{1,40}$/.test(raw) ? raw : 'QUOTE_FAILED';
+};
+
+const isFilled = (v: unknown) => typeof v === 'string' && v.trim() !== '';
+
+/** DPD credentials needed to create a shipment (Ruling 8), whether the integration is active or not. */
+const DPD_CREDENTIAL_FIELDS = ['authEndpoint', 'expeditionEndpoint', 'clientId', 'username'] as const;
+const DPD_CREDENTIAL_SECRETS = ['clientSecret', 'password'] as const;
+const hasDpdCredentials = (rt: ProviderRuntime): boolean =>
+  DPD_CREDENTIAL_FIELDS.every((k) => isFilled(rt.config[k])) &&
+  DPD_CREDENTIAL_SECRETS.every((k) => isFilled(rt.secrets[k]));
+
+/** The markets a carrier quotes for: its rate tables (DPD, active services) or `config.markets`. */
+const carrierMarkets = (providerId: string, rt: ProviderRuntime, storeMarkets: readonly string[]): string[] => {
+  if (providerId === DPD_PORTUGAL_ID) return dpdServedMarkets(readDpdServices(rt.config.services), storeMarkets);
+  const served = rt.config.markets;
+  return Array.isArray(served) ? served.filter((c): c is string => typeof c === 'string') : [];
 };
 
 const withTimeout = <T>(work: Promise<T>, ms: number): Promise<T> => {
@@ -123,8 +149,11 @@ const EcommerceShippingService = ({ strapi }: { strapi: Core.Strapi }) => {
     // A market outside the store markets has no shipping (not a failure).
     if (!storeMarkets.includes(market)) return { options, failures };
 
+    const carriers = activeCarriers.filter((id) => id !== 'manual');
+    const defaultLocale =
+      activeCarriers.includes('manual') || carriers.length ? await getDefaultLocale() : undefined;
+
     if (activeCarriers.includes('manual')) {
-      const defaultLocale = await getDefaultLocale();
       const methods = await svc.listManualMethods();
       const grams = orderWeightGrams(req.items);
       for (const m of methods) {
@@ -137,14 +166,14 @@ const EcommerceShippingService = ({ strapi }: { strapi: Core.Strapi }) => {
         options.push({
           providerId: 'manual',
           serviceId: String(m.id),
-          name: m.name?.[req.locale] || m.name?.[defaultLocale] || '',
+          name: m.name?.[req.locale] || (defaultLocale ? m.name?.[defaultLocale] : undefined) || '',
           price,
           tax: m.tax,
         });
       }
     }
 
-    const carriers = activeCarriers.filter((id) => id !== 'manual');
+    const adapterReq: ShippingQuoteRequest = { ...req, market, defaultLocale };
     const settled = await Promise.allSettled(
       carriers.map((providerId) =>
         withTimeout(
@@ -154,11 +183,12 @@ const EcommerceShippingService = ({ strapi }: { strapi: Core.Strapi }) => {
             const runtime = await svc.getRuntime(providerId);
             if (!adapter || !runtime || !runtime.active) throw new EcommerceCarrierError('CARRIER_NOT_CONFIGURED');
             // A carrier only quotes for the markets it serves.
-            const served = runtime.config.markets;
-            if (!Array.isArray(served) || !served.includes(market)) return { options: [], invalid: false };
+            if (!carrierMarkets(providerId, runtime, storeMarkets).includes(market)) {
+              return { options: [], invalid: false };
+            }
             // Explicit to the adapter (`timedFetch` assumes 10 s); the race below is the backstop.
             const result = await adapter.quote!(
-              req,
+              adapterReq,
               { config: runtime.config, secrets: runtime.secrets },
               { timeoutMs: QUOTE_TIMEOUT_MS }
             );
@@ -192,15 +222,27 @@ const EcommerceShippingService = ({ strapi }: { strapi: Core.Strapi }) => {
     registerCarrierQuoter,
     registerCarrierAdapter,
     quote,
-    async carrierFor(providerId: string): Promise<{ adapter: CarrierAdapter; runtime: ProviderRuntime }> {
+    /**
+     * The adapter and runtime of an active carrier. With `forShipment` (spec 7) an inactive DPD
+     * integration is accepted when its credentials are set, so orders with a service switched off
+     * still ship; quotes keep requiring the integration active.
+     */
+    async carrierFor(
+      providerId: string,
+      opts: { forShipment?: boolean } = {}
+    ): Promise<{ adapter: CarrierAdapter; runtime: ProviderRuntime }> {
       const adapter = adapters.get(providerId);
       const runtime = await settings().getRuntime(providerId);
-      if (!adapter || !runtime || !runtime.active) throw new EcommerceCarrierError('CARRIER_NOT_CONFIGURED');
+      const usable =
+        !!runtime &&
+        (runtime.active || (opts.forShipment === true && providerId === DPD_PORTUGAL_ID && hasDpdCredentials(runtime)));
+      if (!adapter || !runtime || !usable) throw new EcommerceCarrierError('CARRIER_NOT_CONFIGURED');
       return { adapter, runtime: { config: runtime.config, secrets: runtime.secrets } };
     },
     /**
-     * The markets a method can ship to: its rates (manual) or markets (carrier), inside the store
-     * markets. Market codes, not countries: compare an address through `marketOf`.
+     * The markets a method can ship to: its rates (manual, or the DPD service, active or not) or
+     * markets (other carriers), inside the store markets. Market codes, not countries: compare an
+     * address through `marketOf`.
      */
     async servedCountries(providerId: string, serviceId: string): Promise<string[]> {
       const svc = settings();
@@ -211,6 +253,14 @@ const EcommerceShippingService = ({ strapi }: { strapi: Core.Strapi }) => {
         own = Object.entries(method?.rates ?? {})
           .filter(([, brackets]) => Array.isArray(brackets))
           .map(([country]) => country);
+      } else if (providerId === DPD_PORTUGAL_ID) {
+        const runtime = await svc.getRuntime(providerId);
+        const services = readDpdServices(runtime?.config.services);
+        own = (DPD_SERVICE_IDS as readonly string[]).includes(serviceId)
+          ? Object.keys(services[serviceId as DpdServiceId].rates)
+          : runtime
+            ? dpdServedMarkets(services, markets)
+            : [];
       } else {
         const served = (await svc.getRuntime(providerId))?.config.markets;
         own = Array.isArray(served) ? served.filter((c): c is string => typeof c === 'string') : [];

@@ -556,6 +556,8 @@ export type ShippingOption = {
   price: number;
   tax: number;
   estimatedDays?: number;
+  /** DPD Pickup: a pickup point must be chosen for this option. */
+  requiresPickupPoint?: boolean;
 };
 
 /** `failures` lists the carriers whose quote failed; their options are missing. */
