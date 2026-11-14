@@ -155,3 +155,15 @@ Lista de itens adiados nas revisões do plano 1 (Base e Produtos), a considerar 
 - T18: no retry after failed re-preview; race logic untested; legacy check thrice; RemoveDiscountModal inside PromotionsSection.tsx; prettier on PromotionsSection; reason counter trimmed vs maxLength untrimmed
 - Invoicing by selection (plan 11): value left in the products pool with no units left to invoice (e.g. a discount removed after invoicing everything) cannot be invoiced by selection: regularize with a Correção and re-invoice.
 - Invoicing by selection (plan 11): Moloni `paymentMethods/insert` shape built from the public docs, not verified on a live account.
+
+### Invoicing by selection (plan 11): deferred review minors
+
+- T1: duplicated num/isObject helpers; legacy partial lines may floor to 0 units; annulled set may contain null; Review Focus 1 literal 10000/1000 case not pinned (Task 5 pins)
+- T2: no test where overInvoiced is the binding term; untested branches (duplicates, CORRECTION with shippingIndexes, unknown creditType, non-integer qty, invalid index, legacy null creditType, RETURN on annulled); import order; returnable lists units 0 (consumers filter units>0 — Task 3/9 must)
+- T3: correction shipping lines show invoiced false under an invoiced parent (cosmetic; corrections not editable); positionOrder mapping duplicates coverageOrder (Task 6 must delete coverageOrder); stale loadInvoicing JSDoc; no service test with allocated doc / refunded payment; RF5 "line added after invoice replaceable" not pinned
+- T4: cross-issue duplicate insert race (harmless/retryable); duplicated cached read; manual methodLabel uncapped in addManualPayment (could be refused by Moloni); test structure
+- T5: UNCERTAIN re-issue test uses toContain (assert full code list); paymentRows.get unchecked deref; no service test issuing a negative shipping line id
+- T6: no test for CORRECTION ending FAILED / late success; SHIPPING_NOT_CREDITABLE untested at service level; nonNegativeInt duplicate
+- T7: unused OrderPayment import in orderDetail.ts; non-integer qty test missing
+- T8: issue.uncertain text says "the payment stays reserved" (now items and payments); invalid qty shows "At most" text; modal size/duplicated tables
+- Final: label length checked before trim (controller) vs after (service); 64-char Moloni name cut may split a surrogate pair; an unlinked refund made between issue and late success can raise a conservative DUPLICATE warning.
