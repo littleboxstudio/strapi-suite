@@ -155,7 +155,7 @@ describe('cancel releases store credit', () => {
     await c.orders.cancel(orderId, actor);
 
     expect(balanceOf(c, credit.id)).toBe(1000);
-    expect(order(c, orderId).paymentStatus).toBe('REFUND_DUE');
+    expect(order(c, orderId).paymentStatus).toBe('PARTIALLY_REFUNDED');
     const preview = await c.refunds.preview(orderId);
     expect(preview).toMatchObject({ received: 4500, refunded: 1000, inFlight: 0, refundable: 3500 });
   });
@@ -437,7 +437,7 @@ describe('Stripe refunds', () => {
       status: 'PROCESSED',
     });
     expect(refundsOf(c)[0].status).toBe('COMPLETED');
-    expect(order(c, orderId).paymentStatus).toBe('REFUND_DUE');
+    expect(order(c, orderId).paymentStatus).toBe('PARTIALLY_REFUNDED');
   });
 
   it('Review Focus 2 at the service: 30 € over two 20 € payments, newest first, one refund each', async () => {
@@ -693,7 +693,7 @@ describe('fix round 1', () => {
       const h = c.tables[UIDS.orderHistory].filter((x) => x.type === 'REFUND_COMPLETED');
       expect(h).toHaveLength(1);
       expect(h[0].previousValue).toMatchObject({ refundId: r.id, status: 'FAILED' });
-      expect(order(c, orderId).paymentStatus).toBe('REFUND_DUE');
+      expect(order(c, orderId).paymentStatus).toBe('PARTIALLY_REFUNDED');
       expect((await c.refunds.preview(orderId)).refundable).toBe(2000);
     });
 
@@ -744,7 +744,7 @@ describe('fix round 1', () => {
 
       stripe.retrieveRefund.mockResolvedValueOnce({ id: 're_mb', status: 'succeeded', failureReason: null });
       expect(await c.refunds.refresh(r.id, 'user:2')).toMatchObject({ status: 'COMPLETED' });
-      expect(order(c, orderId).paymentStatus).toBe('REFUND_DUE');
+      expect(order(c, orderId).paymentStatus).toBe('PARTIALLY_REFUNDED');
       const h = c.tables[UIDS.orderHistory].filter((x) => x.type === 'REFUND_COMPLETED');
       expect(h).toHaveLength(1);
       expect(h[0].actor).toBe('user:2');
@@ -815,7 +815,7 @@ describe('fix round 1', () => {
         metadata: expect.objectContaining({ orderId: String(orderId), refundId: String(id), paymentId: '802' }),
       });
       expect(view).toMatchObject({ id, status: 'COMPLETED', externalId: 're_rs' });
-      expect(order(c, orderId).paymentStatus).toBe('REFUND_DUE');
+      expect(order(c, orderId).paymentStatus).toBe('PARTIALLY_REFUNDED');
       expect(refundsOf(c)).toHaveLength(1);
     });
 
