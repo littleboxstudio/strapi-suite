@@ -301,6 +301,49 @@ describe('EcommerceShippingService', () => {
       await expect(ctt.createShipment!({} as any, { config: {}, secrets: {} })).rejects.toMatchObject({ code: 'NOT_IMPLEMENTED' });
     });
   });
+  describe('Portugal - Ilhas (PT-ISL)', () => {
+    const islands = (countries: string[]) =>
+      setup({ countries, methods: [method(1, { PT: FLAT(300), 'PT-ISL': FLAT(900) })] });
+    const at = (postalCode: string) => ({ ...req('PT', [item(0.5)]), postalCode });
+
+    it('an island postcode gets the PT-ISL price when the store sells to PT-ISL', async () => {
+      const s = islands(['PT', 'PT-ISL']);
+      expect((await s.quote(at('9000-001'))).options.map((o) => o.price)).toEqual([900]);
+      expect((await s.quote(at('1000-001'))).options.map((o) => o.price)).toEqual([300]);
+    });
+
+    it('without PT-ISL in the store markets an island postcode keeps the PT price', async () => {
+      const s = islands(['PT']);
+      expect((await s.quote(at('9000-001'))).options.map((o) => o.price)).toEqual([300]);
+    });
+
+    it('a store selling only to PT-ISL has no shipping to the mainland', async () => {
+      const s = islands(['PT-ISL']);
+      expect((await s.quote(at('1000-001'))).options).toEqual([]);
+      expect((await s.quote(at('9000-001'))).options.map((o) => o.price)).toEqual([900]);
+    });
+
+    it('a carrier is asked for an island only when PT-ISL is in its markets', async () => {
+      const runtime = (markets: string[]) => () => ({ config: { markets }, secrets: {}, active: true });
+      const ptOnly = setup({ carriers: ['ctt'], countries: ['PT', 'PT-ISL'], runtime: runtime(['PT']) });
+      const quoter = vi.fn(async () => []);
+      ptOnly.registerCarrierQuoter('ctt', quoter);
+      await ptOnly.quote(at('9000-001'));
+      expect(quoter).not.toHaveBeenCalled();
+      const both = setup({ carriers: ['ctt'], countries: ['PT', 'PT-ISL'], runtime: runtime(['PT', 'PT-ISL']) });
+      both.registerCarrierQuoter('ctt', quoter);
+      await both.quote(at('9000-001'));
+      expect(quoter).toHaveBeenCalledTimes(1);
+      // The request keeps the ISO country: the market only picks prices and availability.
+      expect((quoter.mock.calls[0] as any)[0]).toMatchObject({ country: 'PT', postalCode: '9000-001' });
+    });
+
+    it('servedCountries returns market codes inside the store markets', async () => {
+      expect(await islands(['PT', 'PT-ISL']).servedCountries('manual', '1')).toEqual(['PT', 'PT-ISL']);
+      expect(await islands(['PT']).servedCountries('manual', '1')).toEqual(['PT']);
+    });
+  });
+
   describe('servedCountries', () => {
     it('a manual method serves the countries of its rates (active or not) inside the markets', async () => {
       const s = setup({

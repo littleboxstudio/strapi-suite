@@ -143,6 +143,8 @@ describe('validateProviderInput', () => {
       expect(run(bad)).toEqual([{ path: 'config.markets', code: 'invalid_country' }]);
     }
     expect(run(['PT', 'ES'])).toEqual([]);
+    expect(run(['PT', 'PT-ISL'])).toEqual([]);
+    expect(run(['XX-ISL'])).toEqual([{ path: 'config.markets', code: 'invalid_country' }]);
     const optional = { ...def, fields: [{ ...def.fields[0], required: false }] };
     expect(validateProviderInput(optional, { config: { markets: [] } }, () => false)).toEqual([]);
   });

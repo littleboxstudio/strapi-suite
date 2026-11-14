@@ -7,7 +7,9 @@ import {
   isValidHexColor,
   marketInUseNames,
   isValidHttpUrl,
-  normalizeCountries,
+  ISLANDS_MARKET,
+  marketOptions,
+  normalizeMarkets,
   storeFormFromSettings,
   timezoneOptions,
   validateStoreForm,
@@ -59,17 +61,32 @@ describe('isValidHexColor', () => {
   });
 });
 
-describe('normalizeCountries', () => {
+describe('normalizeMarkets', () => {
   it('trims, upper-cases and removes duplicates keeping the first order', () => {
-    expect(normalizeCountries([' pt', 'ES', 'pt', 'fr '])).toEqual(['PT', 'ES', 'FR']);
+    expect(normalizeMarkets([' pt', 'ES', 'pt', 'fr '])).toEqual(['PT', 'ES', 'FR']);
   });
 
-  it('drops values that are not ISO 3166-1 alpha-2 countries', () => {
-    expect(normalizeCountries(['PT', 'EU', 'ZZ', 'PRT', '', 'xx'])).toEqual(['PT']);
+  it('drops values that are not ISO 3166-1 alpha-2 countries or PT-ISL', () => {
+    expect(normalizeMarkets(['PT', 'EU', 'ZZ', 'PRT', '', 'xx', 'XX-ISL'])).toEqual(['PT']);
+  });
+
+  it('keeps Portugal - Ilhas (PT-ISL)', () => {
+    expect(ISLANDS_MARKET).toBe('PT-ISL');
+    expect(normalizeMarkets(['pt-isl', 'PT', 'PT-ISL'])).toEqual(['PT-ISL', 'PT']);
   });
 
   it('returns an empty list for an empty input', () => {
-    expect(normalizeCountries([])).toEqual([]);
+    expect(normalizeMarkets([])).toEqual([]);
+  });
+});
+
+describe('marketOptions', () => {
+  it('every country plus Portugal - Ilhas with the given name, sorted by name', () => {
+    const options = marketOptions('en', 'Portugal - Islands');
+    expect(options).toHaveLength(COUNTRY_CODES.length + 1);
+    expect(options.find((o) => o.code === 'PT-ISL')).toEqual({ code: 'PT-ISL', name: 'Portugal - Islands' });
+    const names = options.map((o) => o.name);
+    expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b, 'en')));
   });
 });
 
@@ -106,14 +123,14 @@ describe('store form', () => {
       ...storeFormFromSettings(SETTINGS),
       storeName: '  Littlebox ',
       supportEmail: ' help@example.com ',
-      markets: ['pt', 'PT', 'es'],
+      markets: ['pt', 'PT', 'es', 'PT-ISL'],
     };
     const input = buildStoreSettingsInput(form);
     expect(input.storeName).toBe('Littlebox');
     expect('logo' in input).toBe(false);
     expect('logoUrl' in input).toBe(false);
     expect(input.supportEmail).toBe('help@example.com');
-    expect(input.markets).toEqual(['PT', 'ES']);
+    expect(input.markets).toEqual(['PT', 'ES', 'PT-ISL']);
   });
 
   it('keeps the session lifetime of the loaded settings', () => {

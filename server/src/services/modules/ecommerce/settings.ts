@@ -28,6 +28,7 @@ import {
 } from './errors';
 import type { AuditEntry } from './audit';
 import { MarketRates, normalizeMarketRates, readMarketRates } from './domain/shippingRates';
+import { isMarketCode } from './domain/markets';
 import type { StoreLogoFile } from './images';
 
 const AREA = 'settings';
@@ -178,24 +179,12 @@ const isTimezone = (v: string) => {
   }
 };
 
-// CLDR region codes that are not countries (groupings, pseudo-locales, "Unknown Region").
-const NON_COUNTRY_REGIONS = new Set(['EU', 'EZ', 'UN', 'QO', 'XA', 'XB', 'ZZ']);
-let regionNames: Intl.DisplayNames | null = null;
-export const isCountry = (v: unknown): boolean => {
-  if (typeof v !== 'string' || !/^[A-Z]{2}$/.test(v) || NON_COUNTRY_REGIONS.has(v)) return false;
-  regionNames ??= new Intl.DisplayNames(['en'], { type: 'region', fallback: 'none' });
-  try {
-    return regionNames.of(v) !== undefined;
-  } catch {
-    return false;
-  }
-};
-
 /** True for values shaped like a mask (`********`, `sk_********9876`): never accepted as a secret. */
 const isMaskShaped = (v: string) => maskSecret(v) === v || /^.{0,3}\*{8}.{0,4}$/.test(v);
 
 export const isEmail = (v: string) => isValidEmailFormat(v);
 
+/** Store markets: ISO countries or `PT-ISL`. */
 export function validateCountries(value: unknown, path: string, errors: ValidationIssue[]): void {
   if (!Array.isArray(value)) {
     errors.push({ path, code: 'invalid_country' });
@@ -203,7 +192,7 @@ export function validateCountries(value: unknown, path: string, errors: Validati
   }
   if (value.length === 0) errors.push({ path, code: 'required' });
   value.forEach((c, i) => {
-    if (!isCountry(c)) errors.push({ path: `${path}.${i}`, code: 'invalid_country' });
+    if (typeof c !== 'string' || !isMarketCode(c)) errors.push({ path: `${path}.${i}`, code: 'invalid_country' });
   });
 }
 

@@ -30,8 +30,9 @@ type Props = {
 };
 
 /**
- * Markets (countries the store sells to) as a full-width table: pick a country and add it, add every
- * country at once, and remove countries row by row or all together. Changes are saved with the page.
+ * Markets (countries, and Portugal - Ilhas, the store sells to) as a full-width table: pick a market
+ * and add it, add every country at once (never Portugal - Ilhas), and remove markets row by row or all
+ * together. Changes are saved with the page.
  */
 const MarketsTable = ({ value, countries, readOnly, error, onChange }: Props) => {
   const { formatMessage, locale } = useIntl();
@@ -94,7 +95,7 @@ const MarketsTable = ({ value, countries, readOnly, error, onChange }: Props) =>
                   )
                 )
               }
-              disabled={available.length === 0}
+              disabled={addAllMarkets(value, countries.map((c) => c.code)) === value}
             >
               {t('markets.addAll')}
             </Button>

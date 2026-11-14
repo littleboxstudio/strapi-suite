@@ -25,7 +25,7 @@ import CreateShippingMethod from '../../usecases/settings/createShippingMethod';
 import UpdateShippingMethod from '../../usecases/settings/updateShippingMethod';
 import { extractFieldErrors } from '../../utils/productForm';
 import { TAX_OTHER, TAX_PRESETS } from '../../utils/variantDraft';
-import { countryOptions } from '../../utils/settingsForm';
+import { marketOptions } from '../../utils/settingsForm';
 import {
   fillAllMarkets,
   draftToManualMethodInput,
@@ -68,10 +68,11 @@ const ManualMethodModal = ({
     formatMessage({ id: getTranslation(id) }, values);
   const codes = locales.map((l) => l.code);
 
-  const countries = useMemo(() => countryOptions(uiLocale), [uiLocale]);
+  const islandsName = t('ecommerce.settings.markets.names.PT-ISL');
+  const countries = useMemo(() => marketOptions(uiLocale, islandsName), [uiLocale, islandsName]);
   const countryName = (code: string) => countries.find((c) => c.code === code)?.name ?? code;
   /** The store markets, by country name. */
-  const marketOptions = useMemo(
+  const storeMarketOptions = useMemo(
     () => countries.filter((c) => markets.includes(c.code)),
     [countries, markets]
   );
@@ -343,7 +344,7 @@ const ManualMethodModal = ({
                   <Field.Label>{t('ecommerce.settings.manual.markets')}</Field.Label>
                   <Flex gap={2} wrap="wrap">
                     <MarketPicker
-                      options={marketOptions}
+                      options={storeMarketOptions}
                       selected={draft.markets}
                       hasError={!!marketsError}
                       onChange={setMarkets}

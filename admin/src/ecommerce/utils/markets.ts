@@ -1,4 +1,8 @@
-/** List helpers for the Markets table (Settings → General → Region). Codes are ISO-2 country codes. */
+/**
+ * List helpers for the Markets table (Settings → General → Region). Codes are ISO-2 country codes,
+ * or `PT-ISL` (Portugal - Ilhas).
+ */
+import { ISLANDS_MARKET } from './settingsForm';
 
 /** Adds one country; a blank or already listed code leaves the list as it is. */
 export function addMarket(markets: string[], code: string): string[] {
@@ -6,9 +10,12 @@ export function addMarket(markets: string[], code: string): string[] {
   return [...markets, code];
 }
 
-/** Adds every country of `all` that is not listed yet, keeping the existing ones first. */
+/**
+ * Adds every country of `all` that is not listed yet, keeping the existing ones first. Portugal -
+ * Ilhas is never added this way: it moves the islands out of `PT`, so it is only added on purpose.
+ */
 export function addAllMarkets(markets: string[], all: string[]): string[] {
-  const missing = all.filter((code) => !markets.includes(code));
+  const missing = all.filter((code) => code !== ISLANDS_MARKET && !markets.includes(code));
   return missing.length === 0 ? markets : [...markets, ...missing];
 }
 

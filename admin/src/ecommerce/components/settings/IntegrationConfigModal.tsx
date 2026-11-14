@@ -21,7 +21,7 @@ import { getTranslation } from '../../../core/utils/getTranslation';
 import UpdateIntegration from '../../usecases/settings/updateIntegration';
 import FetchIntegrationLookups from '../../usecases/settings/fetchIntegrationLookups';
 import { extractFieldErrors } from '../../utils/productForm';
-import { countryOptions, extractErrorCode } from '../../utils/settingsForm';
+import { extractErrorCode, marketOptions } from '../../utils/settingsForm';
 import {
   buildIntegrationPayload,
   credentialsSaved,
@@ -107,10 +107,11 @@ const IntegrationConfigModal = ({
   const t = (id: string, values?: Record<string, any>, defaultMessage?: string) =>
     formatMessage({ id: getTranslation(id), defaultMessage }, values);
 
-  /** The store markets by country name, for `markets` fields. */
-  const marketOptions = useMemo(
-    () => countryOptions(uiLocale).filter((c) => markets.includes(c.code)),
-    [uiLocale, markets]
+  /** The store markets by name, for `markets` fields. */
+  const islandsName = t('ecommerce.settings.markets.names.PT-ISL');
+  const storeMarketOptions = useMemo(
+    () => marketOptions(uiLocale, islandsName).filter((c) => markets.includes(c.code)),
+    [uiLocale, islandsName, markets]
   );
 
   const [values, setValues] = useState<IntegrationFormValues>(() =>
@@ -413,12 +414,12 @@ const IntegrationConfigModal = ({
         }
         const selected = Array.isArray(value) ? value : [];
         const countryName = (code: string) =>
-          marketOptions.find((c) => c.code === code)?.name ?? code;
+          storeMarketOptions.find((c) => c.code === code)?.name ?? code;
         return (
           <Flex direction="column" alignItems="stretch" gap={4}>
             <Flex gap={2} wrap="wrap">
               <MarketPicker
-                options={marketOptions}
+                options={storeMarketOptions}
                 selected={selected}
                 hasError={hasError}
                 onChange={(next) => setValue(field.key, next)}

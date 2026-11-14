@@ -7,6 +7,7 @@ import { builtInCarrierAdapters } from './providers/carriers';
 import type { CarrierAdapter, CarrierCallOptions } from './providers/carriers/types';
 import type { ManualMethod, StoreSettings } from './settings';
 import { orderWeightGrams, priceForWeight } from './domain/shippingRates';
+import { marketOf } from './domain/markets';
 
 export type ShippingQuoteRequest = {
   country: string;
@@ -116,8 +117,11 @@ const EcommerceShippingService = ({ strapi }: { strapi: Core.Strapi }) => {
     const options: ShippingOption[] = [];
     const failures: { providerId: string; code: string }[] = [];
 
-    // A country outside the markets has no shipping (not a failure).
-    if (!(store.markets ?? []).includes(req.country)) return { options, failures };
+    // The address's market (spec 8): an island postcode is PT-ISL only in a store selling there.
+    const storeMarkets = store.markets ?? [];
+    const market = marketOf(req.country, req.postalCode, storeMarkets);
+    // A market outside the store markets has no shipping (not a failure).
+    if (!storeMarkets.includes(market)) return { options, failures };
 
     if (activeCarriers.includes('manual')) {
       const defaultLocale = await getDefaultLocale();
@@ -126,7 +130,7 @@ const EcommerceShippingService = ({ strapi }: { strapi: Core.Strapi }) => {
       for (const m of methods) {
         if (!m.active) continue;
         // Stored rates that are not a bracket list (the old zone shape) are ignored.
-        const brackets = m.rates?.[req.country];
+        const brackets = m.rates?.[market];
         if (!Array.isArray(brackets)) continue;
         const price = priceForWeight(brackets, grams);
         if (price === null) continue;
@@ -151,7 +155,7 @@ const EcommerceShippingService = ({ strapi }: { strapi: Core.Strapi }) => {
             if (!adapter || !runtime || !runtime.active) throw new EcommerceCarrierError('CARRIER_NOT_CONFIGURED');
             // A carrier only quotes for the markets it serves.
             const served = runtime.config.markets;
-            if (!Array.isArray(served) || !served.includes(req.country)) return { options: [], invalid: false };
+            if (!Array.isArray(served) || !served.includes(market)) return { options: [], invalid: false };
             // Explicit to the adapter (`timedFetch` assumes 10 s); the race below is the backstop.
             const result = await adapter.quote!(
               req,
@@ -194,7 +198,10 @@ const EcommerceShippingService = ({ strapi }: { strapi: Core.Strapi }) => {
       if (!adapter || !runtime || !runtime.active) throw new EcommerceCarrierError('CARRIER_NOT_CONFIGURED');
       return { adapter, runtime: { config: runtime.config, secrets: runtime.secrets } };
     },
-    /** The countries a method can ship to: its rates (manual) or markets (carrier), inside the store markets. */
+    /**
+     * The markets a method can ship to: its rates (manual) or markets (carrier), inside the store
+     * markets. Market codes, not countries: compare an address through `marketOf`.
+     */
     async servedCountries(providerId: string, serviceId: string): Promise<string[]> {
       const svc = settings();
       const markets = (await svc.getStoreSettings()).markets ?? [];
