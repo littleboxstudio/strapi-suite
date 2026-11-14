@@ -4,6 +4,7 @@ import { useNotification } from '@strapi/strapi/admin';
 import {
   Box,
   Button,
+  Dialog,
   Field,
   Flex,
   Loader,
@@ -52,11 +53,12 @@ type ErrorMap = Partial<Record<FormField | 'form', string>>;
 const FORM_FIELDS: FormField[] = ['amount', 'reason', 'description', 'method', 'reference', 'expiresAt', 'conditions'];
 
 /**
- * Creates a refund (requirement 15.5): amounts from the server preview, the form, then a review
- * step. Mount it only while open: each opening mints a new idempotency key.
+ * Creates a refund (requirement 15.5): amounts from the server preview and the form; Review opens
+ * a confirmation (amount, method and its note) before sending. Mount it only while open: each
+ * opening mints a new idempotency key.
  */
 const RefundModal = ({ orderId, reference, initial, onClose, onSubmitting, onRefunded }: Props) => {
-  const { formatMessage, formatDate, locale: uiLocale } = useIntl();
+  const { formatMessage, locale: uiLocale } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
@@ -174,21 +176,6 @@ const RefundModal = ({ orderId, reference, initial, onClose, onSubmitting, onRef
     ...(p.moneyRefundable < p.refundable ? [{ key: 'moneyRefundable', amount: p.moneyRefundable }] : []),
   ];
 
-  const summaryRow = (label: string, value: string, strong = false) => (
-    <Flex key={label} justifyContent="space-between" gap={4} alignItems="flex-start">
-      <Typography textColor={strong ? 'neutral800' : 'neutral600'} fontWeight={strong ? 'bold' : undefined}>
-        {label}
-      </Typography>
-      <Typography
-        textColor="neutral800"
-        fontWeight={strong ? 'bold' : undefined}
-        style={{ textAlign: 'right', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
-      >
-        {value}
-      </Typography>
-    </Flex>
-  );
-
   const body = () => {
     if (loadError) {
       return <Typography textColor="danger600">{t('ecommerce.orders.refund.loadError')}</Typography>;
@@ -228,36 +215,6 @@ const RefundModal = ({ orderId, reference, initial, onClose, onSubmitting, onRef
               {t('ecommerce.orders.refund.nothing')}
             </Typography>
           </Box>
-        </Flex>
-      );
-    }
-
-    if (draft) {
-      const lines: [string, string][] = [
-        [t('ecommerce.orders.refund.amount'), money(draft.amount)],
-        [t('ecommerce.orders.refund.method'), t(`ecommerce.orders.refund.methods.${draft.method}`)],
-        [t('ecommerce.orders.refund.reason'), t(`ecommerce.orders.refund.reasons.${draft.reason}`)],
-      ];
-      if (draft.description) lines.push([t('ecommerce.orders.refund.description'), draft.description]);
-      if (draft.reference) lines.push([t('ecommerce.orders.refund.reference'), draft.reference]);
-      if (draft.expiresAt) {
-        lines.push([t('ecommerce.orders.refund.expiresAt'), formatDate(draft.expiresAt, { dateStyle: 'medium' })]);
-      }
-      if (draft.conditions) lines.push([t('ecommerce.orders.refund.conditions'), draft.conditions]);
-      return (
-        <Flex direction="column" alignItems="stretch" gap={4}>
-          <Typography variant="delta" tag="h3">
-            {t('ecommerce.orders.refund.reviewTitle')}
-          </Typography>
-          <Flex direction="column" alignItems="stretch" gap={2}>
-            {lines.map(([label, value]) => summaryRow(label, value))}
-          </Flex>
-          <Box padding={3} background="neutral100" hasRadius>
-            <Typography variant="omega" textColor="neutral700">
-              {t(`ecommerce.orders.refund.reviewNote.${draft.method}`)}
-            </Typography>
-          </Box>
-          {errors.form && <Typography textColor="danger600">{errors.form}</Typography>}
         </Flex>
       );
     }
@@ -371,8 +328,7 @@ const RefundModal = ({ orderId, reference, initial, onClose, onSubmitting, onRef
   return (
     <Modal.Root open onOpenChange={(next: boolean) => !next && !saving && onClose()}>
       <Modal.Content
-        // The review step is shorter than the form: a click meant for "Review" that lands after the
-        // dialog shrank (double click) must not dismiss it from the overlay. Cancel, Back and Escape still close.
+        // While the confirmation is open (or saving), a stray click on the overlay must not dismiss it.
         onPointerDownOutside={(e: Event) => {
           if (draft || saving) e.preventDefault();
         }}
@@ -382,27 +338,45 @@ const RefundModal = ({ orderId, reference, initial, onClose, onSubmitting, onRef
         </Modal.Header>
         <Modal.Body>{body()}</Modal.Body>
         <Modal.Footer>
-          {draft ? (
-            <>
-              <Button variant="tertiary" onClick={() => setDraft(null)} disabled={saving}>
-                {t('ecommerce.orders.refund.back')}
-              </Button>
-              <Button variant="danger" onClick={submit} loading={saving}>
-                {t('ecommerce.orders.refund.confirm')}
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button variant="tertiary" onClick={onClose}>
-                {t('ecommerce.orders.refund.cancel')}
-              </Button>
-              <Button onClick={review} disabled={!canReview}>
-                {t('ecommerce.orders.refund.review')}
-              </Button>
-            </>
-          )}
+          <Button variant="tertiary" onClick={onClose} disabled={saving}>
+            {t('ecommerce.orders.refund.cancel')}
+          </Button>
+          <Button onClick={review} disabled={!canReview || saving}>
+            {t('ecommerce.orders.refund.review')}
+          </Button>
         </Modal.Footer>
       </Modal.Content>
+      {draft && (
+        // Confirmation with what will happen: amount, method and what the merchant must know about it.
+        <Dialog.Root open onOpenChange={(next: boolean) => !next && !saving && setDraft(null)}>
+          <Dialog.Content>
+            <Dialog.Header>{t('ecommerce.orders.refund.confirmTitle')}</Dialog.Header>
+            <Dialog.Body>
+              <Flex direction="column" alignItems="center" gap={2}>
+                <Typography variant="omega" fontWeight="semiBold" textColor="neutral800" style={{ textAlign: 'center' }}>
+                  {t('ecommerce.orders.refund.confirmText', {
+                    amount: money(draft.amount),
+                    method: t(`ecommerce.orders.refund.methods.${draft.method}`),
+                  })}
+                </Typography>
+                <Typography variant="omega" textColor="neutral700" style={{ textAlign: 'center' }}>
+                  {t(`ecommerce.orders.refund.reviewNote.${draft.method}`)}
+                </Typography>
+              </Flex>
+            </Dialog.Body>
+            <Dialog.Footer>
+              <Flex style={{ width: '100%' }} gap={2}>
+                <Button fullWidth variant="tertiary" disabled={saving} onClick={() => setDraft(null)}>
+                  {t('ecommerce.orders.refund.cancel')}
+                </Button>
+                <Button fullWidth variant="danger" loading={saving} onClick={submit}>
+                  {t('ecommerce.orders.refund.confirm')}
+                </Button>
+              </Flex>
+            </Dialog.Footer>
+          </Dialog.Content>
+        </Dialog.Root>
+      )}
     </Modal.Root>
   );
 };
