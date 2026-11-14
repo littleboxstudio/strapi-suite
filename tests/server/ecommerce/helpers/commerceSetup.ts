@@ -296,3 +296,27 @@ export const createOrder = async (c: Commerce, email = 'Ana@Example.pt') => {
 
 export const customerIdOf = (c: Commerce, orderId: number): number =>
   c.tables[UIDS.order].find((o) => o.id === orderId).customer;
+
+/**
+ * Issues one invoice for everything the order has left to invoice (`selection`), paid by every
+ * available payment.
+ */
+export const testIssueAll = async (c: Commerce, orderId: number, key: string, actor = 'user:1') => {
+  const inv = c.services.EcommerceInvoiceService;
+  const s = await inv.selection(orderId);
+  const lines = s.lines.map((l: any) => ({ orderLineId: l.orderLineId, quantity: l.remainingQuantity }));
+  const expectedTotal =
+    s.lines.reduce((sum: number, l: any) => sum + l.remainingValue, 0) +
+    s.shipping.reduce((sum: number, l: any) => sum + l.value, 0);
+  return inv.issue(
+    orderId,
+    {
+      lines,
+      shippingLineIds: s.shipping.map((l: any) => l.shippingLineId),
+      paymentIds: s.payments.map((p: any) => p.paymentId),
+      expectedTotal,
+      idempotencyKey: key,
+    },
+    actor
+  );
+};

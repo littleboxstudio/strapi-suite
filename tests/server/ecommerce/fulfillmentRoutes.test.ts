@@ -20,7 +20,7 @@ const expectedFulfillment: [string, string, string, string][] = [
   ['POST', `${A}/orders/:id/returns`, `${R}.register`, P.ordersManage],
 ];
 const expectedInvoices: [string, string, string, string][] = [
-  ['GET', `${A}/orders/:id/invoice-preview`, `${I}.preview`, P.ordersRead],
+  ['GET', `${A}/orders/:id/invoice-selection`, `${I}.selection`, P.ordersRead],
   ['POST', `${A}/orders/:id/invoices`, `${I}.issue`, P.invoicingManage],
   ['POST', `${A}/invoices/:id/reconcile`, `${I}.reconcile`, P.invoicingManage],
   ['GET', `${A}/invoices/:id/pdf`, `${I}.pdf`, P.ordersRead],

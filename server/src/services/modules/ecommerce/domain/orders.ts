@@ -245,7 +245,7 @@ export type OrderActionKey =
   | 'SEND_PAYMENT_INSTRUCTIONS'
   | 'ARCHIVE'
   | 'REGISTER_RETURN'
-  | 'INVOICE_TOTAL';
+  | 'ISSUE_INVOICE';
 
 export type AvailableActionsInput = {
   orderStatus: OrderStatus;
@@ -258,11 +258,12 @@ export type AvailableActionsInput = {
   allShipmentsDelivered: boolean;
   hasPendingPayments: boolean;
   hasPendingRefunds: boolean;
-  hasUninvoicedCompletedPayments: boolean;
+  /** Something is left to invoice and a payment is available for it (plan 11 ruling 15). */
+  canIssueInvoice: boolean;
 };
 
 /** Returns actions in a stable order: SHIP, CANCEL, REFUND, ADD_PAYMENT,
- * SEND_PAYMENT_INSTRUCTIONS, ARCHIVE, REGISTER_RETURN, INVOICE_TOTAL. */
+ * SEND_PAYMENT_INSTRUCTIONS, ARCHIVE, REGISTER_RETURN, ISSUE_INVOICE. */
 export const availableActions = (input: AvailableActionsInput): OrderActionKey[] => {
   const open = input.orderStatus === 'OPEN';
   const { due, excess } = input.summary;
@@ -287,7 +288,7 @@ export const availableActions = (input: AvailableActionsInput): OrderActionKey[]
   }
   if (input.hasShippedUnreturned && input.orderStatus !== 'ARCHIVED')
     actions.push('REGISTER_RETURN');
-  if (open && input.hasUninvoicedCompletedPayments) actions.push('INVOICE_TOTAL');
+  if (open && input.canIssueInvoice) actions.push('ISSUE_INVOICE');
   return actions;
 };
 

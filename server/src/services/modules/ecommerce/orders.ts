@@ -226,11 +226,12 @@ export type OrderView = {
     total: number;
   };
   lines: OrderLineView[];
-  /** Each payment carries `invoice: { invoiceable, invoiceId, status }` (its active invoice). */
   payments: Record<string, unknown>[];
   refunds: OrderRefundView[];
   notificationsSummary: { sent: number; failed: number; skipped: number };
   invoices: InvoiceView[];
+  /** `hasUninvoicedPayments`: some payment is available to invoice (plan 11 ruling 15). */
+  invoicing: { hasUninvoicedPayments: boolean };
   billing: { active: boolean; providerId: string | null };
   shipments: ShipmentView[];
   returns: ReturnView[];
@@ -1340,7 +1341,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         .every((s) => s.delivered),
       hasPendingPayments: payments.some((p) => p.status === 'PENDING'),
       hasPendingRefunds,
-      hasUninvoicedCompletedPayments: [...invoicing.invoiceable.values()].some((v) => v > 0),
+      canIssueInvoice: invoicing.canIssue,
     }).filter((a) => a !== 'REFUND' || blockingExcess > 0);
     return {
       order,
@@ -1383,10 +1384,6 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       invoiceService.listForOrder(id),
       invoiceService.billingStatus(),
     ]);
-    const statusOfInvoice = new Map(invoices.map((v) => [v.id, v.status]));
-    const activeInvoiceOf = new Map(
-      invoicing.allocations.map((a) => [a.paymentId, a.invoiceId] as const)
-    );
     const countNotifications = (status: string) =>
       strapi.db.query(uids().notification).count({ where: { order: { id }, status } });
     const [sent, failed, skipped] = await Promise.all([
@@ -1449,11 +1446,6 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         completedAt: p.completedAt ?? null,
         actor: p.actor ?? null,
         createdAt: p.createdAt,
-        invoice: {
-          invoiceable: invoicing.invoiceable.get(p.id) ?? 0,
-          invoiceId: activeInvoiceOf.get(p.id) ?? null,
-          status: statusOfInvoice.get(activeInvoiceOf.get(p.id) ?? -1) ?? null,
-        },
       })),
       refunds: [...refundRows]
         .sort((a, b) => b.id - a.id)
@@ -1471,6 +1463,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         })),
       notificationsSummary: { sent, failed, skipped },
       invoices,
+      invoicing: { hasUninvoicedPayments: invoicing.availablePaymentIds.length > 0 },
       billing,
       shipments: shipmentViews,
       returns,

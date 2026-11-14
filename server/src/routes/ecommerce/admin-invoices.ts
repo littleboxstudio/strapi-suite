@@ -20,7 +20,7 @@ const { ordersRead: oRead, invoicingManage: inv } = ECOMMERCE_PERMISSIONS;
 const I = 'EcommerceInvoiceController';
 
 export default [
-  route('GET', '/orders/:id/invoice-preview', `${I}.preview`, oRead),
+  route('GET', '/orders/:id/invoice-selection', `${I}.selection`, oRead),
   route('POST', '/orders/:id/invoices', `${I}.issue`, inv),
   route('POST', '/invoices/:id/reconcile', `${I}.reconcile`, inv),
   route('GET', '/invoices/:id/pdf', `${I}.pdf`, oRead),

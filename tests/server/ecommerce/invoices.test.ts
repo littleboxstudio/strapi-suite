@@ -1,4 +1,21 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+const stripe = vi.hoisted(() => ({
+  createCheckoutSession: vi.fn(),
+  retrieveCheckoutSession: vi.fn(),
+  expireCheckoutSession: vi.fn(),
+  createRefund: vi.fn(),
+  retrievePaymentIntent: vi.fn(),
+  retrieveRefund: vi.fn(),
+}));
+vi.mock(
+  '../../../server/src/services/modules/ecommerce/providers/payments/stripeClient',
+  async (importOriginal) => {
+    const actual: any = await importOriginal();
+    return { ...actual, createStripeClient: () => stripe };
+  }
+);
+
 import { __resetEventHandlersForTests } from '../../../server/src/services/modules/ecommerce/events';
 import { billingErrorDetail } from '../../../server/src/services/modules/ecommerce/invoices';
 import {
@@ -11,29 +28,7 @@ import {
   type BillingProvider,
   type InvoiceDraft,
 } from '../../../server/src/services/modules/ecommerce/providers/billing';
-import { setupCommerce, UIDS, type Commerce } from './helpers/commerceSetup';
-
-/** When set, the next `buildInvoiceLines` call throws `coverage_mismatch`. */
-const mismatch = vi.hoisted(() => ({ next: false }));
-vi.mock(
-  '../../../server/src/services/modules/ecommerce/domain/invoicing',
-  async (importOriginal) => {
-    const original: any = await importOriginal();
-    const errors = await import('../../../server/src/services/modules/ecommerce/errors');
-    return {
-      ...original,
-      buildInvoiceLines: (...args: any[]) => {
-        if (mismatch.next) {
-          mismatch.next = false;
-          throw new errors.EcommerceValidationError('mismatch', [
-            { path: 'coverage', code: 'coverage_mismatch' },
-          ]);
-        }
-        return original.buildInvoiceLines(...args);
-      },
-    };
-  }
-);
+import { setupCommerce, testIssueAll, UIDS, type Commerce } from './helpers/commerceSetup';
 
 const address = {
   firstName: 'Ana',
@@ -98,12 +93,11 @@ function setup(opts: { caps?: { creditNotes: boolean; findByReference: boolean }
     storefrontUrl: 'https://shop.example/',
     timezone: 'Europe/Lisbon',
   });
-  // Variant 11: same price as 10 (Review Focus 3).
   c.tables[UIDS.variant].push({
-    id: 11,
+    id: 12,
     product: 1,
-    sku: 'SH-L',
-    price: 2000,
+    sku: 'SH-S',
+    price: 200,
     tax: 23,
     stock: 50,
     active: true,
@@ -120,28 +114,42 @@ const paymentRows = (c: Commerce, id: number) =>
 const invoiceRows = (c: Commerce) => c.tables[UIDS.invoice];
 const allocations = (c: Commerce) => c.tables[UIDS.invoiceAllocation];
 
-/** 2 × 2000 + 500 shipping = 4500. `payments` are manual amounts (default: paid in full). */
-const order = async (c: Commerce, payments: number[] = [4500], quantity = 2) => {
+const create = async (
+  c: Commerce,
+  lines: { variantId: number; quantity: number }[]
+): Promise<number> => {
   const o = await c.orders.create(
     {
       customer: { firstName: 'Ana', lastName: 'Silva', email: 'ana@example.pt' },
       shippingAddress: address,
       billingAddress: address,
       locale: 'pt',
-      lines: [{ variantId: 10, quantity }],
+      lines,
       shipping: { providerId: 'manual', serviceId: 'express' },
     },
     { actor: 'user:1', source: 'admin' }
   );
-  for (const [i, amount] of payments.entries()) {
-    await c.payments.addManualPayment(
-      o.id,
-      { amount, idempotencyKey: `pay-${o.id}-${i}` },
-      'user:1'
-    );
-  }
   return o.id as number;
 };
+
+const pay = (c: Commerce, id: number, amount: number, key: string, methodLabel?: string) =>
+  c.payments.addManualPayment(id, { amount, idempotencyKey: key, methodLabel }, 'user:1');
+
+/** 2 × 2000 + 500 shipping = 4500. `payments` are manual amounts (default: paid in full). */
+const order = async (c: Commerce, payments: number[] = [4500], quantity = 2) => {
+  const id = await create(c, [{ variantId: 10, quantity }]);
+  for (const [i, amount] of payments.entries()) await pay(c, id, amount, `pay-${id}-${i}`);
+  return id;
+};
+
+/** The full selection of a 2 × 2000 + 500 order, paid by `paymentIds`. */
+const everything = (c: Commerce, id: number, paymentIds: number[], key: string, expectedTotal = 4500) => ({
+  lines: [{ orderLineId: lineIdOf(c, id), quantity: 2 }],
+  shippingLineIds: [1],
+  paymentIds,
+  expectedTotal,
+  idempotencyKey: key,
+});
 
 const codesOf = async (p: Promise<unknown>): Promise<string[]> => {
   const err: any = await p.then(
@@ -155,34 +163,30 @@ const codesOf = async (p: Promise<unknown>): Promise<string[]> => {
   throw err;
 };
 
-const paymentScope = (paymentId: number) => ({ type: 'PAYMENT' as const, paymentId });
-const TOTAL = { type: 'TOTAL' as const };
+const DATE = expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/);
 
 beforeEach(() => {
   __resetEventHandlersForTests();
   __resetBillingProvidersForTests();
+  stripe.createRefund.mockReset();
   docSeq = 0;
 });
 
 describe('EcommerceInvoiceService.activeProvider', () => {
   it('no active billing provider → BILLING_NOT_CONFIGURED and nothing written', async () => {
-    const { c, inv, active } = setup();
+    const { c, active } = setup();
     const id = await order(c);
     active.length = 0;
-    expect(await codesOf(inv.issue(id, TOTAL, { idempotencyKey: 'k1' }, 'user:1'))).toEqual([
-      'BILLING_NOT_CONFIGURED',
-    ]);
+    expect(await codesOf(testIssueAll(c, id, 'k1'))).toEqual(['BILLING_NOT_CONFIGURED']);
     expect(invoiceRows(c)).toHaveLength(0);
     expect(allocations(c)).toHaveLength(0);
   });
 
   it('two active providers → BILLING_PROVIDER_AMBIGUOUS', async () => {
-    const { c, inv, active } = setup();
+    const { c, active } = setup();
     const id = await order(c);
     active.push('moloni');
-    expect(await codesOf(inv.issue(id, TOTAL, { idempotencyKey: 'k1' }, 'user:1'))).toEqual([
-      'BILLING_PROVIDER_AMBIGUOUS',
-    ]);
+    expect(await codesOf(testIssueAll(c, id, 'k1'))).toEqual(['BILLING_PROVIDER_AMBIGUOUS']);
     expect(invoiceRows(c)).toHaveLength(0);
   });
 
@@ -204,39 +208,53 @@ describe('EcommerceInvoiceService.activeProvider', () => {
   });
 });
 
-describe('EcommerceInvoiceService.issue', () => {
-  it('Review Focus 3: a paid line replaced by another of the same price is invoiced as the new line, total = paid', async () => {
-    const { c, inv, provider } = setup();
-    const id = await order(c, [2500], 1); // 1 × 2000 + 500
+describe('EcommerceInvoiceService.selection', () => {
+  it('lists what is left to invoice, the available shipping lines and payments', async () => {
+    const { c, inv } = setup();
+    const id = await order(c);
     const paymentId = paymentRows(c, id)[0].id;
-    await c.editing.applyLines(id, { lines: [{ variantId: 11, quantity: 1 }] }, 'user:1', 'op-replace-01');
-    const newLine = lineIdOf(c, id, 11);
-
-    const view = await inv.issue(id, paymentScope(paymentId), { idempotencyKey: 'k1' }, 'user:1');
-    expect(view.status).toBe('ISSUED');
-    expect(view.total).toBe(2500);
-    expect(view.lines).toEqual([
-      expect.objectContaining({
-        orderLineId: newLine,
-        sku: 'SH-L',
-        quantity: 1,
-        total: 2000,
-        partial: false,
-      }),
-      expect.objectContaining({ kind: 'SHIPPING', total: 500 }),
-    ]);
-    const draft: InvoiceDraft = provider.issue.mock.calls[0][0];
-    expect(draft.lines.map((l) => l.sku)).not.toContain('SH-M');
-    expect(draft.total).toBe(2500);
-    expect(draft.payments).toEqual([
-      { method: 'MANUAL', name: '', amount: 2500, date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) },
-    ]);
+    expect(await inv.selection(id)).toEqual({
+      lines: [
+        {
+          orderLineId: lineIdOf(c, id),
+          sku: 'SH-M',
+          name: 'Shirt',
+          option: null,
+          tax: 23,
+          isGift: false,
+          remainingQuantity: 2,
+          remainingValue: 4000,
+        },
+      ],
+      shipping: [
+        {
+          shippingLineId: 1,
+          name: expect.any(String),
+          tax: 23,
+          origin: 'CHECKOUT',
+          createdAt: expect.any(String),
+          value: 500,
+        },
+      ],
+      payments: [{ paymentId, amount: 4500, refunded: 0, net: 4500 }],
+      excess: 0,
+    });
   });
 
+  it('is empty when the order is not OPEN', async () => {
+    const { c, inv } = setup();
+    const id = await order(c);
+    await c.orders.cancel(id, 'user:1');
+    expect(await inv.selection(id)).toMatchObject({ lines: [], shipping: [], payments: [] });
+  });
+});
+
+describe('EcommerceInvoiceService.issue', () => {
   it('issues a PENDING row with allocations before calling the provider, then ISSUED + history + event', async () => {
     const { c, inv, provider } = setup();
     const id = await order(c);
     const paymentId = paymentRows(c, id)[0].id;
+    const lineId = lineIdOf(c, id);
     provider.issue.mockImplementationOnce(async (draft: InvoiceDraft) => {
       // Outside the transaction, the PENDING row and its allocation are committed.
       const row = invoiceRows(c)[0];
@@ -247,9 +265,10 @@ describe('EcommerceInvoiceService.issue', () => {
       });
       expect(allocations(c)).toEqual([
         expect.objectContaining({
-          uniqueKey: `payment:${paymentId}`,
-          amount: 4500,
           invoice: row.id,
+          amount: 4500,
+          coverage: { paymentId, value: 4500 },
+          uniqueKey: `payment:${paymentId}`,
         }),
       ]);
       expect(draft).toMatchObject({
@@ -263,7 +282,7 @@ describe('EcommerceInvoiceService.issue', () => {
       return { ...issued(draft), warnings: ['RECEIPT_FAILED'] };
     });
 
-    const view = await inv.issue(id, paymentScope(paymentId), { idempotencyKey: 'k1' }, 'user:1');
+    const view = await inv.issue(id, everything(c, id, [paymentId], 'k1'), 'user:1');
     expect(view).toMatchObject({
       kind: 'INVOICE',
       status: 'ISSUED',
@@ -276,15 +295,258 @@ describe('EcommerceInvoiceService.issue', () => {
       credited: 0,
       creditedInvoiceId: null,
     });
-    expect(c.tables[UIDS.orderHistory].some((h) => h.type === 'INVOICE_ISSUED')).toBe(true);
+    const draft: InvoiceDraft = provider.issue.mock.calls[0][0];
+    expect(draft.lines).toEqual([
+      expect.objectContaining({
+        orderLineId: lineId,
+        kind: 'ITEM',
+        sku: 'SH-M',
+        name: 'Shirt',
+        quantity: 2,
+        total: 4000,
+        tax: 23,
+        partial: false,
+      }),
+      expect.objectContaining({
+        orderLineId: null,
+        kind: 'SHIPPING',
+        sku: 'SHIPPING',
+        quantity: 1,
+        total: 500,
+        tax: 23,
+        shippingLineId: 1,
+      }),
+    ]);
+    expect(draft.payments).toEqual([{ method: 'MANUAL', amount: 4500, name: '', date: DATE }]);
+    const history = c.tables[UIDS.orderHistory].find((h) => h.type === 'INVOICE_ISSUED');
+    expect(history.newValue.selection).toEqual({
+      lines: [{ orderLineId: lineId, quantity: 2, value: 4000 }],
+      shippingLineIds: [1],
+      paymentIds: [paymentId],
+    });
     expect(c.events.filter((e) => e.type === 'INVOICE_ISSUED')).toEqual([
       expect.objectContaining({ orderId: id, payload: { invoiceId: view.id, kind: 'INVOICE' } }),
     ]);
     const o = await c.orders.get(id);
     expect(o.invoices).toEqual([expect.objectContaining({ id: view.id, status: 'ISSUED' })]);
-    expect(o.payments[0].invoice).toEqual({ invoiceable: 0, invoiceId: view.id, status: 'ISSUED' });
-    expect(o.availableActions).not.toContain('INVOICE_TOTAL');
+    expect(o.payments[0]).not.toHaveProperty('invoice');
+    expect(o.invoicing).toEqual({ hasUninvoicedPayments: false });
+    expect(o.availableActions).not.toContain('ISSUE_INVOICE');
     expect(o.billing).toEqual({ active: true, providerId: 'fakebill' });
+  });
+
+  it('three payments → one invoice', async () => {
+    const { c, inv, provider } = setup();
+    const id = await order(c, []);
+    await pay(c, id, 1500, 'p1', 'MB WAY');
+    await pay(c, id, 1500, 'p2');
+    await pay(c, id, 1500, 'p3', 'Transferência');
+    const view = await testIssueAll(c, id, 'k1');
+    expect(view.total).toBe(4500);
+    expect(view.paymentIds).toHaveLength(3);
+    expect(invoiceRows(c)).toHaveLength(1);
+    const draft: InvoiceDraft = provider.issue.mock.calls[0][0];
+    expect(draft.payments).toEqual([
+      { method: 'MANUAL', amount: 1500, name: 'MB WAY', date: DATE },
+      { method: 'MANUAL', amount: 1500, name: '', date: DATE },
+      { method: 'MANUAL', amount: 1500, name: 'Transferência', date: DATE },
+    ]);
+    expect((await inv.selection(id)).payments).toEqual([]);
+  });
+
+  it('invoices in parts', async () => {
+    const { c, inv } = setup();
+    const id = await order(c, [2000, 2500]);
+    const [p1, p2] = paymentRows(c, id);
+    const lineId = lineIdOf(c, id);
+    const first = await inv.issue(
+      id,
+      {
+        lines: [{ orderLineId: lineId, quantity: 1 }],
+        shippingLineIds: [],
+        paymentIds: [p1.id],
+        expectedTotal: 2000,
+        idempotencyKey: 'k1',
+      },
+      'user:1'
+    );
+    expect(first).toMatchObject({ status: 'ISSUED', total: 2000, paymentIds: [p1.id] });
+
+    const left = await inv.selection(id);
+    expect(left.lines).toEqual([
+      expect.objectContaining({ orderLineId: lineId, remainingQuantity: 1, remainingValue: 2000 }),
+    ]);
+    expect(left.shipping.map((s: any) => s.shippingLineId)).toEqual([1]);
+    expect(left.payments).toEqual([{ paymentId: p2.id, amount: 2500, refunded: 0, net: 2500 }]);
+    const second = await testIssueAll(c, id, 'k2');
+    expect(second).toMatchObject({ status: 'ISSUED', total: 2500, paymentIds: [p2.id] });
+    expect(first.total + second.total).toBe(orderRow(c, id).total);
+    expect(await inv.selection(id)).toMatchObject({ lines: [], shipping: [], payments: [] });
+  });
+
+  it('a gift line at 0 € is invoiced as a 0 line', async () => {
+    const { c, inv } = setup();
+    const id = await order(c);
+    c.tables[UIDS.orderLine].push({
+      id: 900,
+      order: id,
+      variant: 12,
+      variantId: 12,
+      productId: 1,
+      sku: 'SH-S',
+      name: 'Shirt',
+      option: 'S',
+      imageUrl: null,
+      unitPrice: 200,
+      unitDiscount: 200,
+      manualDiscountPercent: null,
+      quantity: 1,
+      returnedQuantity: 0,
+      tax: 23,
+      isGift: true,
+      promotionRefs: { refs: [] },
+      position: 1,
+    });
+    const selection = await inv.selection(id);
+    expect(selection.lines.find((l: any) => l.orderLineId === 900)).toMatchObject({
+      isGift: true,
+      remainingQuantity: 1,
+      remainingValue: 0,
+    });
+    const view = await testIssueAll(c, id, 'k1');
+    expect(view.total).toBe(4500);
+    expect(view.lines).toContainEqual(
+      expect.objectContaining({ orderLineId: 900, name: 'Shirt - S', quantity: 1, total: 0 })
+    );
+  });
+
+  it('a negative shipping line is never offered and lowers the shipping value', async () => {
+    const { c, inv } = setup();
+    const id = await order(c, []);
+    const row = orderRow(c, id);
+    const checkout = row.shippingLines.lines[0];
+    row.shippingLines = {
+      lines: [checkout, { ...checkout, id: 2, origin: 'MANUAL', amount: -200, name: 'Desconto' }],
+    };
+    row.shippingTotal -= 200;
+    row.total -= 200;
+    await pay(c, id, 4300, 'p1');
+    const selection = await inv.selection(id);
+    expect(selection.shipping).toEqual([expect.objectContaining({ shippingLineId: 1, value: 300 })]);
+    const view = await testIssueAll(c, id, 'k1');
+    expect(view.total).toBe(4300);
+    expect(view.lines).toContainEqual(
+      expect.objectContaining({ kind: 'SHIPPING', shippingLineId: 1, total: 300 })
+    );
+  });
+
+  it('totals that differ → INVOICE_TOTALS_DIFFER and nothing is written', async () => {
+    const { c, inv, provider } = setup();
+    const id = await order(c);
+    const paymentId = paymentRows(c, id)[0].id;
+    const input = {
+      lines: [{ orderLineId: lineIdOf(c, id), quantity: 1 }],
+      shippingLineIds: [],
+      paymentIds: [paymentId],
+      expectedTotal: 2000,
+      idempotencyKey: 'k1',
+    };
+    expect(await codesOf(inv.issue(id, input, 'user:1'))).toEqual(['INVOICE_TOTALS_DIFFER']);
+    expect(provider.issue).not.toHaveBeenCalled();
+    expect(invoiceRows(c)).toEqual([]);
+    expect(allocations(c)).toEqual([]);
+  });
+
+  it('expectedTotal stale → TOTAL_CHANGED', async () => {
+    const { c, inv, provider } = setup();
+    const id = await order(c);
+    const paymentId = paymentRows(c, id)[0].id;
+    const err: any = await inv
+      .issue(id, everything(c, id, [paymentId], 'k1', 4400), 'user:1')
+      .catch((e: unknown) => e);
+    expect(err.errors).toEqual([{ path: 'expectedTotal', code: 'TOTAL_CHANGED', detail: '4500' }]);
+    expect(provider.issue).not.toHaveBeenCalled();
+    expect(invoiceRows(c)).toEqual([]);
+  });
+
+  it('a quantity above what is left → QUANTITY_EXCEEDS_UNINVOICED', async () => {
+    const { c, inv } = setup();
+    const id = await order(c);
+    const paymentId = paymentRows(c, id)[0].id;
+    const input = { ...everything(c, id, [paymentId], 'k1') };
+    input.lines = [{ orderLineId: lineIdOf(c, id), quantity: 3 }];
+    const err: any = await inv.issue(id, input, 'user:1').catch((e: unknown) => e);
+    expect(err.errors).toEqual([{ path: 'lines.0.quantity', code: 'QUANTITY_EXCEEDS_UNINVOICED' }]);
+    expect(invoiceRows(c)).toEqual([]);
+  });
+
+  it('Review Focus 1: excess refunded as new store credit: the payment is listed at its net and the invoice is the net', async () => {
+    const { c, inv, provider } = setup();
+    const id = await order(c, [5000]); // 500 over
+    const paymentId = paymentRows(c, id)[0].id;
+    expect((await inv.selection(id)).excess).toBe(500);
+    c.tables[UIDS.refund].push({
+      id: 1,
+      order: id,
+      payment: null,
+      method: 'STORE_CREDIT',
+      kind: 'STORE_CREDIT',
+      status: 'COMPLETED',
+      amount: 500,
+    });
+    const selection = await inv.selection(id);
+    expect(selection.excess).toBe(0);
+    expect(selection.payments).toEqual([{ paymentId, amount: 5000, refunded: 500, net: 4500 }]);
+    const view = await testIssueAll(c, id, 'k1');
+    expect(view.total).toBe(4500);
+    expect(provider.issue.mock.calls[0][0].payments).toEqual([
+      { method: 'MANUAL', amount: 4500, name: '', date: DATE },
+    ]);
+  });
+
+  it('Review Focus 2: a PROCESSING Stripe refund leaves no blocking excess: the invoice issues at once', async () => {
+    const { c, inv, provider } = setup();
+    const id = await order(c, []);
+    c.tables[UIDS.payment].push({
+      id: 801,
+      order: id,
+      method: 'STRIPE',
+      status: 'COMPLETED',
+      amount: 5000,
+      currency: 'EUR',
+      externalId: 'pi_1',
+      idempotencyKey: 'stripe:801',
+      coverage: null,
+      completedAt: '2026-11-01T10:00:00.000Z',
+      actor: 'webhook:stripe',
+      metadata: null,
+    });
+    stripe.createRefund.mockResolvedValueOnce({ id: 're_1', status: 'pending' });
+    const [refund] = await c.refunds.create(
+      id,
+      { method: 'STRIPE', amount: 500, reason: 'OTHER', idempotencyKey: 'sr' },
+      'user:1'
+    );
+    expect(refund.status).toBe('PROCESSING');
+    const selection = await inv.selection(id);
+    expect(selection.excess).toBe(0);
+    expect(selection.payments).toEqual([{ paymentId: 801, amount: 5000, refunded: 500, net: 4500 }]);
+    const view = await testIssueAll(c, id, 'k1');
+    expect(view).toMatchObject({ status: 'ISSUED', total: 4500 });
+    expect(provider.issue.mock.calls[0][0].payments).toEqual([
+      { method: 'STRIPE', amount: 4500, name: 'Stripe', date: DATE },
+    ]);
+  });
+
+  it('unrefunded excess → INVOICE_EXCESS_UNRESOLVED, and selection().excess equals it', async () => {
+    const { c, inv } = setup();
+    const id = await order(c, [5000]);
+    const paymentId = paymentRows(c, id)[0].id;
+    expect((await inv.selection(id)).excess).toBe(500);
+    expect(await codesOf(inv.issue(id, everything(c, id, [paymentId], 'k1'), 'user:1'))).toEqual([
+      'INVOICE_EXCESS_UNRESOLVED',
+    ]);
+    expect(invoiceRows(c)).toEqual([]);
   });
 
   it('Review Focus 4: timeout → UNCERTAIN, the payment cannot be invoiced again, reconcile finds it → ISSUED', async () => {
@@ -295,19 +557,15 @@ describe('EcommerceInvoiceService.issue', () => {
       new EcommerceBillingError('BILLING_UNREACHABLE', 'BILLING_UNREACHABLE', true)
     );
 
-    const view = await inv.issue(id, paymentScope(paymentId), { idempotencyKey: 'k1' }, 'user:1');
+    const view = await inv.issue(id, everything(c, id, [paymentId], 'k1'), 'user:1');
     expect(view.status).toBe('UNCERTAIN');
     expect(allocations(c)[0].uniqueKey).toBe(`payment:${paymentId}`);
     expect(c.tables[UIDS.orderHistory].some((h) => h.type === 'INVOICE_UNCERTAIN')).toBe(true);
-    expect((await c.orders.get(id)).payments[0].invoice).toEqual({
-      invoiceable: 0,
-      invoiceId: view.id,
-      status: 'UNCERTAIN',
-    });
+    expect((await c.orders.get(id)).invoicing).toEqual({ hasUninvoicedPayments: false });
 
-    expect(
-      await codesOf(inv.issue(id, paymentScope(paymentId), { idempotencyKey: 'k2' }, 'user:1'))
-    ).toEqual(['PAYMENT_NOT_INVOICEABLE']);
+    expect(await codesOf(inv.issue(id, everything(c, id, [paymentId], 'k2'), 'user:1'))).toContain(
+      'PAYMENT_NOT_INVOICEABLE'
+    );
     expect(provider.issue).toHaveBeenCalledTimes(1);
 
     provider.findByReference.mockResolvedValueOnce({
@@ -330,21 +588,96 @@ describe('EcommerceInvoiceService.issue', () => {
     ]);
   });
 
+  it('Review Focus 4: UNCERTAIN keeps units, shipping and payment unavailable; markFailed returns all three', async () => {
+    const { c, inv, provider } = setup();
+    const id = await order(c);
+    const paymentId = paymentRows(c, id)[0].id;
+    provider.issue.mockRejectedValueOnce(new Error('socket hang up'));
+    const view = await testIssueAll(c, id, 'k1');
+    expect(view.status).toBe('UNCERTAIN');
+    expect(await inv.selection(id)).toMatchObject({ lines: [], shipping: [], payments: [] });
+    expect((await c.orders.get(id)).availableActions).not.toContain('ISSUE_INVOICE');
+
+    await inv.reconcile(view.id, { markFailed: true }, 'user:2');
+    const back = await inv.selection(id);
+    expect(back.lines).toEqual([expect.objectContaining({ remainingQuantity: 2, remainingValue: 4000 })]);
+    expect(back.shipping).toEqual([expect.objectContaining({ shippingLineId: 1, value: 500 })]);
+    expect(back.payments).toEqual([{ paymentId, amount: 4500, refunded: 0, net: 4500 }]);
+    expect((await c.orders.get(id)).availableActions).toContain('ISSUE_INVOICE');
+  });
+
   it('Review Focus 4: reconcile with no document → FAILED and the payment is invoiceable again', async () => {
     const { c, inv, provider } = setup();
     const id = await order(c);
     const paymentId = paymentRows(c, id)[0].id;
     provider.issue.mockRejectedValueOnce(new Error('socket hang up'));
-    const view = await inv.issue(id, paymentScope(paymentId), { idempotencyKey: 'k1' }, 'user:1');
+    const view = await inv.issue(id, everything(c, id, [paymentId], 'k1'), 'user:1');
     expect(view.status).toBe('UNCERTAIN');
 
     const failed = await inv.reconcile(view.id, {}, 'user:2');
     expect(failed.status).toBe('FAILED');
     expect(allocations(c)[0].uniqueKey).toBeNull();
-    expect((await c.orders.get(id)).payments[0].invoice.invoiceable).toBe(4500);
+    expect((await c.orders.get(id)).invoicing).toEqual({ hasUninvoicedPayments: true });
+    expect((await inv.selection(id)).payments).toEqual([
+      { paymentId, amount: 4500, refunded: 0, net: 4500 },
+    ]);
 
-    const again = await inv.issue(id, paymentScope(paymentId), { idempotencyKey: 'k2' }, 'user:1');
+    const again = await inv.issue(id, everything(c, id, [paymentId], 'k2'), 'user:1');
     expect(again.status).toBe('ISSUED');
+  });
+
+  it('a late success after the same units were invoiced with another payment → DUPLICATE_INVOICE, no customer event', async () => {
+    const { c, inv, provider } = setup();
+    // 1 × 200 (S) + 1 × 2000 (M) + 500 shipping = 2700.
+    const id = await create(c, [
+      { variantId: 12, quantity: 1 },
+      { variantId: 10, quantity: 1 },
+    ]);
+    await pay(c, id, 200, 'p1');
+    await pay(c, id, 2200, 'p2');
+    await pay(c, id, 300, 'p3');
+    const [p1, p2] = paymentRows(c, id);
+    const small = lineIdOf(c, id, 12);
+    const medium = lineIdOf(c, id, 10);
+    let second: any;
+    provider.issue.mockImplementationOnce(async (draft: InvoiceDraft) => {
+      const row = invoiceRows(c)[0];
+      row.createdAt = new Date(Date.now() - 6 * 60 * 1000).toISOString();
+      await inv.reconcile(row.id, { markFailed: true }, 'user:7');
+      // The same S unit, now with another payment.
+      second = await inv.issue(
+        id,
+        {
+          lines: [
+            { orderLineId: small, quantity: 1 },
+            { orderLineId: medium, quantity: 1 },
+          ],
+          shippingLineIds: [],
+          paymentIds: [p2.id],
+          expectedTotal: 2200,
+          idempotencyKey: 'k2',
+        },
+        'user:1'
+      );
+      return issued(draft);
+    });
+    const first = await inv.issue(
+      id,
+      {
+        lines: [{ orderLineId: small, quantity: 1 }],
+        shippingLineIds: [],
+        paymentIds: [p1.id],
+        expectedTotal: 200,
+        idempotencyKey: 'k1',
+      },
+      'user:1'
+    );
+    expect(second.status).toBe('ISSUED');
+    expect(first.status).toBe('ISSUED');
+    expect(first.warnings).toEqual(expect.arrayContaining(['ISSUED_AFTER_FAILED', 'DUPLICATE_INVOICE']));
+    expect(c.events.filter((e) => e.type === 'INVOICE_ISSUED').map((e) => e.payload)).toEqual([
+      { invoiceId: second.id, kind: 'INVOICE' },
+    ]);
   });
 
   it('reconcile keeps the state when the provider cannot look up or errors', async () => {
@@ -353,7 +686,7 @@ describe('EcommerceInvoiceService.issue', () => {
     provider.issue.mockRejectedValueOnce(
       new EcommerceBillingError('BILLING_UNREACHABLE', 'BILLING_UNREACHABLE', true)
     );
-    const view = await inv.issue(id, TOTAL, { idempotencyKey: 'k1' }, 'user:1');
+    const view = await testIssueAll(c, id, 'k1');
     provider.findByReference.mockRejectedValueOnce(
       new EcommerceBillingError('BILLING_UNREACHABLE')
     );
@@ -371,7 +704,7 @@ describe('EcommerceInvoiceService.issue', () => {
     provider.issue.mockRejectedValueOnce(
       new EcommerceBillingError('BILLING_UNREACHABLE', 'BILLING_UNREACHABLE', true)
     );
-    const view = await inv.issue(id, TOTAL, { idempotencyKey: 'k1' }, 'user:1');
+    const view = await testIssueAll(c, id, 'k1');
     expect(view.reconcilable).toBe(true);
     const res = await inv.reconcile(view.id, { markFailed: true }, 'user:7');
     expect(res.reconcilable).toBe(false);
@@ -401,7 +734,7 @@ describe('EcommerceInvoiceService.issue', () => {
     const { c, inv, provider } = setup();
     delete (provider as any).maxIssueDurationMs;
     const id = await order(c);
-    const view = await inv.issue(id, TOTAL, { idempotencyKey: 'k1' }, 'user:1');
+    const view = await testIssueAll(c, id, 'k1');
     const row = invoiceRows(c)[0];
     row.status = 'PENDING';
     row.createdAt = new Date(Date.now() - 9 * 60 * 1000).toISOString();
@@ -415,17 +748,20 @@ describe('EcommerceInvoiceService.issue', () => {
     const id = await order(c);
     const paymentId = paymentRows(c, id)[0].id;
     provider.issue.mockRejectedValueOnce(new EcommerceBillingError('BILLING_TAX_NOT_FOUND'));
-    expect(
-      await codesOf(inv.issue(id, paymentScope(paymentId), { idempotencyKey: 'k1' }, 'user:1'))
-    ).toEqual(['BILLING_TAX_NOT_FOUND']);
+    expect(await codesOf(inv.issue(id, everything(c, id, [paymentId], 'k1'), 'user:1'))).toEqual([
+      'BILLING_TAX_NOT_FOUND',
+    ]);
     expect(invoiceRows(c)).toEqual([]);
     expect(allocations(c)).toEqual([]);
     expect(c.tables[UIDS.orderHistory].find((h) => h.type === 'INVOICE_FAILED')).toMatchObject({
       newValue: { kind: 'INVOICE', error: 'BILLING_TAX_NOT_FOUND' },
     });
     const o = await c.orders.get(id);
-    expect(o.payments[0].invoice).toEqual({ invoiceable: 4500, invoiceId: null, status: null });
-    expect(o.availableActions).toContain('INVOICE_TOTAL');
+    expect(o.invoicing).toEqual({ hasUninvoicedPayments: true });
+    expect((await inv.selection(id)).payments).toEqual([
+      { paymentId, amount: 4500, refunded: 0, net: 4500 },
+    ]);
+    expect(o.availableActions).toContain('ISSUE_INVOICE');
     expect(o.invoices).toEqual([]);
   });
 
@@ -437,7 +773,7 @@ describe('EcommerceInvoiceService.issue', () => {
       new EcommerceBillingError('BILLING_REQUEST_FAILED', 'Moloni rejected documents/insert (vat:2).')
     );
     const err: any = await inv
-      .issue(id, paymentScope(paymentId), { idempotencyKey: 'k1' }, 'user:1')
+      .issue(id, everything(c, id, [paymentId], 'k1'), 'user:1')
       .catch((e: unknown) => e);
     expect(err.message).toBe('Moloni rejected documents/insert (vat:2).');
     expect((await c.orders.get(id)).invoices).toEqual([]);
@@ -447,114 +783,49 @@ describe('EcommerceInvoiceService.issue', () => {
       detail: 'Moloni rejected documents/insert (vat:2).',
     });
 
-    const issued = await inv.issue(id, paymentScope(paymentId), { idempotencyKey: 'k2' }, 'user:1');
-    expect(issued).toMatchObject({ status: 'ISSUED', errorDetail: null });
+    const done = await inv.issue(id, everything(c, id, [paymentId], 'k2'), 'user:1');
+    expect(done).toMatchObject({ status: 'ISSUED', errorDetail: null });
   });
 
   it('an unexpected error keeps its class and message as the detail of the UNCERTAIN row', async () => {
-    const { c, inv, provider } = setup();
+    const { c, provider } = setup();
     const id = await order(c);
     provider.issue.mockRejectedValueOnce(new Error('socket hang up'));
-    const view = await inv.issue(id, TOTAL, { idempotencyKey: 'k1' }, 'user:1');
+    const view = await testIssueAll(c, id, 'k1');
     expect(view).toMatchObject({ status: 'UNCERTAIN', errorDetail: 'Error: socket hang up' });
   });
 
-  it('total invoice with two payments, one already invoiced → only the other', async () => {
-    const { c, inv } = setup();
-    const id = await order(c, [2000, 2500]);
-    const [p1, p2] = paymentRows(c, id);
-    const first = await inv.issue(id, paymentScope(p1.id), { idempotencyKey: 'k1' }, 'user:1');
-    expect(first.total).toBe(2000);
-
-    const preview = await inv.preview(id, TOTAL);
-    expect(preview).toMatchObject({ total: 2500, paymentIds: [p2.id] });
-    const second = await inv.issue(id, TOTAL, { idempotencyKey: 'k2' }, 'user:1');
-    expect(second).toMatchObject({ total: 2500, paymentIds: [p2.id] });
-    expect(second.lines.reduce((s: number, l: any) => s + l.total, 0)).toBe(2500);
-
-    expect(await codesOf(inv.issue(id, TOTAL, { idempotencyKey: 'k3' }, 'user:1'))).toEqual([
-      'NOTHING_TO_INVOICE',
-    ]);
-    expect(await codesOf(inv.preview(id, TOTAL))).toEqual(['NOTHING_TO_INVOICE']);
-  });
-
-  it('a PARTIALLY_PAID order with one settled payment is invoiceable; INVOICE_TOTAL only with uninvoiced payments', async () => {
-    const { c, inv } = setup();
-    const id = await order(c, []);
-    expect((await c.orders.get(id)).availableActions).not.toContain('INVOICE_TOTAL');
-    await c.payments.addManualPayment(id, { amount: 1000, idempotencyKey: 'p-1' }, 'user:1');
-    const o = await c.orders.get(id);
-    expect(o.paymentStatus).toBe('PARTIALLY_PAID');
-    expect(o.availableActions).toContain('INVOICE_TOTAL');
-    expect(o.payments[0].invoice.invoiceable).toBe(1000);
-    const view = await inv.issue(id, TOTAL, { idempotencyKey: 'k1' }, 'user:1');
-    expect(view.total).toBe(1000);
-    expect((await c.orders.get(id)).availableActions).not.toContain('INVOICE_TOTAL');
-  });
-
-  it('a cancelled order refuses new invoices but allows credit notes', async () => {
+  it('a cancelled order refuses new invoices', async () => {
     const { c, inv } = setup();
     const id = await order(c);
-    const view = await inv.issue(id, TOTAL, { idempotencyKey: 'k1' }, 'user:1');
+    const paymentId = paymentRows(c, id)[0].id;
     await c.orders.cancel(id, 'user:1');
-    expect(await codesOf(inv.issue(id, TOTAL, { idempotencyKey: 'k2' }, 'user:1'))).toEqual([
+    expect(await codesOf(inv.issue(id, everything(c, id, [paymentId], 'k1'), 'user:1'))).toEqual([
       'ACTION_NOT_AVAILABLE',
     ]);
-    const preview = await inv.creditNotePreview(view.id);
-    expect(preview.suggested).toEqual([4000, 500]);
-    const cn = await inv.issueCreditNote(
-      view.id,
-      {
-        lines: [
-          { index: 0, value: 4000 },
-          { index: 1, value: 500 },
-        ],
-        reason: 'Cancelled',
-        idempotencyKey: 'cn1',
-      },
-      'user:1'
-    );
-    expect(cn).toMatchObject({
-      kind: 'CREDIT_NOTE',
-      status: 'ISSUED',
-      total: 4500,
-      creditedInvoiceId: view.id,
-    });
+    expect(invoiceRows(c)).toEqual([]);
   });
 
   it('a payment that is not COMPLETED or does not belong to the order → PAYMENT_NOT_INVOICEABLE', async () => {
     const { c, inv } = setup();
     const id = await order(c);
-    expect(
-      await codesOf(inv.issue(id, paymentScope(999), { idempotencyKey: 'k1' }, 'user:1'))
-    ).toEqual(['PAYMENT_NOT_INVOICEABLE']);
+    const err: any = await inv
+      .issue(id, everything(c, id, [999], 'k1'), 'user:1')
+      .catch((e: unknown) => e);
+    expect(err.errors).toEqual([{ path: 'paymentIds.0', code: 'PAYMENT_NOT_INVOICEABLE' }]);
     expect(invoiceRows(c)).toHaveLength(0);
   });
 
   it('repeating issue with the same idempotencyKey returns the same invoice and calls the provider once', async () => {
     const { c, inv, provider } = setup();
     const id = await order(c);
-    const a = await inv.issue(id, TOTAL, { idempotencyKey: 'same' }, 'user:1');
-    const b = await inv.issue(id, TOTAL, { idempotencyKey: 'same' }, 'user:1');
+    const paymentId = paymentRows(c, id)[0].id;
+    const a = await inv.issue(id, everything(c, id, [paymentId], 'same'), 'user:1');
+    const b = await inv.issue(id, everything(c, id, [paymentId], 'same'), 'user:1');
     expect(b.id).toBe(a.id);
     expect(provider.issue).toHaveBeenCalledTimes(1);
     expect(invoiceRows(c)).toHaveLength(1);
     expect(c.events.filter((e) => e.type === 'INVOICE_ISSUED')).toHaveLength(1);
-  });
-
-  it('a coverage mismatch is refused before anything is recorded and never calls the provider', async () => {
-    const { c, inv, provider } = setup();
-    const id = await order(c);
-    const paymentId = paymentRows(c, id)[0].id;
-    // Reconciled coverages always fit the lines; simulate the domain guard firing.
-    mismatch.next = true;
-    expect(
-      await codesOf(inv.issue(id, paymentScope(paymentId), { idempotencyKey: 'k1' }, 'user:1'))
-    ).toEqual(['coverage_mismatch']);
-    expect(provider.issue).not.toHaveBeenCalled();
-    expect(invoiceRows(c)).toEqual([]);
-    expect(allocations(c)).toEqual([]);
-    expect((await c.orders.get(id)).payments[0].invoice.invoiceable).toBe(4500);
   });
 
   it('a refunded payment is invoiced net of its refunds', async () => {
@@ -568,42 +839,22 @@ describe('EcommerceInvoiceService.issue', () => {
       method: 'MANUAL_TRANSFER',
       kind: 'MONEY',
       status: 'COMPLETED',
-      amount: 1000,
-    });
-    const preview = await inv.preview(id, paymentScope(paymentId));
-    expect(preview.total).toBe(4000);
-  });
-
-  it('a refund without a payment is attributed first to payments without an active invoice', async () => {
-    const { c, inv } = setup();
-    const id = await order(c, [2500, 2000]);
-    const [p1, p2] = paymentRows(c, id);
-    // p2 (the latest) is invoiced; an unlinked 500 refund belongs to p1's net.
-    p1.completedAt = '2025-01-01T00:00:00.000Z';
-    p2.completedAt = '2025-01-02T00:00:00.000Z';
-    await inv.issue(id, paymentScope(p2.id), { idempotencyKey: 'k1' }, 'user:1');
-    c.tables[UIDS.refund].push({
-      id: 1,
-      order: id,
-      payment: null,
-      method: 'MANUAL_TRANSFER',
-      kind: 'MONEY',
-      status: 'COMPLETED',
       amount: 500,
     });
-    const state = await c.orders.computeOrderState(id);
-    expect(state.invoicing.refunded.get(p1.id)).toBe(500);
-    expect(state.invoicing.refunded.get(p2.id)).toBe(0);
+    expect((await inv.selection(id)).payments).toEqual([
+      { paymentId, amount: 5000, refunded: 500, net: 4500 },
+    ]);
+    expect((await testIssueAll(c, id, 'k1')).total).toBe(4500);
   });
 
   it('logs and falls back to UTC on an invalid store time zone', async () => {
-    const { c, inv, provider } = setup();
+    const { c, provider } = setup();
     c.services.EcommerceSettingsService.getStoreSettings = async () => ({
       markets: ['PT'],
       timezone: 'Mars/Olympus',
     });
     const id = await order(c);
-    await inv.issue(id, TOTAL, { idempotencyKey: 'k1' }, 'user:1');
+    await testIssueAll(c, id, 'k1');
     expect(c.log.warn).toHaveBeenCalledWith(expect.stringContaining('time zone'));
     expect(provider.issue.mock.calls[0][0].date).toBe(new Date().toISOString().slice(0, 10));
   });
@@ -629,15 +880,13 @@ describe('EcommerceInvoiceService: a late provider success after the row was mad
         expect(allocations(c)[0].uniqueKey).toBeNull();
         return issued(draft);
       });
-      const view = await inv.issue(id, paymentScope(paymentId), { idempotencyKey: 'k1' }, 'user:1');
+      const view = await inv.issue(id, everything(c, id, [paymentId], 'k1'), 'user:1');
       expect(view.status).toBe('ISSUED');
       expect(view.warnings).toContain('ISSUED_AFTER_FAILED');
+      expect(view.warnings).not.toContain('DUPLICATE_INVOICE');
       expect(allocations(c)[0].uniqueKey).toBe(`payment:${paymentId}`);
-      expect((await c.orders.get(id)).payments[0].invoice).toEqual({
-        invoiceable: 0,
-        invoiceId: view.id,
-        status: 'ISSUED',
-      });
+      expect((await c.orders.get(id)).invoicing).toEqual({ hasUninvoicedPayments: false });
+      expect((await inv.selection(id)).payments).toEqual([]);
       expect(c.events.filter((e) => e.type === 'INVOICE_ISSUED')).toEqual([
         expect.objectContaining({ payload: { invoiceId: view.id, kind: 'INVOICE' } }),
       ]);
@@ -654,15 +903,10 @@ describe('EcommerceInvoiceService: a late provider success after the row was mad
         const row = invoiceRows(c)[0];
         row.createdAt = STALE();
         await failIt(inv, row.id);
-        second = await inv.issue(id, paymentScope(paymentId), { idempotencyKey: 'k2' }, 'user:1');
+        second = await inv.issue(id, everything(c, id, [paymentId], 'k2'), 'user:1');
         return issued(draft);
       });
-      const first = await inv.issue(
-        id,
-        paymentScope(paymentId),
-        { idempotencyKey: 'k1' },
-        'user:1'
-      );
+      const first = await inv.issue(id, everything(c, id, [paymentId], 'k1'), 'user:1');
       expect(first.status).toBe('ISSUED');
       expect(first.warnings).toEqual(
         expect.arrayContaining(['ISSUED_AFTER_FAILED', 'DUPLICATE_INVOICE'])
@@ -689,7 +933,7 @@ describe('EcommerceInvoiceService.getPdf', () => {
       ...issued(draft),
       number: 'FR 2025/1',
     }));
-    const view = await inv.issue(id, TOTAL, { idempotencyKey: 'k1' }, 'user:1');
+    const view = await testIssueAll(c, id, 'k1');
     active.length = 0;
     runtimes.fakebill = { ...runtimes.fakebill, active: false };
     const pdf = await inv.getPdf(view.id);
@@ -712,7 +956,7 @@ describe('EcommerceInvoiceService credit notes', () => {
   it('a credit note above the creditable value → exceeds_creditable', async () => {
     const { c, inv } = setup();
     const id = await order(c);
-    const view = await inv.issue(id, TOTAL, { idempotencyKey: 'k1' }, 'user:1');
+    const view = await testIssueAll(c, id, 'k1');
     expect(
       await codesOf(
         inv.issueCreditNote(
@@ -728,7 +972,7 @@ describe('EcommerceInvoiceService credit notes', () => {
   it('the draft reuses the original customerData and locale, payments [] and the original; lines keep the quantity ratio', async () => {
     const { c, inv, provider } = setup();
     const id = await order(c);
-    const view = await inv.issue(id, TOTAL, { idempotencyKey: 'k1' }, 'user:1');
+    const view = await testIssueAll(c, id, 'k1');
     // The billing address changes later: the credit note keeps the invoiced customer.
     orderRow(c, id).billingAddress = { ...address, firstName: 'Other', nif: '999' };
     orderRow(c, id).locale = 'en';
@@ -775,7 +1019,7 @@ describe('EcommerceInvoiceService credit notes', () => {
   it('repeating issueCreditNote with the same key returns the same credit note and calls the provider once', async () => {
     const { c, inv, provider } = setup();
     const id = await order(c);
-    const view = await inv.issue(id, TOTAL, { idempotencyKey: 'k1' }, 'user:1');
+    const view = await testIssueAll(c, id, 'k1');
     const body = { lines: [{ index: 0, value: 100 }], reason: 'x', idempotencyKey: 'cn1' };
     const a = await inv.issueCreditNote(view.id, body, 'user:1');
     const b = await inv.issueCreditNote(view.id, body, 'user:1');
@@ -786,7 +1030,7 @@ describe('EcommerceInvoiceService credit notes', () => {
   it('credit note on an invoice that is not ISSUED → ACTION_NOT_AVAILABLE; provider without creditNotes → NOT_SUPPORTED', async () => {
     const { c, inv, provider } = setup({ caps: { creditNotes: false, findByReference: true } });
     const id = await order(c);
-    const view = await inv.issue(id, TOTAL, { idempotencyKey: 'k1' }, 'user:1');
+    const view = await testIssueAll(c, id, 'k1');
     const body = { lines: [{ index: 0, value: 100 }], reason: 'x', idempotencyKey: 'cn1' };
     expect(await codesOf(inv.issueCreditNote(view.id, body, 'user:1'))).toEqual(['NOT_SUPPORTED']);
     provider.capabilities.creditNotes = true;
@@ -799,7 +1043,7 @@ describe('EcommerceInvoiceService credit notes', () => {
   it('reconcile of a credit note found → INVOICE_ISSUED with kind CREDIT_NOTE', async () => {
     const { c, inv, provider } = setup();
     const id = await order(c);
-    const view = await inv.issue(id, TOTAL, { idempotencyKey: 'k1' }, 'user:1');
+    const view = await testIssueAll(c, id, 'k1');
     provider.issue.mockRejectedValueOnce(
       new EcommerceBillingError('BILLING_UNREACHABLE', 'BILLING_UNREACHABLE', true)
     );
@@ -824,326 +1068,8 @@ describe('EcommerceInvoiceService credit notes', () => {
     expect(c.tables[UIDS.orderHistory].some((h) => h.type === 'CREDIT_NOTE_ISSUED')).toBe(true);
   });
 
-  it('a return after invoicing is suggested from the stored return, once', async () => {
-    const { c, inv } = setup();
-    const id = await order(c, [7000], 3); // 3 × 2000 + 500 = 6500, 500 over
-    const lineId = lineIdOf(c, id);
-    const view = await inv.issue(id, TOTAL, { idempotencyKey: 'k1' }, 'user:1');
-    expect(view.total).toBe(6500);
-    await c.services.EcommerceShipmentService.create(
-      id,
-      {
-        lines: [{ orderLineId: lineId, quantity: 3 }],
-        method: { mode: 'MANUAL', carrierName: 'CTT' },
-        shippingCost: 0,
-        notifyCustomer: false,
-        idempotencyKey: 's1',
-      },
-      'user:1'
-    );
-    const r = await c.services.EcommerceReturnService.register(
-      id,
-      {
-        lines: [{ orderLineId: lineId, quantity: 1, restock: true }],
-        reason: 'Damaged',
-        idempotencyKey: 'r1',
-      },
-      'user:1'
-    );
-    const preview = await inv.creditNotePreview(view.id);
-    expect(preview.suggested).toEqual([r.return.refundableValue, 0]);
-
-    const cn = await inv.issueCreditNote(
-      view.id,
-      { lines: [{ index: 0, value: 2000 }], reason: 'Return', idempotencyKey: 'cn1' },
-      'user:1'
-    );
-    expect(invoiceRows(c).find((x) => x.id === cn.id).metadata.returnIds).toEqual([r.return.id]);
-    expect((await inv.creditNotePreview(view.id)).suggested).toEqual([0, 0]);
-  });
-
-  it('a return on an order with an order discount: the suggestion equals the return refundable value even when per-line dues differ by a cent', async () => {
-    const { c, inv } = setup();
-    c.tables[UIDS.variant].push({
-      id: 12,
-      product: 1,
-      sku: 'SH-S',
-      price: 1000,
-      tax: 23,
-      stock: 50,
-      active: true,
-    });
-    c.tables[UIDS.variant].push({
-      id: 13,
-      product: 1,
-      sku: 'SH-XS',
-      price: 1000,
-      tax: 23,
-      stock: 50,
-      active: true,
-    });
-    c.tables[UIDS.variant].push({
-      id: 14,
-      product: 1,
-      sku: 'SH-XXS',
-      price: 1000,
-      tax: 23,
-      stock: 50,
-      active: true,
-    });
-    const o = await c.orders.create(
-      {
-        customer: { firstName: 'Ana', lastName: 'Silva', email: 'ana@example.pt' },
-        shippingAddress: address,
-        billingAddress: address,
-        locale: 'pt',
-        lines: [
-          { variantId: 12, quantity: 1 },
-          { variantId: 13, quantity: 1 },
-          { variantId: 14, quantity: 1 },
-        ],
-        shipping: { providerId: 'manual', serviceId: 'express' },
-      },
-      { actor: 'user:1', source: 'admin' }
-    );
-    const row = orderRow(c, o.id);
-    row.orderDiscount = 100;
-    row.total -= 100;
-    await c.payments.addManualPayment(o.id, { amount: row.total, idempotencyKey: 'pd' }, 'user:1');
-    const view = await inv.issue(o.id, TOTAL, { idempotencyKey: 'k1' }, 'user:1');
-    const lineId = lineIdOf(c, o.id, 12);
-    await c.services.EcommerceShipmentService.create(
-      o.id,
-      {
-        lines: c.tables[UIDS.orderLine]
-          .filter((l) => l.order === o.id)
-          .map((l) => ({ orderLineId: l.id, quantity: 1 })),
-        method: { mode: 'MANUAL', carrierName: 'CTT' },
-        shippingCost: 0,
-        notifyCustomer: false,
-        idempotencyKey: 's1',
-      },
-      'user:1'
-    );
-    const r = await c.services.EcommerceReturnService.register(
-      o.id,
-      {
-        lines: [{ orderLineId: lineId, quantity: 1, restock: true }],
-        reason: 'Damaged',
-        idempotencyKey: 'r1',
-      },
-      'user:1'
-    );
-    const preview = await inv.creditNotePreview(view.id);
-    const sum = preview.suggested.reduce((s: number, v: number) => s + v, 0);
-    expect(sum).toBe(r.return.refundableValue);
-    // 967 refundable; the first line was invoiced at 966 (largest remainder), the cent spills over.
-    expect(preview.suggested).toEqual([966, 1, 0, 0]);
-    preview.suggested.forEach((v: number, i: number) =>
-      expect(v).toBeLessThanOrEqual(preview.creditable[i])
-    );
-  });
-
-  it('units returned on a cancelled order are not credited twice by the cancel credit note', async () => {
-    const { c, inv } = setup();
-    const id = await order(c, [6500], 3);
-    const lineId = lineIdOf(c, id);
-    const view = await inv.issue(id, TOTAL, { idempotencyKey: 'k1' }, 'user:1');
-    await c.services.EcommerceShipmentService.create(
-      id,
-      {
-        lines: [{ orderLineId: lineId, quantity: 3 }],
-        method: { mode: 'MANUAL', carrierName: 'CTT' },
-        shippingCost: 0,
-        notifyCustomer: false,
-        idempotencyKey: 's1',
-      },
-      'user:1'
-    );
-    await c.services.EcommerceReturnService.register(
-      id,
-      {
-        lines: [{ orderLineId: lineId, quantity: 1, restock: false }],
-        reason: 'Damaged',
-        idempotencyKey: 'r1',
-      },
-      'user:1'
-    );
-    // The return is credited first.
-    await inv.issueCreditNote(
-      view.id,
-      { lines: [{ index: 0, value: 2000 }], reason: 'Return', idempotencyKey: 'cn1' },
-      'user:1'
-    );
-    await c.orders.cancel(id, 'user:1');
-    // A second return on the cancelled order.
-    await c.services.EcommerceReturnService.register(
-      id,
-      {
-        lines: [{ orderLineId: lineId, quantity: 1, restock: false }],
-        reason: 'Late',
-        idempotencyKey: 'r2',
-      },
-      'user:1'
-    );
-    const preview = await inv.creditNotePreview(view.id);
-    expect(preview.suggested).toEqual([4000, 500]);
-    expect(preview.suggested.reduce((s: number, v: number) => s + v, 0)).toBe(6500 - 2000);
-  });
-
-  describe('a refund and a credit note never both remove the same value', () => {
-    /**
-     * Two lines of 5000 (A, B) + 500 shipping. P1 (5000) paid A and is invoiced; P2 (5500) paid B
-     * and shipping and is not. 3 units of A (3000) are returned and refunded.
-     */
-    const scenario = async (refundPayment: 'none' | 'P2') => {
-      const s = setup();
-      const { c, inv } = s;
-      for (const [id, sku] of [
-        [12, 'A'],
-        [13, 'B'],
-      ] as const) {
-        c.tables[UIDS.variant].push({ id, product: 1, sku, price: 1000, tax: 23, stock: 50, active: true });
-      }
-      const o = await c.orders.create(
-        {
-          customer: { firstName: 'Ana', lastName: 'Silva', email: 'ana@example.pt' },
-          shippingAddress: address,
-          billingAddress: address,
-          locale: 'pt',
-          lines: [
-            { variantId: 12, quantity: 5 },
-            { variantId: 13, quantity: 5 },
-          ],
-          shipping: { providerId: 'manual', serviceId: 'express' },
-        },
-        { actor: 'user:1', source: 'admin' }
-      );
-      const id = o.id as number;
-      const a = lineIdOf(c, id, 12);
-      const b = lineIdOf(c, id, 13);
-      await c.payments.addManualPayment(id, { amount: 5000, idempotencyKey: 'pa' }, 'user:1');
-      await c.payments.addManualPayment(id, { amount: 5500, idempotencyKey: 'pb' }, 'user:1');
-      const [p1, p2] = paymentRows(c, id);
-      p1.completedAt = '2025-01-01T00:00:00.000Z';
-      p2.completedAt = '2025-01-02T00:00:00.000Z';
-      p1.coverage = { lines: [{ orderLineId: a, value: 5000 }], shipping: { value: 0, tax: 23 } };
-      p2.coverage = { lines: [{ orderLineId: b, value: 5000 }], shipping: { value: 500, tax: 23 } };
-
-      const invoiceA = await inv.issue(id, paymentScope(p1.id), { idempotencyKey: 'k1' }, 'user:1');
-      expect(invoiceA.total).toBe(5000);
-      await c.services.EcommerceShipmentService.create(
-        id,
-        {
-          lines: [{ orderLineId: a, quantity: 5 }],
-          method: { mode: 'MANUAL', carrierName: 'CTT' },
-          shippingCost: 0,
-          notifyCustomer: false,
-          idempotencyKey: 's1',
-        },
-        'user:1'
-      );
-      const r = await c.services.EcommerceReturnService.register(
-        id,
-        { lines: [{ orderLineId: a, quantity: 3, restock: true }], reason: 'Damaged', idempotencyKey: 'r1' },
-        'user:1'
-      );
-      expect(r.return.refundableValue).toBe(3000);
-      c.tables[UIDS.refund].push({
-        id: 1,
-        order: id,
-        payment: refundPayment === 'P2' ? p2.id : null,
-        method: refundPayment === 'P2' ? 'STRIPE' : 'MANUAL_TRANSFER',
-        kind: 'MONEY',
-        status: 'COMPLETED',
-        amount: 3000,
-      });
-      return { ...s, id, a, b, p1, p2, invoiceA };
-    };
-
-    for (const variant of ['none', 'P2'] as const) {
-      const label = variant === 'none' ? 'a transfer refund' : 'a Stripe refund on the later payment';
-      it(`${label}: after the suggested credit note, invoiced = kept (7500) and B is fully invoiced`, async () => {
-        const { c, inv, id, b, p1, p2, invoiceA } = await scenario(variant);
-        const state = await c.orders.computeOrderState(id);
-        expect(state.invoicing.refunded.get(p1.id)).toBe(3000);
-        expect(state.invoicing.refunded.get(p2.id)).toBe(0);
-        expect(state.invoicing.invoiceable.get(p2.id)).toBe(5500);
-
-        const preview = await inv.creditNotePreview(invoiceA.id);
-        expect(preview.suggested).toEqual([3000]);
-        await inv.issueCreditNote(
-          invoiceA.id,
-          { lines: [{ index: 0, value: 3000 }], reason: 'Return', idempotencyKey: 'cn1' },
-          'user:1'
-        );
-        const invoiceB = await inv.issue(id, paymentScope(p2.id), { idempotencyKey: 'k2' }, 'user:1');
-        expect(invoiceB.total).toBe(5500);
-        expect(invoiceB.lines).toEqual([
-          expect.objectContaining({ orderLineId: b, total: 5000, partial: false }),
-          expect.objectContaining({ kind: 'SHIPPING', total: 500 }),
-        ]);
-        const live = invoiceRows(c).filter((x) => x.status === 'ISSUED');
-        const net = live.reduce((s, x) => s + (x.kind === 'CREDIT_NOTE' ? -x.total : x.total), 0);
-        expect(net).toBe(10500 - 3000);
-        // Nothing left to credit after that.
-        expect((await inv.creditNotePreview(invoiceA.id)).suggested).toEqual([0]);
-      });
-    }
-
-    it('credit after the refund was already netted from an invoiced payment: no second removal', async () => {
-      const { c, inv, id, b, p2, invoiceA } = await scenario('none');
-      // As issued before this rule: P2 invoiced net of the refund (2500 on B).
-      const invoiceB = await inv.issue(id, paymentScope(p2.id), { idempotencyKey: 'k2' }, 'user:1');
-      const rowB = invoiceRows(c).find((x) => x.id === invoiceB.id);
-      rowB.total = 2500;
-      rowB.lines = {
-        lines: [{ ...rowB.lines.lines[0], orderLineId: b, kind: 'ITEM', total: 2500, quantity: 1, partial: true }],
-      };
-      const alloc = allocations(c).find((x) => x.payment === p2.id || x.payment?.id === p2.id);
-      alloc.amount = 2500;
-      alloc.coverage = { paymentId: p2.id, lines: [{ orderLineId: b, value: 2500 }], shipping: 0, value: 2500, excluded: 0 };
-      // Invoiced 5000 + 2500 = 7500 = kept: a credit note would leave B under-invoiced for good.
-      expect((await inv.creditNotePreview(invoiceA.id)).suggested).toEqual([0]);
-    });
-
-    it('a credit note issued before the refund: the refund still goes to the credited payment', async () => {
-      const { c, inv, id, p1, p2, invoiceA } = await scenario('none');
-      c.tables[UIDS.refund].length = 0;
-      expect((await inv.creditNotePreview(invoiceA.id)).suggested).toEqual([3000]);
-      await inv.issueCreditNote(
-        invoiceA.id,
-        { lines: [{ index: 0, value: 3000 }], reason: 'Return', idempotencyKey: 'cn1' },
-        'user:1'
-      );
-      c.tables[UIDS.refund].push({
-        id: 1,
-        order: id,
-        payment: null,
-        method: 'MANUAL_TRANSFER',
-        kind: 'MONEY',
-        status: 'COMPLETED',
-        amount: 3000,
-      });
-      const state = await c.orders.computeOrderState(id);
-      expect(state.invoicing.refunded.get(p1.id)).toBe(3000);
-      expect(state.invoicing.invoiceable.get(p2.id)).toBe(5500);
-    });
-  });
-
-  it('suggestions over two invoices on the same line are not doubled', async () => {
-    const { c, inv } = setup();
-    const id = await order(c, [2000, 2500]);
-    const [p1, p2] = paymentRows(c, id);
-    const a = await inv.issue(id, paymentScope(p1.id), { idempotencyKey: 'k1' }, 'user:1');
-    const b = await inv.issue(id, paymentScope(p2.id), { idempotencyKey: 'k2' }, 'user:1');
-    await c.orders.cancel(id, 'user:1');
-    const pa = await inv.creditNotePreview(a.id);
-    const pb = await inv.creditNotePreview(b.id);
-    const sum = [...pa.suggested, ...pb.suggested].reduce((s: number, v: number) => s + v, 0);
-    expect(sum).toBe(4500);
-  });
 });
+
 
 describe('billingErrorDetail', () => {
   it('is null when the message only repeats the code', () => {

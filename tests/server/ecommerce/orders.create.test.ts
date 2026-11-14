@@ -770,7 +770,7 @@ describe('EcommerceOrderService.list / get', () => {
       actor: 'user:2',
     });
     // The settled payment is not invoiced yet.
-    expect(view.availableActions).toEqual(['SHIP', 'CANCEL', 'INVOICE_TOTAL']);
+    expect(view.availableActions).toEqual(['SHIP', 'CANCEL', 'ISSUE_INVOICE']);
     // No change → no new entry.
     await service.recalculate(id);
     expect(tables[UIDS.orderHistory]).toHaveLength(2);

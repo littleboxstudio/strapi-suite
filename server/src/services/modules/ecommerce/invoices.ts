@@ -9,7 +9,6 @@ import {
 import { isUniqueViolation } from './dbErrors';
 import { allocateProportionally, type OrderActionKey, type OrderStatus } from './domain/orders';
 import {
-  buildInvoiceLines,
   creditNoteBudget,
   invoiceCustomer,
   overInvoiced,
@@ -20,8 +19,14 @@ import {
   type InvoiceCustomer,
   type InvoiceLine,
   type OverInvoiced,
-  type ReconciledCoverage,
 } from './domain/invoicing';
+import {
+  fitsPosition,
+  priceSelection,
+  readInvoiceDoc,
+  type PricedSelection,
+  type SelectionRequest,
+} from './domain/invoiceSelection';
 import {
   getBillingProvider,
   type BillingProvider,
@@ -29,7 +34,7 @@ import {
   type IssuedDocument,
 } from './providers/billing';
 import { creditLine } from './domain/creditNotes';
-import { readShippingLines, shippingTaxRates } from './domain/shippingLines';
+import type { ShippingLineOrigin } from './domain/shippingLines';
 import type { ProviderRuntime } from './providers/registry';
 import type { OrderHistoryEntry } from './orderHistory';
 import type { OrderState } from './orders';
@@ -72,7 +77,35 @@ export type InvoiceView = {
   reconcilable: boolean;
 };
 
-export type InvoiceScope = { type: 'PAYMENT'; paymentId: number } | { type: 'TOTAL' };
+/** What a new invoice can still take (plan 11): empty lists when the order is not OPEN. */
+export type InvoiceSelectionView = {
+  /** Order lines with units left to invoice. */
+  lines: {
+    orderLineId: number;
+    sku: string;
+    name: string;
+    option: string | null;
+    tax: number;
+    isGift: boolean;
+    remainingQuantity: number;
+    remainingValue: number;
+  }[];
+  /** Available shipping lines (positive, not invoiced). */
+  shipping: {
+    shippingLineId: number;
+    name: string;
+    tax: number;
+    origin: ShippingLineOrigin;
+    createdAt: string;
+    value: number;
+  }[];
+  /** Available payments, in settlement order: `net` = amount − refunded. */
+  payments: { paymentId: number; amount: number; refunded: number; net: number }[];
+  /** Excess to refund before invoicing (ruling 10). */
+  excess: number;
+};
+
+export type IssueInvoiceInput = SelectionRequest & { expectedTotal: number; idempotencyKey: string };
 
 export type CreditNoteInput = {
   lines: { index: number; value: number }[];
@@ -93,7 +126,7 @@ const idOf = (v: any): number | null =>
 const invalid = (path: string, code: string) =>
   new EcommerceValidationError('Invalid invoice request', [{ path, code }]);
 const notAvailable = () => invalid('action', 'ACTION_NOT_AVAILABLE');
-const notInvoiceable = () => invalid('paymentId', 'PAYMENT_NOT_INVOICEABLE');
+const notInvoiceable = () => invalid('paymentIds', 'PAYMENT_NOT_INVOICEABLE');
 
 /** `metadata.creditedLines` of a credit note: what it credited per original line index. */
 const creditedLinesOf = (row: any): { index: number; value: number }[] => {
@@ -153,9 +186,9 @@ const lineKey = (l: InvoiceLine): number | 'SHIPPING' =>
   l.kind === 'SHIPPING' || l.orderLineId === null ? 'SHIPPING' : l.orderLineId;
 
 /**
- * Invoicing (design 4.4): one invoice per settled payment or for every uninvoiced payment, each
- * covering what its payments paid reconciled with the current lines; credit notes; reconciliation
- * of uncertain outcomes; PDFs fetched from the issuing provider.
+ * Invoicing (design 4.4; plan 11): one invoice for a selection of units, shipping lines and
+ * payments whose net values pay it exactly; credit notes; reconciliation of uncertain outcomes;
+ * PDFs fetched from the issuing provider.
  *
  * Provider calls never run inside a transaction: a PENDING row (and its allocations) is committed
  * first, the provider is called, then a second transaction records ISSUED, FAILED or UNCERTAIN.
@@ -337,50 +370,8 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   // ---------------------------------------------------------------------------
-  // Invoice composition
+  // Selection and customer
   // ---------------------------------------------------------------------------
-
-  const normalizeScope = (scope: InvoiceScope): InvoiceScope => {
-    const raw = (scope && typeof scope === 'object' ? scope : {}) as Record<string, unknown>;
-    if (raw.type === 'TOTAL') return { type: 'TOTAL' };
-    if (raw.type === 'PAYMENT') {
-      const paymentId = Number(raw.paymentId);
-      if (!Number.isSafeInteger(paymentId) || paymentId < 1) throw invalid('paymentId', 'invalid');
-      return { type: 'PAYMENT', paymentId };
-    }
-    throw invalid('scope', 'invalid');
-  };
-
-  /** The payments a new invoice covers and their reconciled coverages (no writes). */
-  const compose = (state: OrderState, scope: InvoiceScope) => {
-    if (state.order.orderStatus !== 'OPEN') throw notAvailable();
-    const { invoicing } = state;
-    const left = (id: number) => invoicing.invoiceable.get(id) ?? 0;
-    let payments: any[];
-    if (scope.type === 'PAYMENT') {
-      const p = invoicing.completedPayments.find((x) => x.id === scope.paymentId);
-      if (!p || left(p.id) <= 0) throw notInvoiceable();
-      payments = [p];
-    } else {
-      payments = invoicing.completedPayments.filter((p) => left(p.id) > 0);
-      if (!payments.length) throw new EcommerceBillingError('NOTHING_TO_INVOICE');
-    }
-    const coverages = payments.map((p) => invoicing.reconciled.get(p.id) as ReconciledCoverage);
-    const order = state.order;
-    const lines = buildInvoiceLines(coverages, invoicing.coverageOrder, {
-      reference: 'SHIPPING',
-      rates: shippingTaxRates(readShippingLines(order)).map((r) => ({
-        ...r,
-        name: clean(r.name) || 'Shipping',
-      })),
-    });
-    return {
-      payments,
-      coverages,
-      lines,
-      total: lines.reduce((s, l) => s + l.total, 0),
-    };
-  };
 
   const customerOf = (order: any): InvoiceCustomer => {
     const c = (order.customerSnapshot ?? {}) as Record<string, unknown>;
@@ -391,18 +382,75 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     });
   };
 
-  const preview = async (
-    rawOrderId: number | string,
-    scope: InvoiceScope
-  ): Promise<{ lines: InvoiceLine[]; total: number; paymentIds: number[] }> => {
+  /** The payments as `priceSelection` reads them: net values and availability. */
+  const selectablePayments = (state: OrderState) => {
+    const { invoicing } = state;
+    const available = new Set(invoicing.availablePaymentIds);
+    return invoicing.completedPayments.map((p) => ({
+      id: p.id as number,
+      net: invoicing.paymentNets.get(p.id) ?? 0,
+      available: available.has(p.id),
+    }));
+  };
+
+  const selection = async (rawOrderId: number | string): Promise<InvoiceSelectionView> => {
     const state = await orders().computeOrderState(Number(rawOrderId));
-    const composed = compose(state, normalizeScope(scope));
+    const { invoicing } = state;
+    const excess = invoicing.blockingExcess;
+    if (state.order.orderStatus !== 'OPEN') return { lines: [], shipping: [], payments: [], excess };
+    const orderLines = new Map(state.lines.map((l) => [l.id, l]));
+    const shippingLines = new Map(invoicing.positionOrder.shippingLines.map((l) => [l.id, l]));
+    const available = new Set(invoicing.availablePaymentIds);
     return {
-      lines: composed.lines,
-      total: composed.total,
-      paymentIds: composed.payments.map((p) => p.id),
+      lines: invoicing.position.lines
+        .filter((l) => l.remainingQuantity > 0 && orderLines.has(l.orderLineId))
+        .map((l) => {
+          const line = orderLines.get(l.orderLineId)!;
+          return {
+            orderLineId: l.orderLineId,
+            sku: line.sku,
+            name: line.name,
+            option: line.option,
+            tax: line.tax,
+            isGift: line.isGift,
+            remainingQuantity: l.remainingQuantity,
+            remainingValue: l.remainingValue,
+          };
+        }),
+      shipping: invoicing.position.shipping
+        .filter((s) => s.available && shippingLines.has(s.shippingLineId))
+        .map((s) => {
+          const line = shippingLines.get(s.shippingLineId)!;
+          return {
+            shippingLineId: s.shippingLineId,
+            name: line.name,
+            tax: line.tax,
+            origin: line.origin,
+            createdAt: line.createdAt,
+            value: s.remainingValue,
+          };
+        }),
+      payments: invoicing.completedPayments
+        .filter((p) => available.has(p.id))
+        .map((p) => {
+          const amount = num(p.amount);
+          const net = invoicing.paymentNets.get(p.id) ?? 0;
+          return { paymentId: p.id as number, amount, refunded: amount - net, net };
+        }),
+      excess,
     };
   };
+
+  /** The history's record of a selection: ids, quantities and values, never names. */
+  const selectionRecord = (priced: PricedSelection) => ({
+    lines: priced.lines.map((l) => ({
+      orderLineId: l.orderLineId,
+      quantity: l.quantity,
+      value: l.value,
+    })),
+    shippingLineIds: priced.shipping.map((s) => s.shippingLineId),
+    paymentIds: priced.payments.map((p) => p.paymentId),
+  });
 
   // ---------------------------------------------------------------------------
   // Recording outcomes (inside the caller's transaction)
@@ -451,7 +499,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
       description: ctx.late
         ? `${describe(row)} ${doc.number} issued after it was marked failed (${row.error ?? 'FAILED'})` +
           (warnings.includes('DUPLICATE_INVOICE')
-            ? ': its payment was invoiced again meanwhile, issue a credit note'
+            ? ': what it invoices was invoiced again meanwhile, issue a credit note'
             : '')
         : `${describe(row)} ${doc.number} issued (${num(row.total)} cents)`,
       previousValue: ctx.late ? { status: row.status, error: row.error ?? null } : null,
@@ -462,6 +510,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
         total: num(row.total),
         provider: row.provider,
         ...(creditNote ? { creditedInvoiceId: idOf(row.creditedInvoice) } : {}),
+        ...(row.metadata?.selection ? { selection: row.metadata.selection } : {}),
         warnings,
       },
       actor: ctx.actor,
@@ -526,8 +575,9 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
    * The provider issued a document for a row an admin had already made FAILED (markFailed, or a
    * reconcile that found nothing yet). The document exists, so it is recorded ISSUED. Each
    * allocation is re-claimed only when its payment has no other active allocation (checked by a
-   * query under the order lock); a payment invoiced again meanwhile is flagged DUPLICATE_INVOICE
-   * and the customer event is not emitted.
+   * query under the order lock). A payment invoiced again meanwhile, or units or shipping lines
+   * the position no longer has left (`fitsPosition`), flag it DUPLICATE_INVOICE and the customer
+   * event is not emitted.
    */
   const recordLateSuccess = async (
     row: any,
@@ -535,13 +585,17 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     doc: IssuedDocument,
     ctx: { actor: string; collector: Collector }
   ) => {
+    // The row is FAILED, so the position is computed without it (ruling 14).
+    const { invoicing } = await orders().computeOrderState(orderId);
+    let duplicate =
+      row.kind === 'INVOICE' &&
+      !fitsPosition(invoicing.position, readInvoiceDoc(row, []), invoicing.positionOrder);
     const q = strapi.db.query(uids().invoiceAllocation);
     const rows: any[] = await q.findMany({
       where: { invoice: { id: row.id } },
       populate: { payment: { select: ['id'] } },
       orderBy: { id: 'asc' },
     });
-    let duplicate = false;
     for (const a of rows) {
       const paymentId = idOf(a.payment);
       if (paymentId === null) continue;
@@ -644,9 +698,9 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   /**
-   * Transaction 1 runs `prepare` under the order lock and returns the PENDING row and draft, or
-   * `{ failed }` when the document could not be composed (recorded FAILED, rethrown after the
-   * commit). Same-key replays and unique-index races are resolved here.
+   * Transaction 1 runs `prepare` under the order lock and returns the PENDING row and draft; a
+   * refusal thrown by `prepare` rolls everything back. Same-key replays and unique-index races are
+   * resolved here.
    */
   const twoPhase = async (
     orderId: number,
@@ -654,11 +708,11 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     kind: InvoiceKind,
     provider: BillingProvider,
     runtime: ProviderRuntime,
-    prepare: () => Promise<{ row: any; draft: InvoiceDraft } | { failed: unknown }>,
+    prepare: () => Promise<{ row: any; draft: InvoiceDraft }>,
     actor: string,
     onConflict: () => Error
   ): Promise<InvoiceView> => {
-    let prepared: { row: any; draft: InvoiceDraft } | { failed: unknown } | { replay: any };
+    let prepared: { row: any; draft: InvoiceDraft } | { replay: any };
     try {
       prepared = await strapi.db.transaction(async () => {
         await orders().lockOrder(orderId);
@@ -677,7 +731,6 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
       throw err;
     }
     if ('replay' in prepared) return viewOf(prepared.replay.id);
-    if ('failed' in prepared) throw prepared.failed;
     const call = await callIssue(provider, prepared.draft, runtime);
     return complete(prepared.row.id, orderId, call, actor);
   };
@@ -694,23 +747,23 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     });
   };
 
-  const isMismatch = (err: unknown): boolean =>
-    err instanceof EcommerceValidationError &&
-    err.errors.some((e: any) => e?.code === 'coverage_mismatch');
-
   // ---------------------------------------------------------------------------
   // Issue
   // ---------------------------------------------------------------------------
 
+  /**
+   * Issues one invoice for the selected units, shipping lines and payments (ruling 11): the order
+   * is OPEN, no excess is left to refund, the selection is priced against the position and equals
+   * the payments' net values, and `expectedTotal` is the total the admin saw. Every check runs
+   * before anything is written.
+   */
   const issue = async (
     rawOrderId: number | string,
-    rawScope: InvoiceScope,
-    input: { idempotencyKey: string },
+    input: IssueInvoiceInput,
     actor: string
   ): Promise<InvoiceView> => {
     const orderId = Number(rawOrderId);
     const key = keyOf(input);
-    const scope = normalizeScope(rawScope);
     const u = uids();
 
     const existing = await findByKey(orderId, key, 'INVOICE');
@@ -728,44 +781,77 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
       async () => {
         const state = await orders().computeOrderState(orderId);
         const order = state.order;
+        if (order.orderStatus !== 'OPEN') throw notAvailable();
+        const { invoicing } = state;
+        if (invoicing.blockingExcess > 0) throw invalid('excess', 'INVOICE_EXCESS_UNRESOLVED');
+        const { selection: priced, issues } = priceSelection(
+          invoicing.position,
+          selectablePayments(state),
+          { lines: input?.lines, shippingLineIds: input?.shippingLineIds, paymentIds: input?.paymentIds }
+        );
+        if (!priced) throw new EcommerceValidationError('Invalid invoice', issues);
+        if (input?.expectedTotal !== priced.total) {
+          throw new EcommerceValidationError('Invalid invoice', [
+            { path: 'expectedTotal', code: 'TOTAL_CHANGED', detail: String(priced.total) },
+          ]);
+        }
+
+        const orderLines = new Map(state.lines.map((l) => [l.id, l]));
+        const shippingLines = new Map(invoicing.positionOrder.shippingLines.map((l) => [l.id, l]));
+        const lines: InvoiceLine[] = [
+          ...priced.lines.map((l) => {
+            const line = orderLines.get(l.orderLineId)!;
+            return {
+              orderLineId: l.orderLineId,
+              kind: 'ITEM' as const,
+              sku: line.sku,
+              name: line.option ? `${line.name} - ${line.option}` : line.name,
+              quantity: l.quantity,
+              total: l.value,
+              tax: line.tax,
+              partial: false,
+            };
+          }),
+          ...priced.shipping.map((s) => {
+            const line = shippingLines.get(s.shippingLineId)!;
+            return {
+              orderLineId: null,
+              kind: 'SHIPPING' as const,
+              sku: 'SHIPPING',
+              name: clean(line.name) || 'Shipping',
+              quantity: 1,
+              total: s.value,
+              tax: line.tax,
+              partial: false,
+              shippingLineId: s.shippingLineId,
+            };
+          }),
+        ];
         const customer = customerOf(order);
-        const base = {
+        const row = await createPending({
           order: orderId,
           provider: provider.id,
           kind: 'INVOICE',
           customerData: customer,
           idempotencyKey: key,
           actor,
-          metadata: { locale: order.locale },
-        };
-
-        let composed: ReturnType<typeof compose>;
-        try {
-          composed = compose(state, scope);
-        } catch (err) {
-          if (!isMismatch(err)) throw err;
-          // The coverages do not fit the lines: refused before anything is recorded.
-          return { failed: err };
-        }
-
-        const row = await createPending({
-          ...base,
-          total: composed.total,
-          lines: { lines: composed.lines },
+          total: priced.total,
+          lines: { lines },
+          metadata: { locale: order.locale, selection: selectionRecord(priced) },
         });
-        for (const [i, p] of composed.payments.entries()) {
-          const coverage = composed.coverages[i];
+        for (const p of priced.payments) {
           await strapi.db.query(u.invoiceAllocation).create({
             data: {
               invoice: row.id,
-              payment: p.id,
+              payment: p.paymentId,
               order: orderId,
-              amount: coverage.value,
-              coverage: { ...coverage },
-              uniqueKey: `payment:${p.id}`,
+              amount: p.value,
+              coverage: { paymentId: p.paymentId, value: p.value },
+              uniqueKey: `payment:${p.paymentId}`,
             },
           });
         }
+        const paymentRows = new Map(invoicing.completedPayments.map((p) => [p.id, p]));
         const draft: InvoiceDraft = {
           kind: 'INVOICE',
           ourReference: row.ourReference,
@@ -773,15 +859,18 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
           date: dateIn(new Date(), tz),
           locale: order.locale,
           customer,
-          lines: composed.lines,
-          total: composed.total,
-          // Σ amounts = total (the lines are built from these coverages).
-          payments: composed.payments.map((p, i) => ({
-            method: p.method,
-            name: paymentMethodName(p.method, p.metadata?.methodLabel),
-            amount: composed.coverages[i].value,
-            date: dateIn(p.completedAt, tz),
-          })),
+          lines,
+          total: priced.total,
+          // Σ amounts = total (checked by priceSelection).
+          payments: priced.payments.map(({ paymentId, value }) => {
+            const p = paymentRows.get(paymentId);
+            return {
+              method: p.method,
+              name: paymentMethodName(p.method, p.metadata?.methodLabel),
+              amount: value,
+              date: dateIn(p.completedAt, tz),
+            };
+          }),
         };
         return { row, draft };
       },
@@ -1133,7 +1222,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
   return {
     activeProvider,
     billingStatus,
-    preview,
+    selection,
     issue,
     reconcile,
     getPdf,

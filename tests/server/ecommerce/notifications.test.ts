@@ -17,7 +17,7 @@ import {
   subscribeNotifications,
   __drainNotificationsForTests,
 } from '../../../server/src/services/modules/ecommerce/notifications';
-import { UIDS, setupCommerce, createOrder, type Commerce } from './helpers/commerceSetup';
+import { UIDS, setupCommerce, createOrder, testIssueAll, type Commerce } from './helpers/commerceSetup';
 import {
   __resetBillingProvidersForTests,
   registerBillingProvider,
@@ -624,8 +624,7 @@ describe('shipment, delivery and invoice e-mails', () => {
   it('the invoice e-mail carries the PDF fetched with getPdf; so does the credit note e-mail', async () => {
     const { c, inv, provider } = fulfilmentSetup();
     const { id } = await paid(c, 2);
-    const payment = c.tables[UIDS.payment].find((p) => p.order === id);
-    const view = await inv.issue(id, { type: 'PAYMENT', paymentId: payment.id }, { idempotencyKey: 'i1' }, actor);
+    const view = await testIssueAll(c, id, 'i1', actor);
     expect(notifs(c)).toHaveLength(1);
     expect(notifs(c)[0]).toMatchObject({ type: 'INVOICE_AVAILABLE', status: 'SENT' });
     const msg = resend.sendWithResend.mock.calls[0][1];
@@ -652,9 +651,8 @@ describe('shipment, delivery and invoice e-mails', () => {
   it('Review Focus 5: PDF unavailable at notification time leaves the invoice ISSUED, the e-mail FAILED, and resend attaches the PDF', async () => {
     const { c, inv, provider } = fulfilmentSetup();
     const { id } = await paid(c, 2);
-    const payment = c.tables[UIDS.payment].find((p) => p.order === id);
     provider.getPdf.mockRejectedValueOnce(new Error('down'));
-    const view = await inv.issue(id, { type: 'PAYMENT', paymentId: payment.id }, { idempotencyKey: 'i1' }, actor);
+    const view = await testIssueAll(c, id, 'i1', actor);
     expect(c.tables[UIDS.invoice].find((i) => i.id === view.id).status).toBe('ISSUED');
     const row = notifs(c)[0];
     expect(row).toMatchObject({ type: 'INVOICE_AVAILABLE', status: 'FAILED', error: 'INVOICE_PDF_UNAVAILABLE' });
@@ -670,8 +668,7 @@ describe('shipment, delivery and invoice e-mails', () => {
   it('an invoice with DUPLICATE_INVOICE is never sent, not even on resend', async () => {
     const { c, inv } = fulfilmentSetup();
     const { id } = await paid(c, 2);
-    const payment = c.tables[UIDS.payment].find((p) => p.order === id);
-    const view = await inv.issue(id, { type: 'PAYMENT', paymentId: payment.id }, { idempotencyKey: 'i1' }, actor);
+    const view = await testIssueAll(c, id, 'i1', actor);
     const row = notifs(c)[0];
     // Reset to a not-yet-sent state and flag the invoice as duplicated.
     const invRow = c.tables[UIDS.invoice].find((i) => i.id === view.id);
@@ -720,8 +717,7 @@ describe('shipment, delivery and invoice e-mails', () => {
   it('an invoice that is no longer ISSUED is SKIPPED INVOICE_NOT_ISSUED, not a failure loop', async () => {
     const { c, inv } = fulfilmentSetup();
     const { id } = await paid(c, 2);
-    const payment = c.tables[UIDS.payment].find((p) => p.order === id);
-    const view = await inv.issue(id, { type: 'PAYMENT', paymentId: payment.id }, { idempotencyKey: 'i1' }, actor);
+    const view = await testIssueAll(c, id, 'i1', actor);
     const row = notifs(c)[0];
     c.tables[UIDS.invoice].find((i) => i.id === view.id).status = 'UNCERTAIN';
     row.status = 'FAILED';
