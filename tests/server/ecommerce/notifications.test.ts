@@ -635,7 +635,7 @@ describe('shipment, delivery and invoice e-mails', () => {
     expect(notifs(c)[0].payload.invoice.number).toBe(view.number);
     expect(JSON.stringify(notifs(c)[0].payload)).not.toContain('PDF-1.4');
 
-    await inv.issueCreditNote(view.id, { idempotencyKey: 'c1', reason: 'x', lines: [{ index: 0, value: 1000 }] }, actor);
+    await inv.issueCreditNote(view.id, { creditType: 'CORRECTION', reason: 'x', idempotencyKey: 'c1' }, actor);
     expect(c.events.some((e) => e.type === 'INVOICE_ISSUED' && e.payload.kind === 'CREDIT_NOTE')).toBe(true);
     expect(notifs(c)).toHaveLength(2);
     const credit = notifs(c).find((n) => n.type === 'CREDIT_NOTE_ISSUED');

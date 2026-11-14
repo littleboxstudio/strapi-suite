@@ -1,29 +1,20 @@
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID, LtbConfigs } from '../../../config';
-import {
-  EcommerceBillingError,
-  EcommerceNotFoundError,
-  EcommerceValidationError,
-  type ValidationIssue,
-} from './errors';
+import { EcommerceBillingError, EcommerceNotFoundError, EcommerceValidationError } from './errors';
 import { isUniqueViolation } from './dbErrors';
-import { allocateProportionally, type OrderActionKey, type OrderStatus } from './domain/orders';
+import type { OrderActionKey } from './domain/orders';
 import {
-  creditNoteBudget,
   invoiceCustomer,
-  overInvoiced,
   paymentMethodName,
   readInvoiceLines,
-  suggestCreditNote,
-  validateCreditNoteRequest,
   type InvoiceCustomer,
   type InvoiceLine,
-  type OverInvoiced,
 } from './domain/invoicing';
 import {
   fitsPosition,
   priceSelection,
   readInvoiceDoc,
+  type CreditType,
   type PricedSelection,
   type SelectionRequest,
 } from './domain/invoiceSelection';
@@ -33,7 +24,7 @@ import {
   type InvoiceDraft,
   type IssuedDocument,
 } from './providers/billing';
-import { creditLine } from './domain/creditNotes';
+import { buildCreditLines, creditOptions, type CreditOptions } from './domain/creditNotes';
 import type { ShippingLineOrigin } from './domain/shippingLines';
 import type { ProviderRuntime } from './providers/registry';
 import type { OrderHistoryEntry } from './orderHistory';
@@ -46,7 +37,6 @@ const MAX_REASON = 500;
  * declares none) was left by an interrupted request: it may be reconciled.
  */
 const DEFAULT_MAX_ISSUE_MS = 10 * 60 * 1000;
-const LIVE = ['ISSUED', 'PENDING', 'UNCERTAIN'];
 
 export type InvoiceKind = 'INVOICE' | 'CREDIT_NOTE';
 
@@ -107,8 +97,25 @@ export type InvoiceSelectionView = {
 
 export type IssueInvoiceInput = SelectionRequest & { expectedTotal: number; idempotencyKey: string };
 
+/** What a credit note on an ISSUED invoice can still credit, by reason (ruling 13). */
+export type CreditNoteOptions = {
+  lines: InvoiceLine[];
+  /** Per line index: cents still creditable. */
+  creditable: number[];
+  /** The CORRECTION credit note: everything still creditable. */
+  correction: { lines: InvoiceLine[]; total: number };
+  /** Per ITEM line with whole units left: the units a RETURN may credit (`units`, maybe 0). */
+  returnable: CreditOptions['returnable'];
+  /** SHIPPING lines a RETURN may add whole. */
+  shipping: CreditOptions['shipping'];
+};
+
 export type CreditNoteInput = {
-  lines: { index: number; value: number }[];
+  creditType: CreditType;
+  /** RETURN only: units per ITEM line index of the invoice. */
+  lines?: { index: number; quantity: number }[];
+  /** RETURN only: SHIPPING line indexes of the invoice, credited whole. */
+  shippingIndexes?: number[];
   reason: string;
   idempotencyKey: string;
 };
@@ -127,20 +134,6 @@ const invalid = (path: string, code: string) =>
   new EcommerceValidationError('Invalid invoice request', [{ path, code }]);
 const notAvailable = () => invalid('action', 'ACTION_NOT_AVAILABLE');
 const notInvoiceable = () => invalid('paymentIds', 'PAYMENT_NOT_INVOICEABLE');
-
-/** `metadata.creditedLines` of a credit note: what it credited per original line index. */
-const creditedLinesOf = (row: any): { index: number; value: number }[] => {
-  const raw = row?.metadata?.creditedLines;
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .filter((e: any) => e && Number.isInteger(e.index) && Number.isFinite(Number(e.value)))
-    .map((e: any) => ({ index: e.index as number, value: num(e.value) }));
-};
-
-const returnIdsOf = (row: any): number[] => {
-  const raw = row?.metadata?.returnIds;
-  return Array.isArray(raw) ? raw.map(Number).filter(Number.isInteger) : [];
-};
 
 const warningsOf = (row: any): string[] => {
   const raw = row?.metadata?.warnings;
@@ -181,9 +174,6 @@ const withoutErrorDetail = (metadata: any) => {
   const { errorDetail: _drop, ...rest } = metadata ?? {};
   return rest;
 };
-
-const lineKey = (l: InvoiceLine): number | 'SHIPPING' =>
-  l.kind === 'SHIPPING' || l.orderLineId === null ? 'SHIPPING' : l.orderLineId;
 
 /**
  * Invoicing (design 4.4; plan 11): one invoice for a selection of units, shipping lines and
@@ -493,6 +483,10 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
       },
     });
     const creditNote = row.kind === 'CREDIT_NOTE';
+    const creditType = creditNote ? (row.metadata?.creditType ?? null) : null;
+    // An issued CORRECTION annuls the invoice: its payments can be invoiced again (ruling 13).
+    const annulled = creditType === 'CORRECTION' ? idOf(row.creditedInvoice) : null;
+    if (annulled !== null) await releaseAllocations(annulled);
     await history().record({
       orderId,
       type: creditNote ? 'CREDIT_NOTE_ISSUED' : 'INVOICE_ISSUED',
@@ -509,7 +503,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
         number: doc.number,
         total: num(row.total),
         provider: row.provider,
-        ...(creditNote ? { creditedInvoiceId: idOf(row.creditedInvoice) } : {}),
+        ...(creditNote ? { creditedInvoiceId: idOf(row.creditedInvoice), creditType } : {}),
         ...(row.metadata?.selection ? { selection: row.metadata.selection } : {}),
         warnings,
       },
@@ -973,163 +967,45 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
   // Credit notes
   // ---------------------------------------------------------------------------
 
-  /**
-   * Credit position of every ISSUED invoice of the order: what each line already has against it
-   * (credit notes ISSUED, PENDING or UNCERTAIN) and the suggested credit.
-   *
-   * Suggestions are carved out of the over-invoiced value (net of credit notes, decremented across
-   * invoices so nothing is suggested twice). Returns not yet linked to a credit note come first,
-   * with their stored amounts (item values less their share of the discount, up to the return's
-   * refundable value); the rest of the over-invoiced value follows (`suggestCreditNote`). The total
-   * is capped by `creditNoteBudget`, computed after held refunds were attributed to payments
-   * (`refundedByPayment`): a credit note never removes value a refund already removed.
-   */
-  const creditPosition = async (state: OrderState) => {
-    const rows = state.invoicing.invoices;
-    const invoices = rows.filter((r) => r.kind === 'INVOICE' && r.status === 'ISSUED');
-    const creditNotes = rows.filter((r) => r.kind === 'CREDIT_NOTE' && LIVE.includes(r.status));
-
-    const lines = new Map<number, InvoiceLine[]>(
-      invoices.map((r) => [r.id, readInvoiceLines(r.lines)])
-    );
-    const credited = new Map<number, number[]>(
-      invoices.map((r) => [r.id, lines.get(r.id)!.map(() => 0)])
-    );
-    for (const cn of creditNotes) {
-      const target = credited.get(idOf(cn.creditedInvoice) ?? -1);
-      if (!target) continue;
-      for (const e of creditedLinesOf(cn)) {
-        if (e.index >= 0 && e.index < target.length) target[e.index] += e.value;
-      }
-    }
-
-    const over: OverInvoiced = overInvoiced(
-      { ...state.invoicing.coverageOrder, status: state.order.orderStatus as OrderStatus },
-      [
-        ...invoices.map((r) => ({ kind: 'INVOICE' as const, lines: lines.get(r.id)! })),
-        ...creditNotes.map((r) => ({
-          kind: 'CREDIT_NOTE' as const,
-          lines: readInvoiceLines(r.lines),
-        })),
-      ]
-    );
-    const remaining = new Map(over);
-    // Order-level cap: never suggest value a refund already took off a payment not yet invoiced.
-    const sum = (values: Iterable<number>) => [...values].reduce((s, v) => s + v, 0);
-    let budget = creditNoteBudget(
-      { ...state.invoicing.coverageOrder, status: state.order.orderStatus as OrderStatus },
-      {
-        invoiced: sum(rows.filter((r) => r.kind === 'INVOICE').map((r) => num(r.total))),
-        credited: sum(creditNotes.map((r) => num(r.total))),
-        invoiceable: sum(state.invoicing.invoiceable.values()),
-        kept:
-          sum(state.invoicing.completedPayments.map((p) => num(p.amount))) -
-          sum(state.invoicing.refunded.values()),
-      }
-    );
-    const suggested = new Map<number, number[]>(
-      invoices.map((r) => [r.id, lines.get(r.id)!.map(() => 0)])
-    );
-    const returnLinks = new Map<number, number[]>(invoices.map((r) => [r.id, []]));
-
-    const take = (invoiceId: number, i: number, want: number): number => {
-      const line = lines.get(invoiceId)![i];
-      const key = lineKey(line);
-      const sug = suggested.get(invoiceId)!;
-      const room = line.total - credited.get(invoiceId)![i] - sug[i];
-      const t = Math.max(0, Math.min(want, room, remaining.get(key) ?? 0, budget));
-      if (t > 0) {
-        sug[i] += t;
-        remaining.set(key, (remaining.get(key) ?? 0) - t);
-        budget -= t;
-      }
-      return t;
-    };
-
-    // Returns not yet credited, with their stored amounts.
-    const linked = new Set(creditNotes.flatMap(returnIdsOf));
-    const returns: any[] = await strapi.db.query(uids().orderReturn).findMany({
-      where: { order: { id: state.order.id } },
-      orderBy: { id: 'asc' },
-    });
-    for (const r of returns) {
-      if (linked.has(r.id)) continue;
-      const items: { orderLineId: number; value: number }[] = (
-        Array.isArray(r.items?.lines) ? r.items.lines : []
-      )
-        .filter((i: any) => i && Number.isInteger(Number(i.orderLineId)))
-        .map((i: any) => ({
-          orderLineId: Number(i.orderLineId),
-          value: Math.max(0, num(i.value)),
-        }));
-      const shares = allocateProportionally(
-        Math.max(0, num(r.discountShare)),
-        items.map((i) => i.value)
-      );
-      let left = Math.max(0, num(r.refundableValue));
-      const touched = new Set<number>();
-      items.forEach((item, j) => {
-        let want = Math.min(Math.max(0, item.value - shares[j]), left);
-        for (const inv of invoices) {
-          lines.get(inv.id)!.forEach((l, i) => {
-            if (want <= 0 || l.kind !== 'ITEM' || l.orderLineId !== item.orderLineId) return;
-            const t = take(inv.id, i, want);
-            want -= t;
-            left -= t;
-            if (t > 0) touched.add(inv.id);
-          });
-        }
-      });
-      // Rounding between the return's discount share and the lines' coverage dues: the rest of
-      // the refundable value goes to other over-invoiced lines of the same invoices.
-      for (const inv of invoices) {
-        if (!touched.has(inv.id)) continue;
-        lines.get(inv.id)!.forEach((l, i) => {
-          if (left > 0 && l.kind === 'ITEM') left -= take(inv.id, i, left);
-        });
-      }
-      for (const id of touched) returnLinks.get(id)!.push(r.id);
-    }
-
-    // The rest of the over-invoiced value (removed or reduced lines, cancellation, shipping).
-    for (const inv of invoices) {
-      const sug = suggested.get(inv.id)!;
-      const already = credited.get(inv.id)!.map((v, i) => v + sug[i]);
-      const extra = suggestCreditNote({ lines: lines.get(inv.id)! }, already, remaining);
-      extra.forEach((want, i) => {
-        const v = Math.min(want, budget);
-        if (v <= 0) return;
-        sug[i] += v;
-        budget -= v;
-        const key = lineKey(lines.get(inv.id)![i]);
-        remaining.set(key, (remaining.get(key) ?? 0) - v);
-      });
-    }
-
-    return { lines, credited, suggested, returnLinks };
-  };
-
   const loadIssuedInvoice = async (invoiceId: number) => {
     const row = await loadRow(invoiceId);
     if (row.kind !== 'INVOICE' || row.status !== 'ISSUED') throw notAvailable();
     return row;
   };
 
-  const creditNotePreview = async (
-    invoiceId: number | string
-  ): Promise<{ lines: InvoiceLine[]; creditable: number[]; suggested: number[] }> => {
+  /**
+   * What `original` (an ISSUED invoice) can still credit, against the order's live documents.
+   * Credit notes ISSUED, PENDING or UNCERTAIN count, so nothing is credited twice.
+   */
+  const creditOptionsOf = (original: any, state: OrderState) => {
+    const invoice = readInvoiceDoc(original, []);
+    const { docs, positionOrder } = state.invoicing;
+    return { invoice, options: creditOptions(invoice, docs, positionOrder) };
+  };
+
+  const creditNotePreview = async (invoiceId: number | string): Promise<CreditNoteOptions> => {
     const row = await loadIssuedInvoice(Number(invoiceId));
     const state = await orders().computeOrderState(idOf(row.order) as number);
-    const position = await creditPosition(state);
-    const lines = readInvoiceLines(row.lines);
-    const credited = position.credited.get(row.id) ?? lines.map(() => 0);
+    const { invoice, options } = creditOptionsOf(row, state);
+    const correction = buildCreditLines(invoice, options, {
+      creditType: 'CORRECTION',
+      lines: [],
+      shippingIndexes: [],
+    });
     return {
-      lines,
-      creditable: lines.map((l, i) => Math.max(0, l.total - credited[i])),
-      suggested: position.suggested.get(row.id) ?? lines.map(() => 0),
+      lines: invoice.lines,
+      creditable: options.creditable,
+      correction: { lines: correction.lines, total: correction.total },
+      returnable: options.returnable,
+      shipping: options.shipping,
     };
   };
 
+  /**
+   * Issues a credit note on an ISSUED invoice, on an order in any status (ruling 13): a RETURN
+   * credits returned units (and whole shipping lines); a CORRECTION credits everything left and,
+   * once ISSUED, annuls the invoice (`recordIssued` releases its payments). Never automatic.
+   */
   const issueCreditNote = async (
     rawInvoiceId: number | string,
     input: CreditNoteInput,
@@ -1137,6 +1013,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
   ): Promise<InvoiceView> => {
     const key = keyOf(input);
     const reason = clean(input?.reason);
+    if (!reason) throw invalid('reason', 'required');
     if (reason.length > MAX_REASON) throw invalid('reason', 'too_long');
     const first = await loadRow(Number(rawInvoiceId));
     const orderId = idOf(first.order) as number;
@@ -1161,24 +1038,16 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
         // Any OrderStatus: a credit note regularizes what was invoiced.
         const original = await loadIssuedInvoice(first.id);
         const state = await orders().computeOrderState(orderId);
-        const position = await creditPosition(state);
-        const originalLines = readInvoiceLines(original.lines);
-        const alreadyCredited = position.credited.get(original.id) ?? originalLines.map(() => 0);
-        const requested = Array.isArray(input?.lines) ? input.lines : [];
-        const issues: ValidationIssue[] = validateCreditNoteRequest(
-          { lines: originalLines },
-          alreadyCredited,
-          { lines: requested, reason }
-        );
-        if (issues.length) throw new EcommerceValidationError('Invalid credit note', issues);
+        const { invoice, options } = creditOptionsOf(original, state);
+        const creditType = input?.creditType;
+        const built = buildCreditLines(invoice, options, {
+          creditType,
+          lines: Array.isArray(input?.lines) ? input.lines : [],
+          shippingIndexes: Array.isArray(input?.shippingIndexes) ? input.shippingIndexes : [],
+        });
+        if (built.issues.length) throw new EcommerceValidationError('Invalid credit note', built.issues);
 
-        const byIndex = new Map<number, number>();
-        for (const e of requested) byIndex.set(e.index, (byIndex.get(e.index) ?? 0) + e.value);
-        const creditedLines = [...byIndex.entries()]
-          .sort((a, b) => a[0] - b[0])
-          .map(([index, value]) => ({ index, value }));
-        const lines = creditedLines.map((e) => creditLine(originalLines[e.index], e.value));
-        const total = lines.reduce((s, l) => s + l.total, 0);
+        const { lines, total, creditedLines } = built;
         const locale = clean(original.metadata?.locale) || state.order.locale;
         const customer = (original.customerData ?? customerOf(state.order)) as InvoiceCustomer;
 
@@ -1192,12 +1061,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
           customerData: customer,
           idempotencyKey: key,
           actor,
-          metadata: {
-            locale,
-            reason,
-            creditedLines,
-            returnIds: position.returnLinks.get(original.id) ?? [],
-          },
+          metadata: { locale, reason, creditType, creditedLines },
         });
         const draft: InvoiceDraft = {
           kind: 'CREDIT_NOTE',

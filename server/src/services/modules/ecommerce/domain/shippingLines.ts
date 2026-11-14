@@ -233,19 +233,3 @@ export function planRecalculation(
         ];
   return { lines: out, mode: dropped ? 'REPLACED' : 'APPENDED', charged, delta };
 }
-
-export function shippingTaxRates(lines: ShippingLine[]): { tax: number; weight: number; name: string }[] {
-  const byTax = new Map<number, { sum: number; name: string; lastId: number }>();
-  for (const l of lines) {
-    const cur = byTax.get(l.tax) ?? { sum: 0, name: l.name, lastId: -Infinity };
-    cur.sum += l.amount;
-    if (l.id >= cur.lastId) {
-      cur.lastId = l.id;
-      cur.name = l.name;
-    }
-    byTax.set(l.tax, cur);
-  }
-  return [...byTax.entries()]
-    .map(([tax, v]) => ({ tax, weight: Math.max(0, v.sum), name: v.name }))
-    .sort((a, b) => b.tax - a.tax);
-}

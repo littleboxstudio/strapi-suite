@@ -8,7 +8,6 @@ import {
   toInt,
   fail,
   nonNegativeCents,
-  objectList,
   optionalBoolean,
   positiveInt,
   requiredString,
@@ -49,6 +48,9 @@ const EcommerceInvoiceController = ({ strapi }: { strapi: Core.Strapi }) => {
     if (v.length > MAX_LIST) return fail(MSG, path, 'too_long');
     return v;
   };
+
+  const nonNegativeInt = (path: string, v: unknown): number =>
+    typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : fail(MSG, path, 'invalid');
 
   const ids = (path: string, v: unknown): number[] =>
     list(path, v).map((id, i) => positiveInt(MSG, `${path}.${i}`, id));
@@ -108,13 +110,22 @@ const EcommerceInvoiceController = ({ strapi }: { strapi: Core.Strapi }) => {
         ctx,
         (id) => {
           const b = asObject(ctx.request?.body);
+          const creditType =
+            b.creditType === 'RETURN' || b.creditType === 'CORRECTION'
+              ? b.creditType
+              : fail(MSG, 'creditType', 'invalid');
           const input = {
-            lines: objectList(MSG, 'lines', b.lines).map((l, i) => {
-              if (typeof l.index !== 'number' || !Number.isInteger(l.index) || l.index < 0) {
-                return fail(MSG, `lines.${i}.index`, 'invalid');
-              }
-              return { index: l.index, value: nonNegativeCents(MSG, `lines.${i}.value`, l.value) };
+            creditType,
+            lines: list('lines', b.lines).map((raw, i) => {
+              const l = asObject(raw);
+              return {
+                index: nonNegativeInt(`lines.${i}.index`, l.index),
+                quantity: positiveInt(MSG, `lines.${i}.quantity`, l.quantity),
+              };
             }),
+            shippingIndexes: list('shippingIndexes', b.shippingIndexes).map((v, i) =>
+              nonNegativeInt(`shippingIndexes.${i}`, v)
+            ),
             reason: requiredString(MSG, 'reason', b.reason, 500),
             idempotencyKey: requiredString(MSG, 'idempotencyKey', b.idempotencyKey, MAX_KEY),
           };
