@@ -8,7 +8,7 @@ import type {
   InvoiceDoc,
   PositionOrder,
 } from '../../../../server/src/services/modules/ecommerce/domain/invoiceSelection';
-import type { InvoiceLine } from '../../../../server/src/services/modules/ecommerce/domain/invoicing';
+import { withTotal, type InvoiceLine } from '../../../../server/src/services/modules/ecommerce/domain/invoicing';
 
 const A = 10;
 
@@ -205,6 +205,13 @@ describe('buildCreditLines, CORRECTION', () => {
       request({ creditType: 'CORRECTION', lines: [{ index: 0, quantity: 1 }] })
     );
     expect(r.issues).toEqual([{ path: 'lines', code: 'invalid' }]);
+  });
+
+  it('a credited part keeps the discount percentage of its line (grossTotal scales)', () => {
+    expect(
+      withTotal({ ...item(1, 3600, false), quantity: 2, grossTotal: 4000 }, 1800)
+    ).toMatchObject({ total: 1800, grossTotal: 2000 });
+    expect(withTotal(item(1, 900, true), 450)).not.toHaveProperty('grossTotal');
   });
 
   it('credits a legacy partial line through creditLine', () => {

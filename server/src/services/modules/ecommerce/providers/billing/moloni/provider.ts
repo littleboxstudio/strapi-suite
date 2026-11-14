@@ -3,6 +3,7 @@ import { str, timedFetch } from '../../http';
 import { EcommerceBillingError } from '../../../errors';
 import type { BillingProvider, InvoiceDraft, InvoiceLine, IssuedDocument } from '../types';
 import { createMoloniClient, describeShape } from './client';
+import { grossUnitPrice, moloniLinePrices } from './linePricing';
 
 /**
  * Moloni billing provider (design 4.15), built from the public API docs and NOT verified against
@@ -25,10 +26,7 @@ export function __resetMoloniLookupsForTests(): void {
 }
 
 const euros = (cents: number) => cents / 100;
-const round4 = (n: number) => Math.round(n * 10000) / 10000;
 
-/** Net unit price in euros: total × 100 / (100 + tax) / quantity / 100, 4 decimal places. */
-const netUnitPrice = (line: InvoiceLine) => round4((line.total * 100) / (100 + line.tax) / line.quantity / 100);
 
 function configuredId(rt: ProviderRuntime, key: string): number | null {
   const n = Number(str(rt, key));
@@ -182,7 +180,7 @@ async function productId(ctx: Ctx, line: InvoiceLine, reference: string, tax: Li
       type: line.kind === 'SHIPPING' ? 2 : 1,
       name: line.name,
       reference,
-      price: netUnitPrice(line),
+      price: grossUnitPrice(line),
       unit_id: await ctx.idOf('measurementUnitId', 'measurementUnits/getAll', 'unit_id'),
       has_stock: 0,
       ...('taxes' in tax
@@ -381,6 +379,7 @@ export const moloniProvider: BillingProvider = {
     const shippingReference = str(rt, 'shippingReference') || DEFAULT_SHIPPING_REFERENCE;
     const products: Record<string, unknown>[] = [];
     const known = new Map<string, number>();
+    const prices = moloniLinePrices(draft.lines);
     for (const [i, line] of draft.lines.entries()) {
       const reference = line.kind === 'SHIPPING' ? shippingReference : line.sku;
       let id = known.get(reference);
@@ -388,7 +387,15 @@ export const moloniProvider: BillingProvider = {
         id = await productId(ctx, line, reference, lineTaxes[i]);
         known.set(reference, id);
       }
-      products.push({ product_id: id, name: line.name, qty: line.quantity, price: netUnitPrice(line), ...lineTaxes[i] });
+      const { price, discount } = prices[i];
+      products.push({
+        product_id: id,
+        name: line.name,
+        qty: line.quantity,
+        price,
+        ...(discount > 0 ? { discount } : {}),
+        ...lineTaxes[i],
+      });
     }
     if (isCredit) await relateToOriginal(ctx, documentId(draft.original!.externalId), products, draft.lines);
 

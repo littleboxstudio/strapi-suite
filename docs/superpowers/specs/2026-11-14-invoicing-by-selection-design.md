@@ -77,6 +77,15 @@ excedente) e recusa com códigos próprios; a modal é só ajuda.
 - Faturar parte da quantidade de uma linha fatura `quantidade × valor unitário líquido` com o
   arredondamento acertado na última fatura dessa linha **[Escolha]**.
 - Cada linha mantém a sua taxa de IVA; os portes, a taxa da sua linha de portes.
+- **A fatura mostra os descontos [Decisão, 2026-11-14]:** cada linha guarda também o seu valor
+  antes de descontos (`grossTotal`: preço unitário × quantidade nos produtos; valor da linha de
+  portes nos portes). No Moloni a linha vai com o preço antes de descontos e o desconto em
+  percentagem (`discount`, 2 casas decimais), que junta o desconto da linha e a sua parte dos
+  descontos sobre a encomenda. A percentagem só é usada se der os mesmos cêntimos que o preço já
+  descontado, por linha e no total do documento; senão a linha (ou, se for o total a falhar, o
+  documento inteiro) sai como antes, com o preço já descontado e sem percentagem. As notas de
+  crédito levam a mesma percentagem da linha creditada (o `grossTotal` escala com o valor).
+  Faturas antigas sem `grossTotal` não mostram desconto **[Escolha]**.
 
 ## 5. Moloni: métodos de pagamento
 

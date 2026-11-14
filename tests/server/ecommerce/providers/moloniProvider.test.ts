@@ -142,6 +142,28 @@ describe('moloniProvider.issue (FR, default)', () => {
     expect(m.of('products/getByReference')[0].body).toEqual({ company_id: 42, reference: 'SKU-1', exact: 1 });
   });
 
+  it('a line with grossTotal shows its discount: price before discounts and the percentage', async () => {
+    const m = moloniFake(happyRoutes());
+    await moloniProvider.issue(
+      draft({
+        lines: [
+          { orderLineId: 1, kind: 'ITEM', sku: 'SKU-1', name: 'Mug', quantity: 2, total: 3600, grossTotal: 4000, tax: 23, partial: false },
+        ],
+        total: 3600,
+        payments: [{ method: 'STRIPE', name: '', amount: 3600, date: '2026-11-10' }],
+      }),
+      rt()
+    );
+    expect(m.of('invoiceReceipts/insert')[0].body.products[0]).toEqual({
+      product_id: 200,
+      name: 'Mug',
+      qty: 2,
+      price: 16.2602,
+      discount: 10,
+      taxes: [{ tax_id: 11 }],
+    });
+  });
+
   it('net unit price uses 4 decimal places', async () => {
     const m = moloniFake(happyRoutes());
     await moloniProvider.issue(

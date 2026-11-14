@@ -13,6 +13,11 @@ export type InvoiceLine = {
   quantity: number;
   /** Cents, VAT included. */
   total: number;
+  /**
+   * Cents, VAT included, before discounts (line discount and its share of the order discounts),
+   * so the document can show the discount. Absent on older lines: no discount shown.
+   */
+  grossTotal?: number;
   tax: number;
   partial: boolean;
   /** SHIPPING lines of selection invoices: the shipping line they invoice. */
@@ -44,6 +49,7 @@ export const readInvoiceLines = (raw: unknown): InvoiceLine[] => {
   if (!Array.isArray(list)) return [];
   return list.filter(isObject).map((l) => {
     const shippingLineId = l.shippingLineId == null ? null : Number(l.shippingLineId);
+    const grossTotal = Number(l.grossTotal);
     return {
       orderLineId: l.orderLineId == null ? null : Number(l.orderLineId),
       kind: l.kind === 'SHIPPING' ? 'SHIPPING' : 'ITEM',
@@ -51,11 +57,22 @@ export const readInvoiceLines = (raw: unknown): InvoiceLine[] => {
       name: typeof l.name === 'string' ? l.name : '',
       quantity: num(l.quantity),
       total: num(l.total),
+      ...(l.grossTotal != null && Number.isInteger(grossTotal) && grossTotal > 0 ? { grossTotal } : {}),
       tax: num(l.tax),
       partial: l.partial === true,
       ...(Number.isInteger(shippingLineId) ? { shippingLineId } : {}),
     };
   });
+};
+
+/**
+ * `line` with `total = value`: its `grossTotal`, if any, scales by the same ratio, so a part of
+ * the line keeps its discount percentage.
+ */
+export const withTotal = (line: InvoiceLine, value: number): InvoiceLine => {
+  const { grossTotal, ...rest } = line;
+  if (grossTotal == null || !(line.total > 0)) return { ...rest, total: value };
+  return { ...rest, total: value, grossTotal: Math.round((grossTotal * value) / line.total) };
 };
 
 // ---------------------------------------------------------------------------
