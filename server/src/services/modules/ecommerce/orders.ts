@@ -32,15 +32,6 @@ import {
 } from './orderModificationSupport';
 import { refundableAmount } from './domain/refunds';
 import {
-  invoiceableByPayment,
-  reconcileCoverages,
-  toInvoicedCoverage,
-  uninvoicedByPayment,
-  type InvoiceOrderState,
-  type InvoicedCoverage,
-  type ReconciledCoverage,
-} from './domain/invoicing';
-import {
   invoicingPosition,
   paymentNets,
   readInvoiceDoc,
@@ -314,24 +305,15 @@ export type OrderInvoicing = {
   coveredShipping: number;
   /** Whether an invoice can be issued now (ruling 15). */
   canIssue: boolean;
-  /** The current lines as invoice reconciliation reads them. */
-  coverageOrder: InvoiceOrderState;
   /** COMPLETED payments in settlement order (`completedAt`, then id). */
   completedPayments: any[];
-  /** Per payment: the held refunds attributed to it (see `refundedByPayment`). */
-  refunded: Map<number, number>;
   /** Active allocations (`uniqueKey` not null), sorted by id. */
   allocations: { id: number; invoiceId: number | null; paymentId: number; amount: number; coverage: unknown }[];
   /** Invoice and credit-note rows ISSUED, PENDING or UNCERTAIN, sorted by id. */
   invoices: any[];
-  reconciled: Map<number, ReconciledCoverage>;
-  /** Per COMPLETED payment: value left to invoice (0 on orders that are not OPEN). */
-  invoiceable: Map<number, number>;
 };
 
 const IN_FLIGHT_REFUND = ['PENDING', 'PROCESSING'];
-/** Refunds that hold (or will hold) the money back: never invoiced. */
-const HELD_REFUND = ['PENDING', 'PROCESSING', 'COMPLETED'];
 const ACTIVE_INVOICE = ['ISSUED', 'PENDING', 'UNCERTAIN'];
 
 /** `payment.coverage.shipping.value` (plan 3 settlement coverage) in cents; 0 when malformed. */
@@ -343,47 +325,6 @@ const coverageShippingOf = (coverage: unknown): number => {
 
 const idOf = (v: any): number | null =>
   v && typeof v === 'object' ? (v.id ?? null) : v == null ? null : Number(v);
-
-/**
- * Held refunds (COMPLETED/PROCESSING/PENDING, any method, store credit included) attributed to the
- * COMPLETED payments for invoice reconciliation. The money is the order's: every held refund (with
- * or without a payment) is pooled and attributed, latest payment first in each group, up to what
- * each payment has left:
- * 1. to payments with an active allocation, up to the part their invoice does not keep invoiced
- *    (`uninvoiced`, see `uninvoicedByPayment`: excluded, credited or over-invoiced value);
- * 2. then to payments without an active allocation;
- * 3. then to the invoiced ones.
- * So refunded money is never invoiced, and value a credit note takes off an invoice is never also
- * taken off a payment not invoiced yet.
- */
-export const refundedByPayment = (
-  completed: { id: number; amount: number }[],
-  refunds: { status: string; amount: number; paymentId: number | null }[],
-  uninvoiced: Map<number, number> = new Map()
-): Map<number, number> => {
-  const out = new Map<number, number>(completed.map((p) => [p.id, 0]));
-  let pool = 0;
-  for (const r of refunds) {
-    if (!HELD_REFUND.includes(r.status)) continue;
-    // A refund of a payment that is no longer COMPLETED is not this order's held money here.
-    if (r.paymentId === null || out.has(r.paymentId)) pool += r.amount;
-  }
-  const attribute = (payments: { id: number; amount: number }[], cap: (id: number) => number) => {
-    for (const p of payments) {
-      if (pool <= 0) return;
-      const room = Math.max(0, Math.min(p.amount - out.get(p.id)!, cap(p.id)));
-      const take = Math.min(room, pool);
-      out.set(p.id, out.get(p.id)! + take);
-      pool -= take;
-    }
-  };
-  const latestFirst = [...completed].reverse();
-  const invoiced = latestFirst.filter((p) => uninvoiced.has(p.id));
-  attribute(invoiced, (id) => uninvoiced.get(id)!);
-  attribute(latestFirst.filter((p) => !uninvoiced.has(p.id)), () => Infinity);
-  attribute(invoiced, () => Infinity);
-  return out;
-};
 
 /** A stored shipment as the order rules need it. */
 export type LoadedShipment = ShipmentLike & {
@@ -1136,9 +1077,9 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   /**
-   * The invoicing position: active allocations, live invoices and, per COMPLETED payment, its
-   * reconciled coverage and what is left to invoice (design 4.4). Every payment with an active
-   * allocation takes part in the reconciliation; amounts are net of held refunds.
+   * The invoicing position (plan 11): active allocations, live invoices and credit notes, what
+   * each order line and shipping line has left to invoice, and the payments available to pay a
+   * new invoice (net of held refunds).
    */
   const loadInvoicing = async (
     order: any,
@@ -1169,22 +1110,6 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         coverage: a.coverage,
       }))
       .filter((a) => a.paymentId !== null);
-    const coverageOrder: InvoiceOrderState = {
-      lines: lines.map((l) => ({
-        id: l.id,
-        unitPrice: l.unitPrice,
-        unitDiscount: l.unitDiscount,
-        quantity: l.quantity,
-        returnedQuantity: l.returnedQuantity,
-        tax: l.tax,
-        sku: l.sku,
-        name: l.name,
-        option: l.option,
-      })),
-      orderDiscount: num(order.orderDiscount),
-      shippingTotal: num(order.shippingTotal),
-      shippingTax: num(order.shippingTax),
-    };
     const time = (v: unknown) => {
       const t = v ? new Date(v as string).getTime() : NaN;
       return Number.isFinite(t) ? t : Number.MAX_SAFE_INTEGER;
@@ -1192,52 +1117,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     const completedPayments = payments
       .filter((p) => p.status === 'COMPLETED')
       .sort((a, b) => time(a.completedAt) - time(b.completedAt) || a.id - b.id);
-    const invoiced = new Map<number, InvoicedCoverage>(
-      allocations.map((a) => [a.paymentId, toInvoicedCoverage(a.coverage)])
-    );
     const amounts = completedPayments.map((p) => ({ id: p.id, amount: num(p.amount) }));
-    const creditNoteLines = invoices
-      .filter((r) => r.kind === 'CREDIT_NOTE')
-      .flatMap((r) => (Array.isArray(r.lines?.lines) ? r.lines.lines : []))
-      .filter((l: any) => l && typeof l === 'object')
-      .map((l: any) => ({
-        orderLineId: l.orderLineId == null ? null : Number(l.orderLineId),
-        kind: l.kind === 'SHIPPING' ? ('SHIPPING' as const) : ('ITEM' as const),
-        total: num(l.total),
-      }));
-    const refunded = refundedByPayment(
-      amounts,
-      refunds.map((r) => ({ status: r.status, amount: num(r.amount), paymentId: idOf(r.payment) })),
-      uninvoicedByPayment(
-        { ...coverageOrder, status: order.orderStatus },
-        amounts,
-        invoiced,
-        creditNoteLines
-      )
-    );
-
-    let reconciled = new Map<number, ReconciledCoverage>();
-    let invoiceable = new Map<number, number>();
-    try {
-      reconciled = reconcileCoverages(
-        coverageOrder,
-        completedPayments.map((p) => ({
-          id: p.id,
-          amount: Math.max(0, Math.round(num(p.amount))),
-          refunded: Math.max(0, Math.round(refunded.get(p.id) ?? 0)),
-          coverage: p.coverage,
-        })),
-        invoiced
-      );
-      invoiceable = invoiceableByPayment(reconciled, new Set(invoiced.keys()));
-    } catch (err) {
-      // Never block the order over its invoicing position: nothing is invoiceable meanwhile.
-      const name = err instanceof Error ? err.name : typeof err;
-      strapi.log?.warn?.(`[ecommerce] invoice reconciliation failed for order ${order.id}: ${name}`);
-    }
-    if (order.orderStatus !== 'OPEN') {
-      invoiceable = new Map([...invoiceable.keys()].map((id) => [id, 0]));
-    }
 
     const positionOrder: PositionOrder = {
       lines: lines.map((l) => ({
@@ -1285,13 +1165,9 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       blockingExcess,
       coveredShipping,
       canIssue,
-      coverageOrder,
       completedPayments,
-      refunded,
       allocations,
       invoices,
-      reconciled,
-      invoiceable,
     };
   };
 

@@ -152,31 +152,77 @@ describe('EcommerceInvoiceController', () => {
     expect(bad.badRequest).toHaveBeenCalledWith('Invalid id');
   });
 
-  it('credit note preview and issue', async () => {
-    const creditNotePreview = vi.fn().mockResolvedValue({ lines: [], creditable: [], suggested: [] });
+  it('credit note preview and issue: validates creditType (RETURN | CORRECTION), lines (index ≥ 0, quantity ≥ 1), shippingIndexes, reason ≤ 500 and idempotencyKey', async () => {
+    const options = {
+      lines: [],
+      creditable: [],
+      correction: { lines: [], total: 0 },
+      returnable: [],
+      shipping: [],
+    };
+    const creditNotePreview = vi.fn().mockResolvedValue(options);
     const issueCreditNote = vi.fn().mockResolvedValue({ id: 2, kind: 'CREDIT_NOTE' });
     const c = createInvoices({ strapi: strapiWith({ creditNotePreview, issueCreditNote }) });
     const p = mkCtx();
     await c.creditNotePreview(p);
     expect(creditNotePreview).toHaveBeenCalledWith(5);
-    const valid = { lines: [{ index: 0, value: 100 }], reason: 'Return', idempotencyKey: 'k' };
+    expect(p.body).toEqual(options);
+
+    const valid = {
+      creditType: 'RETURN',
+      lines: [{ index: 0, quantity: 1 }],
+      shippingIndexes: [1],
+      reason: 'Return',
+      idempotencyKey: 'k',
+    };
     const ctx = body(valid);
     await c.issueCreditNote(ctx);
     expect(ctx.status).toBe(201);
     expect(issueCreditNote).toHaveBeenCalledWith(5, valid, 'user:7');
+    // A correction: no lines or shipping indexes.
+    await c.issueCreditNote(body({ creditType: 'CORRECTION', reason: 'Wrong NIF', idempotencyKey: 'k2' }));
+    expect(issueCreditNote).toHaveBeenLastCalledWith(
+      5,
+      { creditType: 'CORRECTION', lines: [], shippingIndexes: [], reason: 'Wrong NIF', idempotencyKey: 'k2' },
+      'user:7'
+    );
+    const many = Array.from({ length: 201 }, (_, i) => i);
     for (const bad of [
-      { ...valid, lines: [] },
-      { ...valid, lines: [{ index: -1, value: 1 }] },
-      { ...valid, lines: [{ index: 0, value: 1.5 }] },
-      { ...valid, lines: [{ index: 0.5, value: 1 }] },
+      { ...valid, creditType: undefined },
+      { ...valid, creditType: 'return' },
+      { ...valid, creditType: 'REFUND' },
+      { ...valid, lines: 'x' },
+      { ...valid, lines: [{ index: -1, quantity: 1 }] },
+      { ...valid, lines: [{ index: 0.5, quantity: 1 }] },
+      { ...valid, lines: [{ index: 0, quantity: 0 }] },
+      { ...valid, lines: [{ index: 0, quantity: 1.5 }] },
+      { ...valid, lines: [{ index: 0, value: 100 }] },
+      { ...valid, lines: many.map((index) => ({ index, quantity: 1 })) },
+      { ...valid, shippingIndexes: [-1] },
+      { ...valid, shippingIndexes: ['1'] },
+      { ...valid, shippingIndexes: many },
       { ...valid, reason: '' },
+      { ...valid, reason: 'x'.repeat(501) },
       { ...valid, idempotencyKey: '' },
+      { ...valid, idempotencyKey: 'x'.repeat(201) },
     ]) {
       const b = body(bad);
       await c.issueCreditNote(b);
-      expect(b.badRequest).toHaveBeenCalled();
+      expect(b.badRequest, JSON.stringify(bad).slice(0, 80)).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ errors: expect.any(Array) })
+      );
     }
-    expect(issueCreditNote).toHaveBeenCalledTimes(1);
+    expect(issueCreditNote).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['QUANTITY_EXCEEDS_CREDITABLE', 'SHIPPING_NOT_CREDITABLE'])('credit note %s is a 409', async (code) => {
+    const issueCreditNote = vi.fn().mockRejectedValue(new EcommerceValidationError('x', [{ path: 'p', code }]));
+    const c = createInvoices({ strapi: strapiWith({ issueCreditNote }) });
+    const ctx = body({ creditType: 'RETURN', lines: [{ index: 0, quantity: 1 }], reason: 'r', idempotencyKey: 'k' });
+    await c.issueCreditNote(ctx);
+    expect(ctx.status).toBe(409);
+    expect(ctx.body.error.details.code).toBe(code);
   });
 
   it('maps not found to 404 on every endpoint', async () => {
@@ -189,27 +235,12 @@ describe('EcommerceInvoiceController', () => {
       ['reconcile', body({})],
       ['pdf', mkCtx()],
       ['creditNotePreview', mkCtx()],
-      ['issueCreditNote', body({ lines: [{ index: 0, value: 1 }], reason: 'r', idempotencyKey: 'k' })],
+      ['issueCreditNote', body({ creditType: 'CORRECTION', reason: 'r', idempotencyKey: 'k' })],
     ];
     for (const [h, ctx] of calls) {
       await (c as any)[h](ctx);
       expect(ctx.notFound, h).toHaveBeenCalled();
     }
-  });
-
-  it('credit note rejects a 201-character idempotencyKey and a reason over 500 characters', async () => {
-    const issueCreditNote = vi.fn();
-    const c = createInvoices({ strapi: strapiWith({ issueCreditNote }) });
-    const lines = [{ index: 0, value: 1 }];
-    for (const bad of [
-      { lines, reason: 'r', idempotencyKey: 'x'.repeat(201) },
-      { lines, reason: 'x'.repeat(501), idempotencyKey: 'k' },
-    ]) {
-      const ctx = body(bad);
-      await c.issueCreditNote(ctx);
-      expect(ctx.badRequest).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ errors: expect.any(Array) }));
-    }
-    expect(issueCreditNote).not.toHaveBeenCalled();
   });
 
   it('billing-side NOT_SUPPORTED is a 400 with the code (reconcile and credit note)', async () => {
@@ -218,7 +249,7 @@ describe('EcommerceInvoiceController', () => {
     const a = body({ markFailed: true });
     await c.reconcile(a);
     expect(a.badRequest).toHaveBeenCalledWith(expect.any(String), { code: 'NOT_SUPPORTED' });
-    const b = body({ lines: [{ index: 0, value: 1 }], reason: 'r', idempotencyKey: 'k' });
+    const b = body({ creditType: 'CORRECTION', reason: 'r', idempotencyKey: 'k' });
     await c.issueCreditNote(b);
     expect(b.badRequest).toHaveBeenCalledWith(expect.any(String), { code: 'NOT_SUPPORTED' });
   });

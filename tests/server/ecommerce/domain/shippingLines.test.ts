@@ -10,7 +10,6 @@ import {
   planLineChange,
   appendLine,
   planRecalculation,
-  shippingTaxRates,
   type ShippingLine,
   type ShippingLineView,
 } from '../../../../server/src/services/modules/ecommerce/domain/shippingLines';
@@ -334,19 +333,5 @@ describe('planRecalculation', () => {
     const r = planRecalculation([view({ spent: true, amount: 500 }), view({ id: 2, amount: 300 })], 500, meta);
     expect(r.mode).toBe('REPLACED');
     expect(r.lines).toEqual([line({ amount: 500 })]);
-  });
-});
-
-describe('shippingTaxRates', () => {
-  it('weights each rate by its positive total, highest rate first', () => {
-    const lines = [
-      line({ id: 1, tax: 23, amount: 500, name: 'Courier' }),
-      line({ id: 2, tax: 6, amount: 100, name: 'Mail' }),
-      line({ id: 3, tax: 23, amount: -600, name: 'Express' }),
-    ];
-    expect(shippingTaxRates(lines)).toEqual([
-      { tax: 23, weight: 0, name: 'Express' },
-      { tax: 6, weight: 100, name: 'Mail' },
-    ]);
   });
 });
