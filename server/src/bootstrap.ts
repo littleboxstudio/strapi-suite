@@ -13,6 +13,7 @@ import {
 import { registerEcommercePermissions } from './services/modules/ecommerce/permissions';
 import { migrateOrderEditingData } from './services/modules/ecommerce/orderEditingMigration';
 import { subscribeNotifications } from './services/modules/ecommerce/notifications';
+import { subscribeStripeSessionRetirement } from './services/modules/ecommerce/stripePayments';
 
 const bootstrap = async ({ strapi }: { strapi: Core.Strapi }) => {
   const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
@@ -133,6 +134,8 @@ const bootstrap = async ({ strapi }: { strapi: Core.Strapi }) => {
 
   // Customer e-mails on domain events (each event checks that the e-commerce module is active).
   subscribeNotifications(strapi);
+  // Outdated Stripe payment links are retired whenever the amount due changes.
+  subscribeStripeSessionRetirement(strapi);
 
   try {
     await strapi.db.query(config.uuid.modules.template).createMany({
