@@ -437,6 +437,19 @@ export function allowedToolbarActions(
   );
 }
 
+/** Actions shown in the Payments section instead of the top bar (same availability rules). */
+export const PAYMENT_SECTION_ACTIONS: ToolbarAction[] = ['ADD_PAYMENT', 'SEND_PAYMENT_INSTRUCTIONS'];
+
+/** The allowed actions that belong to the Payments section, in toolbar order. */
+export function paymentSectionActions(allowed: ToolbarAction[]): ToolbarAction[] {
+  return allowed.filter((a) => PAYMENT_SECTION_ACTIONS.includes(a));
+}
+
+/** The allowed actions that stay in the top bar. */
+export function headerActions(allowed: ToolbarAction[]): ToolbarAction[] {
+  return allowed.filter((a) => !PAYMENT_SECTION_ACTIONS.includes(a));
+}
+
 /**
  * Error codes of the payment, refund, store credit, notification, shipment, return and invoice
  * endpoints that have a message under `ecommerce.orders.errors.<code>`.

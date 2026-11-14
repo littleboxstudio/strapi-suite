@@ -1007,3 +1007,23 @@ describe('paymentRowHasActions', () => {
     expect(paymentRowHasActions({ invoice: { status: null, invoiceable: 500 } } as any, false)).toBe(false);
   });
 });
+
+describe('payment section actions', () => {
+  it('Add payment and Send payment instructions move to the Payments section, same rules', async () => {
+    const { allowedToolbarActions, headerActions, paymentSectionActions } = await import(
+      '../../../admin/src/ecommerce/utils/orderDetail'
+    );
+    const available: any[] = ['SHIP', 'CANCEL', 'ADD_PAYMENT', 'SEND_PAYMENT_INSTRUCTIONS', 'REFUND'];
+    const all = allowedToolbarActions(available, { canManage: true, canPay: true, canRefund: true });
+    expect(paymentSectionActions(all)).toEqual(['ADD_PAYMENT', 'SEND_PAYMENT_INSTRUCTIONS']);
+    expect(headerActions(all)).not.toContain('ADD_PAYMENT');
+    expect(headerActions(all)).not.toContain('SEND_PAYMENT_INSTRUCTIONS');
+    expect(headerActions(all)).toEqual(all.filter((a: string) => !a.includes('PAYMENT')));
+    // The permission rules are unchanged: Add payment needs orders.manage, Send payment
+    // instructions needs payments.manage.
+    const noPay = allowedToolbarActions(available, { canManage: true, canPay: false, canRefund: true });
+    expect(paymentSectionActions(noPay)).toEqual(['ADD_PAYMENT']);
+    const noManage = allowedToolbarActions(available, { canManage: false, canPay: true, canRefund: true });
+    expect(paymentSectionActions(noManage)).toEqual(['SEND_PAYMENT_INSTRUCTIONS']);
+  });
+});

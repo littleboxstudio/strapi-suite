@@ -15,7 +15,14 @@ import { useOrderPermissions } from '../../hooks/useOrderPermissions';
 import { usePaymentPermissions } from '../../hooks/usePaymentPermissions';
 import { useInvoicingPermissions } from '../../hooks/useInvoicingPermissions';
 import { hasUninvoicedPayments } from '../../utils/invoiceForm';
-import { apiErrorMessageId, paymentLinkOutdated, promotionDisplayName, type ToolbarAction } from '../../utils/orderDetail';
+import {
+  allowedToolbarActions,
+  apiErrorMessageId,
+  paymentLinkOutdated,
+  paymentSectionActions,
+  promotionDisplayName,
+  type ToolbarAction,
+} from '../../utils/orderDetail';
 import { canEdit } from '../../utils/orderEditing';
 import { initialOrderModalState, orderModalReducer } from '../../utils/orderModals';
 import type { EditResult, InvoiceScopeInput, Order } from '../../orderTypes';
@@ -206,6 +213,9 @@ const OrderDetailPage = () => {
     );
   }
 
+  /** Add payment / Send payment instructions, shown in the Payments section. */
+  const paymentActions = paymentSectionActions(allowedToolbarActions(order.availableActions, permissions));
+
   return (
     <Flex direction="column" alignItems="stretch" gap={6}>
       <OrderHeader
@@ -237,7 +247,27 @@ const OrderDetailPage = () => {
         )}
       </ReviewAlerts>
 
-      <OrderSection title={t('ecommerce.orders.detail.payments.title')}>
+      <OrderSection
+        title={t('ecommerce.orders.detail.payments.title')}
+        actions={
+          // Same availability and permission rules as in the top bar, which no longer shows them.
+          paymentActions.length ? (
+            <Flex gap={2}>
+              {paymentActions.map((action) => (
+                <Button
+                  key={action}
+                  size="S"
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => dispatchModal({ type: 'OPEN', action })}
+                >
+                  {t(`ecommerce.orders.detail.actions.${action}`)}
+                </Button>
+              ))}
+            </Flex>
+          ) : undefined
+        }
+      >
         <PaymentsOverview totals={order.totals} summary={order.summary} />
         <PaymentsTable
           payments={order.payments}

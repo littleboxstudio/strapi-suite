@@ -6,6 +6,7 @@ import CustomerCard from './CustomerCard';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import {
   allowedToolbarActions,
+  headerActions,
   editBlockedByShipment,
   type OrderActionPermissions,
   type ToolbarAction,
@@ -38,7 +39,8 @@ const OrderHeader = ({ order, back, permissions, busy, onAction }: Props) => {
   const { formatMessage, formatDate } = useIntl();
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
-  const actions = allowedToolbarActions(order.availableActions, permissions);
+  // Payment actions sit in the Payments section; the rest stays in the top bar.
+  const actions = headerActions(allowedToolbarActions(order.availableActions, permissions));
   // Editing is closed while a carrier shipment is pending: say why to whoever could edit.
   const editBlocked = permissions.canManage && editBlockedByShipment(order);
 
