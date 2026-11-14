@@ -24,6 +24,8 @@ export type InvoiceLine = {
   total: number;
   tax: number;
   partial: boolean;
+  /** SHIPPING lines of selection invoices: the shipping line they invoice. */
+  shippingLineId?: number | null;
 };
 
 export type CoverageValue = { orderLineId: number; value: number };
@@ -70,6 +72,31 @@ const isCents = (v: unknown): v is number => typeof v === 'number' && Number.isI
 const cents = (v: unknown): number => {
   const n = typeof v === 'number' ? v : Number(v);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+};
+
+const num = (v: unknown): number => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
+
+/** The stored `lines` JSON of an invoice row (`{ lines: [...] }`), malformed entries dropped. */
+export const readInvoiceLines = (raw: unknown): InvoiceLine[] => {
+  const list = isObject(raw) ? raw.lines : undefined;
+  if (!Array.isArray(list)) return [];
+  return list.filter(isObject).map((l) => {
+    const shippingLineId = l.shippingLineId == null ? null : Number(l.shippingLineId);
+    return {
+      orderLineId: l.orderLineId == null ? null : Number(l.orderLineId),
+      kind: l.kind === 'SHIPPING' ? 'SHIPPING' : 'ITEM',
+      sku: typeof l.sku === 'string' ? l.sku : '',
+      name: typeof l.name === 'string' ? l.name : '',
+      quantity: num(l.quantity),
+      total: num(l.total),
+      tax: num(l.tax),
+      partial: l.partial === true,
+      ...(Number.isInteger(shippingLineId) ? { shippingLineId } : {}),
+    };
+  });
 };
 
 const parseLines = (raw: unknown[]): CoverageValue[] => {
