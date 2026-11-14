@@ -21,6 +21,12 @@ describe('markets list helpers', () => {
     expect(addAllMarkets(list, ['ES', 'PT'])).toBe(list);
   });
 
+  it('addAllMarkets adds countries only, never Portugal - Ilhas', () => {
+    expect(addAllMarkets(['PT'], ['PT', 'PT-ISL', 'ES'])).toEqual(['PT', 'ES']);
+    const list = ['PT'];
+    expect(addAllMarkets(list, ['PT', 'PT-ISL'])).toBe(list);
+  });
+
   it('removeMarket removes the country', () => {
     expect(removeMarket(['PT', 'ES', 'FR'], 'ES')).toEqual(['PT', 'FR']);
     expect(removeMarket(['PT'], 'ES')).toEqual(['PT']);

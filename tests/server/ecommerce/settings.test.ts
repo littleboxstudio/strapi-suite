@@ -578,6 +578,27 @@ describe('EcommerceSettingsService — store settings', () => {
     expect(tables[UIDS.storeSetting]).toHaveLength(0);
   });
 
+  it('markets accept Portugal - Ilhas (PT-ISL) and no other region code', async () => {
+    const { service } = makeStrapi();
+    expect((await service.updateStoreSettings({ markets: ['PT', 'PT-ISL'] })).markets).toEqual(['PT', 'PT-ISL']);
+    await expect(service.updateStoreSettings({ markets: ['XX-ISL'] })).rejects.toMatchObject({
+      errors: [{ path: 'markets.0', code: 'invalid_country' }],
+    });
+  });
+
+  it('a manual method can price PT-ISL once it is a store market', async () => {
+    const { service } = makeStrapi();
+    await service.updateStoreSettings({ markets: ['PT'] });
+    const rates = { PT: [{ upTo: null, price: 350 }], 'PT-ISL': [{ upTo: null, price: 900 }] };
+    await expect(service.createManualMethod({ name: { en: 'Mail' }, rates })).rejects.toMatchObject({
+      errors: [{ path: 'rates.PT-ISL', code: 'invalid_country' }],
+    });
+    await service.updateStoreSettings({ markets: ['PT', 'PT-ISL'] });
+    const created = await service.createManualMethod({ name: { en: 'Mail' }, rates });
+    expect(created.rates).toEqual(rates);
+    expect((await service.listManualMethods())[0].rates).toEqual(rates);
+  });
+
   it('markets are required', async () => {
     const { service } = makeStrapi();
     await expect(service.updateStoreSettings({ markets: [] })).rejects.toMatchObject({

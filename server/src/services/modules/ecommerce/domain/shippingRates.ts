@@ -1,14 +1,17 @@
 import { MAX_MONEY_CENTS } from './orders';
+import { ISLANDS_MARKET } from './markets';
 
 /** `upTo` in kg (at most 3 decimals; null = no upper limit); `price` in cents. */
 export type WeightBracket = { upTo: number | null; price: number };
 
-/** Key = ISO 3166-1 alpha-2 country, upper case. */
+/** Key = market code: ISO 3166-1 alpha-2 country (upper case) or `PT-ISL`. */
 export type MarketRates = Record<string, WeightBracket[]>;
 
 type RateError = { path: string; code: string };
 
 const COUNTRY_RE = /^[A-Z]{2}$/;
+/** A market key: an ISO-shaped country or `PT-ISL`. */
+const isMarketKey = (key: string) => COUNTRY_RE.test(key) || key === ISLANDS_MARKET;
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -70,7 +73,7 @@ export function normalizeMarketRates(
   for (const [key, value] of Object.entries(input)) {
     const country = key.toUpperCase();
     const path = `rates.${country}`;
-    if (!COUNTRY_RE.test(country) || !markets.has(country)) {
+    if (!isMarketKey(country) || !markets.has(country)) {
       errors.push({ path, code: 'invalid_country' });
       continue;
     }
@@ -84,7 +87,7 @@ export function readMarketRates(stored: unknown): MarketRates {
   if (!isRecord(stored)) return {};
   const result: MarketRates = {};
   for (const [key, value] of Object.entries(stored)) {
-    if (!COUNTRY_RE.test(key)) continue;
+    if (!isMarketKey(key)) continue;
     const errors: RateError[] = [];
     const brackets = normalizeBrackets(value, key, errors);
     if (errors.length === 0) result[key] = brackets;

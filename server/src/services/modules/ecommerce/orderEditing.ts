@@ -58,6 +58,7 @@ import {
 } from './domain/discountRecalculation';
 import { computeTotals, financialSummary, MAX_MONEY_CENTS, type Address } from './domain/orders';
 import { normalizeEmail } from './domain/email';
+import { marketCountry, marketOf } from './domain/markets';
 import type {
   AppliedPromotion,
   BenefitRef,
@@ -210,6 +211,8 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
   const orders = (): OrderServiceLike => service('EcommerceOrderService');
   const events = (): { collector(): { emit(e: any): void; flush(): Promise<void> } } =>
     service('EcommerceEventBus');
+  const storeSettings = (): { getStoreSettings(): Promise<{ markets?: string[] }> } =>
+    service('EcommerceSettingsService');
   const shipping = (): {
     quote(
       req: ShippingQuoteRequest
@@ -658,17 +661,18 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     return key(a) === key(b);
   };
 
-  const countriesOf = async (state: OrderState): Promise<string[]> => {
+  /** The markets the order's current method serves, inside the store markets (market codes). */
+  const marketsOf = async (state: OrderState): Promise<string[]> => {
     const method = currentMethod(readShippingLines(state.order));
     return method ? shipping().servedCountries(method.providerId, method.serviceId) : [];
   };
 
-  /** The countries the order's current method serves, inside the store markets. */
+  /** The countries the order's current method serves, inside the store markets (PT-ISL gives PT). */
   const shippingAddressCountries = async (
     rawOrderId: number | string
   ): Promise<{ countries: string[] }> => {
     const state = await orders().computeOrderState(Number(rawOrderId));
-    return { countries: await countriesOf(state) };
+    return { countries: [...new Set((await marketsOf(state)).map(marketCountry))] };
   };
 
   /**
@@ -691,11 +695,14 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         const address = normalizeAddress(input?.address, 'address', errors);
         if (errors.length) throw new EcommerceValidationError('Invalid address', errors);
         if (sameAddress(address, state.order.shippingAddress)) return { address, due: null };
-        // Only a new country is checked: an unchanged one is kept even if no longer served.
-        const countryChanged =
-          String(address.country).toUpperCase() !==
-          String(state.order.shippingAddress?.country ?? '').toUpperCase();
-        if (countryChanged && !(await countriesOf(state)).includes(address.country)) {
+        // Only a new market is checked: an unchanged one is kept even if no longer served. The
+        // market is the country, or PT-ISL for an island postcode in a store selling there.
+        const storeMarkets = (await storeSettings().getStoreSettings()).markets ?? [];
+        const market = (a: Address | null | undefined) =>
+          marketOf(String(a?.country ?? '').toUpperCase(), a?.postalCode, storeMarkets);
+        const newMarket = market(address);
+        const marketChanged = newMarket !== market(state.order.shippingAddress);
+        if (marketChanged && !(await marketsOf(state)).includes(newMarket)) {
           throw new EcommerceValidationError('Invalid address', [
             { path: 'address.country', code: 'COUNTRY_NOT_SERVED' },
           ]);

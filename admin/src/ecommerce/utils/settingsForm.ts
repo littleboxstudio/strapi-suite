@@ -22,6 +22,9 @@ export const COUNTRY_CODES = [
 
 const COUNTRY_SET = new Set<string>(COUNTRY_CODES);
 
+/** Portugal - Ilhas (Azores and Madeira): the only market that is not a country. */
+export const ISLANDS_MARKET = 'PT-ISL';
+
 /** The store settings as the form keeps them: optional fields are empty strings, never null. */
 export type StoreForm = {
   storeName: string;
@@ -48,12 +51,15 @@ export function isValidHexColor(value: string): boolean {
   return /^#[0-9a-fA-F]{6}$/.test(value);
 }
 
-/** Upper-cased, de-duplicated ISO country codes, in their first-seen order; anything else is dropped. */
-export function normalizeCountries(values: string[]): string[] {
+/**
+ * Upper-cased, de-duplicated market codes (ISO countries or `PT-ISL`), in their first-seen order;
+ * anything else is dropped.
+ */
+export function normalizeMarkets(values: string[]): string[] {
   const result: string[] = [];
   values.forEach((value) => {
     const code = value.trim().toUpperCase();
-    if (COUNTRY_SET.has(code) && !result.includes(code)) result.push(code);
+    if ((COUNTRY_SET.has(code) || code === ISLANDS_MARKET) && !result.includes(code)) result.push(code);
   });
   return result;
 }
@@ -67,6 +73,16 @@ export function countryOptions(locale: string): { code: string; name: string }[]
     names = null;
   }
   return COUNTRY_CODES.map((code) => ({ code, name: names?.of(code) ?? code })).sort((a, b) =>
+    a.name.localeCompare(b.name, locale)
+  );
+}
+
+/**
+ * Every market a store can sell to: the countries plus Portugal - Ilhas (`islandsName`, translated
+ * by the caller), sorted by name. Address forms use `countryOptions`: an address is never `PT-ISL`.
+ */
+export function marketOptions(locale: string, islandsName: string): { code: string; name: string }[] {
+  return [...countryOptions(locale), { code: ISLANDS_MARKET, name: islandsName }].sort((a, b) =>
     a.name.localeCompare(b.name, locale)
   );
 }
@@ -111,7 +127,7 @@ export function buildStoreSettingsInput(form: StoreForm): StoreSettingsInput {
     storefrontUrl: optional(form.storefrontUrl),
     supportEmail: optional(form.supportEmail),
     timezone: form.timezone,
-    markets: normalizeCountries(form.markets),
+    markets: normalizeMarkets(form.markets),
     ...(form.checkoutSessionTtlHours !== undefined && {
       checkoutSessionTtlHours: form.checkoutSessionTtlHours,
     }),
@@ -133,7 +149,7 @@ export function validateStoreForm(form: StoreForm): SettingsFieldError[] {
   const email = form.supportEmail.trim();
   if (email !== '' && !isEmail(email)) push('supportEmail', 'invalid_email');
   if (form.timezone === '' || !isTimezone(form.timezone)) push('timezone', 'invalid_timezone');
-  if (normalizeCountries(form.markets).length === 0) push('markets', 'required');
+  if (normalizeMarkets(form.markets).length === 0) push('markets', 'required');
   return errors;
 }
 

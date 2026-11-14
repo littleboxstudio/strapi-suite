@@ -3,12 +3,13 @@ import moloni from './definitions/moloni';
 import cttExpresso from './definitions/ctt-expresso';
 import manual from './definitions/manual';
 import resend from './definitions/resend';
+import { ISLANDS_MARKET } from '../domain/markets';
 
 export type ProviderCategory = 'payment' | 'billing' | 'carrier' | 'email';
 
 export type ProviderField = {
   key: string;
-  /** `markets`: a list of ISO country codes (`string[]`), each one a store market. */
+  /** `markets`: a list of market codes (`string[]`: ISO countries or `PT-ISL`), each one a store market. */
   type: 'string' | 'secret' | 'boolean' | 'number' | 'select' | 'markets';
   required: boolean;
   default?: unknown;
@@ -126,7 +127,7 @@ export function validateProviderInput(
       // An empty list counts as empty; membership in the store markets is checked by the settings service.
       if (value === undefined || value === null || (Array.isArray(value) && value.length === 0)) {
         if (field.required) issues.push({ path, code: 'required' });
-      } else if (!Array.isArray(value) || !value.every((c) => typeof c === 'string' && /^[A-Z]{2}$/.test(c))) {
+      } else if (!Array.isArray(value) || !value.every((c) => typeof c === 'string' && (/^[A-Z]{2}$/.test(c) || c === ISLANDS_MARKET))) {
         issues.push({ path, code: 'invalid_country' });
       }
       continue;

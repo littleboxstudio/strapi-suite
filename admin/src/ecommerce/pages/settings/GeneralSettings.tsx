@@ -26,10 +26,10 @@ import UpdateStoreSettings from '../../usecases/settings/updateStoreSettings';
 import { extractFieldErrors } from '../../utils/productForm';
 import {
   buildStoreSettingsInput,
-  countryOptions,
   extractErrorCode,
   isValidHexColor,
   marketInUseNames,
+  marketOptions,
   storeFormFromSettings,
   timezoneOptions,
   validateStoreForm,
@@ -118,7 +118,8 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
   /** Shipping methods and carriers named by a `MARKET_IN_USE` error, shown in the Markets field. */
   const [marketUsers, setMarketUsers] = useState<string[]>([]);
 
-  const countries = useMemo(() => countryOptions(locale), [locale]);
+  const islandsName = t('ecommerce.settings.markets.names.PT-ISL');
+  const countries = useMemo(() => marketOptions(locale, islandsName), [locale, islandsName]);
   const timezones = useMemo(() => timezoneOptions(form?.timezone ?? ''), [form?.timezone]);
 
   useEffect(() => {

@@ -377,6 +377,17 @@ describe('EcommerceOrderService.create', () => {
     ).toEqual([{ path: 'shippingAddress.country', code: 'invalid_country' }]);
   });
 
+  it('a store selling only to PT-ISL accepts a PT address and quotes it by its postcode', async () => {
+    const { service, settings, shipping } = setup();
+    settings.countries = ['PT-ISL'];
+    const island = address({ country: 'PT', postalCode: '9000-001' });
+    await service.create(input({ shippingAddress: island }), ctx);
+    expect(shipping.findOption.mock.calls.at(-1)![0]).toMatchObject({ country: 'PT', postalCode: '9000-001' });
+    expect(
+      await codes(service.create(input({ shippingAddress: address({ country: 'PT-ISL' }) }), ctx))
+    ).toEqual([{ path: 'shippingAddress.country', code: 'invalid_country' }]);
+  });
+
   it('validates fields, quantities, availability and shipping', async () => {
     const { service } = setup();
     expect(
@@ -646,6 +657,26 @@ describe('EcommerceOrderService.create', () => {
           lines: input().lines,
           locale: 'en',
           shipping: { country: 'ES', providerId: 'manual', serviceId: '1' },
+        } as any)
+      )
+    ).toEqual([{ path: 'shipping.country', code: 'invalid_country' }]);
+  });
+
+  it('a quote to PT is accepted when the store sells only to PT-ISL; PT-ISL is never a country', async () => {
+    const { service, settings, shipping } = setup();
+    settings.countries = ['PT-ISL'];
+    await service.quote({
+      lines: input().lines,
+      locale: 'en',
+      shipping: { country: 'PT', postalCode: '9000-001', providerId: 'manual', serviceId: '1' },
+    } as any);
+    expect(shipping.findOption.mock.calls.at(-1)![0]).toMatchObject({ country: 'PT', postalCode: '9000-001' });
+    expect(
+      await codes(
+        service.quote({
+          lines: input().lines,
+          locale: 'en',
+          shipping: { country: 'PT-ISL', providerId: 'manual', serviceId: '1' },
         } as any)
       )
     ).toEqual([{ path: 'shipping.country', code: 'invalid_country' }]);

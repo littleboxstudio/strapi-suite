@@ -5,6 +5,7 @@
 import type { Core } from '@strapi/strapi';
 import { EcommerceValidationError, type ValidationIssue } from './errors';
 import { isValidEmailFormat } from './domain/email';
+import { marketCountry } from './domain/markets';
 import { manualUnitDiscount } from './domain/lineDiscounts';
 import type { ShippingOption, ShippingQuoteRequest } from './shipping';
 import {
@@ -429,7 +430,7 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
         errors.push({ path: 'shipping.country', code: 'required' });
       } else {
         const store = await getStoreSettings();
-        const countries: string[] = store?.markets ?? [];
+        const countries: string[] = (store?.markets ?? []).map(marketCountry);
         if (!/^[A-Z]{2}$/.test(country) || !countries.includes(country)) {
           errors.push({ path: 'shipping.country', code: 'invalid_country' });
         }

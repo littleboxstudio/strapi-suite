@@ -54,6 +54,7 @@ import type { StockMoveInput } from './stock';
 import type { OrderHistoryEntry } from './orderHistory';
 import type { CustomerInput } from './customers';
 import { normalizeEmail } from './domain/email';
+import { marketCountry } from './domain/markets';
 import { normalizeStoreCreditCode } from './storeCredits';
 import {
   type AppliedPromotion,
@@ -599,7 +600,8 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
   const validateInput = async (input: CreateOrderInput, source: OrderSource) => {
     const errors: ValidationIssue[] = [];
     const store = await service('EcommerceSettingsService').getStoreSettings();
-    const countries: string[] = store?.markets ?? [];
+    // An address country is allowed when one of its markets is a store market (PT-ISL allows PT).
+    const countries: string[] = (store?.markets ?? []).map(marketCountry);
 
     const c = (input?.customer ?? {}) as Record<string, unknown>;
     const customer = {

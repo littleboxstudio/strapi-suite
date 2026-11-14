@@ -138,9 +138,10 @@ function setup() {
       deletable: false,
     },
   ];
+  const store = { markets: ['PT', 'ES'] };
   services.EcommerceSettingsService = {
     getActiveProviders: async () => ['manual'],
-    getStoreSettings: async () => ({ markets: ['PT', 'ES'] }),
+    getStoreSettings: async () => ({ markets: store.markets }),
     listManualMethods: async () => methods,
     getRuntime: async () => null,
   };
@@ -180,7 +181,7 @@ function setup() {
     { id: 1, product: 1, url: '/p1.jpg', position: 0 },
     { id: 2, variant: 12, url: '/v12.jpg', position: 0 }
   );
-  return { orders, editing, payments, tables: t, bus, findOption, methods, misses, log };
+  return { orders, editing, payments, tables: t, bus, findOption, methods, misses, log, store };
 }
 
 type Ctx = ReturnType<typeof setup>;
@@ -271,6 +272,51 @@ describe('EcommerceOrderEditingService.shippingAddressCountries', () => {
     const ctx = setup();
     const id = await createOrder(ctx);
     expect((await ctx.editing.shippingAddressCountries(id)).countries.sort()).toEqual(['ES', 'PT']);
+  });
+});
+
+describe('Portugal - Ilhas (PT-ISL) in order editing', () => {
+  const island = { ...address, line1: 'Rua C 3', city: 'Funchal', postalCode: '9000-001' };
+
+  it('the address select offers PT for a method serving PT-ISL, never the market code', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    ctx.store.markets = ['PT', 'PT-ISL', 'ES'];
+    ctx.methods[0].rates['PT-ISL'] = BRACKETS;
+    expect((await ctx.editing.shippingAddressCountries(id)).countries.sort()).toEqual(['ES', 'PT']);
+    delete ctx.methods[0].rates.PT;
+    delete ctx.methods[0].rates.ES;
+    expect((await ctx.editing.shippingAddressCountries(id)).countries).toEqual(['PT']);
+  });
+
+  it('moving to an island is COUNTRY_NOT_SERVED when the store sells to PT-ISL and the method does not', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    ctx.store.markets = ['PT', 'PT-ISL', 'ES'];
+    const before = JSON.stringify(ctx.tables);
+    expect(
+      await issues(ctx.editing.updateShippingAddress(id, { address: island }, 'user:1', 'op-isl-0001'))
+    ).toEqual([{ path: 'address.country', code: 'COUNTRY_NOT_SERVED' }]);
+    expect(JSON.stringify(ctx.tables)).toBe(before);
+  });
+
+  it('moving to an island is re-quoted at the PT-ISL price when the method serves it', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    ctx.store.markets = ['PT', 'PT-ISL', 'ES'];
+    ctx.methods[0].rates['PT-ISL'] = [{ upTo: null, price: 1200 }];
+    await ctx.editing.updateShippingAddress(id, { address: island }, 'user:1', 'op-isl-0002');
+    expect(orderRow(ctx, id).shippingAddress).toMatchObject({ country: 'PT', postalCode: '9000-001' });
+    expect(flag(ctx, id, 'SHIPPING_REVIEW')).toMatchObject({ reason: 'ADDRESS_CHANGED' });
+  });
+
+  it('without PT-ISL in the store markets an island address stays in PT, as before', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    ctx.methods[0].rates['PT-ISL'] = [{ upTo: null, price: 1200 }];
+    await ctx.editing.updateShippingAddress(id, { address: island }, 'user:1', 'op-isl-0003');
+    expect(orderRow(ctx, id).shippingAddress).toMatchObject({ postalCode: '9000-001' });
+    expect(flagsOf(ctx, id)).toEqual([]);
   });
 });
 
