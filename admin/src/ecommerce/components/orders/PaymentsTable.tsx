@@ -3,6 +3,7 @@ import { Badge, Box, Button, Flex, Table, Tbody, Td, Th, Thead, Tr, Typography }
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { formatCents } from '../../utils/money';
 import { invoiceStatusTone } from '../../utils/invoiceForm';
+import { paymentRowHasActions } from '../../utils/orderDetail';
 import type { OrderPayment } from '../../orderTypes';
 import ColumnLabel from '../ColumnLabel';
 
@@ -40,11 +41,16 @@ const PaymentsTable = ({ payments, canInvoice = false, billingActive = false, on
     );
   }
 
+  const canGenerate = canInvoice && !!onInvoice;
+  // No row has anything in Actions: the column goes away.
+  const showActions = payments.some((p) => paymentRowHasActions(p, canGenerate));
+  const columns = showActions ? COLUMNS : COLUMNS.filter((c) => c !== 'actions');
+
   return (
-    <Table colCount={COLUMNS.length} rowCount={payments.length + 1}>
+    <Table colCount={columns.length} rowCount={payments.length + 1}>
       <Thead>
         <Tr>
-          {COLUMNS.map((column) => (
+          {columns.map((column) => (
             <Th key={column}>
               <ColumnLabel column={column}>{t(`ecommerce.orders.detail.payments.${column}`)}</ColumnLabel>
             </Th>
@@ -79,6 +85,7 @@ const PaymentsTable = ({ payments, canInvoice = false, billingActive = false, on
                   {date ? formatDate(date, { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
                 </Typography>
               </Td>
+              {showActions && (
               <Td>
                 <Flex gap={2} justifyContent="flex-end" alignItems="center" wrap="wrap">
                   {p.invoice?.status && (
@@ -93,6 +100,7 @@ const PaymentsTable = ({ payments, canInvoice = false, billingActive = false, on
                   )}
                 </Flex>
               </Td>
+              )}
             </Tr>
           );
         })}
