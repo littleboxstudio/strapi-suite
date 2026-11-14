@@ -13,109 +13,160 @@ import {
   isUncertainResult,
   issuedWarnings,
   canMarkFailed,
+  hasReturnable,
   validateCreditNoteForm,
   type CreditNoteForm,
 } from '../../../admin/src/ecommerce/utils/invoiceForm';
+import type { CreditNoteOptions } from '../../../admin/src/ecommerce/orderTypes';
 
 const en = require('../../../admin/src/core/translations/en.json');
 const pt = require('../../../admin/src/core/translations/pt.json');
 const P = 'littlebox-strapi-suite.';
 
+const options = (overrides: Partial<CreditNoteOptions> = {}): CreditNoteOptions => ({
+  lines: [],
+  creditable: [1000, 500],
+  correction: { lines: [], total: 1500 },
+  returnable: [{ index: 0, units: 1, unitsLeft: 3, valueLeft: 1000 }],
+  shipping: [{ index: 1, value: 500 }],
+  ...overrides,
+});
+
 const form = (overrides: Partial<CreditNoteForm> = {}): CreditNoteForm => ({
-  lines: [
-    { index: 0, amount: '10,00' },
-    { index: 1, amount: '' },
-  ],
+  creditType: 'RETURN',
+  quantities: { 0: 1 },
+  shipping: [],
   reason: 'Returned item',
   ...overrides,
 });
 
-const creditable = [1500, 300];
-
 describe('emptyCreditNoteForm', () => {
-  it('prefills each line with the server suggestion (empty when 0)', () => {
-    expect(
-      emptyCreditNoteForm({ lines: [{}, {}] as any, creditable: [1500, 300], suggested: [1234, 0] }, 'pt-PT')
-    ).toEqual({
-      lines: [
-        { index: 0, amount: '12,34' },
-        { index: 1, amount: '' },
-      ],
+  it('starts on RETURN when some returnable line has units, with nothing chosen', () => {
+    expect(emptyCreditNoteForm(options())).toEqual({
+      creditType: 'RETURN',
+      quantities: {},
+      shipping: [],
       reason: '',
     });
   });
 
-  it('never prefills more than the creditable value', () => {
+  it('starts on CORRECTION when nothing is returnable (no entries, or all with 0 units)', () => {
+    expect(emptyCreditNoteForm(options({ returnable: [] })).creditType).toBe('CORRECTION');
     expect(
-      emptyCreditNoteForm({ lines: [{}] as any, creditable: [500], suggested: [900] }, 'en').lines[0].amount
-    ).toBe('5.00');
+      emptyCreditNoteForm(
+        options({ returnable: [{ index: 0, units: 0, unitsLeft: 3, valueLeft: 1000 }] })
+      ).creditType
+    ).toBe('CORRECTION');
+  });
+});
+
+describe('hasReturnable', () => {
+  it('is true only when some returnable entry has units > 0', () => {
+    expect(hasReturnable(options())).toBe(true);
+    expect(hasReturnable(options({ returnable: [] }))).toBe(false);
+    expect(
+      hasReturnable(
+        options({ returnable: [{ index: 0, units: 0, unitsLeft: 3, valueLeft: 1000 }] })
+      )
+    ).toBe(false);
   });
 });
 
 describe('validateCreditNoteForm', () => {
-  it('accepts a valid credit note', () => {
-    expect(validateCreditNoteForm(form(), creditable)).toEqual({});
+  it('accepts a valid RETURN', () => {
+    expect(validateCreditNoteForm(form(), options())).toEqual({});
+    expect(validateCreditNoteForm(form({ quantities: {}, shipping: [1] }), options())).toEqual({});
   });
 
-  it('refuses an amount above the creditable value of its line', () => {
-    expect(validateCreditNoteForm(form({ lines: [{ index: 0, amount: '15,01' }] }), creditable)).toEqual({
-      'lines.0': 'exceeds_creditable',
-    });
-    expect(validateCreditNoteForm(form({ lines: [{ index: 0, amount: '15,00' }] }), creditable)).toEqual({});
-  });
-
-  it('refuses an amount that is not money', () => {
-    expect(validateCreditNoteForm(form({ lines: [{ index: 1, amount: 'abc' }] }), creditable)).toEqual({
-      'lines.1': 'invalid_amount',
+  it('refuses a quantity above the returnable units of its line', () => {
+    expect(validateCreditNoteForm(form({ quantities: { 0: 2 } }), options())).toEqual({
+      'quantities.0': 'exceeds_creditable',
     });
   });
 
-  it('a total of 0 → required', () => {
+  it('a RETURN with nothing chosen → lines: required', () => {
+    expect(validateCreditNoteForm(form({ quantities: {} }), options())).toEqual({
+      lines: 'required',
+    });
+    expect(validateCreditNoteForm(form({ quantities: { 0: 0 } }), options())).toEqual({
+      lines: 'required',
+    });
+  });
+
+  it('a CORRECTION needs only the reason', () => {
     expect(
       validateCreditNoteForm(
-        form({
-          lines: [
-            { index: 0, amount: '' },
-            { index: 1, amount: '0,00' },
-          ],
-        }),
-        creditable
+        form({ creditType: 'CORRECTION', quantities: { 0: 9 } }),
+        options({ returnable: [] })
       )
-    ).toEqual({ lines: 'required' });
+    ).toEqual({});
+    expect(
+      validateCreditNoteForm(form({ creditType: 'CORRECTION', reason: '' }), options())
+    ).toEqual({
+      reason: 'required',
+    });
   });
 
   it('an empty reason → required; a reason over 500 characters → too_long', () => {
-    expect(validateCreditNoteForm(form({ reason: '   ' }), creditable)).toEqual({ reason: 'required' });
-    expect(validateCreditNoteForm(form({ reason: 'x'.repeat(MAX_CREDIT_NOTE_REASON) }), creditable)).toEqual({});
+    expect(validateCreditNoteForm(form({ reason: '   ' }), options())).toEqual({
+      reason: 'required',
+    });
     expect(
-      validateCreditNoteForm(form({ reason: 'x'.repeat(MAX_CREDIT_NOTE_REASON + 1) }), creditable)
-    ).toEqual({ reason: 'too_long' });
+      validateCreditNoteForm(form({ reason: 'x'.repeat(MAX_CREDIT_NOTE_REASON) }), options())
+    ).toEqual({});
+    expect(
+      validateCreditNoteForm(form({ reason: 'x'.repeat(MAX_CREDIT_NOTE_REASON + 1) }), options())
+    ).toEqual({
+      reason: 'too_long',
+    });
   });
 });
 
 describe('creditNoteTotal', () => {
-  it('sums the valid amounts', () => {
+  it('RETURN: the value of the chosen units (as the server) plus the ticked shipping lines', () => {
+    expect(creditNoteTotal(form({ quantities: { 0: 1 }, shipping: [1] }), options())).toBe(833);
     expect(
       creditNoteTotal(
-        form({
-          lines: [
-            { index: 0, amount: '10,50' },
-            { index: 1, amount: '2' },
-            { index: 2, amount: 'x' },
-          ],
-        })
+        form({ quantities: { 0: 3 } }),
+        options({ returnable: [{ index: 0, units: 3, unitsLeft: 3, valueLeft: 1000 }] })
       )
-    ).toBe(1250);
-    expect(creditNoteTotal(form({ lines: [] }))).toBe(0);
+    ).toBe(1000);
+  });
+
+  it('RETURN: a quantity above the returnable units counts nothing', () => {
+    expect(creditNoteTotal(form({ quantities: { 0: 2 } }), options())).toBe(0);
+  });
+
+  it('CORRECTION: the whole creditable value', () => {
+    expect(creditNoteTotal(form({ creditType: 'CORRECTION' }), options())).toBe(1500);
   });
 });
 
 describe('buildCreditNoteInput', () => {
-  it('sends the lines with a value, the trimmed reason and the key', () => {
-    expect(buildCreditNoteInput(form({ reason: '  Damaged ' }), 'key-1')).toEqual({
-      lines: [{ index: 0, value: 1000 }],
+  it('CORRECTION sends no lines or shipping indexes', () => {
+    expect(
+      buildCreditNoteInput(
+        form({ creditType: 'CORRECTION', shipping: [1], reason: '  Wrong NIF ' }),
+        'key-1'
+      )
+    ).toEqual({ creditType: 'CORRECTION', reason: 'Wrong NIF', idempotencyKey: 'key-1' });
+  });
+
+  it('RETURN sends the lines with a quantity (0 left out) and the ticked shipping indexes', () => {
+    expect(
+      buildCreditNoteInput(
+        form({ quantities: { 2: 1, 0: 0, 1: 2 }, shipping: [3], reason: ' Damaged ' }),
+        'key-2'
+      )
+    ).toEqual({
+      creditType: 'RETURN',
+      lines: [
+        { index: 1, quantity: 2 },
+        { index: 2, quantity: 1 },
+      ],
+      shippingIndexes: [3],
       reason: 'Damaged',
-      idempotencyKey: 'key-1',
+      idempotencyKey: 'key-2',
     });
   });
 });
