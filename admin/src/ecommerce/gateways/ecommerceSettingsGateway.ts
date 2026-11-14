@@ -19,6 +19,8 @@ import type {
   StorefrontTokenState,
   StripeWebhookInfo,
   TemplateContent,
+  DpdServices,
+  DpdServicesSaveResult,
 } from '../settingsTypes';
 import type { EcommerceLocales } from '../types';
 
@@ -43,7 +45,9 @@ export default interface EcommerceSettingsGateway {
   createShippingMethod(input: ManualMethodInput): Promise<ManualMethod>;
   updateShippingMethod(id: number, input: ManualMethodInput): Promise<ManualMethod>;
   deleteShippingMethod(id: number): Promise<void>;
-
+  fetchDpdServices(): Promise<DpdServices>;
+  /** Replaces both services; the integration is turned off when none is active. */
+  saveDpdServices(services: DpdServices): Promise<DpdServicesSaveResult>;
 
   fetchEmailTemplates(): Promise<EmailTemplateSummary[]>;
   fetchEmailTemplate(type: EmailTemplateType, locale: string): Promise<EmailTemplateView>;
@@ -154,6 +158,14 @@ export class EcommerceSettingsGatewayHttp implements EcommerceSettingsGateway {
     await this.httpClient.delete(`${this.base}/shipping-methods/${id}`);
   }
 
+  async fetchDpdServices(): Promise<DpdServices> {
+    return this.httpClient.get(`${this.base}/carriers/dpd-portugal/services`);
+  }
+
+  async saveDpdServices(services: DpdServices): Promise<DpdServicesSaveResult> {
+    return this.httpClient.put(`${this.base}/carriers/dpd-portugal/services`, services);
+  }
+
   async fetchEmailTemplates(): Promise<EmailTemplateSummary[]> {
     return this.httpClient.get(`${this.base}/email-templates`);
   }
@@ -204,9 +216,6 @@ export class EcommerceSettingsGatewayHttp implements EcommerceSettingsGateway {
     locale: string,
     versionId: number
   ): Promise<EmailTemplateView> {
-    return this.httpClient.post(
-      `${this.template(type, locale)}/versions/${versionId}/restore`,
-      {}
-    );
+    return this.httpClient.post(`${this.template(type, locale)}/versions/${versionId}/restore`, {});
   }
 }

@@ -65,9 +65,11 @@ export function manualMethodToDraft(
   };
 }
 
-/** Copies the brackets of `from` (deep) to every selected market. */
 /** Every selected market gets its own copy of `rows` (their current ranges are replaced). */
-export function fillAllMarkets(draft: ManualMethodDraft, rows: BracketDraft[]): ManualMethodDraft {
+export function fillAllMarkets<D extends Pick<ManualMethodDraft, 'markets' | 'brackets'>>(
+  draft: D,
+  rows: BracketDraft[]
+): D {
   return {
     ...draft,
     brackets: Object.fromEntries(draft.markets.map((code) => [code, rows.map((b) => ({ ...b }))])),
@@ -112,10 +114,14 @@ export function validateBracketRows(
   return { brackets, errors };
 }
 
-/** Validates the draft; returns the input only when there are no errors. */
+/**
+ * Validates the draft; returns the input only when there are no errors. `marketsRequired: false`
+ * accepts a draft without markets (empty rates), as the DPD services do.
+ */
 export function draftToManualMethodInput(
   draft: ManualMethodDraft,
-  defaultLocale: string
+  defaultLocale: string,
+  { marketsRequired = true }: { marketsRequired?: boolean } = {}
 ): { input?: ManualMethodInput; errors: ManualMethodErrors } {
   const errors: ManualMethodErrors = {};
 
@@ -126,7 +132,7 @@ export function draftToManualMethodInput(
   if (!name[defaultLocale]) errors[`name.${defaultLocale}`] = 'required';
 
   const rates: Record<string, { upTo: number | null; price: number }[]> = {};
-  if (draft.markets.length === 0) errors.markets = 'required';
+  if (marketsRequired && draft.markets.length === 0) errors.markets = 'required';
   draft.markets.forEach((code) => {
     const rows = draft.brackets[code] ?? [];
     if (rows.length === 0) {
