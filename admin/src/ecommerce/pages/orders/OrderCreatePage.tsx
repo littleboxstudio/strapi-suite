@@ -422,6 +422,7 @@ const OrderCreatePage = () => {
   const disabled = submitting;
   const lineError = (index: number) =>
     translateCode(errors[`lines.${index}.quantity`] ?? errors[`lines.${index}.variantId`]);
+  const discountError = (index: number) => translateCode(errors[`lines.${index}.discountPercent`]);
 
   return (
     <Flex direction="column" alignItems="stretch" gap={6}>
@@ -540,8 +541,12 @@ const OrderCreatePage = () => {
           lines={form.lines}
           disabled={disabled}
           errorFor={lineError}
+          discountErrorFor={discountError}
           onQuantityChange={(index, quantity) =>
             updateLines((lines) => lines.map((l, i) => (i === index ? { ...l, quantity } : l)))
+          }
+          onDiscountChange={(index, discount) =>
+            updateLines((lines) => lines.map((l, i) => (i === index ? { ...l, discount } : l)))
           }
           onRemove={(index) => updateLines((lines) => lines.filter((_, i) => i !== index))}
         />

@@ -1,4 +1,5 @@
 import { isEmail } from './settingsForm';
+import { lineUnitDiscount, parseDiscountPercent } from './lineDiscount';
 import {
   MAX_PROMOTION_CODES,
   type Address,
@@ -33,6 +34,8 @@ export type OrderLineDraft = {
   stock: number;
   imageUrl: string | null;
   quantity: number;
+  /** The manual discount percent as typed (spec 4.1); absent or '' = none. */
+  discount?: string;
 };
 
 export type OrderForm = {
@@ -109,8 +112,26 @@ export function copyAddress(source: AddressForm, target: AddressForm): AddressFo
 
 const validQuantity = (q: number) => Number.isSafeInteger(q) && q >= 1;
 
+/** The unit price after the typed percent (an invalid or empty one leaves the price as is). */
+export function lineUnitNet(line: OrderLineDraft): number {
+  const parsed = parseDiscountPercent(line.discount ?? '');
+  return parsed.ok && parsed.value !== null
+    ? line.unitPrice - lineUnitDiscount(line.unitPrice, parsed.value)
+    : line.unitPrice;
+}
+
 export function lineSubtotal(line: OrderLineDraft): number {
-  return validQuantity(line.quantity) ? line.unitPrice * line.quantity : 0;
+  return validQuantity(line.quantity) ? lineUnitNet(line) * line.quantity : 0;
+}
+
+/** A line as the server input: the percent only when one is set (spec 4.1). */
+function lineInput(l: OrderLineDraft): { variantId: number; quantity: number; discountPercent?: number } {
+  const parsed = parseDiscountPercent(l.discount ?? '');
+  return {
+    variantId: l.variantId,
+    quantity: l.quantity,
+    ...(parsed.ok && parsed.value !== null ? { discountPercent: parsed.value } : {}),
+  };
 }
 
 /** Local preview only: the server recomputes every amount when the order is created. */
@@ -166,6 +187,9 @@ export function validateOrderForm(form: OrderForm): FieldError[] {
   if (!form.lines.length) errors.push({ path: 'lines', code: 'required' });
   form.lines.forEach((l, i) => {
     if (!validQuantity(l.quantity)) errors.push({ path: `lines.${i}.quantity`, code: 'INVALID_QUANTITY' });
+    if (!parseDiscountPercent(l.discount ?? '').ok) {
+      errors.push({ path: `lines.${i}.discountPercent`, code: 'INVALID_PERCENT' });
+    }
   });
   if (!form.shipping) errors.push({ path: 'shipping', code: 'required' });
   return errors;
@@ -209,7 +233,7 @@ export function buildCreateOrderInput(
     shippingAddress: toAddress(form.shippingAddress, false),
     billingAddress: toAddress(billing, true),
     locale: form.locale,
-    lines: form.lines.map((l) => ({ variantId: l.variantId, quantity: l.quantity })),
+    lines: form.lines.map(lineInput),
     shipping: form.shipping ?? { providerId: '', serviceId: '' },
     ...(notes ? { notes } : {}),
     idempotencyKey,
@@ -277,7 +301,7 @@ export function buildQuoteInput(form: OrderForm, giftChoices: Record<number, num
   const country = form.shippingAddress.country.trim().toUpperCase();
   const postalCode = form.shippingAddress.postalCode.trim();
   return {
-    lines: form.lines.map((l) => ({ variantId: l.variantId, quantity: l.quantity })),
+    lines: form.lines.map(lineInput),
     locale: form.locale,
     email: email && isEmail(email) ? email : null,
     promotionCodes: normalizePromotionCodes(form.promotionCodes ?? []),

@@ -1,4 +1,5 @@
 import { MAX_MONEY_CENTS, parseMoneyToCents } from './money';
+import { parseDiscountPercent } from './lineDiscount';
 import { ADDRESS_REQUIRED_FIELDS, type AddressForm } from './orderForm';
 import {
   allowedToolbarActions,
@@ -290,9 +291,9 @@ export function manualDiscountDraftToInput(draft: {
       errors.push({ path: 'value', code: 'INVALID_AMOUNT' });
     } else value = cents;
   } else {
-    const percent = /^\d+([.,]\d{1,2})?$/.test(raw) ? Number(raw.replace(',', '.')) : NaN;
-    if (!(percent > 0 && percent <= 100)) errors.push({ path: 'value', code: 'INVALID_PERCENT' });
-    else value = percent;
+    const percent = parseDiscountPercent(raw);
+    if (!percent.ok || percent.value === null) errors.push({ path: 'value', code: 'INVALID_PERCENT' });
+    else value = percent.value;
   }
 
   const reason = draft.reason.trim();
@@ -350,3 +351,12 @@ export function balanceAfter(after: ModificationTotals): { outcome: Modification
   if (after.excess > 0) return { outcome: 'REFUNDABLE', amount: after.excess };
   return { outcome: 'NONE', amount: 0 };
 }
+
+// Manual line discount helpers (spec 4.1), shared with the products and new-order editors.
+export {
+  discountPercentFromInput,
+  formatLineDiscount,
+  lineUnitDiscount,
+  parseDiscountPercent,
+  percentToInput,
+} from './lineDiscount';

@@ -18,6 +18,11 @@ import {
   discountSelectionToggle,
   hasRowActions,
   manualDiscountPercent,
+  discountPercentFromInput,
+  formatLineDiscount,
+  lineUnitDiscount,
+  parseDiscountPercent,
+  percentToInput,
   manualDiscountRows,
   orderDiscountTotal,
   manualDiscountDraftToInput,
@@ -727,5 +732,55 @@ describe('balanceAfter', () => {
   it('settled → NONE', async () => {
     const { balanceAfter } = await import('../../../admin/src/ecommerce/utils/orderEditing');
     expect(balanceAfter(totals(0, 0))).toEqual({ outcome: 'NONE', amount: 0 });
+  });
+});
+
+describe('line discount percent helpers (spec 4.1)', () => {
+  it('discountPercentFromInput keeps digits and one separator, at most 2 decimals and 3 digits', () => {
+    expect(discountPercentFromInput('12,5')).toBe('12,5');
+    expect(discountPercentFromInput('12.345')).toBe('12.34');
+    expect(discountPercentFromInput('1a0%')).toBe('10');
+    expect(discountPercentFromInput('1,2,3')).toBe('1,23');
+    expect(discountPercentFromInput('12345')).toBe('123');
+    expect(discountPercentFromInput('')).toBe('');
+    expect(discountPercentFromInput('-5')).toBe('5');
+  });
+
+  it('parseDiscountPercent: empty is none; 0 < p ≤ 100 with a comma or a dot', () => {
+    expect(parseDiscountPercent('')).toEqual({ ok: true, value: null });
+    expect(parseDiscountPercent('  ')).toEqual({ ok: true, value: null });
+    expect(parseDiscountPercent('10')).toEqual({ ok: true, value: 10 });
+    expect(parseDiscountPercent('12,5')).toEqual({ ok: true, value: 12.5 });
+    expect(parseDiscountPercent('33.33')).toEqual({ ok: true, value: 33.33 });
+    expect(parseDiscountPercent('100')).toEqual({ ok: true, value: 100 });
+    for (const bad of ['0', '0,00', '100,01', '101', '10,', ',5', '1.234', 'x']) {
+      expect(parseDiscountPercent(bad)).toEqual({ ok: false });
+    }
+  });
+
+  it('lineUnitDiscount rounds like the server (half up, cents)', () => {
+    expect(lineUnitDiscount(2000, 10)).toBe(200);
+    expect(lineUnitDiscount(1999, 33.33)).toBe(666);
+    expect(lineUnitDiscount(1005, 50)).toBe(503);
+    expect(lineUnitDiscount(2000, 100)).toBe(2000);
+  });
+
+  it('formats a percent for display and for the input', () => {
+    expect(formatLineDiscount(10, 'en')).toBe('−10 %');
+    expect(formatLineDiscount(12.5, 'pt')).toBe('−12,5 %');
+    expect(percentToInput(12.5, 'pt')).toBe('12,5');
+    expect(percentToInput(12.5, 'en')).toBe('12.5');
+    expect(percentToInput(null, 'en')).toBe('');
+  });
+
+  it('texts exist in en and pt', () => {
+    for (const key of [
+      'ecommerce.orders.lines.discount',
+      'ecommerce.orders.errors.DISCOUNT_LINE_SHIPPED',
+      'ecommerce.orders.detail.lines.manualDiscount',
+    ]) {
+      expect(en[`littlebox-strapi-suite.${key}`]).toBeTruthy();
+      expect(pt[`littlebox-strapi-suite.${key}`]).toBeTruthy();
+    }
   });
 });

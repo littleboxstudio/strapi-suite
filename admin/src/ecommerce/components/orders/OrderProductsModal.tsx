@@ -13,6 +13,7 @@ import {
   linesDraftFromOrder,
   removeModifyLine,
   restoreModifyLine,
+  setModifyLineDiscount,
   setModifyLineQuantity,
   toModificationErrorMap,
   validateLinesDraft,
@@ -46,7 +47,7 @@ const OrderProductsModal = ({ order, onClose, onSaved }: Props) => {
     formatMessage({ id: getTranslation(id) }, values);
 
   const [operationId] = useState(() => mintUuid());
-  const [lines, setLines] = useState(() => linesDraftFromOrder(order));
+  const [lines, setLines] = useState(() => linesDraftFromOrder(order, uiLocale));
   const [preview, setPreview] = useState<LinesPreview | null>(null);
   const [errors, setErrors] = useState<ModificationErrorMap>({});
   const [busy, setBusy] = useState(false);
@@ -136,7 +137,11 @@ const OrderProductsModal = ({ order, onClose, onSaved }: Props) => {
               lines={lines}
               disabled={busy}
               errorFor={(key) => (errors[`line.${key}`] ? codeText(errors[`line.${key}`]) : undefined)}
+              discountErrorFor={(key) =>
+                errors[`discount.${key}`] ? codeText(errors[`discount.${key}`]) : undefined
+              }
               onQuantityChange={(key, quantity) => edit(setModifyLineQuantity(lines, key, quantity))}
+              onDiscountChange={(key, discount) => edit(setModifyLineDiscount(lines, key, discount))}
               onRemove={(key) => edit(removeModifyLine(lines, key))}
               onRestore={(key) => edit(restoreModifyLine(lines, key))}
             />
