@@ -109,6 +109,23 @@ describe('EcommerceOrderController', () => {
     expect(addManualPayment).not.toHaveBeenCalled();
   });
 
+  it('addPayment requires the payment method (it goes on the invoice)', async () => {
+    const addManualPayment = vi.fn();
+    const c = orders({ EcommercePaymentService: { addManualPayment } });
+    for (const methodLabel of [undefined, '', '   ']) {
+      const ctx = mkCtx({
+        params: { id: '3' },
+        request: { body: { amount: 500, methodLabel, idempotencyKey: 'abcdefgh' } },
+      });
+      await c.addPayment(ctx);
+      expect(ctx.badRequest).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ errors: [{ path: 'methodLabel', code: 'required' }] })
+      );
+    }
+    expect(addManualPayment).not.toHaveBeenCalled();
+  });
+
   it('shippingQuote and variantSearch delegate', async () => {
     const quoteForLines = vi.fn().mockResolvedValue({ options: [] });
     const searchVariants = vi.fn().mockResolvedValue([]);

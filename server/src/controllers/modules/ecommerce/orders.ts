@@ -117,7 +117,8 @@ const EcommerceOrderController = ({ strapi }: { strapi: Core.Strapi }) => {
         ctx,
         (id) => {
           const { amount, reference, methodLabel, idempotencyKey } = body(ctx);
-          optionalString('Invalid payment', 'methodLabel', methodLabel);
+          // Required: it is the payment method on the invoice (Moloni).
+          requiredString('Invalid payment', 'methodLabel', methodLabel, 255);
           return payments().addManualPayment(
             id,
             { amount, reference, methodLabel, idempotencyKey },

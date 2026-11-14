@@ -9,6 +9,7 @@ import { extractFieldErrors } from '../../utils/productForm';
 import { mintUuid } from '../../utils/variantDraft';
 import { MAX_MONEY_CENTS, formatAmountInput, formatCents, parseMoneyToCents } from '../../utils/money';
 import { apiErrorCode, apiErrorMessageId, isActionUnavailable } from '../../utils/orderDetail';
+import NoticeBar from './NoticeBar';
 
 type Props = {
   orderId: number;
@@ -85,16 +86,19 @@ const AddPaymentModal = ({ orderId, due, onClose, onAdded }: Props) => {
     }
     if (saving) return;
     const cents = parseMoneyToCents(amount);
-    if (cents === null || cents <= 0 || cents > MAX_MONEY_CENTS) {
-      setErrors({ amount: codeText('invalid_amount') });
+    const local: ErrorMap = {};
+    if (cents === null || cents <= 0 || cents > MAX_MONEY_CENTS) local.amount = codeText('invalid_amount');
+    if (!methodLabel.trim()) local.methodLabel = codeText('required');
+    if (Object.keys(local).length) {
+      setErrors(local);
       return;
     }
     setSaving(true);
     try {
       await new AddOrderPayment().execute(orderId, {
-        amount: cents,
+        amount: cents as number,
         reference: reference.trim() || undefined,
-        methodLabel: methodLabel.trim() || undefined,
+        methodLabel: methodLabel.trim(),
         idempotencyKey,
       });
       toggleNotification({ type: 'success', message: t('ecommerce.orders.detail.addPayment.success') });
@@ -172,7 +176,7 @@ const AddPaymentModal = ({ orderId, due, onClose, onAdded }: Props) => {
                   />
                   <Field.Error />
                 </Field.Root>
-                <Field.Root name="methodLabel" error={errors.methodLabel}>
+                <Field.Root name="methodLabel" required error={errors.methodLabel}>
                   <Field.Label>{t('ecommerce.orders.detail.addPayment.method')}</Field.Label>
                   <TextInput
                     value={methodLabel}
@@ -184,6 +188,8 @@ const AddPaymentModal = ({ orderId, due, onClose, onAdded }: Props) => {
                   />
                   <Field.Error />
                 </Field.Root>
+                {/* The method is printed on the invoice (one payment line per method). */}
+                <NoticeBar text={t('ecommerce.orders.detail.addPayment.methodNotice')} />
               </Flex>
             </Tabs.Content>
             <Tabs.Content value="storeCredit">
