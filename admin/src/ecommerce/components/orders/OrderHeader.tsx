@@ -25,7 +25,7 @@ type Props = {
 
 const VARIANTS: Record<ToolbarAction, 'default' | 'secondary' | 'danger-light' | 'tertiary'> = {
   SHIP: 'default',
-  ADD_PAYMENT: 'default',
+  ADD_PAYMENT: 'secondary',
   SEND_PAYMENT_INSTRUCTIONS: 'secondary',
   REFUND: 'secondary',
   REGISTER_RETURN: 'secondary',
