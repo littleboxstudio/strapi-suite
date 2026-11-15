@@ -412,10 +412,10 @@ export function manualLineDiscountTotal(rows: Pick<ManualLineDiscountRow, 'amoun
 
 /**
  * The price suggested for a new shipping charge: the quote of the units not yet shipped (none
- * when every unit has shipped) minus the shipping already charged. Null when that is below 0:
+ * when every unit has shipped) minus the shipping already charged. Null when that is 0 or less:
  * no suggestion, and the price starts at 0.
  */
 export function suggestedChargePrice(quote: number, ctx: { pendingOnly?: boolean; charged?: number }): number | null {
   const suggested = (ctx.pendingOnly === false ? 0 : quote) - (ctx.charged ?? 0);
-  return suggested < 0 ? null : suggested;
+  return suggested <= 0 ? null : suggested;
 }
