@@ -1,4 +1,5 @@
-import type { CreateShipmentInput, Order, OrderStatus, ShipMethodOption, ShipmentView } from '../orderTypes';
+import type { CreateShipmentInput, Order, OrderStatus, PickupStore, ShipMethodOption, ShipmentView } from '../orderTypes';
+import { STORE_PICKUP_ID } from './pickupPoints';
 
 /** Mirror the server limits. */
 export const MAX_CARRIER_NAME = 120;
@@ -18,6 +19,8 @@ export type ShipForm = {
   trackingUrl: string;
   /** Carrier methods that ask for it (DPD): number of parcels (text). */
   parcels: string;
+  /** Store pickup: the chosen store's id ('' for none). */
+  storeId: string;
 };
 
 /** Field path (`lines.<orderLineId>`, `lines`, `method`, `trackingUrl`, …) → error code. */
@@ -62,6 +65,17 @@ export function selectedShipMethod(form: Pick<ShipForm, 'methodKey'>, methods: S
   return methods.find((m) => shipMethodKey(m) === form.methodKey) ?? null;
 }
 
+/** The store preselected for Store pickup: the order's own; '' without one. */
+export function defaultShipStoreId(methods: ShipMethodOption[]): string {
+  return methods.find((m) => m.kind === 'STORE_PICKUP')?.selectedStoreId ?? '';
+}
+
+/** The store `storeId` names among the Store pickup method's stores; null otherwise. */
+export function shipStore(method: ShipMethodOption | null, storeId: string): PickupStore | null {
+  if (method?.kind !== 'STORE_PICKUP') return null;
+  return method.stores?.find((s) => s.id === storeId) ?? null;
+}
+
 /** An integer 1–99 typed in the parcels field; null otherwise. */
 export function parseParcels(text: string): number | null {
   const s = text.trim();
@@ -81,12 +95,13 @@ export function emptyShipForm(
     trackingCode: '',
     trackingUrl: '',
     parcels: '1',
+    storeId: defaultShipStoreId(methods),
   };
 }
 
 /**
  * Checks the ship form (requirement 10.4): 0 ≤ quantity ≤ pending, at least one unit, a delivery
- * method (`method`: the selected one), its tracking (manual) or parcels (DPD).
+ * method (`method`: the selected one), its tracking (manual), parcels (DPD) or store (Store pickup).
  */
 export function validateShipForm(
   form: ShipForm,
@@ -106,6 +121,8 @@ export function validateShipForm(
 
   if (!method) {
     errors.method = 'required';
+  } else if (method.kind === 'STORE_PICKUP') {
+    if (!shipStore(method, form.storeId)) errors.store = 'PICKUP_POINT_REQUIRED';
   } else if (method.kind === 'MANUAL') {
     if (form.trackingCode.trim().length > MAX_TRACKING_CODE) errors.trackingCode = 'too_long';
     const url = form.trackingUrl.trim();
@@ -119,7 +136,7 @@ export function validateShipForm(
 /**
  * The request body of a form `validateShipForm` accepted, shipped with `method`: a manual one
  * carries its name as the carrier and the typed tracking; a carrier one only its ids (the
- * carrier returns the tracking and the label). The customer is always notified.
+ * carrier returns the tracking and the label); Store pickup its store. The customer is always notified.
  */
 export function buildShipmentInput(
   form: ShipForm,
@@ -141,6 +158,8 @@ export function buildShipmentInput(
       ...(trackingCode ? { trackingCode } : {}),
       ...(trackingUrl ? { trackingUrl } : {}),
     };
+  } else if (method.kind === 'STORE_PICKUP') {
+    shipMethod = { mode: 'STORE_PICKUP', pickupPointId: form.storeId };
   } else {
     shipMethod = { mode: 'CARRIER', providerId: method.providerId, serviceId: method.serviceId };
   }
@@ -243,7 +262,9 @@ export function shipResultMessageId(
 export function cancelWarningId(
   s: Pick<ShipmentView, 'status' | 'providerId' | 'carrierSupport'>
 ): string {
-  if (s.providerId === 'manual' || s.status !== 'ACTIVE') return 'ecommerce.orders.shipments.cancel.warning';
+  if (s.providerId === 'manual' || s.providerId === STORE_PICKUP_ID || s.status !== 'ACTIVE') {
+    return 'ecommerce.orders.shipments.cancel.warning';
+  }
   return s.carrierSupport?.cancel === false
     ? 'ecommerce.orders.shipments.cancel.localWarning'
     : 'ecommerce.orders.shipments.cancel.carrierWarning';
@@ -289,10 +310,12 @@ export function shipmentActions(
   const manage = ctx.canManage && ctx.orderStatus !== 'ARCHIVED';
   const active = s.status === 'ACTIVE';
   const delivered = s.deliveryStatus === 'DELIVERED';
-  const carrier = s.providerId !== 'manual';
+  // A store pickup shipment has no carrier and no tracking (store pickup spec 7).
+  const store = s.providerId === STORE_PICKUP_ID;
+  const carrier = s.providerId !== 'manual' && !store;
   const out: ShipmentAction[] = [];
   if (manage && active && !delivered) out.push('DELIVER');
-  if (manage && active) out.push('TRACKING');
+  if (manage && active && !store) out.push('TRACKING');
   if (manage && active && carrier && !delivered && s.carrierSupport?.tracking !== false) out.push('REFRESH');
   if (active && s.labelAvailable) out.push('LABEL');
   if (manage && isRetryUnsafeShipment(s)) out.push('MARK_FAILED');

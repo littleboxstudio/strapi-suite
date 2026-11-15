@@ -32,6 +32,7 @@ import RetryShipment from '../../usecases/orders/retryShipment';
 import MarkShipmentFailed from '../../usecases/orders/markShipmentFailed';
 import { apiErrorMessageId, type OrderActionPermissions, type ToolbarAction } from '../../utils/orderDetail';
 import { canEdit, shippingLineRows } from '../../utils/orderEditing';
+import { STORE_PICKUP_ID } from '../../utils/pickupPoints';
 import {
   MAX_CANCEL_REASON,
   cancelWarningId,
@@ -362,16 +363,30 @@ const ShipmentsSection = ({
                       </Flex>
                     </Td>
                     <Td style={{ maxWidth: 200 }}>
-                      <Flex direction="column" alignItems="flex-start">
-                        <Typography textColor="neutral800" ellipsis>
-                          {s.trackingCode || '—'}
-                        </Typography>
-                        {s.trackingUrl && isHttpUrl(s.trackingUrl) && (
-                          <Link href={s.trackingUrl} isExternal>
-                            {t('ecommerce.orders.shipments.track')}
-                          </Link>
-                        )}
-                      </Flex>
+                      {s.providerId === STORE_PICKUP_ID ? (
+                        // Store pickup has no tracking: the store it was made ready at.
+                        <Flex direction="column" alignItems="flex-start">
+                          <Typography textColor="neutral800" ellipsis>
+                            {s.store?.name || '—'}
+                          </Typography>
+                          {s.store && (
+                            <Typography variant="pi" textColor="neutral600" ellipsis>
+                              {s.store.city}
+                            </Typography>
+                          )}
+                        </Flex>
+                      ) : (
+                        <Flex direction="column" alignItems="flex-start">
+                          <Typography textColor="neutral800" ellipsis>
+                            {s.trackingCode || '—'}
+                          </Typography>
+                          {s.trackingUrl && isHttpUrl(s.trackingUrl) && (
+                            <Link href={s.trackingUrl} isExternal>
+                              {t('ecommerce.orders.shipments.track')}
+                            </Link>
+                          )}
+                        </Flex>
+                      )}
                     </Td>
                     <Td>
                       <Flex direction="column" alignItems="flex-start" gap={1}>

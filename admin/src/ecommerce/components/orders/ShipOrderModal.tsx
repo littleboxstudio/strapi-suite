@@ -28,17 +28,21 @@ import { ActionConfirmModal } from '../ActionConfirmModal';
 import CreateShipment from '../../usecases/orders/createShipment';
 import FetchShipMethods from '../../usecases/orders/fetchShipMethods';
 import { apiErrorCode, apiErrorMessageId, shouldRenewIdempotencyKey } from '../../utils/orderDetail';
+import { pickupErrorId } from '../../utils/pickupPoints';
+import StoreSelect from './StoreSelect';
 import { extractFieldErrors } from '../../utils/productForm';
 import { mintUuid } from '../../utils/variantDraft';
 import {
   MAX_PARCELS,
   buildShipmentInput,
   defaultShipMethodKey,
+  defaultShipStoreId,
   emptyShipForm,
   mapServerFieldErrors,
   selectedShipMethod,
   shipMethodKey,
   shipResultMessageId,
+  shipStore,
   validateShipForm,
   type FormErrors,
   type ShipForm,
@@ -64,6 +68,13 @@ const METHOD_PATHS: Record<string, string> = {
   'method.trackingUrl': 'trackingUrl',
   parcels: 'parcels',
   lines: 'lines',
+};
+
+/** Store pickup: the store's errors (PICKUP_POINT_INVALID / PICKUP_POINT_REQUIRED) under its select. */
+const STORE_PATHS: Record<string, string> = {
+  ...METHOD_PATHS,
+  'method.pickupPointId': 'store',
+  'method.mode': 'store',
 };
 
 /** Long product names and options wrap inside their column. */
@@ -125,7 +136,8 @@ const MethodListRest = styled.div`
 /**
  * Ships units of the order (requirements 10.4 and 12.6) with one of the platform's delivery
  * methods, the order's own preselected: a manual one takes the tracking typed here, a carrier one
- * is created at the carrier (tracking and label). The customer is always notified.
+ * is created at the carrier (tracking and label), Store pickup makes it ready at a store (no tracking
+ * nor parcels). The customer is always notified.
  * Mount it only while open: each opening mints a new idempotency key.
  */
 const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
@@ -150,6 +162,7 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
   const [methodsError, setMethodsError] = useState(false);
   const lineById = new Map(order.lines.map((l) => [l.id, l]));
   const method = selectedShipMethod(form, methods ?? []);
+  const store = shipStore(method, form.storeId);
 
   useEffect(() => {
     let cancelled = false;
@@ -158,7 +171,7 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
       .then((list) => {
         if (cancelled) return;
         setMethods(list);
-        setForm((f) => ({ ...f, methodKey: defaultShipMethodKey(list) }));
+        setForm((f) => ({ ...f, methodKey: defaultShipMethodKey(list), storeId: defaultShipStoreId(list) }));
       })
       .catch(() => {
         if (!cancelled) setMethodsError(true);
@@ -188,8 +201,12 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
   };
 
   /** Field errors of the server mapped back to the form; the rest becomes the form message. */
-  const showServerErrors = (err: unknown, sentLines: { orderLineId: number }[]) => {
-    const { errors: map, other } = mapServerFieldErrors(extractFieldErrors(err) ?? [], sentLines, METHOD_PATHS);
+  const showServerErrors = (err: unknown, sentLines: { orderLineId: number }[], storePickup: boolean) => {
+    const { errors: map, other } = mapServerFieldErrors(
+      extractFieldErrors(err) ?? [],
+      sentLines,
+      storePickup ? STORE_PATHS : METHOD_PATHS
+    );
     setErrors(map);
     if (!Object.keys(map).length) {
       setFormError(t(apiErrorMessageId(err, 'ecommerce.orders.ship.error')));
@@ -240,13 +257,18 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
       if (code && !hasFieldErrors && input.method.mode === 'CARRIER' && shouldRenewIdempotencyKey(err)) {
         setIdempotencyKey(mintUuid());
       }
-      showServerErrors(err, input.lines);
+      showServerErrors(err, input.lines, input.method.mode === 'STORE_PICKUP');
     } finally {
       setSaving(false);
     }
   };
 
   const fieldError = (key: string) => (errors[key] ? codeText(errors[key]) : undefined);
+  const storeErrorText = (code: string) =>
+    formatMessage({
+      id: getTranslation(pickupErrorId(code, true)),
+      defaultMessage: t('ecommerce.orders.errors.invalid'),
+    });
 
   return (
     <Modal.Root open onOpenChange={(next: boolean) => !next && !saving && onClose()}>
@@ -363,7 +385,8 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
                         $selected={selected}
                         disabled={saving}
                         onClick={() =>
-                          !selected && update({ methodKey: key }, ['method', 'trackingCode', 'trackingUrl', 'parcels'])
+                          !selected &&
+                          update({ methodKey: key }, ['method', 'trackingCode', 'trackingUrl', 'parcels', 'store'])
                         }
                       >
                         <Flex gap={2} wrap="wrap" alignItems="center">
@@ -440,6 +463,25 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
                           )}
                         </>
                       )}
+
+                      {method.kind === 'STORE_PICKUP' && (
+                        <Flex direction="column" alignItems="stretch" gap={4}>
+                          <StoreSelect
+                            stores={method.stores ?? []}
+                            value={form.storeId || null}
+                            disabled={saving}
+                            error={errors.store ? storeErrorText(errors.store) : undefined}
+                            onChange={(s) => update({ storeId: s.id }, ['store'])}
+                          />
+                          {store && (
+                            <Box padding={3} hasRadius style={{ background: NOTICE_BACKGROUND }}>
+                              <Typography variant="omega" style={{ color: NOTICE_TEXT }}>
+                                {t('ecommerce.orders.ship.storeHint', { store: store.name })}
+                              </Typography>
+                            </Box>
+                          )}
+                        </Flex>
+                      )}
                     </Flex>
                   )}
                 </Box>
@@ -467,7 +509,11 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
         title={t('ecommerce.orders.ship.confirm.title')}
         text={
           <Flex direction="column" gap={3}>
-            <Typography>{t('ecommerce.orders.ship.confirm.text', { method: method?.name ?? '' })}</Typography>
+            <Typography>
+              {store
+                ? t('ecommerce.orders.ship.confirm.storeText', { store: store.name })
+                : t('ecommerce.orders.ship.confirm.text', { method: method?.name ?? '' })}
+            </Typography>
             {otherMethod && originalMethod && (
               <Typography textColor="warning600">
                 {t('ecommerce.orders.ship.confirm.otherMethod', { original: originalMethod.name })}

@@ -17,6 +17,8 @@ import {
   shipMethodKey,
   shipResultMessageId,
   shipmentActions,
+  defaultShipStoreId,
+  shipStore,
   validateShipForm,
   validateTrackingForm,
   type ShipForm,
@@ -50,6 +52,7 @@ const form = (overrides: Partial<ShipForm> = {}): ShipForm => ({
   trackingCode: '',
   trackingUrl: '',
   parcels: '1',
+  storeId: '',
   ...overrides,
 });
 
@@ -403,5 +406,68 @@ describe('cancelWarningId', () => {
     expect(
       cancelWarningId(shipment({ status: 'FAILED', providerId: 'dpd-portugal', deliveryStatus: null, carrierSupport: dpd }))
     ).toBe('ecommerce.orders.shipments.cancel.warning');
+  });
+});
+
+describe('store pickup ship method', () => {
+  const STORE = {
+    id: 'st_lisboa',
+    name: 'Loja Chiado',
+    address: 'Rua Garrett 1',
+    address2: null,
+    postalCode: '1200-203',
+    city: 'Lisboa',
+    country: 'PT',
+  };
+  const STORE_2 = { ...STORE, id: 'st_porto', name: 'Loja Porto' };
+  const store: ShipMethodOption = {
+    providerId: 'store-pickup',
+    serviceId: 'STORE',
+    name: 'Store pickup',
+    kind: 'STORE_PICKUP',
+    original: true,
+    stores: [STORE, STORE_2],
+    selectedStoreId: 'st_lisboa',
+  };
+  const storeForm = (overrides: Partial<ShipForm> = {}) =>
+    form({ methodKey: 'store-pickup:STORE', storeId: 'st_lisboa', ...overrides });
+
+  it('preselects the order store', () => {
+    expect(defaultShipStoreId([manual, store])).toBe('st_lisboa');
+    expect(defaultShipStoreId([manual, { ...store, selectedStoreId: null }])).toBe('');
+    expect(defaultShipStoreId([manual])).toBe('');
+    expect(emptyShipForm({ lines } as any, [manual, store]).storeId).toBe('st_lisboa');
+  });
+
+  it('shipStore: the chosen store of the method, or null', () => {
+    expect(shipStore(store, 'st_porto')).toBe(STORE_2);
+    expect(shipStore(store, 'gone')).toBeNull();
+    expect(shipStore(manual, 'st_lisboa')).toBeNull();
+  });
+
+  it('requires one of the listed stores; no tracking or parcels asked', () => {
+    expect(validateShipForm(storeForm({ parcels: 'x', trackingUrl: 'bad' }), lines, store)).toEqual({});
+    expect(validateShipForm(storeForm({ storeId: '' }), lines, store)).toEqual({ store: 'PICKUP_POINT_REQUIRED' });
+    expect(validateShipForm(storeForm({ storeId: 'gone' }), lines, store)).toEqual({ store: 'PICKUP_POINT_REQUIRED' });
+  });
+
+  it('sends STORE_PICKUP with the store, no tracking nor parcels', () => {
+    const input = buildShipmentInput(storeForm({ storeId: 'st_porto', trackingCode: 'X', parcels: '3' }), 'k', store);
+    expect(input).toEqual({
+      lines: [
+        { orderLineId: 1, quantity: 3 },
+        { orderLineId: 3, quantity: 1 },
+      ],
+      method: { mode: 'STORE_PICKUP', pickupPointId: 'st_porto' },
+      notifyCustomer: true,
+      idempotencyKey: 'k',
+    });
+  });
+
+  it('a store pickup shipment: no tracking edit, no refresh; the plain cancel warning', () => {
+    const ctx = { orderStatus: 'OPEN' as const, canManage: true };
+    const s = shipment({ providerId: 'store-pickup', serviceId: 'STORE', carrierSupport: null });
+    expect(shipmentActions(s, ctx)).toEqual(['DELIVER', 'CANCEL']);
+    expect(cancelWarningId(s)).toBe('ecommerce.orders.shipments.cancel.warning');
   });
 });

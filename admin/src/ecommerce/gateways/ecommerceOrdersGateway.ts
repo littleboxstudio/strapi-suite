@@ -96,7 +96,7 @@ export default interface EcommerceOrdersGateway {
   /** An `address`, or on a Pickup order the new point (spec 5.3). */
   updateShippingAddress(
     id: number,
-    input: ({ address: Address } | Required<PickupPointInput>) & { operationId: string }
+    input: ({ address: Address } | (PickupPointInput & { pickupPointId: string })) & { operationId: string }
   ): Promise<EditResult>;
   updateBillingAddress(
     id: number,
@@ -267,7 +267,7 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
 
   async updateShippingAddress(
     id: number,
-    input: ({ address: Address } | Required<PickupPointInput>) & { operationId: string }
+    input: ({ address: Address } | (PickupPointInput & { pickupPointId: string })) & { operationId: string }
   ): Promise<EditResult> {
     return this.httpClient.put(`${this.orders}/${id}/shipping-address`, input);
   }

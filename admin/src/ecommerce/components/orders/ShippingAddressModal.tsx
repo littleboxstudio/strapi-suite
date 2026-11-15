@@ -6,12 +6,20 @@ import { Pin } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchShippingAddressCountries from '../../usecases/orders/fetchShippingAddressCountries';
 import UpdateShippingAddress from '../../usecases/orders/updateShippingAddress';
+import FetchShipMethods from '../../usecases/orders/fetchShipMethods';
 import { addressFormFromAddress, toAddress, type AddressForm } from '../../utils/orderForm';
-import { addressLockReason, allowedCountryCodes, canEdit, shippingAddressErrors } from '../../utils/orderEditing';
+import {
+  addressLockReason,
+  allowedCountryCodes,
+  canEdit,
+  currentShippingMethod,
+  shippingAddressErrors,
+} from '../../utils/orderEditing';
+import { isStorePickupMethod, pickupErrorId, pickupSelectionInput } from '../../utils/pickupPoints';
 import { apiErrorMessageId } from '../../utils/orderDetail';
 import { extractFieldErrors } from '../../utils/productForm';
 import { mintUuid } from '../../utils/variantDraft';
-import type { EditResult, FieldError, Order, PickupSelection } from '../../orderTypes';
+import type { EditResult, FieldError, Order, PickupSelection, PickupStore } from '../../orderTypes';
 import AddressFields, { type AddressField } from './AddressFields';
 import PickupPointPicker from './PickupPointPicker';
 import { NOTICE_BACKGROUND, NOTICE_TEXT } from './NoticeBar';
@@ -36,16 +44,22 @@ const errorMap = (errors: FieldError[]): Record<string, string> => {
 /**
  * The order's shipping address (spec 5). While it can change, a form whose countries are the ones
  * the current method serves; otherwise the same fields locked, with the reason. A DPD Pickup order
- * (spec 5.3) shows the point's address read-only; it changes only by choosing another point.
+ * (spec 5.3) shows the point's address read-only; it changes only by choosing another point. A Store
+ * pickup order chooses among its market's stores (those the Ship modal offers).
  * Mounted per opening: each opening mints one operationId, so a retried save is applied once.
  */
 const ShippingAddressDialog = ({ order, canManage, onSaved, onClose }: Props & { onClose: () => void }) => {
-  const { formatMessage } = useIntl();
+  const { formatMessage, locale } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) => formatMessage({ id: getTranslation(id) }, values);
   const codeText = (code: string) =>
     formatMessage({
       id: getTranslation(`ecommerce.orders.errors.${code}`),
+      defaultMessage: t('ecommerce.orders.errors.invalid'),
+    });
+  const pickupErrorText = (code: string) =>
+    formatMessage({
+      id: getTranslation(pickupErrorId(code, storeOrder)),
       defaultMessage: t('ecommerce.orders.errors.invalid'),
     });
 
@@ -56,6 +70,27 @@ const ShippingAddressDialog = ({ order, canManage, onSaved, onClose }: Props & {
   const editableForm = editable && !pickupPoint;
   const [changingPoint, setChangingPoint] = useState(false);
   const [newPoint, setNewPoint] = useState<PickupSelection | null>(null);
+  // Store pickup: the point is a store, chosen among the stores of the Ship modal's method.
+  const storeOrder = !!pickupPoint && isStorePickupMethod(currentShippingMethod(order.shippingLines));
+  const [stores, setStores] = useState<PickupStore[] | null>(null);
+  const [storesFailed, setStoresFailed] = useState(false);
+
+  useEffect(() => {
+    if (!storeOrder || !changingPoint || stores) return;
+    let cancelled = false;
+    new FetchShipMethods()
+      .execute(order.id, locale)
+      .then((methods) => {
+        if (!cancelled) setStores(methods.find((m) => m.kind === 'STORE_PICKUP')?.stores ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setStoresFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeOrder, changingPoint]);
 
   const [operationId] = useState(() => mintUuid());
   const [initial] = useState(() => addressFormFromAddress(order.shippingAddress));
@@ -119,7 +154,7 @@ const ShippingAddressDialog = ({ order, canManage, onSaved, onClose }: Props & {
       const result = await new UpdateShippingAddress().execute(
         order.id,
         newPoint
-          ? { pickupPointId: newPoint.point.id, pickupPostalCode: newPoint.postalCode, operationId }
+          ? { ...pickupSelectionInput(newPoint), pickupPointId: newPoint.point.id, operationId }
           : { address: toAddress(form, true), operationId }
       );
       onSaved(result);
@@ -164,10 +199,13 @@ const ShippingAddressDialog = ({ order, canManage, onSaved, onClose }: Props & {
                 <Box padding={3} background="neutral100" hasRadius>
                   <Flex direction="column" alignItems="flex-start" gap={1}>
                     <Typography variant="omega" fontWeight="semiBold">
-                      {t('ecommerce.orders.pickup.current', { name: pickupPoint.name, id: pickupPoint.id })}
+                      {t(storeOrder ? 'ecommerce.orders.pickup.store.current' : 'ecommerce.orders.pickup.current', {
+                        name: pickupPoint.name,
+                        id: pickupPoint.id,
+                      })}
                     </Typography>
                     <Typography variant="pi" textColor="neutral600">
-                      {codeText('PICKUP_ADDRESS_LOCKED')}
+                      {storeOrder ? t('ecommerce.orders.pickup.store.locked') : codeText('PICKUP_ADDRESS_LOCKED')}
                     </Typography>
                   </Flex>
                 </Box>
@@ -183,12 +221,23 @@ const ShippingAddressDialog = ({ order, canManage, onSaved, onClose }: Props & {
               {pickupPoint && editable && !changingPoint && (
                 <Box>
                   <Button variant="secondary" startIcon={<Pin />} onClick={() => setChangingPoint(true)} disabled={busy}>
-                    {t('ecommerce.orders.pickup.change')}
+                    {t(storeOrder ? 'ecommerce.orders.pickup.store.change' : 'ecommerce.orders.pickup.change')}
                   </Button>
                 </Box>
               )}
-              {pickupPoint && editable && changingPoint && (
+              {storeOrder && editable && changingPoint && storesFailed && (
+                <Typography variant="omega" textColor="danger600">
+                  {t('ecommerce.orders.pickup.store.loadError')}
+                </Typography>
+              )}
+              {storeOrder && editable && changingPoint && !stores && !storesFailed && (
+                <Flex justifyContent="center" padding={2}>
+                  <Loader small />
+                </Flex>
+              )}
+              {pickupPoint && editable && changingPoint && (!storeOrder || stores) && (
                 <PickupPointPicker
+                  stores={storeOrder ? stores : null}
                   initialPostalCode={pickupPoint.customerAddress?.postalCode ?? pickupPoint.postalCode}
                   value={newPoint}
                   onChange={(next) => {
@@ -196,7 +245,7 @@ const ShippingAddressDialog = ({ order, canManage, onSaved, onClose }: Props & {
                     setErrors({});
                   }}
                   disabled={busy}
-                  error={errors.form ? codeText(errors.form) : undefined}
+                  error={errors.form ? pickupErrorText(errors.form) : undefined}
                 />
               )}
               {errors.form && !(pickupPoint && changingPoint) && (

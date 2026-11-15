@@ -11,7 +11,7 @@ export default class UpdateShippingAddress {
 
   async execute(
     id: number,
-    input: ({ address: Address } | Required<PickupPointInput>) & { operationId: string }
+    input: ({ address: Address } | (PickupPointInput & { pickupPointId: string })) & { operationId: string }
   ): Promise<EditResult> {
     return this.gateway.updateShippingAddress(id, input);
   }

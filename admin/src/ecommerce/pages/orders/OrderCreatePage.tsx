@@ -33,6 +33,7 @@ import PickupPointPicker from '../../components/orders/PickupPointPicker';
 import { extractFieldErrors } from '../../utils/productForm';
 import { mintUuid } from '../../utils/variantDraft';
 import { formatCents } from '../../utils/money';
+import { keptPickup, pickupErrorId, storeChoices } from '../../utils/pickupPoints';
 import { useOrderPermissions } from '../../hooks/useOrderPermissions';
 import { apiErrorCode, apiErrorMessageId } from '../../utils/orderDetail';
 import {
@@ -270,6 +271,15 @@ const OrderCreatePage = () => {
         })
       : undefined;
 
+  /** A pickup picker's error, worded for a store with Store pickup. */
+  const pickupError = (code: string | undefined, store: boolean) =>
+    code
+      ? formatMessage({
+          id: getTranslation(pickupErrorId(code, store)),
+          defaultMessage: t('ecommerce.orders.errors.invalid'),
+        })
+      : undefined;
+
   const updateCustomer = (field: CustomerField, value: string) => {
     setForm((f) => ({ ...f, customer: { ...f.customer, [field]: value } }));
     clearErrors((p) => p === `customer.${field}`);
@@ -342,6 +352,8 @@ const OrderCreatePage = () => {
 
   const selectedKey = form.shipping ? optionKey(form.shipping) : null;
   const selectedOption = quote?.options.find((o) => optionKey(o) === selectedKey) ?? null;
+  // Store pickup: the stores of the quote instead of the DPD search.
+  const stores = storeChoices(selectedOption);
 
   const showErrors = (list: FieldError[]) => {
     setErrors(toOrderErrorMap(list, form.billingSameAsShipping));
@@ -598,8 +610,8 @@ const OrderCreatePage = () => {
                           serviceId: option.serviceId,
                           ...(option.requiresPickupPoint ? { requiresPickupPoint: true } : {}),
                         },
-                        // DPD Pickup: the point is chosen below; another option drops it.
-                        pickup: option.requiresPickupPoint ? (f.pickup ?? null) : null,
+                        // DPD Pickup / Store pickup: the point is chosen below; another option drops it.
+                        pickup: keptPickup(f.shipping, option, f.pickup),
                       }));
                       clearErrors((p) => p === 'shipping' || p === 'pickupPointId' || p === 'pickupPostalCode');
                     }}
@@ -616,12 +628,13 @@ const OrderCreatePage = () => {
               {selectedOption?.requiresPickupPoint && (
                 <Flex direction="column" alignItems="stretch" gap={2}>
                   <Typography variant="sigma" textColor="neutral600">
-                    {t('ecommerce.orders.pickup.title')}
+                    {t(stores ? 'ecommerce.orders.pickup.store.title' : 'ecommerce.orders.pickup.title')}
                   </Typography>
                   <Typography variant="pi" textColor="neutral600">
-                    {t('ecommerce.orders.pickup.required')}
+                    {t(stores ? 'ecommerce.orders.pickup.store.required' : 'ecommerce.orders.pickup.required')}
                   </Typography>
                   <PickupPointPicker
+                    stores={stores}
                     initialPostalCode={form.shippingAddress.postalCode}
                     value={form.pickup ?? null}
                     onChange={(pickup) => {
@@ -629,7 +642,7 @@ const OrderCreatePage = () => {
                       clearErrors((p) => p === 'pickupPointId' || p === 'pickupPostalCode');
                     }}
                     disabled={disabled}
-                    error={translateCode(errors.pickupPointId ?? errors.pickupPostalCode)}
+                    error={pickupError(errors.pickupPointId ?? errors.pickupPostalCode, !!stores)}
                   />
                 </Flex>
               )}
