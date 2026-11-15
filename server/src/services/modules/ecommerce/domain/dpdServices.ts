@@ -25,6 +25,15 @@ export const DPD_SERVICE_DEFAULTS: DpdServices = {
   PICKUP: { active: false, name: { en: 'DPD Pickup', pt: 'DPD Pickup' }, tax: 23, rates: {} },
 };
 
+/** The markets DPD Pickup serves (spec 3.2): mainland Portugal and the islands. */
+export const DPD_PICKUP_MARKETS: readonly string[] = ['PT', 'PT-ISL'];
+
+/** The store markets a service may have rates for: PICKUP only PT and PT-ISL. */
+export function dpdServiceMarkets(id: DpdServiceId, markets: Iterable<string>): Set<string> {
+  const all = [...markets];
+  return new Set(id === 'PICKUP' ? all.filter((m) => DPD_PICKUP_MARKETS.includes(m)) : all);
+}
+
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -49,7 +58,8 @@ const readNames = (value: unknown, id: DpdServiceId): Record<string, string> => 
 
 /**
  * Validates the services sent by the admin. A missing service keeps its defaults; rate errors use
- * the manual-method codes under `services.<ID>.rates.<market>`.
+ * the manual-method codes under `services.<ID>.rates.<market>` (PICKUP: only PT and PT-ISL).
+ * Only `active: true` activates a service.
  */
 export function normalizeDpdServices(
   input: unknown,
@@ -75,11 +85,11 @@ export function normalizeDpdServices(
     else if (tax < 0 || tax > 100) errors.push({ path: `${at}.tax`, code: 'out_of_range' });
 
     const rateErrors: FieldError[] = [];
-    const rates = normalizeMarketRates(raw.rates, markets, rateErrors);
+    const rates = normalizeMarketRates(raw.rates, dpdServiceMarkets(id, markets), rateErrors);
     errors.push(...rateErrors.map((e) => ({ ...e, path: `${at}.${e.path}` })));
 
     result[id] = {
-      active: raw.active === undefined ? false : Boolean(raw.active),
+      active: raw.active === true,
       name: readNames(raw.name, id),
       tax: typeof tax === 'number' ? tax : DPD_SERVICE_DEFAULTS[id].tax,
       rates,
@@ -88,7 +98,10 @@ export function normalizeDpdServices(
   return result;
 }
 
-/** Lenient reader for the stored config: invalid parts fall back to the defaults. */
+/**
+ * Lenient reader for the stored config: invalid parts fall back to the defaults; PICKUP keeps
+ * only its PT and PT-ISL rates.
+ */
 export function readDpdServices(stored: unknown): DpdServices {
   const result = { EXPRESS: defaults('EXPRESS'), PICKUP: defaults('PICKUP') };
   if (!isRecord(stored)) return result;
@@ -96,7 +109,9 @@ export function readDpdServices(stored: unknown): DpdServices {
     const raw = stored[id];
     if (!isRecord(raw)) continue;
     const tax = typeof raw.tax === 'number' && Number.isFinite(raw.tax) ? raw.tax : DPD_SERVICE_DEFAULTS[id].tax;
-    result[id] = { active: raw.active === true, name: readNames(raw.name, id), tax, rates: readMarketRates(raw.rates) };
+    const allowed = (m: string) => id !== 'PICKUP' || DPD_PICKUP_MARKETS.includes(m);
+    const rates = Object.fromEntries(Object.entries(readMarketRates(raw.rates)).filter(([m]) => allowed(m)));
+    result[id] = { active: raw.active === true, name: readNames(raw.name, id), tax, rates };
   }
   return result;
 }

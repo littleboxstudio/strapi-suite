@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   asksParcels,
   buildShipmentInput,
+  cancelWarningId,
   isRetryUnsafeShipment,
   canShipByCarrier,
   defaultDeliveredAtInput,
@@ -13,6 +14,7 @@ import {
   isUncertainShipment,
   mapServerFieldErrors,
   resolveDeliveredAt,
+  shipResultMessageId,
   shipmentActions,
   validateShipForm,
   validateTrackingForm,
@@ -337,5 +339,59 @@ describe('shipmentActions', () => {
     expect(shipmentActions(shipment({ labelAvailable: true }), { orderStatus: 'OPEN', canManage: false })).toEqual([
       'LABEL',
     ]);
+  });
+});
+
+describe('shipResultMessageId', () => {
+  const dpd = { retry: false, cancel: false, tracking: false };
+  const pending = (over: Partial<ShipmentView> = {}) =>
+    shipment({ status: 'PENDING', providerId: 'dpd-portugal', deliveryStatus: null, carrierSupport: dpd, ...over });
+
+  it('an ACTIVE shipment: success', () => {
+    expect(shipResultMessageId(shipment())).toBe('ecommerce.orders.ship.success');
+  });
+
+  it('a retry-unsafe PENDING shipment that is retryable (uncertain or stuck): CARRIER_RETRY_UNSAFE', () => {
+    expect(shipResultMessageId(pending({ error: 'UNCERTAIN', retryable: true }))).toBe(
+      'ecommerce.orders.errors.CARRIER_RETRY_UNSAFE'
+    );
+  });
+
+  it('a PENDING DPD shipment not yet retryable: the pending hint', () => {
+    expect(shipResultMessageId(pending({ retryable: false }))).toBe('ecommerce.orders.ship.uncertain');
+  });
+
+  it('a PENDING shipment at a carrier that can retry: the pending hint', () => {
+    expect(
+      shipResultMessageId(pending({ retryable: true, carrierSupport: { retry: true, cancel: true, tracking: true } }))
+    ).toBe('ecommerce.orders.ship.uncertain');
+  });
+});
+
+describe('cancelWarningId', () => {
+  const dpd = { retry: false, cancel: false, tracking: false };
+
+  it('a manual shipment: the plain warning', () => {
+    expect(cancelWarningId(shipment())).toBe('ecommerce.orders.shipments.cancel.warning');
+  });
+
+  it('an ACTIVE DPD shipment (at the carrier): cancel it also on the portal', () => {
+    expect(cancelWarningId(shipment({ providerId: 'dpd-portugal', carrierSupport: dpd }))).toBe(
+      'ecommerce.orders.shipments.cancel.localWarning'
+    );
+  });
+
+  it('an ACTIVE shipment at a carrier with a cancel API: cancelled at the carrier first', () => {
+    expect(
+      cancelWarningId(
+        shipment({ providerId: 'ctt-expresso', carrierSupport: { retry: true, cancel: true, tracking: true } })
+      )
+    ).toBe('ecommerce.orders.shipments.cancel.carrierWarning');
+  });
+
+  it('a FAILED carrier shipment never reached the carrier: the plain warning', () => {
+    expect(
+      cancelWarningId(shipment({ status: 'FAILED', providerId: 'dpd-portugal', deliveryStatus: null, carrierSupport: dpd }))
+    ).toBe('ecommerce.orders.shipments.cancel.warning');
   });
 });

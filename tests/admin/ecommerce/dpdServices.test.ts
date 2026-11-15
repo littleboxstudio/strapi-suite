@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   DPD_SERVICE_IDS,
   activeServiceCount,
+  dpdServiceMarkets,
   dpdServicesErrorMap,
   dpdServicesToForm,
   formToDpdServices,
@@ -152,5 +153,16 @@ describe('dpd portugal translations', () => {
   it('uses the Portuguese labels', () => {
     expect(pt[`${P}.providers.dpd-portugal.fields.authEndpoint`]).toBe('Endpoint de autenticação');
     expect(pt[`${P}.providers.dpd-portugal.fields.senderPhone`]).toBe('Remetente: telemóvel');
+  });
+});
+
+describe('dpdServiceMarkets', () => {
+  it('PICKUP: only the store markets PT and PT-ISL, in store order', () => {
+    expect(dpdServiceMarkets('PICKUP', ['ES', 'PT-ISL', 'FR', 'PT'])).toEqual(['PT-ISL', 'PT']);
+    expect(dpdServiceMarkets('PICKUP', ['ES'])).toEqual([]);
+  });
+
+  it('EXPRESS: every store market', () => {
+    expect(dpdServiceMarkets('EXPRESS', ['ES', 'PT-ISL', 'PT'])).toEqual(['ES', 'PT-ISL', 'PT']);
   });
 });

@@ -23,7 +23,7 @@
 - Admin texts exist in both `admin/src/core/translations/en.json` and `pt.json` (Portuguese with correct accents). Keys live under `littlebox-strapi-suite.ecommerce.…`.
 - Commit with explicit paths (never `git add -A`). Never touch `.yalc/` or `yalc.lock`. Trailer: `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - Checks: `npx tsc -p server/tsconfig.json --noEmit`, `npx tsc -p admin/tsconfig.json --noEmit`, `npx tsc -p tests/tsconfig.json --noEmit`, `npx vitest run`.
-- Error codes are exactly: `DPD_AUTH_FAILED`, `DPD_SHIPMENT_FAILED`, `PICKUP_NOT_AVAILABLE`, `INVALID_POSTAL_CODE`, `PICKUP_SEARCH_FAILED`, `PICKUP_POINT_INVALID`, `PICKUP_POINT_REQUIRED` (spec §5, §9), and `PICKUP_ADDRESS_LOCKED` (order editing: the address of a Pickup order changes only by choosing another point, Task 9).
+- Error codes are exactly: `DPD_AUTH_FAILED`, `DPD_SHIPMENT_FAILED`, `PICKUP_NOT_AVAILABLE`, `INVALID_POSTAL_CODE`, `PICKUP_SEARCH_FAILED`, `PICKUP_POINT_INVALID`, `PICKUP_POINT_REQUIRED` (spec §5, §9), `PICKUP_ADDRESS_LOCKED` (order editing: the address of a Pickup order changes only by choosing another point, Task 9), `NO_ACTIVE_SERVICE` (activating the integration with no active service, path `services`), `CARRIER_RETRY_UNSAFE` (an uncertain DPD shipment is never retried: check the DPD portal and mark it as failed) and `MARKED_FAILED` (the error of a shipment the admin marked as failed).
 
 ## Rulings
 

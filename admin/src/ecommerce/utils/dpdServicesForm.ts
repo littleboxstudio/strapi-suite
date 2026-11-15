@@ -7,6 +7,14 @@ import {
 
 export const DPD_SERVICE_IDS: readonly DpdServiceId[] = ['EXPRESS', 'PICKUP'];
 
+/** The markets DPD Pickup serves: mainland Portugal and the islands. */
+const PICKUP_MARKETS: readonly string[] = ['PT', 'PT-ISL'];
+
+/** The store markets a service may have prices for: PICKUP only PT and PT-ISL. */
+export function dpdServiceMarkets(id: DpdServiceId, markets: string[]): string[] {
+  return id === 'PICKUP' ? markets.filter((m) => PICKUP_MARKETS.includes(m)) : markets;
+}
+
 /** Each service is edited like a manual shipping method (names, VAT, rates per market). */
 export type DpdServicesForm = Record<DpdServiceId, ManualMethodDraft>;
 

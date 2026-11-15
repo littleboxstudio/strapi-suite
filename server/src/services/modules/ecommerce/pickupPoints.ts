@@ -83,7 +83,7 @@ const EcommercePickupPointService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   const search = async (input: { postalCode: string; country?: string }): Promise<PickupPoint[]> => {
-    const country = input.country ?? 'PT';
+    const country = String(input.country ?? 'PT').toUpperCase();
     if (country !== 'PT') throw invalid('country', 'PICKUP_NOT_AVAILABLE');
     const postalCode = normalizePostalCode(input.postalCode);
     const { endpoint, key } = await pickupAccess(postalCode);

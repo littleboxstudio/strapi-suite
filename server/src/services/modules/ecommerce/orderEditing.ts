@@ -1151,6 +1151,17 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     return planRecalculation(state.shippingLines, r.quote, { method: r.method, ...meta }, r.scope);
   };
 
+  /**
+   * The delivery change a recalculation brings (spec 5.3): the new table may change the order's
+   * current method (back to the invoiced one). Leaving Pickup restores the customer's address;
+   * entering Pickup without a stored point throws PICKUP_POINT_REQUIRED. Null: nothing changes.
+   */
+  const recalculationDelivery = (
+    state: OrderState,
+    plan: ReturnType<typeof recalculationPlan>
+  ): DeliveryChange | null =>
+    plan.mode === 'UNCHANGED' ? null : deliveryChange(state, currentMethod(plan.lines), null);
+
   const previewShippingRecalculation = async (
     rawOrderId: number | string,
     input?: ShippingRecalculationInput
@@ -1158,6 +1169,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     const state = await orders().computeOrderState(Number(rawOrderId));
     const r = await recalculationQuote(state, input, 'preview');
     const plan = recalculationPlan(state, r, 'preview');
+    recalculationDelivery(state, plan);
     return {
       kind: r.kind,
       charged: plan.charged,
@@ -1196,11 +1208,23 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     const orderId = Number(rawOrderId);
     return runEdit(orderId, 'shipping-recalculate', operationId, actor, {
       // The carrier quote may be a remote call: taken before the transaction.
-      prepare: async () => recalculationQuote(await orders().computeOrderState(orderId), input, 'apply'),
+      prepare: async () => {
+        const state = await orders().computeOrderState(orderId);
+        const r = await recalculationQuote(state, input, 'apply');
+        // Refused before the transaction: entering Pickup needs a stored point.
+        recalculationDelivery(state, recalculationPlan(state, r, actor));
+        return r;
+      },
       write: async (state, r, w) => {
         assertEditable(state, 'RECALCULATE_SHIPPING');
         const plan = recalculationPlan(state, r, w.actor);
-        const r2 = await writeShippingLines(state, plan.mode === 'UNCHANGED' ? null : plan.lines, w);
+        const delivery = recalculationDelivery(state, plan);
+        const r2 = await writeShippingLines(
+          state,
+          plan.mode === 'UNCHANGED' ? null : plan.lines,
+          w,
+          delivery
+        );
         return {
           outcome: r2.outcome,
           difference: r2.difference,

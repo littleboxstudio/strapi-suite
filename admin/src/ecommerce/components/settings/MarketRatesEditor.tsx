@@ -32,6 +32,8 @@ type Props = {
   clearErrorsUnder: (prefix: string) => void;
   /** Whether at least one market must be chosen (manual methods; not DPD services). */
   required?: boolean;
+  /** Shown instead of the search's "no match" text while no market is chosen (DPD services). */
+  emptyText?: string;
 };
 
 /**
@@ -47,6 +49,7 @@ const MarketRatesEditor = ({
   clearError,
   clearErrorsUnder,
   required = true,
+  emptyText,
 }: Props) => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const t = (id: string, values?: Record<string, any>) =>
@@ -183,7 +186,12 @@ const MarketRatesEditor = ({
         </Typography>
       )}
 
-      <FilteredMarkets codes={value.markets} nameOf={countryName} resetKey={errorRound}>
+      <FilteredMarkets
+        codes={value.markets}
+        nameOf={countryName}
+        resetKey={errorRound}
+        emptyText={emptyText}
+      >
         {(visibleMarkets) => (
           <Flex direction="column" alignItems="stretch">
             {visibleMarkets.map((code) => {

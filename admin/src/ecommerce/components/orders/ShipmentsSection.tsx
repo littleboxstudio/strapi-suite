@@ -35,6 +35,7 @@ import { apiErrorMessageId, type OrderActionPermissions, type ToolbarAction } fr
 import { canEdit, shippingLineRows } from '../../utils/orderEditing';
 import {
   MAX_CANCEL_REASON,
+  cancelWarningId,
   isHttpUrl,
   isRetryUnsafeShipment,
   isStuckPendingShipment,
@@ -536,13 +537,7 @@ const ShipmentsSection = ({
               <Flex direction="column" alignItems="stretch" gap={4}>
                 <Box padding={3} background="danger100" hasRadius>
                   <Typography variant="omega" textColor="danger700">
-                    {t(
-                      cancelling.providerId === 'manual'
-                        ? 'ecommerce.orders.shipments.cancel.warning'
-                        : cancelling.carrierSupport?.cancel === false
-                          ? 'ecommerce.orders.shipments.cancel.localWarning'
-                          : 'ecommerce.orders.shipments.cancel.carrierWarning'
-                    )}
+                    {t(cancelWarningId(cancelling))}
                   </Typography>
                 </Box>
                 <Field.Root

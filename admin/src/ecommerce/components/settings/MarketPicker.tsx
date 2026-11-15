@@ -169,6 +169,8 @@ type FilteredMarketsProps = {
   nameOf: (code: string) => string;
   /** Changing it clears the search (e.g. so markets with errors are not hidden). */
   resetKey?: unknown;
+  /** Shown when no market is chosen at all; without it, the "no match" text is shown. */
+  emptyText?: string;
   children: (visible: string[]) => ReactNode;
 };
 
@@ -176,7 +178,13 @@ type FilteredMarketsProps = {
  * A full-width search by market name above the list, only with 3 or more markets; the filter
  * runs 150 ms after the last key press.
  */
-const FilteredMarkets = ({ codes, nameOf, resetKey, children }: FilteredMarketsProps) => {
+const FilteredMarkets = ({
+  codes,
+  nameOf,
+  resetKey,
+  emptyText,
+  children,
+}: FilteredMarketsProps) => {
   const { formatMessage } = useIntl();
   const t = (id: string) => formatMessage({ id: getTranslation(id) });
   const [text, setText] = useState('');
@@ -210,7 +218,7 @@ const FilteredMarkets = ({ codes, nameOf, resetKey, children }: FilteredMarketsP
       )}
       {visible.length === 0 ? (
         <Typography variant="omega" textColor="neutral600">
-          {t('ecommerce.settings.manual.noMarketMatch')}
+          {codes.length === 0 && emptyText ? emptyText : t('ecommerce.settings.manual.noMarketMatch')}
         </Typography>
       ) : (
         children(visible)
