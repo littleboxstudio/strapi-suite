@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
-import { Button, Field, Flex, Loader, Modal, Radio, TextInput, Typography } from '@strapi/design-system';
+import { Box, Button, Field, Flex, Loader, Modal, Radio, TextInput, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchShippingOptions from '../../usecases/orders/fetchShippingOptions';
 import EditShippingLine from '../../usecases/orders/editShippingLine';
@@ -37,7 +37,7 @@ import type {
 } from '../../orderTypes';
 import BalanceOutcome from './BalanceOutcome';
 import EmptyNote from './EmptyNote';
-import NoticeBar from './NoticeBar';
+import NoticeBar, { NOTICE_BACKGROUND, NOTICE_TEXT } from './NoticeBar';
 import PickupPointPicker from './PickupPointPicker';
 
 type Props = {
@@ -297,11 +297,11 @@ const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, o
         )}
         {shipped && option && (
           // Once shipped the order's address stays: a point only goes to the next shipments.
-          <NoticeBar
-            text={t(
-              pickup === 'NONE' ? 'ecommerce.orders.pickup.shippedAddress' : 'ecommerce.orders.pickup.shippedPoint'
-            )}
-          />
+          <Box padding={3} hasRadius style={{ background: NOTICE_BACKGROUND }}>
+            <Typography variant="omega" style={{ color: NOTICE_TEXT }}>
+              {t(pickup === 'NONE' ? 'ecommerce.orders.pickup.shippedAddress' : 'ecommerce.orders.pickup.shippedPoint')}
+            </Typography>
+          </Box>
         )}
         {!shipped && pickup === 'NONE' && orderPoint && option && (
           <NoticeBar text={t('ecommerce.orders.pickup.restore')} />
