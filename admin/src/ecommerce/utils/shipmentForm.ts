@@ -1,5 +1,5 @@
 import { MAX_MONEY_CENTS, formatAmountInput, parseMoneyToCents } from './money';
-import type { CreateShipmentInput, Order, OrderStatus, ShipmentView } from '../orderTypes';
+import type { CreateShipmentInput, Order, OrderStatus, ShipMethodOption, ShipmentView } from '../orderTypes';
 
 /** Mirror the server limits. */
 export const MAX_CARRIER_NAME = 120;
@@ -8,24 +8,22 @@ export const MAX_TRACKING_URL = 2000;
 export const MAX_CANCEL_REASON = 500;
 export const MAX_PARCELS = 99;
 
-export type ShipMode = 'MANUAL' | 'CARRIER';
 export type ShipLineDraft = { orderLineId: number; quantity: string };
 
 export type ShipForm = {
   lines: ShipLineDraft[];
-  mode: ShipMode;
-  /** MANUAL only. */
-  carrierName: string;
+  /** The chosen delivery method (`shipMethodKey`); '' when none is offered. */
+  methodKey: string;
+  /** Manual methods only. */
   trackingCode: string;
   trackingUrl: string;
   /** Decimal text in the admin's locale. */
   shippingCost: string;
-  notifyCustomer: boolean;
-  /** Carrier shipments of a DPD order: number of parcels (text). */
+  /** Carrier methods that ask for it (DPD): number of parcels (text). */
   parcels: string;
 };
 
-/** Field path (`lines.<orderLineId>`, `lines`, `carrierName`, …) → error code. */
+/** Field path (`lines.<orderLineId>`, `lines`, `method`, `trackingUrl`, …) → error code. */
 export type FormErrors = Record<string, string>;
 
 /** True for an absolute http(s) URL of at most 2000 characters (never `javascript:` & co.). */
@@ -51,15 +49,20 @@ export function defaultShipLines(lines: { id: number; pending: number }[]): Ship
   return lines.filter((l) => l.pending > 0).map((l) => ({ orderLineId: l.id, quantity: String(l.pending) }));
 }
 
-/** The order's shipping method belongs to a carrier (not the built-in manual methods). */
-export function canShipByCarrier(shippingMethod: Record<string, unknown> | null | undefined): boolean {
-  const providerId = shippingMethod?.providerId;
-  return typeof providerId === 'string' && !!providerId && providerId !== 'manual';
+/** A delivery method's identity in the ship form (radio value). */
+export function shipMethodKey(m: Pick<ShipMethodOption, 'providerId' | 'serviceId'>): string {
+  return `${m.providerId}:${m.serviceId ?? ''}`;
 }
 
-/** The ship modal asks for the number of parcels: DPD Portugal orders. */
-export function asksParcels(shippingMethod: Record<string, unknown> | null | undefined): boolean {
-  return shippingMethod?.providerId === 'dpd-portugal';
+/** The preselected method: the order's own (`original`), else the first offered; '' for none. */
+export function defaultShipMethodKey(methods: ShipMethodOption[]): string {
+  const m = methods.find((x) => x.original) ?? methods[0];
+  return m ? shipMethodKey(m) : '';
+}
+
+/** The method chosen in `form`, or null. */
+export function selectedShipMethod(form: Pick<ShipForm, 'methodKey'>, methods: ShipMethodOption[]): ShipMethodOption | null {
+  return methods.find((m) => shipMethodKey(m) === form.methodKey) ?? null;
 }
 
 /** An integer 1–99 typed in the parcels field; null otherwise. */
@@ -70,31 +73,30 @@ export function parseParcels(text: string): number | null {
   return n >= 1 && n <= MAX_PARCELS ? n : null;
 }
 
+/** `methods`: the offered delivery methods; the order's own is preselected. */
 export function emptyShipForm(
-  order: Pick<Order, 'lines' | 'shipping'> & { shippingMethod: Record<string, unknown> | null },
-  locale: string
+  order: Pick<Order, 'lines' | 'shipping'>,
+  locale: string,
+  methods: ShipMethodOption[] = []
 ): ShipForm {
-  const name = order.shippingMethod?.name;
   return {
     lines: defaultShipLines(order.lines),
-    mode: 'MANUAL',
-    carrierName: typeof name === 'string' ? name.slice(0, MAX_CARRIER_NAME) : '',
+    methodKey: defaultShipMethodKey(methods),
     trackingCode: '',
     trackingUrl: '',
     shippingCost: formatAmountInput(order.shipping?.remainingCost ?? 0, locale),
-    notifyCustomer: true,
     parcels: '1',
   };
 }
 
-/** `parcels`: the order's carrier asks for them (`asksParcels`). */
-export type ShipFormOptions = { parcels?: boolean };
-
-/** Checks the ship form (requirement 10.4): 0 ≤ quantity ≤ pending, at least one unit. */
+/**
+ * Checks the ship form (requirement 10.4): 0 ≤ quantity ≤ pending, at least one unit, a delivery
+ * method (`method`: the selected one), its tracking (manual) or parcels (DPD).
+ */
 export function validateShipForm(
   form: ShipForm,
   lines: { id: number; pending: number }[],
-  opts: ShipFormOptions = {}
+  method: ShipMethodOption | null
 ): FormErrors {
   const errors: FormErrors = {};
   const pendingOf = new Map(lines.map((l) => [l.id, l.pending]));
@@ -107,14 +109,13 @@ export function validateShipForm(
   }
   if (!units && !Object.keys(errors).length) errors.lines = 'required';
 
-  if (form.mode === 'MANUAL') {
-    const carrier = form.carrierName.trim();
-    if (!carrier) errors.carrierName = 'required';
-    else if (carrier.length > MAX_CARRIER_NAME) errors.carrierName = 'too_long';
+  if (!method) {
+    errors.method = 'required';
+  } else if (method.kind === 'MANUAL') {
     if (form.trackingCode.trim().length > MAX_TRACKING_CODE) errors.trackingCode = 'too_long';
     const url = form.trackingUrl.trim();
     if (url && !isHttpUrl(url)) errors.trackingUrl = 'invalid_url';
-  } else if (opts.parcels && parseParcels(form.parcels) === null) {
+  } else if (method.parcels && parseParcels(form.parcels) === null) {
     errors.parcels = 'invalid';
   }
 
@@ -123,33 +124,41 @@ export function validateShipForm(
   return errors;
 }
 
-/** The request body of a form `validateShipForm` accepted. */
+/**
+ * The request body of a form `validateShipForm` accepted, shipped with `method`: a manual one
+ * carries its name as the carrier and the typed tracking; a carrier one only its ids (the
+ * carrier returns the tracking and the label). The customer is always notified.
+ */
 export function buildShipmentInput(
   form: ShipForm,
   idempotencyKey: string,
-  opts: ShipFormOptions = {}
+  method: ShipMethodOption
 ): CreateShipmentInput {
   const lines = form.lines
     .map((l) => ({ orderLineId: l.orderLineId, quantity: parseQuantity(l.quantity) ?? 0 }))
     .filter((l) => l.quantity > 0);
-  let method: CreateShipmentInput['method'] = { mode: 'CARRIER' };
-  if (form.mode === 'MANUAL') {
+  let shipMethod: CreateShipmentInput['method'];
+  if (method.kind === 'MANUAL') {
     const trackingCode = form.trackingCode.trim();
     const trackingUrl = form.trackingUrl.trim();
-    method = {
+    shipMethod = {
       mode: 'MANUAL',
-      carrierName: form.carrierName.trim(),
+      providerId: 'manual',
+      ...(method.serviceId ? { serviceId: method.serviceId } : {}),
+      carrierName: method.name.trim().slice(0, MAX_CARRIER_NAME),
       ...(trackingCode ? { trackingCode } : {}),
       ...(trackingUrl ? { trackingUrl } : {}),
     };
+  } else {
+    shipMethod = { mode: 'CARRIER', providerId: method.providerId, serviceId: method.serviceId };
   }
   return {
     lines,
-    method,
+    method: shipMethod,
     shippingCost: parseMoneyToCents(form.shippingCost) ?? 0,
-    notifyCustomer: form.notifyCustomer,
+    notifyCustomer: true,
     idempotencyKey,
-    ...(opts.parcels && form.mode === 'CARRIER' ? { parcels: parseParcels(form.parcels) ?? 1 } : {}),
+    ...(method.kind === 'CARRIER' && method.parcels ? { parcels: parseParcels(form.parcels) ?? 1 } : {}),
   };
 }
 

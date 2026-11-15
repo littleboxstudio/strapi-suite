@@ -1,11 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
-  asksParcels,
   buildShipmentInput,
   cancelWarningId,
   isRetryUnsafeShipment,
-  canShipByCarrier,
   defaultDeliveredAtInput,
+  defaultShipMethodKey,
   defaultShipLines,
   deliveredAtInputToIso,
   emptyShipForm,
@@ -14,13 +13,15 @@ import {
   isUncertainShipment,
   mapServerFieldErrors,
   resolveDeliveredAt,
+  selectedShipMethod,
+  shipMethodKey,
   shipResultMessageId,
   shipmentActions,
   validateShipForm,
   validateTrackingForm,
   type ShipForm,
 } from '../../../admin/src/ecommerce/utils/shipmentForm';
-import type { ShipmentView } from '../../../admin/src/ecommerce/orderTypes';
+import type { ShipMethodOption, ShipmentView } from '../../../admin/src/ecommerce/orderTypes';
 
 const lines = [
   { id: 1, pending: 3 },
@@ -28,17 +29,27 @@ const lines = [
   { id: 3, pending: 1 },
 ];
 
+const manual: ShipMethodOption = { providerId: 'manual', serviceId: '4', name: 'CTT', kind: 'MANUAL', original: false };
+const dpdExpress: ShipMethodOption = {
+  providerId: 'dpd-portugal',
+  serviceId: 'EXPRESS',
+  name: 'DPD Express',
+  kind: 'CARRIER',
+  original: true,
+  parcels: true,
+};
+const ctt: ShipMethodOption = { providerId: 'ctt-expresso', serviceId: null, name: 'CTT Expresso', kind: 'CARRIER', original: false };
+const methods = [manual, dpdExpress, ctt];
+
 const form = (overrides: Partial<ShipForm> = {}): ShipForm => ({
   lines: [
     { orderLineId: 1, quantity: '3' },
     { orderLineId: 3, quantity: '1' },
   ],
-  mode: 'MANUAL',
-  carrierName: 'CTT',
+  methodKey: 'manual:4',
   trackingCode: '',
   trackingUrl: '',
   shippingCost: '4,50',
-  notifyCustomer: true,
   parcels: '1',
   ...overrides,
 });
@@ -76,50 +87,56 @@ describe('defaultShipLines', () => {
   });
 });
 
+describe('ship methods', () => {
+  it('keys a method by provider and service', () => {
+    expect(shipMethodKey(manual)).toBe('manual:4');
+    expect(shipMethodKey(ctt)).toBe('ctt-expresso:');
+  });
+
+  it("preselect the order's original method, else the first one", () => {
+    expect(defaultShipMethodKey(methods)).toBe('dpd-portugal:EXPRESS');
+    expect(defaultShipMethodKey([manual, ctt])).toBe('manual:4');
+    expect(defaultShipMethodKey([])).toBe('');
+  });
+
+  it('the selected method, or null', () => {
+    expect(selectedShipMethod(form({ methodKey: 'ctt-expresso:' }), methods)).toBe(ctt);
+    expect(selectedShipMethod(form({ methodKey: 'gone:1' }), methods)).toBeNull();
+  });
+});
+
 describe('emptyShipForm', () => {
-  it('prefills the carrier from the order method and the cost from the remaining shipping', () => {
+  it('preselects the original method and prefills the cost from the remaining shipping', () => {
     const f = emptyShipForm(
-      { lines, shippingMethod: { providerId: 'manual', name: 'Standard' }, shipping: { remainingCost: 450, deliveryStatus: 'NONE' } } as any,
-      'pt-PT'
+      { lines, shipping: { remainingCost: 450, deliveryStatus: 'NONE' } } as any,
+      'pt-PT',
+      methods
     );
-    expect(f).toMatchObject({ mode: 'MANUAL', carrierName: 'Standard', shippingCost: '4,50', notifyCustomer: true });
+    expect(f).toMatchObject({ methodKey: 'dpd-portugal:EXPRESS', shippingCost: '4,50', parcels: '1' });
+    expect(f).not.toHaveProperty('notifyCustomer');
     expect(f.lines).toHaveLength(2);
+    expect(emptyShipForm({ lines, shipping: { remainingCost: 0 } } as any, 'en').methodKey).toBe('');
   });
 });
 
 describe('parcels (DPD)', () => {
   const dpd = { retry: false, cancel: false, tracking: false };
 
-  it('are asked only for a DPD Portugal order', () => {
-    expect(asksParcels({ providerId: 'dpd-portugal', serviceId: 'EXPRESS' })).toBe(true);
-    expect(asksParcels({ providerId: 'ctt-expresso' })).toBe(false);
-    expect(asksParcels({ providerId: 'manual' })).toBe(false);
-    expect(asksParcels(null)).toBe(false);
-  });
-
-  it('default to 1', () => {
-    const f = emptyShipForm(
-      { lines, shippingMethod: { providerId: 'dpd-portugal', name: 'DPD' }, shipping: { remainingCost: 0 } } as any,
-      'en'
-    );
-    expect(f.parcels).toBe('1');
-  });
-
-  it('must be an integer 1–99 for a carrier shipment that asks for them', () => {
-    const carrier = (parcels: string) => form({ mode: 'CARRIER', parcels });
+  it('must be an integer 1–99 for a carrier method that asks for them', () => {
+    const carrier = (parcels: string) => form({ methodKey: 'dpd-portugal:EXPRESS', parcels });
     for (const bad of ['0', '100', '1.5', '', 'x', '-1']) {
-      expect(validateShipForm(carrier(bad), lines, { parcels: true })).toEqual({ parcels: 'invalid' });
+      expect(validateShipForm(carrier(bad), lines, dpdExpress)).toEqual({ parcels: 'invalid' });
     }
-    expect(validateShipForm(carrier('99'), lines, { parcels: true })).toEqual({});
-    // Not asked (another carrier), or a manual shipment: ignored.
-    expect(validateShipForm(carrier('0'), lines)).toEqual({});
-    expect(validateShipForm(form({ parcels: '0' }), lines, { parcels: true })).toEqual({});
+    expect(validateShipForm(carrier('99'), lines, dpdExpress)).toEqual({});
+    // Not asked (another carrier), or a manual method: ignored.
+    expect(validateShipForm(carrier('0'), lines, ctt)).toEqual({});
+    expect(validateShipForm(form({ parcels: '0' }), lines, manual)).toEqual({});
   });
 
-  it('are sent only with a carrier shipment that asks for them', () => {
-    expect(buildShipmentInput(form({ mode: 'CARRIER', parcels: ' 2 ' }), 'k', { parcels: true }).parcels).toBe(2);
-    expect(buildShipmentInput(form({ mode: 'CARRIER', parcels: '2' }), 'k')).not.toHaveProperty('parcels');
-    expect(buildShipmentInput(form({ parcels: '2' }), 'k', { parcels: true })).not.toHaveProperty('parcels');
+  it('are sent only with a carrier method that asks for them', () => {
+    expect(buildShipmentInput(form({ parcels: ' 2 ' }), 'k', dpdExpress).parcels).toBe(2);
+    expect(buildShipmentInput(form({ parcels: '2' }), 'k', ctt)).not.toHaveProperty('parcels');
+    expect(buildShipmentInput(form({ parcels: '2' }), 'k', manual)).not.toHaveProperty('parcels');
   });
 
   it('an uncertain DPD shipment offers "Mark as failed", never "Retry"', () => {
@@ -149,14 +166,6 @@ describe('parcels (DPD)', () => {
   });
 });
 
-describe('canShipByCarrier', () => {
-  it('only for an order whose method belongs to a carrier', () => {
-    expect(canShipByCarrier({ providerId: 'ctt' })).toBe(true);
-    expect(canShipByCarrier({ providerId: 'manual' })).toBe(false);
-    expect(canShipByCarrier(null)).toBe(false);
-  });
-});
-
 describe('isHttpUrl', () => {
   it('accepts http(s) and rejects other schemes', () => {
     expect(isHttpUrl('https://track.example/1')).toBe(true);
@@ -170,63 +179,75 @@ describe('isHttpUrl', () => {
 
 describe('validateShipForm', () => {
   it('accepts a valid manual shipment', () => {
-    expect(validateShipForm(form(), lines)).toEqual({});
+    expect(validateShipForm(form(), lines, manual)).toEqual({});
+  });
+
+  it('requires a delivery method', () => {
+    expect(validateShipForm(form({ methodKey: '' }), lines, null)).toEqual({ method: 'required' });
   });
 
   it('refuses a quantity above the pending one', () => {
-    expect(validateShipForm(form({ lines: [{ orderLineId: 1, quantity: '4' }] }), lines)).toEqual({
+    expect(validateShipForm(form({ lines: [{ orderLineId: 1, quantity: '4' }] }), lines, manual)).toEqual({
       'lines.1': 'QUANTITY_EXCEEDS_PENDING',
     });
   });
 
   it('refuses invalid quantities and an empty shipment', () => {
-    expect(validateShipForm(form({ lines: [{ orderLineId: 1, quantity: '1.5' }] }), lines)).toEqual({
+    expect(validateShipForm(form({ lines: [{ orderLineId: 1, quantity: '1.5' }] }), lines, manual)).toEqual({
       'lines.1': 'invalid_quantity',
     });
     expect(
       validateShipForm(
         form({ lines: [{ orderLineId: 1, quantity: '0' }, { orderLineId: 3, quantity: '' }] }),
-        lines
+        lines,
+        manual
       )
     ).toEqual({ lines: 'required' });
   });
 
   it('refuses a javascript: tracking URL', () => {
-    expect(validateShipForm(form({ trackingUrl: 'javascript:alert(1)' }), lines)).toEqual({
+    expect(validateShipForm(form({ trackingUrl: 'javascript:alert(1)' }), lines, manual)).toEqual({
       trackingUrl: 'invalid_url',
     });
   });
 
-  it('requires the carrier name for a manual shipment, not for a carrier one', () => {
-    expect(validateShipForm(form({ carrierName: '  ' }), lines)).toEqual({ carrierName: 'required' });
-    expect(validateShipForm(form({ mode: 'CARRIER', carrierName: '', trackingUrl: 'javascript:x' }), lines)).toEqual(
-      {}
-    );
-    expect(validateShipForm(form({ carrierName: 'x'.repeat(121) }), lines)).toEqual({ carrierName: 'too_long' });
+  it('checks the tracking fields of a manual method only', () => {
+    expect(validateShipForm(form({ trackingCode: 'x'.repeat(256) }), lines, manual)).toEqual({ trackingCode: 'too_long' });
+    expect(validateShipForm(form({ trackingCode: 'x'.repeat(256), trackingUrl: 'javascript:x' }), lines, ctt)).toEqual({});
   });
 
   it('checks the cost', () => {
-    expect(validateShipForm(form({ shippingCost: 'abc' }), lines)).toEqual({ shippingCost: 'invalid_amount' });
-    expect(validateShipForm(form({ shippingCost: '0' }), lines)).toEqual({});
+    expect(validateShipForm(form({ shippingCost: 'abc' }), lines, manual)).toEqual({ shippingCost: 'invalid_amount' });
+    expect(validateShipForm(form({ shippingCost: '0' }), lines, manual)).toEqual({});
   });
 });
 
 describe('buildShipmentInput', () => {
-  it('sends only the lines with a quantity and the manual fields when manual', () => {
+  it('sends the lines with a quantity and the manual method with its tracking; always notifies', () => {
     const f = form({ lines: [{ orderLineId: 1, quantity: '2' }, { orderLineId: 3, quantity: '0' }], trackingCode: ' AB1 ' });
-    expect(buildShipmentInput(f, 'key-1')).toEqual({
+    expect(buildShipmentInput(f, 'key-1', manual)).toEqual({
       lines: [{ orderLineId: 1, quantity: 2 }],
-      method: { mode: 'MANUAL', carrierName: 'CTT', trackingCode: 'AB1' },
+      method: { mode: 'MANUAL', providerId: 'manual', serviceId: '4', carrierName: 'CTT', trackingCode: 'AB1' },
       shippingCost: 450,
       notifyCustomer: true,
       idempotencyKey: 'key-1',
     });
   });
 
-  it('sends a bare carrier method', () => {
-    const input = buildShipmentInput(form({ mode: 'CARRIER', notifyCustomer: false }), 'k');
-    expect(input.method).toEqual({ mode: 'CARRIER' });
-    expect(input.notifyCustomer).toBe(false);
+  it('caps the manual carrier name at the server limit', () => {
+    const long = { ...manual, name: 'x'.repeat(200) };
+    const input = buildShipmentInput(form(), 'k', long);
+    expect(input.method.mode === 'MANUAL' && input.method.carrierName.length).toBe(120);
+  });
+
+  it('sends the chosen carrier and service, no tracking', () => {
+    const f = form({ trackingCode: 'X', trackingUrl: 'https://x.example' });
+    expect(buildShipmentInput(f, 'k', ctt).method).toEqual({ mode: 'CARRIER', providerId: 'ctt-expresso', serviceId: null });
+    expect(buildShipmentInput(f, 'k', dpdExpress)).toMatchObject({
+      method: { mode: 'CARRIER', providerId: 'dpd-portugal', serviceId: 'EXPRESS' },
+      notifyCustomer: true,
+      parcels: 1,
+    });
   });
 });
 

@@ -21,6 +21,7 @@ const S = 'EcommerceShipmentController';
 const R = 'EcommerceReturnController';
 
 export default [
+  route('GET', '/orders/:id/ship-methods', `${S}.shipMethods`, oManage),
   route('POST', '/orders/:id/shipments', `${S}.create`, oManage),
   route('POST', '/shipments/:id/deliver', `${S}.deliver`, oManage),
   route('POST', '/shipments/:id/tracking', `${S}.updateTracking`, oManage),

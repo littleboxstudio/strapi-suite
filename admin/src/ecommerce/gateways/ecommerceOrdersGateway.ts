@@ -16,6 +16,7 @@ import type {
   CustomerOrderListParams,
   CreateRefundInput,
   CreateShipmentInput,
+  ShipMethodOption,
   CancelledShipmentView,
   CreditNoteInput,
   CreditNoteOptions,
@@ -149,6 +150,8 @@ export default interface EcommerceOrdersGateway {
   voidStoreCredit(id: number): Promise<StoreCredit>;
 
   // Shipments and returns (write: orders.manage; label: orders.read)
+  /** The delivery methods the ship modal offers, named in `locale` (orders.manage). */
+  fetchShipMethods(orderId: number, locale: string): Promise<{ methods: ShipMethodOption[] }>;
   createShipment(orderId: number, input: CreateShipmentInput): Promise<ShipmentView>;
   confirmDelivery(shipmentId: number, input: DeliveryInput): Promise<ShipmentView>;
   updateTracking(shipmentId: number, input: TrackingInput): Promise<ShipmentView>;
@@ -390,6 +393,10 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
 
   async voidStoreCredit(id: number): Promise<StoreCredit> {
     return this.httpClient.post(`${this.base}/store-credits/${id}/void`, {});
+  }
+
+  async fetchShipMethods(orderId: number, locale: string): Promise<{ methods: ShipMethodOption[] }> {
+    return this.httpClient.get(`${this.orders}/${orderId}/ship-methods${objectToQueryString({ locale })}`);
   }
 
   async createShipment(orderId: number, input: CreateShipmentInput): Promise<ShipmentView> {
