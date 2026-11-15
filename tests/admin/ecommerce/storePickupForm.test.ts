@@ -6,7 +6,9 @@ import {
   storePickupErrorMap,
   storePickupSummary,
   storePickupToDraft,
+  storesOfRemovedMarkets,
   validateStoreDraft,
+  withoutMarketStores,
   withoutStoreErrors,
 } from '../../../admin/src/ecommerce/utils/storePickupForm';
 import type { StorePickupConfig } from '../../../admin/src/ecommerce/settingsTypes';
@@ -255,5 +257,31 @@ describe('store pickup translations', () => {
   it('uses the agreed warning', () => {
     expect(en[`${P}.storePickup.noStores`]).toBe('Not offered until it has a store');
     expect(pt[`${P}.storePickup.noStores`]).toBe('Não é oferecido enquanto não tiver uma loja');
+  });
+});
+
+describe('removing markets with stores', () => {
+  const draft = () => storePickupToDraft(CONFIG, ['pt', 'en'], 'pt', STORE_MARKETS);
+
+  it('storesOfRemovedMarkets lists the stores of each deselected market', () => {
+    expect(storesOfRemovedMarkets(draft(), ['PT', 'PT-ISL', 'ES'])).toEqual([]);
+    expect(storesOfRemovedMarkets(draft(), ['PT', 'PT-ISL'])).toEqual([]);
+    expect(storesOfRemovedMarkets(draft(), ['PT']).map((r) => [r.market, r.store.name])).toEqual([
+      ['PT-ISL', 'Loja Funchal'],
+    ]);
+    expect(storesOfRemovedMarkets(draft(), []).map((r) => [r.market, r.store.name])).toEqual([
+      ['PT', 'Loja Porto'],
+      ['PT-ISL', 'Loja Funchal'],
+    ]);
+    // A market without stores loses nothing.
+    const noStores = { ...draft(), stores: { PT: draft().stores.PT } };
+    expect(storesOfRemovedMarkets(noStores, ['PT'])).toEqual([]);
+  });
+
+  it('withoutMarketStores drops the stores of the given markets only', () => {
+    const next = withoutMarketStores(draft(), ['PT-ISL']);
+    expect(Object.keys(next.stores)).toEqual(['PT']);
+    expect(next.stores.PT).toEqual(draft().stores.PT);
+    expect(next.markets).toEqual(['PT', 'PT-ISL']);
   });
 });
