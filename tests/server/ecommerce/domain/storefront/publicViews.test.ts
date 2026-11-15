@@ -276,6 +276,22 @@ describe('toPublicQuote', () => {
     expect(Object.keys(pub.totals).sort()).toEqual(Object.keys(quote().totals).sort());
   });
 
+  it('selectedShipping carries the public pickupPoints of a store pickup option', () => {
+    const point = { id: 'st_aaaaaaaaaa', name: 'Loja', address: 'Rua A 1', address2: null, postalCode: '1000-001', city: 'Lisboa', country: 'PT' };
+    const q = {
+      ...quote(),
+      shippingOption: {
+        providerId: 'store-pickup', serviceId: 'STORE', name: 'Store', price: 0, tax: 23,
+        requiresPickupPoint: true, pickupPoints: [{ ...point, extra: 'x' }],
+      },
+    };
+    const pub = toPublicQuote(q as any, ctx);
+    expect(pub.selectedShipping).toEqual({
+      providerId: 'store-pickup', serviceId: 'STORE', name: 'Store', price: 0, estimatedDays: null,
+      requiresPickupPoint: true, pickupPoints: [point],
+    });
+  });
+
   it('no shipping selected', () => {
     const q = { ...quote(), shippingOption: null, totals: { ...quote().totals, shippingTotal: null } };
     const pub = toPublicQuote(q, { ...ctx, shippingOptions: null });

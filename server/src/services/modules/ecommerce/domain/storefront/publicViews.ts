@@ -7,6 +7,7 @@
  * structural subsets of OrderQuote and OrderView used here (a type test keeps them assignable).
  */
 import type { AppliedPromotion, CodeStatus } from '../promotions';
+import type { PickupStore } from '../storePickup';
 import { quoteVatItems, vatBreakdown, type VatRow } from './tax';
 
 export const PUBLIC_CODE_STATUSES = [
@@ -149,6 +150,7 @@ export type QuoteSource = {
     tax: number;
     estimatedDays?: number;
     requiresPickupPoint?: boolean;
+    pickupPoints?: PublicPickupStore[];
   } | null;
   giftOptions: {
     promotionId: number;
@@ -175,16 +177,41 @@ export type PublicShippingOption = {
   /** Present (true) only for an option that needs a pickup point (DPD Pickup). */
   requiresPickupPoint?: true;
   /** Present only on store pickup: the stores to pick from (the customer's pickupPointId is one of them). */
-  pickupPoints?: {
-    id: string;
-    name: string;
-    address: string;
-    address2: string | null;
-    postalCode: string;
-    city: string;
-    country: string;
-  }[];
+  pickupPoints?: PublicPickupStore[];
 };
+
+export type PublicPickupStore = PickupStore;
+
+/** The one public mapping of a shipping option (options list and selected option): public fields only. */
+export const toPublicShippingOption = (o: {
+  providerId: string;
+  serviceId: string;
+  name: string;
+  price: number;
+  estimatedDays?: number;
+  requiresPickupPoint?: boolean;
+  pickupPoints?: PickupStore[];
+}): PublicShippingOption => ({
+  providerId: o.providerId,
+  serviceId: o.serviceId,
+  name: o.name,
+  price: o.price,
+  estimatedDays: o.estimatedDays ?? null,
+  ...(o.requiresPickupPoint === true ? { requiresPickupPoint: true as const } : {}),
+  ...(o.pickupPoints
+    ? {
+        pickupPoints: o.pickupPoints.map((p) => ({
+          id: p.id,
+          name: p.name,
+          address: p.address,
+          address2: p.address2,
+          postalCode: p.postalCode,
+          city: p.city,
+          country: p.country,
+        })),
+      }
+    : {}),
+});
 
 export type PublicQuoteLine = {
   variantId: number;
@@ -300,16 +327,7 @@ export const toPublicQuote = (
     ),
     currency: 'EUR',
     shippingOptions: ctx.shippingOptions,
-    selectedShipping: q.shippingOption
-      ? {
-          providerId: q.shippingOption.providerId,
-          serviceId: q.shippingOption.serviceId,
-          name: q.shippingOption.name,
-          price: q.shippingOption.price,
-          estimatedDays: q.shippingOption.estimatedDays ?? null,
-          ...(q.shippingOption.requiresPickupPoint === true ? { requiresPickupPoint: true as const } : {}),
-        }
-      : null,
+    selectedShipping: q.shippingOption ? toPublicShippingOption(q.shippingOption) : null,
   };
 };
 

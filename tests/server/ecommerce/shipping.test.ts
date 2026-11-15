@@ -376,6 +376,12 @@ describe('EcommerceShippingService', () => {
       expect((await quoteWith('other', [point('a')])).options[0].pickupPoints).toBeUndefined();
     });
 
+    it('a store-pickup option without valid pickup points is dropped', async () => {
+      for (const bad of [undefined, 'x', [], [null, { ...point('a'), name: 5 }]]) {
+        expect((await quoteWith('store-pickup', bad)).options).toEqual([]);
+      }
+    });
+
     it('served markets of store-pickup come from storePickupServedMarkets', async () => {
       const stores = { PT: [{ id: 'st_aaaaaaaaaa', name: 'L', address: 'A', postalCode: '1000-001', city: 'Lisboa' }], ES: [] };
       const runtime = () => ({
