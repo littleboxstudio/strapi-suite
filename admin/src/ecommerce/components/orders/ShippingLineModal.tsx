@@ -14,6 +14,7 @@ import {
   shippingLineEditUnchanged,
   shippingLineErrorKey,
   shippingOptionKey,
+  suggestedChargePrice,
 } from '../../utils/orderEditing';
 import { apiErrorMessageId, type OrderActionPermissions, type ToolbarAction } from '../../utils/orderDetail';
 import { extractFieldErrors } from '../../utils/productForm';
@@ -89,13 +90,24 @@ const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, o
   const [saved, setSaved] = useState<EditResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [point, setPoint] = useState<PickupSelection | null>(null);
+  /** What a new charge is suggested against (units not yet shipped, shipping charged so far). */
+  const [suggestionBase, setSuggestionBase] = useState<{ pendingOnly?: boolean; charged?: number }>({});
+
+  /**
+   * The suggested price of an option: Add, its quote of the units not yet shipped minus the
+   * shipping already charged (null below 0: no suggestion, the price starts at 0); Edit, its quote.
+   */
+  const suggestionOf = (o: ShippingOption, base = suggestionBase): number | null =>
+    mode === 'ADD' ? suggestedChargePrice(o.price, base) : o.price;
 
   useEffect(() => {
     let cancelled = false;
     new FetchShippingOptions()
       .execute(order.id)
-      .then(({ options: offered, failures: failed }) => {
+      .then(({ options: offered, failures: failed, pendingOnly, charged }) => {
         if (cancelled) return;
+        const base = { pendingOnly, charged };
+        setSuggestionBase(base);
         const preferred = line
           ? { providerId: line.providerId, serviceId: line.serviceId }
           : currentShippingMethod(order.shippingLines);
@@ -104,7 +116,7 @@ const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, o
         setFailures(failed);
         setSelected(key);
         const option = offered.find((o) => shippingOptionKey(o) === key);
-        if (option) setPrice(formatAmountInput(option.price, locale));
+        if (option) setPrice(formatAmountInput(suggestionOf(option, base) ?? 0, locale));
       })
       .catch((err) => {
         if (cancelled) return;
@@ -152,7 +164,7 @@ const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, o
     // A point chosen for another method does not carry over.
     if (key !== selected) setPoint(null);
     // A new method starts from its suggested price.
-    if (next) setPrice(formatAmountInput(next.price, locale));
+    if (next) setPrice(formatAmountInput(suggestionOf(next) ?? 0, locale));
     setErrors({});
   };
 
@@ -254,7 +266,11 @@ const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, o
         <Field.Root
           name="amount"
           error={errors.amount ? codeText(errors.amount) : undefined}
-          hint={option ? t('ecommerce.orders.shippingCharges.suggested', { amount: money(option.price) }) : undefined}
+          hint={
+            option && suggestionOf(option) !== null
+              ? t('ecommerce.orders.shippingCharges.suggested', { amount: money(suggestionOf(option)!) })
+              : undefined
+          }
         >
           <Field.Label>{t('ecommerce.orders.shippingCharges.price')}</Field.Label>
           <TextInput

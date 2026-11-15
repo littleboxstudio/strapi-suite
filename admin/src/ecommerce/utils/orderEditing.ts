@@ -409,3 +409,13 @@ export function manualLineDiscountRows(lines: ManualDiscountLine[], locale: stri
 export function manualLineDiscountTotal(rows: Pick<ManualLineDiscountRow, 'amount'>[]): number {
   return rows.reduce((s, r) => s + r.amount, 0);
 }
+
+/**
+ * The price suggested for a new shipping charge: the quote of the units not yet shipped (none
+ * when every unit has shipped) minus the shipping already charged. Null when that is below 0:
+ * no suggestion, and the price starts at 0.
+ */
+export function suggestedChargePrice(quote: number, ctx: { pendingOnly?: boolean; charged?: number }): number | null {
+  const suggested = (ctx.pendingOnly === false ? 0 : quote) - (ctx.charged ?? 0);
+  return suggested < 0 ? null : suggested;
+}

@@ -727,3 +727,24 @@ describe('the next point after shipments: recalculation, cancellation, kinds', (
     expect((await t.c.orders.get(id)).nextPickupPoint).toMatchObject({ id: POINT.id });
   });
 });
+
+describe('shipping options for a new charge', () => {
+  it('say whether the quotes are of the units not yet shipped, and what was charged', async () => {
+    const t = setup();
+    const { id } = await t.create();
+    const fresh = await t.c.editing.shippingOptionsForOrder(id);
+    expect(fresh).toMatchObject({ pendingOnly: true, charged: 500 });
+    const line = t.c.tables[UIDS.orderLine].find((l: any) => l.order === id);
+    t.c.tables[UIDS.shipment].push({
+      id: 1,
+      order: id,
+      providerId: 'manual',
+      carrierName: 'CTT',
+      status: 'ACTIVE',
+      deliveryStatus: 'IN_TRANSIT',
+      items: { lines: [{ orderLineId: line.id, sku: line.sku, name: line.name, option: null, quantity: line.quantity }] },
+      idempotencyKey: 'ship-all',
+    });
+    expect(await t.c.editing.shippingOptionsForOrder(id)).toMatchObject({ pendingOnly: false, charged: 500 });
+  });
+});
