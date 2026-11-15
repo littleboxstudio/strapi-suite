@@ -22,14 +22,14 @@ export const DPD_CREDENTIALS = [...DPD_AUTH_CREDENTIALS, 'expeditionEndpoint'] a
 export const hasDpdCredentials = (rt: ProviderRuntime): boolean =>
   DPD_CREDENTIALS.every((key) => str(rt, key).trim() !== '');
 
-/** POSTs JSON; the callback never throws, so `null` means only "no answer" (network/timeout). */
-const postJson = (url: string, body: unknown, headers: Record<string, string>, opts: Options) =>
+/** POSTs a body; the callback never throws, so `null` means only "no answer" (network/timeout). */
+const post = (url: string, contentType: string, body: string, headers: Record<string, string>, opts: Options) =>
   timedFetch<Raw>(
     url,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...headers },
-      body: JSON.stringify(body),
+      headers: { 'Content-Type': contentType, Accept: 'application/json', ...headers },
+      body,
     },
     async (res) => {
       let parsed: unknown = null;
@@ -44,6 +44,13 @@ const postJson = (url: string, body: unknown, headers: Record<string, string>, o
     opts.timeoutMs
   );
 
+const postJson = (url: string, body: unknown, headers: Record<string, string>, opts: Options) =>
+  post(url, 'application/json', JSON.stringify(body), headers, opts);
+
+/** The token endpoint only accepts a urlencoded form (DPD support; JSON and multipart are refused). */
+const postForm = (url: string, fields: Record<string, string>, opts: Options) =>
+  post(url, 'application/x-www-form-urlencoded', new URLSearchParams(fields).toString(), {}, opts);
+
 const record = (v: unknown): Record<string, any> | null =>
   typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, any>) : null;
 
@@ -53,7 +60,7 @@ export async function dpdToken(rt: ProviderRuntime, opts: Options = {}): Promise
   if (missing.length) {
     throw new EcommerceCarrierError('CARRIER_NOT_CONFIGURED', `Missing DPD fields: ${missing.join(', ')}`);
   }
-  const res = await postJson(
+  const res = await postForm(
     str(rt, 'authEndpoint'),
     {
       username: str(rt, 'username'),
@@ -62,13 +69,23 @@ export async function dpdToken(rt: ProviderRuntime, opts: Options = {}): Promise
       client_secret: str(rt, 'clientSecret'),
       grant_type: 'password',
     },
-    {},
     opts
   );
   if (!res) throw new EcommerceCarrierError('CARRIER_UNREACHABLE', 'Could not reach DPD.');
+  // Not an API answer: DPD's firewall (Incapsula) answers 403 with an HTML page when it blocks the
+  // server, before the credentials are even read.
+  if (res.body === null && res.status >= 400) {
+    if (res.status === 403) {
+      throw new EcommerceCarrierError('DPD_BLOCKED', 'DPD blocked the request before the API (HTTP 403).');
+    }
+    throw new EcommerceCarrierError('CARRIER_UNREACHABLE', `DPD did not answer as an API (HTTP ${res.status}).`);
+  }
   const body = record(res.body);
-  const token = record(body?.result)?.access_token;
-  if (body?.status_code !== 200 || typeof token !== 'string' || !token) {
+  // DPD's envelope ({ status_code, result: { access_token } }) or a plain OAuth answer.
+  const enveloped = body?.status_code !== undefined;
+  const token = enveloped ? record(body?.result)?.access_token : body?.access_token;
+  const ok = enveloped ? body?.status_code === 200 : res.status >= 200 && res.status < 300;
+  if (!ok || typeof token !== 'string' || !token) {
     throw new EcommerceCarrierError('DPD_AUTH_FAILED', 'DPD rejected the credentials.');
   }
   return token;

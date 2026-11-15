@@ -134,13 +134,35 @@ describe('dpdToken', () => {
     const [url, init] = f.mock.calls[0];
     expect(url).toBe('https://dpd.test/auth');
     expect(init.method).toBe('POST');
-    expect(JSON.parse(init.body)).toEqual({
+    // DPD only accepts a urlencoded form here (JSON and multipart are refused).
+    expect(init.headers['Content-Type']).toBe('application/x-www-form-urlencoded');
+    expect(Object.fromEntries(new URLSearchParams(init.body))).toEqual({
       username: 'user-1',
       password: SECRETS.password,
       client_id: 'client-1',
       client_secret: SECRETS.clientSecret,
       grant_type: 'password',
     });
+  });
+
+  it('accepts a plain OAuth answer (access_token at the top)', async () => {
+    stubFetch(async () => json(200, { access_token: 'tok-PLAIN', token_type: 'Bearer' }));
+    await expect(dpdToken(rt(), { timeoutMs: 5000 })).resolves.toBe('tok-PLAIN');
+  });
+
+  it('a firewall 403 page (not JSON) → DPD_BLOCKED, not a credentials error', async () => {
+    stubFetch(async () => new Response('<html>Request unsuccessful. Incapsula incident ID: 1</html>', { status: 403, headers: { 'Content-Type': 'text/html' } }));
+    await rejectsWith(dpdToken(rt(), { timeoutMs: 5000 }), 'DPD_BLOCKED');
+  });
+
+  it('another non-JSON error page → CARRIER_UNREACHABLE', async () => {
+    stubFetch(async () => new Response('<html>Bad gateway</html>', { status: 502, headers: { 'Content-Type': 'text/html' } }));
+    await rejectsWith(dpdToken(rt(), { timeoutMs: 5000 }), 'CARRIER_UNREACHABLE');
+  });
+
+  it('a plain answer with an error status → DPD_AUTH_FAILED', async () => {
+    stubFetch(async () => json(401, { error: 'invalid_grant' }));
+    await rejectsWith(dpdToken(rt(), { timeoutMs: 5000 }), 'DPD_AUTH_FAILED');
   });
 
   it('status_code 401 → DPD_AUTH_FAILED without secrets', async () => {
@@ -525,6 +547,12 @@ describe('dpd-portugal testConnection', () => {
     const r = await test(rt(services(false)));
     expect(r.code).toBe('INVALID_CREDENTIALS');
     for (const s of SECRET_VALUES) expect(JSON.stringify(r)).not.toContain(s);
+  });
+
+  it('blocked by the firewall → BLOCKED', async () => {
+    stubFetch(async () => new Response('<html>Incapsula</html>', { status: 403, headers: { 'Content-Type': 'text/html' } }));
+    const r = await test(rt(services(false)));
+    expect(r.code).toBe('BLOCKED');
   });
 
   it('unreachable → UNREACHABLE', async () => {

@@ -27,7 +27,11 @@ async function testDpdConnection(rt: ProviderRuntime): Promise<ConnectionResult>
   try {
     await dpdToken(rt, { timeoutMs: TEST_TIMEOUT_MS });
   } catch (err) {
-    return err instanceof EcommerceCarrierError && err.code === 'DPD_AUTH_FAILED' ? INVALID_CREDENTIALS : UNREACHABLE;
+    if (err instanceof EcommerceCarrierError && err.code === 'DPD_AUTH_FAILED') return INVALID_CREDENTIALS;
+    if (err instanceof EcommerceCarrierError && err.code === 'DPD_BLOCKED') {
+      return { ok: false, code: 'BLOCKED', message: 'DPD blocked the request before the API.' };
+    }
+    return UNREACHABLE;
   }
   if (pickup) {
     try {

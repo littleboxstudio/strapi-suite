@@ -95,7 +95,7 @@ export type IntegrationInput = {
 
 export type ConnectionResult = {
   ok: boolean;
-  code?: 'INVALID_CREDENTIALS' | 'UNREACHABLE' | 'NOT_IMPLEMENTED' | 'MISSING_FIELDS';
+  code?: 'INVALID_CREDENTIALS' | 'UNREACHABLE' | 'BLOCKED' | 'NOT_IMPLEMENTED' | 'MISSING_FIELDS';
   message?: string;
 };
 
