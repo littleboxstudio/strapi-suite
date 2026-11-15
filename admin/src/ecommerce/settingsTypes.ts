@@ -135,6 +135,38 @@ export type DpdServices = Record<DpdServiceId, DpdService>;
 /** PUT result: the integration is turned off when no service is active. */
 export type DpdServicesSaveResult = { services: DpdServices; active: boolean };
 
+/** A store where customers collect their orders (Store pickup); the country is the market's. */
+export type PickupStore = {
+  id: string;
+  name: string;
+  address: string;
+  address2: string | null;
+  postalCode: string;
+  city: string;
+  country: string;
+};
+
+/** The Store pickup module (stored in the `store-pickup` integration config). */
+export type StorePickupConfig = {
+  name: Record<string, string>;
+  /** VAT rate (%). */
+  tax: number;
+  /** Weight brackets per store market; a market without one is not served. */
+  rates: MarketRates;
+  /** Stores per store market; a market with rates and no store is not served. */
+  stores: Record<string, PickupStore[]>;
+};
+
+/** What PUT sends per store: a new store has no id (the server creates it) nor country. */
+export type PickupStoreInput = Omit<PickupStore, 'id' | 'country'> & { id?: string };
+
+export type StorePickupInput = Omit<StorePickupConfig, 'stores'> & {
+  stores: Record<string, PickupStoreInput[]>;
+};
+
+/** PUT result: the integration is turned off when no market has rates and a store. */
+export type StorePickupSaveResult = { config: StorePickupConfig; active: boolean };
+
 export type EmailTemplateType =
   | 'ORDER_CONFIRMATION'
   | 'PAYMENT_CONFIRMATION'

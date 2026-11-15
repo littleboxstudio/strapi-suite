@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { useIntl } from 'react-intl';
 import { Box, Button, Field, Flex, IconButton, Typography } from '@strapi/design-system';
 import { Plus, Trash } from '@strapi/icons';
@@ -34,6 +34,8 @@ type Props = {
   required?: boolean;
   /** Shown instead of the search's "no match" text while no market is chosen (DPD services). */
   emptyText?: string;
+  /** Extra content at the end of each market's card (Store pickup: the market's stores). */
+  marketFooter?: (code: string, name: string) => ReactNode;
 };
 
 /**
@@ -50,6 +52,7 @@ const MarketRatesEditor = ({
   clearErrorsUnder,
   required = true,
   emptyText,
+  marketFooter,
 }: Props) => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const t = (id: string, values?: Record<string, any>) =>
@@ -235,6 +238,7 @@ const MarketRatesEditor = ({
                           : errorText(`rates.${code}`)}
                       </Typography>
                     )}
+                    {marketFooter?.(code, countryName(code))}
                   </Flex>
                 </MarketCard>
               );

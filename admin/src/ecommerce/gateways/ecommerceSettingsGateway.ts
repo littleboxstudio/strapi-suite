@@ -21,6 +21,9 @@ import type {
   TemplateContent,
   DpdServices,
   DpdServicesSaveResult,
+  StorePickupConfig,
+  StorePickupInput,
+  StorePickupSaveResult,
 } from '../settingsTypes';
 import type { EcommerceLocales } from '../types';
 
@@ -48,6 +51,9 @@ export default interface EcommerceSettingsGateway {
   fetchDpdServices(): Promise<DpdServices>;
   /** Replaces both services; the integration is turned off when none is active. */
   saveDpdServices(services: DpdServices): Promise<DpdServicesSaveResult>;
+  fetchStorePickup(): Promise<StorePickupConfig>;
+  /** Replaces the Store pickup config; the integration is turned off when no market is served. */
+  saveStorePickup(config: StorePickupInput): Promise<StorePickupSaveResult>;
 
   fetchEmailTemplates(): Promise<EmailTemplateSummary[]>;
   fetchEmailTemplate(type: EmailTemplateType, locale: string): Promise<EmailTemplateView>;
@@ -164,6 +170,14 @@ export class EcommerceSettingsGatewayHttp implements EcommerceSettingsGateway {
 
   async saveDpdServices(services: DpdServices): Promise<DpdServicesSaveResult> {
     return this.httpClient.put(`${this.base}/carriers/dpd-portugal/services`, services);
+  }
+
+  async fetchStorePickup(): Promise<StorePickupConfig> {
+    return this.httpClient.get(`${this.base}/carriers/store-pickup/config`);
+  }
+
+  async saveStorePickup(config: StorePickupInput): Promise<StorePickupSaveResult> {
+    return this.httpClient.put(`${this.base}/carriers/store-pickup/config`, config);
   }
 
   async fetchEmailTemplates(): Promise<EmailTemplateSummary[]> {
