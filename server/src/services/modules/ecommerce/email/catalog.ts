@@ -10,6 +10,7 @@ export const EMAIL_TEMPLATE_TYPES = [
   'SUPPLEMENTARY_PAYMENT',
   'PARTIAL_SHIPMENT',
   'FULL_SHIPMENT',
+  'TRACKING_UPDATED',
   'DELIVERY_CONFIRMATION',
   'CANCELLATION',
   'REFUND_STARTED',
@@ -132,6 +133,7 @@ const SPECIFIC: Record<EmailTemplateType, VariableDef[]> = {
       TRACKING_ITEM_FIELDS
     ),
   ],
+  TRACKING_UPDATED: SHIPMENT,
   DELIVERY_CONFIRMATION: [value('delivery.date', 'Delivery date')],
   CANCELLATION: [
     value('order.cancelledAt', 'Cancellation date'),

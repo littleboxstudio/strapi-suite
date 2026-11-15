@@ -5,6 +5,7 @@ import paymentInstructions from './paymentInstructions';
 import supplementaryPayment from './supplementaryPayment';
 import partialShipment from './partialShipment';
 import fullShipment from './fullShipment';
+import trackingUpdated from './trackingUpdated';
 import deliveryConfirmation from './deliveryConfirmation';
 import cancellation from './cancellation';
 import refundStarted from './refundStarted';
@@ -24,6 +25,7 @@ export const DEFAULT_TEMPLATES: Record<EmailTemplateType, DefaultTemplate> = {
   SUPPLEMENTARY_PAYMENT: supplementaryPayment,
   PARTIAL_SHIPMENT: partialShipment,
   FULL_SHIPMENT: fullShipment,
+  TRACKING_UPDATED: trackingUpdated,
   DELIVERY_CONFIRMATION: deliveryConfirmation,
   CANCELLATION: cancellation,
   REFUND_STARTED: refundStarted,

@@ -611,13 +611,16 @@ describe('shipment, delivery and invoice e-mails', () => {
     expect(notifs(c).at(-1)).toMatchObject({ status: 'SENT' });
   });
 
-  it('tracking edits never send an e-mail', async () => {
+  it('a tracking edit sends TRACKING_UPDATED; saving the same values again sends nothing', async () => {
     const { c, ships } = fulfilmentSetup();
     const { id, lineId } = await paid(c, 1);
     const s = await ships.create(id, ship(lineId, 1, 's1'), actor);
     const before = notifs(c).length;
     await ships.updateTracking(s.id, { trackingCode: 'NEW', trackingUrl: 'https://ctt.pt/NEW' }, actor);
-    expect(notifs(c)).toHaveLength(before);
+    expect(notifs(c)).toHaveLength(before + 1);
+    expect(notifs(c).at(-1)).toMatchObject({ type: 'TRACKING_UPDATED', status: 'SENT' });
+    await ships.updateTracking(s.id, { trackingCode: 'NEW', trackingUrl: 'https://ctt.pt/NEW' }, actor);
+    expect(notifs(c)).toHaveLength(before + 1);
   });
 
   it('the invoice e-mail carries the PDF fetched with getPdf; so does the credit note e-mail', async () => {
@@ -779,6 +782,7 @@ describe('shipment, delivery and invoice e-mails', () => {
     const cases: [any, any][] = [
       ['PARTIAL_SHIPMENT', ev('SHIPMENT_CREATED', { full: false, pending: [{ orderLineId: 1, quantity: 1 }] })],
       ['FULL_SHIPMENT', ev('SHIPMENT_CREATED', { full: true, pending: [] })],
+      ['TRACKING_UPDATED', ev('SHIPMENT_TRACKING_UPDATED', { shipmentId: 1 })],
       ['DELIVERY_CONFIRMATION', ev('SHIPMENT_DELIVERED', { deliveredAt: '2026-11-12T10:00:00.000Z' })],
       ['INVOICE_AVAILABLE', ev('INVOICE_ISSUED', { invoiceId: 9, kind: 'INVOICE' })],
     ];
@@ -804,6 +808,10 @@ describe('shipment, delivery and invoice e-mails', () => {
       }
       if (type === 'INVOICE_AVAILABLE') {
         expect(urls.filter((u) => u !== store.logo.url && !u.startsWith('mailto:'))).toEqual(['https://shop.example']);
+      }
+      if (type === 'TRACKING_UPDATED') {
+        expect(html).toContain('RR1');
+        expect(html).not.toContain('RR2');
       }
       if (type === 'FULL_SHIPMENT') {
         expect(html).toContain('RR1');

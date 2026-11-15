@@ -427,6 +427,8 @@
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.types.PARTIAL_SHIPMENT.description": "Enviado quando parte de uma encomenda é expedida.",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.types.FULL_SHIPMENT.name": "Encomenda expedida",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.types.FULL_SHIPMENT.description": "Enviado quando toda a encomenda (ou a sua última parte) é expedida.",
+  "littlebox-strapi-suite.ecommerce.settings.emailTemplates.types.TRACKING_UPDATED.name": "Rastreio atualizado",
+  "littlebox-strapi-suite.ecommerce.settings.emailTemplates.types.TRACKING_UPDATED.description": "Enviado quando o código ou a ligação de rastreio de um envio é alterado.",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.types.DELIVERY_CONFIRMATION.name": "Confirmação de entrega",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.types.DELIVERY_CONFIRMATION.description": "Enviado quando a encomenda é marcada como entregue.",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.types.CANCELLATION.name": "Cancelamento de encomenda",

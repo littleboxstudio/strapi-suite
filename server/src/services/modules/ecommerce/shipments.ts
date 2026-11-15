@@ -1307,6 +1307,7 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
 
     const first = await loadRow(Number(shipmentId));
     const orderId = idOf(first.order) as number;
+    const collector = events().collector();
     await strapi.db.transaction(async () => {
       await orders().lockOrder(orderId);
       const row = await loadRow(first.id);
@@ -1337,7 +1338,20 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
         newValue: { shipmentId: row.id, ...data },
         actor,
       });
+      // The customer hears about it only when the tracking really changed and something is left.
+      const nextCode = 'trackingCode' in data ? data.trackingCode : (row.trackingCode ?? null);
+      const nextUrl = 'trackingUrl' in data ? data.trackingUrl : (row.trackingUrl ?? null);
+      const changed =
+        nextCode !== (row.trackingCode ?? null) || nextUrl !== (row.trackingUrl ?? null);
+      if (row.status === 'ACTIVE' && changed && (nextCode || nextUrl)) {
+        collector.emit({
+          type: 'SHIPMENT_TRACKING_UPDATED',
+          orderId,
+          payload: { shipmentId: row.id },
+        });
+      }
     });
+    await collector.flush();
     return viewOf(first.id);
   };
 

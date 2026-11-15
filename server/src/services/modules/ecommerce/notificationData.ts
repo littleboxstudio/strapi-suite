@@ -21,6 +21,7 @@ export type NotificationTemplateType = Extract<
   | 'STORE_CREDIT_ISSUED'
   | 'PARTIAL_SHIPMENT'
   | 'FULL_SHIPMENT'
+  | 'TRACKING_UPDATED'
   | 'DELIVERY_CONFIRMATION'
   | 'INVOICE_AVAILABLE'
   | 'CREDIT_NOTE_ISSUED'
@@ -37,6 +38,7 @@ export const NOTIFICATION_TEMPLATE_TYPES: NotificationTemplateType[] = [
   'STORE_CREDIT_ISSUED',
   'PARTIAL_SHIPMENT',
   'FULL_SHIPMENT',
+  'TRACKING_UPDATED',
   'DELIVERY_CONFIRMATION',
   'INVOICE_AVAILABLE',
   'CREDIT_NOTE_ISSUED',
@@ -57,6 +59,7 @@ export function templateForEvent(event: Pick<DomainEvent, 'type' | 'payload'>): 
     STORE_CREDIT_ISSUED: () => 'STORE_CREDIT_ISSUED',
     SHIPMENT_CREATED: () =>
       p.notify === false ? null : p.full === true ? 'FULL_SHIPMENT' : 'PARTIAL_SHIPMENT',
+    SHIPMENT_TRACKING_UPDATED: () => 'TRACKING_UPDATED',
     SHIPMENT_DELIVERED: () =>
       p.allDelivered === true && p.notify !== false ? 'DELIVERY_CONFIRMATION' : null,
     INVOICE_ISSUED: () =>
@@ -352,6 +355,16 @@ export function buildTemplateData(
         // Partial: the customer's money is still (partly) held after this refund.
         isPartial: heldAfter > 0 ? 'yes' : '',
         description: str(p.description ?? r.description),
+      };
+      break;
+    }
+    case 'TRACKING_UPDATED': {
+      const s = extra.shipment ?? {};
+      data.shipment = {
+        items: shipmentItems(extra.shipment),
+        carrier: str(s.carrierName),
+        trackingCode: str(s.trackingCode),
+        trackingUrl: str(s.trackingUrl),
       };
       break;
     }

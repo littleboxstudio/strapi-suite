@@ -102,6 +102,7 @@ const EVENT_FOR: Record<NotificationTemplateType, DomainEvent> = {
     pending: [{ orderLineId: 1, quantity: 1 }],
   }),
   FULL_SHIPMENT: event('SHIPMENT_CREATED', { shipmentId: 5, full: true, notify: true, pending: [] }),
+  TRACKING_UPDATED: event('SHIPMENT_TRACKING_UPDATED', { shipmentId: 5 }),
   DELIVERY_CONFIRMATION: event('SHIPMENT_DELIVERED', {
     shipmentId: 5,
     deliveredAt: '2026-11-12T23:30:00.000Z',
@@ -146,6 +147,7 @@ describe('templateForEvent', () => {
     expect(t('SHIPMENT_CREATED', { full: false })).toBe('PARTIAL_SHIPMENT');
     expect(t('SHIPMENT_CREATED', { full: true, notify: true })).toBe('FULL_SHIPMENT');
     expect(t('SHIPMENT_CREATED', { full: true, notify: false })).toBeNull();
+    expect(t('SHIPMENT_TRACKING_UPDATED', { shipmentId: 5 })).toBe('TRACKING_UPDATED');
     expect(t('SHIPMENT_DELIVERED', { allDelivered: true })).toBe('DELIVERY_CONFIRMATION');
     expect(t('SHIPMENT_DELIVERED', { allDelivered: true, notify: false })).toBeNull();
     expect(t('SHIPMENT_DELIVERED', { allDelivered: false, notify: true })).toBeNull();
