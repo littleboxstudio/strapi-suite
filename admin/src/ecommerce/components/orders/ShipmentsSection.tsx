@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react';
+import { useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import {
@@ -57,6 +57,7 @@ import ShippingLineModal from './ShippingLineModal';
 import RecalculateShippingModal from './RecalculateShippingModal';
 import DeliveryModal from './DeliveryModal';
 import TrackingModal from './TrackingModal';
+import ShipmentEventsModal from './ShipmentEventsModal';
 import OrderSection from './OrderSection';
 import ColumnLabel from '../ColumnLabel';
 
@@ -131,7 +132,7 @@ const ShipmentsSection = ({
     formatMessage({ id: getTranslation(id), defaultMessage }, values);
   const date = (iso: string | null) => (iso ? formatDate(iso, { dateStyle: 'medium', timeStyle: 'short' }) : '—');
 
-  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [viewingEvents, setViewingEvents] = useState<ShipmentView | null>(null);
   const [delivering, setDelivering] = useState<ShipmentView | null>(null);
   const [tracking, setTracking] = useState<ShipmentView | null>(null);
   const [cancelling, setCancelling] = useState<ShipmentView | null>(null);
@@ -144,14 +145,6 @@ const ShipmentsSection = ({
     onAction(action);
   };
   const chargeRows = shippingLineRows(order.shippingLines, order.editing, canManage);
-
-  const toggle = (id: number) =>
-    setExpanded((set) => {
-      const next = new Set(set);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
 
   const errorMessage = (err: unknown, fallback: string) => t(apiErrorMessageId(err, fallback));
 
@@ -343,144 +336,118 @@ const ShipmentsSection = ({
               {shipments.map((s) => {
                 const actions = shipmentActions(s, { orderStatus, canManage });
                 const note = statusNote(s);
-                const open = expanded.has(s.id);
                 return (
-                  <Fragment key={s.id}>
-                    <Tr>
-                      <Td>
-                        <Flex direction="column" alignItems="flex-start">
-                          <Typography textColor="neutral800" fontWeight="semiBold">
-                            #{s.id}
+                  <Tr key={s.id}>
+                    <Td>
+                      <Flex direction="column" alignItems="flex-start">
+                        <Typography textColor="neutral800" fontWeight="semiBold">
+                          #{s.id}
+                        </Typography>
+                        <Typography variant="pi" textColor="neutral600">
+                          {date(s.shippedAt ?? s.createdAt)}
+                        </Typography>
+                      </Flex>
+                    </Td>
+                    <Td>
+                      <Typography textColor="neutral800">{s.carrierName}</Typography>
+                    </Td>
+                    <Td>
+                      {/* Long product names wrap inside the column instead of running over the next ones. */}
+                      <Flex direction="column" alignItems="flex-start" gap={1} style={{ minWidth: 180, maxWidth: 280 }}>
+                        {s.items.map((i) => (
+                          <Typography
+                            key={i.orderLineId}
+                            variant="pi"
+                            textColor="neutral800"
+                            style={{ whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'anywhere' }}
+                          >
+                            {i.quantity} × {i.name}
+                            {i.option ? ` (${i.option})` : ''} · {i.sku}
                           </Typography>
-                          <Typography variant="pi" textColor="neutral600">
-                            {date(s.shippedAt ?? s.createdAt)}
-                          </Typography>
-                        </Flex>
-                      </Td>
-                      <Td>
-                        <Typography textColor="neutral800">{s.carrierName}</Typography>
-                      </Td>
-                      <Td style={{ maxWidth: 240 }}>
-                        <Flex direction="column" alignItems="flex-start">
-                          {s.items.map((i) => (
-                            <Typography key={i.orderLineId} variant="pi" textColor="neutral800" ellipsis>
-                              {i.quantity} × {i.name}
-                              {i.option ? ` (${i.option})` : ''} · {i.sku}
-                            </Typography>
-                          ))}
-                        </Flex>
-                      </Td>
-                      <Td style={{ maxWidth: 200 }}>
-                        <Flex direction="column" alignItems="flex-start">
-                          <Typography textColor="neutral800" ellipsis>
-                            {s.trackingCode || '—'}
-                          </Typography>
-                          {s.trackingUrl && isHttpUrl(s.trackingUrl) && (
-                            <Link href={s.trackingUrl} isExternal>
-                              {t('ecommerce.orders.shipments.track')}
-                            </Link>
-                          )}
-                        </Flex>
-                      </Td>
-                      <Td>
-                        <Flex direction="column" alignItems="flex-start" gap={1}>
-                          <Badge variant={STATUS_VARIANT[s.status] ?? 'neutral'} size="S">
-                            {t(`ecommerce.orders.shipments.statuses.${s.status}`, undefined, s.status)}
-                          </Badge>
-                          {note && (
-                            <Typography variant="pi" textColor={note.tone} style={{ maxWidth: 220 }}>
-                              {note.text}
-                            </Typography>
-                          )}
-                        </Flex>
-                      </Td>
-                      <Td>
-                        {s.status === 'ACTIVE' && s.deliveryStatus ? (
-                          <Flex direction="column" alignItems="flex-start" gap={1}>
-                            <Badge variant={DELIVERY_VARIANT[s.deliveryStatus] ?? 'neutral'} size="S">
-                              {t(`ecommerce.orders.shipments.delivery.${s.deliveryStatus}`, undefined, s.deliveryStatus)}
-                            </Badge>
-                            {s.deliveredAt && (
-                              <Typography variant="pi" textColor="neutral600">
-                                {date(s.deliveredAt)}
-                              </Typography>
-                            )}
-                          </Flex>
-                        ) : (
-                          <Typography textColor="neutral600">—</Typography>
+                        ))}
+                      </Flex>
+                    </Td>
+                    <Td style={{ maxWidth: 200 }}>
+                      <Flex direction="column" alignItems="flex-start">
+                        <Typography textColor="neutral800" ellipsis>
+                          {s.trackingCode || '—'}
+                        </Typography>
+                        {s.trackingUrl && isHttpUrl(s.trackingUrl) && (
+                          <Link href={s.trackingUrl} isExternal>
+                            {t('ecommerce.orders.shipments.track')}
+                          </Link>
                         )}
-                      </Td>
-                      <Td>
-                        <Flex justifyContent="flex-end">
-                          {busy === s.id ? (
-                            <Loader small />
-                          ) : (
-                            (actions.length > 0 || s.events.length > 0) && (
-                              <SimpleMenu
-                                tag={IconButton}
-                                icon={<More />}
-                                label={t('ecommerce.orders.shipments.moreActions', { id: s.id })}
-                                disabled={busy !== null}
-                                popoverPlacement="bottom-end"
-                              >
-                                {actions.map((a) => (
-                                  <MenuItem
-                                    key={a}
-                                    variant={a === 'CANCEL' ? 'danger' : 'default'}
-                                    onSelect={() => act(s, a)}
-                                  >
-                                    {t(`ecommerce.orders.shipments.actions.${a}`)}
-                                  </MenuItem>
-                                ))}
-                                {s.events.length > 0 && (
-                                  <MenuItem onSelect={() => toggle(s.id)}>
-                                    {t(
-                                      open ? 'ecommerce.orders.shipments.hideEvents' : 'ecommerce.orders.shipments.showEvents',
-                                      { count: s.events.length }
-                                    )}
-                                  </MenuItem>
-                                )}
-                              </SimpleMenu>
-                            )
+                      </Flex>
+                    </Td>
+                    <Td>
+                      <Flex direction="column" alignItems="flex-start" gap={1}>
+                        <Badge variant={STATUS_VARIANT[s.status] ?? 'neutral'} size="S">
+                          {t(`ecommerce.orders.shipments.statuses.${s.status}`, undefined, s.status)}
+                        </Badge>
+                        {note && (
+                          <Typography variant="pi" textColor={note.tone} style={{ maxWidth: 220 }}>
+                            {note.text}
+                          </Typography>
+                        )}
+                      </Flex>
+                    </Td>
+                    <Td>
+                      {s.status === 'ACTIVE' && s.deliveryStatus ? (
+                        <Flex direction="column" alignItems="flex-start" gap={1}>
+                          <Badge variant={DELIVERY_VARIANT[s.deliveryStatus] ?? 'neutral'} size="S">
+                            {t(`ecommerce.orders.shipments.delivery.${s.deliveryStatus}`, undefined, s.deliveryStatus)}
+                          </Badge>
+                          {s.deliveredAt && (
+                            <Typography variant="pi" textColor="neutral600">
+                              {date(s.deliveredAt)}
+                            </Typography>
                           )}
                         </Flex>
-                      </Td>
-                    </Tr>
-                    {open && (
-                      <Tr>
-                        <Td colSpan={COLUMNS.length}>
-                          <Flex direction="column" alignItems="stretch" gap={1} paddingTop={2} paddingBottom={2}>
-                            {s.events.map((e, idx) => (
-                              <Flex key={idx} gap={3} alignItems="flex-start">
-                                <Typography variant="pi" textColor="neutral600" style={{ minWidth: 150 }}>
-                                  {date(e.occurredAt)}
-                                </Typography>
-                                <Typography variant="pi" textColor="neutral800" fontWeight="semiBold">
-                                  {t(`ecommerce.orders.shipments.eventTypes.${e.type}`, undefined, e.type)}
-                                </Typography>
-                                {e.description && (
-                                  <Typography variant="pi" textColor="neutral700" style={{ wordBreak: 'break-word' }}>
-                                    {e.description}
-                                  </Typography>
-                                )}
-                                {e.source && (
-                                  <Typography variant="pi" textColor="neutral500">
-                                    {t(`ecommerce.orders.shipments.eventSources.${e.source}`, undefined, e.source)}
-                                  </Typography>
-                                )}
-                              </Flex>
-                            ))}
-                          </Flex>
-                        </Td>
-                      </Tr>
-                    )}
-                  </Fragment>
+                      ) : (
+                        <Typography textColor="neutral600">—</Typography>
+                      )}
+                    </Td>
+                    <Td>
+                      <Flex justifyContent="flex-end">
+                        {busy === s.id ? (
+                          <Loader small />
+                        ) : (
+                          (actions.length > 0 || s.events.length > 0) && (
+                            <SimpleMenu
+                              tag={IconButton}
+                              icon={<More />}
+                              label={t('ecommerce.orders.shipments.moreActions', { id: s.id })}
+                              disabled={busy !== null}
+                              popoverPlacement="bottom-end"
+                            >
+                              {actions.map((a) => (
+                                <MenuItem
+                                  key={a}
+                                  variant={a === 'CANCEL' ? 'danger' : 'default'}
+                                  onSelect={() => act(s, a)}
+                                >
+                                  {t(`ecommerce.orders.shipments.actions.${a}`)}
+                                </MenuItem>
+                              ))}
+                              {s.events.length > 0 && (
+                                <MenuItem onSelect={() => setViewingEvents(s)}>
+                                  {t('ecommerce.orders.shipments.showEvents', { count: s.events.length })}
+                                </MenuItem>
+                              )}
+                            </SimpleMenu>
+                          )
+                        )}
+                      </Flex>
+                    </Td>
+                  </Tr>
                 );
               })}
             </Tbody>
           </Table>
         </Box>
       )}
+
+      {viewingEvents && <ShipmentEventsModal shipment={viewingEvents} onClose={() => setViewingEvents(null)} />}
 
       {canManage && shippingModal?.kind === 'RECALCULATE' && (
         <RecalculateShippingModal
