@@ -53,11 +53,13 @@ import type { StockMoveInput } from './stock';
 import type { OrderHistoryEntry } from './orderHistory';
 import type { CustomerInput } from './customers';
 import { normalizeEmail } from './domain/email';
-import { marketCountry } from './domain/markets';
+import { marketCountry, marketOf } from './domain/markets';
+import type { PickupStore } from './domain/storePickup';
 import {
   applyPickupPoint,
   findPickupPoint,
   isPickupMethod,
+  isStorePickup,
   type OrderPickupPoint,
 } from './domain/pickupPoints';
 import type { PickupPoint } from './pickupPoints';
@@ -489,6 +491,9 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
   const pickupPoints = (): {
     findPoint(postalCode: string, id: string): Promise<PickupPoint | null>;
   } => service('EcommercePickupPointService');
+  const settings = (): {
+    findStore(market: string, id: string): Promise<PickupStore | null>;
+  } => service('EcommerceSettingsService');
   const refundService = (): {
     releaseStoreCreditOnCancel(
       orderId: number,
@@ -752,12 +757,26 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
    * pickup cache) before the order transaction, so a refusal consumes no stock, promotion or
    * store credit. Returns the delivery address to store (the point's) and the point, or null
    * for any other method (a `pickupPointId` is then ignored).
+   * Store pickup (store pickup spec 5): the store is one of the current config's stores of the
+   * customer address's market; `pickupPostalCode` is ignored.
    */
   const resolvePickup = async (
     input: CreateOrderInput,
     v: { providerId: string; serviceId: string; shippingAddress: Address }
   ): Promise<{ shippingAddress: Address; pickupPoint: OrderPickupPoint } | null> => {
     if (!isPickupMethod(v.providerId, v.serviceId)) return null;
+    if (isStorePickup(v.providerId, v.serviceId)) {
+      const storeMarkets: string[] =
+        (await service('EcommerceSettingsService').getStoreSettings())?.markets ?? [];
+      const market = marketOf(v.shippingAddress.country, v.shippingAddress.postalCode, storeMarkets);
+      const store = await findPickupPoint(
+        (_postalCode, id) => settings().findStore(market, id),
+        { pickupPointId: input?.pickupPointId },
+        '',
+        'shippingAddress.postalCode'
+      );
+      return applyPickupPoint(v.shippingAddress, store);
+    }
     const point = await findPickupPoint(
       (postalCode, id) => pickupPoints().findPoint(postalCode, id),
       input,
@@ -777,7 +796,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     }
 
     const validated = await validateInput(input, ctx.source);
-    // With DPD Pickup the point's address is the delivery address: it is stored and it prices
+    // With a pickup method the point's address is the delivery address: it is stored and it prices
     // the shipping (its market, e.g. PT-ISL), while the customer's stays on `pickupPoint`.
     const pickup = await resolvePickup(input, validated);
     const v = pickup ? { ...validated, shippingAddress: pickup.shippingAddress } : validated;

@@ -1,6 +1,7 @@
 import type { Address } from './orders';
 import { EcommerceValidationError } from '../errors';
 import { MAX_PICKUP_POINT_ID_LENGTH } from './storefront/limits';
+import { STORE_PICKUP_ID, STORE_PICKUP_SERVICE_ID } from './storePickup';
 
 /** A pickup point as the pickup service returns it (spec 5.1); `openingHours` is not stored. */
 export type PickupPointInput = {
@@ -33,9 +34,31 @@ export type OrderPickupPoint = {
 export const PICKUP_PROVIDER_ID = 'dpd-portugal';
 export const PICKUP_SERVICE_ID = 'PICKUP';
 
-/** Whether a shipping method delivers to a pickup point (DPD Pickup). */
-export const isPickupMethod = (providerId: unknown, serviceId: unknown): boolean =>
+/** Whether a shipping method is DPD Pickup (a DPD pickup point, searched at DPD). */
+export const isDpdPickup = (providerId: unknown, serviceId: unknown): boolean =>
   providerId === PICKUP_PROVIDER_ID && serviceId === PICKUP_SERVICE_ID;
+
+/** Whether a shipping method is Store pickup (one of the shop's stores, from the config). */
+export const isStorePickup = (providerId: unknown, serviceId: unknown): boolean =>
+  providerId === STORE_PICKUP_ID && serviceId === STORE_PICKUP_SERVICE_ID;
+
+/**
+ * Whether a shipping method delivers to a stored point (store pickup ruling 2): DPD Pickup or
+ * Store pickup. What is specific to each (search, carrier request) uses the functions above.
+ */
+export const isPickupMethod = (providerId: unknown, serviceId: unknown): boolean =>
+  isDpdPickup(providerId, serviceId) || isStorePickup(providerId, serviceId);
+
+/**
+ * Whether two methods take the same kind of point (both DPD Pickup or both Store pickup): only
+ * then can a stored point be kept when the order's method changes.
+ */
+export const samePickupKind = (
+  a: { providerId?: unknown; serviceId?: unknown } | null | undefined,
+  b: { providerId?: unknown; serviceId?: unknown } | null | undefined
+): boolean =>
+  (isDpdPickup(a?.providerId, a?.serviceId) && isDpdPickup(b?.providerId, b?.serviceId)) ||
+  (isStorePickup(a?.providerId, a?.serviceId) && isStorePickup(b?.providerId, b?.serviceId));
 
 /**
  * Spec 5.2: the delivery address becomes the point's (company = point name; address, postal

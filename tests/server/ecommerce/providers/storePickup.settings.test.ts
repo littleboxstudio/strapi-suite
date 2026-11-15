@@ -33,6 +33,15 @@ describe('Store pickup settings', () => {
     expect(await service.getStorePickup()).toEqual(STORE_PICKUP_DEFAULTS);
   });
 
+  it('findStore finds a store of the market in the current config', async () => {
+    const { service } = await withMarkets();
+    const res = await service.saveStorePickup({ rates: { PT: RATE }, stores: { PT: [STORE] } });
+    const id = res.config.stores.PT[0].id;
+    expect(await service.findStore('PT', id)).toEqual(res.config.stores.PT[0]);
+    expect(await service.findStore('PT-ISL', id)).toBeNull();
+    expect(await service.findStore('PT', 'st_unknown000')).toBeNull();
+  });
+
   it('saves and reads the config', async () => {
     const { service } = await withMarkets();
     const res = await service.saveStorePickup(

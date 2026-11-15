@@ -28,7 +28,7 @@ import type { OrderHistoryEntry } from './orderHistory';
 import type { LoadedShipment, OrderState } from './orders';
 import type { ManualMethod } from './settings';
 import { DPD_SERVICE_IDS, readDpdServices, type DpdServiceId } from './domain/dpdServices';
-import { isPickupMethod, readPickupPoint } from './domain/pickupPoints';
+import { isDpdPickup, readPickupPoint } from './domain/pickupPoints';
 import { DPD_PORTUGAL_ID } from './providers/definitions/dpd-portugal';
 import { getProviderDefinition } from './providers/registry';
 
@@ -558,7 +558,7 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
     });
     const point = readPickupPoint(order);
     // Only a pickup shipment goes to the point; another one goes to the customer's own address.
-    const toPoint = isPickupMethod(shipment.providerId, shipment.serviceId);
+    const toPoint = isDpdPickup(shipment.providerId, shipment.serviceId);
     const pointId = toPoint ? clean(point?.id) : '';
     const customerAddress = point?.customerAddress;
     const destination =
@@ -748,7 +748,7 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
       input.serviceId !== undefined ? input.serviceId : sameProvider ? originalService : null;
 
     if (providerId === DPD_PORTUGAL_ID && !isDpdService(serviceId)) throw invalid('method.serviceId', 'invalid');
-    if (isPickupMethod(providerId, serviceId) && !clean(readPickupPoint(order)?.id))
+    if (isDpdPickup(providerId, serviceId) && !clean(readPickupPoint(order)?.id))
       throw invalid('method.serviceId', 'PICKUP_POINT_REQUIRED');
 
     let carrier: { adapter: CarrierAdapter; runtime: ProviderRuntime };
