@@ -26,6 +26,8 @@ const expected: [string, string, string, string][] = [
   ['DELETE', `${B}/shipping-methods/:id`, 'deleteShippingMethod', P.settingsManage],
   ['GET', `${B}/carriers/dpd-portugal/services`, 'getDpdServices', P.settingsRead],
   ['PUT', `${B}/carriers/dpd-portugal/services`, 'saveDpdServices', P.settingsManage],
+  ['GET', `${B}/carriers/store-pickup/config`, 'getStorePickup', P.settingsRead],
+  ['PUT', `${B}/carriers/store-pickup/config`, 'saveStorePickup', P.settingsManage],
   ['GET', `${B}/email-templates`, 'listEmailTemplates', P.settingsRead],
   ['GET', T, 'getEmailTemplate', P.settingsRead],
   ['PUT', T, 'saveEmailTemplate', P.settingsManage],

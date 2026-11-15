@@ -3,6 +3,7 @@ import moloni from './definitions/moloni';
 import cttExpresso from './definitions/ctt-expresso';
 import dpdPortugal from './definitions/dpd-portugal';
 import manual from './definitions/manual';
+import storePickup from './definitions/store-pickup';
 import resend from './definitions/resend';
 import { ISLANDS_MARKET } from '../domain/markets';
 
@@ -65,7 +66,7 @@ export type ProviderDefinition = {
   lookups?(rt: ProviderRuntime, params: { companyId: number | null }): Promise<LookupResult>;
 };
 
-const builtIns = (): ProviderDefinition[] => [stripe, moloni, cttExpresso, dpdPortugal, manual, resend];
+const builtIns = (): ProviderDefinition[] => [stripe, moloni, cttExpresso, dpdPortugal, storePickup, manual, resend];
 
 let definitions = new Map<string, ProviderDefinition>(builtIns().map((d) => [d.id, d]));
 
