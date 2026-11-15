@@ -148,6 +148,7 @@ export type QuoteSource = {
     price: number;
     tax: number;
     estimatedDays?: number;
+    requiresPickupPoint?: boolean;
   } | null;
   giftOptions: {
     promotionId: number;
@@ -171,6 +172,8 @@ export type PublicShippingOption = {
   name: string;
   price: number;
   estimatedDays: number | null;
+  /** Present (true) only for an option that needs a pickup point (DPD Pickup). */
+  requiresPickupPoint?: true;
 };
 
 export type PublicQuoteLine = {
@@ -294,6 +297,7 @@ export const toPublicQuote = (
           name: q.shippingOption.name,
           price: q.shippingOption.price,
           estimatedDays: q.shippingOption.estimatedDays ?? null,
+          ...(q.shippingOption.requiresPickupPoint === true ? { requiresPickupPoint: true as const } : {}),
         }
       : null,
   };

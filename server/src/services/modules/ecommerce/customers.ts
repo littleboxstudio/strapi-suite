@@ -178,7 +178,12 @@ const EcommerceCustomerService = ({ strapi }: { strapi: Core.Strapi }) => {
         limit: 1,
       });
       if (!o) return null;
-      return { shippingAddress: o.shippingAddress ?? null, billingAddress: o.billingAddress ?? null };
+      // A DPD Pickup order delivers to the point: the customer's own address is the one to reuse.
+      const customerAddress = o.pickupPoint?.customerAddress;
+      return {
+        shippingAddress: customerAddress && typeof customerAddress === 'object' ? customerAddress : (o.shippingAddress ?? null),
+        billingAddress: o.billingAddress ?? null,
+      };
     },
   };
 };

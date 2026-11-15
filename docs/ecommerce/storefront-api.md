@@ -108,7 +108,8 @@ destination?: { country, postalCode? }, shippingMethod?: { providerId, serviceId
 
 Order body: `{ customer: { firstName, lastName, email, phone? }, shippingAddress,
 billingAddress?, locale?, lines (1–100), shippingMethod, promotionCodes?, giftChoices?,
-expectedTotal, storeCreditCode?, notes? }`. Addresses: `firstName`, `lastName`, `company?`,
+expectedTotal, storeCreditCode?, notes?, pickupPointId?, pickupPostalCode? }`
+(`pickupPointId` ≤ 64 characters, `pickupPostalCode` ≤ 20: see *Pickup at checkout*). Addresses: `firstName`, `lastName`, `company?`,
 `nif?`, `line1`, `line2?`, `postalCode`, `city`, `country`, `phone?`.
 
 Input rules: `quantity` and `variantId` are integers, `quantity` in `[1, 1000]`; at most 5
@@ -159,6 +160,40 @@ Answers are cached in memory per postal code for 10 minutes.
 | 400 | `INVALID_POSTAL_CODE` | `postalCode` missing, or neither `NNNN-NNN` nor `NNNNNNN` |
 | 400 | `PICKUP_NOT_AVAILABLE` | DPD Portugal or its Pickup service is inactive, the country is not `PT`, or the postal code's market (`PT`, or `PT-ISL` for a `9…` code when the store sells there) has no Pickup rate table |
 | 502 | `PICKUP_SEARCH_FAILED` | DPD failed or did not answer in time: retry |
+
+Shipping options (`shippingOptions`, `selectedShipping`) carry `requiresPickupPoint: true` only
+for DPD Pickup; the field is absent on every other option.
+
+### Pickup at checkout
+
+With a `shippingMethod` that requires a pickup point, `POST /orders` needs `pickupPointId`, the
+`id` of a point from the search above. The server confirms it by searching **`pickupPostalCode`**
+(the postal code the customer searched by), or, when it is absent, the `shippingAddress` postal
+code; the 10-minute cache usually answers without a new DPD call. Send `pickupPostalCode`
+whenever the customer searched by a code other than their own (always for an address outside
+Portugal). With any other method, `pickupPointId` and `pickupPostalCode` are ignored.
+
+The order then stores:
+
+- **delivery address** = the point: `company` = point name, `line1`/`line2`/`postalCode`/`city`/
+  `country` of the point, with `firstName`, `lastName` and `phone` of the sent `shippingAddress`
+  (DPD uses them to notify the customer). The shipping price is that of the point's market
+  (`PT`, or `PT-ISL` for a `9…` point when the store sells there): quote with the point's postal
+  code as `destination` so `expectedTotal` matches;
+- **billing address** = the sent `billingAddress`, or else the sent `shippingAddress` (the
+  customer's, never the point's).
+
+The customer's own address is kept by the backoffice only; no storefront answer returns it.
+Every refusal below happens before anything is written: no order, stock, promotion or store
+credit is used.
+
+| Status | `details.code` | `errors[].path` | When |
+|---|---|---|---|
+| 400 | `PICKUP_POINT_REQUIRED` | `pickupPointId` | a pickup method without `pickupPointId` |
+| 400 | `PICKUP_POINT_INVALID` | `pickupPointId` | the search by that postal code does not return the id |
+| 400 | `INVALID_POSTAL_CODE` | `pickupPostalCode`, or `shippingAddress.postalCode` | the searched code is not a Portuguese postal code |
+| 400 | `PICKUP_NOT_AVAILABLE` | `shipping` | Pickup is not available for that postal code |
+| 502 | `PICKUP_SEARCH_FAILED` | — | DPD failed or did not answer in time: retry (never accepted unconfirmed) |
 
 ### Images
 
@@ -244,6 +279,7 @@ errors? } } }`. `errors` is a list of `{ path, code, detail? }`.
 |---|---|---|
 | 400 | first field code (`required`, `invalid`, `invalid_locale`, `invalid_idempotency_key`, `VERIFICATION_CODE_INVALID`, `STORE_CREDIT_NOT_FOUND`, …) | invalid request |
 | 400 | `INVALID_POSTAL_CODE`, `PICKUP_NOT_AVAILABLE` | pickup point search: see *Pickup points* (section 5) |
+| 400 | `PICKUP_POINT_REQUIRED`, `PICKUP_POINT_INVALID` | DPD Pickup order: see *Pickup at checkout* (section 5) |
 | 400 | `PROMOTION_CODE_INVALID` | an entered code cannot be used: `errors[i] = { path: 'promotionCodes.<i>', detail: <public status> }` |
 | 401 | `SESSION_INVALID` | missing, unknown or expired session |
 | 403 | — | wrong BFF token, or the module is inactive |

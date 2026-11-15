@@ -11,6 +11,7 @@ import {
   MAX_CART_LINES,
   MAX_EMAIL_LENGTH,
   MAX_LINE_QUANTITY,
+  MAX_PICKUP_POINT_ID_LENGTH,
   MAX_POSTAL_CODE_LENGTH,
   MAX_SHIPPING_ID_LENGTH,
   MAX_STORE_CREDIT_CODE_LENGTH,
@@ -215,6 +216,8 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
       MAX_STORE_CREDIT_CODE_LENGTH
     );
     const notes = optionalString(INVALID, 'notes', b.notes, MAX_NOTES);
+    const pickupPointId = optionalString(INVALID, 'pickupPointId', b.pickupPointId, MAX_PICKUP_POINT_ID_LENGTH);
+    const pickupPostalCode = optionalString(INVALID, 'pickupPostalCode', b.pickupPostalCode, MAX_POSTAL_CODE_LENGTH);
     return {
       customer: {
         firstName: optionalString(INVALID, 'customer.firstName', c.firstName) ?? '',
@@ -235,6 +238,8 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
       expectedTotal: expectedTotal as number,
       ...(storeCreditCode ? { storeCreditCode } : {}),
       ...(notes ? { notes } : {}),
+      ...(pickupPointId ? { pickupPointId } : {}),
+      ...(pickupPostalCode ? { pickupPostalCode } : {}),
     };
   };
 

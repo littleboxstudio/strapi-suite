@@ -32,6 +32,18 @@ export type Address = {
   phone?: string;
 };
 
+/** The DPD pickup point of an order (spec 5.2); `customerAddress` is what the customer sent. */
+export type OrderPickupPoint = {
+  id: string;
+  name: string;
+  address: string;
+  address2: string | null;
+  postalCode: string;
+  city: string;
+  country: string;
+  customerAddress: Address;
+};
+
 // ---------------------------------------------------------------------------
 // Customers
 // ---------------------------------------------------------------------------
@@ -331,6 +343,8 @@ export type Order = {
   shippingAddress: Address | null;
   billingAddress: Address | null;
   shippingMethod: Record<string, unknown> | null;
+  /** Set for a DPD Pickup order; null otherwise. */
+  pickupPoint: OrderPickupPoint | null;
   notes: string | null;
   totals: OrderTotals;
   lines: OrderLine[];
