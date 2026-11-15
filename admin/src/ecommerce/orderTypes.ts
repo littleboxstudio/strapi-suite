@@ -786,6 +786,8 @@ export type ShippingRecalculationPreview = {
   charged: number;
   invoiced: number;
   quote: number;
+  /** The quote minus what is charged (informative: the charges never change). */
+  difference?: number;
   method: { providerId: string; serviceId: string; name: string; tax: number } | null;
   options: ShippingOption[];
   needsMethod: boolean;

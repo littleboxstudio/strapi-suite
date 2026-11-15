@@ -2057,14 +2057,11 @@
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.charged": "Charged",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.invoiced": "Invoiced",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.quote": "Quote",
-  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.confirmTitle": "Recalculate the shipping?",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.help.open": "About {field}",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.help.charged": "What the shipping charges add up to right now (the gross value, before any shipping discount from promotions). Not shipped or partly shipped: every line of the table. Fully shipped and products added later: only the lines created since then.",
-  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.help.invoiced": "The part of the charged shipping already included in an invoice. Those lines stay as they are; the lines not yet invoiced are replaced by one line with the quote minus this amount. If that is negative, the difference becomes eligible for refund.",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.help.invoiced": "The part of the charged shipping already included in an invoice.",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.help.quote": "Not shipped or partly shipped: the price for the whole order, at the current address, with the method of the invoiced shipping (or the current method when nothing is invoiced). Fully shipped and products added later: the price of the products added since, with the method you choose.",
-  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.proposed": "New shipping charges",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.unchanged": "Shipping is already correct.",
-  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.nothingToCharge": "Nothing to charge: the shipping already charged is above the new quote.",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.pickMethod": "The order was already shipped. Choose the shipping method for the products added since:",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.pickMethodFirst": "Choose a shipping method to see the new charge.",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.noMethods": "No shipping method serves this address and weight.",
@@ -2202,5 +2199,9 @@
   "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.types.SHIPPING.hint": "Credits the shipping invoiced above what the order now charges (after a shipping recalculation).",
   "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.nothingShipping": "No shipping of this invoice is invoiced above what the order now charges.",
   "littlebox-strapi-suite.ecommerce.orders.invoices.shippingToCredit": "{amount} of shipping was invoiced above what the order now charges. Issue a Shipping adjustment credit note on an invoice with shipping.",
-  "littlebox-strapi-suite.ecommerce.orders.errors.NOTHING_TO_CREDIT": "There is nothing to credit."
+  "littlebox-strapi-suite.ecommerce.orders.errors.NOTHING_TO_CREDIT": "There is nothing to credit.",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.review.under": "According to the products and the shipping rules, {amount} more should be charged. Review the shipping charges.",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.review.over": "According to the products and the shipping rules, {amount} was charged above. Review the shipping charges.",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.markReviewed": "Mark as reviewed",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.reviewed": "Shipping marked as reviewed."
 }

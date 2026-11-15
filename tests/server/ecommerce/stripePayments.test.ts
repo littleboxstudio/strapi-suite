@@ -160,6 +160,11 @@ function setup(
       price: shippingPrice.value,
       tax: 23,
     }),
+    // The options a shipping charge is added or edited with.
+    quote: async () => ({
+      options: [{ providerId: 'manual', serviceId: '1', name: 'Standard', price: shippingPrice.value, tax: 23 }],
+      failures: [],
+    }),
   };
   const stripeState = { active: opts.stripeActive ?? true, runtimeFails: false };
   services.EcommerceSettingsService = {
@@ -237,6 +242,9 @@ const address = {
 };
 
 /** Total 4500: 2 × 2000 + 500 shipping. */
+/** The orders' shipping method (manual Standard). */
+const SHIP = { providerId: 'manual', serviceId: '1' };
+
 const createOrder = async (orders: any) =>
   orders.create(
     {
@@ -624,11 +632,10 @@ describe('getOrCreatePaymentLink', () => {
 });
 
 describe('after an order edit', () => {
-  it('a shipping recalculation that raises the due: the link asks for the new summary.due (spec 6.2)', async () => {
-    const { orders, editing, shippingPrice, stripePayments } = setup();
+  it('a shipping charge that raises the due: the link asks for the new summary.due (spec 6.2)', async () => {
+    const { orders, editing, stripePayments } = setup();
     const order = await createOrder(orders);
-    shippingPrice.value = 650;
-    const res = await editing.recalculateShipping(order.id, actor, 'op-ship-stripe-1');
+    const res = await editing.addShippingLine(order.id, { ...SHIP, amount: 150 }, actor, 'op-ship-stripe-1');
     expect(res).toMatchObject({ outcome: 'DUE', difference: 150 });
     expect(res.order.summary.due).toBe(4650);
     const link = await stripePayments.getOrCreatePaymentLink(order.id, { actor });
@@ -1186,9 +1193,8 @@ describe('retiring outdated links when the amount due changes', () => {
   });
 
   it('an edit that raises the due retires the link', async () => {
-    const { editing, shippingPrice, tables, order } = await withLink();
-    shippingPrice.value = 650;
-    const res = await editing.recalculateShipping(order.id, actor, 'op-ship-up');
+    const { editing, tables, order } = await withLink();
+    const res = await editing.addShippingLine(order.id, { ...SHIP, amount: 150 }, actor, 'op-ship-up');
     expect(res.order.summary.due).toBe(4650);
     expect(session(tables).status).toBe('EXPIRED');
     expect(stripePaymentOf(tables).status).toBe('CANCELLED');
@@ -1196,9 +1202,9 @@ describe('retiring outdated links when the amount due changes', () => {
   });
 
   it('an edit that lowers the due retires the link', async () => {
-    const { editing, shippingPrice, tables, order } = await withLink();
-    shippingPrice.value = 300;
-    const res = await editing.recalculateShipping(order.id, actor, 'op-ship-down');
+    const { editing, tables, order } = await withLink();
+    // The checkout charge (not paid) edited down to 300.
+    const res = await editing.editShippingLine(order.id, 1, { ...SHIP, amount: 300 }, actor, 'op-ship-down');
     expect(res.order.summary.due).toBe(4300);
     expect(stripe.expireCheckoutSession).toHaveBeenCalledWith('cs_1');
     expect(session(tables).status).toBe('EXPIRED');
@@ -1275,10 +1281,9 @@ describe('retiring outdated links when the amount due changes', () => {
   });
 
   it('a failure before any Stripe call is swallowed and the edit still succeeds', async () => {
-    const { editing, shippingPrice, tables, order, stripeState, log } = await withLink();
+    const { editing, tables, order, stripeState, log } = await withLink();
     stripeState.runtimeFails = true;
-    shippingPrice.value = 650;
-    const res = await editing.recalculateShipping(order.id, actor, 'op-ship-fail');
+    const res = await editing.addShippingLine(order.id, { ...SHIP, amount: 150 }, actor, 'op-ship-fail');
     expect(res.order.summary.due).toBe(4650);
     expect(session(tables).status).toBe('OPEN');
     expect(log.error).toHaveBeenCalledTimes(1);

@@ -359,10 +359,8 @@ const OrderDetailPage = () => {
         id="order-section-shipping-charges"
         title={t('ecommerce.orders.shippingCharges.title')}
         order={order}
-        permissions={permissions}
         canManage={canManage}
         onEdited={showResult}
-        onAction={(action) => dispatchModal({ type: 'OPEN', action })}
       />
       <ShipmentsSection
         id="order-section-shipments"

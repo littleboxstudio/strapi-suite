@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
-import { Button, Dialog, Field, Flex, Loader, Modal, Radio, Typography } from '@strapi/design-system';
+import { Box, Button, Field, Flex, Loader, Modal, Radio, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import PreviewShippingRecalculation from '../../usecases/orders/previewShippingRecalculation';
 import RecalculateShipping from '../../usecases/orders/recalculateShipping';
 import { formatCents } from '../../utils/money';
-import { balanceAfter, newShippingCredit, shippingLineRows, shippingOptionKey } from '../../utils/orderEditing';
-import { type OrderActionPermissions, type ToolbarAction } from '../../utils/orderDetail';
+import { shippingOptionKey } from '../../utils/orderEditing';
+import { NOTICE_BACKGROUND, NOTICE_TEXT } from './NoticeBar';
 import { apiErrorMessageId } from '../../utils/orderDetail';
 import { mintUuid } from '../../utils/variantDraft';
 import type {
@@ -16,8 +16,6 @@ import type {
   ShippingOption,
   ShippingRecalculationPreview,
 } from '../../orderTypes';
-import ShippingChargesTable from './ShippingChargesTable';
-import BalanceOutcome from './BalanceOutcome';
 import { Tile, Tiles } from './SummaryTiles';
 import { FieldHelpModal } from '../settings/FieldHelpModal';
 
@@ -28,9 +26,6 @@ type Props = {
   order: Order;
   onClose: () => void;
   onSaved: (result: EditResult) => void;
-  permissions: OrderActionPermissions;
-  /** A balance button of the result step (add payment, refund, …). */
-  onAction: (action: ToolbarAction) => void;
 };
 
 /**
@@ -40,7 +35,7 @@ type Props = {
  * get back), then applies it and closes (an unchanged result still clears the review flag).
  * Mount it only while open: each opening mints one operationId.
  */
-const RecalculateShippingModal = ({ order, onClose, onSaved, permissions, onAction }: Props) => {
+const RecalculateShippingModal = ({ order, onClose, onSaved }: Props) => {
   const { formatMessage, locale } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) => formatMessage({ id: getTranslation(id) }, values);
@@ -49,13 +44,9 @@ const RecalculateShippingModal = ({ order, onClose, onSaved, permissions, onActi
   const [operationId] = useState(() => mintUuid());
   const [preview, setPreview] = useState<ShippingRecalculationPreview | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  /** The final confirmation, with the balance change, is open. */
-  const [confirming, setConfirming] = useState(false);
   /** The figure whose explanation is open. */
   const [help, setHelp] = useState<FigureKey | null>(null);
   const [busy, setBusy] = useState(false);
-  /** The applied result with money to pay or to get back: its balance step is shown. */
-  const [saved, setSaved] = useState<EditResult | null>(null);
   /** NEW_UNITS: the options offered for the added products (kept across picks) and the pick. */
   const [options, setOptions] = useState<ShippingOption[]>([]);
   const [picked, setPicked] = useState<ShippingOption | null>(null);
@@ -93,11 +84,8 @@ const RecalculateShippingModal = ({ order, onClose, onSaved, permissions, onActi
     try {
       const result = await new RecalculateShipping().execute(order.id, { ...method, operationId });
       onSaved(result);
-      toggleNotification({ type: 'success', message: t('ecommerce.orders.shippingCharges.saved') });
-      setConfirming(false);
-      // Money to pay or to get back: the balance step with its buttons (as Add shipping charge).
-      if (result.outcome === 'NONE') onClose();
-      else setSaved(result);
+      toggleNotification({ type: 'success', message: t('ecommerce.orders.shippingCharges.reviewed') });
+      onClose();
     } catch (err) {
       toggleNotification({
         type: 'danger',
@@ -135,9 +123,7 @@ const RecalculateShippingModal = ({ order, onClose, onSaved, permissions, onActi
     </Tile>
   );
 
-  const change = preview ? balanceAfter(preview.after) : null;
-  // A recalculation below what was already charged leaves a credit, never a charge.
-  const credit = preview ? newShippingCredit(preview.lines, order.shippingLines) : 0;
+  const difference = preview?.difference ?? 0;
 
   /** NEW_UNITS: the methods for the products added since the shipment. */
   const methodPicker = () => (
@@ -165,19 +151,6 @@ const RecalculateShippingModal = ({ order, onClose, onSaved, permissions, onActi
   );
 
   const body = () => {
-    if (saved) {
-      return (
-        <BalanceOutcome
-          order={saved.order}
-          outcome={saved.outcome as 'DUE' | 'REFUNDABLE'}
-          permissions={permissions}
-          onAction={(action) => {
-            onClose();
-            onAction(action);
-          }}
-        />
-      );
-    }
     const picker = preview?.kind === 'NEW_UNITS' && (options.length > 0 || preview.needsMethod);
     if (loadError) {
       return (
@@ -219,29 +192,22 @@ const RecalculateShippingModal = ({ order, onClose, onSaved, permissions, onActi
               {preview.kind === 'WHOLE_ORDER' && tile('invoiced', preview.invoiced)}
               {tile('quote', preview.quote, preview.quote !== preview.charged ? 'warning' : undefined)}
             </Tiles>
-            {preview.mode === 'UNCHANGED' ? (
+            {/* Informative: the charges never change; the admin decides what to add or refund. */}
+            {difference === 0 ? (
               <Typography variant="omega" textColor="neutral700">
                 {t('ecommerce.orders.shippingCharges.unchanged')}
               </Typography>
-            ) : credit > 0 ? (
-              // The quote is below what was already charged: nothing to charge, money back.
-              <Flex direction="column" alignItems="stretch" gap={1}>
-                <Typography variant="omega" fontWeight="semiBold" textColor="neutral800">
-                  {t('ecommerce.orders.shippingCharges.nothingToCharge')}
-                </Typography>
-                {change && change.outcome === 'REFUNDABLE' && (
-                  <Typography variant="omega" textColor="neutral800">
-                    {t('ecommerce.orders.edit.balance.REFUNDABLE', { amount: money(change.amount) })}
-                  </Typography>
-                )}
-              </Flex>
             ) : (
-              <>
-                <Typography variant="sigma" textColor="neutral700">
-                  {t('ecommerce.orders.shippingCharges.proposed')}
+              <Box padding={3} hasRadius style={{ background: NOTICE_BACKGROUND }}>
+                <Typography variant="omega" style={{ color: NOTICE_TEXT }}>
+                  {t(
+                    difference > 0
+                      ? 'ecommerce.orders.shippingCharges.review.under'
+                      : 'ecommerce.orders.shippingCharges.review.over',
+                    { amount: money(Math.abs(difference)) }
+                  )}
                 </Typography>
-                <ShippingChargesTable rows={shippingLineRows(preview.lines, order.editing, false)} />
-              </>
+              </Box>
             )}
           </>
         )}
@@ -260,14 +226,14 @@ const RecalculateShippingModal = ({ order, onClose, onSaved, permissions, onActi
           <Button variant="tertiary" onClick={onClose} disabled={busy}>
             {t('ecommerce.orders.shippingCharges.close')}
           </Button>
-          {!saved && (
-            <Button
-              onClick={() => setConfirming(true)}
-              disabled={!preview || busy || loading || !!loadError || preview.needsMethod}
-            >
-              {t('ecommerce.orders.shippingCharges.confirm')}
-            </Button>
-          )}
+          {/* Marks the shipping as reviewed (clears the review alert); the charges never change. */}
+          <Button
+            onClick={confirm}
+            loading={busy}
+            disabled={!preview || loading || !!loadError || preview.needsMethod}
+          >
+            {t('ecommerce.orders.shippingCharges.markReviewed')}
+          </Button>
         </Modal.Footer>
       </Modal.Content>
       {help && (
@@ -276,34 +242,6 @@ const RecalculateShippingModal = ({ order, onClose, onSaved, permissions, onActi
           textKey={`ecommerce.orders.shippingCharges.help.${help}`}
           onClose={() => setHelp(null)}
         />
-      )}
-      {confirming && change && (
-        // A short confirmation with what the customer will have to pay (or get back).
-        <Dialog.Root open onOpenChange={(next: boolean) => !next && !busy && setConfirming(false)}>
-          <Dialog.Content>
-            <Dialog.Header>{t('ecommerce.orders.shippingCharges.confirmTitle')}</Dialog.Header>
-            <Dialog.Body>
-              <Typography
-                variant="omega"
-                textColor={change.outcome === 'DUE' ? 'warning600' : 'neutral800'}
-                fontWeight={change.outcome === 'NONE' ? undefined : 'semiBold'}
-                style={{ textAlign: 'center' }}
-              >
-                {t(`ecommerce.orders.edit.balance.${change.outcome}`, { amount: money(change.amount) })}
-              </Typography>
-            </Dialog.Body>
-            <Dialog.Footer>
-              <Flex style={{ width: '100%' }} gap={2}>
-                <Button fullWidth variant="tertiary" disabled={busy} onClick={() => setConfirming(false)}>
-                  {t('ecommerce.orders.products.confirm.cancel')}
-                </Button>
-                <Button fullWidth loading={busy} onClick={confirm}>
-                  {t('ecommerce.orders.shippingCharges.confirm')}
-                </Button>
-              </Flex>
-            </Dialog.Footer>
-          </Dialog.Content>
-        </Dialog.Root>
       )}
     </Modal.Root>
   );
