@@ -10,6 +10,12 @@ export type CarrierShipmentRequest = {
   destination: Address;
   contact: { name: string; email: string; phone?: string };
   items: ShippingQuoteRequest['items'];
+  /** DPD Pickup: the order's pickup point. Other carriers ignore it. */
+  pickupPoint?: { id: string; name: string };
+  /** Number of parcels (DPD); 1 when absent. */
+  parcels?: number;
+  /** Weight of the shipped units in grams (as `orderWeightGrams`); from `items` when absent. */
+  weightGrams?: number;
 };
 
 export type CarrierShipmentResult = {
@@ -18,6 +24,8 @@ export type CarrierShipmentResult = {
   trackingUrl: string | null;
   cost: number | null;
   labelAvailable: boolean;
+  /** Private carrier reference to fetch the label later (DPD: the label URL). Never serialized. */
+  labelRef?: string;
 };
 
 export type CarrierTrackingEvent = {
@@ -49,7 +57,9 @@ export type CarrierAdapter = {
   getLabel?(
     externalId: string,
     rt: ProviderRuntime,
-    opts?: CarrierCallOptions
+    opts?: CarrierCallOptions,
+    /** The shipment's `labelRef`, when the carrier returned one. */
+    labelRef?: string
   ): Promise<{ filename: string; content: Buffer }>;
   track?(
     s: { externalId: string; trackingCode: string | null },
