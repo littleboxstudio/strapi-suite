@@ -119,7 +119,7 @@ const DpdPointSearch = ({ initialPostalCode = '', value, onChange, disabled = fa
           </Field.Root>
         </Box>
         {/* Level with the input, below its label. */}
-        <Box paddingTop={6}>
+        <Box paddingTop={5}>
           {/* size L: as tall as the input. */}
           <Button variant="secondary" size="L" onClick={search} loading={searching} disabled={busy}>
             {t('ecommerce.orders.pickup.search')}
