@@ -166,19 +166,25 @@ const StorePickupSection = ({
                     {t('ecommerce.settings.storePickup.offered')}
                   </Badge>
                 ) : (
-                  <Box
-                    tag="span"
-                    hasRadius
-                    paddingLeft={2}
-                    paddingRight={2}
-                    paddingTop={1}
-                    paddingBottom={1}
-                    style={{ background: NOTICE_BACKGROUND, display: 'inline-block' }}
-                  >
-                    <Typography variant="pi" fontWeight="bold" style={{ color: NOTICE_TEXT }}>
+                  <Flex direction="column" alignItems="flex-start" gap={1}>
+                    {/* A badge in the notice orange (the design-system Badge only takes theme colours). */}
+                    <Box
+                      tag="span"
+                      hasRadius
+                      paddingLeft={2}
+                      paddingRight={2}
+                      paddingTop={1}
+                      paddingBottom={1}
+                      style={{ background: NOTICE_BACKGROUND, display: 'inline-block', lineHeight: 0 }}
+                    >
+                      <Typography variant="sigma" style={{ color: NOTICE_TEXT }}>
+                        {t('ecommerce.settings.storePickup.notOffered')}
+                      </Typography>
+                    </Box>
+                    <Typography variant="pi" textColor="neutral600">
                       {t('ecommerce.settings.storePickup.noStores')}
                     </Typography>
-                  </Box>
+                  </Flex>
                 )}
               </Td>
             </Tr>
