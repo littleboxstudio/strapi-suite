@@ -165,7 +165,13 @@ Answers are cached in memory per postal code for 10 minutes.
 | 502 | `PICKUP_SEARCH_FAILED` | DPD failed or did not answer in time: retry |
 
 Shipping options (`shippingOptions`, `selectedShipping`) carry `requiresPickupPoint: true` only
-for DPD Pickup; the field is absent on every other option.
+for DPD Pickup and Store pickup; the field is absent on every other option.
+
+Store pickup options (`providerId: "store-pickup"`, `serviceId: "STORE"`) also carry
+`pickupPoints`: the shop's stores for the address's market, each
+`{ id, name, address, address2, postalCode, city, country }` (up to 100, no opening hours). The
+rule for the storefront: if the option has `pickupPoints`, show that list; otherwise search
+`/shipping/pickup-points` (DPD). The field is absent on every other option.
 
 ### Pickup at checkout
 
@@ -175,6 +181,9 @@ With a `shippingMethod` that requires a pickup point, `POST /orders` needs `pick
 code; the 10-minute cache usually answers without a new DPD call. Send `pickupPostalCode`
 whenever the customer searched by a code other than their own (always for an address outside
 Portugal). With any other method, `pickupPointId` and `pickupPostalCode` are ignored.
+
+Store pickup takes `pickupPointId` from the option's `pickupPoints` list (the store `id`);
+`pickupPostalCode` is ignored.
 
 The order then stores:
 

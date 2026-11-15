@@ -12,6 +12,8 @@ import { DPD_SERVICE_IDS, dpdServedMarkets, readDpdServices } from './domain/dpd
 import type { DpdServiceId } from './domain/dpdServices';
 import { DPD_PORTUGAL_ID } from './providers/definitions/dpd-portugal';
 import { hasDpdCredentials } from './providers/carriers/dpd/client';
+import { STORE_PICKUP_ID, readStorePickup, storePickupServedMarkets } from './domain/storePickup';
+import type { PickupStore } from './domain/storePickup';
 
 export type ShippingQuoteRequest = {
   country: string;
@@ -34,6 +36,8 @@ export type ShippingOption = {
   estimatedDays?: number;
   /** The storefront/admin must ask for a pickup point (DPD Pickup). Only ever `true`. */
   requiresPickupPoint?: boolean;
+  /** The stores to pick from: only on `store-pickup` options (public fields only). */
+  pickupPoints?: PickupStore[];
 };
 
 export type CarrierQuoter = (
@@ -65,10 +69,30 @@ export function __resetCarrierQuotersForTests(): void {
   for (const [id, adapter] of builtInCarrierAdapters()) adapters.set(id, adapter);
 }
 
+const MAX_PICKUP_POINTS = 100;
+const POINT_STRING_FIELDS = ['id', 'name', 'address', 'postalCode', 'city', 'country'] as const;
+
+/** A valid pickup point reduced to its public fields, or null. */
+const pickPoint = (p: unknown): PickupStore | null => {
+  if (!p || typeof p !== 'object') return null;
+  const x = p as Record<string, unknown>;
+  if (!POINT_STRING_FIELDS.every((k) => typeof x[k] === 'string')) return null;
+  if (x.address2 !== null && typeof x.address2 !== 'string') return null;
+  return {
+    id: x.id as string,
+    name: x.name as string,
+    address: x.address as string,
+    address2: x.address2 as string | null,
+    postalCode: x.postalCode as string,
+    city: x.city as string,
+    country: x.country as string,
+  };
+};
+
 const pickOption = (o: unknown, providerId: string): ShippingOption | null => {
   const x = o as Partial<ShippingOption> | null;
   if (!x || typeof x !== 'object') return null;
-  const { price, tax, name, serviceId, estimatedDays, requiresPickupPoint } = x;
+  const { price, tax, name, serviceId, estimatedDays, requiresPickupPoint, pickupPoints } = x;
   const valid =
     typeof price === 'number' &&
     Number.isInteger(price) &&
@@ -88,6 +112,12 @@ const pickOption = (o: unknown, providerId: string): ShippingOption | null => {
   const option: ShippingOption = { providerId, serviceId, name, price, tax };
   if (estimatedDays !== undefined) option.estimatedDays = estimatedDays;
   if (requiresPickupPoint === true) option.requiresPickupPoint = true;
+  if (providerId === STORE_PICKUP_ID && Array.isArray(pickupPoints)) {
+    option.pickupPoints = pickupPoints
+      .map(pickPoint)
+      .filter((p): p is PickupStore => p !== null)
+      .slice(0, MAX_PICKUP_POINTS);
+  }
   return option;
 };
 
@@ -100,6 +130,9 @@ const failureCode = (error: unknown): string => {
 /** The markets a carrier quotes for: its rate tables (DPD, active services) or `config.markets`. */
 const carrierMarkets = (providerId: string, rt: ProviderRuntime, storeMarkets: readonly string[]): string[] => {
   if (providerId === DPD_PORTUGAL_ID) return dpdServedMarkets(readDpdServices(rt.config.services), storeMarkets);
+  if (providerId === STORE_PICKUP_ID) {
+    return storePickupServedMarkets(readStorePickup(rt.config.storePickup), storeMarkets);
+  }
   const served = rt.config.markets;
   return Array.isArray(served) ? served.filter((c): c is string => typeof c === 'string') : [];
 };
@@ -217,7 +250,7 @@ const EcommerceShippingService = ({ strapi }: { strapi: Core.Strapi }) => {
     /**
      * The adapter and runtime of an active carrier. With `forShipment` (spec 7) an inactive DPD
      * integration is accepted when its credentials are set, so orders with a service switched off
-     * still ship; quotes keep requiring the integration active.
+     * still ship, and so is an inactive store pickup; quotes keep requiring the integration active.
      */
     async carrierFor(
       providerId: string,
@@ -227,7 +260,8 @@ const EcommerceShippingService = ({ strapi }: { strapi: Core.Strapi }) => {
       const runtime = await settings().getRuntime(providerId);
       const usable =
         !!runtime &&
-        (runtime.active || (opts.forShipment === true && providerId === DPD_PORTUGAL_ID && hasDpdCredentials(runtime)));
+        (runtime.active || (opts.forShipment === true &&
+          ((providerId === DPD_PORTUGAL_ID && hasDpdCredentials(runtime)) || providerId === STORE_PICKUP_ID)));
       if (!adapter || !runtime || !usable) throw new EcommerceCarrierError('CARRIER_NOT_CONFIGURED');
       return { adapter, runtime: { config: runtime.config, secrets: runtime.secrets } };
     },
@@ -257,6 +291,9 @@ const EcommerceShippingService = ({ strapi }: { strapi: Core.Strapi }) => {
           : runtime
             ? dpdServedMarkets(services, markets)
             : [];
+      } else if (providerId === STORE_PICKUP_ID) {
+        const runtime = await svc.getRuntime(providerId);
+        own = runtime ? storePickupServedMarkets(readStorePickup(runtime.config.storePickup), markets) : [];
       } else {
         const served = (await svc.getRuntime(providerId))?.config.markets;
         own = Array.isArray(served) ? served.filter((c): c is string => typeof c === 'string') : [];

@@ -344,6 +344,61 @@ describe('EcommerceShippingService', () => {
     });
   });
 
+  describe('store pickup', () => {
+    const point = (id: string, over: Record<string, unknown> = {}) => ({
+      id, name: 'Loja', address: 'Rua A 1', address2: null, postalCode: '1000-001', city: 'Lisboa', country: 'PT', ...over,
+    });
+    const quoteWith = async (providerId: string, pickupPoints: unknown) => {
+      registerCarrierAdapter(providerId, {
+        quote: async () => [{ serviceId: 'STORE', name: 'S', price: 0, tax: 23, requiresPickupPoint: true, pickupPoints }] as any,
+      });
+      const served = {
+        markets: ['PT'],
+        storePickup: {
+          rates: { PT: FLAT(0) },
+          stores: { PT: [{ id: 'st_aaaaaaaaaa', name: 'L', address: 'A', postalCode: '1000-001', city: 'Lisboa' }] },
+        },
+      };
+      const runtime = () => ({ config: served, secrets: {}, active: true });
+      return setup({ carriers: [providerId], runtime }).quote(req('PT', [item(0.5)]));
+    };
+
+    it('pickOption keeps pickupPoints only for store-pickup and only public fields, at most 100', async () => {
+      const many = Array.from({ length: 120 }, (_, i) => point(`st_${i}`, { secret: 'x', openingHours: [] }));
+      const valid = [point('a'), point('b', { address2: 'Loja 2' }), { ...point('c'), name: 5 }, { ...point('d'), address2: undefined }, null];
+      const { options } = await quoteWith('store-pickup', valid);
+      expect(options[0].pickupPoints).toEqual([point('a'), point('b', { address2: 'Loja 2' })]);
+      const capped = (await quoteWith('store-pickup', many)).options[0].pickupPoints!;
+      expect(capped).toHaveLength(100);
+      expect(Object.keys(capped[0]).sort()).toEqual(
+        ['address', 'address2', 'city', 'country', 'id', 'name', 'postalCode']
+      );
+      expect((await quoteWith('other', [point('a')])).options[0].pickupPoints).toBeUndefined();
+    });
+
+    it('served markets of store-pickup come from storePickupServedMarkets', async () => {
+      const stores = { PT: [{ id: 'st_aaaaaaaaaa', name: 'L', address: 'A', postalCode: '1000-001', city: 'Lisboa' }], ES: [] };
+      const runtime = () => ({
+        config: { storePickup: { rates: { PT: FLAT(0), ES: FLAT(0), FR: FLAT(0) }, stores } },
+        secrets: {},
+        active: true,
+      });
+      const s = setup({ carriers: ['store-pickup'], runtime });
+      expect(await s.servedCountries('store-pickup', 'STORE')).toEqual(['PT']);
+      expect((await s.quote(req('ES', [item(0.5)]))).options).toEqual([]);
+      expect((await s.quote(req('PT', [item(0.5)]))).options).toHaveLength(1);
+    });
+
+    it('carrierFor forShipment returns store-pickup while inactive', async () => {
+      const runtime = () => ({ config: {}, secrets: {}, active: false });
+      const s = setup({ runtime });
+      await expect(s.carrierFor('store-pickup')).rejects.toMatchObject({ code: 'CARRIER_NOT_CONFIGURED' });
+      const r = await s.carrierFor('store-pickup', { forShipment: true });
+      expect(r.adapter.createShipment).toBeUndefined();
+      await expect(s.carrierFor('ctt-expresso', { forShipment: true })).rejects.toMatchObject({ code: 'CARRIER_NOT_CONFIGURED' });
+    });
+  });
+
   describe('servedCountries', () => {
     it('a manual method serves the countries of its rates (active or not) inside the markets', async () => {
       const s = setup({

@@ -174,6 +174,16 @@ export type PublicShippingOption = {
   estimatedDays: number | null;
   /** Present (true) only for an option that needs a pickup point (DPD Pickup). */
   requiresPickupPoint?: true;
+  /** Present only on store pickup: the stores to pick from (the customer's pickupPointId is one of them). */
+  pickupPoints?: {
+    id: string;
+    name: string;
+    address: string;
+    address2: string | null;
+    postalCode: string;
+    city: string;
+    country: string;
+  }[];
 };
 
 export type PublicQuoteLine = {
