@@ -28,6 +28,7 @@ import {
   MAX_PARCELS,
   asksParcels,
   buildShipmentInput,
+  shipResultMessageId,
   canShipByCarrier,
   emptyShipForm,
   mapServerFieldErrors,
@@ -133,13 +134,7 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
       const pending = shipment.status === 'PENDING';
       toggleNotification({
         type: pending ? 'warning' : 'success',
-        message: t(
-          !pending
-            ? 'ecommerce.orders.ship.success'
-            : shipment.carrierSupport?.retry === false
-              ? 'ecommerce.orders.errors.CARRIER_RETRY_UNSAFE'
-              : 'ecommerce.orders.ship.uncertain'
-        ),
+        message: t(shipResultMessageId(shipment)),
       });
       onShipped();
     } catch (err) {

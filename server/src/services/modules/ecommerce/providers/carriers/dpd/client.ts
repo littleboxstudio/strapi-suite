@@ -12,11 +12,15 @@ import type { CarrierCallOptions } from '../types';
 type Raw = { status: number; body: unknown };
 type Options = Partial<CarrierCallOptions>;
 
-const CREDENTIALS = ['authEndpoint', 'clientId', 'clientSecret', 'username', 'password'] as const;
+/** The DPD credentials a token needs (config fields and secrets). */
+export const DPD_AUTH_CREDENTIALS = ['authEndpoint', 'clientId', 'clientSecret', 'username', 'password'] as const;
 
-/** Missing DPD credential keys of `rt` (the expedition endpoint is checked by the expedition). */
-export const missingDpdCredentials = (rt: ProviderRuntime): string[] =>
-  [...CREDENTIALS, 'expeditionEndpoint'].filter((key) => !str(rt, key));
+/** Every DPD credential a shipment needs (Ruling 8): the token's plus the expedition endpoint. */
+export const DPD_CREDENTIALS = [...DPD_AUTH_CREDENTIALS, 'expeditionEndpoint'] as const;
+
+/** Whether `rt` has every DPD credential, whether the integration is active or not. */
+export const hasDpdCredentials = (rt: ProviderRuntime): boolean =>
+  DPD_CREDENTIALS.every((key) => str(rt, key).trim() !== '');
 
 /** POSTs JSON; the callback never throws, so `null` means only "no answer" (network/timeout). */
 const postJson = (url: string, body: unknown, headers: Record<string, string>, opts: Options) =>
@@ -45,7 +49,7 @@ const record = (v: unknown): Record<string, any> | null =>
 
 /** Access token for the password grant. */
 export async function dpdToken(rt: ProviderRuntime, opts: Options = {}): Promise<string> {
-  const missing = CREDENTIALS.filter((key) => !str(rt, key));
+  const missing = DPD_AUTH_CREDENTIALS.filter((key) => !str(rt, key));
   if (missing.length) {
     throw new EcommerceCarrierError('CARRIER_NOT_CONFIGURED', `Missing DPD fields: ${missing.join(', ')}`);
   }

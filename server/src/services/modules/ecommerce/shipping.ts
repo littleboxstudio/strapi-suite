@@ -11,6 +11,7 @@ import { marketOf } from './domain/markets';
 import { DPD_SERVICE_IDS, dpdServedMarkets, readDpdServices } from './domain/dpdServices';
 import type { DpdServiceId } from './domain/dpdServices';
 import { DPD_PORTUGAL_ID } from './providers/definitions/dpd-portugal';
+import { hasDpdCredentials } from './providers/carriers/dpd/client';
 
 export type ShippingQuoteRequest = {
   country: string;
@@ -95,15 +96,6 @@ const failureCode = (error: unknown): string => {
   if (raw === 'CARRIER_NOT_CONFIGURED') return 'NOT_CONFIGURED';
   return typeof raw === 'string' && /^[A-Z_]{1,40}$/.test(raw) ? raw : 'QUOTE_FAILED';
 };
-
-const isFilled = (v: unknown) => typeof v === 'string' && v.trim() !== '';
-
-/** DPD credentials needed to create a shipment (Ruling 8), whether the integration is active or not. */
-const DPD_CREDENTIAL_FIELDS = ['authEndpoint', 'expeditionEndpoint', 'clientId', 'username'] as const;
-const DPD_CREDENTIAL_SECRETS = ['clientSecret', 'password'] as const;
-const hasDpdCredentials = (rt: ProviderRuntime): boolean =>
-  DPD_CREDENTIAL_FIELDS.every((k) => isFilled(rt.config[k])) &&
-  DPD_CREDENTIAL_SECRETS.every((k) => isFilled(rt.secrets[k]));
 
 /** The markets a carrier quotes for: its rate tables (DPD, active services) or `config.markets`. */
 const carrierMarkets = (providerId: string, rt: ProviderRuntime, storeMarkets: readonly string[]): string[] => {

@@ -4,7 +4,11 @@ import { Button, Flex, Modal } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { MarketRatesEditor } from './MarketRatesEditor';
 import { MethodNameTaxFields } from './MethodNameTaxFields';
-import { dpdServiceToDraft, draftToDpdService } from '../../utils/dpdServicesForm';
+import {
+  dpdServiceMarkets,
+  dpdServiceToDraft,
+  draftToDpdService,
+} from '../../utils/dpdServicesForm';
 import type { ManualMethodDraft, ManualMethodErrors } from '../../utils/manualMethodForm';
 import type { DpdService, DpdServiceId } from '../../settingsTypes';
 
@@ -14,7 +18,7 @@ type Props = {
   service: DpdService;
   locales: { code: string; name: string }[];
   defaultLocale: string;
-  /** The store markets. */
+  /** The store markets (PICKUP keeps only PT and PT-ISL). */
   markets: string[];
   onClose: () => void;
   /**
@@ -33,13 +37,15 @@ const DpdServiceModal = ({
   service,
   locales,
   defaultLocale,
-  markets,
+  markets: storeMarkets,
   onClose,
   onSave,
 }: Props) => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const t = (key: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(key) }, values);
+  /** The markets this service may have prices for (PICKUP: PT and PT-ISL only). */
+  const markets = dpdServiceMarkets(id, storeMarkets);
 
   const [draft, setDraft] = useState<ManualMethodDraft>(() =>
     dpdServiceToDraft(
@@ -131,6 +137,7 @@ const DpdServiceModal = ({
               clearError={clearError}
               clearErrorsUnder={clearErrorsUnder}
               required={false}
+              emptyText={t('ecommerce.settings.dpdServices.noMarketsSelected')}
             />
           </Flex>
         </Modal.Body>

@@ -222,6 +222,34 @@ export function isRetryUnsafeShipment(s: Pick<ShipmentView, 'status' | 'retryabl
 }
 
 /**
+ * The notice after creating a shipment (not FAILED): success when ACTIVE; for a PENDING one, the
+ * "check the carrier's portal" text only when it is settled by hand now (retry-unsafe and
+ * `retryable`), otherwise the pending hint.
+ */
+export function shipResultMessageId(
+  s: Pick<ShipmentView, 'status' | 'retryable' | 'carrierSupport'>
+): string {
+  if (s.status !== 'PENDING') return 'ecommerce.orders.ship.success';
+  return isRetryUnsafeShipment(s)
+    ? 'ecommerce.orders.errors.CARRIER_RETRY_UNSAFE'
+    : 'ecommerce.orders.ship.uncertain';
+}
+
+/**
+ * The warning of the cancel dialog. Only a shipment that reached the carrier (ACTIVE) is
+ * cancelled there, or must be cancelled on its portal (no cancel API: DPD); a manual or a FAILED
+ * one is only cancelled here.
+ */
+export function cancelWarningId(
+  s: Pick<ShipmentView, 'status' | 'providerId' | 'carrierSupport'>
+): string {
+  if (s.providerId === 'manual' || s.status !== 'ACTIVE') return 'ecommerce.orders.shipments.cancel.warning';
+  return s.carrierSupport?.cancel === false
+    ? 'ecommerce.orders.shipments.cancel.localWarning'
+    : 'ecommerce.orders.shipments.cancel.carrierWarning';
+}
+
+/**
  * Server field errors of a line-based request mapped to form paths: `lines.<index>.…` →
  * `lines.<orderLineId>` of the line sent at that index (or `lines`), a path listed in `fields` →
  * its form path. The first unmapped code is returned as `other`.

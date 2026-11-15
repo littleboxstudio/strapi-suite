@@ -96,6 +96,12 @@ describe('EcommercePickupPointService.search', () => {
     expect(await codeOf(setup().search({ postalCode: 1000001 as any }))).toBe('INVALID_POSTAL_CODE');
   });
 
+  it('the country is case-insensitive: pt searches Portugal', async () => {
+    const s = setup();
+    expect(await s.search({ postalCode: '1000-001', country: 'pt' })).toEqual([point('A'), point('B')]);
+    expect(client.searchPudo).toHaveBeenCalledTimes(1);
+  });
+
   it('a country other than PT is PICKUP_NOT_AVAILABLE (path country)', async () => {
     const err = await setup()
       .search({ postalCode: '28001', country: 'ES' })

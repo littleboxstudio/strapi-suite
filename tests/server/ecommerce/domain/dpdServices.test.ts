@@ -58,6 +58,28 @@ describe('normalizeDpdServices', () => {
     expect(out.EXPRESS.rates).toEqual({ 'PT-ISL': RATE });
   });
 
+  it('PICKUP rates only for PT and PT-ISL: another store market fails with the invalid-market code', () => {
+    const errors: any[] = [];
+    const out = normalizeDpdServices(
+      { PICKUP: { rates: { PT: RATE, 'PT-ISL': RATE, es: RATE } }, EXPRESS: { rates: { ES: RATE } } },
+      MARKETS,
+      errors
+    );
+    expect(errors).toEqual([{ path: 'services.PICKUP.rates.ES', code: 'invalid_country' }]);
+    expect(out.PICKUP.rates).toEqual({ PT: RATE, 'PT-ISL': RATE });
+    expect(out.EXPRESS.rates).toEqual({ ES: RATE });
+  });
+
+  it('only active === true activates a service', () => {
+    for (const active of ['false', 'yes', 1, {}]) {
+      const errors: any[] = [];
+      const out = normalizeDpdServices({ EXPRESS: { active }, PICKUP: { active: true } }, MARKETS, errors);
+      expect(errors).toEqual([]);
+      expect(out.EXPRESS.active).toBe(false);
+      expect(out.PICKUP.active).toBe(true);
+    }
+  });
+
   it('validates brackets and tax', () => {
     const errors: any[] = [];
     normalizeDpdServices(
@@ -87,6 +109,12 @@ describe('readDpdServices', () => {
     const read = readDpdServices({ EXPRESS: { active: true, name: { en: 'X' }, tax: 6, rates: { PT: RATE, bad: 1 } } });
     expect(read.EXPRESS).toEqual({ active: true, name: { en: 'X' }, tax: 6, rates: { PT: RATE } });
     expect(read.PICKUP).toEqual(DPD_SERVICE_DEFAULTS.PICKUP);
+  });
+
+  it('PICKUP keeps only its PT and PT-ISL rates (older configs may hold others)', () => {
+    const read = readDpdServices({ PICKUP: { rates: { PT: RATE, ES: RATE, 'PT-ISL': RATE } }, EXPRESS: { rates: { ES: RATE } } });
+    expect(read.PICKUP.rates).toEqual({ PT: RATE, 'PT-ISL': RATE });
+    expect(read.EXPRESS.rates).toEqual({ ES: RATE });
   });
 });
 
