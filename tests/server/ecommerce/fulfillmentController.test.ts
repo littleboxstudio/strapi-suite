@@ -56,6 +56,29 @@ describe('EcommerceShipmentController', () => {
     expect(create.mock.calls[0][1]).not.toHaveProperty('shippingCost');
   });
 
+  it('create passes a STORE_PICKUP method with its pickupPointId, without parcels', async () => {
+    const create = vi.fn().mockResolvedValue({ id: 9 });
+    const c = createShipments({ strapi: strapiWith({ EcommerceShipmentService: { create } }) });
+    const ctx = body({
+      ...validShipment,
+      method: { mode: 'STORE_PICKUP', pickupPointId: 'st_lisboa0001', trackingCode: 'X' },
+      parcels: 3,
+    });
+    await c.create(ctx);
+    expect(ctx.status).toBe(201);
+    expect(create.mock.calls[0][1].method).toEqual({ mode: 'STORE_PICKUP', pickupPointId: 'st_lisboa0001' });
+    expect(create.mock.calls[0][1]).not.toHaveProperty('parcels');
+
+    const bare = body({ ...validShipment, method: { mode: 'STORE_PICKUP' } });
+    await c.create(bare);
+    expect(create.mock.calls[1][1].method).toEqual({ mode: 'STORE_PICKUP' });
+
+    const bad = body({ ...validShipment, method: { mode: 'STORE_PICKUP', pickupPointId: 'x'.repeat(65) } });
+    await c.create(bad);
+    expect(bad.badRequest).toHaveBeenCalled();
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
   it('create rejects invalid bodies with 400 and errors, never calling the service', async () => {
     const create = vi.fn();
     const c = createShipments({ strapi: strapiWith({ EcommerceShipmentService: { create } }) });

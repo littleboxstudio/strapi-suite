@@ -6,6 +6,7 @@ import {
   EcommerceCarrierError,
   EcommerceValidationError,
 } from '../../../server/src/services/modules/ecommerce/errors';
+import { readStorePickup } from '../../../server/src/services/modules/ecommerce/domain/storePickup';
 import { setupCommerce, UIDS, type Commerce } from './helpers/commerceSetup';
 
 const GUIDE = '09876543210123';
@@ -151,6 +152,23 @@ const makePickup = (c: Commerce, id: number) => {
   row.shippingAddress = { ...address, company: 'Papelaria Central', line1: 'Rua do Ponto 5', postalCode: '1100-200' };
 };
 
+/** A Store pickup order: its stored point is one of the shop's stores, not a DPD point. */
+const makeStorePickupOrder = (c: Commerce, id: number) => {
+  const row = orderRow(c, id);
+  row.shippingMethod = { providerId: 'store-pickup', serviceId: 'STORE', name: 'Store pickup', tax: 23 };
+  row.pickupPoint = {
+    id: 'st_lisboa0001',
+    name: 'Loja Lisboa',
+    address: 'Rua da Loja 1',
+    address2: null,
+    postalCode: '1000-100',
+    city: 'Lisboa',
+    country: 'PT',
+    customerAddress: address,
+  };
+  row.shippingAddress = { ...address, company: 'Loja Lisboa', line1: 'Rua da Loja 1', postalCode: '1000-100' };
+};
+
 const ship = (lineId: number, method: Record<string, unknown>, key = 'k1', extra: Record<string, unknown> = {}) => ({
   lines: [{ orderLineId: lineId, quantity: 1 }],
   method,
@@ -207,6 +225,16 @@ describe('shipMethods', () => {
       requiresPickupPoint: true,
       parcels: true,
     });
+  });
+
+  it('does not offer DPD Pickup for a Store pickup order (its point is a store)', async () => {
+    const { c, ships } = setup();
+    const { id } = await paidOrder(c, { providerId: 'manual', serviceId: '1' });
+    makeStorePickupOrder(c, id);
+    c.services.EcommerceSettingsService.getStorePickup = async () => readStorePickup(undefined);
+    const ids = keys((await ships.shipMethods(id)).methods);
+    expect(ids).not.toContain('dpd-portugal:PICKUP');
+    expect(ids[0]).toBe('store-pickup:STORE');
   });
 
   it('always includes the original method, even when it was switched off since', async () => {
@@ -335,6 +363,19 @@ describe('create with a chosen method', () => {
   it('DPD Pickup without a pickup point is refused before any row', async () => {
     const { c, ships, dpd } = setup();
     const { id, lineId } = await paidOrder(c, { providerId: 'manual', serviceId: '1' });
+    expect(
+      await codesOf(
+        ships.create(id, ship(lineId, { mode: 'CARRIER', providerId: 'dpd-portugal', serviceId: 'PICKUP' }), 'user:1')
+      )
+    ).toEqual([{ path: 'method.serviceId', code: 'PICKUP_POINT_REQUIRED' }]);
+    expect(c.tables[UIDS.shipment]).toHaveLength(0);
+    expect(dpd.fetch).not.toHaveBeenCalled();
+  });
+
+  it('DPD Pickup on a Store pickup order is refused: a store is no DPD point', async () => {
+    const { c, ships, dpd } = setup();
+    const { id, lineId } = await paidOrder(c, { providerId: 'manual', serviceId: '1' });
+    makeStorePickupOrder(c, id);
     expect(
       await codesOf(
         ships.create(id, ship(lineId, { mode: 'CARRIER', providerId: 'dpd-portugal', serviceId: 'PICKUP' }), 'user:1')

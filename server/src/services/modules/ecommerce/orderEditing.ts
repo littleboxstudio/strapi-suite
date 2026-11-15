@@ -67,8 +67,10 @@ import type {
 } from './domain/promotions';
 import {
   applyPickupPoint,
+  deliveryChangeEntry,
   findPickupPoint,
   hasPickupPointId,
+  pointSummary,
   isPickupMethod,
   isStorePickup,
   readPickupPoint,
@@ -224,8 +226,6 @@ const pickupAddressLocked = () =>
 const customerAddressOf = (order: any): Address =>
   readPickupPoint(order)?.customerAddress ?? (order?.shippingAddress as Address);
 
-/** The point as the history shows it. */
-const pointSummary = (p: OrderPickupPoint | null) => (p ? { id: p.id, name: p.name } : null);
 
 /** A line amount: integer cents in 0..MAX_MONEY_CENTS (ruling 7). */
 const normalizeShippingInput = (input: ShippingLineInput): ShippingLineInput => {
@@ -781,20 +781,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
 
   /** Records a delivery change as an address change. */
   const recordDeliveryChange = (state: OrderState, change: DeliveryChange, w: EditWriter) =>
-    w.record({
-      type: 'ADDRESS_CHANGED',
-      description: change.pickupPoint
-        ? `Shipping address changed: pickup point ${change.pickupPoint.id}`
-        : 'Shipping address changed: pickup point removed',
-      previousValue: {
-        shippingAddress: state.order.shippingAddress ?? null,
-        pickupPoint: pointSummary(readPickupPoint(state.order)),
-      },
-      newValue: {
-        shippingAddress: change.shippingAddress,
-        pickupPoint: pointSummary(change.pickupPoint),
-      },
-    });
+    w.record(deliveryChangeEntry(state.order, change));
 
   // -------------------------------------------------------------------------
   // Shipping address (spec 5, ruling 21)

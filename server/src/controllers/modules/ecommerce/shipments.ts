@@ -3,6 +3,7 @@ import { PLUGIN_ID } from '../../../config';
 import { handleDomainError as handleSharedDomainError } from './errors';
 import { sendPdf } from './pdf';
 import { MAX_PARCELS } from '../../../services/modules/ecommerce/shipments';
+import { MAX_PICKUP_POINT_ID_LENGTH } from '../../../services/modules/ecommerce/domain/storefront/limits';
 import {
   MAX_KEY,
   asObject,
@@ -77,6 +78,15 @@ const EcommerceShipmentController = ({ strapi }: { strapi: Core.Strapi }) => {
         ...(providerId !== undefined ? { providerId } : {}),
         ...(serviceId !== undefined ? { serviceId } : {}),
       };
+    } else if (m.mode === 'STORE_PICKUP') {
+      // The store; none: the order's. No tracking, no parcels, always notified.
+      const pickupPointId = optionalString(
+        MSG,
+        'method.pickupPointId',
+        m.pickupPointId,
+        MAX_PICKUP_POINT_ID_LENGTH
+      );
+      method = { mode: 'STORE_PICKUP', ...(pickupPointId !== undefined ? { pickupPointId } : {}) };
     } else {
       return fail(MSG, 'method.mode', 'invalid');
     }
@@ -85,7 +95,7 @@ const EcommerceShipmentController = ({ strapi }: { strapi: Core.Strapi }) => {
       method,
       notifyCustomer: optionalBoolean(MSG, 'notifyCustomer', b.notifyCustomer, true),
       idempotencyKey: requiredString(MSG, 'idempotencyKey', b.idempotencyKey, MAX_KEY),
-      ...(b.parcels !== undefined ? { parcels: parcelsOf(b.parcels) } : {}),
+      ...(b.parcels !== undefined && method.mode !== 'STORE_PICKUP' ? { parcels: parcelsOf(b.parcels) } : {}),
     };
   };
 
