@@ -209,3 +209,23 @@ describe('EcommercePickupPointService.findPoint', () => {
     expect(await codeOf(setup().findPoint('x', 'A'))).toBe('INVALID_POSTAL_CODE');
   });
 });
+
+describe('pickup method kinds (store pickup ruling 2)', () => {
+  it('isDpdPickup is DPD Pickup only; isStorePickup is Store pickup only; isPickupMethod is either', async () => {
+    const { isDpdPickup, isStorePickup, isPickupMethod } = await import(
+      '../../../server/src/services/modules/ecommerce/domain/pickupPoints'
+    );
+    const cases: [string, string, boolean, boolean][] = [
+      ['dpd-portugal', 'PICKUP', true, false],
+      ['store-pickup', 'STORE', false, true],
+      ['dpd-portugal', 'EXPRESS', false, false],
+      ['store-pickup', 'PICKUP', false, false],
+      ['manual', '1', false, false],
+    ];
+    for (const [providerId, serviceId, dpd, store] of cases) {
+      expect(isDpdPickup(providerId, serviceId)).toBe(dpd);
+      expect(isStorePickup(providerId, serviceId)).toBe(store);
+      expect(isPickupMethod(providerId, serviceId)).toBe(dpd || store);
+    }
+  });
+});

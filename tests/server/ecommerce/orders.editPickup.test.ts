@@ -361,3 +361,171 @@ describe('order editing: recalculating shipping changes the current method', () 
     expect(JSON.stringify(t.row(id))).toBe(before);
   });
 });
+
+/** Store pickup (store pickup spec 5): the stores of each market, from the current config. */
+const STORE = { providerId: 'store-pickup', serviceId: 'STORE' };
+const STORE_LISBOA = {
+  id: 'st_lisboa0001',
+  name: 'Loja Lisboa',
+  address: 'Rua da Loja 1',
+  address2: null,
+  postalCode: '1000-100',
+  city: 'Lisboa',
+  country: 'PT',
+};
+const STORE_PORTO = { ...STORE_LISBOA, id: 'st_porto00001', name: 'Loja Porto', postalCode: '4000-400', city: 'Porto' };
+const STORE_FUNCHAL = { ...STORE_LISBOA, id: 'st_funchal001', name: 'Loja Funchal', postalCode: '9000-100', city: 'Funchal' };
+const STORES: Record<string, (typeof STORE_LISBOA)[]> = {
+  PT: [STORE_LISBOA, STORE_PORTO],
+  'PT-ISL': [STORE_FUNCHAL],
+};
+
+const storeAddress = (s: typeof STORE_LISBOA) => ({
+  firstName: 'Ana',
+  lastName: 'Silva',
+  phone: '+351910000000',
+  company: s.name,
+  line1: s.address,
+  postalCode: s.postalCode,
+  city: s.city,
+  country: 'PT',
+});
+
+const storeSetup = () => {
+  const t = setup();
+  const settings = t.c.services.EcommerceSettingsService;
+  const getStoreSettings = settings.getStoreSettings;
+  settings.getStoreSettings = async () => ({ ...(await getStoreSettings()), markets: ['PT', 'PT-ISL'] });
+  const findStore = vi.fn(async (market: string, id: string) => STORES[market]?.find((s) => s.id === id) ?? null);
+  settings.findStore = findStore;
+  const storeOption = { ...STORE, name: 'Store pickup', price: 0, tax: 23, requiresPickupPoint: true };
+  const pickupOption = { ...PICKUP, name: 'DPD Pickup', price: 400, tax: 23, requiresPickupPoint: true };
+  const standardOption = { ...STANDARD, name: 'Standard', price: 500, tax: 23 };
+  t.c.services.EcommerceShippingService.findOption = vi.fn(
+    async (_req: any, providerId: string, serviceId: string) =>
+      providerId === 'store-pickup' && serviceId === 'STORE'
+        ? storeOption
+        : providerId === 'dpd-portugal' && serviceId === 'PICKUP'
+          ? pickupOption
+          : standardOption
+  );
+  t.c.services.EcommerceShippingService.quote = vi.fn(async () => ({
+    options: [standardOption, pickupOption, storeOption],
+    failures: [],
+  }));
+  return { ...t, findStore };
+};
+
+describe('admin manual order with Store pickup', () => {
+  it('creates a store pickup order with a store', async () => {
+    const t = storeSetup();
+    const created = await t.create({ shipping: STORE, pickupPointId: STORE_LISBOA.id, pickupPostalCode: '9000-100' });
+    expect(t.findStore).toHaveBeenCalledWith('PT', STORE_LISBOA.id);
+    expect(t.findPoint).not.toHaveBeenCalled();
+    const order = t.row(created.id);
+    expect(order.shippingMethod).toMatchObject(STORE);
+    expect(order.shippingAddress).toEqual(storeAddress(STORE_LISBOA));
+    expect(order.pickupPoint).toEqual({ ...STORE_LISBOA, customerAddress });
+  });
+
+  it('without a store → PICKUP_POINT_REQUIRED; a store of another market → PICKUP_POINT_INVALID', async () => {
+    const t = storeSetup();
+    expect(await issuesOf(t.create({ shipping: STORE }))).toEqual([
+      { path: 'pickupPointId', code: 'PICKUP_POINT_REQUIRED' },
+    ]);
+    expect(await issuesOf(t.create({ shipping: STORE, pickupPointId: STORE_FUNCHAL.id }))).toEqual([
+      { path: 'pickupPointId', code: 'PICKUP_POINT_INVALID' },
+    ]);
+    expect(t.c.tables[UIDS.order]).toHaveLength(0);
+  });
+});
+
+describe('order editing: Store pickup', () => {
+  it('changing to store pickup needs a store', async () => {
+    const t = storeSetup();
+    const { id } = await t.create();
+    const before = JSON.stringify(t.row(id));
+    expect(
+      await issuesOf(t.c.editing.editShippingLine(id, 1, { ...STORE, amount: 0 }, 'user:1', 'op-st-0001'))
+    ).toEqual([{ path: 'pickupPointId', code: 'PICKUP_POINT_REQUIRED' }]);
+    expect(JSON.stringify(t.row(id))).toBe(before);
+    expect(
+      await issuesOf(
+        t.c.editing.editShippingLine(id, 1, { ...STORE, amount: 0, pickupPointId: POINT.id } as any, 'user:1', 'op-st-0002')
+      )
+    ).toEqual([{ path: 'pickupPointId', code: 'PICKUP_POINT_INVALID' }]);
+    expect(t.findPoint).not.toHaveBeenCalled();
+
+    await t.c.editing.editShippingLine(
+      id,
+      1,
+      { ...STORE, amount: 0, pickupPointId: STORE_PORTO.id } as any,
+      'user:1',
+      'op-st-0003'
+    );
+    expect(t.findStore).toHaveBeenLastCalledWith('PT', STORE_PORTO.id);
+    const order = t.row(id);
+    expect(order.shippingMethod).toMatchObject(STORE);
+    expect(order.shippingAddress).toEqual(storeAddress(STORE_PORTO));
+    expect(order.pickupPoint).toEqual({ ...STORE_PORTO, customerAddress });
+  });
+
+  it('changing from DPD Pickup to Store pickup needs a new point', async () => {
+    const t = storeSetup();
+    const { id } = await t.create({ shipping: PICKUP, pickupPointId: POINT.id });
+    const before = JSON.stringify(t.row(id));
+    expect(
+      await issuesOf(t.c.editing.addShippingLine(id, { ...STORE, amount: 0 }, 'user:1', 'op-st-0010'))
+    ).toEqual([{ path: 'pickupPointId', code: 'PICKUP_POINT_REQUIRED' }]);
+    expect(JSON.stringify(t.row(id))).toBe(before);
+
+    await t.c.editing.addShippingLine(
+      id,
+      { ...STORE, amount: 0, pickupPointId: STORE_LISBOA.id } as any,
+      'user:1',
+      'op-st-0011'
+    );
+    // The store is found in the market of the customer's own address, not of the DPD point.
+    expect(t.findStore).toHaveBeenLastCalledWith('PT', STORE_LISBOA.id);
+    const order = t.row(id);
+    expect(order.shippingAddress).toEqual(storeAddress(STORE_LISBOA));
+    expect(order.pickupPoint).toEqual({ ...STORE_LISBOA, customerAddress });
+
+    // And back: Store pickup → DPD Pickup needs a DPD point again.
+    expect(
+      await issuesOf(t.c.editing.addShippingLine(id, { ...PICKUP, amount: 400 }, 'user:1', 'op-st-0012'))
+    ).toEqual([{ path: 'pickupPointId', code: 'PICKUP_POINT_REQUIRED' }]);
+  });
+
+  it('another store pickup charge without an id keeps the store', async () => {
+    const t = storeSetup();
+    const { id } = await t.create({ shipping: STORE, pickupPointId: STORE_LISBOA.id });
+    await t.c.editing.addShippingLine(id, { ...STORE, amount: 100 }, 'user:1', 'op-st-0020');
+    expect(t.row(id).pickupPoint).toMatchObject({ id: STORE_LISBOA.id, customerAddress });
+    expect(t.history(id, 'ADDRESS_CHANGED')).toHaveLength(0);
+  });
+
+  it('choosing another store replaces the address; a DPD id is refused', async () => {
+    const t = storeSetup();
+    const { id } = await t.create({ shipping: STORE, pickupPointId: STORE_LISBOA.id });
+    expect(
+      await issuesOf(
+        t.c.editing.updateShippingAddress(id, { pickupPointId: POINT.id } as any, 'user:1', 'op-st-0030')
+      )
+    ).toEqual([{ path: 'pickupPointId', code: 'PICKUP_POINT_INVALID' }]);
+    expect(t.findPoint).not.toHaveBeenCalled();
+    await t.c.editing.updateShippingAddress(id, { pickupPointId: STORE_PORTO.id } as any, 'user:1', 'op-st-0031');
+    expect(t.row(id).shippingAddress).toEqual(storeAddress(STORE_PORTO));
+    expect(t.row(id).pickupPoint).toEqual({ ...STORE_PORTO, customerAddress });
+  });
+
+  it("leaving store pickup restores the customer's address", async () => {
+    const t = storeSetup();
+    const { id } = await t.create({ shipping: STORE, pickupPointId: STORE_LISBOA.id });
+    await t.c.editing.editShippingLine(id, 1, { ...STANDARD, amount: 500 }, 'user:1', 'op-st-0040');
+    const order = t.row(id);
+    expect(order.shippingMethod).toMatchObject(STANDARD);
+    expect(order.shippingAddress).toEqual(customerAddress);
+    expect(order.pickupPoint).toBeNull();
+  });
+});

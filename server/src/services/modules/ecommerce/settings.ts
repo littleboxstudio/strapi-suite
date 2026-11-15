@@ -38,6 +38,7 @@ import {
 } from './domain/dpdServices';
 import { DPD_PORTUGAL_ID } from './providers/definitions/dpd-portugal';
 import {
+  PickupStore,
   STORE_PICKUP_ID,
   StorePickupConfig,
   normalizeStorePickup,
@@ -45,6 +46,7 @@ import {
   storePickupActivationIssues,
   storePickupMarkets,
   storePickupServedMarkets,
+  storesFor,
 } from './domain/storePickup';
 import type { StoreLogoFile } from './images';
 
@@ -1051,6 +1053,15 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
     /** The store pickup config as stored (defaults before the first save). */
     async getStorePickup(): Promise<StorePickupConfig> {
       return readStorePickup((await findRow(STORE_PICKUP_ID))?.config?.storePickup);
+    },
+
+    /**
+     * A store of `market` in the current store pickup config, or null (store pickup spec 5). The
+     * module's active flag is not read: an unquoted method is already refused by the checkout.
+     */
+    async findStore(market: string, id: string): Promise<PickupStore | null> {
+      const config = readStorePickup((await findRow(STORE_PICKUP_ID))?.config?.storePickup);
+      return storesFor(config, market).find((s) => s.id === id) ?? null;
     },
 
     /**

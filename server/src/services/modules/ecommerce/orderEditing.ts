@@ -70,7 +70,9 @@ import {
   findPickupPoint,
   hasPickupPointId,
   isPickupMethod,
+  isStorePickup,
   readPickupPoint,
+  samePickupKind,
   type OrderPickupPoint,
   type PickupPointInput,
   type PickupSelection,
@@ -253,8 +255,10 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
   const orders = (): OrderServiceLike => service('EcommerceOrderService');
   const events = (): { collector(): { emit(e: any): void; flush(): Promise<void> } } =>
     service('EcommerceEventBus');
-  const storeSettings = (): { getStoreSettings(): Promise<{ markets?: string[] }> } =>
-    service('EcommerceSettingsService');
+  const storeSettings = (): {
+    getStoreSettings(): Promise<{ markets?: string[] }>;
+    findStore(market: string, id: string): Promise<PickupPointInput | null>;
+  } => service('EcommerceSettingsService');
   const shipping = (): {
     quote(
       req: ShippingQuoteRequest
@@ -695,22 +699,51 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   // -------------------------------------------------------------------------
-  // Pickup point (DPD Pickup, spec 5.3)
+  // Pickup point (DPD Pickup, spec 5.3; Store pickup, store pickup spec 5)
   // -------------------------------------------------------------------------
 
-  /** Confirms the point `input` names with the pickup search. May be a remote call. */
-  const searchPoint = (order: any, input: PickupSelection | undefined) =>
-    findPickupPoint(
+  /**
+   * Confirms the point `input` names for `method`. Store pickup: one of the current config's
+   * stores of the customer address's market (`pickupPostalCode` is ignored). Otherwise (DPD
+   * Pickup) the pickup search, which may be a remote call.
+   */
+  const searchPoint = async (
+    order: any,
+    input: PickupSelection | undefined,
+    method: ShippingMethodRef | null
+  ): Promise<PickupPointInput> => {
+    const customer = customerAddressOf(order);
+    if (method && isStorePickup(method.providerId, method.serviceId)) {
+      const storeMarkets = (await storeSettings().getStoreSettings()).markets ?? [];
+      const market = marketOf(String(customer?.country ?? '').toUpperCase(), customer?.postalCode, storeMarkets);
+      return findPickupPoint(
+        (_postalCode, id) => storeSettings().findStore(market, id),
+        { pickupPointId: input?.pickupPointId },
+        '',
+        'pickupPostalCode'
+      );
+    }
+    return findPickupPoint(
       (postalCode, id) => pickupPoints().findPoint(postalCode, id),
       input ?? {},
-      String(customerAddressOf(order)?.postalCode ?? ''),
+      String(customer?.postalCode ?? ''),
       'pickupPostalCode'
     );
+  };
+
+  /**
+   * The order's stored point, when it can be kept for `method`: only when the order's current
+   * method takes the same kind of point (a DPD point is no store, and the other way round).
+   */
+  const keptPoint = (state: OrderState, method: ShippingMethodRef | null): OrderPickupPoint | null => {
+    const stored = readPickupPoint(state.order);
+    return stored && samePickupKind(currentMethod(readShippingLines(state.order)), method) ? stored : null;
+  };
 
   /**
    * Before the transaction: the point a new current `method` needs. A pickup method needs one
-   * (`PICKUP_POINT_REQUIRED`), unless the order already has a point and `input` names none (the
-   * point is kept). Any other method: none (a `pickupPointId` is ignored).
+   * (`PICKUP_POINT_REQUIRED`), unless the order already has a point of the same kind and `input`
+   * names none (the point is kept). Any other method: none (a `pickupPointId` is ignored).
    */
   const pointForMethod = async (
     state: OrderState,
@@ -718,14 +751,15 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     input: PickupSelection | undefined
   ): Promise<PickupPointInput | null> => {
     if (!method || !isPickupMethod(method.providerId, method.serviceId)) return null;
-    if (readPickupPoint(state.order) && !hasPickupPointId(input)) return null;
-    return searchPoint(state.order, input);
+    if (keptPoint(state, method) && !hasPickupPointId(input)) return null;
+    return searchPoint(state.order, input, method);
   };
 
   /**
    * Inside the transaction: the delivery change the order's new current `method` brings. A pickup
-   * method takes `point` (the customer's address stays on it) or keeps the stored point; leaving
-   * Pickup restores the customer's address and clears the point. Null: nothing changes.
+   * method takes `point` (the customer's address stays on it) or keeps the stored point of the
+   * same kind; leaving Pickup restores the customer's address and clears the point. Null: nothing
+   * changes.
    */
   const deliveryChange = (
     state: OrderState,
@@ -734,11 +768,12 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
   ): DeliveryChange | null => {
     const stored = readPickupPoint(state.order);
     if (method && isPickupMethod(method.providerId, method.serviceId)) {
+      const kept = keptPoint(state, method);
       if (point) {
-        if (stored?.id === point.id) return null;
+        if (kept?.id === point.id) return null;
         return applyPickupPoint(customerAddressOf(state.order), point);
       }
-      if (stored) return null;
+      if (kept) return null;
       throw invalidPickup('pickupPointId', 'PICKUP_POINT_REQUIRED');
     }
     return stored ? { shippingAddress: stored.customerAddress, pickupPoint: null } : null;
@@ -809,7 +844,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         let point: PickupPointInput | null = null;
         if (stored) {
           if (!hasPickupPointId(input)) throw pickupAddressLocked();
-          point = await searchPoint(state.order, input);
+          point = await searchPoint(state.order, input, currentMethod(readShippingLines(state.order)));
           address = applyPickupPoint(stored.customerAddress, point).shippingAddress;
         } else {
           const errors: ValidationIssue[] = [];

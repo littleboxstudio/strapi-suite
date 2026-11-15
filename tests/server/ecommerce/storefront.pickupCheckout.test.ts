@@ -365,6 +365,134 @@ describe('storefront checkout with DPD Pickup (spec 5.2)', () => {
   });
 });
 
+/** Store pickup (store pickup spec 5): the stores of each market, from the current config. */
+const STORE = { providerId: 'store-pickup', serviceId: 'STORE' };
+const STORE_LISBOA = {
+  id: 'st_lisboa0001',
+  name: 'Loja Lisboa',
+  address: 'Rua da Loja 1',
+  address2: null,
+  postalCode: '1000-100',
+  city: 'Lisboa',
+  country: 'PT',
+};
+const STORE_FUNCHAL = {
+  id: 'st_funchal001',
+  name: 'Loja Funchal',
+  address: 'Rua do Mar 2',
+  address2: null,
+  postalCode: '9000-100',
+  city: 'Funchal',
+  country: 'PT',
+};
+const STORES: Record<string, (typeof STORE_LISBOA)[]> = { PT: [STORE_LISBOA], 'PT-ISL': [STORE_FUNCHAL] };
+
+const storeSetup = () => {
+  const t = setup();
+  const settings = t.c.services.EcommerceSettingsService;
+  const getStoreSettings = settings.getStoreSettings;
+  settings.getStoreSettings = async () => ({ ...(await getStoreSettings()), markets: ['PT', 'PT-ISL'] });
+  const findStore = vi.fn(async (market: string, id: string) => STORES[market]?.find((s) => s.id === id) ?? null);
+  settings.findStore = findStore;
+  t.findOption.mockImplementation(async (_req: any, providerId: string, serviceId: string) =>
+    providerId === 'store-pickup' && serviceId === 'STORE'
+      ? { providerId, serviceId, name: 'Store pickup', price: 0, tax: 23, requiresPickupPoint: true }
+      : providerId === 'dpd-portugal' && serviceId === 'PICKUP'
+        ? { providerId, serviceId, name: 'DPD Pickup', price: PICKUP_PRICE, tax: 23, requiresPickupPoint: true }
+        : { providerId, serviceId, name: 'Standard', price: 500, tax: 23 }
+  );
+  const storeInput = (over: Record<string, unknown> = {}) =>
+    t.orderInput({ shippingMethod: STORE, expectedTotal: 4000, pickupPointId: STORE_LISBOA.id, ...over });
+  return { ...t, findStore, storeInput };
+};
+
+describe('storefront checkout with Store pickup (store pickup spec 5)', () => {
+  it('store pickup requires pickupPointId', async () => {
+    const t = storeSetup();
+    t.c.tables[UIDS.promotion].push(promotion(1));
+    const { s } = await t.open();
+    const errors = await issuesOf(
+      t.checkout.placeOrder(s, t.storeInput({ pickupPointId: undefined }), 'key-st-001')
+    );
+    expect(errors).toEqual([{ path: 'pickupPointId', code: 'PICKUP_POINT_REQUIRED' }]);
+    expect(t.findStore).not.toHaveBeenCalled();
+    expect(t.findPoint).not.toHaveBeenCalled();
+    t.expectNothingConsumed();
+  });
+
+  it("accepts a store of the address's market and stores it as pickupPoint with the customer's address kept", async () => {
+    const t = storeSetup();
+    const { s } = await t.open();
+    // pickupPostalCode is ignored for store pickup.
+    const placed = await t.checkout.placeOrder(s, t.storeInput({ pickupPostalCode: '9000-100' }), 'key-st-002');
+    expect(placed.total).toBe(4000);
+    expect(t.findStore).toHaveBeenCalledWith('PT', STORE_LISBOA.id);
+    expect(t.findPoint).not.toHaveBeenCalled();
+    const order = t.c.tables[UIDS.order][0];
+    expect(order.shippingAddress).toEqual({
+      firstName: 'Ana',
+      lastName: 'Silva',
+      phone: '+351910000000',
+      company: 'Loja Lisboa',
+      line1: 'Rua da Loja 1',
+      postalCode: '1000-100',
+      city: 'Lisboa',
+      country: 'PT',
+    });
+    expect(order.billingAddress).toMatchObject({ line1: 'Rua do Cliente 5', postalCode: '4000-100' });
+    expect(order.pickupPoint).toEqual({
+      ...STORE_LISBOA,
+      customerAddress: expect.objectContaining({ line1: 'Rua do Cliente 5', postalCode: '4000-100' }),
+    });
+    expect(order.shippingMethod).toMatchObject(STORE);
+  });
+
+  it('refuses a store of another market', async () => {
+    const t = storeSetup();
+    t.c.tables[UIDS.promotion].push(promotion(1));
+    const { s } = await t.open();
+    const errors = await issuesOf(
+      t.checkout.placeOrder(s, t.storeInput({ pickupPointId: STORE_FUNCHAL.id }), 'key-st-003')
+    );
+    expect(errors).toEqual([{ path: 'pickupPointId', code: 'PICKUP_POINT_INVALID' }]);
+    expect(t.findStore).toHaveBeenCalledWith('PT', STORE_FUNCHAL.id);
+    t.expectNothingConsumed();
+  });
+
+  it("an island address is in PT-ISL: its market's store is accepted", async () => {
+    const t = storeSetup();
+    const { s } = await t.open();
+    const islandAddress = { ...customerAddress, postalCode: '9000-200', city: 'Funchal' };
+    await t.checkout.placeOrder(
+      s,
+      t.storeInput({ shippingAddress: islandAddress, pickupPointId: STORE_FUNCHAL.id }),
+      'key-st-004'
+    );
+    expect(t.findStore).toHaveBeenCalledWith('PT-ISL', STORE_FUNCHAL.id);
+    expect(t.c.tables[UIDS.order][0].pickupPoint).toMatchObject({ id: STORE_FUNCHAL.id });
+  });
+
+  it('refuses a DPD PUDO id', async () => {
+    const t = storeSetup();
+    const { s } = await t.open();
+    const errors = await issuesOf(
+      t.checkout.placeOrder(s, t.storeInput({ pickupPointId: POINT.id }), 'key-st-005')
+    );
+    expect(errors).toEqual([{ path: 'pickupPointId', code: 'PICKUP_POINT_INVALID' }]);
+    expect(t.findPoint).not.toHaveBeenCalled();
+    expect(t.c.tables[UIDS.order]).toHaveLength(0);
+  });
+
+  it('DPD pickup still searches DPD', async () => {
+    const t = storeSetup();
+    const { s } = await t.open();
+    await t.checkout.placeOrder(s, t.orderInput(), 'key-st-006');
+    expect(t.findPoint).toHaveBeenCalledWith('4000-100', POINT.id);
+    expect(t.findStore).not.toHaveBeenCalled();
+    expect(t.c.tables[UIDS.order][0].pickupPoint).toMatchObject({ id: POINT.id });
+  });
+});
+
 describe('storefront controller: POST /orders with a pickup point', () => {
   const mkCtx = (req: { headers?: Record<string, string>; body?: unknown }): any => {
     const headers: Record<string, string> = {};
