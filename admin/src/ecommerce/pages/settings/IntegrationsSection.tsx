@@ -13,6 +13,7 @@ import { ActiveToggleButton } from '../../components/settings/ActiveToggleButton
 import { IntegrationConfigModal } from '../../components/settings/IntegrationConfigModal';
 import { ManualMethodsTable } from '../../components/settings/ManualMethodsTable';
 import { DpdServicesSection } from '../../components/settings/DpdServicesSection';
+import { StorePickupSection } from '../../components/settings/StorePickupSection';
 import StripeWebhookModal from '../../components/settings/StripeWebhookModal';
 import { extractFieldErrors } from '../../utils/productForm';
 import { extractErrorCode } from '../../utils/settingsForm';
@@ -100,8 +101,11 @@ const IntegrationsSection = ({ category, readOnly, markets }: Props) => {
       const fieldErrors = extractFieldErrors(err);
       const code = extractErrorCode(err);
       // DPD Portugal: no active service (fixed in its services table, not in Configure).
-      const noService = fieldErrors?.find((e) => e.path === 'services');
-      const configErrors = fieldErrors?.filter((e) => e.path !== 'services') ?? [];
+      // Store pickup: no market with a rate table and a store (fixed in its own Configure).
+      const isModuleIssue = (e: { path: string; code: string }) =>
+        e.path === 'services' || e.code === 'NO_MARKET_WITH_STORES';
+      const noService = fieldErrors?.find(isModuleIssue);
+      const configErrors = fieldErrors?.filter((e) => !isModuleIssue(e)) ?? [];
       if (noService && configErrors.length === 0) {
         toggleNotification({
           type: 'warning',
@@ -177,7 +181,7 @@ const IntegrationsSection = ({ category, readOnly, markets }: Props) => {
           onConfigure={() => setConfiguring({ id: integration.id })}
           onTest={() => runTest(integration.id)}
           onToggleActive={(active) => onToggleActive(integration, active)}
-          toggleInChildren={integration.id === 'manual'}
+          toggleInChildren={integration.id === 'manual' || integration.id === 'store-pickup'}
           hideCredentials={category === 'carrier'}
           extraActions={
             integration.id === 'stripe' ? (
@@ -216,6 +220,29 @@ const IntegrationsSection = ({ category, readOnly, markets }: Props) => {
                 setIntegrations(
                   (list) =>
                     list?.map((i) => (i.id === integration.id ? { ...i, active } : i)) ?? list
+                )
+              }
+            />
+          )}
+          {integration.id === 'store-pickup' && (
+            <StorePickupSection
+              readOnly={readOnly}
+              markets={markets ?? NO_MARKETS}
+              integrationActive={integration.active}
+              onIntegrationActiveChange={(active) =>
+                setIntegrations(
+                  (list) =>
+                    list?.map((i) => (i.id === integration.id ? { ...i, active } : i)) ?? list
+                )
+              }
+              toggle={
+                readOnly ? undefined : (
+                  <ActiveToggleButton
+                    name={providerName(integration)}
+                    active={integration.active}
+                    busy={toggling === integration.id}
+                    onChange={(active) => onToggleActive(integration, active)}
+                  />
                 )
               }
             />
