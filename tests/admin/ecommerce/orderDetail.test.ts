@@ -622,6 +622,29 @@ describe('apiErrorCode / apiErrorMessageId', () => {
     );
   });
 
+  it('covers the DPD Portugal codes (plan 12)', () => {
+    expect(API_ERROR_CODES).toEqual(
+      expect.arrayContaining([
+        'DPD_AUTH_FAILED',
+        'DPD_SHIPMENT_FAILED',
+        'PICKUP_SEARCH_FAILED',
+        'PICKUP_POINT_REQUIRED',
+        'PICKUP_POINT_INVALID',
+        'PICKUP_NOT_AVAILABLE',
+        'INVALID_POSTAL_CODE',
+        'CARRIER_RETRY_UNSAFE',
+      ])
+    );
+    expect(en[`${P}ecommerce.orders.errors.CARRIER_RETRY_UNSAFE`]).toBe(
+      'DPD may already have created this shipment. Check the DPD portal; if it is not there, mark this shipment as failed and ship again.'
+    );
+    expect(pt[`${P}ecommerce.orders.errors.CARRIER_RETRY_UNSAFE`]).toBe(
+      'A DPD pode já ter criado este envio. Verifique no portal da DPD; se não estiver lá, marque este envio como falhado e expeça novamente.'
+    );
+    expect(en[`${P}ecommerce.orders.shipments.cancel.manualCarrier`]).toBe("Cancel it also on the carrier's portal.");
+    expect(pt[`${P}ecommerce.orders.shipments.cancel.manualCarrier`]).toBe('Anule-o também no portal da transportadora.');
+  });
+
   it('points BILLING_NOT_CONFIGURED to Settings → Billing', () => {
     expect(en[`${P}ecommerce.orders.errors.BILLING_NOT_CONFIGURED`]).toMatch(/Settings → Billing/);
     expect(pt[`${P}ecommerce.orders.errors.BILLING_NOT_CONFIGURED`]).toMatch(/Configurações → Faturação/);

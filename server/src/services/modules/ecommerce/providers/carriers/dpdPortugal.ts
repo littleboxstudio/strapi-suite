@@ -40,7 +40,8 @@ const safeFilePart = (v: string) => v.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64
  * in `config.services`, DPD is never called. Each active service with a table for the address's
  * market and a bracket covering the order weight gives one option; PICKUP needs a pickup point.
  * Shipments go to the DPD API with the service's sub-account; the label URL is kept as `labelRef`
- * and downloaded on demand. There is no cancel or tracking API.
+ * and downloaded on demand. There is no cancel or tracking API, and DPD does not deduplicate by
+ * reference: an uncertain shipment is never retried.
  */
 export function createDpdPortugalAdapter(
   deps: { now?: () => Date; timeZone?: string } = {}
@@ -49,6 +50,8 @@ export function createDpdPortugalAdapter(
   const timeZone = deps.timeZone ?? DEFAULT_TIME_ZONE;
 
   return {
+    deduplicatesByReference: false,
+
     async quote(req, rt) {
       const services = readDpdServices(rt.config.services);
       const market = req.market ?? req.country;

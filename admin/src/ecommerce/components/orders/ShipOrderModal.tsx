@@ -25,6 +25,8 @@ import { apiErrorCode, apiErrorMessageId, shouldRenewIdempotencyKey } from '../.
 import { extractFieldErrors } from '../../utils/productForm';
 import { mintUuid } from '../../utils/variantDraft';
 import {
+  MAX_PARCELS,
+  asksParcels,
   buildShipmentInput,
   canShipByCarrier,
   emptyShipForm,
@@ -52,6 +54,7 @@ const METHOD_PATHS: Record<string, string> = {
   'method.trackingCode': 'trackingCode',
   'method.trackingUrl': 'trackingUrl',
   shippingCost: 'shippingCost',
+  parcels: 'parcels',
   lines: 'lines',
 };
 
@@ -76,6 +79,8 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const carrierAvailable = canShipByCarrier(order.shippingMethod);
+  // DPD: the number of parcels goes on the shipment.
+  const shipOptions = { parcels: asksParcels(order.shippingMethod) };
   const lineById = new Map(order.lines.map((l) => [l.id, l]));
 
   const update = (patch: Partial<ShipForm>, clear: string[]) => {
@@ -110,12 +115,12 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
 
   const submit = async () => {
     if (saving) return;
-    const local = validateShipForm(form, order.lines);
+    const local = validateShipForm(form, order.lines, shipOptions);
     if (Object.keys(local).length) {
       setErrors(local);
       return;
     }
-    const input = buildShipmentInput(form, idempotencyKey);
+    const input = buildShipmentInput(form, idempotencyKey, shipOptions);
     setSaving(true);
     try {
       const shipment = await new CreateShipment().execute(order.id, input);
@@ -125,9 +130,16 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
         setFormError(shipment.error ? codeText(shipment.error) : t('ecommerce.orders.ship.error'));
         return;
       }
+      const pending = shipment.status === 'PENDING';
       toggleNotification({
-        type: shipment.status === 'PENDING' ? 'warning' : 'success',
-        message: t(shipment.status === 'PENDING' ? 'ecommerce.orders.ship.uncertain' : 'ecommerce.orders.ship.success'),
+        type: pending ? 'warning' : 'success',
+        message: t(
+          !pending
+            ? 'ecommerce.orders.ship.success'
+            : shipment.carrierSupport?.retry === false
+              ? 'ecommerce.orders.errors.CARRIER_RETRY_UNSAFE'
+              : 'ecommerce.orders.ship.uncertain'
+        ),
       });
       onShipped();
     } catch (err) {
@@ -296,11 +308,28 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
                 </Flex>
               </>
             ) : (
-              <Box padding={3} background="neutral100" hasRadius>
-                <Typography variant="omega" textColor="neutral700">
-                  {t('ecommerce.orders.ship.carrierHint')}
-                </Typography>
-              </Box>
+              <>
+                <Box padding={3} background="neutral100" hasRadius>
+                  <Typography variant="omega" textColor="neutral700">
+                    {t('ecommerce.orders.ship.carrierHint')}
+                  </Typography>
+                </Box>
+                {shipOptions.parcels && (
+                  <Box maxWidth="200px">
+                    <Field.Root name="parcels" required error={fieldError('parcels')} hint={t('ecommerce.orders.ship.parcelsHint', { max: MAX_PARCELS })}>
+                      <Field.Label>{t('ecommerce.orders.ship.parcels')}</Field.Label>
+                      <TextInput
+                        value={form.parcels}
+                        inputMode="numeric"
+                        disabled={saving}
+                        onChange={(e: any) => update({ parcels: e.target.value }, ['parcels'])}
+                      />
+                      <Field.Hint />
+                      <Field.Error />
+                    </Field.Root>
+                  </Box>
+                )}
+              </>
             )}
 
             <Field.Root name="shippingCost" error={fieldError('shippingCost')} hint={t('ecommerce.orders.ship.costHint')}>

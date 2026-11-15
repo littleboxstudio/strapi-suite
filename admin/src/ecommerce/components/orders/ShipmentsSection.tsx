@@ -29,18 +29,28 @@ import CancelShipment from '../../usecases/orders/cancelShipment';
 import FetchShipmentLabel from '../../usecases/orders/fetchShipmentLabel';
 import RefreshShipmentTracking from '../../usecases/orders/refreshShipmentTracking';
 import RetryShipment from '../../usecases/orders/retryShipment';
+import MarkShipmentFailed from '../../usecases/orders/markShipmentFailed';
 import { formatCents } from '../../utils/money';
 import { apiErrorMessageId, type OrderActionPermissions, type ToolbarAction } from '../../utils/orderDetail';
 import { canEdit, shippingLineRows } from '../../utils/orderEditing';
 import {
   MAX_CANCEL_REASON,
   isHttpUrl,
+  isRetryUnsafeShipment,
   isStuckPendingShipment,
   isUncertainShipment,
   shipmentActions,
   type ShipmentAction,
 } from '../../utils/shipmentForm';
-import type { EditResult, Order, OrderDeliveryStatus, OrderStatus, ShipmentView, ShippingLineView } from '../../orderTypes';
+import type {
+  CancelledShipmentView,
+  EditResult,
+  Order,
+  OrderDeliveryStatus,
+  OrderStatus,
+  ShipmentView,
+  ShippingLineView,
+} from '../../orderTypes';
 import ShippingAddressModal from './ShippingAddressModal';
 import ShippingChargesTable from './ShippingChargesTable';
 import ShippingLineModal from './ShippingLineModal';
@@ -126,6 +136,7 @@ const ShipmentsSection = ({
   const [delivering, setDelivering] = useState<ShipmentView | null>(null);
   const [tracking, setTracking] = useState<ShipmentView | null>(null);
   const [cancelling, setCancelling] = useState<ShipmentView | null>(null);
+  const [markingFailed, setMarkingFailed] = useState<ShipmentView | null>(null);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState<number | null>(null);
   const [shippingModal, setShippingModal] = useState<ShippingModal | null>(null);
@@ -152,9 +163,15 @@ const ShipmentsSection = ({
       const result = await work();
       // A retry can still end without an answer from the carrier.
       const stillUncertain = !!result && isUncertainShipment(result);
+      // A carrier without a cancel API (DPD): cancelled here only.
+      const cancelElsewhere = !!result && (result as CancelledShipmentView).carrierCancelled === false;
       toggleNotification({
-        type: stillUncertain ? 'warning' : 'success',
-        message: t(stillUncertain ? 'ecommerce.orders.ship.uncertain' : success),
+        type: stillUncertain || cancelElsewhere ? 'warning' : 'success',
+        message: stillUncertain
+          ? t('ecommerce.orders.ship.uncertain')
+          : cancelElsewhere
+            ? `${t(success)} ${t('ecommerce.orders.shipments.cancel.manualCarrier')}`
+            : t(success),
       });
     } catch (err) {
       toggleNotification({ type: 'danger', message: errorMessage(err, fallback) });
@@ -217,11 +234,26 @@ const ShipmentsSection = ({
           'ecommerce.orders.shipments.retry.error'
         );
         break;
+      case 'MARK_FAILED':
+        setMarkingFailed(s);
+        break;
       case 'CANCEL':
         setReason('');
         setCancelling(s);
         break;
     }
+  };
+
+  const confirmMarkFailed = () => {
+    const target = markingFailed;
+    if (!target) return;
+    setMarkingFailed(null);
+    run(
+      target,
+      () => new MarkShipmentFailed().execute(target.id),
+      'ecommerce.orders.shipments.markFailed.success',
+      'ecommerce.orders.shipments.markFailed.error'
+    );
   };
 
   const confirmCancel = () => {
@@ -237,6 +269,8 @@ const ShipmentsSection = ({
   };
 
   const statusNote = (s: ShipmentView) => {
+    // The carrier may create it twice (DPD): checked by hand, never retried.
+    if (isRetryUnsafeShipment(s)) return { tone: 'warning600', text: t('ecommerce.orders.errors.CARRIER_RETRY_UNSAFE') };
     if (isUncertainShipment(s)) return { tone: 'warning600', text: t('ecommerce.orders.shipments.uncertainHint') };
     if (isStuckPendingShipment(s)) return { tone: 'warning600', text: t('ecommerce.orders.shipments.stuckHint') };
     if (s.status === 'PENDING') return { tone: 'neutral600', text: t('ecommerce.orders.shipments.pendingHint') };
@@ -497,9 +531,11 @@ const ShipmentsSection = ({
                 <Box padding={3} background="danger100" hasRadius>
                   <Typography variant="omega" textColor="danger700">
                     {t(
-                      cancelling.providerId !== 'manual'
-                        ? 'ecommerce.orders.shipments.cancel.carrierWarning'
-                        : 'ecommerce.orders.shipments.cancel.warning'
+                      cancelling.providerId === 'manual'
+                        ? 'ecommerce.orders.shipments.cancel.warning'
+                        : cancelling.carrierSupport?.cancel === false
+                          ? 'ecommerce.orders.shipments.cancel.localWarning'
+                          : 'ecommerce.orders.shipments.cancel.carrierWarning'
                     )}
                   </Typography>
                 </Box>
@@ -519,6 +555,30 @@ const ShipmentsSection = ({
               </Button>
               <Button variant="danger" disabled={reason.trim().length > MAX_CANCEL_REASON} onClick={confirmCancel}>
                 {t('ecommerce.orders.shipments.cancel.confirm')}
+              </Button>
+            </Modal.Footer>
+          </Modal.Content>
+        </Modal.Root>
+      )}
+      {canManage && markingFailed && (
+        <Modal.Root open onOpenChange={(next: boolean) => !next && setMarkingFailed(null)}>
+          <Modal.Content>
+            <Modal.Header>
+              <Modal.Title>{t('ecommerce.orders.shipments.markFailed.title', { id: markingFailed.id })}</Modal.Title>
+            </Modal.Header>
+            <Modal.Body>
+              <Box padding={3} background="warning100" hasRadius>
+                <Typography variant="omega" textColor="warning700">
+                  {t('ecommerce.orders.shipments.markFailed.warning', { carrier: markingFailed.carrierName })}
+                </Typography>
+              </Box>
+            </Modal.Body>
+            <Modal.Footer>
+              <Button variant="tertiary" onClick={() => setMarkingFailed(null)}>
+                {t('ecommerce.orders.shipments.back')}
+              </Button>
+              <Button variant="danger" onClick={confirmMarkFailed}>
+                {t('ecommerce.orders.shipments.markFailed.confirm')}
               </Button>
             </Modal.Footer>
           </Modal.Content>

@@ -6,6 +6,7 @@ export const MAX_CARRIER_NAME = 120;
 export const MAX_TRACKING_CODE = 255;
 export const MAX_TRACKING_URL = 2000;
 export const MAX_CANCEL_REASON = 500;
+export const MAX_PARCELS = 99;
 
 export type ShipMode = 'MANUAL' | 'CARRIER';
 export type ShipLineDraft = { orderLineId: number; quantity: string };
@@ -20,6 +21,8 @@ export type ShipForm = {
   /** Decimal text in the admin's locale. */
   shippingCost: string;
   notifyCustomer: boolean;
+  /** Carrier shipments of a DPD order: number of parcels (text). */
+  parcels: string;
 };
 
 /** Field path (`lines.<orderLineId>`, `lines`, `carrierName`, …) → error code. */
@@ -54,6 +57,19 @@ export function canShipByCarrier(shippingMethod: Record<string, unknown> | null 
   return typeof providerId === 'string' && !!providerId && providerId !== 'manual';
 }
 
+/** The ship modal asks for the number of parcels: DPD Portugal orders. */
+export function asksParcels(shippingMethod: Record<string, unknown> | null | undefined): boolean {
+  return shippingMethod?.providerId === 'dpd-portugal';
+}
+
+/** An integer 1–99 typed in the parcels field; null otherwise. */
+export function parseParcels(text: string): number | null {
+  const s = text.trim();
+  if (!/^\d{1,2}$/.test(s)) return null;
+  const n = Number(s);
+  return n >= 1 && n <= MAX_PARCELS ? n : null;
+}
+
 export function emptyShipForm(
   order: Pick<Order, 'lines' | 'shipping'> & { shippingMethod: Record<string, unknown> | null },
   locale: string
@@ -67,11 +83,19 @@ export function emptyShipForm(
     trackingUrl: '',
     shippingCost: formatAmountInput(order.shipping?.remainingCost ?? 0, locale),
     notifyCustomer: true,
+    parcels: '1',
   };
 }
 
+/** `parcels`: the order's carrier asks for them (`asksParcels`). */
+export type ShipFormOptions = { parcels?: boolean };
+
 /** Checks the ship form (requirement 10.4): 0 ≤ quantity ≤ pending, at least one unit. */
-export function validateShipForm(form: ShipForm, lines: { id: number; pending: number }[]): FormErrors {
+export function validateShipForm(
+  form: ShipForm,
+  lines: { id: number; pending: number }[],
+  opts: ShipFormOptions = {}
+): FormErrors {
   const errors: FormErrors = {};
   const pendingOf = new Map(lines.map((l) => [l.id, l.pending]));
   let units = 0;
@@ -90,6 +114,8 @@ export function validateShipForm(form: ShipForm, lines: { id: number; pending: n
     if (form.trackingCode.trim().length > MAX_TRACKING_CODE) errors.trackingCode = 'too_long';
     const url = form.trackingUrl.trim();
     if (url && !isHttpUrl(url)) errors.trackingUrl = 'invalid_url';
+  } else if (opts.parcels && parseParcels(form.parcels) === null) {
+    errors.parcels = 'invalid';
   }
 
   const cost = parseMoneyToCents(form.shippingCost);
@@ -98,7 +124,11 @@ export function validateShipForm(form: ShipForm, lines: { id: number; pending: n
 }
 
 /** The request body of a form `validateShipForm` accepted. */
-export function buildShipmentInput(form: ShipForm, idempotencyKey: string): CreateShipmentInput {
+export function buildShipmentInput(
+  form: ShipForm,
+  idempotencyKey: string,
+  opts: ShipFormOptions = {}
+): CreateShipmentInput {
   const lines = form.lines
     .map((l) => ({ orderLineId: l.orderLineId, quantity: parseQuantity(l.quantity) ?? 0 }))
     .filter((l) => l.quantity > 0);
@@ -119,6 +149,7 @@ export function buildShipmentInput(form: ShipForm, idempotencyKey: string): Crea
     shippingCost: parseMoneyToCents(form.shippingCost) ?? 0,
     notifyCustomer: form.notifyCustomer,
     idempotencyKey,
+    ...(opts.parcels && form.mode === 'CARRIER' ? { parcels: parseParcels(form.parcels) ?? 1 } : {}),
   };
 }
 
@@ -183,6 +214,14 @@ export function isStuckPendingShipment(s: Pick<ShipmentView, 'status' | 'error' 
 }
 
 /**
+ * A shipment whose outcome is unknown at a carrier that may create it twice (DPD): never retried;
+ * the admin checks the carrier's portal and marks it as failed when it is not there.
+ */
+export function isRetryUnsafeShipment(s: Pick<ShipmentView, 'status' | 'retryable' | 'carrierSupport'>): boolean {
+  return s.status === 'PENDING' && s.retryable === true && s.carrierSupport?.retry === false;
+}
+
+/**
  * Server field errors of a line-based request mapped to form paths: `lines.<index>.…` →
  * `lines.<orderLineId>` of the line sent at that index (or `lines`), a path listed in `fields` →
  * its form path. The first unmapped code is returned as `other`.
@@ -207,12 +246,13 @@ export function mapServerFieldErrors(
   return { errors, other };
 }
 
-export type ShipmentAction = 'DELIVER' | 'TRACKING' | 'REFRESH' | 'LABEL' | 'RETRY' | 'CANCEL';
+export type ShipmentAction = 'DELIVER' | 'TRACKING' | 'REFRESH' | 'LABEL' | 'RETRY' | 'MARK_FAILED' | 'CANCEL';
 
 /**
  * The buttons of one shipment, in display order. Mutations need `orders.manage` and an order that
  * is not archived; the label only needs to be readable. PENDING shipments only offer "Retry",
- * when the server reports them `retryable` (uncertain, or stuck).
+ * when the server reports them `retryable` (uncertain, or stuck), or "Mark as failed" instead for
+ * a carrier that cannot be retried safely (DPD).
  */
 export function shipmentActions(
   s: ShipmentView,
@@ -225,9 +265,10 @@ export function shipmentActions(
   const out: ShipmentAction[] = [];
   if (manage && active && !delivered) out.push('DELIVER');
   if (manage && active) out.push('TRACKING');
-  if (manage && active && carrier && !delivered) out.push('REFRESH');
+  if (manage && active && carrier && !delivered && s.carrierSupport?.tracking !== false) out.push('REFRESH');
   if (active && s.labelAvailable) out.push('LABEL');
-  if (manage && s.status === 'PENDING' && s.retryable) out.push('RETRY');
+  if (manage && isRetryUnsafeShipment(s)) out.push('MARK_FAILED');
+  else if (manage && s.status === 'PENDING' && s.retryable) out.push('RETRY');
   // A PENDING shipment may exist at the carrier: the server refuses to cancel it (SHIPMENT_UNCERTAIN).
   const cancellable = s.status === 'FAILED' || (active && !delivered);
   if (manage && cancellable) out.push('CANCEL');

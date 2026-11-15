@@ -42,6 +42,8 @@ function setup() {
       ? { adapter: cttExpressoAdapter, runtime: RUNTIME }
       : { adapter, runtime: RUNTIME }
   );
+  c.services.EcommerceShippingService.adapterFor = (providerId: string) =>
+    providerId === 'ctt-expresso' ? cttExpressoAdapter : adapter;
   c.services.EcommerceShipmentService = EcommerceShipmentService({ strapi: c.strapi });
   return { c, ships: c.services.EcommerceShipmentService, adapter };
 }
@@ -388,6 +390,20 @@ describe('EcommerceShipmentService.create (CARRIER)', () => {
     expect(STUCK_PENDING_SHIPMENT_MS).toBeGreaterThanOrEqual(CREATE_SHIPMENT_TIMEOUT_MS + 5000);
   });
 
+  it('a deduplicating carrier: Retry offered, mark as failed refused', async () => {
+    const { c, ships, adapter } = setup();
+    const { id, lineId } = await paidOrder(c, 2, 'acme');
+    adapter.createShipment.mockRejectedValueOnce(new EcommerceCarrierError('TIMEOUT', 'TIMEOUT', true));
+    const s = await ships.create(id, carrier(lineId, 2, 'k'), 'user:1');
+    expect(s).toMatchObject({ retryable: true, carrierSupport: { retry: true, cancel: true } });
+    expect(await codesOf(ships.markFailed(s.id, 'user:1'))).toEqual(['ACTION_NOT_AVAILABLE']);
+    expect(shipmentRows(c)[0]).toMatchObject({ status: 'PENDING', error: 'UNCERTAIN' });
+  });
+
+  it('CTT is a deduplicating carrier', () => {
+    expect(cttExpressoAdapter.deduplicatesByReference).toBe(true);
+  });
+
   it('retry is refused unless PENDING/UNCERTAIN', async () => {
     const { c, ships } = setup();
     const { id, lineId } = await paidOrder(c, 2, 'acme');
@@ -489,14 +505,23 @@ describe('EcommerceShipmentService.cancel', () => {
     expect(cancelled.status).toBe('CANCELLED');
   });
 
-  it('ACTIVE carrier shipment: adapter without cancelShipment gives NOT_SUPPORTED, nothing changes', async () => {
+  it('Ruling 11: ACTIVE carrier shipment of an adapter without cancelShipment is cancelled here only', async () => {
     const { c, ships, adapter } = setup();
     const { id, lineId } = await paidOrder(c, 2, 'acme');
     const s = await ships.create(id, carrier(lineId, 2, 'k'), 'user:1');
     delete adapter.cancelShipment;
-    expect(await codesOf(ships.cancel(s.id, {}, 'user:1'))).toEqual(['NOT_SUPPORTED']);
-    expect(shipmentRows(c)[0].status).toBe('ACTIVE');
-    expect(orderRow(c, id).fulfillmentStatus).toBe('FULFILLED');
+    const cancelled = await ships.cancel(s.id, {}, 'user:1');
+    expect(cancelled).toMatchObject({ status: 'CANCELLED', carrierCancelled: false });
+    expect(orderRow(c, id).fulfillmentStatus).toBe('UNFULFILLED');
+  });
+
+  it('a carrier that cancels reports carrierCancelled: true', async () => {
+    const { c, ships, adapter } = setup();
+    const { id, lineId } = await paidOrder(c, 2, 'acme');
+    const s = await ships.create(id, carrier(lineId, 2, 'k'), 'user:1');
+    const cancelled = await ships.cancel(s.id, {}, 'user:1');
+    expect(adapter.cancelShipment).toHaveBeenCalled();
+    expect(cancelled).toMatchObject({ status: 'CANCELLED', carrierCancelled: true });
   });
 
   it('a delivered shipment cannot be cancelled', async () => {

@@ -42,12 +42,18 @@ export type CarrierTrackingEvent = {
 export type CarrierCallOptions = { timeoutMs: number };
 
 export type CarrierAdapter = {
+  /**
+   * The carrier recognises a repeated `ourReference` and returns the shipment it already created,
+   * so a manual retry after an uncertain outcome is safe. Absent means true; a carrier that may
+   * create a second shipment (DPD) sets false and its uncertain shipments are settled by hand.
+   */
+  deduplicatesByReference?: boolean;
   quote?(
     req: ShippingQuoteRequest,
     rt: ProviderRuntime,
     opts?: CarrierCallOptions
   ): Promise<ShippingOption[]>;
-  /** Carriers deduplicate by `ourReference`, so a retry after an uncertain outcome is safe. */
+  /** Retried with the same `ourReference` only when `deduplicatesByReference` is not false. */
   createShipment?(
     req: CarrierShipmentRequest,
     rt: ProviderRuntime,

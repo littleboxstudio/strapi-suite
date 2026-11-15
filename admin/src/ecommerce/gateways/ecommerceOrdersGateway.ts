@@ -16,6 +16,7 @@ import type {
   CustomerOrderListParams,
   CreateRefundInput,
   CreateShipmentInput,
+  CancelledShipmentView,
   CreditNoteInput,
   CreditNoteOptions,
   DiscountRecalculation,
@@ -148,7 +149,9 @@ export default interface EcommerceOrdersGateway {
   updateTracking(shipmentId: number, input: TrackingInput): Promise<ShipmentView>;
   refreshTracking(shipmentId: number): Promise<ShipmentView>;
   retryShipment(shipmentId: number): Promise<ShipmentView>;
-  cancelShipment(shipmentId: number, reason?: string): Promise<ShipmentView>;
+  /** An uncertain shipment of a carrier that cannot be retried (DPD), not found at the carrier. */
+  markShipmentFailed(shipmentId: number): Promise<ShipmentView>;
+  cancelShipment(shipmentId: number, reason?: string): Promise<CancelledShipmentView>;
   /** The carrier label PDF; an error carries the API body (`response.data`) like the JSON calls. */
   fetchShipmentLabel(shipmentId: number): Promise<Blob>;
   registerReturn(orderId: number, input: RegisterReturnInput): Promise<ReturnRegistered>;
@@ -400,7 +403,11 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
     return this.httpClient.post(`${this.base}/shipments/${shipmentId}/retry`, {});
   }
 
-  async cancelShipment(shipmentId: number, reason?: string): Promise<ShipmentView> {
+  async markShipmentFailed(shipmentId: number): Promise<ShipmentView> {
+    return this.httpClient.post(`${this.base}/shipments/${shipmentId}/mark-failed`, {});
+  }
+
+  async cancelShipment(shipmentId: number, reason?: string): Promise<CancelledShipmentView> {
     return this.httpClient.post(`${this.base}/shipments/${shipmentId}/cancel`, reason ? { reason } : {});
   }
 

@@ -50,6 +50,10 @@
     "externalId": {
       "type": "string"
     },
+    "labelRef": {
+      "type": "text",
+      "private": true
+    },
     "shippingCost": {
       "type": "integer",
       "default": 0

@@ -26,6 +26,7 @@ export default [
   route('POST', '/shipments/:id/tracking', `${S}.updateTracking`, oManage),
   route('POST', '/shipments/:id/refresh-tracking', `${S}.refreshTracking`, oManage),
   route('POST', '/shipments/:id/retry', `${S}.retry`, oManage),
+  route('POST', '/shipments/:id/mark-failed', `${S}.markFailed`, oManage),
   route('POST', '/shipments/:id/cancel', `${S}.cancel`, oManage),
   route('GET', '/shipments/:id/label', `${S}.label`, oRead),
   route('POST', '/orders/:id/returns', `${R}.register`, oManage),

@@ -16,6 +16,7 @@ import {
   normalizeDeliveryDate,
   validateShipmentRequest,
 } from './domain/fulfillment';
+import { orderWeightGrams } from './domain/shippingRates';
 import type {
   CarrierAdapter,
   CarrierTrackingEvent,
@@ -43,6 +44,8 @@ const MAX_CARRIER_NAME = 120;
 const MAX_URL = 2000;
 const MAX_TEXT = 255;
 const MAX_REASON = 500;
+/** Parcels of a carrier shipment (DPD `encomenda_num_volumes`). */
+export const MAX_PARCELS = 99;
 
 export type ShipmentInput = {
   lines: { orderLineId: number; quantity: number }[];
@@ -52,6 +55,8 @@ export type ShipmentInput = {
   shippingCost: number;
   notifyCustomer: boolean;
   idempotencyKey: string;
+  /** Carrier shipments: number of parcels, an integer 1–99 (1 when absent). */
+  parcels?: number;
 };
 
 export type ShipmentItem = {
@@ -80,8 +85,13 @@ export type ShipmentView = {
   cancelledAt: string | null;
   error: string | null;
   createdAt: string | null;
-  /** "Retry" is available (uncertain, or stuck PENDING), by the server clock. */
+  /**
+   * The shipment's outcome is unknown (uncertain, or stuck PENDING), by the server clock: "Retry"
+   * when `carrierSupport.retry`, otherwise "Mark as failed" after checking the carrier's portal.
+   */
   retryable: boolean;
+  /** What the carrier's integration can do; null for manual shipments. */
+  carrierSupport: CarrierSupport | null;
   events: {
     type: string;
     description: string | null;
@@ -89,6 +99,28 @@ export type ShipmentView = {
     source: string | null;
   }[];
 };
+
+export type CarrierSupport = {
+  /** An uncertain shipment may be created again with the same reference (no duplicate). */
+  retry: boolean;
+  /** The shipment is cancelled at the carrier (otherwise only here). */
+  cancel: boolean;
+  /** Tracking can be refreshed from the carrier. */
+  tracking: boolean;
+};
+
+/** A cancelled shipment; `carrierCancelled` only for one the carrier held (false: cancel it there too). */
+export type CancelledShipmentView = ShipmentView & { carrierCancelled?: boolean };
+
+/** The capabilities of `adapter`; an unknown adapter keeps the default (everything attempted). */
+export const carrierSupportOf = (adapter: CarrierAdapter | null | undefined): CarrierSupport =>
+  adapter
+    ? {
+        retry: adapter.deduplicatesByReference !== false,
+        cancel: typeof adapter.cancelShipment === 'function',
+        tracking: typeof adapter.track === 'function',
+      }
+    : { retry: true, cancel: true, tracking: true };
 
 /** The stored `items` JSON (`{ lines: [...] }`), malformed entries dropped. */
 export const shipmentItemsOf = (row: any): ShipmentItem[] => {
@@ -176,6 +208,7 @@ type NormalizedInput = {
   shippingCost: number;
   notifyCustomer: boolean;
   idempotencyKey: string;
+  parcels: number;
 };
 
 const normalizeInput = (input: ShipmentInput): NormalizedInput => {
@@ -213,6 +246,10 @@ const normalizeInput = (input: ShipmentInput): NormalizedInput => {
     errors.push({ path: 'method.mode', code: 'invalid_mode' });
   }
 
+  const parcels = raw.parcels === undefined || raw.parcels === null ? 1 : raw.parcels;
+  if (typeof parcels !== 'number' || !Number.isInteger(parcels) || parcels < 1 || parcels > MAX_PARCELS)
+    errors.push({ path: 'parcels', code: 'invalid' });
+
   if (errors.length) throw new EcommerceValidationError('Invalid shipment', errors);
   return {
     lines: Array.isArray(raw.lines) ? raw.lines : [],
@@ -220,6 +257,7 @@ const normalizeInput = (input: ShipmentInput): NormalizedInput => {
     shippingCost: raw.shippingCost as number,
     notifyCustomer: notifyCustomer as boolean,
     idempotencyKey,
+    parcels: parcels as number,
   };
 };
 
@@ -250,8 +288,17 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
     ): Promise<{ fulfillmentStatus: FulfillmentStatus }>;
   } => service('EcommerceOrderService');
   const shipping = (): {
-    carrierFor(providerId: string): Promise<{ adapter: CarrierAdapter; runtime: ProviderRuntime }>;
+    carrierFor(
+      providerId: string,
+      opts?: { forShipment?: boolean }
+    ): Promise<{ adapter: CarrierAdapter; runtime: ProviderRuntime }>;
+    adapterFor(providerId: string): CarrierAdapter | null;
   } => service('EcommerceShippingService');
+  /** The registered adapter of a carrier shipment (null for manual or an unknown provider). */
+  const adapterOf = (providerId: string): CarrierAdapter | null =>
+    providerId && providerId !== 'manual' ? (shipping().adapterFor(providerId) ?? null) : null;
+  const supportOf = (providerId: string): CarrierSupport | null =>
+    providerId && providerId !== 'manual' ? carrierSupportOf(adapterOf(providerId)) : null;
   const history = (): { record(entry: OrderHistoryEntry): Promise<void> } =>
     service('EcommerceOrderHistoryService');
   const events = (): { collector(): Collector } => service('EcommerceEventBus');
@@ -296,6 +343,7 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
       error: r.error ?? null,
       createdAt: r.createdAt ?? null,
       retryable: isRetryable(r, now),
+      carrierSupport: supportOf(r.providerId),
       events: eventRows
         .filter((e) => idOf(e.shipment) === r.id)
         .map((e) => ({
@@ -402,7 +450,12 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
   ) => {
     if (!providerId || providerId === 'manual')
       throw new EcommerceCarrierError('CARRIER_NOT_CONFIGURED');
-    const carrier = await shipping().carrierFor(providerId);
+    // Creating a shipment and printing its label work for an order whose carrier service was
+    // switched off since (spec 7); quotes still require the integration active.
+    const forShipment = method === 'createShipment' || method === 'getLabel';
+    const carrier = await (forShipment
+      ? shipping().carrierFor(providerId, { forShipment: true })
+      : shipping().carrierFor(providerId));
     if (typeof carrier.adapter[method] !== 'function')
       throw new EcommerceCarrierError('NOT_SUPPORTED');
     return carrier;
@@ -424,6 +477,21 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
     const variantById = new Map(variants.map((v) => [v.id, v]));
     const customer = (order.customerSnapshot ?? {}) as Record<string, unknown>;
     const name = `${clean(customer.firstName)} ${clean(customer.lastName)}`.trim();
+    const requestItems = items.map((i) => {
+      const variantId = variantOf.get(i.orderLineId) ?? 0;
+      const v = variantById.get(variantId);
+      return {
+        variantId,
+        quantity: i.quantity,
+        weight: num(v?.weight),
+        width: num(v?.width),
+        height: num(v?.height),
+        depth: num(v?.depth),
+      };
+    });
+    const point = (order.pickupPoint ?? null) as Record<string, unknown> | null;
+    const pointId = clean(point?.id);
+    const parcels = Number(shipment.metadata?.parcels);
     return {
       ourReference: `LB-SHP-${shipment.id}`,
       orderReference: String(order.reference),
@@ -434,18 +502,11 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
         email: clean(customer.email),
         ...(clean(customer.phone) ? { phone: clean(customer.phone) } : {}),
       },
-      items: items.map((i) => {
-        const variantId = variantOf.get(i.orderLineId) ?? 0;
-        const v = variantById.get(variantId);
-        return {
-          variantId,
-          quantity: i.quantity,
-          weight: num(v?.weight),
-          width: num(v?.width),
-          height: num(v?.height),
-          depth: num(v?.depth),
-        };
-      }),
+      items: requestItems,
+      ...(pointId ? { pickupPoint: { id: pointId, name: clean(point?.name) } } : {}),
+      parcels: Number.isInteger(parcels) && parcels >= 1 && parcels <= MAX_PARCELS ? parcels : 1,
+      // Variant weights are in kilograms; the shipped units only.
+      weightGrams: orderWeightGrams(requestItems),
     };
   };
 
@@ -539,6 +600,7 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
         const r = (call.result ?? {}) as Partial<CarrierShipmentResult>;
         const trackingCode = clean(r.trackingCode);
         const trackingUrl = clean(r.trackingUrl);
+        const labelRef = clean(r.labelRef);
         const updated = await strapi.db.query(u.shipment).update({
           where: { id: shipmentId },
           data: {
@@ -549,6 +611,8 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
             trackingUrl: trackingUrl && isHttpUrl(trackingUrl) ? trackingUrl : null,
             shippingCost: isMoney(r.cost) ? r.cost : num(current.shippingCost),
             labelAvailable: r.labelAvailable === true,
+            // Private (never in a view): how the label is fetched later.
+            labelRef: labelRef || null,
             shippedAt: new Date().toISOString(),
           },
         });
@@ -654,7 +718,7 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
           deliveryStatus: 'IN_TRANSIT',
           idempotencyKey: n.idempotencyKey,
           actor,
-          metadata: { notify: n.notifyCustomer },
+          metadata: { notify: n.notifyCustomer, parcels: n.parcels },
         };
 
         if (n.method.mode === 'MANUAL') {
@@ -702,12 +766,16 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
 
   /**
    * Repeats `createShipment` for a PENDING shipment whose outcome is uncertain, with the same
-   * `ourReference` (LB-SHP-<id>): carriers deduplicate by it, so a shipment the carrier did
-   * create is returned instead of being created twice.
+   * `ourReference` (LB-SHP-<id>): a carrier that deduplicates by it returns the shipment it did
+   * create instead of creating it twice. Refused (CARRIER_RETRY_UNSAFE) for a carrier that does
+   * not: the admin checks its portal and uses `markFailed`.
    */
   const retry = async (shipmentId: number | string, actor: string): Promise<ShipmentView> => {
     const row = await loadRow(Number(shipmentId));
     if (!isRetryable(row, Date.now())) throw notAvailable();
+    if (!carrierSupportOf(adapterOf(row.providerId)).retry) {
+      throw invalid('action', 'CARRIER_RETRY_UNSAFE');
+    }
     const orderId = idOf(row.order) as number;
     const carrier = await carrierWith(row.providerId, 'createShipment');
     const order = await strapi.db.query(uids().order).findOne({ where: { id: orderId } });
@@ -717,6 +785,27 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
     // PENDING/UNCERTAIN (never FAILED, which `cancel` would close without asking the carrier).
     if ('contacted' in call && !call.contacted) throw call.error;
     return completeCarrierShipment(row.id, orderId, call, actor);
+  };
+
+  /**
+   * Settles an uncertain shipment of a carrier that does not deduplicate (DPD): the admin checked
+   * the carrier's portal and it is not there. FAILED frees its units for a new shipment.
+   */
+  const markFailed = async (shipmentId: number | string, actor: string): Promise<ShipmentView> => {
+    const first = await loadRow(Number(shipmentId));
+    const orderId = idOf(first.order) as number;
+    await strapi.db.transaction(async () => {
+      await orders().lockOrder(orderId);
+      const row = await loadRow(first.id);
+      const unsafe = !carrierSupportOf(adapterOf(row.providerId)).retry;
+      if (row.providerId === 'manual' || !unsafe || !isRetryable(row, Date.now())) throw notAvailable();
+      await strapi.db.query(uids().shipment).update({
+        where: { id: row.id },
+        data: { status: 'FAILED', error: 'MARKED_FAILED' },
+      });
+      await recordFailure(row, orderId, 'MARKED_FAILED', actor);
+    });
+    return viewOf(first.id);
   };
 
   // ---------------------------------------------------------------------------
@@ -750,7 +839,7 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
     shipmentId: number | string,
     input: { reason?: string },
     actor: string
-  ): Promise<ShipmentView> => {
+  ): Promise<CancelledShipmentView> => {
     const u = uids();
     const reason = clean(input?.reason).slice(0, MAX_REASON) || null;
     const first = await loadRow(Number(shipmentId));
@@ -763,7 +852,11 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
       return row;
     });
 
-    const carrierCancelled = heldByCarrier(before);
+    const held = heldByCarrier(before);
+    // A carrier without a cancel API (DPD): cancelled here only, the admin cancels it there too.
+    const known = adapterOf(before.providerId);
+    const localOnly = held && !!known && typeof known.cancelShipment !== 'function';
+    const carrierCancelled = held && !localOnly;
     if (carrierCancelled) {
       const carrier = await carrierWith(before.providerId, 'cancelShipment');
       await withTimeout(
@@ -832,7 +925,8 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
       await orders().recalculate(orderId, { actor });
     });
     if (refusal) throw refusal;
-    return viewOf(before.id);
+    const view = await viewOf(before.id);
+    return held ? { ...view, carrierCancelled } : view;
   };
 
   // ---------------------------------------------------------------------------
@@ -847,10 +941,12 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
       throw invalid('label', 'LABEL_NOT_AVAILABLE');
     }
     const carrier = await carrierWith(row.providerId, 'getLabel');
+    const labelRef = clean(row.labelRef);
+    const opts = { timeoutMs: CARRIER_CALL_TIMEOUT_MS };
     const label = await withTimeout(
-      carrier.adapter.getLabel!(row.externalId, carrier.runtime, {
-        timeoutMs: CARRIER_CALL_TIMEOUT_MS,
-      }),
+      labelRef
+        ? carrier.adapter.getLabel!(row.externalId, carrier.runtime, opts, labelRef)
+        : carrier.adapter.getLabel!(row.externalId, carrier.runtime, opts),
       CARRIER_CALL_TIMEOUT_MS + BACKSTOP_GRACE_MS,
       false
     );
@@ -1129,6 +1225,7 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
   return {
     create,
     retry,
+    markFailed,
     cancel,
     getLabel,
     listForOrder,
