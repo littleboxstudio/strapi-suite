@@ -64,6 +64,10 @@ export type StorefrontOrderInput = {
   expectedTotal: number;
   storeCreditCode?: string;
   notes?: string;
+  /** DPD Pickup (spec 5.2): required with a pickup method, ignored with any other. */
+  pickupPointId?: string;
+  /** The postal code the point was searched by; absent = the shipping address postal code. */
+  pickupPostalCode?: string;
 };
 
 export type ApplyDiscountResult = {
@@ -243,6 +247,7 @@ const toPublicShippingOption = (o: ShippingOption): PublicShippingOption => ({
   name: o.name,
   price: o.price,
   estimatedDays: o.estimatedDays ?? null,
+  ...(o.requiresPickupPoint === true ? { requiresPickupPoint: true as const } : {}),
 });
 
 const appliedOf = (order: any): AppliedPromotion[] =>
@@ -524,6 +529,8 @@ const EcommerceStorefrontCheckoutService = ({ strapi }: { strapi: Core.Strapi })
           giftChoices: input.giftChoices,
           expectedTotal: input.expectedTotal,
           storeCreditCode: input.storeCreditCode,
+          pickupPointId: input.pickupPointId,
+          pickupPostalCode: input.pickupPostalCode,
           idempotencyKey: `sf:${s.id}:${key}`,
           // A store credit needs no verified e-mail: its code is the secret (Global Constraints).
           emailVerified,

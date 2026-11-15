@@ -21,3 +21,5 @@ export const MAX_LOCALE_LENGTH = 35;
 /** `providerId` / `serviceId` of a shipping method. */
 export const MAX_SHIPPING_ID_LENGTH = 100;
 export const MAX_STORE_CREDIT_CODE_LENGTH = 64;
+/** A DPD pickup point id (spec 5.2). */
+export const MAX_PICKUP_POINT_ID_LENGTH = 64;

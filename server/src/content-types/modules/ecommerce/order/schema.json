@@ -105,6 +105,9 @@
     "shippingMethod": {
       "type": "json"
     },
+    "pickupPoint": {
+      "type": "json"
+    },
     "shippingLines": {
       "type": "json"
     },

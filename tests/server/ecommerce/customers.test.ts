@@ -140,4 +140,17 @@ describe('EcommerceCustomerService', () => {
       billingAddress: { city: 'B1002' },
     });
   });
+
+  it('lastOrderAddresses gives the customer address, not the pickup point, for a pickup order', async () => {
+    const { service, tables } = setup();
+    tables[UIDS.order].push({
+      id: 1,
+      ...order(1, 1001),
+      pickupPoint: { id: 'P1', name: 'Loja', customerAddress: { city: 'Casa' } },
+    });
+    expect(await service.lastOrderAddresses(1)).toEqual({
+      shippingAddress: { city: 'Casa' },
+      billingAddress: { city: 'B1001' },
+    });
+  });
 });

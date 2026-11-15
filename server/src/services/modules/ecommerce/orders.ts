@@ -55,6 +55,8 @@ import type { OrderHistoryEntry } from './orderHistory';
 import type { CustomerInput } from './customers';
 import { normalizeEmail } from './domain/email';
 import { marketCountry } from './domain/markets';
+import { applyPickupPoint, isPickupMethod, type OrderPickupPoint } from './domain/pickupPoints';
+import type { PickupPoint } from './pickupPoints';
 import { normalizeStoreCreditCode } from './storeCredits';
 import {
   type AppliedPromotion,
@@ -79,7 +81,7 @@ import {
   type ReviewFlag,
 } from './domain/orderEditing';
 import { readManualDiscounts, type ManualDiscount } from './domain/manualDiscounts';
-import { MAX_STORE_CREDIT_CODE_LENGTH } from './domain/storefront/limits';
+import { MAX_PICKUP_POINT_ID_LENGTH, MAX_STORE_CREDIT_CODE_LENGTH } from './domain/storefront/limits';
 import { storedDiscountPercent } from './domain/lineDiscounts';
 import {
   MAX_PROMOTION_CODES,
@@ -125,6 +127,13 @@ export type CreateOrderInput = {
    * transaction: any refusal (`STORE_CREDIT_*`) creates nothing.
    */
   storeCreditCode?: string;
+  /**
+   * DPD Pickup (spec 5.2): the chosen point, required when the shipping method is a pickup
+   * method and ignored otherwise. It is confirmed by a search of `pickupPostalCode` (or, when
+   * absent, the shipping address postal code) before anything is written.
+   */
+  pickupPointId?: string | null;
+  pickupPostalCode?: string | null;
 };
 
 /** An applied promotion as the order stored it, with the state of its redemption. */
@@ -213,6 +222,8 @@ export type OrderView = {
   shippingAddress: Address | null;
   billingAddress: Address | null;
   shippingMethod: Record<string, unknown> | null;
+  /** The DPD pickup point with the customer's own address (admin view only). */
+  pickupPoint: OrderPickupPoint | null;
   notes: string | null;
   totals: {
     itemsOriginal: number;
@@ -472,6 +483,9 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       serviceId: string
     ): Promise<ShippingOption | null>;
   } => service('EcommerceShippingService');
+  const pickupPoints = (): {
+    findPoint(postalCode: string, id: string): Promise<PickupPoint | null>;
+  } => service('EcommercePickupPointService');
   const refundService = (): {
     releaseStoreCreditOnCancel(
       orderId: number,
@@ -731,6 +745,53 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     });
 
 
+  /**
+   * Spec 5.2: with a pickup method the point must be chosen and confirmed by a search (or the
+   * pickup cache) before the order transaction, so a refusal consumes no stock, promotion or
+   * store credit. Returns the delivery address to store (the point's) and the point, or null
+   * for any other method (a `pickupPointId` is then ignored).
+   */
+  const resolvePickup = async (
+    input: CreateOrderInput,
+    v: { providerId: string; serviceId: string; shippingAddress: Address }
+  ): Promise<{ shippingAddress: Address; pickupPoint: OrderPickupPoint } | null> => {
+    if (!isPickupMethod(v.providerId, v.serviceId)) return null;
+    const refuse = (path: string, code: string) =>
+      new EcommerceValidationError('Invalid pickup point', [{ path, code }]);
+    const rawId = input?.pickupPointId;
+    if (rawId !== undefined && rawId !== null && typeof rawId !== 'string') {
+      throw refuse('pickupPointId', 'invalid');
+    }
+    const id = clean(rawId);
+    if (!id) throw refuse('pickupPointId', 'PICKUP_POINT_REQUIRED');
+    if (id.length > MAX_PICKUP_POINT_ID_LENGTH) throw refuse('pickupPointId', 'PICKUP_POINT_INVALID');
+    const rawCode = input?.pickupPostalCode;
+    if (rawCode !== undefined && rawCode !== null && typeof rawCode !== 'string') {
+      throw refuse('pickupPostalCode', 'invalid');
+    }
+    const pickupPostalCode = clean(rawCode);
+    const postalCodePath = pickupPostalCode ? 'pickupPostalCode' : 'shippingAddress.postalCode';
+    let point: PickupPoint | null;
+    try {
+      point = await pickupPoints().findPoint(pickupPostalCode || v.shippingAddress.postalCode, id);
+    } catch (err) {
+      // The search's own paths (`postalCode`, `country`) are moved to the order input's.
+      if (err instanceof EcommerceValidationError) {
+        throw new EcommerceValidationError(
+          err.message,
+          err.errors.map((e) =>
+            e.code === 'INVALID_POSTAL_CODE'
+              ? { path: postalCodePath, code: e.code }
+              : { path: 'shipping', code: e.code }
+          )
+        );
+      }
+      throw err; // PICKUP_SEARCH_FAILED (EcommerceCarrierError)
+    }
+    if (!point) throw refuse('pickupPointId', 'PICKUP_POINT_INVALID');
+    return applyPickupPoint(v.shippingAddress, point);
+  };
+
   const create = async (input: CreateOrderInput, ctx: CreateOrderContext): Promise<CreatedOrder> => {
     // A replay returns the stored order before any validation, catalog or shipping work,
     // so it succeeds even if settings or the catalog changed since.
@@ -740,7 +801,12 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       if (existing) return { ...existing, replayed: true };
     }
 
-    const v = await validateInput(input, ctx.source);
+    const validated = await validateInput(input, ctx.source);
+    // With DPD Pickup the point's address is the delivery address: it is stored and it prices
+    // the shipping (its market, e.g. PT-ISL), while the customer's stays on `pickupPoint`.
+    const pickup = await resolvePickup(input, validated);
+    const v = pickup ? { ...validated, shippingAddress: pickup.shippingAddress } : validated;
+    const pickupPoint = pickup?.pickupPoint ?? null;
 
     // Catalog, availability, promotions and the shipping quote are read before the transaction:
     // carrier quotes may be remote calls and must not hold a database transaction open.
@@ -829,6 +895,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
             shippingTotal: totals.shippingTotal,
             total: totals.total,
             shippingTax: num(option.tax),
+            pickupPoint,
             shippingMethod: {
               providerId: option.providerId,
               serviceId: option.serviceId,
@@ -1328,6 +1395,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       shippingAddress: order.shippingAddress ?? null,
       billingAddress: order.billingAddress ?? null,
       shippingMethod: order.shippingMethod ?? null,
+      pickupPoint: isRecord(order.pickupPoint) ? (order.pickupPoint as OrderPickupPoint) : null,
       notes: order.notes ?? null,
       totals: {
         itemsOriginal: num(order.itemsOriginal),
