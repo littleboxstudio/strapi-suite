@@ -28,7 +28,23 @@ import type { OrderHistoryEntry } from './orderHistory';
 import type { LoadedShipment, OrderState } from './orders';
 import type { ManualMethod } from './settings';
 import { DPD_SERVICE_IDS, readDpdServices, type DpdServiceId } from './domain/dpdServices';
-import { isDpdPickup, readPickupPoint } from './domain/pickupPoints';
+import {
+  applyPickupPoint,
+  deliveryChangeEntry,
+  isDpdPickup,
+  isStorePickup,
+  readPickupPoint,
+  type OrderPickupPoint,
+} from './domain/pickupPoints';
+import {
+  STORE_PICKUP_ID,
+  STORE_PICKUP_SERVICE_ID,
+  storesFor,
+  type PickupStore,
+  type StorePickupConfig,
+} from './domain/storePickup';
+import { marketOf } from './domain/markets';
+import { MAX_PICKUP_POINT_ID_LENGTH } from './domain/storefront/limits';
 import { DPD_PORTUGAL_ID } from './providers/definitions/dpd-portugal';
 import { getProviderDefinition } from './providers/registry';
 
@@ -72,10 +88,17 @@ export type ShipmentInput = {
         providerId?: string;
         /** Its service (DPD: EXPRESS / PICKUP); absent with the order's provider: the order's. */
         serviceId?: string | null;
+      }
+    | {
+        /** Store pickup (store pickup ruling 1): no carrier, always notified. */
+        mode: 'STORE_PICKUP';
+        /** The store; absent: the order's. Another store of the order's market swaps it. */
+        pickupPointId?: string;
       };
+  /** Ignored for STORE_PICKUP (the customer is always notified). */
   notifyCustomer: boolean;
   idempotencyKey: string;
-  /** Carrier shipments: number of parcels, an integer 1–99 (1 when absent). */
+  /** Carrier shipments: number of parcels, an integer 1–99 (1 when absent). Ignored for STORE_PICKUP. */
   parcels?: number;
 };
 
@@ -92,13 +115,20 @@ export type ShipMethodView = {
   providerId: string;
   serviceId: string | null;
   name: string;
-  kind: 'MANUAL' | 'CARRIER';
+  kind: 'MANUAL' | 'CARRIER' | 'STORE_PICKUP';
   /** The order's own method: always listed, preselected. */
   original: boolean;
   /** DPD Pickup: ships to the order's pickup point. */
   requiresPickupPoint?: true;
   /** The number of parcels is asked (DPD). */
   parcels?: true;
+  /**
+   * STORE_PICKUP: the current stores of the order's market, the order's own store first when it is
+   * no longer among them (it is a snapshot).
+   */
+  stores?: PickupStore[];
+  /** STORE_PICKUP: the order's store, or null (not a Store pickup order). */
+  selectedStoreId?: string | null;
 };
 
 export type ShipmentView = {
@@ -123,8 +153,10 @@ export type ShipmentView = {
    * when `carrierSupport.retry`, otherwise "Mark as failed" after checking the carrier's portal.
    */
   retryable: boolean;
-  /** What the carrier's integration can do; null for manual shipments. */
+  /** What the carrier's integration can do; null for manual and store pickup shipments. */
   carrierSupport: CarrierSupport | null;
+  /** Store pickup shipments: the store it was shipped to, as it was then (admin only). */
+  store?: PickupStore;
   events: {
     type: string;
     description: string | null;
@@ -236,7 +268,8 @@ type NormalizedInput = {
         trackingCode: string | null;
         trackingUrl: string | null;
       }
-    | { mode: 'CARRIER'; providerId?: string; serviceId?: string | null };
+    | { mode: 'CARRIER'; providerId?: string; serviceId?: string | null }
+    | { mode: 'STORE_PICKUP'; pickupPointId: string | null };
   notifyCustomer: boolean;
   idempotencyKey: string;
   parcels: number;
@@ -251,13 +284,16 @@ const normalizeInput = (input: ShipmentInput): NormalizedInput => {
   else if (idempotencyKey.length > MAX_TEXT)
     errors.push({ path: 'idempotencyKey', code: 'too_long' });
 
-  const notifyCustomer = raw.notifyCustomer === undefined ? true : raw.notifyCustomer;
-  if (typeof notifyCustomer !== 'boolean') errors.push({ path: 'notifyCustomer', code: 'invalid' });
-
   const m = (raw.method && typeof raw.method === 'object' ? raw.method : {}) as Record<
     string,
     unknown
   >;
+  // Store pickup always notifies and has no parcels: both are ignored.
+  const storePickup = m.mode === 'STORE_PICKUP';
+
+  const notifyCustomer = storePickup || raw.notifyCustomer === undefined ? true : raw.notifyCustomer;
+  if (typeof notifyCustomer !== 'boolean') errors.push({ path: 'notifyCustomer', code: 'invalid' });
+
   /** An optional id (provider or service): a non-blank string of at most 64 characters. */
   const optionalId = (key: 'providerId' | 'serviceId'): string | undefined => {
     const v = m[key];
@@ -295,11 +331,19 @@ const normalizeInput = (input: ShipmentInput): NormalizedInput => {
       ...(providerId !== undefined ? { providerId } : {}),
       ...(serviceId !== undefined ? { serviceId } : {}),
     };
+  } else if (storePickup) {
+    const v = m.pickupPointId;
+    let pickupPointId: string | null = null;
+    if (v !== undefined && v !== null) {
+      if (typeof v !== 'string') errors.push({ path: 'method.pickupPointId', code: 'invalid' });
+      else pickupPointId = clean(v) || null;
+    }
+    method = { mode: 'STORE_PICKUP', pickupPointId };
   } else {
     errors.push({ path: 'method.mode', code: 'invalid_mode' });
   }
 
-  const parcels = raw.parcels === undefined || raw.parcels === null ? 1 : raw.parcels;
+  const parcels = storePickup || raw.parcels === undefined || raw.parcels === null ? 1 : raw.parcels;
   if (typeof parcels !== 'number' || !Number.isInteger(parcels) || parcels < 1 || parcels > MAX_PARCELS)
     errors.push({ path: 'parcels', code: 'invalid' });
 
@@ -346,17 +390,23 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
     ): Promise<{ adapter: CarrierAdapter; runtime: ProviderRuntime }>;
     adapterFor(providerId: string): CarrierAdapter | null;
   } => service('EcommerceShippingService');
-  /** The registered adapter of a carrier shipment (null for manual or an unknown provider). */
+  /** Manual and store pickup shipments never go through a carrier. */
+  const carrierless = (providerId: string): boolean =>
+    !providerId || providerId === 'manual' || providerId === STORE_PICKUP_ID;
+  /** The registered adapter of a carrier shipment (null for manual, store pickup or an unknown provider). */
   const adapterOf = (providerId: string): CarrierAdapter | null =>
-    providerId && providerId !== 'manual' ? (shipping().adapterFor(providerId) ?? null) : null;
+    carrierless(providerId) ? null : (shipping().adapterFor(providerId) ?? null);
   const supportOf = (providerId: string): CarrierSupport | null =>
-    providerId && providerId !== 'manual' ? carrierSupportOf(adapterOf(providerId)) : null;
+    carrierless(providerId) ? null : carrierSupportOf(adapterOf(providerId));
   const history = (): { record(entry: OrderHistoryEntry): Promise<void> } =>
     service('EcommerceOrderHistoryService');
   const settings = (): {
     getActiveProviders(category: 'carrier'): Promise<string[]>;
     listManualMethods(): Promise<ManualMethod[]>;
     getRuntime(id: string): Promise<(ProviderRuntime & { active: boolean }) | null>;
+    getStorePickup(): Promise<StorePickupConfig>;
+    findStore(market: string, id: string): Promise<PickupStore | null>;
+    getStoreSettings(): Promise<{ markets?: string[] }>;
   } => service('EcommerceSettingsService');
   const defaultLocale = async (): Promise<string> =>
     strapi.plugin('i18n').service('locales').getDefaultLocale();
@@ -371,6 +421,61 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
   const isDpdService = (id: unknown): id is DpdServiceId =>
     (DPD_SERVICE_IDS as readonly unknown[]).includes(id);
   const events = (): { collector(): Collector } => service('EcommerceEventBus');
+
+  // ---------------------------------------------------------------------------
+  // The order's point (DPD Pickup or Store pickup)
+  // ---------------------------------------------------------------------------
+
+  /** The order's current method (kept in step with its shipping lines by order editing). */
+  const methodOf = (order: any): { providerId: string; serviceId: string | null; name: string } => {
+    const m = (order?.shippingMethod ?? {}) as Record<string, unknown>;
+    return {
+      providerId: clean(m.providerId),
+      serviceId: m.serviceId != null ? String(m.serviceId) : null,
+      name: clean(m.name),
+    };
+  };
+  /** The order's stored point when it is a DPD one (the order is DPD Pickup), or null. */
+  const dpdPointOf = (order: any): OrderPickupPoint | null => {
+    const point = readPickupPoint(order);
+    const m = methodOf(order);
+    return point && clean(point.id) && isDpdPickup(m.providerId, m.serviceId) ? point : null;
+  };
+  /** The order's stored point when it is a store (the order is Store pickup), or null. */
+  const storePointOf = (order: any): OrderPickupPoint | null => {
+    const point = readPickupPoint(order);
+    const m = methodOf(order);
+    return point && clean(point.id) && isStorePickup(m.providerId, m.serviceId) ? point : null;
+  };
+  /** A store's public fields (a stored point without the customer's address). */
+  const storeOf = (p: any): PickupStore | null =>
+    p && typeof p === 'object' && typeof p.id === 'string' && p.id
+      ? {
+          id: p.id,
+          name: typeof p.name === 'string' ? p.name : '',
+          address: typeof p.address === 'string' ? p.address : '',
+          address2: typeof p.address2 === 'string' ? p.address2 : null,
+          postalCode: typeof p.postalCode === 'string' ? p.postalCode : '',
+          city: typeof p.city === 'string' ? p.city : '',
+          country: typeof p.country === 'string' ? p.country : '',
+        }
+      : null;
+  /** The order's market: the customer's address (kept on a stored point), else the delivery address. */
+  const marketOfOrder = async (order: any): Promise<string> => {
+    const address = (readPickupPoint(order)?.customerAddress ?? order?.shippingAddress ?? {}) as Record<
+      string,
+      unknown
+    >;
+    const storeMarkets = (await settings().getStoreSettings()).markets ?? [];
+    return marketOf(String(address.country ?? '').toUpperCase(), address.postalCode as string, storeMarkets);
+  };
+  /** The store pickup method's name: the order's own when it is a Store pickup order, else the config's. */
+  const storePickupName = async (order: any, config: StorePickupConfig, locale?: string) => {
+    const m = methodOf(order);
+    const own = isStorePickup(m.providerId, m.serviceId) ? m.name : '';
+    const name = own || nameIn(config.name, locale, await defaultLocale()) || definitionName(STORE_PICKUP_ID);
+    return name.slice(0, MAX_CARRIER_NAME);
+  };
 
   // ---------------------------------------------------------------------------
   // Reads
@@ -412,6 +517,9 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
       createdAt: r.createdAt ?? null,
       retryable: isRetryable(r, now),
       carrierSupport: supportOf(r.providerId),
+      ...(r.providerId === STORE_PICKUP_ID && storeOf(r.metadata?.store)
+        ? { store: storeOf(r.metadata.store)! }
+        : {}),
       events: eventRows
         .filter((e) => idOf(e.shipment) === r.id)
         .map((e) => ({
@@ -488,6 +596,8 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
         shipmentId: shipment.id,
         full: fulfillmentStatus === 'FULFILLED',
         notify,
+        // Store pickup: the "ready for pickup" e-mail instead of the shipment ones (ruling 9).
+        ...(shipment.providerId === STORE_PICKUP_ID ? { storePickup: true } : {}),
         pending: state.lines
           .filter((l) => l.pending > 0)
           .map((l) => ({ orderLineId: l.id, quantity: l.pending })),
@@ -515,8 +625,7 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
     providerId: string,
     method: 'createShipment' | 'cancelShipment' | 'getLabel' | 'track'
   ) => {
-    if (!providerId || providerId === 'manual')
-      throw new EcommerceCarrierError('CARRIER_NOT_CONFIGURED');
+    if (carrierless(providerId)) throw new EcommerceCarrierError('CARRIER_NOT_CONFIGURED');
     // Creating a shipment and printing its label work for an order whose carrier service was
     // switched off since (spec 7); quotes still require the integration active.
     const forShipment = method === 'createShipment' || method === 'getLabel';
@@ -741,14 +850,17 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
     const originalProvider = clean(original.providerId);
     const originalService = original.serviceId != null ? String(original.serviceId) : null;
     const providerId = input.providerId ?? originalProvider;
-    // Manual methods ship as MANUAL; a bare CARRIER on a manual order keeps its carrier error.
-    if (input.providerId === 'manual') throw invalid('method.providerId', 'CARRIER_NOT_CONFIGURED');
+    // Manual methods ship as MANUAL, store pickup as STORE_PICKUP; a bare CARRIER on such an order
+    // keeps its carrier error.
+    if (input.providerId === 'manual' || input.providerId === STORE_PICKUP_ID)
+      throw invalid('method.providerId', 'CARRIER_NOT_CONFIGURED');
     const sameProvider = providerId === originalProvider;
     const serviceId =
       input.serviceId !== undefined ? input.serviceId : sameProvider ? originalService : null;
 
     if (providerId === DPD_PORTUGAL_ID && !isDpdService(serviceId)) throw invalid('method.serviceId', 'invalid');
-    if (isDpdPickup(providerId, serviceId) && !clean(readPickupPoint(order)?.id))
+    // Only a DPD point goes to DPD: a Store pickup order's point is a store.
+    if (isDpdPickup(providerId, serviceId) && !dpdPointOf(order))
       throw invalid('method.serviceId', 'PICKUP_POINT_REQUIRED');
 
     let carrier: { adapter: CarrierAdapter; runtime: ProviderRuntime };
@@ -778,8 +890,9 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
   /**
    * The delivery methods the ship modal offers (names in `locale`, then the default locale):
    * the active manual methods, the active services of every active carrier that creates
-   * shipments (DPD Pickup only for an order with a pickup point) and, always, the order's own
-   * method (`original`, even when switched off since: spec 7), listed first when not offered.
+   * shipments (DPD Pickup only for a DPD Pickup order: it needs its DPD point), Store pickup when
+   * active (with the stores of the order's market) and, always, the order's own method
+   * (`original`, even when switched off since: spec 7), listed first when not offered.
    */
   const shipMethods = async (
     rawOrderId: number | string,
@@ -789,7 +902,7 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
     if (!order) throw new EcommerceNotFoundError('Order not found');
     const svc = settings();
     const fallback = await defaultLocale();
-    const hasPoint = !!clean(readPickupPoint(order)?.id);
+    const hasDpdPoint = !!dpdPointOf(order);
     const original = (order.shippingMethod ?? {}) as Record<string, unknown>;
     const originalProvider = clean(original.providerId);
     const originalService = original.serviceId != null ? String(original.serviceId) : null;
@@ -804,6 +917,22 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
       ...(serviceId === 'PICKUP' ? { requiresPickupPoint: true as const } : {}),
       parcels: true,
     });
+
+    /** Store pickup: the stores of the order's market, its own store first when no longer there. */
+    const storeEntry = async (name?: string): Promise<ShipMethodView> => {
+      const config = await svc.getStorePickup();
+      const own = storeOf(storePointOf(order));
+      const current = storesFor(config, await marketOfOrder(order));
+      return {
+        providerId: STORE_PICKUP_ID,
+        serviceId: STORE_PICKUP_SERVICE_ID,
+        name: name ?? (await storePickupName(null, config, locale)),
+        kind: 'STORE_PICKUP',
+        original: false,
+        stores: own && !current.some((st) => st.id === own.id) ? [own, ...current] : current,
+        selectedStoreId: own?.id ?? null,
+      };
+    };
 
     const active = await svc.getActiveProviders('carrier');
     if (active.includes('manual')) {
@@ -820,11 +949,15 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
     }
     for (const providerId of active) {
       if (providerId === 'manual') continue;
+      if (providerId === STORE_PICKUP_ID) {
+        methods.push(await storeEntry());
+        continue;
+      }
       if (typeof shipping().adapterFor(providerId)?.createShipment !== 'function') continue;
       if (providerId === DPD_PORTUGAL_ID) {
         const services = readDpdServices((await svc.getRuntime(providerId))?.config?.services);
         for (const id of DPD_SERVICE_IDS) {
-          if (!services[id].active || (id === 'PICKUP' && !hasPoint)) continue;
+          if (!services[id].active || (id === 'PICKUP' && !hasDpdPoint)) continue;
           methods.push(dpdEntry(id, nameIn(services[id].name, locale, fallback) || definitionName(providerId)));
         }
         continue;
@@ -840,7 +973,10 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
 
     if (originalProvider) {
       // Carriers without services (CTT) match by provider; manual methods and DPD by service too.
-      const byService = originalProvider === 'manual' || originalProvider === DPD_PORTUGAL_ID;
+      const byService =
+        originalProvider === 'manual' ||
+        originalProvider === DPD_PORTUGAL_ID ||
+        originalProvider === STORE_PICKUP_ID;
       const own = methods.find(
         (m) => m.providerId === originalProvider && (!byService || m.serviceId === originalService)
       );
@@ -851,17 +987,51 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
         methods.unshift(
           originalProvider === DPD_PORTUGAL_ID && isDpdService(originalService)
             ? { ...dpdEntry(originalService, name), original: true }
-            : {
-                providerId: originalProvider,
-                serviceId: originalService,
-                name,
-                kind: originalProvider === 'manual' ? 'MANUAL' : 'CARRIER',
-                original: true,
-              }
+            : isStorePickup(originalProvider, originalService)
+              ? { ...(await storeEntry(name)), original: true }
+              : {
+                  providerId: originalProvider,
+                  serviceId: originalService,
+                  name,
+                  kind: originalProvider === 'manual' ? 'MANUAL' : 'CARRIER',
+                  original: true,
+                }
         );
       }
     }
     return { methods };
+  };
+
+  /**
+   * Inside the create transaction, under the order lock: the store a STORE_PICKUP shipment goes
+   * to. No `pickupPointId`, or the order's own store: that store (a snapshot, even when removed
+   * from the config since). Another id must be a store of the order's market in the current config
+   * (PICKUP_POINT_INVALID otherwise); on a Store pickup order it becomes the order's store
+   * (delivery address and point, recorded as an address change, the price unchanged: ruling 7).
+   * Another order keeps its own delivery: only the shipment goes to the store.
+   */
+  const storeTarget = async (order: any, pickupPointId: string | null, actor: string): Promise<PickupStore> => {
+    const point = storePointOf(order);
+    const own = storeOf(point);
+    if (!pickupPointId) {
+      if (!own) throw invalid('method.pickupPointId', 'PICKUP_POINT_REQUIRED');
+      return own;
+    }
+    if (own && own.id === pickupPointId) return own;
+    const store =
+      pickupPointId.length <= MAX_PICKUP_POINT_ID_LENGTH
+        ? await settings().findStore(await marketOfOrder(order), pickupPointId)
+        : null;
+    if (!store) throw invalid('method.pickupPointId', 'PICKUP_POINT_INVALID');
+    if (point) {
+      const change = applyPickupPoint(point.customerAddress, store);
+      await strapi.db.query(uids().order).update({
+        where: { id: order.id },
+        data: { shippingAddress: change.shippingAddress, pickupPoint: change.pickupPoint },
+      });
+      await history().record({ orderId: order.id, ...deliveryChangeEntry(order, change), actor });
+    }
+    return storeOf(store)!;
   };
 
   /** The shipment created with `key`, refusing a key already used on another order. */
@@ -888,6 +1058,10 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
     if (!order) throw new EcommerceNotFoundError('Order not found');
     const target = n.method.mode === 'CARRIER' ? await carrierTarget(order, n.method) : null;
     const carrier = target?.carrier ?? null;
+    const storePickupCarrierName =
+      n.method.mode === 'STORE_PICKUP'
+        ? await storePickupName(order, await settings().getStorePickup())
+        : '';
 
     const collector = events().collector();
     let row: any;
@@ -932,6 +1106,25 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
           metadata: { notify: n.notifyCustomer, parcels: n.parcels },
         };
 
+        if (n.method.mode === 'STORE_PICKUP') {
+          const store = await storeTarget(state.order, n.method.pickupPointId, actor);
+          const created = await strapi.db.query(u.shipment).create({
+            data: {
+              ...common,
+              metadata: { notify: true, store },
+              providerId: STORE_PICKUP_ID,
+              serviceId: STORE_PICKUP_SERVICE_ID,
+              carrierName: storePickupCarrierName,
+              status: 'ACTIVE',
+              trackingCode: null,
+              trackingUrl: null,
+              shippedAt: new Date().toISOString(),
+            },
+          });
+          await recordShipmentCreated(created, orderId, true, { actor, collector });
+          return created;
+        }
+
         if (n.method.mode === 'MANUAL') {
           const created = await strapi.db.query(u.shipment).create({
             data: {
@@ -969,7 +1162,7 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
     }
     if (row.replay) return viewOf(row.id);
     await collector.flush();
-    if (n.method.mode === 'MANUAL') return viewOf(row.id);
+    if (n.method.mode !== 'CARRIER') return viewOf(row.id);
 
     const call = await callCreateShipment(row, order, carrier!);
     return completeCarrierShipment(row.id, orderId, call, actor);
@@ -1009,7 +1202,7 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
       await orders().lockOrder(orderId);
       const row = await loadRow(first.id);
       const unsafe = !carrierSupportOf(adapterOf(row.providerId)).retry;
-      if (row.providerId === 'manual' || !unsafe || !isRetryable(row, Date.now())) throw notAvailable();
+      if (carrierless(row.providerId) || !unsafe || !isRetryable(row, Date.now())) throw notAvailable();
       await strapi.db.query(uids().shipment).update({
         where: { id: row.id },
         data: { status: 'FAILED', error: 'MARKED_FAILED' },
@@ -1306,6 +1499,8 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
     if (errors.length) throw new EcommerceValidationError('Invalid tracking', errors);
 
     const first = await loadRow(Number(shipmentId));
+    // A store pickup shipment has no tracking (store pickup spec 7).
+    if (first.providerId === STORE_PICKUP_ID) throw invalid('trackingCode', 'invalid');
     const orderId = idOf(first.order) as number;
     const collector = events().collector();
     await strapi.db.transaction(async () => {
@@ -1384,7 +1579,7 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
     const u = uids();
     const first = await loadRow(Number(shipmentId));
     const orderId = idOf(first.order) as number;
-    if (first.providerId === 'manual') throw invalid('shipment', 'NOT_SUPPORTED');
+    if (carrierless(first.providerId)) throw invalid('shipment', 'NOT_SUPPORTED');
     if (first.status !== 'ACTIVE' || !first.externalId) throw notAvailable();
     const carrier = await carrierWith(first.providerId, 'track');
     // Never inside a transaction: the carrier may be slow.

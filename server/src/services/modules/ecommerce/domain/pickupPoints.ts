@@ -101,6 +101,31 @@ export const readPickupPoint = (order: unknown): OrderPickupPoint | null => {
   return p && typeof p === 'object' && !Array.isArray(p) ? (p as OrderPickupPoint) : null;
 };
 
+/** The point as the order history shows it. */
+export const pointSummary = (p: OrderPickupPoint | null) => (p ? { id: p.id, name: p.name } : null);
+
+/**
+ * The `ADDRESS_CHANGED` history entry of a delivery change (a new or removed point): order editing
+ * and the store swap at Ship write the same entry.
+ */
+export const deliveryChangeEntry = (
+  order: { shippingAddress?: unknown; pickupPoint?: unknown },
+  change: { shippingAddress: Address; pickupPoint: OrderPickupPoint | null }
+) => ({
+  type: 'ADDRESS_CHANGED' as const,
+  description: change.pickupPoint
+    ? `Shipping address changed: pickup point ${change.pickupPoint.id}`
+    : 'Shipping address changed: pickup point removed',
+  previousValue: {
+    shippingAddress: (order.shippingAddress as Address | undefined) ?? null,
+    pickupPoint: pointSummary(readPickupPoint(order)),
+  },
+  newValue: {
+    shippingAddress: change.shippingAddress,
+    pickupPoint: pointSummary(change.pickupPoint),
+  },
+});
+
 /** The pickup point a request names (`pickupPointId`, optional `pickupPostalCode`). */
 export type PickupSelection = { pickupPointId?: unknown; pickupPostalCode?: unknown };
 
