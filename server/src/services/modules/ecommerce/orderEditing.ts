@@ -1064,8 +1064,21 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     };
   };
 
-  const shippingOptionsForOrder = async (rawOrderId: number | string) =>
-    optionsFor(await orders().computeOrderState(Number(rawOrderId)));
+  /**
+   * The options for the order, with what a new charge is suggested against: `pendingOnly` (the
+   * quotes are of the units not yet shipped; false when every unit has shipped and the quotes
+   * are of the whole order) and `charged` (the shipping charges so far, cents).
+   */
+  const shippingOptionsForOrder = async (rawOrderId: number | string) => {
+    const state = await orders().computeOrderState(Number(rawOrderId));
+    const result = await optionsFor(state);
+    const pending = quoteItems(state, orderUnits(state), await catalogFor(state, orderUnits(state)));
+    return {
+      ...result,
+      pendingOnly: pending.items.length > 0,
+      charged: chargedShipping(readShippingLines(state.order)),
+    };
+  };
 
   /**
    * The offered option for `input`'s method. A carrier that failed to quote and offered nothing

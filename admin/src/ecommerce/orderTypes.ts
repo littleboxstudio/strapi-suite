@@ -620,6 +620,10 @@ export type ShippingOption = {
 export type ShippingQuote = {
   options: ShippingOption[];
   failures: { providerId: string; code: string }[];
+  /** Order shipping options: the quotes are of the units not yet shipped (false: all shipped). */
+  pendingOnly?: boolean;
+  /** Order shipping options: the shipping charged so far (cents). */
+  charged?: number;
 };
 
 export type VariantSearchResult = {
