@@ -53,7 +53,16 @@ const ShippingChargesSection = ({ id, title, order, permissions, canManage, onEd
     <OrderSection id={id} title={title} actions={actions}>
       <ShippingChargesTable rows={chargeRows} onEdit={(line) => setShippingModal({ kind: 'LINE', mode: 'EDIT', line })} />
       {canManage && shippingModal?.kind === 'RECALCULATE' && (
-        <RecalculateShippingModal order={order} onClose={() => setShippingModal(null)} onSaved={onEdited} />
+        <RecalculateShippingModal
+          order={order}
+          permissions={permissions}
+          onClose={() => setShippingModal(null)}
+          onSaved={onEdited}
+          onAction={(action) => {
+            setShippingModal(null);
+            onAction(action);
+          }}
+        />
       )}
       {canManage && shippingModal?.kind === 'LINE' && (
         <ShippingLineModal

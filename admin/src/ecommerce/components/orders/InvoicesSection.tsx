@@ -36,6 +36,7 @@ import {
 import type { EditResult, InvoiceView, Order } from '../../orderTypes';
 import CreditNoteModal from './CreditNoteModal';
 import OrderSection from './OrderSection';
+import { NOTICE_BACKGROUND, NOTICE_TEXT } from './NoticeBar';
 import BillingAddressModal from './BillingAddressModal';
 import { ToneBadge } from './StatusBadges';
 import ColumnLabel from '../ColumnLabel';
@@ -315,6 +316,16 @@ const InvoicesSection = ({ title, order, canInvoice, canManage, onEdited, onIssu
 
   return (
     <OrderSection title={title} actions={headerActions}>
+      {(order.invoicing.shippingToCredit ?? 0) > 0 && (
+        // Shipping recalculated below what was invoiced: the admin issues the credit note.
+        <Box padding={3} hasRadius style={{ background: NOTICE_BACKGROUND }}>
+          <Typography variant="omega" style={{ color: NOTICE_TEXT }}>
+            {t('ecommerce.orders.invoices.shippingToCredit', {
+              amount: formatCents(order.invoicing.shippingToCredit ?? 0, uiLocale),
+            })}
+          </Typography>
+        </Box>
+      )}
       {showBillingHint && (
         <Box padding={3} background="neutral100" hasRadius>
           <Typography variant="omega" textColor="neutral700">

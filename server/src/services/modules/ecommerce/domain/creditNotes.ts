@@ -22,6 +22,11 @@ export type CreditOptions = {
   unitsLeft: number[];
   returnable: { index: number; units: number; unitsLeft: number; valueLeft: number }[];
   shipping: { index: number; value: number }[];
+  /**
+   * SHIPPING: what this invoice's shipping lines credit of the shipping invoiced above what the
+   * order now charges (latest line first); empty when there is none.
+   */
+  shippingAdjustment: { index: number; value: number }[];
 };
 
 export type CreditRequest = {
@@ -137,7 +142,22 @@ export function creditOptions(
     l.kind === 'SHIPPING' && creditable[index] > 0 ? [{ index, value: creditable[index] }] : []
   );
 
-  return { creditable, unitsLeft, returnable, shipping };
+  // Only what live credit notes (any status that counts) have not credited yet.
+  const pendingShippingCredit = sum(
+    all
+      .filter((d) => d.kind === 'CREDIT_NOTE' && (d.status === 'PENDING' || d.status === 'UNCERTAIN'))
+      .flatMap((d) => d.lines.filter((l) => l.kind === 'SHIPPING').map((l) => num(l.total)))
+  );
+  let left = Math.max(0, position.overInvoiced.shipping - pendingShippingCredit);
+  const shippingAdjustment: CreditOptions['shippingAdjustment'] = [];
+  [...shipping].reverse().forEach((s) => {
+    const value = Math.min(left, s.value);
+    if (value <= 0) return;
+    shippingAdjustment.unshift({ index: s.index, value });
+    left -= value;
+  });
+
+  return { creditable, unitsLeft, returnable, shipping, shippingAdjustment };
 }
 
 /**
@@ -195,6 +215,15 @@ export function buildCreditLines(
       entries.push({ index, line, value, quantity: line.quantity });
     });
     if (!entries.length) return failed([{ path: 'lines', code: 'required' }]);
+  } else if (request?.creditType === 'SHIPPING') {
+    if (reqLines.length) issues.push({ path: 'lines', code: 'invalid' });
+    if (reqShipping.length) issues.push({ path: 'shippingIndexes', code: 'invalid' });
+    if (issues.length) return failed(issues);
+    for (const s of options.shippingAdjustment) {
+      const line = creditLine(invoice.lines[s.index], s.value);
+      entries.push({ index: s.index, line, value: s.value, quantity: line.quantity });
+    }
+    if (!entries.length) return failed([{ path: 'creditType', code: 'NOTHING_TO_CREDIT' }]);
   } else if (request?.creditType === 'RETURN') {
     const seen = new Set<unknown>();
     reqLines.forEach((entry, i) => {

@@ -103,6 +103,8 @@ export type InvoiceSelectionView = {
    * invoiced): never selectable, a Correction credit note and a new invoice take it up.
    */
   stranded: { products: number; shipping: number };
+  /** Shipping invoiced above what the order now charges: a SHIPPING credit note credits it. */
+  overInvoiced: { shipping: number };
 };
 
 export type IssueInvoiceInput = SelectionRequest & { expectedTotal: number; idempotencyKey: string };
@@ -120,6 +122,8 @@ export type CreditNoteOptions = {
   shipping: CreditOptions['shipping'];
   /** Another credit note on this invoice is PENDING or UNCERTAIN: a CORRECTION waits for it. */
   correctionBlocked: boolean;
+  /** The SHIPPING credit note: the shipping invoiced above what the order now charges. */
+  shippingAdjustment: { lines: InvoiceLine[]; total: number };
 };
 
 export type CreditNoteInput = {
@@ -400,7 +404,14 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     const { invoicing } = state;
     const excess = invoicing.blockingExcess;
     if (state.order.orderStatus !== 'OPEN') {
-      return { lines: [], shipping: [], payments: [], excess, stranded: { products: 0, shipping: 0 } };
+      return {
+        lines: [],
+        shipping: [],
+        payments: [],
+        excess,
+        stranded: { products: 0, shipping: 0 },
+        overInvoiced: { shipping: 0 },
+      };
     }
     const orderLines = new Map(state.lines.map((l) => [l.id, l]));
     const shippingLines = new Map(invoicing.positionOrder.shippingLines.map((l) => [l.id, l]));
@@ -443,6 +454,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
         }),
       excess,
       stranded: { ...invoicing.position.stranded },
+      overInvoiced: { shipping: invoicing.position.overInvoiced.shipping },
     };
   };
 
@@ -1040,10 +1052,16 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
       lines: [],
       shippingIndexes: [],
     });
+    const adjustment = buildCreditLines(invoice, options, {
+      creditType: 'SHIPPING',
+      lines: [],
+      shippingIndexes: [],
+    });
     return {
       lines: invoice.lines,
       creditable: options.creditable,
       correction: { lines: correction.lines, total: correction.total },
+      shippingAdjustment: { lines: adjustment.lines, total: adjustment.total },
       returnable: options.returnable,
       shipping: options.shipping,
       correctionBlocked: creditNoteInProgress(row.id, state),

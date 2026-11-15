@@ -236,3 +236,56 @@ describe('buildCreditLines, CORRECTION', () => {
     expect(r.creditedLines).toEqual([{ index: 1, value: 500, quantity: 1 }]);
   });
 });
+
+describe('SHIPPING credit notes (shipping recalculated below what was invoiced)', () => {
+  /** Shipping now charges 500 − 260: a credit line after the invoiced one. */
+  const lowered = (): PositionOrder => {
+    const o = order();
+    return {
+      ...o,
+      shippingTotal: 240,
+      shippingLines: [
+        ...o.shippingLines,
+        { ...o.shippingLines[0], id: 2, origin: 'RECALCULATION', amount: -260 },
+      ],
+    };
+  };
+  const inv = invoice([item(3, 1500), ship]);
+
+  it('offers the shipping invoiced above what is charged, on the invoice shipping line', () => {
+    const options = creditOptions(inv, [inv], lowered());
+    expect(options.shippingAdjustment).toEqual([{ index: 1, value: 260 }]);
+    const built = buildCreditLines(inv, options, { creditType: 'SHIPPING', lines: [], shippingIndexes: [] });
+    expect(built.issues).toEqual([]);
+    expect(built.total).toBe(260);
+    expect(built.lines).toEqual([expect.objectContaining({ kind: 'SHIPPING', total: 260 })]);
+  });
+
+  it('nothing to adjust when the shipping is not over-invoiced; lines or indexes are refused', () => {
+    const options = creditOptions(inv, [inv], order());
+    expect(options.shippingAdjustment).toEqual([]);
+    expect(buildCreditLines(inv, options, { creditType: 'SHIPPING', lines: [], shippingIndexes: [] }).issues).toEqual([
+      { path: 'creditType', code: 'NOTHING_TO_CREDIT' },
+    ]);
+    const over = creditOptions(inv, [inv], lowered());
+    expect(
+      buildCreditLines(inv, over, { creditType: 'SHIPPING', lines: [{ index: 0, quantity: 1 }], shippingIndexes: [1] })
+        .issues
+    ).toEqual([
+      { path: 'lines', code: 'invalid' },
+      { path: 'shippingIndexes', code: 'invalid' },
+    ]);
+  });
+
+  it('once issued, nothing is left to adjust', () => {
+    const options = creditOptions(inv, [inv], lowered());
+    const built = buildCreditLines(inv, options, { creditType: 'SHIPPING', lines: [], shippingIndexes: [] });
+    const cn: InvoiceDoc = {
+      ...credit(2, 'SHIPPING', built.creditedLines),
+      lines: built.lines,
+    };
+    expect(creditOptions(inv, [inv, cn], lowered()).shippingAdjustment).toEqual([]);
+    // A pending one counts too.
+    expect(creditOptions(inv, [inv, { ...cn, status: 'PENDING' }], lowered()).shippingAdjustment).toEqual([]);
+  });
+});

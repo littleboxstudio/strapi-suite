@@ -253,7 +253,11 @@ export type OrderView = {
   notificationsSummary: { sent: number; failed: number; skipped: number };
   invoices: InvoiceView[];
   /** `hasUninvoicedPayments`: some payment is available to invoice (plan 11 ruling 15). */
-  invoicing: { hasUninvoicedPayments: boolean };
+  invoicing: {
+    hasUninvoicedPayments: boolean;
+    /** Shipping invoiced above what the order now charges: a SHIPPING credit note credits it. */
+    shippingToCredit: number;
+  };
   billing: { active: boolean; providerId: string | null };
   shipments: ShipmentView[];
   returns: ReturnView[];
@@ -1222,10 +1226,32 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     const docs = invoices.map((row) => readInvoiceDoc(row, paymentIdsOf(row.id)));
     const position = invoicingPosition(positionOrder, docs);
     const allocated = new Set(allocations.map((a) => a.paymentId));
+    // What an invoice's payments still back: its allocations, less what its live partial credit
+    // notes (RETURN, SHIPPING) took off, latest allocation first. A refund of that value then comes
+    // off those payments, not off payments invoiced later (CORRECTION releases them whole).
+    const creditedOf = new Map<number, number>();
+    for (const d of docs) {
+      if (d.kind !== 'CREDIT_NOTE' || d.status !== 'ISSUED' || d.creditType === 'CORRECTION') continue;
+      if (d.creditedInvoiceId === null) continue;
+      const total = d.lines.reduce((s, l) => s + num(l.total), 0);
+      creditedOf.set(d.creditedInvoiceId, (creditedOf.get(d.creditedInvoiceId) ?? 0) + total);
+    }
     const allocatedAmounts = new Map<number, number>();
-    allocations.forEach((a) =>
-      allocatedAmounts.set(a.paymentId, (allocatedAmounts.get(a.paymentId) ?? 0) + a.amount)
-    );
+    const byInvoice = new Map<number, typeof allocations>();
+    allocations.forEach((a) => {
+      if (a.invoiceId === null) return;
+      byInvoice.set(a.invoiceId, [...(byInvoice.get(a.invoiceId) ?? []), a]);
+    });
+    allocations.forEach((a) => {
+      let amount = a.amount;
+      const credited = a.invoiceId === null ? 0 : (creditedOf.get(a.invoiceId) ?? 0);
+      if (credited > 0) {
+        const later = (byInvoice.get(a.invoiceId!) ?? []).filter((b) => b.id > a.id);
+        const takenByLater = later.reduce((s, b) => s + b.amount, 0);
+        amount = Math.max(0, amount - Math.max(0, credited - takenByLater));
+      }
+      allocatedAmounts.set(a.paymentId, (allocatedAmounts.get(a.paymentId) ?? 0) + amount);
+    });
     const nets = paymentNets(
       amounts,
       refunds.map((r) => ({
@@ -1440,7 +1466,10 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         })),
       notificationsSummary: { sent, failed, skipped },
       invoices,
-      invoicing: { hasUninvoicedPayments: invoicing.availablePaymentIds.length > 0 },
+      invoicing: {
+        hasUninvoicedPayments: invoicing.availablePaymentIds.length > 0,
+        shippingToCredit: invoicing.position.overInvoiced.shipping,
+      },
       billing,
       shipments: shipmentViews,
       returns,

@@ -1848,6 +1848,7 @@
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.help.quote": "Não enviada ou parcialmente enviada: o preço da encomenda inteira, para a morada atual, com o método dos portes faturados (ou o método atual, se nada estiver faturado). Totalmente enviada e com produtos acrescentados depois: o preço dos produtos acrescentados desde então, com o método que escolher.",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.proposed": "Novas cobranças de portes",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.unchanged": "Os portes já estão certos.",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.nothingToCharge": "Nada a cobrar: os portes já cobrados são superiores à nova cotação.",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.pickMethod": "A encomenda já foi enviada. Escolha o método de entrega para os produtos acrescentados depois:",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.pickMethodFirst": "Escolha um método de entrega para ver a nova cobrança.",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.noMethods": "Nenhum método de entrega serve esta morada e este peso.",
@@ -1980,5 +1981,10 @@
   "littlebox-strapi-suite.ecommerce.orders.shipments.markFailed.success": "Expedição marcada como falhada.",
   "littlebox-strapi-suite.ecommerce.orders.shipments.markFailed.error": "Não foi possível marcar a expedição como falhada.",
   "littlebox-strapi-suite.ecommerce.orders.shipments.cancel.manualCarrier": "Anule-o também no portal da transportadora.",
-  "littlebox-strapi-suite.ecommerce.orders.shipments.cancel.localWarning": "A transportadora não tem serviço de cancelamento: a expedição só é cancelada aqui e tem de a anular também no portal da transportadora. As unidades voltam a ficar por enviar; o stock não muda."
+  "littlebox-strapi-suite.ecommerce.orders.shipments.cancel.localWarning": "A transportadora não tem serviço de cancelamento: a expedição só é cancelada aqui e tem de a anular também no portal da transportadora. As unidades voltam a ficar por enviar; o stock não muda.",
+  "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.types.SHIPPING": "Acerto de portes",
+  "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.types.SHIPPING.hint": "Credita os portes faturados acima do que a encomenda cobra agora (depois de um recálculo de portes).",
+  "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.nothingShipping": "Os portes desta fatura não estão faturados acima do que a encomenda cobra agora.",
+  "littlebox-strapi-suite.ecommerce.orders.invoices.shippingToCredit": "Foram faturados {amount} de portes acima do que a encomenda cobra agora. Emita uma nota de crédito de Acerto de portes numa fatura com portes.",
+  "littlebox-strapi-suite.ecommerce.orders.errors.NOTHING_TO_CREDIT": "Não há nada a creditar."
 }

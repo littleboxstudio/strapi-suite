@@ -340,3 +340,24 @@ describe('invoice details', () => {
     expect(invoiceHasDetails({ ...doc, warnings: ['TOTAL_MISMATCH'] }, ['PDF'])).toBe(true);
   });
 });
+
+describe('SHIPPING (shipping adjustment) credit notes', () => {
+  const adjustment = { lines: [], total: 260 };
+  it('starts on SHIPPING when there is shipping to adjust', () => {
+    expect(emptyCreditNoteForm(options({ shippingAdjustment: adjustment })).creditType).toBe('SHIPPING');
+    expect(emptyCreditNoteForm(options({ shippingAdjustment: { lines: [], total: 0 } })).creditType).toBe('RETURN');
+  });
+
+  it('totals the server adjustment and sends no lines', () => {
+    const f = form({ creditType: 'SHIPPING', quantities: { 0: 1 }, shipping: [1] });
+    expect(creditNoteTotal(f, options({ shippingAdjustment: adjustment }))).toBe(260);
+    expect(buildCreditNoteInput(f, 'k')).toEqual({ creditType: 'SHIPPING', reason: 'Returned item', idempotencyKey: 'k' });
+  });
+
+  it('has its texts in EN and PT', () => {
+    for (const k of ['types.SHIPPING', 'types.SHIPPING.hint', 'nothingShipping']) {
+      expect(en[`${P}ecommerce.orders.invoices.creditNote.${k}`]).toBeTruthy();
+      expect(pt[`${P}ecommerce.orders.invoices.creditNote.${k}`]).toBeTruthy();
+    }
+  });
+});
