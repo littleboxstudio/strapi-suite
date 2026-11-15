@@ -2202,6 +2202,5 @@
   "littlebox-strapi-suite.ecommerce.orders.errors.NOTHING_TO_CREDIT": "There is nothing to credit.",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.review.under": "According to the products and the shipping rules, {amount} more should be charged. Review the shipping charges.",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.review.over": "According to the products and the shipping rules, {amount} was charged above. Review the shipping charges.",
-  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.markReviewed": "Mark as reviewed",
-  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.reviewed": "Shipping marked as reviewed."
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.reviewed": "The shipping charges match the quote."
 }

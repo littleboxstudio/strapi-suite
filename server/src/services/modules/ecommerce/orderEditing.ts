@@ -1135,14 +1135,14 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     state: OrderState,
     next: ShippingLine[] | null,
     w: EditWriter,
-    delivery: DeliveryChange | null = null
+    delivery: DeliveryChange | null = null,
+    settled = false
   ) => {
     const before = totalsWith(state);
     const after = next ? totalsWith(state, next) : before;
-    let flags: ReviewFlag[] = await w.clear(
-      readReviewFlags(state.order.reviewFlags),
-      'SHIPPING_REVIEW'
-    );
+    // SHIPPING_REVIEW stays until the charges match the quote (`settled`).
+    const current = readReviewFlags(state.order.reviewFlags);
+    let flags: ReviewFlag[] = settled ? await w.clear(current, 'SHIPPING_REVIEW') : current;
     const grossChanged =
       next !== null && chargedShipping(next) !== chargedShipping(readShippingLines(state.order));
     if (grossChanged && hasShippingDiscount(state.order)) {
@@ -1257,6 +1257,29 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     return planRecalculation(state.shippingLines, r.quote, { method: r.method, ...meta }, r.scope);
   };
 
+  /**
+   * The quote the shipping review compares with (as Recalculate shows it), taken before a
+   * transaction; `method` is the one a NEW_UNITS comparison uses. Null when there is nothing to
+   * compare (no method, or the quote failed): the review flag then stays.
+   */
+  const reviewQuote = async (state: OrderState, method?: ShippingMethodRef): Promise<Recalculation | null> => {
+    try {
+      const r = await recalculationQuote(
+        state,
+        method ? { providerId: method.providerId, serviceId: method.serviceId } : undefined,
+        'preview'
+      );
+      return r.method || r.kind === 'NEW_UNITS' ? r : null;
+    } catch {
+      return null;
+    }
+  };
+
+  /** Whether `lines` charge exactly the review quote (in its scope): the shipping is settled. */
+  const settledBy = (review: Recalculation | null, lines: ShippingLine[]): boolean =>
+    !!review &&
+    review.quote === chargedShipping(lines.filter((l) => review.scope(l as ShippingLineView)));
+
   const previewShippingRecalculation = async (
     rawOrderId: number | string,
     input?: ShippingRecalculationInput
@@ -1301,7 +1324,8 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         assertEditable(state, 'RECALCULATE_SHIPPING');
         const plan = recalculationPlan(state, r, w.actor);
         const difference = r.method ? r.quote - plan.charged : 0;
-        const r2 = await writeShippingLines(state, null, w);
+        // The review alert goes only once the charges match the quote.
+        const r2 = await writeShippingLines(state, null, w, null, difference === 0);
         return {
           outcome: r2.outcome,
           difference: r2.difference,
@@ -1355,9 +1379,9 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         // The method the order will have (spec 5.3): DPD Pickup needs its point.
         const planned = planLineChange(state.shippingLines, lineId, charge, { at: '', actor });
         const point = await pointForMethod(state, currentMethod(planned.lines), input);
-        return { ...charge, point };
+        return { ...charge, point, review: await reviewQuote(state, charge.method) };
       },
-      write: async (state, { point, ...next }, w) => {
+      write: async (state, { point, review, ...next }, w) => {
         assertEditable(state, 'EDIT_SHIPPING_LINE');
         if (!editableLine(state.shippingLines, lineId)) throw lineNotFound();
         assertLineNotPaid(state.shippingLines, lineId);
@@ -1370,7 +1394,8 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
           state,
           plan.mode === 'UNCHANGED' ? null : plan.lines,
           w,
-          delivery
+          delivery,
+          settledBy(review, plan.lines)
         );
         return {
           outcome: r.outcome,
@@ -1401,7 +1426,12 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         const next = normalizeShippingInput(input);
         const method = await offeredMethod(state, next);
         // The new charge's method becomes the order's (spec 5.3): DPD Pickup needs its point.
-        return { amount: next.amount, method, point: await pointForMethod(state, method, input) };
+        return {
+          amount: next.amount,
+          method,
+          point: await pointForMethod(state, method, input),
+          review: await reviewQuote(state, method),
+        };
       },
       write: async (state, next, w) => {
         assertEditable(state, 'ADD_SHIPPING_LINE');
@@ -1417,7 +1447,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
           ...(point ? { pickupPoint: point } : {}),
         });
         const delivery = deliveryChange(state, currentMethod(lines), next.point);
-        const r = await writeShippingLines(state, lines, w, delivery);
+        const r = await writeShippingLines(state, lines, w, delivery, settledBy(next.review, lines));
         return {
           outcome: r.outcome,
           difference: r.difference,

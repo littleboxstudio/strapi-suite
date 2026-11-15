@@ -382,11 +382,16 @@ describe('EcommerceOrderEditingService.recalculateShipping', () => {
     const res = await ctx.editing.recalculateShipping(id, 'user:1', 'op-ship-0001');
     expect(res).toMatchObject({ outcome: 'NONE', difference: 0 });
     unchangedCharges(ctx, id, lines, { shippingOriginal: 500, total: 7000 });
-    expect(flag(ctx, id, 'SHIPPING_REVIEW')).toBeUndefined();
+    // The charges still differ from the quote: the review alert stays.
+    expect(flag(ctx, id, 'SHIPPING_REVIEW')).toBeDefined();
     const [entry] = historyOf(ctx, id, 'SHIPPING_RECALCULATED');
     expect(entry).toMatchObject({ uniqueKey: 'edit:op-ship-0001', actor: 'user:1' });
     expect(entry.newValue).toMatchObject({ basis: 'WHOLE_ORDER', charged: 500, invoiced: 0, quote: 650, quoteDifference: 150 });
-    expect(historyOf(ctx, id, 'REVIEW_FLAG_CLEARED')).toHaveLength(1);
+    expect(historyOf(ctx, id, 'REVIEW_FLAG_CLEARED')).toHaveLength(0);
+
+    // Corrected by a charge of the difference: the alert goes.
+    await ctx.editing.addShippingLine(id, { ...standard, amount: 150 }, 'user:1', 'op-add-0150');
+    expect(flag(ctx, id, 'SHIPPING_REVIEW')).toBeUndefined();
   });
 
   it('a manually added charge is never removed by a recalculation', async () => {
@@ -484,7 +489,7 @@ describe('EcommerceOrderEditingService.recalculateShipping', () => {
     expect(picked).toMatchObject({ kind: 'NEW_UNITS', charged: 0, quote: 1200, difference: 1200, needsMethod: false });
     await ctx.editing.recalculateShipping(id, 'user:1', 'op-ship-0021', express);
     expect(storedLines(ctx, id)).toEqual(lines);
-    expect(flag(ctx, id, 'SHIPPING_REVIEW')).toBeUndefined();
+    expect(flag(ctx, id, 'SHIPPING_REVIEW')).toBeDefined();
   });
 
   it('fully shipped, nothing added: no carrier call, nothing changes', async () => {
@@ -578,7 +583,8 @@ describe('EcommerceOrderEditingService.editShippingLine', () => {
       price: 800,
       tax: 6,
     });
-    expect(flagsOf(ctx, id)).toEqual([]);
+    // 800 is not what the order is quoted: the review alert stays.
+    expect(flag(ctx, id, 'SHIPPING_REVIEW')).toBeDefined();
     const [entry] = historyOf(ctx, id, 'SHIPPING_LINE_EDITED');
     expect(entry).toMatchObject({ uniqueKey: 'edit:op-line-0001' });
     expect(entry.newValue).toMatchObject({
