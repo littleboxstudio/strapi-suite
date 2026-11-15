@@ -23,6 +23,7 @@ export default [
   route('POST', '/checkout/session', 'openSession'),
   route('GET', '/cart', 'getCart'),
   route('POST', '/cart/quote', 'quoteCart'),
+  route('GET', '/shipping/pickup-points', 'pickupPoints'),
   route('POST', '/discounts/apply', 'applyDiscount'),
   route('POST', '/store-credit/check', 'checkStoreCredit'),
   route('POST', '/checkout/email-verification', 'requestEmailVerification'),

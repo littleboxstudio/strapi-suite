@@ -94,6 +94,7 @@ a 1-hour grace; nothing ever cancels an order.
 | POST | `/checkout/session` | optional | `session.create` | `201 { token, expiresAt }` or `200 { token: null, expiresAt, reused: true }` |
 | GET | `/cart` | S | `cart.quote` | the stored cart |
 | POST | `/cart/quote` | S | `cart.quote` | cart (0–100 lines; empty → empty quote) → `PublicQuote` |
+| GET | `/shipping/pickup-points?postalCode=&country=` | S | `cart.quote` | → `{ points: PickupPoint[] }` (see *Pickup points* below) |
 | POST | `/discounts/apply` | S | `discount.apply` | cart + `{ code }` → `{ code, status, message, applied, quote }` |
 | POST | `/store-credit/check` | S | `storeCredit.check` | `{ code, email }` → `{ balance, expiresAt }` |
 | POST | `/checkout/email-verification` | S | `email.send` | `{ email, locale }` → `202 { expiresAt }` |
@@ -136,6 +137,28 @@ limit always covers it).
 Public answers never carry internal ids of orders, customers or payments (an order is its
 `publicId`), internal promotion names, the code of an automatic promotion, snapshots, stock
 counts, costs, audit or history, nor any backoffice URL.
+
+### Pickup points
+
+`GET /shipping/pickup-points?postalCode=NNNN-NNN&country=PT` lists the DPD pickup points near a
+postal code, for a shipping option with `requiresPickupPoint: true` (DPD Pickup). `country` is
+optional and must be `PT`; `postalCode` is `NNNN-NNN` or `NNNNNNN`.
+
+```json
+{ "points": [{ "id": "PT12345", "name": "Loja X", "address": "Rua A 1", "address2": null,
+  "postalCode": "1000-001", "city": "Lisboa", "country": "PT",
+  "openingHours": [{ "day": 1, "from": "09:00", "to": "19:00" }] }] }
+```
+
+`day` is 1 to 7 (DPD's day number); a day can have several intervals. The answer is already
+normalized (the BFF never sees DPD's format). No point near the code is `points: []`, not an error.
+Answers are cached in memory per postal code for 10 minutes.
+
+| Status | `details.code` | When |
+|---|---|---|
+| 400 | `INVALID_POSTAL_CODE` | `postalCode` missing, or neither `NNNN-NNN` nor `NNNNNNN` |
+| 400 | `PICKUP_NOT_AVAILABLE` | DPD Portugal or its Pickup service is inactive, the country is not `PT`, or the postal code's market (`PT`, or `PT-ISL` for a `9…` code when the store sells there) has no Pickup rate table |
+| 502 | `PICKUP_SEARCH_FAILED` | DPD failed or did not answer in time: retry |
 
 ### Images
 
@@ -220,6 +243,7 @@ errors? } } }`. `errors` is a list of `{ path, code, detail? }`.
 | Status | `details.code` | Meaning |
 |---|---|---|
 | 400 | first field code (`required`, `invalid`, `invalid_locale`, `invalid_idempotency_key`, `VERIFICATION_CODE_INVALID`, `STORE_CREDIT_NOT_FOUND`, …) | invalid request |
+| 400 | `INVALID_POSTAL_CODE`, `PICKUP_NOT_AVAILABLE` | pickup point search: see *Pickup points* (section 5) |
 | 400 | `PROMOTION_CODE_INVALID` | an entered code cannot be used: `errors[i] = { path: 'promotionCodes.<i>', detail: <public status> }` |
 | 401 | `SESSION_INVALID` | missing, unknown or expired session |
 | 403 | — | wrong BFF token, or the module is inactive |
@@ -232,7 +256,7 @@ errors? } } }`. `errors` is a list of `{ path, code, detail? }`.
 | 409 | `VERIFICATION_CONFLICT`, `IDEMPOTENCY_KEY_CONFLICT`, … | concurrent change: retry |
 | 429 | `RATE_LIMITED` | see section 7 (`Retry-After`) |
 | 429 | `VERIFICATION_LOCKED` | too many wrong codes (`Retry-After` until the code expires) |
-| 502 | `STRIPE_UNREACHABLE`, `STRIPE_REQUEST_FAILED`, `EMAIL_SEND_FAILED`, carrier codes | a provider failed: retry later |
+| 502 | `STRIPE_UNREACHABLE`, `STRIPE_REQUEST_FAILED`, `EMAIL_SEND_FAILED`, carrier codes (`PICKUP_SEARCH_FAILED`, …) | a provider failed: retry later |
 | 503 | `STRIPE_NOT_CONFIGURED`, `STOREFRONT_URL_MISSING`, `EMAIL_NOT_CONFIGURED` | the shop is not configured for this |
 | 500 | — | unexpected error (no details) |
 

@@ -12,6 +12,7 @@ const EXPECTED: [string, string, string][] = [
   ['POST', '/ecommerce/storefront/checkout/session', 'openSession'],
   ['GET', '/ecommerce/storefront/cart', 'getCart'],
   ['POST', '/ecommerce/storefront/cart/quote', 'quoteCart'],
+  ['GET', '/ecommerce/storefront/shipping/pickup-points', 'pickupPoints'],
   ['POST', '/ecommerce/storefront/discounts/apply', 'applyDiscount'],
   ['POST', '/ecommerce/storefront/store-credit/check', 'checkStoreCredit'],
   ['POST', '/ecommerce/storefront/checkout/email-verification', 'requestEmailVerification'],
@@ -22,8 +23,8 @@ const EXPECTED: [string, string, string][] = [
 ];
 
 describe('storefront content-api routes', () => {
-  it('declares the 12 routes with the handler, auth: false, the BFF policy and the module middleware', () => {
-    expect(storefrontRoutes).toHaveLength(12);
+  it('declares the 13 routes with the handler, auth: false, the BFF policy and the module middleware', () => {
+    expect(storefrontRoutes).toHaveLength(13);
     expect(storefrontRoutes.map((r: any) => [r.method, r.path, r.handler])).toEqual(
       EXPECTED.map(([m, p, h]) => [m, p, `EcommerceStorefrontController.${h}`])
     );
@@ -66,8 +67,8 @@ describe('storefront content-api routes', () => {
       expect(r.config.policies).toEqual(['check-api-token']);
       expect(r.config.auth).toBe(false);
     }
-    // Legacy (6) + Stripe webhook (1) + storefront (12).
-    expect(contentApiRoutes).toHaveLength(19);
-    expect((contentApiRoutes as any[]).filter((r) => r.config.policies.includes('check-storefront-token'))).toHaveLength(12);
+    // Legacy (6) + Stripe webhook (1) + storefront (13).
+    expect(contentApiRoutes).toHaveLength(20);
+    expect((contentApiRoutes as any[]).filter((r) => r.config.policies.includes('check-storefront-token'))).toHaveLength(13);
   });
 });
