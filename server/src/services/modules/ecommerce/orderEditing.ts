@@ -226,7 +226,6 @@ const pickupAddressLocked = () =>
 const customerAddressOf = (order: any): Address =>
   readPickupPoint(order)?.customerAddress ?? (order?.shippingAddress as Address);
 
-
 /** A line amount: integer cents in 0..MAX_MONEY_CENTS (ruling 7). */
 const normalizeShippingInput = (input: ShippingLineInput): ShippingLineInput => {
   const amount: unknown = input?.amount;

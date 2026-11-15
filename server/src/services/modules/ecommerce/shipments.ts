@@ -890,8 +890,8 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
   /**
    * The delivery methods the ship modal offers (names in `locale`, then the default locale):
    * the active manual methods, the active services of every active carrier that creates
-   * shipments (DPD Pickup only for a DPD Pickup order: it needs its DPD point), Store pickup when
-   * active (with the stores of the order's market) and, always, the order's own method
+   * shipments (DPD Pickup only for a DPD Pickup order: it needs its DPD point), Store pickup only
+   * for a Store pickup order (with the stores of its market) and, always, the order's own method
    * (`original`, even when switched off since: spec 7), listed first when not offered.
    */
   const shipMethods = async (
@@ -903,6 +903,7 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
     const svc = settings();
     const fallback = await defaultLocale();
     const hasDpdPoint = !!dpdPointOf(order);
+    const isStoreOrder = isStorePickup(methodOf(order).providerId, methodOf(order).serviceId);
     const original = (order.shippingMethod ?? {}) as Record<string, unknown>;
     const originalProvider = clean(original.providerId);
     const originalService = original.serviceId != null ? String(original.serviceId) : null;
@@ -926,7 +927,7 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
       return {
         providerId: STORE_PICKUP_ID,
         serviceId: STORE_PICKUP_SERVICE_ID,
-        name: name ?? (await storePickupName(null, config, locale)),
+        name: name ?? (await storePickupName(order, config, locale)),
         kind: 'STORE_PICKUP',
         original: false,
         stores: own && !current.some((st) => st.id === own.id) ? [own, ...current] : current,
@@ -950,7 +951,8 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
     for (const providerId of active) {
       if (providerId === 'manual') continue;
       if (providerId === STORE_PICKUP_ID) {
-        methods.push(await storeEntry());
+        // Only for a Store pickup order (as DPD Pickup only with a DPD point).
+        if (isStoreOrder) methods.push(await storeEntry());
         continue;
       }
       if (typeof shipping().adapterFor(providerId)?.createShipment !== 'function') continue;
@@ -1004,33 +1006,28 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
 
   /**
    * Inside the create transaction, under the order lock: the store a STORE_PICKUP shipment goes
-   * to. No `pickupPointId`, or the order's own store: that store (a snapshot, even when removed
-   * from the config since). Another id must be a store of the order's market in the current config
-   * (PICKUP_POINT_INVALID otherwise); on a Store pickup order it becomes the order's store
-   * (delivery address and point, recorded as an address change, the price unchanged: ruling 7).
-   * Another order keeps its own delivery: only the shipment goes to the store.
+   * to. Only a Store pickup order (with its store) ships this way: any other order is refused
+   * (PICKUP_POINT_REQUIRED on `method.mode`). No `pickupPointId`, or the order's own store: that
+   * store (a snapshot, even when removed from the config since). Another id must be a store of the
+   * order's market in the current config (PICKUP_POINT_INVALID otherwise) and becomes the order's
+   * store (delivery address and point, recorded as an address change, the price unchanged: ruling 7).
    */
   const storeTarget = async (order: any, pickupPointId: string | null, actor: string): Promise<PickupStore> => {
     const point = storePointOf(order);
     const own = storeOf(point);
-    if (!pickupPointId) {
-      if (!own) throw invalid('method.pickupPointId', 'PICKUP_POINT_REQUIRED');
-      return own;
-    }
-    if (own && own.id === pickupPointId) return own;
+    if (!point || !own) throw invalid('method.mode', 'PICKUP_POINT_REQUIRED');
+    if (!pickupPointId || own.id === pickupPointId) return own;
     const store =
       pickupPointId.length <= MAX_PICKUP_POINT_ID_LENGTH
         ? await settings().findStore(await marketOfOrder(order), pickupPointId)
         : null;
     if (!store) throw invalid('method.pickupPointId', 'PICKUP_POINT_INVALID');
-    if (point) {
-      const change = applyPickupPoint(point.customerAddress, store);
-      await strapi.db.query(uids().order).update({
-        where: { id: order.id },
-        data: { shippingAddress: change.shippingAddress, pickupPoint: change.pickupPoint },
-      });
-      await history().record({ orderId: order.id, ...deliveryChangeEntry(order, change), actor });
-    }
+    const change = applyPickupPoint(point.customerAddress, store);
+    await strapi.db.query(uids().order).update({
+      where: { id: order.id },
+      data: { shippingAddress: change.shippingAddress, pickupPoint: change.pickupPoint },
+    });
+    await history().record({ orderId: order.id, ...deliveryChangeEntry(order, change), actor });
     return storeOf(store)!;
   };
 
