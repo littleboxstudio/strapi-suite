@@ -216,11 +216,11 @@ const ManualMethodsTable = ({ readOnly, markets, toggle }: Props) => {
                 <Td>
                   {canEdit && (
                     <Flex gap={1} justifyContent="flex-end">
-                      <Button size="S" variant="secondary" onClick={() => setEditing({ method: m })}>
-                        {t('ecommerce.settings.manualMethods.edit')}
-                      </Button>
                       <Button size="S" variant="danger-light" onClick={() => askDelete(m)}>
                         {t('ecommerce.settings.manualMethods.delete')}
+                      </Button>
+                      <Button size="S" variant="secondary" onClick={() => setEditing({ method: m })}>
+                        {t('ecommerce.settings.manualMethods.edit')}
                       </Button>
                     </Flex>
                   )}
