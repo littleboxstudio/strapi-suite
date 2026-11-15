@@ -16,7 +16,7 @@ import {
   shippingOptionKey,
   suggestedChargePrice,
 } from '../../utils/orderEditing';
-import { apiErrorMessageId, type OrderActionPermissions, type ToolbarAction } from '../../utils/orderDetail';
+import { apiErrorMessageId } from '../../utils/orderDetail';
 import { extractFieldErrors } from '../../utils/productForm';
 import { mintUuid } from '../../utils/variantDraft';
 import {
@@ -35,7 +35,6 @@ import type {
   ShippingLineView,
   ShippingOption,
 } from '../../orderTypes';
-import BalanceOutcome from './BalanceOutcome';
 import EmptyNote from './EmptyNote';
 import NoticeBar, { NOTICE_BACKGROUND, NOTICE_TEXT } from './NoticeBar';
 import { MethodItem, MethodList, MethodListRest, MethodsPanel } from './MethodsPanel';
@@ -46,10 +45,8 @@ type Props = {
   /** EDIT changes `line` (spec 6.2); ADD always creates a new line. */
   mode: 'EDIT' | 'ADD';
   line?: ShippingLineView;
-  permissions: OrderActionPermissions;
   onClose: () => void;
   onSaved: (result: EditResult) => void;
-  onAction: (action: ToolbarAction) => void;
 };
 
 type ErrorKey = ReturnType<typeof shippingLineErrorKey>;
@@ -64,12 +61,12 @@ const errorMap = (errors: FieldError[]): Partial<Record<ErrorKey, string>> => {
 };
 
 /**
- * Edit or add a shipping charge: the methods that serve the address and weight, each with its
- * suggested price, and an editable price; then the balance when money is due or refundable.
- * DPD Pickup (spec 5.3) asks for a pickup point, Store pickup for one of its stores (kept when the
- * order already has one of that kind); leaving it gives the customer's address back. Mount it only while open: each opening mints one operationId.
+ * Edit or add a shipping charge: the methods that serve the address and weight on the left, the
+ * price (with its suggestion) and the pickup point or store on the right. Saving closes it: money
+ * due or to give back is handled from the order page. Mount it only while open: each opening
+ * mints one operationId.
  */
-const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, onAction }: Props) => {
+const ShippingLineModal = ({ order, mode, line, onClose, onSaved }: Props) => {
   const { formatMessage, locale } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) => formatMessage({ id: getTranslation(id) }, values);
@@ -86,7 +83,6 @@ const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, o
   const [selected, setSelected] = useState<string | null>(null);
   const [price, setPrice] = useState('');
   const [errors, setErrors] = useState<Partial<Record<ErrorKey, string>>>({});
-  const [saved, setSaved] = useState<EditResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [point, setPoint] = useState<PickupSelection | null>(null);
   /** What a new charge is suggested against (units not yet shipped, shipping charged so far). */
@@ -184,12 +180,9 @@ const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, o
           ? await new EditShippingLine().execute(order.id, line.id, body)
           : await new AddShippingLine().execute(order.id, body);
       onSaved(result);
-      if (result.outcome === 'NONE') {
-        toggleNotification({ type: 'success', message: t('ecommerce.orders.shippingCharges.saved') });
-        onClose();
-      } else {
-        setSaved(result);
-      }
+      // Money due or to give back is on the order page (its alerts and buttons): no balance step.
+      toggleNotification({ type: 'success', message: t('ecommerce.orders.shippingCharges.saved') });
+      onClose();
     } catch (err) {
       const fieldErrors = extractFieldErrors(err);
       if (fieldErrors?.length) {
@@ -208,16 +201,6 @@ const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, o
   const title = t(mode === 'EDIT' ? 'ecommerce.orders.shippingCharges.editTitle' : 'ecommerce.orders.shippingCharges.add');
 
   const body = () => {
-    if (saved) {
-      return (
-        <BalanceOutcome
-          order={saved.order}
-          outcome={saved.outcome as 'DUE' | 'REFUNDABLE'}
-          permissions={permissions}
-          onAction={onAction}
-        />
-      );
-    }
     if (loadFailed) {
       return (
         <Typography variant="omega" textColor="danger600">
@@ -349,11 +332,9 @@ const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, o
           <Button variant="tertiary" onClick={onClose} disabled={busy}>
             {t('ecommerce.orders.shippingCharges.close')}
           </Button>
-          {!saved && (
-            <Button onClick={save} loading={busy} disabled={!option || unchanged}>
-              {t('ecommerce.orders.shippingCharges.save')}
-            </Button>
-          )}
+          <Button onClick={save} loading={busy} disabled={!option || unchanged}>
+            {t('ecommerce.orders.shippingCharges.save')}
+          </Button>
         </Modal.Footer>
       </Modal.Content>
     </Modal.Root>

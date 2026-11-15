@@ -69,13 +69,8 @@ const ShippingChargesSection = ({ id, title, order, permissions, canManage, onEd
           order={order}
           mode={shippingModal.mode}
           line={shippingModal.line}
-          permissions={permissions}
           onClose={() => setShippingModal(null)}
           onSaved={onEdited}
-          onAction={(action) => {
-            setShippingModal(null);
-            onAction(action);
-          }}
         />
       )}
     </OrderSection>
