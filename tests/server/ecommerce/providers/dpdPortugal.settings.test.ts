@@ -69,10 +69,10 @@ describe('DPD Portugal definition', () => {
     for (const f of def.fields) expect(f.label).toBe(`ecommerce.settings.providers.dpd-portugal.fields.${f.key}`);
   });
 
-  it('testConnection is not implemented yet', async () => {
-    await expect(getProviderDefinition(ID)!.testConnection!({ config: {}, secrets: {} })).resolves.toEqual({
+  it('testConnection without credentials reports the missing fields', async () => {
+    await expect(getProviderDefinition(ID)!.testConnection!({ config: {}, secrets: {} })).resolves.toMatchObject({
       ok: false,
-      code: 'NOT_IMPLEMENTED',
+      code: 'MISSING_FIELDS',
     });
   });
 });

@@ -79,7 +79,11 @@ export class EcommerceCarrierError extends Error {
       | 'CARRIER_REQUEST_FAILED'
       | 'CARRIER_UNREACHABLE'
       | 'TIMEOUT'
-      | 'INVALID_QUOTE',
+      | 'INVALID_QUOTE'
+      | 'DPD_AUTH_FAILED'
+      | 'DPD_SHIPMENT_FAILED'
+      | 'PICKUP_SEARCH_FAILED'
+      | 'PICKUP_POINT_REQUIRED',
     message: string = code,
     /** True when the carrier may have processed the request (the outcome is unknown). */
     public uncertain: boolean = false
