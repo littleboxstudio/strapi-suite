@@ -34,7 +34,6 @@ import type {
   PickupSelection,
   ShippingLineView,
   ShippingOption,
-  ShippingQuote,
 } from '../../orderTypes';
 import BalanceOutcome from './BalanceOutcome';
 import EmptyNote from './EmptyNote';
@@ -83,7 +82,6 @@ const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, o
 
   const [operationId] = useState(() => mintUuid());
   const [options, setOptions] = useState<ShippingOption[] | null>(null);
-  const [failures, setFailures] = useState<ShippingQuote['failures']>([]);
   const [loadFailed, setLoadFailed] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [price, setPrice] = useState('');
@@ -114,7 +112,6 @@ const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, o
           : currentShippingMethod(order.shippingLines);
         const key = defaultShippingOptionKey(offered, preferred, failed);
         setOptions(offered);
-        setFailures(failed);
         setSelected(key);
         const option = offered.find((o) => shippingOptionKey(o) === key);
         if (option) setPrice(formatAmountInput(suggestionOf(option, base) ?? 0, locale));
@@ -235,19 +232,11 @@ const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, o
         </Flex>
       );
     }
-    const failureNote = failures.length > 0 && (
-      <NoticeBar
-        text={t('ecommerce.orders.shipping.failures', {
-          providers: failures.map((f) => f.providerId).join(', '),
-        })}
-      />
-    );
     if (!options.length) {
-      return failureNote || <EmptyNote>{t('ecommerce.orders.shippingCharges.noMethods')}</EmptyNote>;
+      return <EmptyNote>{t('ecommerce.orders.shippingCharges.noMethods')}</EmptyNote>;
     }
     return (
       <Flex direction="column" alignItems="stretch" gap={4}>
-        {failureNote}
         {shipped && option && (
           // Once shipped the order's address stays: a point only goes to the next shipments.
           <Box padding={3} hasRadius style={{ background: NOTICE_BACKGROUND }}>
