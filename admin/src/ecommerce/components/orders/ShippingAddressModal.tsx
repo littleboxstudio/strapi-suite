@@ -14,6 +14,7 @@ import { mintUuid } from '../../utils/variantDraft';
 import type { EditResult, FieldError, Order, PickupSelection } from '../../orderTypes';
 import AddressFields, { type AddressField } from './AddressFields';
 import PickupPointPicker from './PickupPointPicker';
+import { NOTICE_BACKGROUND, NOTICE_TEXT } from './NoticeBar';
 
 type Props = {
   order: Order;
@@ -153,8 +154,8 @@ const ShippingAddressDialog = ({ order, canManage, onSaved, onClose }: Props & {
           ) : (
             <Flex direction="column" alignItems="stretch" gap={4}>
               {lockReason && (
-                <Box padding={3} background="warning600" hasRadius>
-                  <Typography variant="omega" style={{ color: '#ffffff' }}>
+                <Box padding={3} hasRadius style={{ background: NOTICE_BACKGROUND }}>
+                  <Typography variant="omega" style={{ color: NOTICE_TEXT }}>
                     {t(`ecommerce.orders.address.locked.${lockReason}`)}
                   </Typography>
                 </Box>
