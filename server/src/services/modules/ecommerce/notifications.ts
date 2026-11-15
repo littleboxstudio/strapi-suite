@@ -50,6 +50,7 @@ const SHIPMENT_TEMPLATES: string[] = [
   'PARTIAL_SHIPMENT',
   'FULL_SHIPMENT',
   'TRACKING_UPDATED',
+  'READY_FOR_PICKUP',
   'DELIVERY_CONFIRMATION',
 ];
 /** A duplicated invoice (late success after a re-invoice) is never e-mailed. */
@@ -168,7 +169,12 @@ const EcommerceNotificationService = ({ strapi }: { strapi: Core.Strapi }) => {
     const order: OrderView | null =
       orderId === null ? null : await service('EcommerceOrderService').get(orderId);
     const extra: NotificationExtra = {};
-    if (type === 'PARTIAL_SHIPMENT' || type === 'FULL_SHIPMENT' || type === 'TRACKING_UPDATED') {
+    if (
+      type === 'PARTIAL_SHIPMENT' ||
+      type === 'FULL_SHIPMENT' ||
+      type === 'TRACKING_UPDATED' ||
+      type === 'READY_FOR_PICKUP'
+    ) {
       const shipmentId = idOf(p.shipmentId);
       if (shipmentId !== null) {
         extra.shipment = await strapi.db.query(u.shipment).findOne({ where: { id: shipmentId } });

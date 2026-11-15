@@ -6,6 +6,7 @@ import supplementaryPayment from './supplementaryPayment';
 import partialShipment from './partialShipment';
 import fullShipment from './fullShipment';
 import trackingUpdated from './trackingUpdated';
+import readyForPickup from './readyForPickup';
 import deliveryConfirmation from './deliveryConfirmation';
 import cancellation from './cancellation';
 import refundStarted from './refundStarted';
@@ -26,6 +27,7 @@ export const DEFAULT_TEMPLATES: Record<EmailTemplateType, DefaultTemplate> = {
   PARTIAL_SHIPMENT: partialShipment,
   FULL_SHIPMENT: fullShipment,
   TRACKING_UPDATED: trackingUpdated,
+  READY_FOR_PICKUP: readyForPickup,
   DELIVERY_CONFIRMATION: deliveryConfirmation,
   CANCELLATION: cancellation,
   REFUND_STARTED: refundStarted,

@@ -103,6 +103,13 @@ const EVENT_FOR: Record<NotificationTemplateType, DomainEvent> = {
   }),
   FULL_SHIPMENT: event('SHIPMENT_CREATED', { shipmentId: 5, full: true, notify: true, pending: [] }),
   TRACKING_UPDATED: event('SHIPMENT_TRACKING_UPDATED', { shipmentId: 5 }),
+  READY_FOR_PICKUP: event('SHIPMENT_CREATED', {
+    shipmentId: 5,
+    full: true,
+    notify: true,
+    storePickup: true,
+    pending: [],
+  }),
   DELIVERY_CONFIRMATION: event('SHIPMENT_DELIVERED', {
     shipmentId: 5,
     deliveredAt: '2026-11-12T23:30:00.000Z',
@@ -147,6 +154,10 @@ describe('templateForEvent', () => {
     expect(t('SHIPMENT_CREATED', { full: false })).toBe('PARTIAL_SHIPMENT');
     expect(t('SHIPMENT_CREATED', { full: true, notify: true })).toBe('FULL_SHIPMENT');
     expect(t('SHIPMENT_CREATED', { full: true, notify: false })).toBeNull();
+    expect(t('SHIPMENT_CREATED', { full: true, notify: true, storePickup: true })).toBe('READY_FOR_PICKUP');
+    expect(t('SHIPMENT_CREATED', { full: false, storePickup: true })).toBe('READY_FOR_PICKUP');
+    expect(t('SHIPMENT_CREATED', { full: true, notify: false, storePickup: true })).toBeNull();
+    expect(t('SHIPMENT_CREATED', { full: true, notify: true, storePickup: false })).toBe('FULL_SHIPMENT');
     expect(t('SHIPMENT_TRACKING_UPDATED', { shipmentId: 5 })).toBe('TRACKING_UPDATED');
     expect(t('SHIPMENT_DELIVERED', { allDelivered: true })).toBe('DELIVERY_CONFIRMATION');
     expect(t('SHIPMENT_DELIVERED', { allDelivered: true, notify: false })).toBeNull();
@@ -382,6 +393,38 @@ describe('buildTemplateData: shipments, delivery and invoice', () => {
     expect(d.shipment.items).toEqual([{ name: 'Shirt', option: 'M', sku: 'SH-M', quantity: 1 }]);
     expect(d.shipment.pendingItems).toEqual([{ name: 'Shirt', option: 'M', sku: 'SH-M', quantity: 1 }]);
     expect(d.shipment).toMatchObject({ carrier: 'CTT', trackingCode: 'RR5', trackingUrl: 'https://ctt.pt/RR5' });
+  });
+
+  it('READY_FOR_PICKUP: the store, the items and the partial flag', () => {
+    const row = shipRow(5, {
+      carrierName: 'Store pickup',
+      trackingCode: null,
+      trackingUrl: null,
+      metadata: {
+        notify: true,
+        store: { id: 'lx', name: 'Lisbon Store', address: 'Rua A 1', address2: null, postalCode: '1000-001', city: 'Lisboa', country: 'PT' },
+      },
+    });
+    const full = buildTemplateData('READY_FOR_PICKUP', {
+      order: order(),
+      store,
+      event: EVENT_FOR.READY_FOR_PICKUP,
+      extra: { shipment: row },
+    });
+    expect(full.pickup).toEqual({ name: 'Lisbon Store', address: 'Rua A 1', address2: '', postalCode: '1000-001', city: 'Lisboa' });
+    expect(full.store.name).toBe(store.storeName);
+    expect(full.shipment.items).toEqual([{ name: 'Shirt', option: 'M', sku: 'SH-M', quantity: 1 }]);
+    expect(full.shipment.isPartial).toBe('');
+    const partial = buildTemplateData('READY_FOR_PICKUP', {
+      order: order(),
+      store,
+      event: event('SHIPMENT_CREATED', { shipmentId: 5, full: false, notify: true, storePickup: true, pending: [{ orderLineId: 1, quantity: 1 }] }),
+      extra: { shipment: row },
+    });
+    expect(partial.shipment.isPartial).toBe('yes');
+    expect(partial.shipment.pendingItems).toEqual([{ name: 'Shirt', option: 'M', sku: 'SH-M', quantity: 1 }]);
+    const none = buildTemplateData('READY_FOR_PICKUP', { order: order(), store, event: EVENT_FOR.READY_FOR_PICKUP, extra: { shipment: shipRow(5) } });
+    expect(none.pickup.name).toBe('');
   });
 
   it('null carrier, tracking code and url become empty strings; option null becomes empty', () => {
