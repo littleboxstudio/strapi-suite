@@ -40,7 +40,7 @@ describe('EcommerceSettingsService — integrations', () => {
   it('lists every registered provider, even never-saved ones', async () => {
     const { service } = makeStrapi();
     const list = await service.listIntegrations();
-    expect(list.map((i) => i.id)).toEqual(['stripe', 'moloni', 'ctt-expresso', 'dpd-portugal', 'manual', 'resend']);
+    expect(list.map((i) => i.id)).toEqual(['stripe', 'moloni', 'ctt-expresso', 'dpd-portugal', 'store-pickup', 'manual', 'resend']);
     const moloni = list.find((i) => i.id === 'moloni')!;
     expect(moloni).toMatchObject({
       category: 'billing',

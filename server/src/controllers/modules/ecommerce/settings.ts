@@ -128,6 +128,8 @@ const EcommerceSettingsController = ({ strapi }: { strapi: Core.Strapi }) => {
       respond(ctx, () => settings().deleteManualMethod(Number(ctx.params.id), userId(ctx)), true),
     getDpdServices: (ctx: any) => respond(ctx, () => settings().getDpdServices()),
     saveDpdServices: (ctx: any) => respond(ctx, () => settings().saveDpdServices(body(ctx), userId(ctx))),
+    getStorePickup: (ctx: any) => respond(ctx, () => settings().getStorePickup()),
+    saveStorePickup: (ctx: any) => respond(ctx, () => settings().saveStorePickup(body(ctx), userId(ctx))),
 
     listEmailTemplates: (ctx: any) => respond(ctx, () => templates().list()),
     getEmailTemplate: (ctx: any) =>

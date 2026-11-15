@@ -37,6 +37,15 @@ import {
   readDpdServices,
 } from './domain/dpdServices';
 import { DPD_PORTUGAL_ID } from './providers/definitions/dpd-portugal';
+import {
+  STORE_PICKUP_ID,
+  StorePickupConfig,
+  normalizeStorePickup,
+  readStorePickup,
+  storePickupActivationIssues,
+  storePickupMarkets,
+  storePickupServedMarkets,
+} from './domain/storePickup';
 import type { StoreLogoFile } from './images';
 
 const AREA = 'settings';
@@ -473,6 +482,8 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
       ...configWithDefaults(def, row?.config ?? null),
       // DPD services are stored next to the fields (saved by `saveDpdServices`).
       ...(def.id === DPD_PORTUGAL_ID ? { services: readDpdServices(row?.config?.services) } : {}),
+      // The store pickup config likewise (saved by `saveStorePickup`).
+      ...(def.id === STORE_PICKUP_ID ? { storePickup: readStorePickup(row?.config?.storePickup) } : {}),
     },
     secrets: decryptAll(row?.secrets ?? null, resolveEncryptionKey(strapi)).values,
   });
@@ -714,6 +725,15 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
           )
         );
       }
+      if (def.id === STORE_PICKUP_ID && row?.active) {
+        // An active store pickup integration must keep a served market.
+        issues.push(
+          ...storePickupActivationIssues(
+            readStorePickup(row.config?.storePickup),
+            (await getStoreSettings()).markets
+          )
+        );
+      }
       // Missing required fields only block saving an active integration; activation checks them.
       const blocking = row?.active ? issues : issues.filter((i) => i.code !== 'required');
       if (blocking.length) throw new EcommerceValidationError('Invalid settings', blocking);
@@ -732,6 +752,10 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
       }
       // Not a field: the DPD services are saved by `saveDpdServices` and kept here.
       if (def.id === DPD_PORTUGAL_ID && row?.config?.services !== undefined) config.services = row.config.services;
+      // Likewise the store pickup config, saved by `saveStorePickup`.
+      if (def.id === STORE_PICKUP_ID && row?.config?.storePickup !== undefined) {
+        config.storePickup = row.config.storePickup;
+      }
       const secrets: Record<string, EncryptedValue> = { ...storedSecrets };
       for (const k of cleared) {
         delete secrets[k];
@@ -783,6 +807,14 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
               readDpdServices(row?.config?.services),
               configWithDefaults(def, row?.config ?? null),
               (k) => values[k] !== undefined
+            )
+          );
+        }
+        if (def.id === STORE_PICKUP_ID) {
+          issues.push(
+            ...storePickupActivationIssues(
+              readStorePickup(row?.config?.storePickup),
+              (await getStoreSettings()).markets
             )
           );
         }
@@ -899,7 +931,9 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
                 return f.type === 'markets' && Array.isArray(value) && value.some((c) => removed.has(c));
               }) ||
               (def.id === DPD_PORTUGAL_ID &&
-                [...dpdRateMarkets(readDpdServices(row.config.services))].some((c) => removed.has(c)));
+                [...dpdRateMarkets(readDpdServices(row.config.services))].some((c) => removed.has(c))) ||
+              (def.id === STORE_PICKUP_ID &&
+                [...storePickupMarkets(readStorePickup(row.config.storePickup))].some((c) => removed.has(c)));
             if (used) inUse.push({ path: 'markets', code: 'MARKET_IN_USE', detail: def.name });
           }
           if (inUse.length) throw new EcommerceValidationError('Invalid settings', inUse);
@@ -1012,6 +1046,68 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
         });
       }
       return { services, active };
+    },
+
+    /** The store pickup config as stored (defaults before the first save). */
+    async getStorePickup(): Promise<StorePickupConfig> {
+      return readStorePickup((await findRow(STORE_PICKUP_ID))?.config?.storePickup);
+    },
+
+    /**
+     * Saves the store pickup config (store pickup spec 2). With no served market (a rate table and
+     * a store) the integration is turned off.
+     */
+    async saveStorePickup(
+      input: unknown,
+      userId?: string | number
+    ): Promise<{ config: StorePickupConfig; active: boolean }> {
+      const def = requireDefinition(STORE_PICKUP_ID);
+      const row = await findRow(STORE_PICKUP_ID);
+      const storeMarkets = (await getStoreSettings()).markets;
+      const errors: ValidationIssue[] = [];
+      const config = normalizeStorePickup(input, storeMarkets, errors);
+      if (errors.length) throw new EcommerceValidationError('Invalid settings', errors);
+
+      const wasActive = row?.active ?? false;
+      const active = wasActive && storePickupServedMarkets(config, storeMarkets).length > 0;
+
+      const q = strapi.db.query(uids().integration);
+      const editorId = userId === undefined ? null : String(userId);
+      if (row) {
+        await q.update({
+          where: { id: row.id },
+          data: { config: { ...(row.config ?? {}), storePickup: config }, active, editorId },
+        });
+      } else {
+        await q.create({
+          data: {
+            providerId: def.id,
+            category: def.category,
+            active: false,
+            config: { storePickup: config },
+            secrets: {},
+            editorId,
+          },
+        });
+      }
+      invalidate();
+
+      await audit({
+        area: AREA,
+        action: 'integration.update',
+        targetId: def.id,
+        userId: userId === undefined ? undefined : String(userId),
+        details: { changedFields: ['storePickup'] },
+      });
+      if (wasActive && !active) {
+        await audit({
+          area: AREA,
+          action: 'integration.deactivate',
+          targetId: def.id,
+          userId: userId === undefined ? undefined : String(userId),
+        });
+      }
+      return { config, active };
     },
 
     async listManualMethods(): Promise<ManualMethod[]> {

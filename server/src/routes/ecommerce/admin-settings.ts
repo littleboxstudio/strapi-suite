@@ -45,6 +45,8 @@ export default [
   route('DELETE', '/shipping-methods/:id', 'deleteShippingMethod', manage),
   route('GET', '/carriers/dpd-portugal/services', 'getDpdServices', read),
   route('PUT', '/carriers/dpd-portugal/services', 'saveDpdServices', manage),
+  route('GET', '/carriers/store-pickup/config', 'getStorePickup', read),
+  route('PUT', '/carriers/store-pickup/config', 'saveStorePickup', manage),
   route('GET', '/email-templates', 'listEmailTemplates', read),
   // Registered before the ':locale' routes so 'preview' is never read as a locale.
   route('POST', '/email-templates/:type/preview', 'previewEmailTemplate', read),
