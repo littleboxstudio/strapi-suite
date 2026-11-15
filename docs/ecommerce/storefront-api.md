@@ -130,6 +130,9 @@ limit always covers it).
   `400` with `invalid_country` on `shipping.country`; `POST /orders` → `400` with
   `invalid_country` on `shippingAddress.country`. A `destination` alone (no method yet) is not an
   error: `shippingOptions` is `[]`.
+- `PT-ISL` (Portugal - Ilhas: Azores and Madeira, postal codes `9…`) is a market, never an address
+  country: addresses, `destination.country` and `shippingAddress.country` stay `PT`. The server
+  derives the market from the postal code, so send `destination.postalCode` for `PT` quotes.
 - A country in the markets that no shipping method serves, or whose methods cannot take the cart
   weight (above the last bracket): `shippingOptions: []` (the store does not ship there). Not an
   error; a quote or an order with a method that does not serve that destination fails with

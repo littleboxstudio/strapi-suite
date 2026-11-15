@@ -423,6 +423,8 @@ Substitui as zonas de envio (removidas). A elegibilidade dos métodos é definid
 
 O contrato da API da loja não muda.
 
+**Portugal - Ilhas [Decisão, 2026-11-14]:** o mercado `PT-ISL` (códigos postais `9…`, Açores e Madeira) é um mercado de envio próprio, derivado do código postal; as moradas continuam com o país `PT`. Detalhe e o DPD Portugal em `docs/superpowers/specs/2026-11-14-dpd-portugal-design.md`.
+
 Portes grátis acima de um valor fazem-se com Promoções.
 
 ### 4.17 Edição da encomenda por secções **[Decisão, 2026-11-13]**
