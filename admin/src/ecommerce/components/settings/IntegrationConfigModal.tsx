@@ -94,6 +94,12 @@ const LabelRow = styled.div`
   min-height: 22px;
 `;
 
+/**
+ * Optional secrets without a Clear button: the DPD pickup key is required while DPD Pickup is
+ * active, and is replaced by typing a new one.
+ */
+const NOT_CLEARABLE_SECRETS = new Set(['dpd-portugal.pickupKey']);
+
 const IntegrationConfigModal = ({
   integration,
   initialErrors = {},
@@ -368,7 +374,10 @@ const IntegrationConfigModal = ({
         );
       case 'secret': {
         const cleared = clearedSecrets.includes(field.key);
-        const clearable = !field.required && !!current.secrets[field.key];
+        const clearable =
+          !field.required &&
+          !!current.secrets[field.key] &&
+          !NOT_CLEARABLE_SECRETS.has(`${integration.id}.${field.key}`);
         return (
           <Flex gap={2} alignItems="center">
             <Box flex="1">
