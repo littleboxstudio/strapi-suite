@@ -1469,24 +1469,24 @@ describe('EcommerceInvoiceService credit notes', () => {
   });
 });
 
-describe('shipping recalculated below what was invoiced', () => {
+describe('shipping lowered below what was invoiced', () => {
   it('no negative charge to invoice: a SHIPPING credit note credits it and the next invoice matches its payment', async () => {
     const { c, inv, provider } = setup();
     const id = await order(c); // 2 × 2000 + 500, paid 4500
     await testIssueAll(c, id, 'k1');
     const firstPayment = paymentRows(c, id)[0].id;
 
-    // The shipping is recalculated to 200: 300 below what was invoiced.
-    const shipping = c.services.EcommerceShippingService;
-    shipping.findOption = vi.fn(async (_r: any, providerId: string, serviceId: string) => ({
-      providerId,
-      serviceId,
-      name: 'Express',
-      price: 200,
-      tax: 23,
-    }));
-    const recalculated = await c.editing.recalculateShipping(id, 'user:1', 'op-rc-0001');
-    expect(recalculated.outcome).toBe('REFUNDABLE');
+    // Shipping lowered to 200 after it was invoiced (a credit line, as older recalculations left).
+    const row = orderRow(c, id);
+    const lines = row.shippingLines?.lines ?? [
+      { id: 1, origin: 'CHECKOUT', amount: 500, providerId: 'manual', serviceId: 'express', name: 'Express', tax: 23, createdAt: row.createdAt, actor: 'system' },
+    ];
+    row.shippingLines = {
+      lines: [...lines, { ...lines[0], id: 2, origin: 'RECALCULATION', amount: -300, createdAt: new Date().toISOString() }],
+    };
+    row.shippingOriginal = 200;
+    row.shippingTotal = 200;
+    row.total = Number(row.total) - 300;
     expect((await c.orders.get(id)).invoicing.shippingToCredit).toBe(300);
     await c.refunds.create(id, { method: 'MANUAL_TRANSFER', amount: 300, reason: 'OTHER', idempotencyKey: 'rf1' }, 'user:1');
 

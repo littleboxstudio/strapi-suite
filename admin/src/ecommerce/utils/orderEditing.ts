@@ -118,12 +118,6 @@ export function isShippingCredit(line: Pick<ShippingLineView, 'amount' | 'editOf
   return line.amount < 0 && line.editOf == null;
 }
 
-/** The credit lines of `lines` that `before` does not have (cents, ≥ 0). */
-export function newShippingCredit(lines: ShippingLineView[], before: ShippingLineView[]): number {
-  const known = new Set(before.map((l) => l.id));
-  return lines.filter((l) => isShippingCredit(l) && !known.has(l.id)).reduce((s, l) => s - l.amount, 0);
-}
-
 /** The amount a line stands for: with its corrections when it has any. */
 export function shippingLineAmount(line: ShippingLineView): number {
   return line.effectiveAmount ?? line.amount;

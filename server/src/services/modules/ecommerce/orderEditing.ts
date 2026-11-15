@@ -134,9 +134,15 @@ export type ShippingRecalculationPreview = {
   kind: RecalculationKind;
   /** The charges in scope (WHOLE_ORDER: every line; NEW_UNITS: the lines since the full shipment). */
   charged: number;
-  /** The invoiced charges in scope: they stay, the new line charges the quote minus them. */
+  /** The invoiced charges in scope. */
   invoiced: number;
   quote: number;
+  /**
+   * The quote minus what is charged (0 while there is nothing to compare): above 0, that much more
+   * would be charged; below 0, that much was charged above. Informative: a recalculation never
+   * changes the charges (only the admin does).
+   */
+  difference: number;
   /** The method quoted; null while NEW_UNITS waits for a pick or there is nothing to quote. */
   method: ShippingMethodRef | null;
   /** NEW_UNITS with units to ship: the methods for those units, with their price. */
@@ -777,18 +783,6 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     return linePoint(chosen);
   };
 
-  /** The new lines of `next` (not in the stored table) that charge `method` carry `point`. */
-  const withLinePoint = (
-    state: OrderState,
-    next: ShippingLine[],
-    method: ShippingMethodRef | null,
-    point: LinePickupPoint | null
-  ): ShippingLine[] => {
-    if (!point || !method) return next;
-    const before = new Set(readShippingLines(state.order).map((l) => l.id));
-    return next.map((l) => (!before.has(l.id) && samePickupKind(l, method) ? { ...l, pickupPoint: point } : l));
-  };
-
   /**
    * The address the order's next shipment goes to, which the quotes use. Before any shipment: the
    * order's delivery address. After: the customer's own address, or the next point's (the order's
@@ -1263,17 +1257,6 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     return planRecalculation(state.shippingLines, r.quote, { method: r.method, ...meta }, r.scope);
   };
 
-  /**
-   * The delivery change a recalculation brings (spec 5.3): the new table may change the order's
-   * current method (back to the invoiced one). Leaving Pickup restores the customer's address;
-   * entering Pickup without a stored point throws PICKUP_POINT_REQUIRED. Null: nothing changes.
-   */
-  const recalculationDelivery = (
-    state: OrderState,
-    plan: ReturnType<typeof recalculationPlan>
-  ): DeliveryChange | null =>
-    plan.mode === 'UNCHANGED' ? null : deliveryChange(state, currentMethod(plan.lines), null);
-
   const previewShippingRecalculation = async (
     rawOrderId: number | string,
     input?: ShippingRecalculationInput
@@ -1281,35 +1264,28 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     const state = await orders().computeOrderState(Number(rawOrderId));
     const r = await recalculationQuote(state, input, 'preview');
     const plan = recalculationPlan(state, r, 'preview');
-    recalculationDelivery(state, plan);
+    const totals = totalsWith(state);
     return {
       kind: r.kind,
       charged: plan.charged,
       invoiced: plan.invoiced,
       quote: r.quote,
+      difference: r.method ? r.quote - plan.charged : 0,
       method: r.method,
       options: r.options,
       needsMethod: r.needsMethod,
-      mode: plan.mode,
-      lines: shippingLineViews(
-        plan.lines,
-        shippingLineContext(
-          state.invoicing,
-          state.editing.hasShipments,
-          state.order.shippingDiscount
-        )
-      ),
-      before: totalsWith(state),
-      after: plan.mode === 'UNCHANGED' ? totalsWith(state) : totalsWith(state, plan.lines),
+      // Never applied: the charges stay as they are.
+      mode: 'UNCHANGED',
+      lines: state.shippingLines,
+      before: totals,
+      after: totals,
     };
   };
 
   /**
-   * Recalculate shipping (spec 6.3). WHOLE_ORDER: the whole order is quoted under the invoiced
-   * company's method (else the current one); the non-invoiced charges are replaced by one line
-   * of the quote minus the invoiced charges (negative: money back). NEW_UNITS: the units added
-   * since the full shipment, under the picked method (`input`), the same way over the charges
-   * made since. Equal: the table stays and the flag clears. A failed quote changes nothing.
+   * Recalculate shipping (spec 6.3), informative: the quote is taken and compared with what is
+   * charged, but the charges never change (adding, editing or refunding is the admin's call). It
+   * marks the shipping as reviewed (clears SHIPPING_REVIEW) and records the comparison.
    */
   const recalculateShipping = async (
     rawOrderId: number | string,
@@ -1320,37 +1296,25 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     const orderId = Number(rawOrderId);
     return runEdit(orderId, 'shipping-recalculate', operationId, actor, {
       // The carrier quote may be a remote call: taken before the transaction.
-      prepare: async () => {
-        const state = await orders().computeOrderState(orderId);
-        const r = await recalculationQuote(state, input, 'apply');
-        // Refused before the transaction: entering Pickup needs a stored point.
-        recalculationDelivery(state, recalculationPlan(state, r, actor));
-        return r;
-      },
+      prepare: async () => recalculationQuote(await orders().computeOrderState(orderId), input, 'apply'),
       write: async (state, r, w) => {
         assertEditable(state, 'RECALCULATE_SHIPPING');
         const plan = recalculationPlan(state, r, w.actor);
-        const delivery = recalculationDelivery(state, plan);
-        const method = currentMethod(plan.lines);
-        const lines =
-          plan.mode === 'UNCHANGED'
-            ? null
-            : withLinePoint(state, plan.lines, method, linePointFor(state, method, null));
-        const r2 = await writeShippingLines(state, lines, w, delivery);
+        const difference = r.method ? r.quote - plan.charged : 0;
+        const r2 = await writeShippingLines(state, null, w);
         return {
           outcome: r2.outcome,
           difference: r2.difference,
           history: {
             type: 'SHIPPING_RECALCULATED',
-            description: `Shipping recalculated (${r.kind}): charged ${plan.charged} → quote ${r.quote} cents (${plan.mode})`,
+            description: `Shipping reviewed (${r.kind}): charged ${plan.charged} → quote ${r.quote} cents (difference ${difference})`,
             previousValue: { lines: readShippingLines(state.order) },
             newValue: {
               basis: r.kind,
               charged: plan.charged,
               invoiced: plan.invoiced,
               quote: r.quote,
-              mode: plan.mode,
-              lines: plan.lines,
+              quoteDifference: difference,
             },
           },
         };

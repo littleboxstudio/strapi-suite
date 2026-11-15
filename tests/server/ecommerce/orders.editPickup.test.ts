@@ -321,7 +321,7 @@ describe('order editing: recalculating shipping changes the current method', () 
     });
   };
 
-  it('back to the invoiced method from PICKUP: the customer address is restored, the point cleared', async () => {
+  it('never changes the method, the address nor the point (informative only)', async () => {
     const t = setup();
     const { id } = await t.create();
     issueInvoice(t, id);
@@ -331,34 +331,19 @@ describe('order editing: recalculating shipping changes the current method', () 
       'user:1',
       'op-pk-0020'
     );
-    expect(t.row(id).pickupPoint).toMatchObject({ id: POINT.id });
+    const snapshot = () =>
+      JSON.parse(
+        JSON.stringify({
+          m: t.row(id).shippingMethod,
+          a: t.row(id).shippingAddress,
+          p: t.row(id).pickupPoint,
+          l: t.row(id).shippingLines,
+        })
+      );
+    const before = snapshot();
+    await t.c.editing.previewShippingRecalculation(id);
     await t.c.editing.recalculateShipping(id, 'user:1', 'op-pk-0021');
-    const order = t.row(id);
-    expect(order.shippingMethod).toMatchObject(STANDARD);
-    expect(order.shippingAddress).toEqual(customerAddress);
-    expect(order.pickupPoint).toBeNull();
-    const changes = t.history(id, 'ADDRESS_CHANGED');
-    expect(changes[changes.length - 1].newValue).toMatchObject({
-      shippingAddress: customerAddress,
-      pickupPoint: null,
-    });
-  });
-
-  it('back to an invoiced PICKUP without a stored point → PICKUP_POINT_REQUIRED in preview and apply; nothing changes', async () => {
-    const t = setup();
-    const { id } = await t.create({ shipping: PICKUP, pickupPointId: POINT.id });
-    issueInvoice(t, id);
-    // Leaving Pickup clears the point.
-    await t.c.editing.addShippingLine(id, { ...STANDARD, amount: 100 }, 'user:1', 'op-pk-0022');
-    expect(t.row(id).pickupPoint).toBeNull();
-    expect(await issuesOf(t.c.editing.previewShippingRecalculation(id))).toEqual([
-      { path: 'pickupPointId', code: 'PICKUP_POINT_REQUIRED' },
-    ]);
-    const before = JSON.stringify(t.row(id));
-    expect(await issuesOf(t.c.editing.recalculateShipping(id, 'user:1', 'op-pk-0023'))).toEqual([
-      { path: 'pickupPointId', code: 'PICKUP_POINT_REQUIRED' },
-    ]);
-    expect(JSON.stringify(t.row(id))).toBe(before);
+    expect(snapshot()).toEqual(before);
   });
 });
 

@@ -842,14 +842,6 @@ describe('shipping credits (a recalculation below what was charged)', () => {
     expect(isShippingCredit(lines[1])).toBe(false);
     expect(shippingLineRows(lines, editing(), true).map((r) => r.line.id)).toEqual([1, 2]);
   });
-
-  it('newShippingCredit: only the credit lines the order does not have yet', async () => {
-    const { newShippingCredit } = await import('../../../admin/src/ecommerce/utils/orderEditing');
-    const before = [line({ id: 1 }), line({ id: 2, origin: 'RECALCULATION', amount: -100 })];
-    expect(newShippingCredit([...before, line({ id: 3, origin: 'RECALCULATION', amount: -260 })], before)).toBe(260);
-    expect(newShippingCredit(before, before)).toBe(0);
-    expect(newShippingCredit([line({ id: 3, amount: 300 })], before)).toBe(0);
-  });
 });
 
 describe('suggestedChargePrice (Add shipping charge)', () => {
