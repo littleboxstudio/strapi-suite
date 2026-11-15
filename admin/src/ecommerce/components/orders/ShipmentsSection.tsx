@@ -30,8 +30,7 @@ import FetchShipmentLabel from '../../usecases/orders/fetchShipmentLabel';
 import RefreshShipmentTracking from '../../usecases/orders/refreshShipmentTracking';
 import RetryShipment from '../../usecases/orders/retryShipment';
 import MarkShipmentFailed from '../../usecases/orders/markShipmentFailed';
-import { apiErrorMessageId, type OrderActionPermissions, type ToolbarAction } from '../../utils/orderDetail';
-import { canEdit, shippingLineRows } from '../../utils/orderEditing';
+import { apiErrorMessageId, type ToolbarAction } from '../../utils/orderDetail';
 import { STORE_PICKUP_ID } from '../../utils/pickupPoints';
 import {
   MAX_CANCEL_REASON,
@@ -50,12 +49,8 @@ import type {
   OrderDeliveryStatus,
   OrderStatus,
   ShipmentView,
-  ShippingLineView,
 } from '../../orderTypes';
 import ShippingAddressModal from './ShippingAddressModal';
-import ShippingChargesTable from './ShippingChargesTable';
-import ShippingLineModal from './ShippingLineModal';
-import RecalculateShippingModal from './RecalculateShippingModal';
 import DeliveryModal from './DeliveryModal';
 import TrackingModal from './TrackingModal';
 import ShipmentEventsModal from './ShipmentEventsModal';
@@ -68,9 +63,8 @@ type Props = {
   orderStatus: OrderStatus;
   deliveryStatus: OrderDeliveryStatus;
   shipments: ShipmentView[];
-  /** The order: its shipping address and shipping charges, and which edits it offers. */
+  /** The order: its shipping address and which edits it offers. */
   order: Order;
-  permissions: OrderActionPermissions;
   /** `orders.manage`: deliver, tracking, refresh, retry, cancel, and the shipping edits. */
   canManage: boolean;
   /** After any change: the order is fetched again. */
@@ -85,8 +79,6 @@ type Props = {
   actionBusy?: boolean;
 };
 
-/** The open shipping modal; it unmounts on close, so each opening mints its own operationId. */
-type ShippingModal = { kind: 'RECALCULATE' } | { kind: 'LINE'; mode: 'EDIT' | 'ADD'; line?: ShippingLineView };
 
 type Variant = 'warning' | 'success' | 'neutral' | 'danger' | 'secondary' | 'alternative' | 'primary';
 
@@ -119,7 +111,6 @@ const ShipmentsSection = ({
   deliveryStatus,
   shipments,
   order,
-  permissions,
   canManage,
   onChanged,
   onEdited,
@@ -140,12 +131,6 @@ const ShipmentsSection = ({
   const [markingFailed, setMarkingFailed] = useState<ShipmentView | null>(null);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState<number | null>(null);
-  const [shippingModal, setShippingModal] = useState<ShippingModal | null>(null);
-  const shippingActionsFor = (action: ToolbarAction) => {
-    setShippingModal(null);
-    onAction(action);
-  };
-  const chargeRows = shippingLineRows(order.shippingLines, order.editing, canManage);
 
   const errorMessage = (err: unknown, fallback: string) => t(apiErrorMessageId(err, fallback));
 
@@ -291,28 +276,11 @@ const ShipmentsSection = ({
           {t(`ecommerce.orders.detail.actions.${action}`)}
         </Button>
       ))}
-      {canManage && canEdit(order, 'RECALCULATE_SHIPPING') && (
-        <Button size="S" variant="secondary" onClick={() => setShippingModal({ kind: 'RECALCULATE' })}>
-          {t('ecommerce.orders.shippingCharges.recalculate')}
-        </Button>
-      )}
-      {canManage && canEdit(order, 'ADD_SHIPPING_LINE') && (
-        <Button size="S" variant="secondary" onClick={() => setShippingModal({ kind: 'LINE', mode: 'ADD' })}>
-          {t('ecommerce.orders.shippingCharges.add')}
-        </Button>
-      )}
     </Flex>
   );
 
   return (
     <OrderSection id={id} title={title} titleAside={deliveryBadge} actions={header}>
-      <Typography variant="sigma" textColor="neutral700" tag="h3">
-        {t('ecommerce.orders.shippingCharges.title')}
-      </Typography>
-      <ShippingChargesTable
-        rows={chargeRows}
-        onEdit={(line) => setShippingModal({ kind: 'LINE', mode: 'EDIT', line })}
-      />
       {shipments.length === 0 ? (
         <EmptyNote>{t('ecommerce.orders.shipments.empty')}</EmptyNote>
       ) : (
@@ -457,24 +425,6 @@ const ShipmentsSection = ({
 
       {viewingEvents && <ShipmentEventsModal shipment={viewingEvents} onClose={() => setViewingEvents(null)} />}
 
-      {canManage && shippingModal?.kind === 'RECALCULATE' && (
-        <RecalculateShippingModal
-          order={order}
-          onClose={() => setShippingModal(null)}
-          onSaved={onEdited}
-        />
-      )}
-      {canManage && shippingModal?.kind === 'LINE' && (
-        <ShippingLineModal
-          order={order}
-          mode={shippingModal.mode}
-          line={shippingModal.line}
-          permissions={permissions}
-          onClose={() => setShippingModal(null)}
-          onSaved={onEdited}
-          onAction={shippingActionsFor}
-        />
-      )}
       {canManage && delivering && (
         <DeliveryModal
           shipment={delivering}
