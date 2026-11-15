@@ -34,8 +34,11 @@ const ALL_ACTIONS: OrderEditAction[] = [
   'REMOVE_DISCOUNT',
 ];
 
-/** Actions that change what was already sent, so they need no active shipment. */
-const NEEDS_NO_SHIPMENT: OrderEditAction[] = ['EDIT_ADDRESS', 'EDIT_SHIPPING_LINE'];
+/**
+ * Actions that change what was already sent, so they need no active shipment. Shipping lines can
+ * be edited or removed with shipments too, while they are neither paid nor invoiced.
+ */
+const NEEDS_NO_SHIPMENT: OrderEditAction[] = ['EDIT_ADDRESS'];
 
 export function orderEditing(input: {
   orderStatus: OrderStatus;

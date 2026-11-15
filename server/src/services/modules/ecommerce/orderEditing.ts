@@ -37,11 +37,13 @@ import {
   currentMethod,
   invoicedMethod,
   hasLinePoints,
+  lineRemovalIssue,
   linePoint,
   planLineChange,
   planRecalculation,
   readShippingLines,
   shippingLineViews,
+  withoutLine,
   withoutLinePoints,
   type LinePickupPoint,
   type ShippingLine,
@@ -99,6 +101,7 @@ export type EditKind =
   | 'shipping-recalculate'
   | 'shipping-line-edit'
   | 'shipping-line-add'
+  | 'shipping-line-remove'
   | 'discounts'
   | 'manual-discount-add'
   | 'manual-discount-remove'
@@ -1390,12 +1393,19 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
           actor: w.actor,
         });
         const delivery = deliveryChange(state, currentMethod(plan.lines), point);
+        // Once shipped, a pickup charge keeps its point on the line it changed, not on the order.
+        const kept = linePointFor(state, next.method, point);
+        const changedId =
+          plan.mode === 'APPENDED' ? Math.max(...plan.lines.map((l) => l.id)) : lineId;
+        const lines = kept
+          ? plan.lines.map((l) => (l.id === changedId ? { ...l, pickupPoint: kept } : l))
+          : plan.lines;
         const r = await writeShippingLines(
           state,
-          plan.mode === 'UNCHANGED' ? null : plan.lines,
+          plan.mode === 'UNCHANGED' ? null : lines,
           w,
           delivery,
-          settledBy(review, plan.lines)
+          settledBy(review, lines)
         );
         return {
           outcome: r.outcome,
@@ -1405,6 +1415,55 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
             description: `Shipping charge ${lineId} edited: ${next.method.name} ${next.amount} cents (${plan.mode})`,
             previousValue: { lines: readShippingLines(state.order) },
             newValue: { lineId, mode: plan.mode, lines: plan.lines },
+          },
+        };
+      },
+    });
+  };
+
+  const removalIssue = (state: OrderState, lineId: number) => {
+    const issue = lineRemovalIssue(state.shippingLines, lineId);
+    if (issue) throw invalidShipping('lineId', `SHIPPING_LINE_${issue}`);
+  };
+
+  /**
+   * Remove a shipping line (with its corrections) while neither it nor a correction is paid or
+   * invoiced, with or without shipments; never the order's last charge. The order's method follows
+   * the remaining lines (as an edit).
+   */
+  const removeShippingLine = async (
+    rawOrderId: number | string,
+    rawLineId: number,
+    actor: string,
+    operationId: string
+  ): Promise<EditResult> => {
+    const orderId = Number(rawOrderId);
+    const lineId = Number(rawLineId);
+    return runEdit(orderId, 'shipping-line-remove', operationId, actor, {
+      prepare: async () => {
+        const state = await orders().computeOrderState(orderId);
+        assertEditable(state, 'EDIT_SHIPPING_LINE');
+        removalIssue(state, lineId);
+        // Refused before the transaction: the remaining method may need a point.
+        deliveryChange(state, currentMethod(withoutLine(readShippingLines(state.order), lineId)), null);
+        return { review: await reviewQuote(state) };
+      },
+      write: async (state, { review }, w) => {
+        assertEditable(state, 'EDIT_SHIPPING_LINE');
+        removalIssue(state, lineId);
+        const previous = readShippingLines(state.order);
+        const lines = withoutLine(previous, lineId);
+        const delivery = deliveryChange(state, currentMethod(lines), null);
+        const r = await writeShippingLines(state, lines, w, delivery, settledBy(review, lines));
+        const removed = previous.find((l) => l.id === lineId);
+        return {
+          outcome: r.outcome,
+          difference: r.difference,
+          history: {
+            type: 'SHIPPING_LINE_REMOVED',
+            description: `Shipping charge ${lineId} removed: ${removed?.name ?? ''} ${removed?.amount ?? 0} cents`,
+            previousValue: { lines: previous },
+            newValue: { lineId, lines },
           },
         };
       },
@@ -1773,6 +1832,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     previewShippingRecalculation,
     recalculateShipping,
     editShippingLine,
+    removeShippingLine,
     updateBillingAddress,
     addShippingLine,
     previewDiscounts,

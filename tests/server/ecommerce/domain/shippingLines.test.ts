@@ -181,9 +181,10 @@ describe('shippingLineViews', () => {
     expect(views.map((v) => v.effectiveAmount)).toEqual([700, undefined, undefined]);
   });
 
-  it('isReplaceable needs not spent and not invoiced', () => {
+  it('isReplaceable needs not paid and not invoiced; shipments do not matter', () => {
     expect(isReplaceable(view())).toBe(true);
-    expect(isReplaceable(view({ spent: true }))).toBe(false);
+    expect(isReplaceable(view({ spent: true }))).toBe(true);
+    expect(isReplaceable(view({ paid: true }))).toBe(false);
     expect(isReplaceable(view({ invoiced: true }))).toBe(false);
   });
 });

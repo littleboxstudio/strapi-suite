@@ -11,21 +11,23 @@ import { ToneBadge } from './StatusBadges';
 
 const BADGE_VARIANT: Record<ShippingLineRow['badges'][number], BadgeVariant> = {
   PAID: 'success',
+  UNPAID: 'danger',
   INVOICED: 'secondary',
-  SPENT: 'neutral',
 };
 
 type Props = {
   rows: ShippingLineRow[];
   /** Called by a row's Edit button (rows without actions have none). */
   onEdit?: (line: ShippingLineView) => void;
+  /** Called by a row's Remove button. */
+  onRemove?: (line: ShippingLineView) => void;
 };
 
 /**
  * The order's shipping charges, one row per line (spec 6.3). Every row shows its own amount, so the
  * rows add up to the charge; corrections sit, muted and indented, under the line they correct.
  */
-const ShippingChargesTable = ({ rows, onEdit }: Props) => {
+const ShippingChargesTable = ({ rows, onEdit, onRemove }: Props) => {
   const { formatMessage, formatDate, locale } = useIntl();
   const t = (id: string, values?: Record<string, any>, defaultMessage?: string) =>
     formatMessage({ id: getTranslation(id), defaultMessage }, values);
@@ -97,10 +99,15 @@ const ShippingChargesTable = ({ rows, onEdit }: Props) => {
                 </Td>
                 {columns.includes('actions') && (
                   <Td>
-                    <Flex justifyContent="flex-end">
+                    <Flex justifyContent="flex-end" gap={2}>
                       {actions.includes('EDIT') && onEdit && (
                         <Button size="S" variant="tertiary" onClick={() => onEdit(line)}>
                           {t('ecommerce.orders.shippingCharges.edit')}
+                        </Button>
+                      )}
+                      {actions.includes('REMOVE') && onRemove && (
+                        <Button size="S" variant="danger-light" onClick={() => onRemove(line)}>
+                          {t('ecommerce.orders.shippingCharges.remove')}
                         </Button>
                       )}
                     </Flex>

@@ -73,8 +73,8 @@ export function reviewAlertDate(raisedAt: string | null | undefined): string | n
 
 export type ShippingLineRow = {
   line: ShippingLineView;
-  badges: ('PAID' | 'INVOICED' | 'SPENT')[];
-  actions: 'EDIT'[];
+  badges: ('PAID' | 'UNPAID' | 'INVOICED')[];
+  actions: ('EDIT' | 'REMOVE')[];
   /** A correction line: the id of the line it corrects. */
   correctionOf: number | null;
   /** A corrected line: what it charges now, with its corrections. */
@@ -96,18 +96,29 @@ export function shippingLineRows(
   const isPlaced = (l: ShippingLineView) => l.editOf != null && ids.has(l.editOf);
   // Only charges: a recalculation below what was already charged leaves a credit line (negative,
   // no correction of another line), which the refunds show, never this table.
+  const charges = lines.filter((l) => l.editOf == null);
+  const removable = (l: ShippingLineView) =>
+    charges.length > 1 &&
+    [l, ...lines.filter((c) => c.editOf === l.id)].every((x) => !x.paid && !x.invoiced);
   const ordered = lines
     .filter((l) => !isShippingCredit(l))
     .flatMap((l) => (isPlaced(l) ? [] : [l, ...lines.filter((c) => c.editOf === l.id && c.editOf != null)]));
   return ordered.map((line) => ({
     line,
     badges: [
-      ...(line.paid ? (['PAID'] as const) : []),
+      // A charge is paid or unpaid; a correction (no amount of its own to pay) is neither.
+      ...(line.paid ? (['PAID'] as const) : line.amount > 0 ? (['UNPAID'] as const) : []),
       ...(line.invoiced ? (['INVOICED'] as const) : []),
-      ...(line.spent ? (['SPENT'] as const) : []),
     ],
-    // A paid line is never edited (the server refuses it too).
-    actions: canEditLine && line.editOf == null && !line.paid ? ['EDIT'] : [],
+    // A paid line is never edited; removed only while neither it nor a correction is paid or
+    // invoiced, and never the last charge (the server refuses the same).
+    actions:
+      canEditLine && line.editOf == null && !line.paid
+        ? [
+            'EDIT',
+            ...(removable(line) ? (['REMOVE'] as const) : []),
+          ]
+        : [],
     correctionOf: line.editOf ?? null,
     now: line.effectiveAmount !== undefined && line.effectiveAmount !== line.amount ? line.effectiveAmount : null,
   }));

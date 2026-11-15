@@ -152,14 +152,37 @@ describe('reviewAlerts', () => {
 });
 
 describe('shippingLineRows', () => {
-  it('badges follow paid / invoiced / spent', () => {
+  it('badges: paid or unpaid (a correction is neither), and invoiced; never shipped', () => {
     const rows = shippingLineRows(
-      [line({ paid: true, invoiced: true, spent: true }), line({ id: 2, paid: true })],
+      [
+        line({ paid: true, invoiced: true, spent: true }),
+        line({ id: 2, paid: true }),
+        line({ id: 3, spent: true }),
+        line({ id: 4, origin: 'EDIT', amount: -100, editOf: 3 }),
+      ],
       editing(),
       true
     );
-    expect(rows[0].badges).toEqual(['PAID', 'INVOICED', 'SPENT']);
-    expect(rows[1].badges).toEqual(['PAID']);
+    expect(rows.map((r) => [r.line.id, r.badges])).toEqual([
+      [1, ['PAID', 'INVOICED']],
+      [2, ['PAID']],
+      [3, ['UNPAID']],
+      [4, []],
+    ]);
+  });
+
+  it('offers REMOVE on an unpaid, uninvoiced charge, never on the last one', () => {
+    const rows = shippingLineRows(
+      [line({ id: 1, paid: true }), line({ id: 2 }), line({ id: 3, invoiced: true })],
+      editing(),
+      true
+    );
+    expect(rows.map((r) => [r.line.id, r.actions])).toEqual([
+      [1, []],
+      [2, ['EDIT', 'REMOVE']],
+      [3, ['EDIT']],
+    ]);
+    expect(shippingLineRows([line()], editing(), true)[0].actions).toEqual(['EDIT']);
   });
 
   it('offers EDIT only with the edit action and orders.manage', () => {
@@ -465,7 +488,12 @@ describe('shipping charges texts', () => {
     'ecommerce.orders.shippingCharges.origin.MANUAL',
     'ecommerce.orders.shippingCharges.badge.PAID',
     'ecommerce.orders.shippingCharges.badge.INVOICED',
-    'ecommerce.orders.shippingCharges.badge.SPENT',
+    'ecommerce.orders.shippingCharges.badge.UNPAID',
+    'ecommerce.orders.shippingCharges.remove',
+    'ecommerce.orders.shippingCharges.removeTitle',
+    'ecommerce.orders.shippingCharges.removeBody',
+    'ecommerce.orders.errors.SHIPPING_LINE_INVOICED',
+    'ecommerce.orders.errors.SHIPPING_LINE_LAST',
     'ecommerce.orders.shippingCharges.columns.method',
     'ecommerce.orders.shippingCharges.columns.date',
     'ecommerce.orders.shippingCharges.columns.amount',

@@ -669,15 +669,12 @@ describe('EcommerceOrderEditingService.editShippingLine', () => {
     ).toEqual([{ path: 'shipping', code: 'SHIPPING_QUOTE_FAILED' }]);
   });
 
-  it('an ACTIVE shipment gives ORDER_HAS_SHIPMENTS', async () => {
+  it('with an ACTIVE shipment an unpaid, uninvoiced line is still edited in place', async () => {
     const ctx = setup();
     const id = await createOrder(ctx);
     ship(ctx, id);
-    expect(
-      await issues(
-        ctx.editing.editShippingLine(id, 1, { ...standard, amount: 700 }, 'user:1', 'op-line-0003')
-      )
-    ).toEqual([{ path: 'order', code: 'ORDER_HAS_SHIPMENTS' }]);
+    await ctx.editing.editShippingLine(id, 1, { ...standard, amount: 700 }, 'user:1', 'op-line-0003');
+    expect(storedLines(ctx, id)).toMatchObject([{ id: 1, origin: 'EDIT', amount: 700 }]);
   });
 
   it('a paid line cannot be edited: SHIPPING_LINE_PAID', async () => {
@@ -751,6 +748,56 @@ describe('EcommerceOrderEditingService.editShippingLine', () => {
     );
     expect(orderRow(ctx, id)).toMatchObject({ shippingOriginal: 700, shippingDiscount: 500 });
     expect(flag(ctx, id, 'DISCOUNTS_REVIEW')).toMatchObject({ reason: 'SHIPPING_CHANGED' });
+  });
+});
+
+describe('EcommerceOrderEditingService.removeShippingLine', () => {
+  it('removes an unpaid, uninvoiced charge, even after a shipment; the method follows the rest', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    ship(ctx, id, [10]);
+    await ctx.editing.addShippingLine(id, { ...express, amount: 300 }, 'user:1', 'op-add-rm01');
+    expect(orderRow(ctx, id).shippingMethod).toMatchObject({ serviceId: '2' });
+    const res = await ctx.editing.removeShippingLine(id, 2, 'user:1', 'op-rm-0001');
+    expect(storedLines(ctx, id)).toMatchObject([{ id: 1, origin: 'CHECKOUT', amount: 500 }]);
+    expect(storedLines(ctx, id)).toHaveLength(1);
+    expect(orderRow(ctx, id)).toMatchObject({ shippingOriginal: 500, total: 7000 });
+    expect(orderRow(ctx, id).shippingMethod).toMatchObject({ serviceId: '1' });
+    expect(res).toMatchObject({ difference: -300 });
+    const [entry] = historyOf(ctx, id, 'SHIPPING_LINE_REMOVED');
+    expect(entry).toMatchObject({ uniqueKey: 'edit:op-rm-0001' });
+    expect(entry.newValue).toMatchObject({ lineId: 2 });
+  });
+
+  it('refuses a paid line, an invoiced line, the last charge and an unknown line; nothing changes', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    expect(await issues(ctx.editing.removeShippingLine(id, 1, 'user:1', 'op-rm-0002'))).toEqual([
+      { path: 'lineId', code: 'SHIPPING_LINE_LAST' },
+    ]);
+    expect(await issues(ctx.editing.removeShippingLine(id, 9, 'user:1', 'op-rm-0003'))).toEqual([
+      { path: 'lineId', code: 'SHIPPING_LINE_NOT_FOUND' },
+    ]);
+    await ctx.editing.addShippingLine(id, { ...express, amount: 300 }, 'user:1', 'op-add-rm02');
+    issueInvoice(ctx, id);
+    expect(await issues(ctx.editing.removeShippingLine(id, 1, 'user:1', 'op-rm-0004'))).toEqual([
+      { path: 'lineId', code: 'SHIPPING_LINE_INVOICED' },
+    ]);
+    await ctx.payments.addManualPayment(id, { amount: 7300, idempotencyKey: 'pay-rm' }, 'user:1');
+    const before = JSON.stringify(storedLines(ctx, id));
+    expect(await issues(ctx.editing.removeShippingLine(id, 2, 'user:1', 'op-rm-0005'))).toEqual([
+      { path: 'lineId', code: 'SHIPPING_LINE_PAID' },
+    ]);
+    expect(JSON.stringify(storedLines(ctx, id))).toBe(before);
+  });
+
+  it('clears the review alert only when the remaining charges match the quote', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    await ctx.editing.addShippingLine(id, { ...standard, amount: 200 }, 'user:1', 'op-add-rm03');
+    raiseShippingReview(ctx, id);
+    await ctx.editing.removeShippingLine(id, 2, 'user:1', 'op-rm-0006');
+    expect(flag(ctx, id, 'SHIPPING_REVIEW')).toBeUndefined();
   });
 });
 

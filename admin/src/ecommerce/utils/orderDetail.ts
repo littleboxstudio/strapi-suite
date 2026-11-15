@@ -177,7 +177,12 @@ function historyChange(
     return { before: money(before), after: money(after) };
   }
 
-  if (type === 'SHIPPING_RECALCULATED' || type === 'SHIPPING_LINE_EDITED' || type === 'SHIPPING_LINE_ADDED') {
+  if (
+    type === 'SHIPPING_RECALCULATED' ||
+    type === 'SHIPPING_LINE_EDITED' ||
+    type === 'SHIPPING_LINE_ADDED' ||
+    type === 'SHIPPING_LINE_REMOVED'
+  ) {
     const before = chargedOf(field(prev, 'lines'));
     const after = chargedOf(field(next, 'lines'));
     if (before === null || after === null) return null;
@@ -610,6 +615,8 @@ export const API_ERROR_CODES = [
   'DISCOUNT_EXCEEDS_PRODUCTS',
   'SHIPPING_LINE_NOT_FOUND',
   'SHIPPING_LINE_PAID',
+  'SHIPPING_LINE_INVOICED',
+  'SHIPPING_LINE_LAST',
   'SHIPPING_METHOD_REQUIRED',
   'BILLING_ADDRESS_LOCKED',
   'MANUAL_DISCOUNT_NOT_FOUND',

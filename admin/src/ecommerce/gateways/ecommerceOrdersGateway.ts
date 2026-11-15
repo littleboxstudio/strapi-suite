@@ -118,6 +118,7 @@ export default interface EcommerceOrdersGateway {
     input: ShippingLineInput & { operationId: string }
   ): Promise<EditResult>;
   addShippingLine(id: number, input: ShippingLineInput & { operationId: string }): Promise<EditResult>;
+  removeShippingLine(id: number, lineId: number, input: { operationId: string }): Promise<EditResult>;
   /** Without a `selection` the initial one (applied promotions still valid) is priced. */
   previewDiscounts(id: number, input: { selection?: string[] }): Promise<DiscountRecalculation>;
   applyDiscounts(id: number, input: { selection: string[]; operationId: string }): Promise<EditResult>;
@@ -307,6 +308,10 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
 
   async addShippingLine(id: number, input: ShippingLineInput & { operationId: string }): Promise<EditResult> {
     return this.httpClient.post(`${this.orders}/${id}/shipping-lines`, input);
+  }
+
+  async removeShippingLine(id: number, lineId: number, input: { operationId: string }): Promise<EditResult> {
+    return this.httpClient.post(`${this.orders}/${id}/shipping-lines/${lineId}/remove`, input);
   }
 
   async previewDiscounts(id: number, input: { selection?: string[] }): Promise<DiscountRecalculation> {
