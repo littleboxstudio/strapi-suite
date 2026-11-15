@@ -38,7 +38,7 @@ type Props = {
   readOnly: boolean;
   /** The store markets (country codes). */
   markets: string[];
-  /** The card's Enable/Disable button, shown left of "Add shipping method". */
+  /** The card's Enable/Disable button, shown left of "Add shipping method", above the table. */
   toggle?: ReactNode;
 };
 
@@ -173,7 +173,11 @@ const ManualMethodsTable = ({ readOnly, markets, toggle }: Props) => {
       (locales && m.name[locales.defaultLocale]) || Object.values(m.name).find((n) => n) || '';
 
     return (
-      <Flex direction="column" alignItems="stretch" gap={3}>
+      <Flex direction="column" alignItems="stretch" gap={4}>
+        <Flex justifyContent="flex-start" gap={2}>
+          {toggle}
+          {addButton('secondary')}
+        </Flex>
         <Table colCount={4} rowCount={methods.length + 1}>
           <Thead>
             <Tr>
@@ -225,10 +229,6 @@ const ManualMethodsTable = ({ readOnly, markets, toggle }: Props) => {
             ))}
           </Tbody>
         </Table>
-        <Flex justifyContent="flex-start" gap={2}>
-          {toggle}
-          {addButton('secondary')}
-        </Flex>
       </Flex>
     );
   };
