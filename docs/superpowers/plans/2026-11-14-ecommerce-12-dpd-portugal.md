@@ -43,7 +43,7 @@
 11. **Cancel.** The DPD adapter has no `cancelShipment`. For a provider without `cancelShipment`, shipment cancel marks the shipment CANCELLED locally. The result carries `carrierCancelled: false`, and the admin shows the notice key `ecommerce.orders.shipments.cancel.manualCarrier` ("Cancel it also on the carrier's portal." / "Anule-o também no portal da transportadora.").
 12. **SOAP client.** No new dependency. POST a SOAP 1.1 envelope with `fetch` to the configured endpoint (with `?wsdl` stripped). The defaults are namespace `http://mypudo.pickup-services.com/` and SOAPAction `http://mypudo.pickup-services.com/GetPudoList`. First try to read the public WSDL (`http://mypudo.pickup-services.com/mypudo/mypudo.asmx?wsdl`) to confirm both values, and use what it says. Parse the response with a small tag reader; no XML library.
 13. **Pickup cache.** In-memory `Map<postalCode, {points, at}>` with a 10-minute TTL, inside the pickup service, cleared by a test helper.
-14. **Weights.** Variant `weight` is in grams (as `orderWeightGrams`). DPD `encomenda_peso_envio` = `max(0.1, grams/1000)` formatted with up to 3 decimals and a dot.
+14. **Weights.** Variant `weight` is in kilograms; `weightGrams` comes from `orderWeightGrams` (×1000). DPD `encomenda_peso_envio` = `max(0.1, grams/1000)` formatted with up to 3 decimals and a dot.
 15. **Text limits.** Address is split into two 32-character parts (the 2nd one dropped if empty). Names are cut at 64. The postal code is formatted `NNNN-NNN` when it has 7 digits.
 
 ## Review Focus
