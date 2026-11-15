@@ -10,6 +10,7 @@ const R = 'EcommerceReturnController';
 const I = 'EcommerceInvoiceController';
 
 const expectedFulfillment: [string, string, string, string][] = [
+  ['GET', `${A}/orders/:id/ship-methods`, `${S}.shipMethods`, P.ordersManage],
   ['POST', `${A}/orders/:id/shipments`, `${S}.create`, P.ordersManage],
   ['POST', `${A}/shipments/:id/deliver`, `${S}.deliver`, P.ordersManage],
   ['POST', `${A}/shipments/:id/tracking`, `${S}.updateTracking`, P.ordersManage],

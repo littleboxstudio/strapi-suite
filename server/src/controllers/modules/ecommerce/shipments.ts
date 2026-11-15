@@ -18,6 +18,10 @@ import {
 } from './validation';
 
 const MSG = 'Invalid shipment';
+/** Provider and service ids of a chosen delivery method. */
+const MAX_METHOD_ID = 64;
+/** Admin UI locale codes (`pt`, `en`, `pt-BR`, …). */
+const MAX_LOCALE = 16;
 
 const EcommerceShipmentController = ({ strapi }: { strapi: Core.Strapi }) => {
   const shipments = (): any => strapi.plugin(PLUGIN_ID).service('EcommerceShipmentService');
@@ -55,14 +59,25 @@ const EcommerceShipmentController = ({ strapi }: { strapi: Core.Strapi }) => {
     const m = asObject(b.method);
     let method: any;
     if (m.mode === 'MANUAL') {
+      const providerId = optionalString(MSG, 'method.providerId', m.providerId, MAX_METHOD_ID);
+      const serviceId = optionalString(MSG, 'method.serviceId', m.serviceId, MAX_METHOD_ID);
       method = {
         mode: 'MANUAL',
+        ...(providerId !== undefined ? { providerId } : {}),
+        ...(serviceId !== undefined ? { serviceId } : {}),
         carrierName: requiredString(MSG, 'method.carrierName', m.carrierName, 120),
         trackingCode: optionalString(MSG, 'method.trackingCode', m.trackingCode, 255),
         trackingUrl: optionalString(MSG, 'method.trackingUrl', m.trackingUrl, 2000),
       };
     } else if (m.mode === 'CARRIER') {
-      method = { mode: 'CARRIER' };
+      // The chosen carrier and service; none: the order's method.
+      const providerId = optionalString(MSG, 'method.providerId', m.providerId, MAX_METHOD_ID);
+      const serviceId = nullableString(MSG, 'method.serviceId', m.serviceId, MAX_METHOD_ID);
+      method = {
+        mode: 'CARRIER',
+        ...(providerId !== undefined ? { providerId } : {}),
+        ...(serviceId !== undefined ? { serviceId } : {}),
+      };
     } else {
       return fail(MSG, 'method.mode', 'invalid');
     }
@@ -82,6 +97,18 @@ const EcommerceShipmentController = ({ strapi }: { strapi: Core.Strapi }) => {
         status: 201,
         notFound: 'Order not found',
       }),
+
+    /** The delivery methods the ship modal offers, named in `?locale=` (the admin's UI locale). */
+    shipMethods: (ctx: any) =>
+      run(
+        ctx,
+        (id) => {
+          const raw = ctx.query?.locale;
+          const locale = typeof raw === 'string' && raw.trim() && raw.length <= MAX_LOCALE ? raw.trim() : undefined;
+          return shipments().shipMethods(id, locale);
+        },
+        { notFound: 'Order not found' }
+      ),
 
     deliver: (ctx: any) =>
       run(ctx, (id) => {

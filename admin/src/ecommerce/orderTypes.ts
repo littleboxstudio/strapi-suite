@@ -1037,11 +1037,32 @@ export type CarrierSupport = {
 /** The answer of a cancel: `carrierCancelled` false means it must be cancelled at the carrier too. */
 export type CancelledShipmentView = ShipmentView & { carrierCancelled?: boolean };
 
+/** A delivery method the ship modal offers (`GET /orders/:id/ship-methods`). */
+export type ShipMethodOption = {
+  providerId: string;
+  serviceId: string | null;
+  name: string;
+  /** MANUAL: the admin types the tracking; CARRIER: created at the carrier (tracking and label). */
+  kind: 'MANUAL' | 'CARRIER';
+  /** The order's own method: preselected. */
+  original: boolean;
+  requiresPickupPoint?: true;
+  /** The number of parcels is asked (DPD). */
+  parcels?: true;
+};
+
 export type CreateShipmentInput = {
   lines: { orderLineId: number; quantity: number }[];
   method:
-    | { mode: 'MANUAL'; carrierName: string; trackingCode?: string; trackingUrl?: string }
-    | { mode: 'CARRIER' };
+    | {
+        mode: 'MANUAL';
+        providerId?: 'manual';
+        serviceId?: string;
+        carrierName: string;
+        trackingCode?: string;
+        trackingUrl?: string;
+      }
+    | { mode: 'CARRIER'; providerId?: string; serviceId?: string | null };
   /** Integer cents ≥ 0. */
   shippingCost: number;
   notifyCustomer: boolean;

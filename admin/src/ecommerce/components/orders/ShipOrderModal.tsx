@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import {
+  Badge,
   Box,
   Button,
-  Checkbox,
   Field,
   Flex,
+  Loader,
   Modal,
   Radio,
   Table,
@@ -21,23 +22,24 @@ import {
 } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import CreateShipment from '../../usecases/orders/createShipment';
+import FetchShipMethods from '../../usecases/orders/fetchShipMethods';
 import { apiErrorCode, apiErrorMessageId, shouldRenewIdempotencyKey } from '../../utils/orderDetail';
 import { extractFieldErrors } from '../../utils/productForm';
 import { mintUuid } from '../../utils/variantDraft';
 import {
   MAX_PARCELS,
-  asksParcels,
   buildShipmentInput,
-  shipResultMessageId,
-  canShipByCarrier,
+  defaultShipMethodKey,
   emptyShipForm,
   mapServerFieldErrors,
+  selectedShipMethod,
+  shipMethodKey,
+  shipResultMessageId,
   validateShipForm,
   type FormErrors,
   type ShipForm,
-  type ShipMode,
 } from '../../utils/shipmentForm';
-import type { Order } from '../../orderTypes';
+import type { Order, ShipMethodOption } from '../../orderTypes';
 
 type Props = {
   order: Order;
@@ -51,7 +53,9 @@ const COLUMNS = ['product', 'sku', 'ordered', 'shipped', 'pending', 'quantity'] 
 
 /** Server paths of the create body → form paths. */
 const METHOD_PATHS: Record<string, string> = {
-  'method.carrierName': 'carrierName',
+  'method.providerId': 'method',
+  'method.serviceId': 'method',
+  'method.carrierName': 'method',
   'method.trackingCode': 'trackingCode',
   'method.trackingUrl': 'trackingUrl',
   shippingCost: 'shippingCost',
@@ -59,8 +63,13 @@ const METHOD_PATHS: Record<string, string> = {
   lines: 'lines',
 };
 
+/** Long product names and options wrap inside their column. */
+const WRAP = { whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'anywhere' } as const;
+
 /**
- * Ships units of the order (requirements 10.4 and 12.6), manually or through the order's carrier.
+ * Ships units of the order (requirements 10.4 and 12.6) with one of the platform's delivery
+ * methods, the order's own preselected: a manual one takes the tracking typed here, a carrier one
+ * is created at the carrier (tracking and label). The customer is always notified.
  * Mount it only while open: each opening mints a new idempotency key.
  */
 const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
@@ -79,10 +88,27 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
   const [errors, setErrors] = useState<FormErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const carrierAvailable = canShipByCarrier(order.shippingMethod);
-  // DPD: the number of parcels goes on the shipment.
-  const shipOptions = { parcels: asksParcels(order.shippingMethod) };
+  const [methods, setMethods] = useState<ShipMethodOption[] | null>(null);
+  const [methodsError, setMethodsError] = useState(false);
   const lineById = new Map(order.lines.map((l) => [l.id, l]));
+  const method = selectedShipMethod(form, methods ?? []);
+
+  useEffect(() => {
+    let cancelled = false;
+    new FetchShipMethods()
+      .execute(order.id, uiLocale)
+      .then((list) => {
+        if (cancelled) return;
+        setMethods(list);
+        setForm((f) => ({ ...f, methodKey: defaultShipMethodKey(list) }));
+      })
+      .catch(() => {
+        if (!cancelled) setMethodsError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [order.id, uiLocale]);
 
   const update = (patch: Partial<ShipForm>, clear: string[]) => {
     setForm((f) => ({ ...f, ...patch }));
@@ -115,13 +141,13 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
   };
 
   const submit = async () => {
-    if (saving) return;
-    const local = validateShipForm(form, order.lines, shipOptions);
-    if (Object.keys(local).length) {
+    if (saving || !methods) return;
+    const local = validateShipForm(form, order.lines, method);
+    if (!method || Object.keys(local).length) {
       setErrors(local);
       return;
     }
-    const input = buildShipmentInput(form, idempotencyKey, shipOptions);
+    const input = buildShipmentInput(form, idempotencyKey, method);
     setSaving(true);
     try {
       const shipment = await new CreateShipment().execute(order.id, input);
@@ -197,13 +223,13 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
                             <Box background="neutral150" hasRadius style={{ width: THUMBNAIL_SIZE, height: THUMBNAIL_SIZE }} />
                           )}
                         </Td>
-                        <Td style={{ maxWidth: 240 }}>
+                        <Td style={{ maxWidth: 240, ...WRAP }}>
                           <Flex direction="column" alignItems="flex-start">
-                            <Typography textColor="neutral800" ellipsis>
+                            <Typography textColor="neutral800" style={WRAP}>
                               {line.name}
                             </Typography>
                             {line.option && (
-                              <Typography variant="pi" textColor="neutral600" ellipsis>
+                              <Typography variant="pi" textColor="neutral600" style={WRAP}>
                                 {line.option}
                               </Typography>
                             )}
@@ -243,73 +269,75 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
             )}
             {errors.lines && <Typography textColor="danger600">{codeText(errors.lines)}</Typography>}
 
-            <Field.Root name="mode">
-              <Field.Label>{t('ecommerce.orders.ship.method')}</Field.Label>
-              <Radio.Group
-                value={form.mode}
-                aria-label={t('ecommerce.orders.ship.method')}
-                onValueChange={(value: string) => update({ mode: value as ShipMode }, ['carrierName', 'trackingCode', 'trackingUrl'])}
-              >
-                <Radio.Item value="MANUAL" disabled={saving}>
-                  {t('ecommerce.orders.ship.modes.MANUAL')}
-                </Radio.Item>
-                {carrierAvailable && (
-                  <Radio.Item value="CARRIER" disabled={saving}>
-                    {t('ecommerce.orders.ship.modes.CARRIER', {
-                      carrier: String(order.shippingMethod?.name ?? order.shippingMethod?.providerId ?? ''),
-                    })}
-                  </Radio.Item>
-                )}
-              </Radio.Group>
-            </Field.Root>
-
-            {form.mode === 'MANUAL' ? (
-              <>
-                <Field.Root name="carrierName" required error={fieldError('carrierName')}>
-                  <Field.Label>{t('ecommerce.orders.ship.carrierName')}</Field.Label>
-                  <TextInput
-                    value={form.carrierName}
-                    disabled={saving}
-                    onChange={(e: any) => update({ carrierName: e.target.value }, ['carrierName'])}
-                  />
-                  <Field.Error />
-                </Field.Root>
-                <Flex gap={4} alignItems="flex-start" wrap="wrap">
-                  <Box flex="1" minWidth="200px">
-                    <Field.Root name="trackingCode" error={fieldError('trackingCode')}>
-                      <Field.Label>{t('ecommerce.orders.shipments.trackingCode')}</Field.Label>
-                      <TextInput
-                        value={form.trackingCode}
-                        disabled={saving}
-                        onChange={(e: any) => update({ trackingCode: e.target.value }, ['trackingCode'])}
-                      />
-                      <Field.Error />
-                    </Field.Root>
-                  </Box>
-                  <Box flex="2" minWidth="240px">
-                    <Field.Root name="trackingUrl" error={fieldError('trackingUrl')} hint={t('ecommerce.orders.shipments.trackingUrlHint')}>
-                      <Field.Label>{t('ecommerce.orders.shipments.trackingUrl')}</Field.Label>
-                      <TextInput
-                        value={form.trackingUrl}
-                        type="url"
-                        placeholder="https://"
-                        disabled={saving}
-                        onChange={(e: any) => update({ trackingUrl: e.target.value }, ['trackingUrl'])}
-                      />
-                      <Field.Hint />
-                      <Field.Error />
-                    </Field.Root>
-                  </Box>
-                </Flex>
-              </>
+            {methodsError ? (
+              <Box padding={3} background="danger100" hasRadius>
+                <Typography textColor="danger700">{t('ecommerce.orders.ship.methodsError')}</Typography>
+              </Box>
+            ) : !methods ? (
+              <Flex justifyContent="center" padding={2}>
+                <Loader small>{t('ecommerce.orders.ship.method')}</Loader>
+              </Flex>
+            ) : !methods.length ? (
+              <Typography textColor="neutral600">{t('ecommerce.orders.ship.noMethods')}</Typography>
             ) : (
+              <Field.Root name="method" error={fieldError('method')}>
+                <Field.Label>{t('ecommerce.orders.ship.method')}</Field.Label>
+                <Radio.Group
+                  value={form.methodKey}
+                  aria-label={t('ecommerce.orders.ship.method')}
+                  onValueChange={(value: string) => update({ methodKey: value }, ['method', 'trackingCode', 'trackingUrl', 'parcels'])}
+                >
+                  {methods.map((m) => (
+                    <Radio.Item key={shipMethodKey(m)} value={shipMethodKey(m)} disabled={saving}>
+                      <Flex gap={2} wrap="wrap">
+                        <span style={WRAP}>{m.name}</span>
+                        {m.original && <Badge>{t('ecommerce.orders.ship.originalMethod')}</Badge>}
+                      </Flex>
+                    </Radio.Item>
+                  ))}
+                </Radio.Group>
+                <Field.Error />
+              </Field.Root>
+            )}
+
+            {method?.kind === 'MANUAL' && (
+              <Flex gap={4} alignItems="flex-start" wrap="wrap">
+                <Box flex="1" minWidth="200px">
+                  <Field.Root name="trackingCode" error={fieldError('trackingCode')}>
+                    <Field.Label>{t('ecommerce.orders.shipments.trackingCode')}</Field.Label>
+                    <TextInput
+                      value={form.trackingCode}
+                      disabled={saving}
+                      onChange={(e: any) => update({ trackingCode: e.target.value }, ['trackingCode'])}
+                    />
+                    <Field.Error />
+                  </Field.Root>
+                </Box>
+                <Box flex="2" minWidth="240px">
+                  <Field.Root name="trackingUrl" error={fieldError('trackingUrl')} hint={t('ecommerce.orders.shipments.trackingUrlHint')}>
+                    <Field.Label>{t('ecommerce.orders.shipments.trackingUrl')}</Field.Label>
+                    <TextInput
+                      value={form.trackingUrl}
+                      type="url"
+                      placeholder="https://"
+                      disabled={saving}
+                      onChange={(e: any) => update({ trackingUrl: e.target.value }, ['trackingUrl'])}
+                    />
+                    <Field.Hint />
+                    <Field.Error />
+                  </Field.Root>
+                </Box>
+              </Flex>
+            )}
+
+            {method?.kind === 'CARRIER' && (
               <>
                 <Box padding={3} background="neutral100" hasRadius>
                   <Typography variant="omega" textColor="neutral700">
                     {t('ecommerce.orders.ship.carrierHint')}
                   </Typography>
                 </Box>
-                {shipOptions.parcels && (
+                {method.parcels && (
                   <Box maxWidth="200px">
                     <Field.Root name="parcels" required error={fieldError('parcels')} hint={t('ecommerce.orders.ship.parcelsHint', { max: MAX_PARCELS })}>
                       <Field.Label>{t('ecommerce.orders.ship.parcels')}</Field.Label>
@@ -340,14 +368,6 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
               <Field.Error />
             </Field.Root>
 
-            <Checkbox
-              checked={form.notifyCustomer}
-              disabled={saving}
-              onCheckedChange={(checked: boolean | 'indeterminate') => update({ notifyCustomer: checked === true }, [])}
-            >
-              {t('ecommerce.orders.shipments.notifyCustomer')}
-            </Checkbox>
-
             {formError && (
               <Box padding={3} background="danger100" hasRadius>
                 <Typography textColor="danger700">{formError}</Typography>
@@ -359,7 +379,7 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
           <Button variant="tertiary" onClick={onClose} disabled={saving}>
             {t('ecommerce.orders.ship.cancel')}
           </Button>
-          <Button onClick={submit} loading={saving} disabled={!form.lines.length}>
+          <Button onClick={submit} loading={saving} disabled={!form.lines.length || !method}>
             {t('ecommerce.orders.ship.submit')}
           </Button>
         </Modal.Footer>

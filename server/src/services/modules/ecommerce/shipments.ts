@@ -26,6 +26,11 @@ import type {
 import type { ProviderRuntime } from './providers/registry';
 import type { OrderHistoryEntry } from './orderHistory';
 import type { LoadedShipment, OrderState } from './orders';
+import type { ManualMethod } from './settings';
+import { DPD_SERVICE_IDS, readDpdServices, type DpdServiceId } from './domain/dpdServices';
+import { isPickupMethod, readPickupPoint } from './domain/pickupPoints';
+import { DPD_PORTUGAL_ID } from './providers/definitions/dpd-portugal';
+import { getProviderDefinition } from './providers/registry';
 
 /** Creating a carrier shipment may take long (label generation): 30 s, passed to the adapter. */
 export const CREATE_SHIPMENT_TIMEOUT_MS = 30000;
@@ -44,14 +49,30 @@ const MAX_CARRIER_NAME = 120;
 const MAX_URL = 2000;
 const MAX_TEXT = 255;
 const MAX_REASON = 500;
+const MAX_ID = 64;
 /** Parcels of a carrier shipment (DPD `encomenda_num_volumes`). */
 export const MAX_PARCELS = 99;
 
 export type ShipmentInput = {
   lines: { orderLineId: number; quantity: number }[];
   method:
-    | { mode: 'MANUAL'; carrierName: string; trackingCode?: string; trackingUrl?: string }
-    | { mode: 'CARRIER' };
+    | {
+        mode: 'MANUAL';
+        /** Only 'manual'. */
+        providerId?: string;
+        /** The manual method's id (its name is `carrierName`). */
+        serviceId?: string;
+        carrierName: string;
+        trackingCode?: string;
+        trackingUrl?: string;
+      }
+    | {
+        mode: 'CARRIER';
+        /** The carrier chosen in the ship modal; absent: the order's method. */
+        providerId?: string;
+        /** Its service (DPD: EXPRESS / PICKUP); absent with the order's provider: the order's. */
+        serviceId?: string | null;
+      };
   shippingCost: number;
   notifyCustomer: boolean;
   idempotencyKey: string;
@@ -65,6 +86,20 @@ export type ShipmentItem = {
   name: string;
   option: string | null;
   quantity: number;
+};
+
+/** A delivery method the ship modal offers (`shipMethods`). */
+export type ShipMethodView = {
+  providerId: string;
+  serviceId: string | null;
+  name: string;
+  kind: 'MANUAL' | 'CARRIER';
+  /** The order's own method: always listed, preselected. */
+  original: boolean;
+  /** DPD Pickup: ships to the order's pickup point. */
+  requiresPickupPoint?: true;
+  /** The number of parcels is asked (DPD). */
+  parcels?: true;
 };
 
 export type ShipmentView = {
@@ -200,11 +235,12 @@ type NormalizedInput = {
   method:
     | {
         mode: 'MANUAL';
+        serviceId: string | null;
         carrierName: string;
         trackingCode: string | null;
         trackingUrl: string | null;
       }
-    | { mode: 'CARRIER' };
+    | { mode: 'CARRIER'; providerId?: string; serviceId?: string | null };
   shippingCost: number;
   notifyCustomer: boolean;
   idempotencyKey: string;
@@ -229,8 +265,23 @@ const normalizeInput = (input: ShipmentInput): NormalizedInput => {
     string,
     unknown
   >;
+  /** An optional id (provider or service): a non-blank string of at most 64 characters. */
+  const optionalId = (key: 'providerId' | 'serviceId'): string | undefined => {
+    const v = m[key];
+    if (v === undefined || v === null) return undefined;
+    const id = clean(v);
+    if (!id || id.length > MAX_ID) {
+      errors.push({ path: `method.${key}`, code: 'invalid' });
+      return undefined;
+    }
+    return id;
+  };
   let method: NormalizedInput['method'] = { mode: 'CARRIER' };
   if (m.mode === 'MANUAL') {
+    const providerId = optionalId('providerId');
+    if (providerId !== undefined && providerId !== 'manual')
+      errors.push({ path: 'method.providerId', code: 'invalid' });
+    const serviceId = optionalId('serviceId') ?? null;
     const carrierName = clean(m.carrierName);
     if (!carrierName) errors.push({ path: 'method.carrierName', code: 'required' });
     else if (carrierName.length > MAX_CARRIER_NAME)
@@ -241,8 +292,17 @@ const normalizeInput = (input: ShipmentInput): NormalizedInput => {
     const trackingUrl = clean(m.trackingUrl) || null;
     if (trackingUrl && !isHttpUrl(trackingUrl))
       errors.push({ path: 'method.trackingUrl', code: 'invalid_url' });
-    method = { mode: 'MANUAL', carrierName, trackingCode, trackingUrl };
-  } else if (m.mode !== 'CARRIER') {
+    method = { mode: 'MANUAL', serviceId, carrierName, trackingCode, trackingUrl };
+  } else if (m.mode === 'CARRIER') {
+    const providerId = optionalId('providerId');
+    // `null`: no service; absent: the order's (with its provider).
+    const serviceId = m.serviceId === null ? null : optionalId('serviceId');
+    method = {
+      mode: 'CARRIER',
+      ...(providerId !== undefined ? { providerId } : {}),
+      ...(serviceId !== undefined ? { serviceId } : {}),
+    };
+  } else {
     errors.push({ path: 'method.mode', code: 'invalid_mode' });
   }
 
@@ -301,6 +361,23 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
     providerId && providerId !== 'manual' ? carrierSupportOf(adapterOf(providerId)) : null;
   const history = (): { record(entry: OrderHistoryEntry): Promise<void> } =>
     service('EcommerceOrderHistoryService');
+  const settings = (): {
+    getActiveProviders(category: 'carrier'): Promise<string[]>;
+    listManualMethods(): Promise<ManualMethod[]>;
+    getRuntime(id: string): Promise<(ProviderRuntime & { active: boolean }) | null>;
+  } => service('EcommerceSettingsService');
+  const defaultLocale = async (): Promise<string> =>
+    strapi.plugin('i18n').service('locales').getDefaultLocale();
+  /** A localized name: `locale`, then the default locale, then any. */
+  const nameIn = (names: unknown, locale: string | undefined, fallback: string): string => {
+    const map = (names && typeof names === 'object' ? names : {}) as Record<string, unknown>;
+    const pick = (l: string | undefined) => (l ? clean(map[l]) : '');
+    return pick(locale) || pick(fallback) || Object.values(map).map(clean).find(Boolean) || '';
+  };
+  const definitionName = (providerId: string): string =>
+    getProviderDefinition(providerId)?.name ?? providerId;
+  const isDpdService = (id: unknown): id is DpdServiceId =>
+    (DPD_SERVICE_IDS as readonly unknown[]).includes(id);
   const events = (): { collector(): Collector } => service('EcommerceEventBus');
 
   // ---------------------------------------------------------------------------
@@ -489,14 +566,21 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
         depth: num(v?.depth),
       };
     });
-    const point = (order.pickupPoint ?? null) as Record<string, unknown> | null;
-    const pointId = clean(point?.id);
+    const point = readPickupPoint(order);
+    // Only a pickup shipment goes to the point; another one goes to the customer's own address.
+    const toPoint = isPickupMethod(shipment.providerId, shipment.serviceId);
+    const pointId = toPoint ? clean(point?.id) : '';
+    const customerAddress = point?.customerAddress;
+    const destination =
+      !toPoint && customerAddress && typeof customerAddress === 'object'
+        ? customerAddress
+        : order.shippingAddress;
     const parcels = Number(shipment.metadata?.parcels);
     return {
       ourReference: `LB-SHP-${shipment.id}`,
       orderReference: String(order.reference),
       serviceId: shipment.serviceId ?? '',
-      destination: order.shippingAddress,
+      destination,
       contact: {
         name,
         email: clean(customer.email),
@@ -649,6 +733,148 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
   // Create / retry
   // ---------------------------------------------------------------------------
 
+  /**
+   * The carrier a CARRIER shipment goes through: the order's method (no `providerId`, or the same
+   * provider: spec 7 rules, so a carrier switched off since still ships), or another active carrier
+   * that creates shipments (else CARRIER_NOT_CONFIGURED on `method.providerId`). DPD Pickup needs
+   * the order's pickup point.
+   */
+  const carrierTarget = async (
+    order: any,
+    input: { providerId?: string; serviceId?: string | null }
+  ): Promise<{
+    providerId: string;
+    serviceId: string | null;
+    carrierName: string;
+    carrier: { adapter: CarrierAdapter; runtime: ProviderRuntime };
+  }> => {
+    const original = (order.shippingMethod ?? {}) as Record<string, unknown>;
+    const originalProvider = clean(original.providerId);
+    const originalService = original.serviceId != null ? String(original.serviceId) : null;
+    const providerId = input.providerId ?? originalProvider;
+    // Manual methods ship as MANUAL; a bare CARRIER on a manual order keeps its carrier error.
+    if (input.providerId === 'manual') throw invalid('method.providerId', 'CARRIER_NOT_CONFIGURED');
+    const sameProvider = providerId === originalProvider;
+    const serviceId =
+      input.serviceId !== undefined ? input.serviceId : sameProvider ? originalService : null;
+
+    if (providerId === DPD_PORTUGAL_ID && !isDpdService(serviceId)) throw invalid('method.serviceId', 'invalid');
+    if (isPickupMethod(providerId, serviceId) && !clean(readPickupPoint(order)?.id))
+      throw invalid('method.serviceId', 'PICKUP_POINT_REQUIRED');
+
+    let carrier: { adapter: CarrierAdapter; runtime: ProviderRuntime };
+    if (sameProvider) {
+      carrier = await carrierWith(providerId, 'createShipment');
+    } else {
+      const notConfigured = () => invalid('method.providerId', 'CARRIER_NOT_CONFIGURED');
+      if (!providerId) throw notConfigured();
+      try {
+        carrier = await shipping().carrierFor(providerId);
+      } catch {
+        throw notConfigured();
+      }
+      if (typeof carrier.adapter.createShipment !== 'function') throw notConfigured();
+    }
+
+    let carrierName = '';
+    if (sameProvider && serviceId === originalService) carrierName = clean(original.name);
+    if (!carrierName && providerId === DPD_PORTUGAL_ID && isDpdService(serviceId)) {
+      const services = readDpdServices(carrier.runtime.config?.services);
+      carrierName = nameIn(services[serviceId].name, undefined, await defaultLocale());
+    }
+    carrierName = (carrierName || definitionName(providerId)).slice(0, MAX_CARRIER_NAME);
+    return { providerId, serviceId, carrierName, carrier };
+  };
+
+  /**
+   * The delivery methods the ship modal offers (names in `locale`, then the default locale):
+   * the active manual methods, the active services of every active carrier that creates
+   * shipments (DPD Pickup only for an order with a pickup point) and, always, the order's own
+   * method (`original`, even when switched off since: spec 7), listed first when not offered.
+   */
+  const shipMethods = async (
+    rawOrderId: number | string,
+    locale?: string
+  ): Promise<{ methods: ShipMethodView[] }> => {
+    const order = await strapi.db.query(uids().order).findOne({ where: { id: Number(rawOrderId) } });
+    if (!order) throw new EcommerceNotFoundError('Order not found');
+    const svc = settings();
+    const fallback = await defaultLocale();
+    const hasPoint = !!clean(readPickupPoint(order)?.id);
+    const original = (order.shippingMethod ?? {}) as Record<string, unknown>;
+    const originalProvider = clean(original.providerId);
+    const originalService = original.serviceId != null ? String(original.serviceId) : null;
+    const methods: ShipMethodView[] = [];
+
+    const dpdEntry = (serviceId: DpdServiceId, name: string): ShipMethodView => ({
+      providerId: DPD_PORTUGAL_ID,
+      serviceId,
+      name,
+      kind: 'CARRIER',
+      original: false,
+      ...(serviceId === 'PICKUP' ? { requiresPickupPoint: true as const } : {}),
+      parcels: true,
+    });
+
+    const active = await svc.getActiveProviders('carrier');
+    if (active.includes('manual')) {
+      for (const m of await svc.listManualMethods()) {
+        if (!m.active) continue;
+        methods.push({
+          providerId: 'manual',
+          serviceId: String(m.id),
+          name: nameIn(m.name, locale, fallback) || definitionName('manual'),
+          kind: 'MANUAL',
+          original: false,
+        });
+      }
+    }
+    for (const providerId of active) {
+      if (providerId === 'manual') continue;
+      if (typeof shipping().adapterFor(providerId)?.createShipment !== 'function') continue;
+      if (providerId === DPD_PORTUGAL_ID) {
+        const services = readDpdServices((await svc.getRuntime(providerId))?.config?.services);
+        for (const id of DPD_SERVICE_IDS) {
+          if (!services[id].active || (id === 'PICKUP' && !hasPoint)) continue;
+          methods.push(dpdEntry(id, nameIn(services[id].name, locale, fallback) || definitionName(providerId)));
+        }
+        continue;
+      }
+      methods.push({
+        providerId,
+        serviceId: providerId === originalProvider ? originalService : null,
+        name: definitionName(providerId),
+        kind: 'CARRIER',
+        original: false,
+      });
+    }
+
+    if (originalProvider) {
+      // Carriers without services (CTT) match by provider; manual methods and DPD by service too.
+      const byService = originalProvider === 'manual' || originalProvider === DPD_PORTUGAL_ID;
+      const own = methods.find(
+        (m) => m.providerId === originalProvider && (!byService || m.serviceId === originalService)
+      );
+      if (own) {
+        own.original = true;
+      } else {
+        const name = (clean(original.name) || definitionName(originalProvider)).slice(0, MAX_CARRIER_NAME);
+        methods.unshift(
+          originalProvider === DPD_PORTUGAL_ID && isDpdService(originalService)
+            ? { ...dpdEntry(originalService, name), original: true }
+            : {
+                providerId: originalProvider,
+                serviceId: originalService,
+                name,
+                kind: originalProvider === 'manual' ? 'MANUAL' : 'CARRIER',
+                original: true,
+              }
+        );
+      }
+    }
+    return { methods };
+  };
+
   /** The shipment created with `key`, refusing a key already used on another order. */
   const findByKey = async (orderId: number, key: string) => {
     const row = await findRow({ idempotencyKey: key });
@@ -671,11 +897,8 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
 
     const order = await strapi.db.query(u.order).findOne({ where: { id: orderId } });
     if (!order) throw new EcommerceNotFoundError('Order not found');
-    const method = (order.shippingMethod ?? {}) as Record<string, unknown>;
-    const carrier =
-      n.method.mode === 'CARRIER'
-        ? await carrierWith(String(method.providerId ?? ''), 'createShipment')
-        : null;
+    const target = n.method.mode === 'CARRIER' ? await carrierTarget(order, n.method) : null;
+    const carrier = target?.carrier ?? null;
 
     const collector = events().collector();
     let row: any;
@@ -726,7 +949,7 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
             data: {
               ...common,
               providerId: 'manual',
-              serviceId: null,
+              serviceId: n.method.serviceId,
               carrierName: n.method.carrierName,
               status: 'ACTIVE',
               trackingCode: n.method.trackingCode,
@@ -741,9 +964,9 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
         return strapi.db.query(u.shipment).create({
           data: {
             ...common,
-            providerId: String(method.providerId),
-            serviceId: method.serviceId != null ? String(method.serviceId) : null,
-            carrierName: clean(method.name) || String(method.providerId),
+            providerId: target!.providerId,
+            serviceId: target!.serviceId,
+            carrierName: target!.carrierName,
             status: 'PENDING',
           },
         });
@@ -1224,6 +1447,7 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
 
   return {
     create,
+    shipMethods,
     retry,
     markFailed,
     cancel,

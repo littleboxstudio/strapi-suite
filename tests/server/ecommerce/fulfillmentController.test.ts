@@ -184,6 +184,54 @@ describe('EcommerceShipmentController', () => {
     expect(updateTracking).toHaveBeenCalledWith(5, { trackingCode: null, trackingUrl: 'https://t.example/1' }, 'user:7');
   });
 
+  it('create passes the chosen method ids and refuses malformed ones before the service', async () => {
+    const create = vi.fn().mockResolvedValue({ id: 9 });
+    const c = createShipments({ strapi: strapiWith({ EcommerceShipmentService: { create } }) });
+    await c.create(body({ ...validShipment, method: { mode: 'CARRIER', providerId: 'dpd-portugal', serviceId: 'EXPRESS' } }));
+    expect(create.mock.calls[0][1].method).toEqual({ mode: 'CARRIER', providerId: 'dpd-portugal', serviceId: 'EXPRESS' });
+    await c.create(body({ ...validShipment, method: { mode: 'CARRIER', providerId: 'ctt-expresso', serviceId: null } }));
+    expect(create.mock.calls[1][1].method).toEqual({ mode: 'CARRIER', providerId: 'ctt-expresso', serviceId: null });
+    await c.create(body({ ...validShipment, method: { mode: 'CARRIER' } }));
+    expect(create.mock.calls[2][1].method).toEqual({ mode: 'CARRIER' });
+    await c.create(body({ ...validShipment, method: { mode: 'MANUAL', providerId: 'manual', serviceId: '4', carrierName: 'Courier' } }));
+    expect(create.mock.calls[3][1].method).toMatchObject({ mode: 'MANUAL', providerId: 'manual', serviceId: '4', carrierName: 'Courier' });
+    create.mockClear();
+    for (const method of [
+      { mode: 'CARRIER', providerId: 5 },
+      { mode: 'CARRIER', providerId: 'x'.repeat(65) },
+      { mode: 'CARRIER', serviceId: 7 },
+      { mode: 'MANUAL', carrierName: 'X', serviceId: 4 },
+    ]) {
+      const ctx = body({ ...validShipment, method });
+      await c.create(ctx);
+      expect(ctx.badRequest).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ errors: expect.any(Array) }));
+    }
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('shipMethods returns the service list for the order, in the requested locale', async () => {
+    const shipMethods = vi.fn().mockResolvedValue({ methods: [] });
+    const c = createShipments({ strapi: strapiWith({ EcommerceShipmentService: { shipMethods } }) });
+    const ctx = mkCtx({ query: { locale: 'pt' } });
+    await c.shipMethods(ctx);
+    expect(ctx.body).toEqual({ methods: [] });
+    expect(shipMethods).toHaveBeenCalledWith(5, 'pt');
+    const noLocale = mkCtx({ query: { locale: ['a', 'b'] } });
+    await c.shipMethods(noLocale);
+    expect(shipMethods).toHaveBeenLastCalledWith(5, undefined);
+    const bad = mkCtx({ params: { id: 'x' } });
+    await c.shipMethods(bad);
+    expect(bad.badRequest).toHaveBeenCalledWith('Invalid id');
+  });
+
+  it('shipMethods maps an unknown order to 404', async () => {
+    const shipMethods = vi.fn().mockRejectedValue(new EcommerceNotFoundError('Order not found'));
+    const c = createShipments({ strapi: strapiWith({ EcommerceShipmentService: { shipMethods } }) });
+    const ctx = mkCtx();
+    await c.shipMethods(ctx);
+    expect(ctx.notFound).toHaveBeenCalled();
+  });
+
   it('create passes parcels (an integer 1–99) and refuses others before the service', async () => {
     const create = vi.fn().mockResolvedValue({ id: 9 });
     const c = createShipments({ strapi: strapiWith({ EcommerceShipmentService: { create } }) });
