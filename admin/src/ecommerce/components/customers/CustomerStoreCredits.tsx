@@ -22,6 +22,7 @@ import {
 } from '@strapi/design-system';
 import { Duplicate, Plus } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
+import { DateInput } from '../DateInput';
 import ConfirmModal from '../../../components/ConfirmModal';
 import FetchCustomerStoreCredits from '../../usecases/orders/fetchCustomerStoreCredits';
 import IssueStoreCredit from '../../usecases/orders/issueStoreCredit';
@@ -153,7 +154,7 @@ const IssueStoreCreditModal = ({
             </Field.Root>
             <Field.Root name="expiresAt" required error={errors.expiresAt}>
               <Field.Label>{t('ecommerce.customers.storeCredits.modal.expiresAt')}</Field.Label>
-              <TextInput type="date" value={form.expiresAt} onChange={(e: any) => update('expiresAt', e.target.value)} />
+              <DateInput type="date" value={form.expiresAt} onChange={(e: any) => update('expiresAt', e.target.value)} />
               <Field.Error />
             </Field.Root>
             <Field.Root name="conditions" error={errors.conditions}>
