@@ -6,6 +6,7 @@ import { MAX_KEY, asObject, fail, optionalString, promotionFields, requiredStrin
 const EcommerceOrderController = ({ strapi }: { strapi: Core.Strapi }) => {
   const orders = (): any => strapi.plugin(PLUGIN_ID).service('EcommerceOrderService');
   const payments = (): any => strapi.plugin(PLUGIN_ID).service('EcommercePaymentService');
+  const pickup = (): any => strapi.plugin(PLUGIN_ID).service('EcommercePickupPointService');
   const stripePayments = (): any =>
     strapi.plugin(PLUGIN_ID).service('EcommerceStripePaymentService');
   const actorOf = (ctx: any): string => `user:${ctx.state?.user?.id}`;
@@ -110,6 +111,17 @@ const EcommerceOrderController = ({ strapi }: { strapi: Core.Strapi }) => {
     variantSearch: (ctx: any) => {
       const { q, locale } = ctx.query || {};
       return respond(ctx, () => orders().searchVariants(str(q) ?? '', str(locale)));
+    },
+
+    /** GET /pickup-points?postalCode=: DPD pickup points near a PT postal code → `{ points }`. */
+    pickupPoints: (ctx: any) => {
+      const { postalCode } = ctx.query || {};
+      return respond(
+        ctx,
+        async () => ({ points: await pickup().search({ postalCode: str(postalCode) ?? '' }) }),
+        undefined,
+        true
+      );
     },
 
     addPayment: (ctx: any) =>

@@ -14,6 +14,7 @@ import EcommerceEmailTemplateService from './modules/ecommerce/email/templates';
 import EcommerceStockService from './modules/ecommerce/stock';
 import EcommerceCustomerService from './modules/ecommerce/customers';
 import EcommerceShippingService from './modules/ecommerce/shipping';
+import EcommercePickupPointService from './modules/ecommerce/pickupPoints';
 import EcommerceEventBus from './modules/ecommerce/events';
 import EcommerceOrderHistoryService from './modules/ecommerce/orderHistory';
 import EcommerceOrderService from './modules/ecommerce/orders';
@@ -49,6 +50,7 @@ export default {
   EcommerceStockService,
   EcommerceCustomerService,
   EcommerceShippingService,
+  EcommercePickupPointService,
   EcommerceEventBus,
   EcommerceOrderHistoryService,
   EcommerceOrderService,

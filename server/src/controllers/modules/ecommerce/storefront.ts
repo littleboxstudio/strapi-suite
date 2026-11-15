@@ -115,6 +115,7 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
   const catalog = () => service('EcommerceStorefrontCatalogService');
   const sessions = () => service('EcommerceStorefrontSessionService');
   const checkout = () => service('EcommerceStorefrontCheckoutService');
+  const pickup = () => service('EcommercePickupPointService');
   const warn = (message: string) => strapi.log.warn(`${LOG_PREFIX} ${message}`);
 
   const body = (ctx: any) => asObject(ctx.request?.body);
@@ -299,6 +300,17 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
       withSession(ctx, 'cart.quote', {}, async (s) => ({
         body: await checkout().quote(s, await cartInput(body(ctx))),
       })),
+
+    /** GET /shipping/pickup-points?postalCode=&country= → `{ points }` (spec 5.1). */
+    pickupPoints: (ctx: any) =>
+      withSession(ctx, 'cart.quote', {}, async () => {
+        const q = ctx.query ?? {};
+        const postalCode = optionalString(INVALID, 'postalCode', q.postalCode, MAX_POSTAL_CODE_LENGTH);
+        const country = optionalString(INVALID, 'country', q.country, 2);
+        return {
+          body: { points: await pickup().search({ postalCode: postalCode ?? '', ...(country ? { country } : {}) }) },
+        };
+      }),
 
     /** POST /discounts/apply */
     applyDiscount: (ctx: any) =>
