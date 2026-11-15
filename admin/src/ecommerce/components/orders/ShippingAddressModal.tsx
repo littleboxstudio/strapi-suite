@@ -15,7 +15,12 @@ import {
   currentShippingMethod,
   shippingAddressErrors,
 } from '../../utils/orderEditing';
-import { isStorePickupMethod, pickupErrorId, pickupSelectionInput } from '../../utils/pickupPoints';
+import {
+  isStorePickupMethod,
+  newPickupSelection,
+  pickupErrorId,
+  pickupSelectionInput,
+} from '../../utils/pickupPoints';
 import { apiErrorMessageId } from '../../utils/orderDetail';
 import { extractFieldErrors } from '../../utils/productForm';
 import { mintUuid } from '../../utils/variantDraft';
@@ -133,9 +138,9 @@ const ShippingAddressDialog = ({ order, canManage, onSaved, onClose }: Props & {
     setErrors({});
   };
 
-  const changed = pickupPoint
-    ? !!newPoint && newPoint.point.id !== pickupPoint.id
-    : JSON.stringify(form) !== JSON.stringify(initial);
+  // The order's own point chosen again is no change (a removed store would be refused).
+  const chosenPoint = newPickupSelection(newPoint, pickupPoint?.id);
+  const changed = pickupPoint ? !!chosenPoint : JSON.stringify(form) !== JSON.stringify(initial);
 
   const save = async () => {
     if (busy) return;
@@ -145,7 +150,7 @@ const ShippingAddressDialog = ({ order, canManage, onSaved, onClose }: Props & {
         setErrors(errorMap(local));
         return;
       }
-    } else if (!newPoint) {
+    } else if (!chosenPoint) {
       return;
     }
     setBusy(true);
@@ -153,8 +158,8 @@ const ShippingAddressDialog = ({ order, canManage, onSaved, onClose }: Props & {
       // Shipping addresses never show company / NIF: what the order had is sent back unchanged.
       const result = await new UpdateShippingAddress().execute(
         order.id,
-        newPoint
-          ? { ...pickupSelectionInput(newPoint), pickupPointId: newPoint.point.id, operationId }
+        chosenPoint
+          ? { ...pickupSelectionInput(chosenPoint), pickupPointId: chosenPoint.point.id, operationId }
           : { address: toAddress(form, true), operationId }
       );
       onSaved(result);

@@ -10,6 +10,7 @@ import {
   keptPickup,
   orderPointKept,
   pickupErrorId,
+  newPickupSelection,
   storeChoices,
   storeSelection,
 } from '../../../admin/src/ecommerce/utils/pickupPoints';
@@ -191,10 +192,10 @@ describe('pickup admin texts', () => {
     expect(API_ERROR_CODES).toContain('PICKUP_ADDRESS_LOCKED');
     const key = 'littlebox-strapi-suite.ecommerce.orders.errors.PICKUP_ADDRESS_LOCKED';
     expect((en as Record<string, string>)[key]).toBe(
-      'The delivery address is the pickup point. Choose another pickup point to change it.'
+      'The delivery address is the pickup point or store. Choose another one to change it.'
     );
     expect((pt as Record<string, string>)[key]).toBe(
-      'A morada de entrega é o ponto Pickup. Escolha outro ponto para a alterar.'
+      'A morada de entrega é o ponto de recolha ou a loja. Escolha outra opção para a alterar.'
     );
   });
 });
@@ -349,5 +350,32 @@ describe('store pickup admin texts', () => {
       expect((en as Record<string, string>)[key]).toBeTruthy();
       expect((pt as Record<string, string>)[key]).toBeTruthy();
     }
+  });
+});
+
+describe('fix round 1: store pickup', () => {
+  it('newPickupSelection: choosing the order point again is no change', () => {
+    const current = storeSelection(STORE);
+    const other = storeSelection(STORE_2);
+    expect(newPickupSelection(current, 'st_lisboa')).toBeNull();
+    expect(newPickupSelection(other, 'st_lisboa')).toBe(other);
+    expect(newPickupSelection(null, 'st_lisboa')).toBeNull();
+    expect(newPickupSelection(other, null)).toBe(other);
+  });
+
+  it('the general pickup errors never mention DPD (a store order shows them too)', () => {
+    for (const code of ['PICKUP_POINT_REQUIRED', 'PICKUP_POINT_INVALID', 'PICKUP_ADDRESS_LOCKED']) {
+      const key = `littlebox-strapi-suite.ecommerce.orders.errors.${code}`;
+      for (const texts of [en, pt] as Record<string, string>[]) {
+        expect(texts[key], key).toBeTruthy();
+        expect(texts[key], key).not.toMatch(/DPD|Pickup/);
+      }
+    }
+    expect((en as Record<string, string>)['littlebox-strapi-suite.ecommerce.orders.errors.PICKUP_POINT_REQUIRED']).toBe(
+      'Choose a pickup point or store.'
+    );
+    expect((pt as Record<string, string>)['littlebox-strapi-suite.ecommerce.orders.errors.PICKUP_POINT_REQUIRED']).toBe(
+      'Escolha um ponto de recolha ou uma loja.'
+    );
   });
 });

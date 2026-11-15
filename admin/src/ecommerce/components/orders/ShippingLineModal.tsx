@@ -19,6 +19,7 @@ import { apiErrorMessageId, type OrderActionPermissions, type ToolbarAction } fr
 import { extractFieldErrors } from '../../utils/productForm';
 import { mintUuid } from '../../utils/variantDraft';
 import {
+  newPickupSelection,
   orderPointKept,
   pickupErrorId,
   pickupNeeded,
@@ -134,7 +135,7 @@ const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, o
       id: getTranslation(pickupErrorId(code, !!stores)),
       defaultMessage: t('ecommerce.orders.errors.invalid'),
     });
-  const newPoint = pickup !== 'NONE' && point && point.point.id !== orderPoint?.id ? point : null;
+  const newPoint = pickup !== 'NONE' ? newPickupSelection(point, orderPoint?.id) : null;
   // Edit: nothing to save while the line would keep charging the same method and amount.
   const unchanged =
     mode === 'EDIT' &&

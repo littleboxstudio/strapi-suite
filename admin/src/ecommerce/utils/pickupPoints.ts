@@ -66,6 +66,17 @@ export function pickupSelectionInput(selection: PickupSelection | null): PickupP
     : { pickupPointId: selection.point.id };
 }
 
+/**
+ * The chosen point when it differs from the order's (`currentId`); null otherwise. Choosing the
+ * order's own point again keeps it (it may no longer be offered: a removed store).
+ */
+export function newPickupSelection(
+  selection: PickupSelection | null,
+  currentId: string | null | undefined
+): PickupSelection | null {
+  return selection && selection.point.id !== currentId ? selection : null;
+}
+
 /** A Store pickup method or option. */
 export function isStorePickupMethod(m: MethodRef | null | undefined): boolean {
   return m?.providerId === STORE_PICKUP_ID;
