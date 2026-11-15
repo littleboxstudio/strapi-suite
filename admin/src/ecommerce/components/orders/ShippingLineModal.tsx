@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
-import { Box, Button, Field, Flex, Loader, Modal, Radio, TextInput, Typography } from '@strapi/design-system';
+import { Box, Button, Field, Flex, Loader, Modal, TextInput, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchShippingOptions from '../../usecases/orders/fetchShippingOptions';
 import EditShippingLine from '../../usecases/orders/editShippingLine';
@@ -39,6 +39,7 @@ import type {
 import BalanceOutcome from './BalanceOutcome';
 import EmptyNote from './EmptyNote';
 import NoticeBar, { NOTICE_BACKGROUND, NOTICE_TEXT } from './NoticeBar';
+import { MethodItem, MethodList, MethodListRest, MethodsPanel } from './MethodsPanel';
 import PickupPointPicker from './PickupPointPicker';
 
 type Props = {
@@ -247,70 +248,6 @@ const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, o
     return (
       <Flex direction="column" alignItems="stretch" gap={4}>
         {failureNote}
-        <Field.Root name="method" error={errors.method ? codeText(errors.method) : undefined}>
-          <Field.Label>{t('ecommerce.orders.shippingCharges.method')}</Field.Label>
-          <Radio.Group
-            value={selected ?? undefined}
-            disabled={busy}
-            aria-label={t('ecommerce.orders.shippingCharges.method')}
-            onValueChange={choose}
-          >
-            {options.map((o) => (
-              <Radio.Item key={shippingOptionKey(o)} value={shippingOptionKey(o)}>
-                {o.name} · {money(o.price)}
-              </Radio.Item>
-            ))}
-          </Radio.Group>
-          <Field.Error />
-        </Field.Root>
-        <Field.Root
-          name="amount"
-          error={errors.amount ? codeText(errors.amount) : undefined}
-          hint={
-            option && suggestionOf(option) !== null
-              ? t('ecommerce.orders.shippingCharges.suggested', { amount: money(suggestionOf(option)!) })
-              : undefined
-          }
-        >
-          <Field.Label>{t('ecommerce.orders.shippingCharges.price')}</Field.Label>
-          <TextInput
-            value={price}
-            disabled={busy}
-            inputMode="decimal"
-            onChange={(e: any) => {
-              setPrice(e.target.value);
-              setErrors({});
-            }}
-          />
-          <Field.Hint />
-          <Field.Error />
-        </Field.Root>
-        {pickup !== 'NONE' && (
-          <Flex direction="column" alignItems="stretch" gap={2}>
-            <Typography variant="sigma" textColor="neutral600">
-              {t(stores ? 'ecommerce.orders.pickup.store.title' : 'ecommerce.orders.pickup.title')}
-            </Typography>
-            <Typography variant="pi" textColor="neutral600">
-              {pickup === 'OPTIONAL' && orderPoint
-                ? t(stores ? 'ecommerce.orders.pickup.store.keep' : 'ecommerce.orders.pickup.keep', {
-                    name: orderPoint.name,
-                    id: orderPoint.id,
-                  })
-                : t(stores ? 'ecommerce.orders.pickup.store.required' : 'ecommerce.orders.pickup.required')}
-            </Typography>
-            <PickupPointPicker
-              stores={stores}
-              initialPostalCode={orderPoint?.customerAddress?.postalCode ?? order.shippingAddress?.postalCode ?? ''}
-              value={point}
-              onChange={(next) => {
-                setPoint(next);
-                setErrors({});
-              }}
-              disabled={busy}
-              error={errors.form ? pickupErrorText(errors.form) : undefined}
-            />
-          </Flex>
-        )}
         {shipped && option && (
           // Once shipped the order's address stays: a point only goes to the next shipments.
           <Box padding={3} hasRadius style={{ background: NOTICE_BACKGROUND }}>
@@ -322,18 +259,99 @@ const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, o
         {!shipped && pickup === 'NONE' && orderPoint && option && (
           <NoticeBar text={t('ecommerce.orders.pickup.restore')} />
         )}
-        {errors.form && pickup === 'NONE' && (
-          <Typography variant="omega" textColor="danger600">
-            {codeText(errors.form)}
-          </Typography>
-        )}
+        <MethodsPanel>
+          <MethodList role="listbox" aria-label={t('ecommerce.orders.shippingCharges.method')}>
+            {options.map((o) => {
+              const key = shippingOptionKey(o);
+              const isSelected = key === selected;
+              return (
+                <MethodItem
+                  key={key}
+                  type="button"
+                  role="option"
+                  aria-selected={isSelected}
+                  $selected={isSelected}
+                  disabled={busy}
+                  onClick={() => !isSelected && choose(key)}
+                >
+                  {o.name}
+                </MethodItem>
+              );
+            })}
+            <MethodListRest />
+          </MethodList>
+          <Box flex="1" padding={5} minWidth={0}>
+            {option && (
+              <Flex direction="column" alignItems="stretch" gap={4}>
+                {errors.method && (
+                  <Typography variant="omega" textColor="danger600">
+                    {codeText(errors.method)}
+                  </Typography>
+                )}
+                <Field.Root
+                  name="amount"
+                  error={errors.amount ? codeText(errors.amount) : undefined}
+                  hint={
+                    suggestionOf(option) !== null
+                      ? t('ecommerce.orders.shippingCharges.suggested', { amount: money(suggestionOf(option)!) })
+                      : undefined
+                  }
+                >
+                  <Field.Label>{t('ecommerce.orders.shippingCharges.price')}</Field.Label>
+                  <TextInput
+                    value={price}
+                    disabled={busy}
+                    inputMode="decimal"
+                    onChange={(e: any) => {
+                      setPrice(e.target.value);
+                      setErrors({});
+                    }}
+                  />
+                  <Field.Hint />
+                  <Field.Error />
+                </Field.Root>
+                {pickup !== 'NONE' && (
+                  <Flex direction="column" alignItems="stretch" gap={2}>
+                    <Typography variant="sigma" textColor="neutral600">
+                      {t(stores ? 'ecommerce.orders.pickup.store.title' : 'ecommerce.orders.pickup.title')}
+                    </Typography>
+                    <Typography variant="pi" textColor="neutral600">
+                      {pickup === 'OPTIONAL' && orderPoint
+                        ? t(stores ? 'ecommerce.orders.pickup.store.keep' : 'ecommerce.orders.pickup.keep', {
+                            name: orderPoint.name,
+                            id: orderPoint.id,
+                          })
+                        : t(stores ? 'ecommerce.orders.pickup.store.required' : 'ecommerce.orders.pickup.required')}
+                    </Typography>
+                    <PickupPointPicker
+                      stores={stores}
+                      initialPostalCode={orderPoint?.customerAddress?.postalCode ?? order.shippingAddress?.postalCode ?? ''}
+                      value={point}
+                      onChange={(next) => {
+                        setPoint(next);
+                        setErrors({});
+                      }}
+                      disabled={busy}
+                      error={errors.form ? pickupErrorText(errors.form) : undefined}
+                    />
+                  </Flex>
+                )}
+                {errors.form && pickup === 'NONE' && (
+                  <Typography variant="omega" textColor="danger600">
+                    {codeText(errors.form)}
+                  </Typography>
+                )}
+              </Flex>
+            )}
+          </Box>
+        </MethodsPanel>
       </Flex>
     );
   };
 
   return (
     <Modal.Root open onOpenChange={(next: boolean) => !next && !busy && onClose()}>
-      <Modal.Content>
+      <Modal.Content style={{ maxWidth: 960, width: '100%' }}>
         <Modal.Header>
           <Modal.Title>{title}</Modal.Title>
         </Modal.Header>
