@@ -27,7 +27,7 @@ export type StoreDraft = { key: string; id: string | null } & Record<StoreField,
 
 /** The Store pickup modal: edited like a manual method, plus the stores of each market. */
 export type StorePickupDraft = ManualMethodDraft & {
-  /** Stores per store market (kept while a market is unselected; only selected ones are saved). */
+  /** Stores per store market (only selected ones are saved; deselecting a market asks to drop them). */
   stores: Record<string, StoreDraft[]>;
 };
 
@@ -124,6 +124,27 @@ export function draftToStorePickup(
 /** Selected markets without any store: they are not offered (warned in the modal). */
 export function marketsWithoutStores(draft: StorePickupDraft): string[] {
   return draft.markets.filter((m) => (draft.stores[m] ?? []).length === 0);
+}
+
+/**
+ * The stores lost when the selected markets become `next`: those of each deselected market, in
+ * the order of the selected markets (the modal asks before removing them).
+ */
+export function storesOfRemovedMarkets(
+  draft: StorePickupDraft,
+  next: string[]
+): { market: string; store: StoreDraft }[] {
+  return draft.markets
+    .filter((m) => !next.includes(m))
+    .flatMap((market) => (draft.stores[market] ?? []).map((store) => ({ market, store })));
+}
+
+/** A copy without the stores of `markets`. */
+export function withoutMarketStores(draft: StorePickupDraft, markets: string[]): StorePickupDraft {
+  return {
+    ...draft,
+    stores: Object.fromEntries(Object.entries(draft.stores).filter(([m]) => !markets.includes(m))),
+  };
 }
 
 /** The store markets with a rate table and their store count, in the order of the store markets. */

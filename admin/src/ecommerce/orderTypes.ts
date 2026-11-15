@@ -1068,6 +1068,8 @@ export type ShipMethodOption = {
   stores?: PickupStore[];
   /** STORE_PICKUP: the order's store, or null. */
   selectedStoreId?: string | null;
+  /** STORE_PICKUP: a store pickup shipment is active, so the order's store can no longer change. */
+  storeLocked?: true;
 };
 
 export type CreateShipmentInput = {

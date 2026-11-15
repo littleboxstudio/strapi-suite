@@ -4,7 +4,8 @@ import { Box, Button, Flex, IconButton, Modal, Typography } from '@strapi/design
 import { Pencil, Plus, Trash } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { NOTICE_BACKGROUND, NOTICE_TEXT } from '../orders/NoticeBar';
-import { MarketRatesEditor } from './MarketRatesEditor';
+import { ActionConfirmModal } from '../ActionConfirmModal';
+import { MarketRatesEditor, type RatesDraft } from './MarketRatesEditor';
 import { MethodNameTaxFields } from './MethodNameTaxFields';
 import { StoreModal } from './StoreModal';
 import {
@@ -13,6 +14,8 @@ import {
   emptyStoreDraft,
   marketsWithoutStores,
   storePickupToDraft,
+  storesOfRemovedMarkets,
+  withoutMarketStores,
   withoutStoreErrors,
   type StoreDraft,
   type StoreField,
@@ -39,6 +42,9 @@ type Props = {
 
 type EditingStore = { market: string; marketName: string; index: number | null; store: StoreDraft };
 
+/** A removal that drops stores, waiting for confirmation: the stores it drops and the change. */
+type PendingRemoval = { title: string; stores: StoreDraft[]; apply: () => void };
+
 /**
  * The Store pickup configuration: the name per locale, the VAT rate, the rate table per market
  * and, inside each market, its stores. A market with rates and no store is not offered.
@@ -61,6 +67,7 @@ const StorePickupModal = ({ config, locales, defaultLocale, markets, onClose, on
   const [locale, setLocale] = useState(defaultLocale);
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState<EditingStore | null>(null);
+  const [removal, setRemoval] = useState<PendingRemoval | null>(null);
 
   const clearError = (path: string) =>
     setErrors((current) => {
@@ -136,6 +143,37 @@ const StorePickupModal = ({ config, locales, defaultLocale, markets, onClose, on
     setStores(market, (list) => list.filter((_, i) => i !== index));
     // The indexes of the next stores change: their server errors no longer match.
     setErrors((current) => withoutStoreErrors(current, market));
+  };
+
+  /** Removing a store asks first: what was typed in it is lost. */
+  const askRemoveStore = (market: string, index: number, store: StoreDraft) =>
+    setRemoval({
+      title: t('ecommerce.settings.storePickup.removeStore.title'),
+      stores: [store],
+      apply: () => removeStore(market, index),
+    });
+
+  /**
+   * The rates editor's changes. One that deselects markets with stores asks first, then drops
+   * those stores with the markets.
+   */
+  const changeRates = (change: (current: RatesDraft) => RatesDraft) => {
+    const next = { ...draft, ...change(draft) };
+    const lost = storesOfRemovedMarkets(draft, next.markets);
+    const apply = () => {
+      const dropped = [...new Set(lost.map((r) => r.market))];
+      setDraft((d) => withoutMarketStores({ ...d, ...change(d) }, dropped));
+      setErrors((current) => dropped.reduce((acc, m) => withoutStoreErrors(acc, m), current));
+    };
+    if (!lost.length) {
+      setDraft((d) => ({ ...d, ...change(d) }));
+      return;
+    }
+    setRemoval({
+      title: t('ecommerce.settings.storePickup.removeMarket.title'),
+      stores: lost.map((r) => r.store),
+      apply,
+    });
   };
 
   /** Selected markets with rates and no store: not offered (warned in their card). */
@@ -215,7 +253,7 @@ const StorePickupModal = ({ config, locales, defaultLocale, markets, onClose, on
                       <IconButton
                         label={`${t('ecommerce.settings.storePickup.stores.remove')}: ${store.name}`}
                         variant="ghost"
-                        onClick={() => removeStore(market, index)}
+                        onClick={() => askRemoveStore(market, index, store)}
                       >
                         <Trash />
                       </IconButton>
@@ -256,7 +294,7 @@ const StorePickupModal = ({ config, locales, defaultLocale, markets, onClose, on
               <MarketRatesEditor
                 markets={markets}
                 value={draft}
-                onChange={(change) => setDraft((d) => ({ ...d, ...change(d) }))}
+                onChange={changeRates}
                 errors={errors}
                 errorRound={errorRound}
                 clearError={clearError}
@@ -290,6 +328,30 @@ const StorePickupModal = ({ config, locales, defaultLocale, markets, onClose, on
           onSave={(store) => saveStore(editing, store)}
         />
       )}
+      {/* Outside the configuration dialog too, for the same reason. */}
+      <ActionConfirmModal
+        open={removal !== null}
+        title={removal?.title ?? ''}
+        text={
+          <Flex direction="column" gap={2}>
+            <Typography>
+              {t('ecommerce.settings.storePickup.removeStores.text', { count: removal?.stores.length ?? 0 })}
+            </Typography>
+            {removal?.stores.map((store) => (
+              <Typography key={store.key} fontWeight="bold">
+                {[store.name, store.city].filter((v) => v.trim()).join(' · ')}
+              </Typography>
+            ))}
+          </Flex>
+        }
+        confirmLabel={t('ecommerce.settings.storePickup.removeStores.confirm')}
+        cancelLabel={t('ecommerce.settings.cancel')}
+        onConfirm={() => {
+          removal?.apply();
+          setRemoval(null);
+        }}
+        onCancel={() => setRemoval(null)}
+      />
     </>
   );
 };

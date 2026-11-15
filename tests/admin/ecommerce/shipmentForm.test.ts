@@ -19,6 +19,8 @@ import {
   shipmentActions,
   defaultShipStoreId,
   shipStore,
+  shipStoreErrorId,
+  shipStoreLocked,
   validateShipForm,
   validateTrackingForm,
   type ShipForm,
@@ -437,6 +439,28 @@ describe('store pickup ship method', () => {
     expect(defaultShipStoreId([manual, { ...store, selectedStoreId: null }])).toBe('');
     expect(defaultShipStoreId([manual])).toBe('');
     expect(emptyShipForm({ lines } as any, [manual, store]).storeId).toBe('st_lisboa');
+  });
+
+  it('a locked store (an active store pickup shipment) is always the order store', () => {
+    const locked: ShipMethodOption = { ...store, storeLocked: true };
+    expect(shipStoreLocked(locked)).toBe(true);
+    expect(shipStoreLocked(store)).toBe(false);
+    expect(shipStoreLocked(manual)).toBe(false);
+    expect(shipStoreLocked(null)).toBe(false);
+    // Whatever the form holds, the order's store is the one shown and sent.
+    expect(shipStore(locked, 'st_porto')).toBe(STORE);
+    expect(shipStore(locked, '')).toBe(STORE);
+    expect(validateShipForm(storeForm({ storeId: '' }), lines, locked)).toEqual({});
+    expect(buildShipmentInput(storeForm({ storeId: 'st_porto' }), 'k', locked).method).toEqual({
+      mode: 'STORE_PICKUP',
+      pickupPointId: 'st_lisboa',
+    });
+  });
+
+  it('shipStoreErrorId: the locked store has its own text, the rest the store picker texts', () => {
+    expect(shipStoreErrorId('PICKUP_ADDRESS_LOCKED')).toBe('ecommerce.orders.ship.storeLocked');
+    expect(shipStoreErrorId('PICKUP_POINT_INVALID')).toBe('ecommerce.orders.pickup.store.errors.PICKUP_POINT_INVALID');
+    expect(shipStoreErrorId('required')).toBe('ecommerce.orders.errors.required');
   });
 
   it('shipStore: the chosen store of the method, or null', () => {

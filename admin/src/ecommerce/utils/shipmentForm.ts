@@ -1,5 +1,5 @@
 import type { CreateShipmentInput, Order, OrderStatus, PickupStore, ShipMethodOption, ShipmentView } from '../orderTypes';
-import { STORE_PICKUP_ID } from './pickupPoints';
+import { STORE_PICKUP_ID, pickupErrorId } from './pickupPoints';
 
 /** Mirror the server limits. */
 export const MAX_CARRIER_NAME = 120;
@@ -70,10 +70,24 @@ export function defaultShipStoreId(methods: ShipMethodOption[]): string {
   return methods.find((m) => m.kind === 'STORE_PICKUP')?.selectedStoreId ?? '';
 }
 
-/** The store `storeId` names among the Store pickup method's stores; null otherwise. */
+/** Store pickup: the order's store can no longer change (a store pickup shipment of it is active). */
+export function shipStoreLocked(method: ShipMethodOption | null): boolean {
+  return method?.kind === 'STORE_PICKUP' && method.storeLocked === true;
+}
+
+/**
+ * The store `storeId` names among the Store pickup method's stores (the order's own when the store
+ * is locked); null otherwise.
+ */
 export function shipStore(method: ShipMethodOption | null, storeId: string): PickupStore | null {
   if (method?.kind !== 'STORE_PICKUP') return null;
-  return method.stores?.find((s) => s.id === storeId) ?? null;
+  const id = shipStoreLocked(method) ? (method.selectedStoreId ?? '') : storeId;
+  return method.stores?.find((s) => s.id === id) ?? null;
+}
+
+/** The message id of a Store pickup error at Ship (PICKUP_ADDRESS_LOCKED: the store is fixed). */
+export function shipStoreErrorId(code: string): string {
+  return code === 'PICKUP_ADDRESS_LOCKED' ? 'ecommerce.orders.ship.storeLocked' : pickupErrorId(code, true);
 }
 
 /** An integer 1–99 typed in the parcels field; null otherwise. */
@@ -159,7 +173,7 @@ export function buildShipmentInput(
       ...(trackingUrl ? { trackingUrl } : {}),
     };
   } else if (method.kind === 'STORE_PICKUP') {
-    shipMethod = { mode: 'STORE_PICKUP', pickupPointId: form.storeId };
+    shipMethod = { mode: 'STORE_PICKUP', pickupPointId: shipStore(method, form.storeId)?.id ?? form.storeId };
   } else {
     shipMethod = { mode: 'CARRIER', providerId: method.providerId, serviceId: method.serviceId };
   }
