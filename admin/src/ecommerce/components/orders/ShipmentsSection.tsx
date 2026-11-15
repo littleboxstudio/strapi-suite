@@ -385,7 +385,12 @@ const ShipmentsSection = ({
                           {t(`ecommerce.orders.shipments.statuses.${s.status}`, undefined, s.status)}
                         </Badge>
                         {note && (
-                          <Typography variant="pi" textColor={note.tone} style={{ maxWidth: 220 }}>
+                          // The cell does not wrap by default: the note keeps to its column.
+                          <Typography
+                            variant="pi"
+                            textColor={note.tone}
+                            style={{ display: 'block', width: 220, whiteSpace: 'normal', overflowWrap: 'anywhere' }}
+                          >
                             {note.text}
                           </Typography>
                         )}
