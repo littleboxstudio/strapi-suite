@@ -2,8 +2,8 @@ import type { ReactNode } from 'react';
 import { Box, Flex, Typography } from '@strapi/design-system';
 
 /** The notice colours: a fixed dark amber background with white text (light and dark mode). */
-const NOTICE_BACKGROUND = '#43311a';
-const NOTICE_TEXT = '#ffffff';
+export const NOTICE_BACKGROUND = '#43311a';
+export const NOTICE_TEXT = '#ffffff';
 
 type Props = {
   /** One line of text; a long one ends in an ellipsis (the full text is the tooltip). */

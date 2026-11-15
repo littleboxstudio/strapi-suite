@@ -21,6 +21,7 @@ import {
   VisuallyHidden,
 } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
+import { NOTICE_BACKGROUND, NOTICE_TEXT } from './NoticeBar';
 import CreateShipment from '../../usecases/orders/createShipment';
 import FetchShipMethods from '../../usecases/orders/fetchShipMethods';
 import { apiErrorCode, apiErrorMessageId, shouldRenewIdempotencyKey } from '../../utils/orderDetail';
@@ -350,7 +351,10 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
                           !selected && update({ methodKey: key }, ['method', 'trackingCode', 'trackingUrl', 'parcels'])
                         }
                       >
-                        {m.name}
+                        <Flex gap={2} wrap="wrap" alignItems="center">
+                          <span>{m.name}</span>
+                          {m.original && <Badge>{t('ecommerce.orders.ship.originalMethod')}</Badge>}
+                        </Flex>
                       </MethodItem>
                     );
                   })}
@@ -359,18 +363,11 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
                 <Box flex="1" padding={5} minWidth={0}>
                   {method && (
                     <Flex direction="column" alignItems="stretch" gap={4}>
-                      <Flex justifyContent="space-between" alignItems="flex-start" gap={3}>
-                        <Typography variant="delta" tag="h3" textColor="neutral800" style={WRAP}>
-                          {method.name}
-                        </Typography>
-                        {method.original && <Badge>{t('ecommerce.orders.ship.originalMethod')}</Badge>}
-                      </Flex>
-
                       {errors.method && <Typography textColor="danger600">{codeText(errors.method)}</Typography>}
 
                       {method.kind === 'MANUAL' && (
-                        <Flex gap={4} alignItems="flex-start" wrap="wrap">
-                          <Box flex="1" minWidth="180px">
+                        <Flex direction="column" alignItems="stretch" gap={4}>
+                          <Box>
                             <Field.Root name="trackingCode" error={fieldError('trackingCode')}>
                               <Field.Label>{t('ecommerce.orders.shipments.trackingCode')}</Field.Label>
                               <TextInput
@@ -381,7 +378,7 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
                               <Field.Error />
                             </Field.Root>
                           </Box>
-                          <Box flex="2" minWidth="220px">
+                          <Box>
                             <Field.Root name="trackingUrl" error={fieldError('trackingUrl')} hint={t('ecommerce.orders.shipments.trackingUrlHint')}>
                               <Field.Label>{t('ecommerce.orders.shipments.trackingUrl')}</Field.Label>
                               <TextInput
@@ -400,13 +397,13 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
 
                       {method.kind === 'CARRIER' && (
                         <>
-                          <Box padding={3} background="neutral100" hasRadius>
-                            <Typography variant="omega" textColor="neutral700">
+                          <Box padding={3} hasRadius style={{ background: NOTICE_BACKGROUND }}>
+                            <Typography variant="omega" style={{ color: NOTICE_TEXT }}>
                               {t('ecommerce.orders.ship.carrierHint')}
                             </Typography>
                           </Box>
                           {method.parcels && (
-                            <Box maxWidth="200px">
+                            <Box>
                               <Field.Root name="parcels" required error={fieldError('parcels')} hint={t('ecommerce.orders.ship.parcelsHint', { max: MAX_PARCELS })}>
                                 <Field.Label>{t('ecommerce.orders.ship.parcels')}</Field.Label>
                                 <TextInput
