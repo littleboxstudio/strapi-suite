@@ -118,7 +118,7 @@ describe('reviewAlerts', () => {
         code: 'SHIPPING_REVIEW',
         reasonKey: 'ecommerce.orders.review.reason.PRODUCTS_CHANGED',
         raisedAt: 'a',
-        sectionId: 'order-section-shipments',
+        sectionId: 'order-section-shipping-charges',
         actionable: true,
         dismissable: false,
       },

@@ -44,6 +44,7 @@ import RefundModal from '../../components/orders/RefundModal';
 import RefundsTable from '../../components/orders/RefundsTable';
 import NotificationsSection from '../../components/orders/NotificationsSection';
 import ShipmentsSection from '../../components/orders/ShipmentsSection';
+import ShippingChargesSection from '../../components/orders/ShippingChargesSection';
 import ReturnsSection from '../../components/orders/ReturnsSection';
 import ShipOrderModal from '../../components/orders/ShipOrderModal';
 import RegisterReturnModal from '../../components/orders/RegisterReturnModal';
@@ -343,6 +344,40 @@ const OrderDetailPage = () => {
           locales={{ locale: order.locale, defaultLocale }}
         />
       </OrderSection>
+      <PromotionsSection
+        id="order-section-promotions"
+        title={t('ecommerce.orders.detail.sections.promotions')}
+        promotions={order.promotions ?? []}
+        promotionCodes={order.promotionCodes}
+        locales={{ locale: order.locale, defaultLocale }}
+        order={order}
+        permissions={permissions}
+        onEdited={showResult}
+        onAction={(action) => dispatchModal({ type: 'OPEN', action })}
+      />
+      <ShippingChargesSection
+        id="order-section-shipping-charges"
+        title={t('ecommerce.orders.shippingCharges.title')}
+        order={order}
+        permissions={permissions}
+        canManage={canManage}
+        onEdited={showResult}
+        onAction={(action) => dispatchModal({ type: 'OPEN', action })}
+      />
+      <ShipmentsSection
+        id="order-section-shipments"
+        title={t('ecommerce.orders.detail.sections.shipments')}
+        orderStatus={order.orderStatus}
+        deliveryStatus={order.shipping.deliveryStatus}
+        shipments={order.shipments}
+        order={order}
+        canManage={canManage}
+        onChanged={load}
+        onEdited={showResult}
+        onAction={(action) => dispatchModal({ type: 'OPEN', action })}
+        sectionActions={shipActions}
+        actionBusy={busy}
+      />
       <InvoicesSection
         title={t('ecommerce.orders.detail.sections.invoices')}
         order={order}
@@ -354,21 +389,6 @@ const OrderDetailPage = () => {
           setInvoiceOpen(true);
         }}
         onChanged={load}
-      />
-      <ShipmentsSection
-        id="order-section-shipments"
-        title={t('ecommerce.orders.detail.sections.shipments')}
-        orderStatus={order.orderStatus}
-        deliveryStatus={order.shipping.deliveryStatus}
-        shipments={order.shipments}
-        order={order}
-        permissions={permissions}
-        canManage={canManage}
-        onChanged={load}
-        onEdited={showResult}
-        onAction={(action) => dispatchModal({ type: 'OPEN', action })}
-        sectionActions={shipActions}
-        actionBusy={busy}
       />
       <ReturnsSection title={t('ecommerce.orders.detail.sections.returns')} returns={order.returns} />
       <OrderSection
@@ -383,17 +403,6 @@ const OrderDetailPage = () => {
           onChanged={load}
         />
       </OrderSection>
-      <PromotionsSection
-        id="order-section-promotions"
-        title={t('ecommerce.orders.detail.sections.promotions')}
-        promotions={order.promotions ?? []}
-        promotionCodes={order.promotionCodes}
-        locales={{ locale: order.locale, defaultLocale }}
-        order={order}
-        permissions={permissions}
-        onEdited={showResult}
-        onAction={(action) => dispatchModal({ type: 'OPEN', action })}
-      />
 
       <NotificationsSection orderId={order.id} refreshKey={version} canResend={canManage} />
 

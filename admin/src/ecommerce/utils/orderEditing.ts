@@ -36,7 +36,7 @@ export type ReviewAlert = {
   /** Translation id (without the plugin prefix) of the reason. */
   reasonKey: string;
   raisedAt: string;
-  sectionId: 'order-section-shipments' | 'order-section-promotions';
+  sectionId: 'order-section-shipping-charges' | 'order-section-promotions';
   /** The merchant can still act on the section (recalculate). */
   actionable: boolean;
   /** Editing is closed (cancelled, archived, pending shipment): the flag can only be dismissed. */
@@ -44,7 +44,7 @@ export type ReviewAlert = {
 };
 
 const ALERT_SECTION: Record<ReviewFlagCode, ReviewAlert['sectionId']> = {
-  SHIPPING_REVIEW: 'order-section-shipments',
+  SHIPPING_REVIEW: 'order-section-shipping-charges',
   DISCOUNTS_REVIEW: 'order-section-promotions',
 };
 const ALERT_ORDER: ReviewFlagCode[] = ['SHIPPING_REVIEW', 'DISCOUNTS_REVIEW'];
