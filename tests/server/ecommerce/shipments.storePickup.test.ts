@@ -116,6 +116,14 @@ const makeStorePickup = (c: Commerce, id: number, store: typeof STORE_LISBOA = S
   row.shippingAddress = storeAddress(store);
 };
 
+/** Turns the order into a DPD Pickup order (its point is a DPD one). */
+const makeDpdPickup = (c: Commerce, id: number) => {
+  const row = orderRow(c, id);
+  row.shippingMethod = { providerId: 'dpd-portugal', serviceId: 'PICKUP', name: 'DPD Pickup', tax: 23 };
+  row.pickupPoint = { ...STORE_LISBOA, id: 'PT10234', name: 'Papelaria Central', customerAddress };
+  row.shippingAddress = { ...storeAddress(STORE_LISBOA), company: 'Papelaria Central' };
+};
+
 const ship = (lineId: number, method: Record<string, unknown>, key = 'k1', extra: Record<string, unknown> = {}) => ({
   lines: [{ orderLineId: lineId, quantity: 1 }],
   method,
@@ -149,7 +157,8 @@ describe('shipMethods: Store pickup', () => {
     expect(storeEntry(methods)).toEqual({
       providerId: 'store-pickup',
       serviceId: 'STORE',
-      name: 'Levantamento em loja',
+      // The order's own method keeps its own name.
+      name: 'Store pickup (as sold)',
       kind: 'STORE_PICKUP',
       original: true,
       stores: [STORE_LISBOA, STORE_PORTO],
@@ -160,11 +169,12 @@ describe('shipMethods: Store pickup', () => {
     expect(methods.some((m: any) => m.serviceId === 'PICKUP')).toBe(false);
   });
 
-  it('a home delivery order: the stores of its market, none selected', async () => {
+  it('is not listed for a home delivery or a DPD Pickup order, even with the module active', async () => {
     const { c, ships } = setup();
     const { id } = await paidOrder(c);
-    const entry = storeEntry((await ships.shipMethods(id, 'en')).methods);
-    expect(entry).toMatchObject({ original: false, stores: [STORE_LISBOA, STORE_PORTO], selectedStoreId: null });
+    expect(storeEntry((await ships.shipMethods(id, 'en')).methods)).toBeUndefined();
+    makeDpdPickup(c, id);
+    expect(storeEntry((await ships.shipMethods(id, 'en')).methods)).toBeUndefined();
   });
 
   it('a store removed from settings is listed first as the order store', async () => {
@@ -301,18 +311,25 @@ describe('create with STORE_PICKUP', () => {
     expect(s).toMatchObject({ status: 'ACTIVE', providerId: 'store-pickup', store: STORE_LISBOA });
   });
 
-  it('a home delivery order needs a store and keeps its own address', async () => {
-    const { c, ships } = setup();
+  it('refuses a home delivery or a DPD Pickup order, with or without a store, and writes nothing', async () => {
+    const { c, ships, settings } = setup();
     const { id, lineId } = await paidOrder(c);
-    expect(await codesOf(ships.create(id, ship(lineId, { mode: 'STORE_PICKUP' }), 'user:1'))).toEqual([
-      { path: 'method.pickupPointId', code: 'PICKUP_POINT_REQUIRED' },
-    ]);
-    const before = JSON.stringify(orderRow(c, id));
-    const s = await ships.create(id, ship(lineId, { mode: 'STORE_PICKUP', pickupPointId: STORE_PORTO.id }, 'k2'), 'user:1');
-    expect(s).toMatchObject({ status: 'ACTIVE', carrierName: 'Store pickup', store: STORE_PORTO });
-    const after = orderRow(c, id);
-    expect(after.shippingAddress).toEqual(JSON.parse(before).shippingAddress);
-    expect(after.pickupPoint ?? null).toBeNull();
+    const refused = [{ path: 'method.mode', code: 'PICKUP_POINT_REQUIRED' }];
+    for (const turn of ['home', 'dpd']) {
+      if (turn === 'dpd') makeDpdPickup(c, id);
+      const before = JSON.stringify(orderRow(c, id));
+      const historyBefore = c.tables[UIDS.orderHistory].length;
+      expect(await codesOf(ships.create(id, ship(lineId, { mode: 'STORE_PICKUP' }, `${turn}-1`), 'user:1'))).toEqual(refused);
+      expect(
+        await codesOf(
+          ships.create(id, ship(lineId, { mode: 'STORE_PICKUP', pickupPointId: STORE_PORTO.id }, `${turn}-2`), 'user:1')
+        )
+      ).toEqual(refused);
+      expect(JSON.stringify(orderRow(c, id))).toBe(before);
+      expect(c.tables[UIDS.orderHistory]).toHaveLength(historyBefore);
+    }
+    expect(c.tables[UIDS.shipment]).toHaveLength(0);
+    expect(settings.findStore).not.toHaveBeenCalled();
   });
 
   it('event payload has storePickup: true and notify true', async () => {
