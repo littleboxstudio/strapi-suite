@@ -89,12 +89,11 @@ const MethodItem = styled.button<{ $selected: boolean }>`
   all: unset;
   box-sizing: border-box;
   cursor: pointer;
-  padding: ${({ theme }) => `${theme.spaces[3]} ${theme.spaces[4]}`};
+  padding: ${({ theme }) => theme.spaces[4]};
   background: ${({ theme, $selected }) => ($selected ? theme.colors.neutral0 : theme.colors.neutral100)};
   border-bottom: 1px solid ${({ theme }) => theme.colors.neutral150};
   border-right: 1px solid ${({ theme, $selected }) => ($selected ? 'transparent' : theme.colors.neutral150)};
   color: ${({ theme, $selected }) => ($selected ? theme.colors.neutral800 : theme.colors.neutral700)};
-  font-weight: ${({ $selected }) => ($selected ? 600 : 400)};
   font-size: 1.4rem;
   line-height: 1.43;
   white-space: normal;
