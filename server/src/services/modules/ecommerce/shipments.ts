@@ -7,7 +7,7 @@ import {
   type ValidationIssue,
 } from './errors';
 import { isUniqueViolation } from './dbErrors';
-import { MAX_MONEY_CENTS, type FulfillmentStatus, type OrderActionKey } from './domain/orders';
+import { type FulfillmentStatus, type OrderActionKey } from './domain/orders';
 import { randomUUID } from 'crypto';
 import {
   orderDeliveryStatus,
@@ -73,7 +73,6 @@ export type ShipmentInput = {
         /** Its service (DPD: EXPRESS / PICKUP); absent with the order's provider: the order's. */
         serviceId?: string | null;
       };
-  shippingCost: number;
   notifyCustomer: boolean;
   idempotencyKey: string;
   /** Carrier shipments: number of parcels, an integer 1–99 (1 when absent). */
@@ -111,7 +110,6 @@ export type ShipmentView = {
   items: ShipmentItem[];
   trackingCode: string | null;
   trackingUrl: string | null;
-  shippingCost: number;
   labelAvailable: boolean;
   deliveryStatus: string | null;
   deliverySource: string | null;
@@ -178,8 +176,6 @@ const num = (v: unknown): number => {
   return Number.isFinite(n) ? n : 0;
 };
 const idOf = (v: any): number | null => (v && typeof v === 'object' ? (v.id ?? null) : (v ?? null));
-const isMoney = (v: unknown): v is number =>
-  typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= MAX_MONEY_CENTS;
 
 const isHttpUrl = (v: string): boolean => {
   if (v.length > MAX_URL) return false;
@@ -241,7 +237,6 @@ type NormalizedInput = {
         trackingUrl: string | null;
       }
     | { mode: 'CARRIER'; providerId?: string; serviceId?: string | null };
-  shippingCost: number;
   notifyCustomer: boolean;
   idempotencyKey: string;
   parcels: number;
@@ -255,8 +250,6 @@ const normalizeInput = (input: ShipmentInput): NormalizedInput => {
   if (!idempotencyKey) errors.push({ path: 'idempotencyKey', code: 'required' });
   else if (idempotencyKey.length > MAX_TEXT)
     errors.push({ path: 'idempotencyKey', code: 'too_long' });
-
-  if (!isMoney(raw.shippingCost)) errors.push({ path: 'shippingCost', code: 'INVALID_AMOUNT' });
 
   const notifyCustomer = raw.notifyCustomer === undefined ? true : raw.notifyCustomer;
   if (typeof notifyCustomer !== 'boolean') errors.push({ path: 'notifyCustomer', code: 'invalid' });
@@ -314,7 +307,6 @@ const normalizeInput = (input: ShipmentInput): NormalizedInput => {
   return {
     lines: Array.isArray(raw.lines) ? raw.lines : [],
     method,
-    shippingCost: raw.shippingCost as number,
     notifyCustomer: notifyCustomer as boolean,
     idempotencyKey,
     parcels: parcels as number,
@@ -410,7 +402,6 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
       items: shipmentItemsOf(r),
       trackingCode: r.trackingCode ?? null,
       trackingUrl: r.trackingUrl ?? null,
-      shippingCost: num(r.shippingCost),
       labelAvailable: !!r.labelAvailable,
       deliveryStatus: r.deliveryStatus ?? null,
       deliverySource: r.deliverySource ?? null,
@@ -484,7 +475,6 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
         shipmentId: shipment.id,
         carrierName: shipment.carrierName,
         trackingCode: shipment.trackingCode ?? null,
-        shippingCost: num(shipment.shippingCost),
         items: items.map((i) => ({ orderLineId: i.orderLineId, quantity: i.quantity })),
       },
       actor: ctx.actor,
@@ -693,7 +683,6 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
             externalId: returnedId,
             trackingCode: trackingCode && trackingCode.length <= MAX_TEXT ? trackingCode : null,
             trackingUrl: trackingUrl && isHttpUrl(trackingUrl) ? trackingUrl : null,
-            shippingCost: isMoney(r.cost) ? r.cost : num(current.shippingCost),
             labelAvailable: r.labelAvailable === true,
             // Private (never in a view): how the label is fetched later.
             labelRef: labelRef || null,
@@ -936,7 +925,6 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
         const common = {
           order: orderId,
           items: { lines: items },
-          shippingCost: n.shippingCost,
           labelAvailable: false,
           deliveryStatus: 'IN_TRANSIT',
           idempotencyKey: n.idempotencyKey,

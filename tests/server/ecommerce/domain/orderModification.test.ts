@@ -46,57 +46,6 @@ const paid = (amount: number): PaymentLike[] => [{ status: 'COMPLETED', amount }
 const keep: ModificationInput['shipping'] = { mode: 'KEEP' };
 
 describe('simulateModification', () => {
-  it('RECALCULATE: shipping 1000, shipments 600, quote 800 → 1400, difference +400 (req 16.5.2)', () => {
-    const current = {
-      lines: [existing({ id: 1, unitPrice: 9000, quantity: 1 })],
-      orderDiscount: 0,
-      shippingOriginal: 1000,
-      shippingDiscount: 0,
-      payments: paid(10000),
-      refunds: [],
-    };
-    const r = simulateModification(
-      current,
-      {
-        lines: [{ orderLineId: 1, variantId: 101, quantity: 1 }],
-        shipping: { mode: 'RECALCULATE', quote: 800, previousShipmentsCost: 600 },
-      },
-      catalogOf(),
-    );
-    expect(r.errors).toEqual([]);
-    expect(r.shipping).toMatchObject({
-      mode: 'RECALCULATE',
-      previousCharged: 1000,
-      newCharged: 1400,
-      previousShipmentsCost: 600,
-      quote: 800,
-      shippingOriginal: 1400,
-      shippingDiscount: 0,
-    });
-    expect(r.after.shippingTotal).toBe(1400);
-    expect(r.difference).toBe(400);
-    expect(r.outcome).toBe('DUE');
-    expect(r.after.due).toBe(400);
-  });
-
-  it('RECALCULATE drops the shipping discount (free shipping no longer applies)', () => {
-    const r = simulateModification(
-      {
-        lines: [existing()],
-        orderDiscount: 0,
-        shippingOriginal: 500,
-        shippingDiscount: 500,
-        payments: [],
-        refunds: [],
-      },
-      { lines: [{ orderLineId: 1, variantId: 101, quantity: 1 }], shipping: { mode: 'RECALCULATE', quote: 700, previousShipmentsCost: 0 } },
-      catalogOf(),
-    );
-    expect(r.shipping.previousCharged).toBe(0);
-    expect(r.shipping.newCharged).toBe(700);
-    expect(r.after.shippingTotal).toBe(700);
-  });
-
   it('adds a 2500 product and +400 shipping to a paid 10000 order → due 2900, DUE (req 16.7)', () => {
     const current = {
       lines: [existing({ id: 1, unitPrice: 9000, quantity: 1 })],
@@ -113,7 +62,7 @@ describe('simulateModification', () => {
           { orderLineId: 1, variantId: 101, quantity: 1 },
           { variantId: 201, quantity: 1 },
         ],
-        shipping: { mode: 'RECALCULATE', quote: 800, previousShipmentsCost: 600 },
+        shipping: { mode: 'MANUAL', amount: 1400 },
       },
       catalogOf(variant({ variantId: 201, unitPrice: 2500 })),
     );
@@ -580,55 +529,6 @@ describe('simulateModification', () => {
     expect(r.difference).toBe(5000);
   });
 
-  it('RECALCULATE validates quote and previousShipmentsCost → INVALID_AMOUNT', () => {
-    const current = {
-      lines: [existing({ id: 1 })],
-      orderDiscount: 0,
-      shippingOriginal: 1000,
-      shippingDiscount: 0,
-      payments: [],
-      refunds: [],
-    };
-    const lines = [{ orderLineId: 1, variantId: 101, quantity: 1 }];
-    const r = simulateModification(
-      current,
-      { lines, shipping: { mode: 'RECALCULATE', quote: -1, previousShipmentsCost: 1.5 } },
-      catalogOf(),
-    );
-    expect(r.errors).toEqual([
-      { path: 'shipping.quote', code: 'INVALID_AMOUNT' },
-      { path: 'shipping.previousShipmentsCost', code: 'INVALID_AMOUNT' },
-    ]);
-    expect(r.shipping.newCharged).toBe(1000);
-    expect(r.after.shippingTotal).toBe(1000);
-  });
-
-  it('RECALCULATE rejects quote and previousShipmentsCost above 1_000_000_000 cents', () => {
-    const current = {
-      lines: [existing({ id: 1 })],
-      orderDiscount: 0,
-      shippingOriginal: 1000,
-      shippingDiscount: 0,
-      payments: [],
-      refunds: [],
-    };
-    const lines = [{ orderLineId: 1, variantId: 101, quantity: 1 }];
-    const r = simulateModification(
-      current,
-      { lines, shipping: { mode: 'RECALCULATE', quote: 1_000_000_001, previousShipmentsCost: 1_000_000_001 } },
-      catalogOf(),
-    );
-    expect(r.errors).toEqual([
-      { path: 'shipping.quote', code: 'INVALID_AMOUNT' },
-      { path: 'shipping.previousShipmentsCost', code: 'INVALID_AMOUNT' },
-    ]);
-    const ok = simulateModification(
-      current,
-      { lines, shipping: { mode: 'RECALCULATE', quote: 1_000_000_000, previousShipmentsCost: 0 } },
-      catalogOf(),
-    );
-    expect(ok.errors).toEqual([]);
-  });
 });
 
 /** An applied promotion as the order stored it (Task 7 snapshot). */
@@ -859,7 +759,6 @@ describe('simulateModification: promotions and the order discount (design 4.8)',
   });
 
   it.each([
-    ['RECALCULATE', { mode: 'RECALCULATE', quote: 700, previousShipmentsCost: 0 }],
     ['MANUAL', { mode: 'MANUAL', amount: 300 }],
   ] as const)('%s shipping drops an applied free-shipping promotion: SHIPPING_PROMOTION_DROPPED', (_m, shipping) => {
     const current = promoCurrent({

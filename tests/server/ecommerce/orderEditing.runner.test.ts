@@ -152,7 +152,7 @@ describe('createEditRunner.runEdit', () => {
   it('refuses an order with a PENDING shipment with ORDER_NOT_EDITABLE (SHIPMENT_PENDING)', async () => {
     const c = setupCommerce();
     const id = await createOrder(c);
-    c.tables[UIDS.shipment].push({ id: 1, order: id, status: 'PENDING', items: { lines: [] }, shippingCost: 0 });
+    c.tables[UIDS.shipment].push({ id: 1, order: id, status: 'PENDING', items: { lines: [] } });
     const runner = runnerOf(c);
     expect(await issues(run(runner, id, 'op-edit-0004'))).toEqual([
       { path: 'order', code: 'ORDER_NOT_EDITABLE', detail: 'SHIPMENT_PENDING' },
@@ -164,7 +164,7 @@ describe('createEditRunner helpers', () => {
   it('assertEditable refuses an action that needs no shipment once one is ACTIVE', async () => {
     const c = setupCommerce();
     const id = await createOrder(c);
-    c.tables[UIDS.shipment].push({ id: 1, order: id, status: 'ACTIVE', items: { lines: [] }, shippingCost: 0 });
+    c.tables[UIDS.shipment].push({ id: 1, order: id, status: 'ACTIVE', items: { lines: [] } });
     const runner = runnerOf(c);
     const state = await c.orders.computeOrderState(id);
     expect(() => runner.assertEditable(state, 'ADD_PRODUCTS')).not.toThrow();

@@ -54,10 +54,6 @@
       "type": "text",
       "private": true
     },
-    "shippingCost": {
-      "type": "integer",
-      "default": 0
-    },
     "labelAvailable": {
       "type": "boolean",
       "default": false

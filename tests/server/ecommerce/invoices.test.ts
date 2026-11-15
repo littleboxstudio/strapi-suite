@@ -1030,7 +1030,6 @@ describe('EcommerceInvoiceService credit notes', () => {
       {
         lines: [{ orderLineId: lineId, quantity: 2 }],
         method: { mode: 'MANUAL', carrierName: 'CTT' },
-        shippingCost: 0,
         notifyCustomer: false,
         idempotencyKey: `s-${id}`,
       },

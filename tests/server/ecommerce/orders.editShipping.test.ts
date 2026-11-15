@@ -252,7 +252,7 @@ const issues = async (p: Promise<unknown>) => {
 };
 
 /** An ACTIVE shipment of the given lines (every line by default), delivered. */
-const ship = (ctx: Ctx, orderId: number, shippingCost: number, variantIds?: number[]) => {
+const ship = (ctx: Ctx, orderId: number, variantIds?: number[]) => {
   const lines = linesOf(ctx, orderId).filter(
     (l) => !variantIds || variantIds.includes(l.variantId)
   );
@@ -272,7 +272,6 @@ const ship = (ctx: Ctx, orderId: number, shippingCost: number, variantIds?: numb
         quantity: l.quantity,
       })),
     },
-    shippingCost,
     idempotencyKey: `ship-${orderId}-${ctx.tables[UIDS.shipment].length + 1}`,
   });
   orderRow(ctx, orderId).fulfillmentStatus = variantIds ? 'PARTIALLY_FULFILLED' : 'FULFILLED';
@@ -341,7 +340,7 @@ describe('EcommerceOrderEditingService.shippingOptionsForOrder', () => {
   it('quotes every effective unit when nothing is pending', async () => {
     const ctx = setup();
     const id = await createOrder(ctx);
-    ship(ctx, id, 500);
+    ship(ctx, id);
     ctx.quote.mockClear();
     await ctx.editing.shippingOptionsForOrder(id);
     const req: any = ctx.quote.mock.calls[0][0];
@@ -439,7 +438,7 @@ describe('EcommerceOrderEditingService.recalculateShipping', () => {
     const ctx = setup();
     const id = await createOrder(ctx);
     await ctx.payments.addManualPayment(id, { amount: 7000, idempotencyKey: 'pay-0001' }, 'user:1');
-    ship(ctx, id, 300, [10]);
+    ship(ctx, id, [10]);
     setRate(ctx, 700);
     ctx.findOption.mockClear();
     const res = await ctx.editing.recalculateShipping(id, 'user:1', 'op-ship-0002');
@@ -455,7 +454,7 @@ describe('EcommerceOrderEditingService.recalculateShipping', () => {
     const ctx = setup();
     const id = await createOrder(ctx);
     issueInvoice(ctx, id);
-    ship(ctx, id, 300, [10]);
+    ship(ctx, id, [10]);
     setRate(ctx, 900);
     const res = await ctx.editing.recalculateShipping(id, 'user:1', 'op-ship-0003');
     expect(storedLines(ctx, id)).toMatchObject([
@@ -468,7 +467,7 @@ describe('EcommerceOrderEditingService.recalculateShipping', () => {
   it('partially shipped again after a cancelled shipment (no products edit): still the whole order', async () => {
     const ctx = setup();
     const id = await createOrder(ctx);
-    ship(ctx, id, 300, [10]);
+    ship(ctx, id, [10]);
     ctx.tables[UIDS.orderHistory].push({
       id: 9001,
       order: id,
@@ -485,7 +484,7 @@ describe('EcommerceOrderEditingService.recalculateShipping', () => {
   it('fully shipped, then products added: the user picks the method; only the new units are quoted and appended', async () => {
     const ctx = setup();
     const id = await createOrder(ctx);
-    ship(ctx, id, 500);
+    ship(ctx, id);
     storedLines(ctx, id)[0].createdAt = '2026-11-01T00:00:00.000Z';
     await ctx.editing.applyLines(
       id,
@@ -536,7 +535,7 @@ describe('EcommerceOrderEditingService.recalculateShipping', () => {
   it('fully shipped, nothing added: no carrier call, nothing changes', async () => {
     const ctx = setup();
     const id = await createOrder(ctx);
-    ship(ctx, id, 450);
+    ship(ctx, id);
     ctx.findOption.mockClear();
     ctx.quote.mockClear();
     const preview = await ctx.editing.previewShippingRecalculation(id);
@@ -729,7 +728,7 @@ describe('EcommerceOrderEditingService.editShippingLine', () => {
   it('an ACTIVE shipment gives ORDER_HAS_SHIPMENTS', async () => {
     const ctx = setup();
     const id = await createOrder(ctx);
-    ship(ctx, id, 500);
+    ship(ctx, id);
     expect(
       await issues(
         ctx.editing.editShippingLine(id, 1, { ...standard, amount: 700 }, 'user:1', 'op-line-0003')
@@ -815,7 +814,7 @@ describe('EcommerceOrderEditingService.addShippingLine', () => {
   it('with a shipment: appends a MANUAL line and clears SHIPPING_REVIEW', async () => {
     const ctx = setup();
     const id = await createOrder(ctx);
-    ship(ctx, id, 500);
+    ship(ctx, id);
     raiseShippingReview(ctx, id);
     const res = await ctx.editing.addShippingLine(
       id,

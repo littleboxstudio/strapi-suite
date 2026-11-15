@@ -68,7 +68,6 @@ const ship = (c: Commerce, id: number, lineId: number, quantity: number, key = '
     {
       lines: [{ orderLineId: lineId, quantity }],
       method: { mode: 'MANUAL', carrierName: 'CTT' },
-      shippingCost: 0,
       notifyCustomer: false,
       idempotencyKey: key,
     },
@@ -338,7 +337,6 @@ describe('EcommerceReturnService.register', () => {
           { orderLineId: b, quantity: 2 },
         ],
         method: { mode: 'MANUAL', carrierName: 'CTT' },
-        shippingCost: 0,
         notifyCustomer: false,
         idempotencyKey: 's1',
       },

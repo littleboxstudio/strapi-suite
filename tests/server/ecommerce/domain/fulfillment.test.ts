@@ -2,8 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   reservedQuantities,
   validateShipmentRequest,
-  remainingShippingCost,
-  previousShipmentsCost,
   orderDeliveryStatus,
   validateDeliveryDate,
   normalizeDeliveryDate,
@@ -53,28 +51,6 @@ describe('shipment request', () => {
         'invalid_quantity',
       ]);
     }
-  });
-});
-
-describe('shipping cost', () => {
-  it('remainingShippingCost counts only ACTIVE', () => {
-    expect(
-      remainingShippingCost(500, [
-        { status: 'ACTIVE', shippingCost: 300 },
-        { status: 'CANCELLED', shippingCost: 200 },
-      ]),
-    ).toBe(200);
-    expect(remainingShippingCost(100, [{ status: 'ACTIVE', shippingCost: 300 }])).toBe(0);
-  });
-
-  it('previousShipmentsCost', () => {
-    expect(
-      previousShipmentsCost([
-        { status: 'ACTIVE', shippingCost: 300 },
-        { status: 'ACTIVE', shippingCost: 200 },
-        { status: 'CANCELLED', shippingCost: 900 },
-      ]),
-    ).toBe(500);
   });
 });
 

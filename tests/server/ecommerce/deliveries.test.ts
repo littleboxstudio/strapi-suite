@@ -62,14 +62,12 @@ const paidOrder = async (c: Commerce, quantity = 2, providerId = 'manual') => {
 const manual = (lineId: number, quantity: number, key: string) => ({
   lines: [{ orderLineId: lineId, quantity }],
   method: { mode: 'MANUAL' as const, carrierName: 'CTT', trackingCode: 'RR1' },
-  shippingCost: 0,
   notifyCustomer: true,
   idempotencyKey: key,
 });
 const carrierShip = (lineId: number, quantity: number, key: string) => ({
   lines: [{ orderLineId: lineId, quantity }],
   method: { mode: 'CARRIER' as const },
-  shippingCost: 500,
   notifyCustomer: true,
   idempotencyKey: key,
 });

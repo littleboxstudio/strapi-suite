@@ -49,7 +49,6 @@ const form = (overrides: Partial<ShipForm> = {}): ShipForm => ({
   methodKey: 'manual:4',
   trackingCode: '',
   trackingUrl: '',
-  shippingCost: '4,50',
   parcels: '1',
   ...overrides,
 });
@@ -63,7 +62,6 @@ const shipment = (overrides: Partial<ShipmentView> = {}): ShipmentView => ({
   items: [],
   trackingCode: null,
   trackingUrl: null,
-  shippingCost: 0,
   labelAvailable: false,
   deliveryStatus: 'IN_TRANSIT',
   deliverySource: null,
@@ -106,16 +104,13 @@ describe('ship methods', () => {
 });
 
 describe('emptyShipForm', () => {
-  it('preselects the original method and prefills the cost from the remaining shipping', () => {
-    const f = emptyShipForm(
-      { lines, shipping: { remainingCost: 450, deliveryStatus: 'NONE' } } as any,
-      'pt-PT',
-      methods
-    );
-    expect(f).toMatchObject({ methodKey: 'dpd-portugal:EXPRESS', shippingCost: '4,50', parcels: '1' });
+  it('preselects the original method; asks for no cost', () => {
+    const f = emptyShipForm({ lines } as any, methods);
+    expect(f).toMatchObject({ methodKey: 'dpd-portugal:EXPRESS', parcels: '1' });
     expect(f).not.toHaveProperty('notifyCustomer');
+    expect(f).not.toHaveProperty('shippingCost');
     expect(f.lines).toHaveLength(2);
-    expect(emptyShipForm({ lines, shipping: { remainingCost: 0 } } as any, 'en').methodKey).toBe('');
+    expect(emptyShipForm({ lines } as any).methodKey).toBe('');
   });
 });
 
@@ -215,11 +210,6 @@ describe('validateShipForm', () => {
     expect(validateShipForm(form({ trackingCode: 'x'.repeat(256) }), lines, manual)).toEqual({ trackingCode: 'too_long' });
     expect(validateShipForm(form({ trackingCode: 'x'.repeat(256), trackingUrl: 'javascript:x' }), lines, ctt)).toEqual({});
   });
-
-  it('checks the cost', () => {
-    expect(validateShipForm(form({ shippingCost: 'abc' }), lines, manual)).toEqual({ shippingCost: 'invalid_amount' });
-    expect(validateShipForm(form({ shippingCost: '0' }), lines, manual)).toEqual({});
-  });
 });
 
 describe('buildShipmentInput', () => {
@@ -228,7 +218,6 @@ describe('buildShipmentInput', () => {
     expect(buildShipmentInput(f, 'key-1', manual)).toEqual({
       lines: [{ orderLineId: 1, quantity: 2 }],
       method: { mode: 'MANUAL', providerId: 'manual', serviceId: '4', carrierName: 'CTT', trackingCode: 'AB1' },
-      shippingCost: 450,
       notifyCustomer: true,
       idempotencyKey: 'key-1',
     });

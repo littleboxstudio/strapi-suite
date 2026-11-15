@@ -29,7 +29,6 @@ const body = (b: any, extra: any = {}) => mkCtx({ request: { body: b }, ...extra
 const validShipment = {
   lines: [{ orderLineId: 1, quantity: 2 }],
   method: { mode: 'MANUAL', carrierName: 'CTT', trackingCode: 'X1' },
-  shippingCost: 0,
   idempotencyKey: 'k',
 };
 
@@ -43,9 +42,18 @@ describe('EcommerceShipmentController', () => {
     expect(ctx.body).toEqual({ id: 9 });
     expect(create).toHaveBeenCalledWith(
       5,
-      expect.objectContaining({ notifyCustomer: true, shippingCost: 0, idempotencyKey: 'k' }),
+      expect.objectContaining({ notifyCustomer: true, idempotencyKey: 'k' }),
       'user:7'
     );
+  });
+
+  it('create ignores a shippingCost sent by an older client (shipments carry no cost)', async () => {
+    const create = vi.fn().mockResolvedValue({ id: 9 });
+    const c = createShipments({ strapi: strapiWith({ EcommerceShipmentService: { create } }) });
+    const ctx = body({ ...validShipment, shippingCost: -1 });
+    await c.create(ctx);
+    expect(ctx.status).toBe(201);
+    expect(create.mock.calls[0][1]).not.toHaveProperty('shippingCost');
   });
 
   it('create rejects invalid bodies with 400 and errors, never calling the service', async () => {
@@ -58,8 +66,6 @@ describe('EcommerceShipmentController', () => {
       { ...validShipment, lines: [{ orderLineId: 0, quantity: 1 }] },
       { ...validShipment, method: { mode: 'OTHER' } },
       { ...validShipment, method: { mode: 'MANUAL' } },
-      { ...validShipment, shippingCost: 1.5 },
-      { ...validShipment, shippingCost: -1 },
       { ...validShipment, notifyCustomer: 'yes' },
       { ...validShipment, idempotencyKey: '' },
       { ...validShipment, idempotencyKey: 'x'.repeat(201) },

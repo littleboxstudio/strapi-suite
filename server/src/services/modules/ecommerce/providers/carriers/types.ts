@@ -22,6 +22,7 @@ export type CarrierShipmentResult = {
   externalId: string;
   trackingCode: string | null;
   trackingUrl: string | null;
+  /** Reported by the carrier; not stored (shipments carry no cost). */
   cost: number | null;
   labelAvailable: boolean;
   /** Private carrier reference to fetch the label later (DPD: the label URL). Never serialized. */

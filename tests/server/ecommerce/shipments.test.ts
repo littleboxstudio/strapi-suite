@@ -10,7 +10,6 @@ import {
   EcommerceCarrierError,
   EcommerceValidationError,
 } from '../../../server/src/services/modules/ecommerce/errors';
-import { MAX_MONEY_CENTS } from '../../../server/src/services/modules/ecommerce/domain/orders';
 import { setupCommerce, UIDS, type Commerce } from './helpers/commerceSetup';
 
 const RUNTIME = { config: {}, secrets: { apiKey: 'k' } };
@@ -87,7 +86,6 @@ const manual = (
     trackingCode: 'RR1',
     trackingUrl: 'https://ctt.pt/RR1',
   },
-  shippingCost: 0,
   notifyCustomer: true,
   idempotencyKey: key,
   ...extra,
@@ -96,7 +94,6 @@ const manual = (
 const carrier = (lineId: number, quantity: number, key: string) => ({
   lines: [{ orderLineId: lineId, quantity }],
   method: { mode: 'CARRIER' as const },
-  shippingCost: 500,
   notifyCustomer: true,
   idempotencyKey: key,
 });
@@ -206,7 +203,7 @@ describe('EcommerceShipmentService.create (MANUAL)', () => {
     const view = await c.orders.get(id);
     expect(view.shipments.map((s: any) => s.id)).toEqual([first.id, second.id]);
     expect(view.lines[0]).toMatchObject({ shipped: 10, reserved: 10, pending: 0, returnable: 10 });
-    expect(view.shipping).toEqual({ remainingCost: 500, deliveryStatus: 'IN_TRANSIT' });
+    expect(view.shipping).toEqual({ deliveryStatus: 'IN_TRANSIT' });
   });
 
   it('refuses an order that is not settled', async () => {
@@ -271,14 +268,12 @@ describe('EcommerceShipmentService.create (MANUAL)', () => {
     ).toContain('invalid_url');
     expect((await codesOf(withMethod({ carrierName: '' }))).length).toBeGreaterThan(0);
     expect((await codesOf(withMethod({ carrierName: 'x'.repeat(121) }))).length).toBeGreaterThan(0);
-    expect(await codesOf(withMethod({}, { shippingCost: -1 }))).toContain('INVALID_AMOUNT');
-    expect(await codesOf(withMethod({}, { shippingCost: MAX_MONEY_CENTS + 1 }))).toContain(
-      'INVALID_AMOUNT'
-    );
     expect(shipmentRows(c)).toHaveLength(0);
-    // The limits themselves are accepted.
-    await withMethod({ carrierName: 'x'.repeat(120) }, { shippingCost: MAX_MONEY_CENTS });
+    // The limits themselves are accepted; a cost sent by an older client is ignored.
+    const s = await withMethod({ carrierName: 'x'.repeat(120) }, { shippingCost: -1 });
     expect(shipmentRows(c)).toHaveLength(1);
+    expect(s).not.toHaveProperty('shippingCost');
+    expect(shipmentRows(c)[0]).not.toHaveProperty('shippingCost');
   });
 });
 
@@ -299,9 +294,11 @@ describe('EcommerceShipmentService.create (CARRIER)', () => {
       serviceId: 'express',
       carrierName: 'Standard',
       trackingCode: 'TRK1',
-      shippingCost: 700,
       labelAvailable: true,
     });
+    // The carrier's reported cost is not stored nor shown.
+    expect(s).not.toHaveProperty('shippingCost');
+    expect(shipmentRows(c)[0]).not.toHaveProperty('shippingCost');
     expect(orderRow(c, id).fulfillmentStatus).toBe('FULFILLED');
     expect(shipEvents(c)[0].payload).toMatchObject({ shipmentId: s.id, full: true });
   });
