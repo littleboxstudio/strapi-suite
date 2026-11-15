@@ -31,6 +31,8 @@ type Props = {
   extraActions?: ReactNode;
   /** Extra content inside the card, after the actions (e.g. the manual shipping methods). */
   children?: ReactNode;
+  /** Hides the credentials status line (the shipping cards show only title, badge, text and actions). */
+  hideCredentials?: boolean;
 };
 
 const IntegrationCard = ({
@@ -44,6 +46,7 @@ const IntegrationCard = ({
   extraActions,
   toggleInChildren = false,
   children,
+  hideCredentials = false,
 }: Props) => {
   const { formatMessage } = useIntl();
   const t = (id: string, values?: Record<string, any>, defaultMessage?: string) =>
@@ -56,7 +59,7 @@ const IntegrationCard = ({
   const hasSecrets = fields.some((f) => f.type === 'secret');
 
   const credentials = () => {
-    if (!hasSecrets) return null;
+    if (!hasSecrets || hideCredentials) return null;
     if (secretsStatus === 'ok') {
       return (
         <Typography variant="pi" textColor="success600">

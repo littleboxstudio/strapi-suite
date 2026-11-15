@@ -6,7 +6,6 @@ import {
   Box,
   Button,
   Flex,
-  IconButton,
   Loader,
   Table,
   Tbody,
@@ -17,7 +16,7 @@ import {
   Typography,
   VisuallyHidden,
 } from '@strapi/design-system';
-import { Pencil, Plus, Trash } from '@strapi/icons';
+import { Plus } from '@strapi/icons';
 import ConfirmModal from '../../../components/ConfirmModal';
 import { NoticeModal } from '../NoticeModal';
 import { getTranslation } from '../../../core/utils/getTranslation';
@@ -213,20 +212,12 @@ const ManualMethodsTable = ({ readOnly, markets, toggle }: Props) => {
                 <Td>
                   {canEdit && (
                     <Flex gap={1} justifyContent="flex-end">
-                      <IconButton
-                        label={t('ecommerce.settings.manualMethods.edit')}
-                        variant="ghost"
-                        onClick={() => setEditing({ method: m })}
-                      >
-                        <Pencil />
-                      </IconButton>
-                      <IconButton
-                        label={t('ecommerce.settings.manualMethods.delete')}
-                        variant="ghost"
-                        onClick={() => askDelete(m)}
-                      >
-                        <Trash />
-                      </IconButton>
+                      <Button size="S" variant="secondary" onClick={() => setEditing({ method: m })}>
+                        {t('ecommerce.settings.manualMethods.edit')}
+                      </Button>
+                      <Button size="S" variant="danger-light" onClick={() => askDelete(m)}>
+                        {t('ecommerce.settings.manualMethods.delete')}
+                      </Button>
                     </Flex>
                   )}
                 </Td>
