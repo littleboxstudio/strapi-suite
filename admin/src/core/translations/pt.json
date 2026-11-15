@@ -1986,6 +1986,5 @@
   "littlebox-strapi-suite.ecommerce.orders.errors.NOTHING_TO_CREDIT": "Não há nada a creditar.",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.review.under": "De acordo com os produtos e as regras de portes, deveriam ser cobrados mais {amount}. Analise os portes.",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.review.over": "De acordo com os produtos e as regras de portes, foram cobrados {amount} a mais. Analise os portes.",
-  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.markReviewed": "Marcar como revisto",
-  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.reviewed": "Portes marcados como revistos."
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.reviewed": "Os portes cobrados batem com a cotação."
 }

@@ -29,11 +29,11 @@ type Props = {
 };
 
 /**
- * Recalculate shipping (spec 6.3): the charged and invoiced shipping, the quote and the proposed
- * charges. An order shipped before products were added first asks for the method of those
- * products (each pick re-previews). Confirm asks once more with what the customer will pay (or
- * get back), then applies it and closes (an unchanged result still clears the review flag).
- * Mount it only while open: each opening mints one operationId.
+ * Recalculate shipping (spec 6.3), informative: the charged and invoiced shipping, the quote and
+ * how much more should be charged (or was charged above). It never changes the charges. An order
+ * shipped before products were added first asks for the method of those products (each pick
+ * re-previews). When the charges match the quote, Confirm clears the review alert. Mount it only
+ * while open: each opening mints one operationId.
  */
 const RecalculateShippingModal = ({ order, onClose, onSaved }: Props) => {
   const { formatMessage, locale } = useIntl();
@@ -226,14 +226,12 @@ const RecalculateShippingModal = ({ order, onClose, onSaved }: Props) => {
           <Button variant="tertiary" onClick={onClose} disabled={busy}>
             {t('ecommerce.orders.shippingCharges.close')}
           </Button>
-          {/* Marks the shipping as reviewed (clears the review alert); the charges never change. */}
-          <Button
-            onClick={confirm}
-            loading={busy}
-            disabled={!preview || loading || !!loadError || preview.needsMethod}
-          >
-            {t('ecommerce.orders.shippingCharges.markReviewed')}
-          </Button>
+          {/* Only when the charges match the quote: confirming clears the review alert. */}
+          {preview && !loading && !loadError && !preview.needsMethod && difference === 0 && (
+            <Button onClick={confirm} loading={busy}>
+              {t('ecommerce.orders.shippingCharges.confirm')}
+            </Button>
+          )}
         </Modal.Footer>
       </Modal.Content>
       {help && (
