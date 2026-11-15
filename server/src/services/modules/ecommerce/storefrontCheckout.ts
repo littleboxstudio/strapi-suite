@@ -248,6 +248,19 @@ const toPublicShippingOption = (o: ShippingOption): PublicShippingOption => ({
   price: o.price,
   estimatedDays: o.estimatedDays ?? null,
   ...(o.requiresPickupPoint === true ? { requiresPickupPoint: true as const } : {}),
+  ...(o.pickupPoints
+    ? {
+        pickupPoints: o.pickupPoints.map((p) => ({
+          id: p.id,
+          name: p.name,
+          address: p.address,
+          address2: p.address2,
+          postalCode: p.postalCode,
+          city: p.city,
+          country: p.country,
+        })),
+      }
+    : {}),
 });
 
 const appliedOf = (order: any): AppliedPromotion[] =>

@@ -238,6 +238,22 @@ describe('EcommerceStorefrontCheckoutService', () => {
       );
     });
 
+    it('public option carries pickupPoints', async () => {
+      const t = setup();
+      const { s } = await t.open();
+      const point = { id: 'st_aaaaaaaaaa', name: 'Loja', address: 'Rua A 1', address2: null, postalCode: '1000-001', city: 'Lisboa', country: 'PT' };
+      t.c.services.EcommerceShippingService.quote.mockResolvedValueOnce({
+        options: [
+          { providerId: 'store-pickup', serviceId: 'STORE', name: 'Store', price: 0, tax: 23, requiresPickupPoint: true, pickupPoints: [{ ...point, extra: 'x' }] },
+        ],
+        failures: [],
+      });
+      const q = await t.checkout.quote(s, t.cart({ destination: { country: 'PT', postalCode: '1000-001' } }));
+      expect(q.shippingOptions).toEqual([
+        { providerId: 'store-pickup', serviceId: 'STORE', name: 'Store', price: 0, estimatedDays: null, requiresPickupPoint: true, pickupPoints: [point] },
+      ]);
+    });
+
     it('with a method: shippingTotal and a VAT row for shipping', async () => {
       const t = setup();
       const { s } = await t.open();
