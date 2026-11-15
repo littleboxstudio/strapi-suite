@@ -239,6 +239,7 @@ describe('EcommerceInvoiceService.selection', () => {
       payments: [{ paymentId, amount: 4500, refunded: 0, net: 4500 }],
       excess: 0,
       stranded: { products: 0, shipping: 0 },
+      overInvoiced: { shipping: 0 },
     });
   });
 
@@ -336,7 +337,7 @@ describe('EcommerceInvoiceService.issue', () => {
     const o = await c.orders.get(id);
     expect(o.invoices).toEqual([expect.objectContaining({ id: view.id, status: 'ISSUED' })]);
     expect(o.payments[0]).not.toHaveProperty('invoice');
-    expect(o.invoicing).toEqual({ hasUninvoicedPayments: false });
+    expect(o.invoicing).toEqual({ hasUninvoicedPayments: false, shippingToCredit: 0 });
     expect(o.availableActions).not.toContain('ISSUE_INVOICE');
     expect(o.billing).toEqual({ active: true, providerId: 'fakebill' });
   });
@@ -567,7 +568,7 @@ describe('EcommerceInvoiceService.issue', () => {
     expect(view.status).toBe('UNCERTAIN');
     expect(allocations(c)[0].uniqueKey).toBe(`payment:${paymentId}`);
     expect(c.tables[UIDS.orderHistory].some((h) => h.type === 'INVOICE_UNCERTAIN')).toBe(true);
-    expect((await c.orders.get(id)).invoicing).toEqual({ hasUninvoicedPayments: false });
+    expect((await c.orders.get(id)).invoicing).toEqual({ hasUninvoicedPayments: false, shippingToCredit: 0 });
 
     expect(await codesOf(inv.issue(id, everything(c, id, [paymentId], 'k2'), 'user:1'))).toContain(
       'PAYMENT_NOT_INVOICEABLE'
@@ -623,7 +624,7 @@ describe('EcommerceInvoiceService.issue', () => {
     const failed = await inv.reconcile(view.id, {}, 'user:2');
     expect(failed.status).toBe('FAILED');
     expect(allocations(c)[0].uniqueKey).toBeNull();
-    expect((await c.orders.get(id)).invoicing).toEqual({ hasUninvoicedPayments: true });
+    expect((await c.orders.get(id)).invoicing).toEqual({ hasUninvoicedPayments: true, shippingToCredit: 0 });
     expect((await inv.selection(id)).payments).toEqual([
       { paymentId, amount: 4500, refunded: 0, net: 4500 },
     ]);
@@ -763,7 +764,7 @@ describe('EcommerceInvoiceService.issue', () => {
       newValue: { kind: 'INVOICE', error: 'BILLING_TAX_NOT_FOUND' },
     });
     const o = await c.orders.get(id);
-    expect(o.invoicing).toEqual({ hasUninvoicedPayments: true });
+    expect(o.invoicing).toEqual({ hasUninvoicedPayments: true, shippingToCredit: 0 });
     expect((await inv.selection(id)).payments).toEqual([
       { paymentId, amount: 4500, refunded: 0, net: 4500 },
     ]);
@@ -929,7 +930,7 @@ describe('EcommerceInvoiceService: a late provider success after the row was mad
       expect(view.warnings).toContain('ISSUED_AFTER_FAILED');
       expect(view.warnings).not.toContain('DUPLICATE_INVOICE');
       expect(allocations(c)[0].uniqueKey).toBe(`payment:${paymentId}`);
-      expect((await c.orders.get(id)).invoicing).toEqual({ hasUninvoicedPayments: false });
+      expect((await c.orders.get(id)).invoicing).toEqual({ hasUninvoicedPayments: false, shippingToCredit: 0 });
       expect((await inv.selection(id)).payments).toEqual([]);
       expect(c.events.filter((e) => e.type === 'INVOICE_ISSUED')).toEqual([
         expect.objectContaining({ payload: { invoiceId: view.id, kind: 'INVOICE' } }),
@@ -1465,6 +1466,67 @@ describe('EcommerceInvoiceService credit notes', () => {
       creditedInvoiceId: view.id,
     });
     expect(allocations(c)[0].uniqueKey).toBeNull();
+  });
+});
+
+describe('shipping recalculated below what was invoiced', () => {
+  it('no negative charge to invoice: a SHIPPING credit note credits it and the next invoice matches its payment', async () => {
+    const { c, inv, provider } = setup();
+    const id = await order(c); // 2 × 2000 + 500, paid 4500
+    await testIssueAll(c, id, 'k1');
+    const firstPayment = paymentRows(c, id)[0].id;
+
+    // The shipping is recalculated to 200: 300 below what was invoiced.
+    const shipping = c.services.EcommerceShippingService;
+    shipping.findOption = vi.fn(async (_r: any, providerId: string, serviceId: string) => ({
+      providerId,
+      serviceId,
+      name: 'Express',
+      price: 200,
+      tax: 23,
+    }));
+    const recalculated = await c.editing.recalculateShipping(id, 'user:1', 'op-rc-0001');
+    expect(recalculated.outcome).toBe('REFUNDABLE');
+    expect((await c.orders.get(id)).invoicing.shippingToCredit).toBe(300);
+    await c.refunds.create(id, { method: 'MANUAL_TRANSFER', amount: 300, reason: 'OTHER', idempotencyKey: 'rf1' }, 'user:1');
+
+    // One more unit, paid with a new payment.
+    const lineId = lineIdOf(c, id);
+    await c.editing.applyLines(id, { lines: [{ orderLineId: lineId, quantity: 3 }] } as any, 'user:1', 'op-ln-0001');
+    await pay(c, id, 2000, 'pay-more');
+    const before = await inv.selection(id);
+    // The refund still comes off the new payment: 300 short until the shipping is credited.
+    expect(before.overInvoiced).toEqual({ shipping: 300 });
+
+    const invoiceId = invoiceRows(c).find((r) => r.kind === 'INVOICE').id;
+    const preview = await inv.creditNotePreview(invoiceId);
+    expect(preview.shippingAdjustment.total).toBe(300);
+    const cn = await inv.issueCreditNote(
+      invoiceId,
+      { creditType: 'SHIPPING', reason: 'Shipping recalculated', idempotencyKey: 'cn-ship' } as any,
+      'user:1'
+    );
+    expect(cn).toMatchObject({ status: 'ISSUED', total: 300 });
+    expect((await c.orders.get(id)).invoicing.shippingToCredit).toBe(0);
+
+    const after = await inv.selection(id);
+    expect(after.overInvoiced).toEqual({ shipping: 0 });
+    const newPayment = paymentRows(c, id).find((p) => p.id !== firstPayment).id;
+    expect(after.payments).toEqual([{ paymentId: newPayment, amount: 2000, refunded: 0, net: 2000 }]);
+    expect(after.lines).toEqual([expect.objectContaining({ orderLineId: lineId, remainingQuantity: 1, remainingValue: 2000 })]);
+    const issued = await inv.issue(
+      id,
+      {
+        lines: [{ orderLineId: lineId, quantity: 1 }],
+        shippingLineIds: [],
+        paymentIds: [newPayment],
+        expectedTotal: 2000,
+        idempotencyKey: 'k2',
+      },
+      'user:1'
+    );
+    expect(issued).toMatchObject({ status: 'ISSUED', total: 2000 });
+    expect(provider.issue).toHaveBeenCalledTimes(3);
   });
 });
 

@@ -283,7 +283,7 @@ export type IssueInvoiceSelectionInput = {
   idempotencyKey: string;
 };
 
-export type CreditType = 'RETURN' | 'CORRECTION';
+export type CreditType = 'RETURN' | 'CORRECTION' | 'SHIPPING';
 
 /** What a credit note on an issued invoice can still credit, by reason. */
 export type CreditNoteOptions = {
@@ -301,6 +301,8 @@ export type CreditNoteOptions = {
   shipping: { index: number; value: number }[];
   /** Another credit note on this invoice is pending or uncertain: Correction waits for it. */
   correctionBlocked: boolean;
+  /** The SHIPPING credit note: the shipping invoiced above what the order now charges. */
+  shippingAdjustment?: { lines: InvoiceLine[]; total: number };
 };
 
 export type CreditNoteInput = {
@@ -387,7 +389,11 @@ export type Order = {
   invoices: InvoiceView[];
   billing: OrderBilling;
   /** Some payment is available to invoice (the archive warning). */
-  invoicing: { hasUninvoicedPayments: boolean };
+  invoicing: {
+    hasUninvoicedPayments: boolean;
+    /** Shipping invoiced above what the order now charges: a Shipping adjustment credit note credits it. */
+    shippingToCredit?: number;
+  };
   /** Oldest first. */
   shipments: ShipmentView[];
   /** Oldest first. */

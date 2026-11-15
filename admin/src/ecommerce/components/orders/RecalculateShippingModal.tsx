@@ -6,7 +6,8 @@ import { getTranslation } from '../../../core/utils/getTranslation';
 import PreviewShippingRecalculation from '../../usecases/orders/previewShippingRecalculation';
 import RecalculateShipping from '../../usecases/orders/recalculateShipping';
 import { formatCents } from '../../utils/money';
-import { balanceAfter, shippingLineRows, shippingOptionKey } from '../../utils/orderEditing';
+import { balanceAfter, newShippingCredit, shippingLineRows, shippingOptionKey } from '../../utils/orderEditing';
+import { type OrderActionPermissions, type ToolbarAction } from '../../utils/orderDetail';
 import { apiErrorMessageId } from '../../utils/orderDetail';
 import { mintUuid } from '../../utils/variantDraft';
 import type {
@@ -16,6 +17,7 @@ import type {
   ShippingRecalculationPreview,
 } from '../../orderTypes';
 import ShippingChargesTable from './ShippingChargesTable';
+import BalanceOutcome from './BalanceOutcome';
 import { Tile, Tiles } from './SummaryTiles';
 import { FieldHelpModal } from '../settings/FieldHelpModal';
 
@@ -26,6 +28,9 @@ type Props = {
   order: Order;
   onClose: () => void;
   onSaved: (result: EditResult) => void;
+  permissions: OrderActionPermissions;
+  /** A balance button of the result step (add payment, refund, …). */
+  onAction: (action: ToolbarAction) => void;
 };
 
 /**
@@ -35,7 +40,7 @@ type Props = {
  * get back), then applies it and closes (an unchanged result still clears the review flag).
  * Mount it only while open: each opening mints one operationId.
  */
-const RecalculateShippingModal = ({ order, onClose, onSaved }: Props) => {
+const RecalculateShippingModal = ({ order, onClose, onSaved, permissions, onAction }: Props) => {
   const { formatMessage, locale } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) => formatMessage({ id: getTranslation(id) }, values);
@@ -49,6 +54,8 @@ const RecalculateShippingModal = ({ order, onClose, onSaved }: Props) => {
   /** The figure whose explanation is open. */
   const [help, setHelp] = useState<FigureKey | null>(null);
   const [busy, setBusy] = useState(false);
+  /** The applied result with money to pay or to get back: its balance step is shown. */
+  const [saved, setSaved] = useState<EditResult | null>(null);
   /** NEW_UNITS: the options offered for the added products (kept across picks) and the pick. */
   const [options, setOptions] = useState<ShippingOption[]>([]);
   const [picked, setPicked] = useState<ShippingOption | null>(null);
@@ -87,7 +94,10 @@ const RecalculateShippingModal = ({ order, onClose, onSaved }: Props) => {
       const result = await new RecalculateShipping().execute(order.id, { ...method, operationId });
       onSaved(result);
       toggleNotification({ type: 'success', message: t('ecommerce.orders.shippingCharges.saved') });
-      onClose();
+      setConfirming(false);
+      // Money to pay or to get back: the balance step with its buttons (as Add shipping charge).
+      if (result.outcome === 'NONE') onClose();
+      else setSaved(result);
     } catch (err) {
       toggleNotification({
         type: 'danger',
@@ -126,6 +136,8 @@ const RecalculateShippingModal = ({ order, onClose, onSaved }: Props) => {
   );
 
   const change = preview ? balanceAfter(preview.after) : null;
+  // A recalculation below what was already charged leaves a credit, never a charge.
+  const credit = preview ? newShippingCredit(preview.lines, order.shippingLines) : 0;
 
   /** NEW_UNITS: the methods for the products added since the shipment. */
   const methodPicker = () => (
@@ -153,6 +165,19 @@ const RecalculateShippingModal = ({ order, onClose, onSaved }: Props) => {
   );
 
   const body = () => {
+    if (saved) {
+      return (
+        <BalanceOutcome
+          order={saved.order}
+          outcome={saved.outcome as 'DUE' | 'REFUNDABLE'}
+          permissions={permissions}
+          onAction={(action) => {
+            onClose();
+            onAction(action);
+          }}
+        />
+      );
+    }
     const picker = preview?.kind === 'NEW_UNITS' && (options.length > 0 || preview.needsMethod);
     if (loadError) {
       return (
@@ -198,6 +223,18 @@ const RecalculateShippingModal = ({ order, onClose, onSaved }: Props) => {
               <Typography variant="omega" textColor="neutral700">
                 {t('ecommerce.orders.shippingCharges.unchanged')}
               </Typography>
+            ) : credit > 0 ? (
+              // The quote is below what was already charged: nothing to charge, money back.
+              <Flex direction="column" alignItems="stretch" gap={1}>
+                <Typography variant="omega" fontWeight="semiBold" textColor="neutral800">
+                  {t('ecommerce.orders.shippingCharges.nothingToCharge')}
+                </Typography>
+                {change && change.outcome === 'REFUNDABLE' && (
+                  <Typography variant="omega" textColor="neutral800">
+                    {t('ecommerce.orders.edit.balance.REFUNDABLE', { amount: money(change.amount) })}
+                  </Typography>
+                )}
+              </Flex>
             ) : (
               <>
                 <Typography variant="sigma" textColor="neutral700">
@@ -223,12 +260,14 @@ const RecalculateShippingModal = ({ order, onClose, onSaved }: Props) => {
           <Button variant="tertiary" onClick={onClose} disabled={busy}>
             {t('ecommerce.orders.shippingCharges.close')}
           </Button>
-          <Button
-            onClick={() => setConfirming(true)}
-            disabled={!preview || busy || loading || !!loadError || preview.needsMethod}
-          >
-            {t('ecommerce.orders.shippingCharges.confirm')}
-          </Button>
+          {!saved && (
+            <Button
+              onClick={() => setConfirming(true)}
+              disabled={!preview || busy || loading || !!loadError || preview.needsMethod}
+            >
+              {t('ecommerce.orders.shippingCharges.confirm')}
+            </Button>
+          )}
         </Modal.Footer>
       </Modal.Content>
       {help && (

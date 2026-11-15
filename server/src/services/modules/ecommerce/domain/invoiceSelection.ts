@@ -11,7 +11,11 @@ import { isObject, num, readInvoiceLines, type InvoiceLine } from './invoicing';
 import type { ShippingLine } from './shippingLines';
 import type { ValidationIssue } from '../errors';
 
-export type CreditType = 'RETURN' | 'CORRECTION';
+/**
+ * RETURN: returned units and whole shipping lines. CORRECTION: everything left (annuls the
+ * invoice). SHIPPING: the shipping invoiced above what the order now charges (`overInvoiced`).
+ */
+export type CreditType = 'RETURN' | 'CORRECTION' | 'SHIPPING';
 
 export type InvoiceDoc = {
   id: number;
@@ -73,6 +77,11 @@ export type InvoicingPosition = {
    * Never selectable; settled with a CORRECTION credit note and a new invoice.
    */
   stranded: { products: number; shipping: number };
+  /**
+   * Cents (≥ 0) invoiced above what each pool now charges (e.g. shipping recalculated below what
+   * was invoiced). Never automatic: the admin credits it (a SHIPPING credit note for shipping).
+   */
+  overInvoiced: { products: number; shipping: number };
   annulledInvoiceIds: number[];
 };
 
@@ -109,7 +118,7 @@ export function readInvoiceDoc(row: unknown, paymentIds: number[]): InvoiceDoc {
   const creditedInvoiceId = credited == null ? null : Number(credited);
   const metadata = isObject(r.metadata) ? r.metadata : {};
   const creditType: CreditType | null =
-    metadata.creditType === 'RETURN' || metadata.creditType === 'CORRECTION'
+    metadata.creditType === 'RETURN' || metadata.creditType === 'CORRECTION' || metadata.creditType === 'SHIPPING'
       ? metadata.creditType
       : null;
   // An unknown status never counts.
@@ -224,7 +233,9 @@ export function invoicingPosition(order: PositionOrder, docs: InvoiceDoc[]): Inv
       if (l.kind === 'SHIPPING') shippingInvoiced -= num(l.total);
       else productsInvoiced -= num(l.total);
     }
-    if (cn.creditType === 'RETURN') {
+    if (cn.creditType === 'SHIPPING') {
+      // Shipping only: no units.
+    } else if (cn.creditType === 'RETURN') {
       const original = counted.get(cn.creditedInvoiceId!)!;
       for (const e of cn.creditedLines) {
         const target = original.lines[e.index];
@@ -301,7 +312,12 @@ export function invoicingPosition(order: PositionOrder, docs: InvoiceDoc[]): Inv
     shipping: shippingPool.remaining - sum(shippingSplit),
   };
 
-  return { lines, shipping, products, shippingPool, stranded, annulledInvoiceIds };
+  const overInvoiced = {
+    products: Math.max(0, productsInvoiced - productsDue),
+    shipping: Math.max(0, shippingInvoiced - shippingDue),
+  };
+
+  return { lines, shipping, products, shippingPool, stranded, overInvoiced, annulledInvoiceIds };
 }
 
 // ---------------------------------------------------------------------------

@@ -94,9 +94,11 @@ export function shippingLineRows(
   const canEditLine = canManage && editing.editable && editing.actions.includes('EDIT_SHIPPING_LINE');
   const ids = new Set(lines.map((l) => l.id));
   const isPlaced = (l: ShippingLineView) => l.editOf != null && ids.has(l.editOf);
-  const ordered = lines.flatMap((l) =>
-    isPlaced(l) ? [] : [l, ...lines.filter((c) => c.editOf === l.id && c.editOf != null)]
-  );
+  // Only charges: a recalculation below what was already charged leaves a credit line (negative,
+  // no correction of another line), which the refunds show, never this table.
+  const ordered = lines
+    .filter((l) => !isShippingCredit(l))
+    .flatMap((l) => (isPlaced(l) ? [] : [l, ...lines.filter((c) => c.editOf === l.id && c.editOf != null)]));
   return ordered.map((line) => ({
     line,
     badges: [
@@ -109,6 +111,17 @@ export function shippingLineRows(
     correctionOf: line.editOf ?? null,
     now: line.effectiveAmount !== undefined && line.effectiveAmount !== line.amount ? line.effectiveAmount : null,
   }));
+}
+
+/** A shipping credit: a negative line that corrects no other line (a recalculation below what was charged). */
+export function isShippingCredit(line: Pick<ShippingLineView, 'amount' | 'editOf'>): boolean {
+  return line.amount < 0 && line.editOf == null;
+}
+
+/** The credit lines of `lines` that `before` does not have (cents, ≥ 0). */
+export function newShippingCredit(lines: ShippingLineView[], before: ShippingLineView[]): number {
+  const known = new Set(before.map((l) => l.id));
+  return lines.filter((l) => isShippingCredit(l) && !known.has(l.id)).reduce((s, l) => s - l.amount, 0);
 }
 
 /** The amount a line stands for: with its corrections when it has any. */

@@ -2064,6 +2064,7 @@
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.help.quote": "Not shipped or partly shipped: the price for the whole order, at the current address, with the method of the invoiced shipping (or the current method when nothing is invoiced). Fully shipped and products added later: the price of the products added since, with the method you choose.",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.proposed": "New shipping charges",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.unchanged": "Shipping is already correct.",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.nothingToCharge": "Nothing to charge: the shipping already charged is above the new quote.",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.pickMethod": "The order was already shipped. Choose the shipping method for the products added since:",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.pickMethodFirst": "Choose a shipping method to see the new charge.",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.noMethods": "No shipping method serves this address and weight.",
@@ -2196,5 +2197,10 @@
   "littlebox-strapi-suite.ecommerce.orders.shipments.markFailed.success": "Shipment marked as failed.",
   "littlebox-strapi-suite.ecommerce.orders.shipments.markFailed.error": "Could not mark the shipment as failed.",
   "littlebox-strapi-suite.ecommerce.orders.shipments.cancel.manualCarrier": "Cancel it also on the carrier's portal.",
-  "littlebox-strapi-suite.ecommerce.orders.shipments.cancel.localWarning": "The carrier has no cancellation service: the shipment is cancelled here only, and you must cancel it also on the carrier's portal. Its units go back to \"left to ship\"; the stock does not change."
+  "littlebox-strapi-suite.ecommerce.orders.shipments.cancel.localWarning": "The carrier has no cancellation service: the shipment is cancelled here only, and you must cancel it also on the carrier's portal. Its units go back to \"left to ship\"; the stock does not change.",
+  "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.types.SHIPPING": "Shipping adjustment",
+  "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.types.SHIPPING.hint": "Credits the shipping invoiced above what the order now charges (after a shipping recalculation).",
+  "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.nothingShipping": "No shipping of this invoice is invoiced above what the order now charges.",
+  "littlebox-strapi-suite.ecommerce.orders.invoices.shippingToCredit": "{amount} of shipping was invoiced above what the order now charges. Issue a Shipping adjustment credit note on an invoice with shipping.",
+  "littlebox-strapi-suite.ecommerce.orders.errors.NOTHING_TO_CREDIT": "There is nothing to credit."
 }

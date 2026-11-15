@@ -829,3 +829,25 @@ describe('manual line discounts in the discounts table (spec 4.1)', () => {
     expect(pt[id]).toBeTruthy();
   });
 });
+
+describe('shipping credits (a recalculation below what was charged)', () => {
+  it('are never shown as charges; corrections still are', async () => {
+    const { shippingLineRows, isShippingCredit } = await import('../../../admin/src/ecommerce/utils/orderEditing');
+    const lines = [
+      line({ id: 1, invoiced: true }),
+      line({ id: 2, origin: 'EDIT', amount: -100, editOf: 1 }),
+      line({ id: 3, origin: 'RECALCULATION', amount: -260 }),
+    ];
+    expect(isShippingCredit(lines[2])).toBe(true);
+    expect(isShippingCredit(lines[1])).toBe(false);
+    expect(shippingLineRows(lines, editing(), true).map((r) => r.line.id)).toEqual([1, 2]);
+  });
+
+  it('newShippingCredit: only the credit lines the order does not have yet', async () => {
+    const { newShippingCredit } = await import('../../../admin/src/ecommerce/utils/orderEditing');
+    const before = [line({ id: 1 }), line({ id: 2, origin: 'RECALCULATION', amount: -100 })];
+    expect(newShippingCredit([...before, line({ id: 3, origin: 'RECALCULATION', amount: -260 })], before)).toBe(260);
+    expect(newShippingCredit(before, before)).toBe(0);
+    expect(newShippingCredit([line({ id: 3, amount: 300 })], before)).toBe(0);
+  });
+});

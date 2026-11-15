@@ -60,7 +60,7 @@ type Props = {
   onIssued: () => void;
 };
 
-const CREDIT_TYPES: CreditType[] = ['RETURN', 'CORRECTION'];
+const CREDIT_TYPES: CreditType[] = ['SHIPPING', 'RETURN', 'CORRECTION'];
 const RETURN_COLUMNS = ['name', 'returnable', 'quantity', 'value'] as const;
 const CORRECTION_COLUMNS = ['name', 'quantity', 'amount'] as const;
 
@@ -134,8 +134,9 @@ const CreditNoteModal = ({ invoice, onClose, onIssued }: Props) => {
    * to be confirmed: nothing to send.
    */
   const nothingToCorrect =
-    form?.creditType === 'CORRECTION' &&
-    (options?.correction.lines.length === 0 || options?.correctionBlocked === true);
+    (form?.creditType === 'CORRECTION' &&
+      (options?.correction.lines.length === 0 || options?.correctionBlocked === true)) ||
+    (form?.creditType === 'SHIPPING' && !(options?.shippingAdjustment?.total ?? 0));
 
   const clear = (keys: string[]) => {
     setFormError(null);
@@ -357,14 +358,17 @@ const CreditNoteModal = ({ invoice, onClose, onIssued }: Props) => {
   };
 
   /** Read-only: a Correction credits every line still creditable. */
-  const correctionBody = (o: CreditNoteOptions) =>
-    o.correction.lines.length === 0 ? (
-      <EmptyNote>{t(`${p}.nothingCreditable`)}</EmptyNote>
+  const correctionBody = (o: CreditNoteOptions) => linesBody(o.correction, `${p}.nothingCreditable`);
+
+  /** Read-only lines of a credit note the server composes (Correction, Shipping adjustment). */
+  const linesBody = (doc: { lines: InvoiceLine[] }, emptyKey: string) =>
+    doc.lines.length === 0 ? (
+      <EmptyNote>{t(emptyKey)}</EmptyNote>
     ) : (
-      <Table colCount={CORRECTION_COLUMNS.length} rowCount={o.correction.lines.length + 1}>
+      <Table colCount={CORRECTION_COLUMNS.length} rowCount={doc.lines.length + 1}>
         {heading(CORRECTION_COLUMNS, (c) => t(`ecommerce.orders.invoices.lines.${c}`))}
         <Tbody>
-          {o.correction.lines.map((line, i) => (
+          {doc.lines.map((line, i) => (
             <Tr key={i}>
               <Td style={PRODUCT_CELL}>
                 <Typography textColor="neutral800">{lineName(line)}</Typography>
@@ -401,9 +405,11 @@ const CreditNoteModal = ({ invoice, onClose, onIssued }: Props) => {
           >
             {CREDIT_TYPES.map((type) => {
               const unavailable =
-                type === 'RETURN'
-                  ? !returnable && `${p}.nothingReturnable`
-                  : o.correctionBlocked && `${p}.correctionBlocked`;
+                type === 'SHIPPING'
+                  ? !(o.shippingAdjustment?.total ?? 0) && `${p}.nothingShipping`
+                  : type === 'RETURN'
+                    ? !returnable && `${p}.nothingReturnable`
+                    : o.correctionBlocked && `${p}.correctionBlocked`;
               const disabled = locked || !!unavailable;
               return (
                 <Radio.Item key={type} value={type} disabled={disabled}>
@@ -419,7 +425,11 @@ const CreditNoteModal = ({ invoice, onClose, onIssued }: Props) => {
           </Radio.Group>
         </Field.Root>
 
-        {values.creditType === 'RETURN' ? returnBody(o, values) : correctionBody(o)}
+        {values.creditType === 'RETURN'
+          ? returnBody(o, values)
+          : values.creditType === 'SHIPPING'
+            ? linesBody(o.shippingAdjustment ?? { lines: [], total: 0 }, `${p}.nothingShipping`)
+            : correctionBody(o)}
         {errors.lines && (
           <Typography variant="pi" textColor="danger600">
             {t(values.creditType === 'RETURN' ? `${p}.nothing` : `${p}.nothingCreditable`)}

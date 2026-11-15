@@ -23,12 +23,16 @@ export type CreditNoteForm = {
 export const hasReturnable = (options: Pick<CreditNoteOptions, 'returnable'>): boolean =>
   options.returnable.some((r) => r.units > 0);
 
-/** RETURN when something is returnable, else CORRECTION; nothing chosen. */
+/** A SHIPPING adjustment is possible: shipping was invoiced above what the order now charges. */
+export const hasShippingAdjustment = (options: Pick<CreditNoteOptions, 'shippingAdjustment'>): boolean =>
+  (options.shippingAdjustment?.total ?? 0) > 0;
+
+/** SHIPPING when there is shipping to adjust, else RETURN when something is returnable, else CORRECTION. */
 export function emptyCreditNoteForm(
-  options: Pick<CreditNoteOptions, 'returnable'>
+  options: Pick<CreditNoteOptions, 'returnable' | 'shippingAdjustment'>
 ): CreditNoteForm {
   return {
-    creditType: hasReturnable(options) ? 'RETURN' : 'CORRECTION',
+    creditType: hasShippingAdjustment(options) ? 'SHIPPING' : hasReturnable(options) ? 'RETURN' : 'CORRECTION',
     quantities: {},
     shipping: [],
     reason: '',
@@ -74,6 +78,7 @@ export const returnValue = (
 /** Total in cents: RETURN Σ the chosen units and ticked shipping lines; CORRECTION all that is left. */
 export function creditNoteTotal(form: CreditNoteForm, options: CreditNoteOptions): number {
   if (form.creditType === 'CORRECTION') return options.correction.total;
+  if (form.creditType === 'SHIPPING') return options.shippingAdjustment?.total ?? 0;
   const lines = options.returnable.reduce(
     (sum, r) => sum + returnValue(r, quantityOf(form, r.index)),
     0
@@ -91,6 +96,7 @@ export function buildCreditNoteInput(
 ): CreditNoteInput {
   const reason = form.reason.trim();
   if (form.creditType === 'CORRECTION') return { creditType: 'CORRECTION', reason, idempotencyKey };
+  if (form.creditType === 'SHIPPING') return { creditType: 'SHIPPING', reason, idempotencyKey };
   const lines = Object.entries(form.quantities)
     .map(([index, quantity]) => ({ index: Number(index), quantity }))
     .filter((l) => l.quantity > 0)
