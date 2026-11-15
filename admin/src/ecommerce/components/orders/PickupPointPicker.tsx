@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useIntl } from 'react-intl';
 import { Box, Button, Field, Flex, Loader, TextInput, Typography } from '@strapi/design-system';
-import { Search } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import SearchPickupPoints from '../../usecases/orders/searchPickupPoints';
 import {
@@ -25,6 +24,8 @@ type Props = {
   error?: string;
   /** Store pickup: choose one of these stores instead of searching DPD points. */
   stores?: PickupStore[] | null;
+  /** Store pickup: a hint under the store select. */
+  hint?: string;
 };
 
 /**
@@ -32,10 +33,11 @@ type Props = {
  * storefront), then choose one. Each point shows its name, address, postal code and city, and
  * compact opening hours. With `stores` (Store pickup), a select of those stores instead.
  */
-const PickupPointPicker = ({ stores, ...props }: Props) =>
+const PickupPointPicker = ({ stores, hint, ...props }: Props) =>
   stores ? (
     <StoreSelect
       stores={stores}
+      hint={hint}
       value={props.value?.point.id ?? null}
       onChange={(store) => props.onChange(storeSelection(store))}
       disabled={props.disabled}
@@ -118,7 +120,8 @@ const DpdPointSearch = ({ initialPostalCode = '', value, onChange, disabled = fa
         </Box>
         {/* Level with the input, below its label. */}
         <Box paddingTop={6}>
-          <Button variant="secondary" startIcon={<Search />} onClick={search} loading={searching} disabled={busy}>
+          {/* size L: as tall as the input. */}
+          <Button variant="secondary" size="L" onClick={search} loading={searching} disabled={busy}>
             {t('ecommerce.orders.pickup.search')}
           </Button>
         </Box>

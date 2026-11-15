@@ -853,13 +853,13 @@ describe('shipping credits (a recalculation below what was charged)', () => {
 });
 
 describe('suggestedChargePrice (Add shipping charge)', () => {
-  it('quote of the units not yet shipped minus the shipping charged; null below 0', async () => {
+  it('quote of the units not yet shipped minus the shipping charged; null at 0 or below', async () => {
     const { suggestedChargePrice } = await import('../../../admin/src/ecommerce/utils/orderEditing');
     expect(suggestedChargePrice(800, { pendingOnly: true, charged: 500 })).toBe(300);
-    expect(suggestedChargePrice(500, { pendingOnly: true, charged: 500 })).toBe(0);
+    expect(suggestedChargePrice(500, { pendingOnly: true, charged: 500 })).toBeNull();
     expect(suggestedChargePrice(800, { pendingOnly: true, charged: 3100 })).toBeNull();
     // Every unit shipped: nothing left to quote.
-    expect(suggestedChargePrice(800, { pendingOnly: false, charged: 0 })).toBe(0);
+    expect(suggestedChargePrice(800, { pendingOnly: false, charged: 0 })).toBeNull();
     expect(suggestedChargePrice(800, { pendingOnly: false, charged: 500 })).toBeNull();
   });
 });

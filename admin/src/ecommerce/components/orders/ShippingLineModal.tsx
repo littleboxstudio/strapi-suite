@@ -312,19 +312,19 @@ const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, o
                 </Field.Root>
                 {pickup !== 'NONE' && (
                   <Flex direction="column" alignItems="stretch" gap={2}>
-                    <Typography variant="sigma" textColor="neutral600">
-                      {t(stores ? 'ecommerce.orders.pickup.store.title' : 'ecommerce.orders.pickup.title')}
-                    </Typography>
-                    <Typography variant="pi" textColor="neutral600">
-                      {pickup === 'OPTIONAL' && orderPoint
-                        ? t(stores ? 'ecommerce.orders.pickup.store.keep' : 'ecommerce.orders.pickup.keep', {
-                            name: orderPoint.name,
-                            id: orderPoint.id,
-                          })
-                        : t(stores ? 'ecommerce.orders.pickup.store.required' : 'ecommerce.orders.pickup.required')}
-                    </Typography>
+                    {/* DPD Pickup: only the point the order keeps unless another is chosen. */}
+                    {!stores && pickup === 'OPTIONAL' && orderPoint && (
+                      <Typography variant="pi" textColor="neutral600">
+                        {t('ecommerce.orders.pickup.keep', { name: orderPoint.name, id: orderPoint.id })}
+                      </Typography>
+                    )}
                     <PickupPointPicker
                       stores={stores}
+                      hint={
+                        pickup === 'OPTIONAL' && orderPoint
+                          ? t('ecommerce.orders.pickup.store.keep', { name: orderPoint.name })
+                          : t('ecommerce.orders.pickup.store.required')
+                      }
                       initialPostalCode={orderPoint?.customerAddress?.postalCode ?? order.shippingAddress?.postalCode ?? ''}
                       value={point}
                       onChange={(next) => {
