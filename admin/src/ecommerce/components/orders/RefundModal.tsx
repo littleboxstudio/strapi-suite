@@ -17,6 +17,7 @@ import {
   Typography,
 } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
+import { DateInput } from '../DateInput';
 import FetchRefundPreview from '../../usecases/orders/fetchRefundPreview';
 import CreateRefund from '../../usecases/orders/createRefund';
 import { formatCents } from '../../utils/money';
@@ -309,7 +310,7 @@ const RefundModal = ({ orderId, reference, initial, onClose, onSubmitting, onRef
           <>
             <Field.Root name="expiresAt" required error={errors.expiresAt}>
               <Field.Label>{t('ecommerce.orders.refund.expiresAt')}</Field.Label>
-              <TextInput
+              <DateInput
                 type="date"
                 value={form.expiresAt}
                 onChange={(e: any) => update('expiresAt', e.target.value)}

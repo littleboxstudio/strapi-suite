@@ -20,6 +20,7 @@ import {
 import { ArrowLeft, Plus, Trash } from '@strapi/icons';
 import config from '../../../core/config';
 import { getTranslation } from '../../../core/utils/getTranslation';
+import { DateInput } from '../../components/DateInput';
 import ConfirmModal from '../../../components/ConfirmModal';
 import FetchPromotion from '../../usecases/promotions/fetchPromotion';
 import FetchPromotionEditorContext from '../../usecases/promotions/fetchPromotionEditorContext';
@@ -468,7 +469,7 @@ const PromotionEditPage = () => {
           <Box style={{ flex: '1 1 240px' }}>
             <Field.Root name="startsAt" required error={errorText('startsAt')}>
               <Field.Label>{t(`${p}.startsAt`)}</Field.Label>
-              <TextInput
+              <DateInput
                 type="datetime-local"
                 value={form.startsAt}
                 disabled={disabled}
@@ -480,7 +481,7 @@ const PromotionEditPage = () => {
           <Box style={{ flex: '1 1 240px' }}>
             <Field.Root name="endsAt" error={errorText('endsAt')}>
               <Field.Label>{t(`${p}.endsAt`)}</Field.Label>
-              <TextInput
+              <DateInput
                 type="datetime-local"
                 value={form.endsAt}
                 disabled={disabled}
