@@ -153,8 +153,8 @@ const ShippingAddressDialog = ({ order, canManage, onSaved, onClose }: Props & {
           ) : (
             <Flex direction="column" alignItems="stretch" gap={4}>
               {lockReason && (
-                <Box padding={3} background="warning100" hasRadius>
-                  <Typography variant="omega" textColor="warning700">
+                <Box padding={3} background="warning600" hasRadius>
+                  <Typography variant="omega" style={{ color: '#ffffff' }}>
                     {t(`ecommerce.orders.address.locked.${lockReason}`)}
                   </Typography>
                 </Box>
