@@ -9,9 +9,11 @@ import {
   normalizePickupPostalCode,
   pickupPointLines,
   pickupSearchErrorCode,
+  storeSelection,
   weekdayName,
 } from '../../utils/pickupPoints';
-import type { PickupPoint, PickupSelection } from '../../orderTypes';
+import type { PickupPoint, PickupSelection, PickupStore } from '../../orderTypes';
+import StoreSelect from './StoreSelect';
 
 type Props = {
   /** The postal code the search starts with (the customer's). */
@@ -21,14 +23,29 @@ type Props = {
   disabled?: boolean;
   /** A translated error of the request that used the point (e.g. PICKUP_POINT_REQUIRED). */
   error?: string;
+  /** Store pickup: choose one of these stores instead of searching DPD points. */
+  stores?: PickupStore[] | null;
 };
 
 /**
  * DPD Pickup (spec 5.3): search the pickup points by postal code (the same server search as the
  * storefront), then choose one. Each point shows its name, address, postal code and city, and
- * compact opening hours.
+ * compact opening hours. With `stores` (Store pickup), a select of those stores instead.
  */
-const PickupPointPicker = ({ initialPostalCode = '', value, onChange, disabled = false, error }: Props) => {
+const PickupPointPicker = ({ stores, ...props }: Props) =>
+  stores ? (
+    <StoreSelect
+      stores={stores}
+      value={props.value?.point.id ?? null}
+      onChange={(store) => props.onChange(storeSelection(store))}
+      disabled={props.disabled}
+      error={props.error}
+    />
+  ) : (
+    <DpdPointSearch {...props} />
+  );
+
+const DpdPointSearch = ({ initialPostalCode = '', value, onChange, disabled = false, error }: Props) => {
   const { formatMessage, locale } = useIntl();
   const t = (id: string, values?: Record<string, any>) => formatMessage({ id: getTranslation(id) }, values);
   const codeText = (code: string) =>

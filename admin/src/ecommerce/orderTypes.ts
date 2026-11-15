@@ -56,7 +56,18 @@ export type PickupPoint = {
   openingHours: { day: number; from: string; to: string }[];
 };
 
-/** The point chosen in the picker and the postal code it was found with. */
+/** A store of the Store pickup module (store pickup spec 3): a pickup point without opening hours. */
+export type PickupStore = {
+  id: string;
+  name: string;
+  address: string;
+  address2: string | null;
+  postalCode: string;
+  city: string;
+  country: string;
+};
+
+/** The point chosen in the picker and the postal code it was found with ('' for a store). */
 export type PickupSelection = { point: PickupPoint; postalCode: string };
 
 /** A request's pickup point: sent with DPD Pickup (spec 5.3). */
@@ -591,8 +602,10 @@ export type ShippingOption = {
   price: number;
   tax: number;
   estimatedDays?: number;
-  /** DPD Pickup: a pickup point must be chosen for this option. */
+  /** DPD Pickup and Store pickup: a pickup point must be chosen for this option. */
   requiresPickupPoint?: boolean;
+  /** Store pickup: the stores to choose from (instead of the DPD search). */
+  pickupPoints?: PickupStore[];
 };
 
 /** `failures` lists the carriers whose quote failed; their options are missing. */
@@ -1018,6 +1031,8 @@ export type ShipmentView = {
   retryable: boolean;
   /** What the carrier's integration can do; null for manual shipments. */
   carrierSupport: CarrierSupport | null;
+  /** Store pickup shipments: the store it was shipped to, as it was then. */
+  store?: PickupStore;
   /** Oldest first. */
   events: ShipmentEvent[];
 };
@@ -1039,13 +1054,20 @@ export type ShipMethodOption = {
   providerId: string;
   serviceId: string | null;
   name: string;
-  /** MANUAL: the admin types the tracking; CARRIER: created at the carrier (tracking and label). */
-  kind: 'MANUAL' | 'CARRIER';
+  /**
+   * MANUAL: the admin types the tracking; CARRIER: created at the carrier (tracking and label);
+   * STORE_PICKUP: made ready at a store, no carrier (Store pickup orders only).
+   */
+  kind: 'MANUAL' | 'CARRIER' | 'STORE_PICKUP';
   /** The order's own method: preselected. */
   original: boolean;
   requiresPickupPoint?: true;
   /** The number of parcels is asked (DPD). */
   parcels?: true;
+  /** STORE_PICKUP: the current stores of the order's market (its own first when no longer listed). */
+  stores?: PickupStore[];
+  /** STORE_PICKUP: the order's store, or null. */
+  selectedStoreId?: string | null;
 };
 
 export type CreateShipmentInput = {
@@ -1059,7 +1081,9 @@ export type CreateShipmentInput = {
         trackingCode?: string;
         trackingUrl?: string;
       }
-    | { mode: 'CARRIER'; providerId?: string; serviceId?: string | null };
+    | { mode: 'CARRIER'; providerId?: string; serviceId?: string | null }
+    /** Store pickup: no tracking nor parcels; the customer is always notified. */
+    | { mode: 'STORE_PICKUP'; pickupPointId?: string };
   notifyCustomer: boolean;
   /** One per opening of the ship modal. */
   idempotencyKey: string;

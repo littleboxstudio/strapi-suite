@@ -6,6 +6,12 @@ import {
   pickupSearchErrorCode,
   pickupSelectionInput,
   pickupNeeded,
+  isStorePickupMethod,
+  keptPickup,
+  orderPointKept,
+  pickupErrorId,
+  storeChoices,
+  storeSelection,
 } from '../../../admin/src/ecommerce/utils/pickupPoints';
 import {
   buildCreateOrderInput,
@@ -190,5 +196,158 @@ describe('pickup admin texts', () => {
     expect((pt as Record<string, string>)[key]).toBe(
       'A morada de entrega é o ponto Pickup. Escolha outro ponto para a alterar.'
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Store pickup (store pickup spec 6)
+// ---------------------------------------------------------------------------
+
+const STORE = {
+  id: 'st_lisboa',
+  name: 'Loja Chiado',
+  address: 'Rua Garrett 1',
+  address2: null,
+  postalCode: '1200-203',
+  city: 'Lisboa',
+  country: 'PT',
+};
+const STORE_2 = { ...STORE, id: 'st_porto', name: 'Loja Porto', postalCode: '4000-100', city: 'Porto' };
+const storeOption = {
+  providerId: 'store-pickup',
+  serviceId: 'STORE',
+  requiresPickupPoint: true,
+  pickupPoints: [STORE, STORE_2],
+};
+const dpdPickup = { providerId: 'dpd-portugal', serviceId: 'PICKUP', requiresPickupPoint: true };
+
+describe('store pickup in the pickers', () => {
+  it('isStorePickupMethod: only the store-pickup provider', () => {
+    expect(isStorePickupMethod(storeOption)).toBe(true);
+    expect(isStorePickupMethod(dpdPickup)).toBe(false);
+    expect(isStorePickupMethod(null)).toBe(false);
+  });
+
+  it('storeChoices: the stores of a store option; null for a DPD or plain option', () => {
+    expect(storeChoices(storeOption)).toEqual([STORE, STORE_2]);
+    expect(storeChoices(dpdPickup)).toBeNull();
+    expect(storeChoices(null)).toBeNull();
+  });
+
+  it('a chosen store sends only its id (no postal code search)', () => {
+    const selection = storeSelection(STORE);
+    expect(selection.point).toMatchObject({ id: 'st_lisboa', name: 'Loja Chiado', postalCode: '1200-203' });
+    expect(pickupSelectionInput(selection)).toEqual({ pickupPointId: 'st_lisboa' });
+  });
+
+  it('orderPointKept: the order point counts only for the same kind of method', () => {
+    const storeOrder = { providerId: 'store-pickup', serviceId: 'STORE' };
+    const dpdOrder = { providerId: 'dpd-portugal', serviceId: 'PICKUP' };
+    expect(orderPointKept(storeOrder, true, storeOption)).toBe(true);
+    expect(orderPointKept(dpdOrder, true, dpdPickup)).toBe(true);
+    expect(orderPointKept(dpdOrder, true, storeOption)).toBe(false);
+    expect(orderPointKept(storeOrder, true, dpdPickup)).toBe(false);
+    expect(orderPointKept(storeOrder, false, storeOption)).toBe(false);
+    expect(pickupNeeded(storeOption, orderPointKept(dpdOrder, true, storeOption))).toBe('REQUIRED');
+  });
+
+  it('keptPickup: the choice survives only the same option and, for stores, while still listed', () => {
+    const chosen = storeSelection(STORE);
+    const prev = { providerId: 'store-pickup', serviceId: 'STORE' };
+    expect(keptPickup(prev, storeOption, chosen)).toBe(chosen);
+    expect(keptPickup(prev, { ...storeOption, pickupPoints: [STORE_2] }, chosen)).toBeNull();
+    expect(keptPickup(prev, dpdPickup, chosen)).toBeNull();
+    expect(keptPickup(null, storeOption, chosen)).toBeNull();
+    const dpdChoice = { point: POINT, postalCode: '4000-200' };
+    expect(keptPickup({ providerId: 'dpd-portugal', serviceId: 'PICKUP' }, dpdPickup, dpdChoice)).toBe(dpdChoice);
+    expect(keptPickup({ providerId: 'dpd-portugal', serviceId: 'PICKUP' }, storeOption, dpdChoice)).toBeNull();
+    expect(keptPickup(prev, storeOption, null)).toBeNull();
+  });
+
+  it('pickupErrorId: store texts for the pickup codes in a store context', () => {
+    expect(pickupErrorId('PICKUP_POINT_REQUIRED', true)).toBe('ecommerce.orders.pickup.store.errors.PICKUP_POINT_REQUIRED');
+    expect(pickupErrorId('PICKUP_POINT_INVALID', true)).toBe('ecommerce.orders.pickup.store.errors.PICKUP_POINT_INVALID');
+    expect(pickupErrorId('PICKUP_POINT_REQUIRED', false)).toBe('ecommerce.orders.errors.PICKUP_POINT_REQUIRED');
+    expect(pickupErrorId('required', true)).toBe('ecommerce.orders.errors.required');
+  });
+});
+
+describe('manual order form with a store', () => {
+  const form = (): OrderForm => ({
+    ...emptyOrderForm('en'),
+    customer: { firstName: 'Ana', lastName: 'Silva', email: 'ana@example.pt', phone: '' },
+    shippingAddress: {
+      firstName: 'Ana',
+      lastName: 'Silva',
+      company: '',
+      nif: '',
+      line1: 'Rua do Cliente 5',
+      line2: '',
+      postalCode: '1000-001',
+      city: 'Lisboa',
+      country: 'PT',
+      phone: '',
+    },
+    lines: [{ variantId: 10, name: 'Shirt', option: null, sku: 'SH', price: 2000, quantity: 1 } as any],
+    shipping: { providerId: 'store-pickup', serviceId: 'STORE', requiresPickupPoint: true },
+  });
+
+  it('requires a store, then sends its id as pickupPointId without a postal code', () => {
+    expect(validateOrderForm(form())).toContainEqual({ path: 'pickupPointId', code: 'PICKUP_POINT_REQUIRED' });
+    const input = buildCreateOrderInput({ ...form(), pickup: storeSelection(STORE) }, 'key-1');
+    expect(input.shipping).toEqual({ providerId: 'store-pickup', serviceId: 'STORE' });
+    expect(input.pickupPointId).toBe('st_lisboa');
+    expect(input).not.toHaveProperty('pickupPostalCode');
+  });
+
+  it('the price quote uses the store address', () => {
+    const q = buildQuoteInput({ ...form(), pickup: storeSelection(STORE_2) }, {});
+    expect(q.shipping).toMatchObject({ country: 'PT', postalCode: '4000-100', providerId: 'store-pickup' });
+  });
+});
+
+describe('store pickup admin texts', () => {
+  const keys = [
+    'ecommerce.orders.pickup.store.title',
+    'ecommerce.orders.pickup.store.label',
+    'ecommerce.orders.pickup.store.placeholder',
+    'ecommerce.orders.pickup.store.required',
+    'ecommerce.orders.pickup.store.keep',
+    'ecommerce.orders.pickup.store.current',
+    'ecommerce.orders.pickup.store.change',
+    'ecommerce.orders.pickup.store.locked',
+    'ecommerce.orders.pickup.store.none',
+    'ecommerce.orders.pickup.store.loadError',
+    'ecommerce.orders.pickup.store.errors.PICKUP_POINT_REQUIRED',
+    'ecommerce.orders.pickup.store.errors.PICKUP_POINT_INVALID',
+    'ecommerce.orders.ship.storeHint',
+    'ecommerce.orders.ship.confirm.storeText',
+  ];
+
+  it('every store key has an EN and a PT text', () => {
+    for (const k of keys) {
+      const key = `littlebox-strapi-suite.${k}`;
+      expect((en as Record<string, string>)[key], key).toBeTruthy();
+      expect((pt as Record<string, string>)[key], key).toBeTruthy();
+    }
+  });
+
+  it('the ship notice copy', () => {
+    const key = 'littlebox-strapi-suite.ecommerce.orders.ship.storeHint';
+    expect((en as Record<string, string>)[key]).toBe(
+      'The customer will be notified that the order is ready for pickup at {store}.'
+    );
+    expect((pt as Record<string, string>)[key]).toBe(
+      'O cliente vai receber uma notificação de que a encomenda se encontra na loja {store}.'
+    );
+  });
+
+  it('PICKUP_POINT_* codes are known and have texts', () => {
+    for (const code of ['PICKUP_POINT_REQUIRED', 'PICKUP_POINT_INVALID']) {
+      expect(API_ERROR_CODES).toContain(code);
+      const key = `littlebox-strapi-suite.ecommerce.orders.errors.${code}`;
+      expect((en as Record<string, string>)[key]).toBeTruthy();
+      expect((pt as Record<string, string>)[key]).toBeTruthy();
+    }
   });
 });
