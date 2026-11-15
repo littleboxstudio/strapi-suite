@@ -109,3 +109,21 @@ describe('Store pickup quotes', () => {
     expect((await nameless.quote(req({ locale: 'fr' }))).options[0].name).toBe('Store pickup');
   });
 });
+
+describe('Store pickup quotes: stores outside their market', () => {
+  // Saved under PT before PT-ISL became a store market.
+  const strandedCfg = () =>
+    config({ rates: { PT: BRACKETS }, stores: { PT: [store('one'), store('nine', { postalCode: '9000-001' })] } });
+
+  it('a PT store with a 9xxx postcode is not offered once PT-ISL is a store market', async () => {
+    const { options } = await setup({ cfg: strandedCfg() }).quote(req());
+    expect(options[0].pickupPoints!.map((p) => p.id)).toEqual(['st_oneaaaaaaa']);
+    const before = await setup({ cfg: strandedCfg(), markets: ['PT'] }).quote(req());
+    expect(before.options[0].pickupPoints!.map((p) => p.id)).toEqual(['st_oneaaaaaaa', 'st_nineaaaaaa']);
+  });
+
+  it('a market whose only stores left it is not served', async () => {
+    const cfg = config({ rates: { PT: BRACKETS }, stores: { PT: [store('nine', { postalCode: '9000-001' })] } });
+    expect((await setup({ cfg }).quote(req())).options).toEqual([]);
+  });
+});

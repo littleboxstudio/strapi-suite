@@ -30,6 +30,7 @@ import type { ManualMethod } from './settings';
 import { DPD_SERVICE_IDS, readDpdServices, type DpdServiceId } from './domain/dpdServices';
 import {
   applyPickupPoint,
+  customerMarketOf,
   deliveryChangeEntry,
   isDpdPickup,
   isStorePickup,
@@ -39,11 +40,10 @@ import {
 import {
   STORE_PICKUP_ID,
   STORE_PICKUP_SERVICE_ID,
-  storesFor,
+  servedStores,
   type PickupStore,
   type StorePickupConfig,
 } from './domain/storePickup';
-import { marketOf } from './domain/markets';
 import { MAX_PICKUP_POINT_ID_LENGTH } from './domain/storefront/limits';
 import { DPD_PORTUGAL_ID } from './providers/definitions/dpd-portugal';
 import { getProviderDefinition } from './providers/registry';
@@ -129,6 +129,8 @@ export type ShipMethodView = {
   stores?: PickupStore[];
   /** STORE_PICKUP: the order's store, or null (not a Store pickup order). */
   selectedStoreId?: string | null;
+  /** STORE_PICKUP: a store pickup shipment is active, so the order's store can no longer change. */
+  storeLocked?: true;
 };
 
 export type ShipmentView = {
@@ -460,15 +462,22 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
           country: typeof p.country === 'string' ? p.country : '',
         }
       : null;
-  /** The order's market: the customer's address (kept on a stored point), else the delivery address. */
-  const marketOfOrder = async (order: any): Promise<string> => {
-    const address = (readPickupPoint(order)?.customerAddress ?? order?.shippingAddress ?? {}) as Record<
-      string,
-      unknown
-    >;
+  /** The store markets and the order's market (its customer's own address, `customerMarketOf`). */
+  const marketOfOrder = async (order: any): Promise<{ market: string; storeMarkets: string[] }> => {
     const storeMarkets = (await settings().getStoreSettings()).markets ?? [];
-    return marketOf(String(address.country ?? '').toUpperCase(), address.postalCode as string, storeMarkets);
+    return { market: customerMarketOf(order, storeMarkets), storeMarkets };
   };
+  /**
+   * The order's store is fixed once a store pickup shipment of it is active (as the address is for
+   * order editing: EDIT_ADDRESS): the units wait at that store.
+   */
+  const storeLocked = async (orderId: number): Promise<boolean> =>
+    (
+      await strapi.db.query(uids().shipment).findMany({
+        where: { order: { id: orderId } },
+        orderBy: { id: 'asc' },
+      })
+    ).some((r: any) => r.status === 'ACTIVE' && r.providerId === STORE_PICKUP_ID);
   /** The store pickup method's name: the order's own when it is a Store pickup order, else the config's. */
   const storePickupName = async (order: any, config: StorePickupConfig, locale?: string) => {
     const m = methodOf(order);
@@ -923,7 +932,8 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
     const storeEntry = async (name?: string): Promise<ShipMethodView> => {
       const config = await svc.getStorePickup();
       const own = storeOf(storePointOf(order));
-      const current = storesFor(config, await marketOfOrder(order));
+      const { market, storeMarkets } = await marketOfOrder(order);
+      const current = servedStores(config, market, storeMarkets);
       return {
         providerId: STORE_PICKUP_ID,
         serviceId: STORE_PICKUP_SERVICE_ID,
@@ -932,6 +942,7 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
         original: false,
         stores: own && !current.some((st) => st.id === own.id) ? [own, ...current] : current,
         selectedStoreId: own?.id ?? null,
+        ...(own && (await storeLocked(order.id)) ? { storeLocked: true as const } : {}),
       };
     };
 
@@ -1011,15 +1022,18 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
    * store (a snapshot, even when removed from the config since). Another id must be a store of the
    * order's market in the current config (PICKUP_POINT_INVALID otherwise) and becomes the order's
    * store (delivery address and point, recorded as an address change, the price unchanged: ruling 7).
+   * Once a store pickup shipment of the order is active its store is fixed: another id is
+   * PICKUP_ADDRESS_LOCKED, before any write.
    */
   const storeTarget = async (order: any, pickupPointId: string | null, actor: string): Promise<PickupStore> => {
     const point = storePointOf(order);
     const own = storeOf(point);
     if (!point || !own) throw invalid('method.mode', 'PICKUP_POINT_REQUIRED');
     if (!pickupPointId || own.id === pickupPointId) return own;
+    if (await storeLocked(order.id)) throw invalid('method.pickupPointId', 'PICKUP_ADDRESS_LOCKED');
     const store =
       pickupPointId.length <= MAX_PICKUP_POINT_ID_LENGTH
-        ? await settings().findStore(await marketOfOrder(order), pickupPointId)
+        ? await settings().findStore((await marketOfOrder(order)).market, pickupPointId)
         : null;
     if (!store) throw invalid('method.pickupPointId', 'PICKUP_POINT_INVALID');
     const change = applyPickupPoint(point.customerAddress, store);

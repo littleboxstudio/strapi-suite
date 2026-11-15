@@ -118,3 +118,20 @@ describe('Store pickup settings', () => {
     });
   });
 });
+
+describe('Store pickup stores outside their market', () => {
+  it('findStore ignores a PT store with a 9xxx postcode once PT-ISL is a store market', async () => {
+    const ctx = makeStrapi();
+    await ctx.service.updateStoreSettings({ markets: ['PT'] });
+    const res = await ctx.service.saveStorePickup({
+      rates: { PT: RATE },
+      stores: { PT: [STORE, { ...STORE, name: 'Loja Funchal', postalCode: '9000-001', city: 'Funchal' }] },
+    });
+    const [porto, funchal] = res.config.stores.PT;
+    expect(await ctx.service.findStore('PT', funchal.id)).toEqual(funchal);
+    await ctx.service.updateStoreSettings({ markets: ['PT', 'PT-ISL'] });
+    expect(await ctx.service.findStore('PT', funchal.id)).toBeNull();
+    expect(await ctx.service.findStore('PT-ISL', funchal.id)).toBeNull();
+    expect(await ctx.service.findStore('PT', porto.id)).toEqual(porto);
+  });
+});

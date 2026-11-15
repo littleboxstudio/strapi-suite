@@ -124,7 +124,7 @@ describe('EcommerceShippingService', () => {
     const quoter = vi.fn(async () => []);
     s.registerCarrierQuoter('ctt', quoter);
     await s.quote(req());
-    expect(quoter).toHaveBeenCalledWith({ ...req(), market: 'PT', defaultLocale: 'pt' }, { config: { markets: ['PT'] }, secrets: {} }, { timeoutMs: 8000 });
+    expect(quoter).toHaveBeenCalledWith({ ...req(), market: 'PT', defaultLocale: 'pt', storeMarkets: ['PT', 'ES', 'FR'] }, { config: { markets: ['PT'] }, secrets: {} }, { timeoutMs: 8000 });
   });
 
   it('findOption returns the option or null', async () => {
