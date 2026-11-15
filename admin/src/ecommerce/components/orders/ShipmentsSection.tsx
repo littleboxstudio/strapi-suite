@@ -284,12 +284,6 @@ const ShipmentsSection = ({
 
   const header = (
     <Flex gap={4} alignItems="center">
-      {order.pickupPoint && (
-        // DPD Pickup (spec 5.3): the delivery address is this point.
-        <Typography variant="pi" textColor="neutral700">
-          {t('ecommerce.orders.pickup.current', { name: order.pickupPoint.name, id: order.pickupPoint.id })}
-        </Typography>
-      )}
       <ShippingAddressModal order={order} canManage={canManage} onSaved={onEdited} />
       {sectionActions.map((action) => (
         <Button key={action} size="S" variant="secondary" disabled={actionBusy} onClick={() => onAction(action)}>
