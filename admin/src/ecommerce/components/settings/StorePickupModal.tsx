@@ -11,6 +11,7 @@ import {
   STORE_FIELDS,
   draftToStorePickup,
   emptyStoreDraft,
+  marketsWithoutStores,
   storePickupToDraft,
   withoutStoreErrors,
   type StoreDraft,
@@ -137,6 +138,9 @@ const StorePickupModal = ({ config, locales, defaultLocale, markets, onClose, on
     setErrors((current) => withoutStoreErrors(current, market));
   };
 
+  /** Selected markets with rates and no store: not offered (warned in their card). */
+  const unserved = marketsWithoutStores(draft);
+
   const marketStores = (market: string, marketName: string) => {
     const stores = draft.stores[market] ?? [];
     const listError = errors[`stores.${market}`];
@@ -159,7 +163,7 @@ const StorePickupModal = ({ config, locales, defaultLocale, markets, onClose, on
             {t('ecommerce.settings.storePickup.stores.add')}
           </Button>
         </Flex>
-        {stores.length === 0 ? (
+        {unserved.includes(market) ? (
           <Box padding={3} hasRadius style={{ background: NOTICE_BACKGROUND }}>
             <Typography variant="omega" style={{ color: NOTICE_TEXT }}>
               {t('ecommerce.settings.storePickup.noStores')}
@@ -232,58 +236,61 @@ const StorePickupModal = ({ config, locales, defaultLocale, markets, onClose, on
   };
 
   return (
-    <Modal.Root open onOpenChange={(next: boolean) => !next && onClose()}>
-      <Modal.Content>
-        <Modal.Header>
-          <Modal.Title>{t('ecommerce.settings.storePickup.title')}</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          <Flex direction="column" alignItems="stretch" gap={5}>
-            <MethodNameTaxFields
-              locales={locales}
-              defaultLocale={defaultLocale}
-              locale={locale}
-              onLocaleChange={setLocale}
-              draft={draft}
-              errors={errors}
-              update={update}
-            />
-            <MarketRatesEditor
-              markets={markets}
-              value={draft}
-              onChange={(change) => setDraft((d) => ({ ...d, ...change(d) }))}
-              errors={errors}
-              errorRound={errorRound}
-              clearError={clearError}
-              clearErrorsUnder={clearErrorsUnder}
-              required={false}
-              emptyText={t('ecommerce.settings.storePickup.noMarketsSelected')}
-              marketFooter={marketStores}
-            />
-            {editing && (
-              <StoreModal
-                store={editing.store}
-                isNew={editing.index === null}
-                marketName={editing.marketName}
-                initialErrors={
-                  editing.index === null ? undefined : storeErrors(editing.market, editing.index)
-                }
-                onClose={() => setEditing(null)}
-                onSave={(store) => saveStore(editing, store)}
+    <>
+      <Modal.Root open onOpenChange={(next: boolean) => !next && onClose()}>
+        <Modal.Content>
+          <Modal.Header>
+            <Modal.Title>{t('ecommerce.settings.storePickup.title')}</Modal.Title>
+          </Modal.Header>
+          <Modal.Body>
+            <Flex direction="column" alignItems="stretch" gap={5}>
+              <MethodNameTaxFields
+                locales={locales}
+                defaultLocale={defaultLocale}
+                locale={locale}
+                onLocaleChange={setLocale}
+                draft={draft}
+                errors={errors}
+                update={update}
               />
-            )}
-          </Flex>
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="tertiary" onClick={onClose}>
-            {t('ecommerce.settings.cancel')}
-          </Button>
-          <Button onClick={save} loading={saving} disabled={markets.length === 0}>
-            {t('ecommerce.settings.save')}
-          </Button>
-        </Modal.Footer>
-      </Modal.Content>
-    </Modal.Root>
+              <MarketRatesEditor
+                markets={markets}
+                value={draft}
+                onChange={(change) => setDraft((d) => ({ ...d, ...change(d) }))}
+                errors={errors}
+                errorRound={errorRound}
+                clearError={clearError}
+                clearErrorsUnder={clearErrorsUnder}
+                required={false}
+                emptyText={t('ecommerce.settings.storePickup.noMarketsSelected')}
+                marketFooter={marketStores}
+              />
+            </Flex>
+          </Modal.Body>
+          <Modal.Footer>
+            <Button variant="tertiary" onClick={onClose}>
+              {t('ecommerce.settings.cancel')}
+            </Button>
+            <Button onClick={save} loading={saving} disabled={markets.length === 0}>
+              {t('ecommerce.settings.save')}
+            </Button>
+          </Modal.Footer>
+        </Modal.Content>
+      </Modal.Root>
+      {/* Outside the configuration dialog, so it opens on top with its own overlay. */}
+      {editing && (
+        <StoreModal
+          store={editing.store}
+          isNew={editing.index === null}
+          marketName={editing.marketName}
+          initialErrors={
+            editing.index === null ? undefined : storeErrors(editing.market, editing.index)
+          }
+          onClose={() => setEditing(null)}
+          onSave={(store) => saveStore(editing, store)}
+        />
+      )}
+    </>
   );
 };
 
