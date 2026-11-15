@@ -393,16 +393,10 @@ const ShipmentsSection = ({
                     </Td>
                     <Td>
                       {s.status === 'ACTIVE' && s.deliveryStatus ? (
-                        <Flex direction="column" alignItems="flex-start" gap={1}>
-                          <Badge variant={DELIVERY_VARIANT[s.deliveryStatus] ?? 'neutral'} size="S">
-                            {t(`ecommerce.orders.shipments.delivery.${s.deliveryStatus}`, undefined, s.deliveryStatus)}
-                          </Badge>
-                          {s.deliveredAt && (
-                            <Typography variant="pi" textColor="neutral600">
-                              {date(s.deliveredAt)}
-                            </Typography>
-                          )}
-                        </Flex>
+                        // The delivery date is in the shipment's events.
+                        <Badge variant={DELIVERY_VARIANT[s.deliveryStatus] ?? 'neutral'} size="S">
+                          {t(`ecommerce.orders.shipments.delivery.${s.deliveryStatus}`, undefined, s.deliveryStatus)}
+                        </Badge>
                       ) : (
                         <Typography textColor="neutral600">—</Typography>
                       )}
