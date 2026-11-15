@@ -28,6 +28,7 @@ import {
   type ManualDiscount,
 } from './domain/manualDiscounts';
 import { modificationOutcome } from './domain/orderModification';
+import type { OrderPickupPoint } from './domain/pickupPoints';
 import type { CatalogVariant } from './orderPricingHelpers';
 import type { DomainEventType } from './events';
 import type { OrderHistoryEntry, OrderHistoryType } from './orderHistory';
@@ -97,6 +98,8 @@ export type TotalsWrite = {
   promotions?: object;
   shippingAddress?: Address;
   billingAddress?: Address;
+  /** The order's pickup point (spec 5.3): null clears it; absent keeps it. */
+  pickupPoint?: OrderPickupPoint | null;
 };
 
 const issue = (message: string, i: ValidationIssue) => new EcommerceValidationError(message, [i]);
@@ -311,6 +314,7 @@ export function createEditRunner(
     if (data.promotions) changes.promotions = data.promotions;
     if (data.shippingAddress) changes.shippingAddress = data.shippingAddress;
     if (data.billingAddress) changes.billingAddress = data.billingAddress;
+    if (data.pickupPoint !== undefined) changes.pickupPoint = data.pickupPoint;
 
     const { count } = await strapi.db.query(u.order).updateMany({
       where: { id: order.id, orderStatus: 'OPEN' },

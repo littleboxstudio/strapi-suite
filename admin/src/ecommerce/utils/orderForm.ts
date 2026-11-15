@@ -1,5 +1,6 @@
 import { isEmail } from './settingsForm';
 import { lineUnitDiscount, parseDiscountPercent } from './lineDiscount';
+import { pickupSelectionInput } from './pickupPoints';
 import {
   MAX_PROMOTION_CODES,
   type Address,
@@ -7,6 +8,7 @@ import {
   type FieldError,
   type OrderQuote,
   type OrderQuoteInput,
+  type PickupSelection,
   type QuoteGiftOption,
   type VariantSearchResult,
 } from '../orderTypes';
@@ -45,7 +47,10 @@ export type OrderForm = {
   billingAddress: AddressForm;
   billingSameAsShipping: boolean;
   lines: OrderLineDraft[];
-  shipping: { providerId: string; serviceId: string } | null;
+  /** `requiresPickupPoint`: the option is DPD Pickup (spec 5.3). */
+  shipping: { providerId: string; serviceId: string; requiresPickupPoint?: boolean } | null;
+  /** DPD Pickup: the chosen point; the delivery address becomes the point's on the server. */
+  pickup?: PickupSelection | null;
   notes: string;
   /** Promotion codes typed by the admin (shown as tags). */
   promotionCodes: string[];
@@ -89,6 +94,7 @@ export function emptyOrderForm(locale: string): OrderForm {
     billingSameAsShipping: true,
     lines: [],
     shipping: null,
+    pickup: null,
     notes: '',
     promotionCodes: [],
   };
@@ -192,6 +198,9 @@ export function validateOrderForm(form: OrderForm): FieldError[] {
     }
   });
   if (!form.shipping) errors.push({ path: 'shipping', code: 'required' });
+  else if (form.shipping.requiresPickupPoint && !form.pickup) {
+    errors.push({ path: 'pickupPointId', code: 'PICKUP_POINT_REQUIRED' });
+  }
   return errors;
 }
 
@@ -234,7 +243,10 @@ export function buildCreateOrderInput(
     billingAddress: toAddress(billing, true),
     locale: form.locale,
     lines: form.lines.map(lineInput),
-    shipping: form.shipping ?? { providerId: '', serviceId: '' },
+    shipping: form.shipping
+      ? { providerId: form.shipping.providerId, serviceId: form.shipping.serviceId }
+      : { providerId: '', serviceId: '' },
+    ...(form.shipping?.requiresPickupPoint ? pickupSelectionInput(form.pickup ?? null) : {}),
     ...(notes ? { notes } : {}),
     idempotencyKey,
     ...(codes.length ? { promotionCodes: codes } : {}),
@@ -298,8 +310,10 @@ export function addPromotionCode(
  */
 export function buildQuoteInput(form: OrderForm, giftChoices: Record<number, number>): OrderQuoteInput {
   const email = form.customer.email.trim();
-  const country = form.shippingAddress.country.trim().toUpperCase();
-  const postalCode = form.shippingAddress.postalCode.trim();
+  // DPD Pickup: the point is the delivery address, so it prices the shipping (as on the server).
+  const point = form.shipping?.requiresPickupPoint ? (form.pickup?.point ?? null) : null;
+  const country = (point?.country ?? form.shippingAddress.country).trim().toUpperCase();
+  const postalCode = (point?.postalCode ?? form.shippingAddress.postalCode).trim();
   return {
     lines: form.lines.map(lineInput),
     locale: form.locale,

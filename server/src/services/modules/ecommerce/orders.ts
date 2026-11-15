@@ -55,7 +55,12 @@ import type { OrderHistoryEntry } from './orderHistory';
 import type { CustomerInput } from './customers';
 import { normalizeEmail } from './domain/email';
 import { marketCountry } from './domain/markets';
-import { applyPickupPoint, isPickupMethod, type OrderPickupPoint } from './domain/pickupPoints';
+import {
+  applyPickupPoint,
+  findPickupPoint,
+  isPickupMethod,
+  type OrderPickupPoint,
+} from './domain/pickupPoints';
 import type { PickupPoint } from './pickupPoints';
 import { normalizeStoreCreditCode } from './storeCredits';
 import {
@@ -81,7 +86,7 @@ import {
   type ReviewFlag,
 } from './domain/orderEditing';
 import { readManualDiscounts, type ManualDiscount } from './domain/manualDiscounts';
-import { MAX_PICKUP_POINT_ID_LENGTH, MAX_STORE_CREDIT_CODE_LENGTH } from './domain/storefront/limits';
+import { MAX_STORE_CREDIT_CODE_LENGTH } from './domain/storefront/limits';
 import { storedDiscountPercent } from './domain/lineDiscounts';
 import {
   MAX_PROMOTION_CODES,
@@ -756,39 +761,12 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     v: { providerId: string; serviceId: string; shippingAddress: Address }
   ): Promise<{ shippingAddress: Address; pickupPoint: OrderPickupPoint } | null> => {
     if (!isPickupMethod(v.providerId, v.serviceId)) return null;
-    const refuse = (path: string, code: string) =>
-      new EcommerceValidationError('Invalid pickup point', [{ path, code }]);
-    const rawId = input?.pickupPointId;
-    if (rawId !== undefined && rawId !== null && typeof rawId !== 'string') {
-      throw refuse('pickupPointId', 'invalid');
-    }
-    const id = clean(rawId);
-    if (!id) throw refuse('pickupPointId', 'PICKUP_POINT_REQUIRED');
-    if (id.length > MAX_PICKUP_POINT_ID_LENGTH) throw refuse('pickupPointId', 'PICKUP_POINT_INVALID');
-    const rawCode = input?.pickupPostalCode;
-    if (rawCode !== undefined && rawCode !== null && typeof rawCode !== 'string') {
-      throw refuse('pickupPostalCode', 'invalid');
-    }
-    const pickupPostalCode = clean(rawCode);
-    const postalCodePath = pickupPostalCode ? 'pickupPostalCode' : 'shippingAddress.postalCode';
-    let point: PickupPoint | null;
-    try {
-      point = await pickupPoints().findPoint(pickupPostalCode || v.shippingAddress.postalCode, id);
-    } catch (err) {
-      // The search's own paths (`postalCode`, `country`) are moved to the order input's.
-      if (err instanceof EcommerceValidationError) {
-        throw new EcommerceValidationError(
-          err.message,
-          err.errors.map((e) =>
-            e.code === 'INVALID_POSTAL_CODE'
-              ? { path: postalCodePath, code: e.code }
-              : { path: 'shipping', code: e.code }
-          )
-        );
-      }
-      throw err; // PICKUP_SEARCH_FAILED (EcommerceCarrierError)
-    }
-    if (!point) throw refuse('pickupPointId', 'PICKUP_POINT_INVALID');
+    const point = await findPickupPoint(
+      (postalCode, id) => pickupPoints().findPoint(postalCode, id),
+      input,
+      v.shippingAddress.postalCode,
+      'shippingAddress.postalCode'
+    );
     return applyPickupPoint(v.shippingAddress, point);
   };
 

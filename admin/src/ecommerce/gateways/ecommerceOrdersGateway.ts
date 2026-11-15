@@ -41,6 +41,8 @@ import type {
   PaymentInstructionsInput,
   PaymentInstructionsResult,
   PaymentView,
+  PickupPoint,
+  PickupPointInput,
   RefundPreview,
   RefundView,
   RegisterReturnInput,
@@ -79,6 +81,8 @@ export default interface EcommerceOrdersGateway {
   /** Prices a cart with promotions (`POST orders/quote`, orders.manage); writes nothing. */
   quote(input: OrderQuoteInput): Promise<OrderQuote>;
   searchVariants(q: string, locale?: string): Promise<VariantSearchResult[]>;
+  /** DPD pickup points near a postal code (orders.manage); a failed search is a 400 with its code. */
+  searchPickupPoints(postalCode: string): Promise<{ points: PickupPoint[] }>;
   addPayment(orderId: number, input: ManualPaymentInput): Promise<PaymentView>;
   cancelOrder(id: number): Promise<Order>;
   archiveOrder(id: number): Promise<Order>;
@@ -88,9 +92,10 @@ export default interface EcommerceOrdersGateway {
   previewLines(id: number, input: LinesInput): Promise<LinesPreview>;
   applyLines(id: number, input: LinesInput & { operationId: string }): Promise<EditResult>;
   fetchShippingAddressCountries(id: number): Promise<{ countries: string[] }>;
+  /** An `address`, or on a Pickup order the new point (spec 5.3). */
   updateShippingAddress(
     id: number,
-    input: { address: Address; operationId: string }
+    input: ({ address: Address } | Required<PickupPointInput>) & { operationId: string }
   ): Promise<EditResult>;
   updateBillingAddress(
     id: number,
@@ -229,6 +234,10 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
     return this.httpClient.get(`${this.orders}/variant-search${objectToQueryString({ q, locale })}`);
   }
 
+  async searchPickupPoints(postalCode: string): Promise<{ points: PickupPoint[] }> {
+    return this.httpClient.get(`${this.orders}/pickup-points${objectToQueryString({ postalCode })}`);
+  }
+
   async addPayment(orderId: number, input: ManualPaymentInput): Promise<PaymentView> {
     return this.httpClient.post(`${this.orders}/${orderId}/payments`, input);
   }
@@ -255,7 +264,7 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
 
   async updateShippingAddress(
     id: number,
-    input: { address: Address; operationId: string }
+    input: ({ address: Address } | Required<PickupPointInput>) & { operationId: string }
   ): Promise<EditResult> {
     return this.httpClient.put(`${this.orders}/${id}/shipping-address`, input);
   }

@@ -18,10 +18,20 @@ import {
 import { apiErrorMessageId, type OrderActionPermissions, type ToolbarAction } from '../../utils/orderDetail';
 import { extractFieldErrors } from '../../utils/productForm';
 import { mintUuid } from '../../utils/variantDraft';
-import type { EditResult, FieldError, Order, ShippingLineView, ShippingOption, ShippingQuote } from '../../orderTypes';
+import { pickupNeeded, pickupSelectionInput } from '../../utils/pickupPoints';
+import type {
+  EditResult,
+  FieldError,
+  Order,
+  PickupSelection,
+  ShippingLineView,
+  ShippingOption,
+  ShippingQuote,
+} from '../../orderTypes';
 import BalanceOutcome from './BalanceOutcome';
 import EmptyNote from './EmptyNote';
 import NoticeBar from './NoticeBar';
+import PickupPointPicker from './PickupPointPicker';
 
 type Props = {
   order: Order;
@@ -48,7 +58,8 @@ const errorMap = (errors: FieldError[]): Partial<Record<ErrorKey, string>> => {
 /**
  * Edit or add a shipping charge: the methods that serve the address and weight, each with its
  * suggested price, and an editable price; then the balance when money is due or refundable.
- * Mount it only while open: each opening mints one operationId.
+ * DPD Pickup (spec 5.3) asks for a pickup point (kept when the order already has one); leaving it
+ * gives the customer's address back. Mount it only while open: each opening mints one operationId.
  */
 const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, onAction }: Props) => {
   const { formatMessage, locale } = useIntl();
@@ -70,6 +81,7 @@ const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, o
   const [errors, setErrors] = useState<Partial<Record<ErrorKey, string>>>({});
   const [saved, setSaved] = useState<EditResult | null>(null);
   const [busy, setBusy] = useState(false);
+  const [point, setPoint] = useState<PickupSelection | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -104,9 +116,16 @@ const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, o
 
   const option = options?.find((o) => shippingOptionKey(o) === selected) ?? null;
   const draft = shippingLineDraftToInput(option, price);
+  const orderPoint = order.pickupPoint ?? null;
+  const pickup = pickupNeeded(option, !!orderPoint);
+  const newPoint = pickup !== 'NONE' && point && point.point.id !== orderPoint?.id ? point : null;
   // Edit: nothing to save while the line would keep charging the same method and amount.
   const unchanged =
-    mode === 'EDIT' && !!line && !!draft.input && shippingLineEditUnchanged(order.shippingLines, line, draft.input);
+    mode === 'EDIT' &&
+    !!line &&
+    !!draft.input &&
+    !newPoint &&
+    shippingLineEditUnchanged(order.shippingLines, line, draft.input);
 
   const choose = (key: string) => {
     const next = options?.find((o) => shippingOptionKey(o) === key);
@@ -122,9 +141,13 @@ const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, o
       setErrors(errorMap(draft.errors));
       return;
     }
+    if (pickup === 'REQUIRED' && !point) {
+      setErrors({ form: 'PICKUP_POINT_REQUIRED' });
+      return;
+    }
     setBusy(true);
     try {
-      const body = { ...draft.input, operationId };
+      const body = { ...draft.input, ...pickupSelectionInput(newPoint), operationId };
       const result =
         mode === 'EDIT' && line
           ? await new EditShippingLine().execute(order.id, line.id, body)
@@ -225,7 +248,30 @@ const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, o
           <Field.Hint />
           <Field.Error />
         </Field.Root>
-        {errors.form && (
+        {pickup !== 'NONE' && (
+          <Flex direction="column" alignItems="stretch" gap={2}>
+            <Typography variant="sigma" textColor="neutral600">
+              {t('ecommerce.orders.pickup.title')}
+            </Typography>
+            <Typography variant="pi" textColor="neutral600">
+              {pickup === 'OPTIONAL' && orderPoint
+                ? t('ecommerce.orders.pickup.keep', { name: orderPoint.name, id: orderPoint.id })
+                : t('ecommerce.orders.pickup.required')}
+            </Typography>
+            <PickupPointPicker
+              initialPostalCode={orderPoint?.customerAddress?.postalCode ?? order.shippingAddress?.postalCode ?? ''}
+              value={point}
+              onChange={(next) => {
+                setPoint(next);
+                setErrors({});
+              }}
+              disabled={busy}
+              error={errors.form ? codeText(errors.form) : undefined}
+            />
+          </Flex>
+        )}
+        {pickup === 'NONE' && orderPoint && option && <NoticeBar text={t('ecommerce.orders.pickup.restore')} />}
+        {errors.form && pickup === 'NONE' && (
           <Typography variant="omega" textColor="danger600">
             {codeText(errors.form)}
           </Typography>

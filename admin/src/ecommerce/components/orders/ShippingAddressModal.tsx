@@ -11,8 +11,9 @@ import { addressLockReason, allowedCountryCodes, canEdit, shippingAddressErrors 
 import { apiErrorMessageId } from '../../utils/orderDetail';
 import { extractFieldErrors } from '../../utils/productForm';
 import { mintUuid } from '../../utils/variantDraft';
-import type { EditResult, FieldError, Order } from '../../orderTypes';
+import type { EditResult, FieldError, Order, PickupSelection } from '../../orderTypes';
 import AddressFields, { type AddressField } from './AddressFields';
+import PickupPointPicker from './PickupPointPicker';
 
 type Props = {
   order: Order;
@@ -33,8 +34,9 @@ const errorMap = (errors: FieldError[]): Record<string, string> => {
 
 /**
  * The order's shipping address (spec 5). While it can change, a form whose countries are the ones
- * the current method serves; otherwise the same fields locked, with the reason. Mounted per
- * opening: each opening mints one operationId, so a retried save is applied once.
+ * the current method serves; otherwise the same fields locked, with the reason. A DPD Pickup order
+ * (spec 5.3) shows the point's address read-only; it changes only by choosing another point.
+ * Mounted per opening: each opening mints one operationId, so a retried save is applied once.
  */
 const ShippingAddressDialog = ({ order, canManage, onSaved, onClose }: Props & { onClose: () => void }) => {
   const { formatMessage } = useIntl();
@@ -48,18 +50,23 @@ const ShippingAddressDialog = ({ order, canManage, onSaved, onClose }: Props & {
 
   const editable = canManage && canEdit(order, 'EDIT_ADDRESS');
   const lockReason = editable ? null : (addressLockReason(order.editing) ?? 'default');
+  const pickupPoint = order.pickupPoint ?? null;
+  // The typed address form: never for a Pickup order.
+  const editableForm = editable && !pickupPoint;
+  const [changingPoint, setChangingPoint] = useState(false);
+  const [newPoint, setNewPoint] = useState<PickupSelection | null>(null);
 
   const [operationId] = useState(() => mintUuid());
   const [initial] = useState(() => addressFormFromAddress(order.shippingAddress));
   const [form, setForm] = useState<AddressForm>(initial);
   // Undefined: every country (locked view, or the served list could not be loaded).
   const [countries, setCountries] = useState<string[] | undefined>(undefined);
-  const [loading, setLoading] = useState(editable);
+  const [loading, setLoading] = useState(editableForm);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!editable) return;
+    if (!editableForm) return;
     let cancelled = false;
     new FetchShippingAddressCountries()
       .execute(order.id)
@@ -90,22 +97,30 @@ const ShippingAddressDialog = ({ order, canManage, onSaved, onClose }: Props & {
     setErrors({});
   };
 
-  const changed = JSON.stringify(form) !== JSON.stringify(initial);
+  const changed = pickupPoint
+    ? !!newPoint && newPoint.point.id !== pickupPoint.id
+    : JSON.stringify(form) !== JSON.stringify(initial);
 
   const save = async () => {
     if (busy) return;
-    const local = shippingAddressErrors(form);
-    if (local.length) {
-      setErrors(errorMap(local));
+    if (!pickupPoint) {
+      const local = shippingAddressErrors(form);
+      if (local.length) {
+        setErrors(errorMap(local));
+        return;
+      }
+    } else if (!newPoint) {
       return;
     }
     setBusy(true);
     try {
       // Shipping addresses never show company / NIF: what the order had is sent back unchanged.
-      const result = await new UpdateShippingAddress().execute(order.id, {
-        address: toAddress(form, true),
-        operationId,
-      });
+      const result = await new UpdateShippingAddress().execute(
+        order.id,
+        newPoint
+          ? { pickupPointId: newPoint.point.id, pickupPostalCode: newPoint.postalCode, operationId }
+          : { address: toAddress(form, true), operationId }
+      );
       onSaved(result);
       toggleNotification({ type: 'success', message: t('ecommerce.orders.address.saved') });
       onClose();
@@ -144,15 +159,46 @@ const ShippingAddressDialog = ({ order, canManage, onSaved, onClose }: Props & {
                   </Typography>
                 </Box>
               )}
+              {pickupPoint && (
+                <Box padding={3} background="neutral100" hasRadius>
+                  <Flex direction="column" alignItems="flex-start" gap={1}>
+                    <Typography variant="omega" fontWeight="semiBold">
+                      {t('ecommerce.orders.pickup.current', { name: pickupPoint.name, id: pickupPoint.id })}
+                    </Typography>
+                    <Typography variant="pi" textColor="neutral600">
+                      {codeText('PICKUP_ADDRESS_LOCKED')}
+                    </Typography>
+                  </Flex>
+                </Box>
+              )}
               <AddressFields
                 name="shippingAddress"
                 value={form}
                 onChange={change}
                 errorFor={(field) => (errors[field] ? codeText(errors[field]) : undefined)}
-                disabled={!editable || busy}
-                countries={editable ? countries : undefined}
+                disabled={!editableForm || busy}
+                countries={editableForm ? countries : undefined}
               />
-              {errors.form && (
+              {pickupPoint && editable && !changingPoint && (
+                <Box>
+                  <Button variant="secondary" startIcon={<Pin />} onClick={() => setChangingPoint(true)} disabled={busy}>
+                    {t('ecommerce.orders.pickup.change')}
+                  </Button>
+                </Box>
+              )}
+              {pickupPoint && editable && changingPoint && (
+                <PickupPointPicker
+                  initialPostalCode={pickupPoint.customerAddress?.postalCode ?? pickupPoint.postalCode}
+                  value={newPoint}
+                  onChange={(next) => {
+                    setNewPoint(next);
+                    setErrors({});
+                  }}
+                  disabled={busy}
+                  error={errors.form ? codeText(errors.form) : undefined}
+                />
+              )}
+              {errors.form && !(pickupPoint && changingPoint) && (
                 <Typography variant="omega" textColor="danger600">
                   {codeText(errors.form)}
                 </Typography>

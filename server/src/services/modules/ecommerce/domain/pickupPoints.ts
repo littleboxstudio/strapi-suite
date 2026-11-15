@@ -1,4 +1,6 @@
 import type { Address } from './orders';
+import { EcommerceValidationError } from '../errors';
+import { MAX_PICKUP_POINT_ID_LENGTH } from './storefront/limits';
 
 /** A pickup point as the pickup service returns it (spec 5.1); `openingHours` is not stored. */
 export type PickupPointInput = {
@@ -68,4 +70,70 @@ export const applyPickupPoint = (
       customerAddress: { ...customerAddress },
     },
   };
+};
+
+/** The pickup point stored on an order, or null. */
+export const readPickupPoint = (order: unknown): OrderPickupPoint | null => {
+  const p = (order as { pickupPoint?: unknown } | null)?.pickupPoint;
+  return p && typeof p === 'object' && !Array.isArray(p) ? (p as OrderPickupPoint) : null;
+};
+
+/** The pickup point a request names (`pickupPointId`, optional `pickupPostalCode`). */
+export type PickupSelection = { pickupPointId?: unknown; pickupPostalCode?: unknown };
+
+const cleanText = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
+
+/** Whether `input` names a pickup point (a non-blank `pickupPointId`). */
+export const hasPickupPointId = (input: PickupSelection | null | undefined): boolean =>
+  cleanText(input?.pickupPointId) !== '';
+
+/**
+ * Confirms the point `input` names with the pickup search (spec 5.2, 5.3), before any write.
+ * The search uses `pickupPostalCode`, else `fallbackPostalCode`.
+ * - id missing or blank → `PICKUP_POINT_REQUIRED`; not a string → `invalid`; too long or not
+ *   returned by the search → `PICKUP_POINT_INVALID` (all on `pickupPointId`);
+ * - the search's `INVALID_POSTAL_CODE` → on `pickupPostalCode` (or `fallbackPostalCodePath`),
+ *   its other validation codes (`PICKUP_NOT_AVAILABLE`) → on `shipping`;
+ * - a failed search (`PICKUP_SEARCH_FAILED`, a carrier error) is rethrown as is.
+ */
+export const findPickupPoint = async <P extends PickupPointInput>(
+  findPoint: (postalCode: string, id: string) => Promise<P | null>,
+  input: PickupSelection,
+  fallbackPostalCode: string,
+  fallbackPostalCodePath: string
+): Promise<P> => {
+  const refuse = (path: string, code: string) =>
+    new EcommerceValidationError('Invalid pickup point', [{ path, code }]);
+  const rawId = input?.pickupPointId;
+  if (rawId !== undefined && rawId !== null && typeof rawId !== 'string') {
+    throw refuse('pickupPointId', 'invalid');
+  }
+  const id = cleanText(rawId);
+  if (!id) throw refuse('pickupPointId', 'PICKUP_POINT_REQUIRED');
+  if (id.length > MAX_PICKUP_POINT_ID_LENGTH) throw refuse('pickupPointId', 'PICKUP_POINT_INVALID');
+  const rawCode = input?.pickupPostalCode;
+  if (rawCode !== undefined && rawCode !== null && typeof rawCode !== 'string') {
+    throw refuse('pickupPostalCode', 'invalid');
+  }
+  const pickupPostalCode = cleanText(rawCode);
+  const postalCodePath = pickupPostalCode ? 'pickupPostalCode' : fallbackPostalCodePath;
+  let point: P | null;
+  try {
+    point = await findPoint(pickupPostalCode || fallbackPostalCode, id);
+  } catch (err) {
+    // The search's own paths (`postalCode`, `country`) are moved to the request's.
+    if (err instanceof EcommerceValidationError) {
+      throw new EcommerceValidationError(
+        err.message,
+        err.errors.map((e) =>
+          e.code === 'INVALID_POSTAL_CODE'
+            ? { path: postalCodePath, code: e.code }
+            : { path: 'shipping', code: e.code }
+        )
+      );
+    }
+    throw err; // PICKUP_SEARCH_FAILED (EcommerceCarrierError)
+  }
+  if (!point) throw refuse('pickupPointId', 'PICKUP_POINT_INVALID');
+  return point;
 };

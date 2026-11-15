@@ -65,6 +65,16 @@ import type {
   EvaluationLine,
   PromotionCandidate,
 } from './domain/promotions';
+import {
+  applyPickupPoint,
+  findPickupPoint,
+  hasPickupPointId,
+  isPickupMethod,
+  readPickupPoint,
+  type OrderPickupPoint,
+  type PickupPointInput,
+  type PickupSelection,
+} from './domain/pickupPoints';
 import { isRecord, type CatalogVariant } from './orderPricingHelpers';
 import type { ShippingOption, ShippingQuoteRequest } from './shipping';
 import { normalizeAddress, shippingLineContext, type OrderState, type OrderView } from './orders';
@@ -130,7 +140,25 @@ export type ShippingRecalculationPreview = {
 /** NEW_UNITS: the method picked for the units to ship. */
 export type ShippingRecalculationInput = { providerId?: unknown; serviceId?: unknown };
 
-export type ShippingLineInput = { providerId: string; serviceId: string; amount: number };
+/**
+ * A shipping charge. With DPD Pickup (spec 5.3) the point is named by `pickupPointId` (searched
+ * with `pickupPostalCode`, else the customer's postal code); it is required unless the order
+ * already has a point, which is then kept.
+ */
+export type ShippingLineInput = {
+  providerId: string;
+  serviceId: string;
+  amount: number;
+} & PickupSelection;
+
+/**
+ * The shipping address section: an `address`, or, on an order delivered to a pickup point, the
+ * new point (`pickupPointId`, optional `pickupPostalCode`); its address cannot be typed in.
+ */
+export type ShippingAddressInput = { address?: unknown } & PickupSelection;
+
+/** How the delivery changes with a new method or point (spec 5.3). */
+type DeliveryChange = { shippingAddress: Address; pickupPoint: OrderPickupPoint | null };
 
 export type ManualDiscountInput = { kind: 'FIXED' | 'PERCENT'; value: number; reason: string };
 
@@ -183,6 +211,20 @@ const invalidLines = (errors: { path: string; code: string }[]) =>
 const invalidShipping = (path: string, code: string) =>
   new EcommerceValidationError('Invalid shipping', [{ path, code }]);
 
+const invalidPickup = (path: string, code: string) =>
+  new EcommerceValidationError('Invalid pickup point', [{ path, code }]);
+
+/** Spec 5.3: the delivery address of a Pickup order changes only by choosing another point. */
+const pickupAddressLocked = () =>
+  new EcommerceValidationError('Invalid address', [{ path: 'address', code: 'PICKUP_ADDRESS_LOCKED' }]);
+
+/** The customer's own delivery address: the one kept on the point, else the stored one. */
+const customerAddressOf = (order: any): Address =>
+  readPickupPoint(order)?.customerAddress ?? (order?.shippingAddress as Address);
+
+/** The point as the history shows it. */
+const pointSummary = (p: OrderPickupPoint | null) => (p ? { id: p.id, name: p.name } : null);
+
 /** A line amount: integer cents in 0..MAX_MONEY_CENTS (ruling 7). */
 const normalizeShippingInput = (input: ShippingLineInput): ShippingLineInput => {
   const amount: unknown = input?.amount;
@@ -224,6 +266,9 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     ): Promise<ShippingOption | null>;
     servedCountries(providerId: string, serviceId: string): Promise<string[]>;
   } => service('EcommerceShippingService');
+  const pickupPoints = (): {
+    findPoint(postalCode: string, id: string): Promise<PickupPointInput | null>;
+  } => service('EcommercePickupPointService');
   const promotions = (): {
     searchLimit(): number;
     loadCandidatesForOrder(p: {
@@ -650,6 +695,73 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   // -------------------------------------------------------------------------
+  // Pickup point (DPD Pickup, spec 5.3)
+  // -------------------------------------------------------------------------
+
+  /** Confirms the point `input` names with the pickup search. May be a remote call. */
+  const searchPoint = (order: any, input: PickupSelection | undefined) =>
+    findPickupPoint(
+      (postalCode, id) => pickupPoints().findPoint(postalCode, id),
+      input ?? {},
+      String(customerAddressOf(order)?.postalCode ?? ''),
+      'pickupPostalCode'
+    );
+
+  /**
+   * Before the transaction: the point a new current `method` needs. A pickup method needs one
+   * (`PICKUP_POINT_REQUIRED`), unless the order already has a point and `input` names none (the
+   * point is kept). Any other method: none (a `pickupPointId` is ignored).
+   */
+  const pointForMethod = async (
+    state: OrderState,
+    method: ShippingMethodRef | null,
+    input: PickupSelection | undefined
+  ): Promise<PickupPointInput | null> => {
+    if (!method || !isPickupMethod(method.providerId, method.serviceId)) return null;
+    if (readPickupPoint(state.order) && !hasPickupPointId(input)) return null;
+    return searchPoint(state.order, input);
+  };
+
+  /**
+   * Inside the transaction: the delivery change the order's new current `method` brings. A pickup
+   * method takes `point` (the customer's address stays on it) or keeps the stored point; leaving
+   * Pickup restores the customer's address and clears the point. Null: nothing changes.
+   */
+  const deliveryChange = (
+    state: OrderState,
+    method: ShippingMethodRef | null,
+    point: PickupPointInput | null
+  ): DeliveryChange | null => {
+    const stored = readPickupPoint(state.order);
+    if (method && isPickupMethod(method.providerId, method.serviceId)) {
+      if (point) {
+        if (stored?.id === point.id) return null;
+        return applyPickupPoint(customerAddressOf(state.order), point);
+      }
+      if (stored) return null;
+      throw invalidPickup('pickupPointId', 'PICKUP_POINT_REQUIRED');
+    }
+    return stored ? { shippingAddress: stored.customerAddress, pickupPoint: null } : null;
+  };
+
+  /** Records a delivery change as an address change. */
+  const recordDeliveryChange = (state: OrderState, change: DeliveryChange, w: EditWriter) =>
+    w.record({
+      type: 'ADDRESS_CHANGED',
+      description: change.pickupPoint
+        ? `Shipping address changed: pickup point ${change.pickupPoint.id}`
+        : 'Shipping address changed: pickup point removed',
+      previousValue: {
+        shippingAddress: state.order.shippingAddress ?? null,
+        pickupPoint: pointSummary(readPickupPoint(state.order)),
+      },
+      newValue: {
+        shippingAddress: change.shippingAddress,
+        pickupPoint: pointSummary(change.pickupPoint),
+      },
+    });
+
+  // -------------------------------------------------------------------------
   // Shipping address (spec 5, ruling 21)
   // -------------------------------------------------------------------------
 
@@ -682,7 +794,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
    */
   const updateShippingAddress = async (
     rawOrderId: number | string,
-    input: { address: unknown },
+    input: ShippingAddressInput,
     actor: string,
     operationId: string
   ): Promise<EditResult> => {
@@ -691,10 +803,20 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
       prepare: async () => {
         const state = await orders().computeOrderState(orderId);
         assertEditable(state, 'EDIT_ADDRESS');
-        const errors: ValidationIssue[] = [];
-        const address = normalizeAddress(input?.address, 'address', errors);
-        if (errors.length) throw new EcommerceValidationError('Invalid address', errors);
-        if (sameAddress(address, state.order.shippingAddress)) return { address, due: null };
+        // Spec 5.3: a Pickup order's address is the point's; only another point changes it.
+        const stored = readPickupPoint(state.order);
+        let address: Address;
+        let point: PickupPointInput | null = null;
+        if (stored) {
+          if (!hasPickupPointId(input)) throw pickupAddressLocked();
+          point = await searchPoint(state.order, input);
+          address = applyPickupPoint(stored.customerAddress, point).shippingAddress;
+        } else {
+          const errors: ValidationIssue[] = [];
+          address = normalizeAddress(input?.address, 'address', errors);
+          if (errors.length) throw new EcommerceValidationError('Invalid address', errors);
+        }
+        if (sameAddress(address, state.order.shippingAddress)) return { address, point, due: null };
         // Only a new market is checked: an unchanged one is kept even if no longer served. The
         // market is the country, or PT-ISL for an island postcode in a store selling there.
         const storeMarkets = (await storeSettings().getStoreSettings()).markets ?? [];
@@ -709,12 +831,19 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         }
         // The carrier quote may be a remote call: taken before the transaction.
         const due = await shippingDue(state, orderUnits(state), address);
-        return { address, due };
+        return { address, point, due };
       },
-      write: async (state, { address, due }, w) => {
+      write: async (state, prepared, w) => {
         assertEditable(state, 'EDIT_ADDRESS');
+        const { due, point } = prepared;
+        const stored = readPickupPoint(state.order);
+        // The order became (or stopped being) a Pickup order since the preparation.
+        if (stored && !point) throw pickupAddressLocked();
+        if (!stored && point) throw invalidPickup('pickupPointId', 'invalid');
+        const change = stored && point ? applyPickupPoint(stored.customerAddress, point) : null;
+        const address = change ? change.shippingAddress : prepared.address;
         const before = state.order.shippingAddress ?? null;
-        if (sameAddress(address, before)) {
+        if (sameAddress(address, before) && (!change || change.pickupPoint.id === stored?.id)) {
           return {
             outcome: 'NONE',
             difference: 0,
@@ -733,16 +862,27 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         } else if (due.due !== chargedShipping(readShippingLines(state.order))) {
           flags = await w.raise(flags, 'SHIPPING_REVIEW', 'ADDRESS_CHANGED');
         }
-        await writeTotals(state, { shippingAddress: address, reviewFlags: flags });
+        await writeTotals(state, {
+          shippingAddress: address,
+          reviewFlags: flags,
+          ...(change ? { pickupPoint: change.pickupPoint } : {}),
+        });
         return {
           outcome: 'NONE',
           difference: 0,
-          history: {
-            type: 'ADDRESS_CHANGED',
-            description: 'Shipping address changed',
-            previousValue: before,
-            newValue: address,
-          },
+          history: change
+            ? {
+                type: 'ADDRESS_CHANGED',
+                description: `Shipping address changed: pickup point ${change.pickupPoint.id}`,
+                previousValue: { shippingAddress: before, pickupPoint: pointSummary(stored) },
+                newValue: { shippingAddress: address, pickupPoint: pointSummary(change.pickupPoint) },
+              }
+            : {
+                type: 'ADDRESS_CHANGED',
+                description: 'Shipping address changed',
+                previousValue: before,
+                newValue: address,
+              },
         };
       },
     });
@@ -892,7 +1032,8 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
   const writeShippingLines = async (
     state: OrderState,
     next: ShippingLine[] | null,
-    w: EditWriter
+    w: EditWriter,
+    delivery: DeliveryChange | null = null
   ) => {
     const before = totalsWith(state);
     const after = next ? totalsWith(state, next) : before;
@@ -905,7 +1046,12 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     if (grossChanged && hasShippingDiscount(state.order)) {
       flags = await w.raise(flags, 'DISCOUNTS_REVIEW', 'SHIPPING_CHANGED');
     }
-    await writeTotals(state, { ...(next ? { shippingLines: next } : {}), reviewFlags: flags });
+    if (delivery) await recordDeliveryChange(state, delivery, w);
+    await writeTotals(state, {
+      ...(next ? { shippingLines: next } : {}),
+      reviewFlags: flags,
+      ...(delivery ? { shippingAddress: delivery.shippingAddress, pickupPoint: delivery.pickupPoint } : {}),
+    });
     return {
       before,
       after,
@@ -1105,9 +1251,13 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         if (!editableLine(state.shippingLines, lineId)) throw lineNotFound();
         assertLineNotPaid(state.shippingLines, lineId);
         const next = normalizeShippingInput(input);
-        return { amount: next.amount, method: await offeredMethod(state, next) };
+        const charge = { amount: next.amount, method: await offeredMethod(state, next) };
+        // The method the order will have (spec 5.3): DPD Pickup needs its point.
+        const planned = planLineChange(state.shippingLines, lineId, charge, { at: '', actor });
+        const point = await pointForMethod(state, currentMethod(planned.lines), input);
+        return { ...charge, point };
       },
-      write: async (state, next, w) => {
+      write: async (state, { point, ...next }, w) => {
         assertEditable(state, 'EDIT_SHIPPING_LINE');
         if (!editableLine(state.shippingLines, lineId)) throw lineNotFound();
         assertLineNotPaid(state.shippingLines, lineId);
@@ -1115,7 +1265,13 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
           at: new Date().toISOString(),
           actor: w.actor,
         });
-        const r = await writeShippingLines(state, plan.mode === 'UNCHANGED' ? null : plan.lines, w);
+        const delivery = deliveryChange(state, currentMethod(plan.lines), point);
+        const r = await writeShippingLines(
+          state,
+          plan.mode === 'UNCHANGED' ? null : plan.lines,
+          w,
+          delivery
+        );
         return {
           outcome: r.outcome,
           difference: r.difference,
@@ -1143,7 +1299,9 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         const state = await orders().computeOrderState(orderId);
         assertEditable(state, 'ADD_SHIPPING_LINE');
         const next = normalizeShippingInput(input);
-        return { amount: next.amount, method: await offeredMethod(state, next) };
+        const method = await offeredMethod(state, next);
+        // The new charge's method becomes the order's (spec 5.3): DPD Pickup needs its point.
+        return { amount: next.amount, method, point: await pointForMethod(state, method, input) };
       },
       write: async (state, next, w) => {
         assertEditable(state, 'ADD_SHIPPING_LINE');
@@ -1155,7 +1313,8 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
           createdAt: new Date().toISOString(),
           actor: w.actor,
         });
-        const r = await writeShippingLines(state, lines, w);
+        const delivery = deliveryChange(state, currentMethod(lines), next.point);
+        const r = await writeShippingLines(state, lines, w, delivery);
         return {
           outcome: r.outcome,
           difference: r.difference,
