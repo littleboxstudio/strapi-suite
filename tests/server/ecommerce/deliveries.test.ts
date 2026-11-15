@@ -217,7 +217,7 @@ describe('confirmDelivery', () => {
 });
 
 describe('updateTracking', () => {
-  it('stores code and link, one distinct key per call, no e-mail', async () => {
+  it('stores code and link, one distinct key per call', async () => {
     const { c, ships } = setup();
     const { id, lineId } = await paidOrder(c, 1);
     const a = await ships.create(id, manual(lineId, 1, 's1'), 'user:1');
@@ -235,10 +235,35 @@ describe('updateTracking', () => {
     expect(
       c.tables[UIDS.orderHistory].filter((h) => h.type === 'SHIPMENT_TRACKING_UPDATED')
     ).toHaveLength(2);
-    expect(c.tables[UIDS.notification]).toHaveLength(0);
-    expect(
-      c.events.filter((e) => e.type !== 'SHIPMENT_CREATED' && /SHIPMENT/.test(e.type))
-    ).toHaveLength(0);
+  });
+
+  it('emits SHIPMENT_TRACKING_UPDATED only when the tracking changed on an ACTIVE shipment', async () => {
+    const { c, ships } = setup();
+    const { id, lineId } = await paidOrder(c, 1);
+    const a = await ships.create(id, manual(lineId, 1, 's1'), 'user:1');
+    const sent = () => c.events.filter((e) => e.type === 'SHIPMENT_TRACKING_UPDATED');
+    await ships.updateTracking(a.id, { trackingCode: 'NEW1' }, 'u');
+    expect(sent()).toHaveLength(1);
+    expect(sent()[0]).toMatchObject({ orderId: id, payload: { shipmentId: a.id } });
+    // unchanged save
+    await ships.updateTracking(a.id, { trackingCode: ' NEW1 ' }, 'u');
+    expect(sent()).toHaveLength(1);
+    // link only
+    await ships.updateTracking(a.id, { trackingUrl: 'https://t.example/x' }, 'u');
+    expect(sent()).toHaveLength(2);
+    // both end up empty
+    await ships.updateTracking(a.id, { trackingCode: null, trackingUrl: null }, 'u');
+    expect(sent()).toHaveLength(2);
+  });
+
+  it('does not emit on a shipment that is not ACTIVE', async () => {
+    const { c, ships } = setup();
+    const { id, lineId } = await paidOrder(c, 1);
+    const a = await ships.create(id, manual(lineId, 1, 's1'), 'user:1');
+    const row = c.tables[UIDS.shipment].find((r: any) => r.id === a.id);
+    row.status = 'PENDING';
+    await ships.updateTracking(a.id, { trackingCode: 'Z9' }, 'u');
+    expect(c.events.filter((e) => e.type === 'SHIPMENT_TRACKING_UPDATED')).toHaveLength(0);
   });
 
   it('rejects javascript: URLs and cancelled shipments', async () => {

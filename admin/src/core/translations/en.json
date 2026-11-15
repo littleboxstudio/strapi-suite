@@ -643,6 +643,8 @@
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.types.PARTIAL_SHIPMENT.description": "Sent when part of an order is shipped.",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.types.FULL_SHIPMENT.name": "Order shipped",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.types.FULL_SHIPMENT.description": "Sent when the whole order (or its last part) is shipped.",
+  "littlebox-strapi-suite.ecommerce.settings.emailTemplates.types.TRACKING_UPDATED.name": "Tracking updated",
+  "littlebox-strapi-suite.ecommerce.settings.emailTemplates.types.TRACKING_UPDATED.description": "Sent when the tracking code or link of a shipment is changed.",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.types.DELIVERY_CONFIRMATION.name": "Delivery confirmation",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.types.DELIVERY_CONFIRMATION.description": "Sent when the order is marked as delivered.",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.types.CANCELLATION.name": "Order cancellation",
