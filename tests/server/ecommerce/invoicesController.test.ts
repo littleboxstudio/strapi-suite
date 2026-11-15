@@ -152,7 +152,7 @@ describe('EcommerceInvoiceController', () => {
     expect(bad.badRequest).toHaveBeenCalledWith('Invalid id');
   });
 
-  it('credit note preview and issue: validates creditType (RETURN | CORRECTION), lines (index ≥ 0, quantity ≥ 1), shippingIndexes, reason ≤ 500 and idempotencyKey', async () => {
+  it('credit note preview and issue: validates creditType (RETURN | CORRECTION | SHIPPING), lines (index ≥ 0, quantity ≥ 1), shippingIndexes, reason ≤ 500 and idempotencyKey', async () => {
     const options = {
       lines: [],
       creditable: [],
@@ -186,6 +186,12 @@ describe('EcommerceInvoiceController', () => {
       { creditType: 'CORRECTION', lines: [], shippingIndexes: [], reason: 'Wrong NIF', idempotencyKey: 'k2' },
       'user:7'
     );
+    await c.issueCreditNote(body({ creditType: 'SHIPPING', reason: 'Shipping recalculated', idempotencyKey: 'k3' }));
+    expect(issueCreditNote).toHaveBeenLastCalledWith(
+      5,
+      { creditType: 'SHIPPING', lines: [], shippingIndexes: [], reason: 'Shipping recalculated', idempotencyKey: 'k3' },
+      'user:7'
+    );
     const many = Array.from({ length: 201 }, (_, i) => i);
     for (const bad of [
       { ...valid, creditType: undefined },
@@ -213,7 +219,7 @@ describe('EcommerceInvoiceController', () => {
         expect.objectContaining({ errors: expect.any(Array) })
       );
     }
-    expect(issueCreditNote).toHaveBeenCalledTimes(2);
+    expect(issueCreditNote).toHaveBeenCalledTimes(3);
   });
 
   it.each(['QUANTITY_EXCEEDS_CREDITABLE', 'SHIPPING_NOT_CREDITABLE', 'CREDIT_NOTE_IN_PROGRESS'])('credit note %s is a 409', async (code) => {

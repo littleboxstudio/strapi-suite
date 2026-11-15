@@ -111,7 +111,7 @@ const EcommerceInvoiceController = ({ strapi }: { strapi: Core.Strapi }) => {
         (id) => {
           const b = asObject(ctx.request?.body);
           const creditType =
-            b.creditType === 'RETURN' || b.creditType === 'CORRECTION'
+            b.creditType === 'RETURN' || b.creditType === 'CORRECTION' || b.creditType === 'SHIPPING'
               ? b.creditType
               : fail(MSG, 'creditType', 'invalid');
           const input = {
