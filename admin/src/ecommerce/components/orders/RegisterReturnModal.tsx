@@ -20,6 +20,7 @@ import {
   VisuallyHidden,
 } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
+import { InputTd } from '../InputTd';
 import RegisterReturn from '../../usecases/orders/registerReturn';
 import { formatCents } from '../../utils/money';
 import { apiErrorMessageId } from '../../utils/orderDetail';
@@ -229,7 +230,7 @@ const RegisterReturnModal = ({ order, canRefund, onClose, onRefundNow }: Props) 
                         <Td>
                           <Typography textColor="neutral800">{line.returnable}</Typography>
                         </Td>
-                        <Td style={{ width: 120 }}>
+                        <InputTd style={{ width: 120 }}>
                           <Field.Root name={`quantity-${line.id}`} error={fieldError(`lines.${line.id}`)}>
                             <VisuallyHidden>
                               <Field.Label>{t('ecommerce.orders.returns.columns.quantity')}</Field.Label>
@@ -242,7 +243,7 @@ const RegisterReturnModal = ({ order, canRefund, onClose, onRefundNow }: Props) 
                             />
                             <Field.Error />
                           </Field.Root>
-                        </Td>
+                        </InputTd>
                         <Td>
                           <Checkbox
                             checked={draft.restock}

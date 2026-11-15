@@ -22,6 +22,7 @@ import {
   VisuallyHidden,
 } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
+import { InputTd } from '../InputTd';
 import { NOTICE_BACKGROUND, NOTICE_TEXT } from './NoticeBar';
 import { ActionConfirmModal } from '../ActionConfirmModal';
 import CreateShipment from '../../usecases/orders/createShipment';
@@ -315,7 +316,7 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
                         <Td>
                           <Typography textColor="neutral800">{line.pending}</Typography>
                         </Td>
-                        <Td style={{ width: 120 }}>
+                        <InputTd style={{ width: 120 }}>
                           <Field.Root name={`quantity-${line.id}`} error={error}>
                             <VisuallyHidden>
                               <Field.Label>{t('ecommerce.orders.ship.columns.quantity')}</Field.Label>
@@ -328,7 +329,7 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
                             />
                             <Field.Error />
                           </Field.Root>
-                        </Td>
+                        </InputTd>
                       </Tr>
                     );
                   })}
