@@ -59,6 +59,7 @@ import {
   applyPickupPoint,
   findPickupPoint,
   isPickupMethod,
+  nextPickupPoint,
   isStorePickup,
   type OrderPickupPoint,
 } from './domain/pickupPoints';
@@ -230,6 +231,11 @@ export type OrderView = {
   shippingMethod: Record<string, unknown> | null;
   /** The DPD pickup point with the customer's own address (admin view only). */
   pickupPoint: OrderPickupPoint | null;
+  /**
+   * The point the next shipment goes to (the current method is a pickup one): `pickupPoint` until
+   * the first shipment, then the one charged with the current method. Null otherwise.
+   */
+  nextPickupPoint: OrderPickupPoint | null;
   notes: string | null;
   totals: {
     itemsOriginal: number;
@@ -1390,6 +1396,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       billingAddress: order.billingAddress ?? null,
       shippingMethod: order.shippingMethod ?? null,
       pickupPoint: isRecord(order.pickupPoint) ? (order.pickupPoint as OrderPickupPoint) : null,
+      nextPickupPoint: nextPickupPoint(order),
       notes: order.notes ?? null,
       totals: {
         itemsOriginal: num(order.itemsOriginal),

@@ -1,8 +1,9 @@
 import type { Address } from './orders';
 import { EcommerceValidationError } from '../errors';
 import { MAX_PICKUP_POINT_ID_LENGTH } from './storefront/limits';
-import { STORE_PICKUP_ID, STORE_PICKUP_SERVICE_ID } from './storePickup';
+import { STORE_ID_RE, STORE_PICKUP_ID, STORE_PICKUP_SERVICE_ID } from './storePickup';
 import { marketOf } from './markets';
+import { readShippingLines } from './shippingLines';
 
 /** A pickup point as the pickup service returns it (spec 5.1); `openingHours` is not stored. */
 export type PickupPointInput = {
@@ -106,6 +107,32 @@ export const readPickupPoint = (order: unknown): OrderPickupPoint | null => {
 export const customerAddressOf = (order: unknown): Address | null =>
   readPickupPoint(order)?.customerAddress ??
   ((order as { shippingAddress?: Address | null } | null)?.shippingAddress ?? null);
+
+/**
+ * The point the order's next shipment goes to, when its method is a pickup one: the latest point
+ * kept on a shipping line (charged once the order had shipments), else the order's own point (kept
+ * in step with its method until the first shipment). Null otherwise.
+ */
+export const nextPickupPoint = (order: any): OrderPickupPoint | null => {
+  // The order's method is kept in step with its current shipping line by order editing.
+  const method = (order?.shippingMethod ?? null) as { providerId?: unknown; serviceId?: unknown } | null;
+  if (!method || !isPickupMethod(method.providerId, method.serviceId)) return null;
+  // The latest line of any origin with a point of this kind (a recalculation line keeps the point
+  // of the charges it replaced). Writing the order's own point clears the lines' points.
+  const line = [...readShippingLines(order)]
+    .sort((a, b) => b.id - a.id)
+    .find((l) => l.pickupPoint && samePickupKind(l, method));
+  if (line?.pickupPoint) {
+    const customer = customerAddressOf(order);
+    return customer ? { ...line.pickupPoint, customerAddress: customer } : null;
+  }
+  // The order's own point, only of the method's kind (it may be of another kind once shipped).
+  const own = readPickupPoint(order);
+  return own && isStorePointId(own.id) === isStorePickup(method.providerId, method.serviceId) ? own : null;
+};
+
+/** Whether a point id is a store's (`st_` + 10 characters, made by the store pickup settings). */
+export const isStorePointId = (id: unknown): boolean => typeof id === 'string' && STORE_ID_RE.test(id);
 
 /**
  * The market of the customer's own address. Store pickup is quoted, validated and swapped in this

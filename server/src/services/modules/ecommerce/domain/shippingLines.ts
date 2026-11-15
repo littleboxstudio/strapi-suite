@@ -16,6 +16,22 @@ export type ShippingLine = ShippingMethodRef & {
   actor: string;
   /** An EDIT line appended as a correction of the locked line with this id. */
   editOf?: number;
+  /**
+   * A pickup method charged once the order has shipments: the point (DPD point or store) the next
+   * shipment goes to. The order's own delivery address and point no longer change by then.
+   */
+  pickupPoint?: LinePickupPoint;
+};
+
+/** A point as a shipping line keeps it: its public fields, never the customer's address. */
+export type LinePickupPoint = {
+  id: string;
+  name: string;
+  address: string;
+  address2: string | null;
+  postalCode: string;
+  city: string;
+  country: string;
 };
 
 export type ShippingLineView = ShippingLine & {
@@ -51,7 +67,26 @@ const plain = (l: ShippingLine): ShippingLine => ({
   createdAt: l.createdAt,
   actor: l.actor,
   ...(l.editOf !== undefined ? { editOf: l.editOf } : {}),
+  ...(l.pickupPoint ? { pickupPoint: linePoint(l.pickupPoint) } : {}),
 });
+
+const text = (v: unknown): string => (typeof v === 'string' ? v : '');
+
+/** A point's public fields (a stored point may also hold the customer's address: dropped). */
+export function linePoint(p: LinePickupPoint): LinePickupPoint {
+  return {
+    id: p.id,
+    name: text(p.name),
+    address: text(p.address),
+    address2: typeof p.address2 === 'string' ? p.address2 : null,
+    postalCode: text(p.postalCode),
+    city: text(p.city),
+    country: text(p.country),
+  };
+}
+
+const parsePoint = (raw: unknown): LinePickupPoint | null =>
+  isObject(raw) && typeof raw.id === 'string' && raw.id ? linePoint(raw as LinePickupPoint) : null;
 
 export function checkoutLine(order: {
   createdAt: string;
@@ -82,10 +117,12 @@ const parseLine = (raw: unknown): ShippingLine | null => {
   for (const k of ['providerId', 'serviceId', 'name', 'createdAt', 'actor']) {
     if (typeof raw[k] !== 'string') return null;
   }
-  const { editOf, ...rest } = raw;
+  const { editOf, pickupPoint, ...rest } = raw;
+  const point = parsePoint(pickupPoint);
   return plain({
     ...(rest as ShippingLine),
     ...(Number.isInteger(editOf) && editOf >= 1 ? { editOf } : {}),
+    ...(point ? { pickupPoint: point } : {}),
   });
 };
 
@@ -108,10 +145,14 @@ export function chargedShipping(lines: ShippingLine[]): number {
   return lines.reduce((sum, l) => sum + l.amount, 0);
 }
 
-export function currentMethod(lines: ShippingLine[]): ShippingMethodRef | null {
+/** The line that sets the order's current method: the latest one not made by a recalculation. */
+export function currentLine(lines: ShippingLine[]): ShippingLine | null {
   const sorted = [...lines].sort(byId);
-  const latest =
-    [...sorted].reverse().find((l) => l.origin !== 'RECALCULATION') ?? sorted[sorted.length - 1];
+  return [...sorted].reverse().find((l) => l.origin !== 'RECALCULATION') ?? sorted[sorted.length - 1] ?? null;
+}
+
+export function currentMethod(lines: ShippingLine[]): ShippingMethodRef | null {
+  const latest = currentLine(lines);
   if (!latest) return null;
   return { providerId: latest.providerId, serviceId: latest.serviceId, name: latest.name, tax: latest.tax };
 }
@@ -156,6 +197,14 @@ export const isReplaceable = (l: ShippingLineView): boolean => !l.spent && !l.in
 const replaceableIn = (lines: ShippingLineView[], l: ShippingLineView): boolean =>
   isReplaceable(l) && correctionsOf(lines, l.id).every(isReplaceable);
 
+/** The lines without the points they carried (the order's own point is set again). */
+export function withoutLinePoints(lines: ShippingLine[]): ShippingLine[] {
+  return lines.map(({ pickupPoint: _dropped, ...l }) => l);
+}
+
+/** Whether any line carries a point. */
+export const hasLinePoints = (lines: ShippingLine[]): boolean => lines.some((l) => !!l.pickupPoint);
+
 export function appendLine(lines: ShippingLine[], line: Omit<ShippingLine, 'id'>): ShippingLine[] {
   return [...lines, { ...line, id: nextShippingLineId(lines) }];
 }
@@ -183,11 +232,12 @@ export function planLineChange(
   }
   if (replaceableIn(lines, target)) {
     return {
-      lines: base.map((l) =>
-        l.id === targetId
-          ? { ...l, origin: 'EDIT', amount: target.amount + delta, ...next.method, createdAt: meta.at, actor: meta.actor }
-          : l
-      ),
+      // A replaced line charges another method: a point it carried no longer applies.
+      lines: base.map((l) => {
+        if (l.id !== targetId) return l;
+        const { pickupPoint: _dropped, ...rest } = l;
+        return { ...rest, origin: 'EDIT', amount: target.amount + delta, ...next.method, createdAt: meta.at, actor: meta.actor };
+      }),
       mode: 'REPLACED',
     };
   }

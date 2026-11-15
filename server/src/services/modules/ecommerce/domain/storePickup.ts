@@ -49,7 +49,7 @@ const STORE_FIELDS = [
   { key: 'city', max: 100, required: true },
 ] as const;
 
-const STORE_ID_RE = /^st_[a-z0-9]{10}$/;
+export const STORE_ID_RE = /^st_[a-z0-9]{10}$/;
 const ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
 
 /** `st_` + 10 random lowercase alphanumerics (rejection sampling keeps them uniform). */

@@ -139,7 +139,8 @@ const ShippingAddressDialog = ({ order, canManage, onSaved, onClose }: Props & {
   };
 
   // The order's own point chosen again is no change (a removed store would be refused).
-  const chosenPoint = newPickupSelection(newPoint, pickupPoint?.id);
+  // Compared with the point the next shipment goes to (it may be a charged one after a cancelled shipment).
+  const chosenPoint = newPickupSelection(newPoint, (order.nextPickupPoint ?? pickupPoint)?.id);
   const changed = pickupPoint ? !!chosenPoint : JSON.stringify(form) !== JSON.stringify(initial);
 
   const save = async () => {

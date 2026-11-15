@@ -372,8 +372,10 @@ export type Order = {
   shippingAddress: Address | null;
   billingAddress: Address | null;
   shippingMethod: Record<string, unknown> | null;
-  /** Set for a DPD Pickup order; null otherwise. */
+  /** The order's own point (DPD Pickup or Store pickup); null otherwise. Fixed once shipped. */
   pickupPoint: OrderPickupPoint | null;
+  /** The point the next shipment goes to (the current method is a pickup one); null otherwise. */
+  nextPickupPoint?: OrderPickupPoint | null;
   notes: string | null;
   totals: OrderTotals;
   lines: OrderLine[];
@@ -1033,6 +1035,8 @@ export type ShipmentView = {
   carrierSupport: CarrierSupport | null;
   /** Store pickup shipments: the store it was shipped to, as it was then. */
   store?: PickupStore;
+  /** DPD Pickup shipments: the point it was shipped to, as it was then. */
+  pickupPoint?: PickupStore;
   /** Oldest first. */
   events: ShipmentEvent[];
 };
@@ -1066,10 +1070,8 @@ export type ShipMethodOption = {
   parcels?: true;
   /** STORE_PICKUP: the current stores of the order's market (its own first when no longer listed). */
   stores?: PickupStore[];
-  /** STORE_PICKUP: the order's store, or null. */
+  /** STORE_PICKUP: the store the next shipment goes to, or null. */
   selectedStoreId?: string | null;
-  /** STORE_PICKUP: a store pickup shipment is active, so the order's store can no longer change. */
-  storeLocked?: true;
 };
 
 export type CreateShipmentInput = {

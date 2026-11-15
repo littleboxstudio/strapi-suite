@@ -28,7 +28,6 @@ import { ActionConfirmModal } from '../ActionConfirmModal';
 import CreateShipment from '../../usecases/orders/createShipment';
 import FetchShipMethods from '../../usecases/orders/fetchShipMethods';
 import { apiErrorCode, apiErrorMessageId, shouldRenewIdempotencyKey } from '../../utils/orderDetail';
-import { pickupPointLines } from '../../utils/pickupPoints';
 import StoreSelect from './StoreSelect';
 import { extractFieldErrors } from '../../utils/productForm';
 import { mintUuid } from '../../utils/variantDraft';
@@ -44,7 +43,6 @@ import {
   shipResultMessageId,
   shipStore,
   shipStoreErrorId,
-  shipStoreLocked,
   validateShipForm,
   type FormErrors,
   type ShipForm,
@@ -165,7 +163,6 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
   const lineById = new Map(order.lines.map((l) => [l.id, l]));
   const method = selectedShipMethod(form, methods ?? []);
   const store = shipStore(method, form.storeId);
-  const storeLines = store ? pickupPointLines(store) : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -469,30 +466,13 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
 
                       {method.kind === 'STORE_PICKUP' && (
                         <Flex direction="column" alignItems="stretch" gap={4}>
-                          {shipStoreLocked(method) ? (
-                            // A store pickup shipment is active: the units wait at this store.
-                            <Flex direction="column" alignItems="flex-start" gap={1}>
-                              <Typography variant="pi" fontWeight="bold" textColor="neutral800">
-                                {t('ecommerce.orders.pickup.store.label')}
-                              </Typography>
-                              {storeLines && (
-                                <Typography textColor="neutral800">
-                                  {`${storeLines.name} — ${storeLines.address}, ${storeLines.place}`}
-                                </Typography>
-                              )}
-                              <Typography variant="pi" textColor={errors.store ? 'danger600' : 'neutral600'}>
-                                {errors.store ? storeErrorText(errors.store) : t('ecommerce.orders.ship.storeLocked')}
-                              </Typography>
-                            </Flex>
-                          ) : (
-                            <StoreSelect
-                              stores={method.stores ?? []}
-                              value={form.storeId || null}
-                              disabled={saving}
-                              error={errors.store ? storeErrorText(errors.store) : undefined}
-                              onChange={(s) => update({ storeId: s.id }, ['store'])}
-                            />
-                          )}
+                          <StoreSelect
+                            stores={method.stores ?? []}
+                            value={form.storeId || null}
+                            disabled={saving}
+                            error={errors.store ? storeErrorText(errors.store) : undefined}
+                            onChange={(s) => update({ storeId: s.id }, ['store'])}
+                          />
                           {store && (
                             <Box padding={3} hasRadius style={{ background: NOTICE_BACKGROUND }}>
                               <Typography variant="omega" style={{ color: NOTICE_TEXT }}>

@@ -353,6 +353,12 @@ const ShipmentsSection = ({
                               {t('ecommerce.orders.shipments.track')}
                             </Link>
                           )}
+                          {s.pickupPoint && (
+                            // DPD Pickup: the point it was shipped to.
+                            <Typography variant="pi" textColor="neutral600" ellipsis>
+                              {[s.pickupPoint.name, s.pickupPoint.city].filter(Boolean).join(' · ')}
+                            </Typography>
+                          )}
                         </Flex>
                       )}
                     </Td>
