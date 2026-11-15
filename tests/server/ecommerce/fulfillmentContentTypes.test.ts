@@ -7,7 +7,7 @@ const get = (n: string): any => (contentTypes as any)[`ltb-st-module-ecommerce-$
 
 const names: Record<string, string[]> = {
   shipment: ['order', 'providerId', 'serviceId', 'carrierName', 'status', 'items', 'trackingCode', 'trackingUrl',
-    'externalId', 'labelRef', 'shippingCost', 'labelAvailable', 'deliveryStatus', 'deliverySource', 'shippedAt', 'deliveredAt',
+    'externalId', 'labelRef', 'labelAvailable', 'deliveryStatus', 'deliverySource', 'shippedAt', 'deliveredAt',
     'cancelledAt', 'idempotencyKey', 'actor', 'error', 'metadata'],
   'shipment-event': ['shipment', 'order', 'type', 'code', 'description', 'occurredAt', 'source', 'actor', 'uniqueKey'],
   'order-return': ['order', 'items', 'grossValue', 'discountShare', 'refundableValue', 'reason', 'notes',
@@ -52,7 +52,7 @@ describe('ecommerce fulfillment content-types', () => {
     expect(a.deliverySource.enum).toEqual(['MANUAL', 'CARRIER']);
     expect(a.items.type).toBe('json');
     expect(a.trackingUrl.type).toBe('text');
-    expect(a.shippingCost).toMatchObject({ type: 'integer', default: 0 });
+    expect(a.shippingCost).toBeUndefined();
     expect(a.labelAvailable).toMatchObject({ type: 'boolean', default: false });
     // The carrier's label link (DPD) is never serialized.
     expect(a.labelRef).toMatchObject({ type: 'text', private: true });

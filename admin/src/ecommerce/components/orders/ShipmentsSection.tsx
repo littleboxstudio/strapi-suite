@@ -30,7 +30,6 @@ import FetchShipmentLabel from '../../usecases/orders/fetchShipmentLabel';
 import RefreshShipmentTracking from '../../usecases/orders/refreshShipmentTracking';
 import RetryShipment from '../../usecases/orders/retryShipment';
 import MarkShipmentFailed from '../../usecases/orders/markShipmentFailed';
-import { formatCents } from '../../utils/money';
 import { apiErrorMessageId, type OrderActionPermissions, type ToolbarAction } from '../../utils/orderDetail';
 import { canEdit, shippingLineRows } from '../../utils/orderEditing';
 import {
@@ -126,11 +125,10 @@ const ShipmentsSection = ({
   sectionActions = [],
   actionBusy = false,
 }: Props) => {
-  const { formatMessage, formatDate, locale: uiLocale } = useIntl();
+  const { formatMessage, formatDate } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>, defaultMessage?: string) =>
     formatMessage({ id: getTranslation(id), defaultMessage }, values);
-  const money = (cents: number) => formatCents(cents, uiLocale);
   const date = (iso: string | null) => (iso ? formatDate(iso, { dateStyle: 'medium', timeStyle: 'short' }) : '—');
 
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
@@ -360,12 +358,7 @@ const ShipmentsSection = ({
                         </Flex>
                       </Td>
                       <Td>
-                        <Flex direction="column" alignItems="flex-start">
-                          <Typography textColor="neutral800">{s.carrierName}</Typography>
-                          <Typography variant="pi" textColor="neutral600">
-                            {t('ecommerce.orders.shipments.columns.cost')}: {money(s.shippingCost)}
-                          </Typography>
-                        </Flex>
+                        <Typography textColor="neutral800">{s.carrierName}</Typography>
                       </Td>
                       <Td style={{ maxWidth: 240 }}>
                         <Flex direction="column" alignItems="flex-start">

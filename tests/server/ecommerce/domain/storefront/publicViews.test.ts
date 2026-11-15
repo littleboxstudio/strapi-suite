@@ -353,7 +353,7 @@ const orderView = (): OrderView =>
     billing: { active: false, providerId: null },
     shipments: [],
     returns: [],
-    shipping: { remainingCost: 0, deliveryStatus: 'PENDING' },
+    shipping: { deliveryStatus: 'PENDING' },
     promotions: [{ ...appliedPromotion({}), redemptionStatus: 'RESERVED' }],
     promotionCodes: [{ code: 'CAMP-INT', status: 'APPLIED', promotionId: 1 }],
     summary: { orderTotal: 5499, total: 5499, paid: 1000, pendingPayments: 0, refunded: 0, net: 1000, due: 4499, excess: 0, overRefunded: 0 },

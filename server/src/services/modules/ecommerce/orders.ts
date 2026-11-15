@@ -41,7 +41,6 @@ import {
 } from './domain/invoiceSelection';
 import {
   orderDeliveryStatus,
-  remainingShippingCost,
   reservedQuantities,
   type DeliveryStatus,
   type OrderDeliveryStatus,
@@ -250,7 +249,7 @@ export type OrderView = {
   billing: { active: boolean; providerId: string | null };
   shipments: ShipmentView[];
   returns: ReturnView[];
-  shipping: { remainingCost: number; deliveryStatus: OrderDeliveryStatus };
+  shipping: { deliveryStatus: OrderDeliveryStatus };
   promotions: OrderPromotionView[];
   /** Codes entered at checkout with their status (applied or not). Admin view only. */
   promotionCodes: OrderPromotionCodeView[];
@@ -358,7 +357,6 @@ const idOf = (v: any): number | null =>
 export type LoadedShipment = ShipmentLike & {
   id: number;
   deliveryStatus: DeliveryStatus | null;
-  shippingCost: number;
 };
 
 export type OrderListParams = {
@@ -715,7 +713,6 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       items: shipmentItemsOf(r).map((i) => ({ orderLineId: i.orderLineId, quantity: i.quantity })),
       deliveryStatus: r.deliveryStatus ?? null,
       delivered: r.deliveryStatus === 'DELIVERED',
-      shippingCost: num(r.shippingCost),
     }));
 
   /** Every shipment of the order (any status), sorted by id. */
@@ -1422,7 +1419,6 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       shipments: shipmentViews,
       returns,
       shipping: {
-        remainingCost: remainingShippingCost(num(order.shippingTotal), shipments),
         deliveryStatus: orderDeliveryStatus(order.fulfillmentStatus, shipments),
       },
       promotions: promotionViews,

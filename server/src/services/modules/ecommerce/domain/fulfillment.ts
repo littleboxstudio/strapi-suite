@@ -86,16 +86,6 @@ export const validateShipmentRequest = (
   );
 };
 
-type CostShipment = { status: ShipmentStatus; shippingCost: number };
-
-/** Sum of the shipping cost of ACTIVE shipments. */
-export const previousShipmentsCost = (shipments: CostShipment[]): number =>
-  shipments.reduce((sum, s) => (s.status === 'ACTIVE' ? sum + s.shippingCost : sum), 0);
-
-/** Shipping left to attribute to the next shipment (prefill). */
-export const remainingShippingCost = (shippingTotal: number, shipments: CostShipment[]): number =>
-  Math.max(0, shippingTotal - previousShipmentsCost(shipments));
-
 // ---------------------------------------------------------------------------
 // Deliveries
 // ---------------------------------------------------------------------------

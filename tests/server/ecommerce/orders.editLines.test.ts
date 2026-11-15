@@ -239,7 +239,7 @@ const issues = async (p: Promise<unknown>) => {
 };
 
 /** An ACTIVE shipment of every unit of the order (fully shipped and delivered). */
-const shipEverything = (ctx: Ctx, orderId: number, shippingCost = 500) => {
+const shipEverything = (ctx: Ctx, orderId: number) => {
   ctx.tables[UIDS.shipment].push({
     id: ctx.tables[UIDS.shipment].length + 1,
     order: orderId,
@@ -256,7 +256,6 @@ const shipEverything = (ctx: Ctx, orderId: number, shippingCost = 500) => {
         quantity: l.quantity,
       })),
     },
-    shippingCost,
     idempotencyKey: `ship-${orderId}`,
   });
   orderRow(ctx, orderId).fulfillmentStatus = 'FULFILLED';
@@ -347,7 +346,6 @@ describe('EcommerceOrderEditingService.previewLines', () => {
       status: 'PENDING',
       error: 'UNCERTAIN',
       items: { lines: [{ orderLineId: line10.id, sku: 'SH-M', name: 'Shirt', option: null, quantity: 2 }] },
-      shippingCost: 0,
       idempotencyKey: 'pending-1',
     });
     const input = { lines: lineInputs(ctx, id).filter((l) => l.variantId !== 10) };

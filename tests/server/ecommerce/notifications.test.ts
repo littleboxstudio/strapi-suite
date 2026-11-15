@@ -565,7 +565,6 @@ const paid = async (c: Commerce, quantity = 2) => {
 const ship = (lineId: number, quantity: number, key: string, extra: Record<string, unknown> = {}) => ({
   lines: [{ orderLineId: lineId, quantity }],
   method: { mode: 'MANUAL' as const, carrierName: 'CTT', trackingCode: `RR-${key}`, trackingUrl: `https://ctt.pt/${key}` },
-  shippingCost: 0,
   notifyCustomer: true,
   idempotencyKey: key,
   ...extra,

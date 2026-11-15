@@ -974,8 +974,6 @@ export type DeliveryStatus = 'IN_TRANSIT' | 'DELIVERED' | 'EXCEPTION';
 export type OrderDeliveryStatus = 'NONE' | 'IN_TRANSIT' | 'PARTIALLY_DELIVERED' | 'DELIVERED';
 
 export type OrderShipping = {
-  /** Shipping charged not yet attributed to an ACTIVE shipment: the next shipment's default cost. */
-  remainingCost: number;
   deliveryStatus: OrderDeliveryStatus;
 };
 
@@ -1004,7 +1002,6 @@ export type ShipmentView = {
   items: ShipmentItem[];
   trackingCode: string | null;
   trackingUrl: string | null;
-  shippingCost: number;
   labelAvailable: boolean;
   deliveryStatus: DeliveryStatus | null;
   deliverySource: 'MANUAL' | 'CARRIER' | null;
@@ -1063,8 +1060,6 @@ export type CreateShipmentInput = {
         trackingUrl?: string;
       }
     | { mode: 'CARRIER'; providerId?: string; serviceId?: string | null };
-  /** Integer cents ≥ 0. */
-  shippingCost: number;
   notifyCustomer: boolean;
   /** One per opening of the ship modal. */
   idempotencyKey: string;

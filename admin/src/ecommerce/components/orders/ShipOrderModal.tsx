@@ -58,7 +58,6 @@ const METHOD_PATHS: Record<string, string> = {
   'method.carrierName': 'method',
   'method.trackingCode': 'trackingCode',
   'method.trackingUrl': 'trackingUrl',
-  shippingCost: 'shippingCost',
   parcels: 'parcels',
   lines: 'lines',
 };
@@ -84,7 +83,7 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
 
   // One key per opening; a carrier failure is final, so the next attempt gets a new one.
   const [idempotencyKey, setIdempotencyKey] = useState(() => mintUuid());
-  const [form, setForm] = useState<ShipForm>(() => emptyShipForm(order, uiLocale));
+  const [form, setForm] = useState<ShipForm>(() => emptyShipForm(order));
   const [errors, setErrors] = useState<FormErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -354,19 +353,6 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
                 )}
               </>
             )}
-
-            <Field.Root name="shippingCost" error={fieldError('shippingCost')} hint={t('ecommerce.orders.ship.costHint')}>
-              <Field.Label>{t('ecommerce.orders.ship.cost')}</Field.Label>
-              <TextInput
-                value={form.shippingCost}
-                inputMode="decimal"
-                endAction={<span>€</span>}
-                disabled={saving}
-                onChange={(e: any) => update({ shippingCost: e.target.value }, ['shippingCost'])}
-              />
-              <Field.Hint />
-              <Field.Error />
-            </Field.Root>
 
             {formError && (
               <Box padding={3} background="danger100" hasRadius>

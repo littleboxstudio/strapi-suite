@@ -37,12 +37,6 @@ export type ExistingLine = LineAmounts & {
 
 export type ShippingModification =
   | { mode: 'KEEP' }
-  | {
-      mode: 'RECALCULATE';
-      /** New quote for the pending (not yet shipped) items only. */
-      quote: number;
-      previousShipmentsCost: number;
-    }
   | { mode: 'MANUAL'; amount: number };
 
 export type ModificationInput = {
@@ -134,8 +128,6 @@ export type ModificationResult = {
     mode: ShippingModification['mode'];
     previousCharged: number;
     newCharged: number;
-    previousShipmentsCost?: number;
-    quote?: number;
     /** Values to persist on the order. */
     shippingOriginal: number;
     shippingDiscount: number;
@@ -451,19 +443,7 @@ export const simulateModification = (
     shippingOriginal: current.shippingOriginal,
     shippingDiscount: current.shippingDiscount,
   };
-  if (input.shipping.mode === 'RECALCULATE') {
-    const { quote, previousShipmentsCost } = input.shipping;
-    const quoteOk = isMoneyAmount(quote);
-    const costOk = isMoneyAmount(previousShipmentsCost);
-    if (!quoteOk) errors.push({ path: 'shipping.quote', code: 'INVALID_AMOUNT' });
-    if (!costOk) errors.push({ path: 'shipping.previousShipmentsCost', code: 'INVALID_AMOUNT' });
-    shipping.previousShipmentsCost = previousShipmentsCost;
-    shipping.quote = quote;
-    if (quoteOk && costOk) {
-      const newCharged = previousShipmentsCost + quote;
-      Object.assign(shipping, { newCharged, shippingOriginal: newCharged, shippingDiscount: 0 });
-    }
-  } else if (input.shipping.mode === 'MANUAL') {
+  if (input.shipping.mode === 'MANUAL') {
     const { amount } = input.shipping;
     if (isMoneyAmount(amount)) {
       Object.assign(shipping, { newCharged: amount, shippingOriginal: amount, shippingDiscount: 0 });

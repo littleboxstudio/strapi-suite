@@ -9,7 +9,6 @@ import {
   toInt,
   fail,
   lineQuantities,
-  nonNegativeCents,
   nullableString,
   optionalBoolean,
   optionalString,
@@ -84,7 +83,6 @@ const EcommerceShipmentController = ({ strapi }: { strapi: Core.Strapi }) => {
     return {
       lines: lineQuantities(MSG, b.lines, false),
       method,
-      shippingCost: nonNegativeCents(MSG, 'shippingCost', b.shippingCost ?? 0),
       notifyCustomer: optionalBoolean(MSG, 'notifyCustomer', b.notifyCustomer, true),
       idempotencyKey: requiredString(MSG, 'idempotencyKey', b.idempotencyKey, MAX_KEY),
       ...(b.parcels !== undefined ? { parcels: parcelsOf(b.parcels) } : {}),

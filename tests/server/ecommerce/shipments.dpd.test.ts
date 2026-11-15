@@ -134,7 +134,6 @@ const makePickup = (c: Commerce, orderId: number) => {
 const carrier = (lineId: number, quantity: number, key: string, extra: Record<string, unknown> = {}) => ({
   lines: [{ orderLineId: lineId, quantity }],
   method: { mode: 'CARRIER' as const },
-  shippingCost: 500,
   notifyCustomer: true,
   idempotencyKey: key,
   ...extra,
@@ -266,7 +265,6 @@ describe('DPD shipments', () => {
       {
         lines: [{ orderLineId: lineId, quantity: 1 }],
         method: { mode: 'MANUAL', carrierName: 'Hand' },
-        shippingCost: 0,
         notifyCustomer: false,
         idempotencyKey: 'm1',
       },

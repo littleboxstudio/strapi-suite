@@ -1,4 +1,3 @@
-import { MAX_MONEY_CENTS, formatAmountInput, parseMoneyToCents } from './money';
 import type { CreateShipmentInput, Order, OrderStatus, ShipMethodOption, ShipmentView } from '../orderTypes';
 
 /** Mirror the server limits. */
@@ -17,8 +16,6 @@ export type ShipForm = {
   /** Manual methods only. */
   trackingCode: string;
   trackingUrl: string;
-  /** Decimal text in the admin's locale. */
-  shippingCost: string;
   /** Carrier methods that ask for it (DPD): number of parcels (text). */
   parcels: string;
 };
@@ -75,8 +72,7 @@ export function parseParcels(text: string): number | null {
 
 /** `methods`: the offered delivery methods; the order's own is preselected. */
 export function emptyShipForm(
-  order: Pick<Order, 'lines' | 'shipping'>,
-  locale: string,
+  order: Pick<Order, 'lines'>,
   methods: ShipMethodOption[] = []
 ): ShipForm {
   return {
@@ -84,7 +80,6 @@ export function emptyShipForm(
     methodKey: defaultShipMethodKey(methods),
     trackingCode: '',
     trackingUrl: '',
-    shippingCost: formatAmountInput(order.shipping?.remainingCost ?? 0, locale),
     parcels: '1',
   };
 }
@@ -118,9 +113,6 @@ export function validateShipForm(
   } else if (method.parcels && parseParcels(form.parcels) === null) {
     errors.parcels = 'invalid';
   }
-
-  const cost = parseMoneyToCents(form.shippingCost);
-  if (cost === null || cost < 0 || cost > MAX_MONEY_CENTS) errors.shippingCost = 'invalid_amount';
   return errors;
 }
 
@@ -155,7 +147,6 @@ export function buildShipmentInput(
   return {
     lines,
     method: shipMethod,
-    shippingCost: parseMoneyToCents(form.shippingCost) ?? 0,
     notifyCustomer: true,
     idempotencyKey,
     ...(method.kind === 'CARRIER' && method.parcels ? { parcels: parseParcels(form.parcels) ?? 1 } : {}),

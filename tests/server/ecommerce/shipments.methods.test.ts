@@ -154,7 +154,6 @@ const makePickup = (c: Commerce, id: number) => {
 const ship = (lineId: number, method: Record<string, unknown>, key = 'k1', extra: Record<string, unknown> = {}) => ({
   lines: [{ orderLineId: lineId, quantity: 1 }],
   method,
-  shippingCost: 0,
   notifyCustomer: true,
   idempotencyKey: key,
   ...extra,
