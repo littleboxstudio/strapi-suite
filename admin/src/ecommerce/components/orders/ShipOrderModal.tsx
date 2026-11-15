@@ -352,7 +352,11 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
                       >
                         <Flex gap={2} wrap="wrap" alignItems="center">
                           <span>{m.name}</span>
-                          {m.original && <Badge>{t('ecommerce.orders.ship.originalMethod')}</Badge>}
+                          {m.original && (
+                            <Badge title={t('ecommerce.orders.ship.originalMethodHint')}>
+                              {t('ecommerce.orders.ship.originalMethod')}
+                            </Badge>
+                          )}
                         </Flex>
                       </MethodItem>
                     );
