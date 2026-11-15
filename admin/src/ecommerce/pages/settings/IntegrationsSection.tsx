@@ -178,6 +178,7 @@ const IntegrationsSection = ({ category, readOnly, markets }: Props) => {
           onTest={() => runTest(integration.id)}
           onToggleActive={(active) => onToggleActive(integration, active)}
           toggleInChildren={integration.id === 'manual'}
+          hideCredentials={category === 'carrier'}
           extraActions={
             integration.id === 'stripe' ? (
               <Button

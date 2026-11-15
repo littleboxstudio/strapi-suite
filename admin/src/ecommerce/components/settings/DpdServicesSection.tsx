@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import {
@@ -6,7 +6,6 @@ import {
   Box,
   Button,
   Flex,
-  IconButton,
   Loader,
   Table,
   Tbody,
@@ -17,7 +16,6 @@ import {
   Typography,
   VisuallyHidden,
 } from '@strapi/design-system';
-import { Pencil } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { ActionConfirmModal } from '../ActionConfirmModal';
 import FetchDpdServices from '../../usecases/settings/fetchDpdServices';
@@ -25,7 +23,6 @@ import SaveDpdServices from '../../usecases/settings/saveDpdServices';
 import FetchSettingsLocales from '../../usecases/settings/fetchSettingsLocales';
 import { DpdServiceModal } from './DpdServiceModal';
 import { extractFieldErrors } from '../../utils/productForm';
-import { marketOptions } from '../../utils/settingsForm';
 import {
   DPD_SERVICE_IDS,
   activeServiceCount,
@@ -57,7 +54,7 @@ const DpdServicesSection = ({
   integrationActive,
   onIntegrationActiveChange,
 }: Props) => {
-  const { formatMessage, locale: uiLocale } = useIntl();
+  const { formatMessage } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
@@ -69,9 +66,6 @@ const DpdServicesSection = ({
   const [toggling, setToggling] = useState<DpdServiceId | null>(null);
   const [confirmDisable, setConfirmDisable] = useState<DpdServiceId | null>(null);
 
-  const islandsName = t('ecommerce.settings.markets.names.PT-ISL');
-  const countries = useMemo(() => marketOptions(uiLocale, islandsName), [uiLocale, islandsName]);
-  const marketName = (code: string) => countries.find((c) => c.code === code)?.name ?? code;
 
   useEffect(() => {
     let cancelled = false;
@@ -210,10 +204,10 @@ const DpdServicesSection = ({
       );
     }
     return (
-      <Table colCount={6} rowCount={DPD_SERVICE_IDS.length + 1}>
+      <Table colCount={5} rowCount={DPD_SERVICE_IDS.length + 1}>
         <Thead>
           <Tr>
-            {(['service', 'name', 'markets', 'tax', 'active'] as const).map((column) => (
+            {(['service', 'name', 'tax', 'active'] as const).map((column) => (
               <Th key={column}>
                 <Typography variant="sigma">
                   {t(`ecommerce.settings.dpdServices.table.${column}`)}
@@ -228,7 +222,6 @@ const DpdServicesSection = ({
         <Tbody>
           {DPD_SERVICE_IDS.map((id) => {
             const service = services[id];
-            const served = markets.filter((code) => service.rates[code]);
             return (
               <Tr key={id}>
                 <Td>
@@ -238,13 +231,6 @@ const DpdServicesSection = ({
                 </Td>
                 <Td>
                   <Typography textColor="neutral800">{nameOf(service)}</Typography>
-                </Td>
-                <Td>
-                  <Typography textColor={served.length ? 'neutral800' : 'neutral500'}>
-                    {served.length
-                      ? served.map(marketName).join(', ')
-                      : t('ecommerce.settings.dpdServices.noMarkets')}
-                  </Typography>
                 </Td>
                 <Td>
                   <Typography textColor="neutral800">{`${service.tax}%`}</Typography>
@@ -277,13 +263,14 @@ const DpdServicesSection = ({
                         )}
                       </Button>
                       {canEdit && (
-                        <IconButton
-                          label={`${t('ecommerce.settings.dpdServices.edit')}: ${serviceLabel(id)}`}
-                          variant="ghost"
+                        <Button
+                          size="S"
+                          variant="secondary"
+                          aria-label={`${t('ecommerce.settings.dpdServices.edit')}: ${serviceLabel(id)}`}
                           onClick={() => setEditing(id)}
                         >
-                          <Pencil />
-                        </IconButton>
+                          {t('ecommerce.settings.dpdServices.edit')}
+                        </Button>
                       )}
                     </Flex>
                   )}
@@ -305,17 +292,7 @@ const DpdServicesSection = ({
 
   return (
     <Box>
-      <Flex direction="column" alignItems="stretch" gap={3}>
-        <Flex direction="column" alignItems="flex-start" gap={1}>
-          <Typography variant="sigma" textColor="neutral600" tag="h3">
-            {t('ecommerce.settings.dpdServices.title')}
-          </Typography>
-          <Typography variant="pi" textColor="neutral600">
-            {t('ecommerce.settings.dpdServices.hint')}
-          </Typography>
-        </Flex>
-        {content()}
-      </Flex>
+      {content()}
 
       {editing && services && locales && canEdit && (
         <DpdServiceModal
