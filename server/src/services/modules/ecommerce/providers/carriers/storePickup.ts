@@ -1,4 +1,4 @@
-import { STORE_PICKUP_ID, STORE_PICKUP_SERVICE_ID, readStorePickup, storesFor } from '../../domain/storePickup';
+import { STORE_PICKUP_ID, STORE_PICKUP_SERVICE_ID, readStorePickup, servedStores } from '../../domain/storePickup';
 import { orderWeightGrams, priceForWeight } from '../../domain/shippingRates';
 import type { CarrierAdapter } from './types';
 
@@ -13,7 +13,7 @@ export const storePickupAdapter: CarrierAdapter = {
   async quote(req, rt) {
     const config = readStorePickup(rt.config.storePickup);
     const market = req.market ?? req.country;
-    const stores = storesFor(config, market);
+    const stores = servedStores(config, market, req.storeMarkets ?? [market]);
     if (!stores.length) return [];
     const brackets = config.rates[market];
     if (!Array.isArray(brackets)) return [];

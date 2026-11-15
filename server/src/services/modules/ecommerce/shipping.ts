@@ -25,6 +25,8 @@ export type ShippingQuoteRequest = {
   market?: string;
   /** Filled by `quote` before calling adapters: the fallback locale for option names. */
   defaultLocale?: string;
+  /** Filled by `quote` before calling adapters: the store markets (`marketOf`'s third argument). */
+  storeMarkets?: string[];
 };
 
 export type ShippingOption = {
@@ -203,7 +205,7 @@ const EcommerceShippingService = ({ strapi }: { strapi: Core.Strapi }) => {
       }
     }
 
-    const adapterReq: ShippingQuoteRequest = { ...req, market, defaultLocale };
+    const adapterReq: ShippingQuoteRequest = { ...req, market, defaultLocale, storeMarkets: [...storeMarkets] };
     const settled = await Promise.allSettled(
       carriers.map((providerId) =>
         withTimeout(

@@ -59,6 +59,7 @@ import {
 import { computeTotals, financialSummary, MAX_MONEY_CENTS, type Address } from './domain/orders';
 import { normalizeEmail } from './domain/email';
 import { marketCountry, marketOf } from './domain/markets';
+import { STORE_PICKUP_ID } from './domain/storePickup';
 import type {
   AppliedPromotion,
   BenefitRef,
@@ -67,6 +68,8 @@ import type {
 } from './domain/promotions';
 import {
   applyPickupPoint,
+  customerAddressOf as customerAddress,
+  customerMarketOf,
   deliveryChangeEntry,
   findPickupPoint,
   hasPickupPointId,
@@ -223,8 +226,7 @@ const pickupAddressLocked = () =>
   new EcommerceValidationError('Invalid address', [{ path: 'address', code: 'PICKUP_ADDRESS_LOCKED' }]);
 
 /** The customer's own delivery address: the one kept on the point, else the stored one. */
-const customerAddressOf = (order: any): Address =>
-  readPickupPoint(order)?.customerAddress ?? (order?.shippingAddress as Address);
+const customerAddressOf = (order: any): Address => customerAddress(order) as Address;
 
 /** A line amount: integer cents in 0..MAX_MONEY_CENTS (ruling 7). */
 const normalizeShippingInput = (input: ShippingLineInput): ShippingLineInput => {
@@ -713,8 +715,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
   ): Promise<PickupPointInput> => {
     const customer = customerAddressOf(order);
     if (method && isStorePickup(method.providerId, method.serviceId)) {
-      const storeMarkets = (await storeSettings().getStoreSettings()).markets ?? [];
-      const market = marketOf(String(customer?.country ?? '').toUpperCase(), customer?.postalCode, storeMarkets);
+      const market = customerMarketOf(order, (await storeSettings().getStoreSettings()).markets ?? []);
       return findPickupPoint(
         (_postalCode, id) => storeSettings().findStore(market, id),
         { pickupPointId: input?.pickupPointId },
@@ -969,7 +970,9 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
 
   /**
    * The options for the order at its current address (ruling 7): the pending units, or every
-   * effective unit when none is pending.
+   * effective unit when none is pending. Store pickup is offered in the market of the customer's
+   * own address, where its store is validated (`searchPoint`) and swapped at Ship: when the order
+   * points to a DPD point in another market, its store pickup option comes from a quote there.
    */
   const optionsFor = async (state: OrderState) => {
     const pending = orderUnits(state);
@@ -987,7 +990,19 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         catalog
       );
     }
-    return shipping().quote(quoteRequest(state, quoted, state.order.shippingAddress ?? null));
+    const delivery = (state.order.shippingAddress ?? null) as Address | null;
+    const result = await shipping().quote(quoteRequest(state, quoted, delivery));
+    const customer = customerAddress(state.order);
+    if (!customer || customer === delivery) return result;
+    const storeMarkets = (await storeSettings().getStoreSettings()).markets ?? [];
+    const deliveryMarket = marketOf(String(delivery?.country ?? '').toUpperCase(), delivery?.postalCode, storeMarkets);
+    if (customerMarketOf(state.order, storeMarkets) === deliveryMarket) return result;
+    const atCustomer = await shipping().quote(quoteRequest(state, quoted, customer));
+    const isStore = (o: { providerId: string }) => o.providerId === STORE_PICKUP_ID;
+    return {
+      options: [...result.options.filter((o) => !isStore(o)), ...atCustomer.options.filter(isStore)],
+      failures: [...result.failures.filter((f) => !isStore(f)), ...atCustomer.failures.filter(isStore)],
+    };
   };
 
   const shippingOptionsForOrder = async (rawOrderId: number | string) =>

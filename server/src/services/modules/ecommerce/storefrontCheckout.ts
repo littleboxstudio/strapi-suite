@@ -65,9 +65,13 @@ export type StorefrontOrderInput = {
   expectedTotal: number;
   storeCreditCode?: string;
   notes?: string;
-  /** DPD Pickup (spec 5.2): required with a pickup method, ignored with any other. */
+  /**
+   * Required with a pickup method, ignored with any other: DPD Pickup (spec 5.2), the point found
+   * by the pickup search; Store pickup (store pickup spec 5), the id of one of the stores in the
+   * option's `pickupPoints`.
+   */
   pickupPointId?: string;
-  /** The postal code the point was searched by; absent = the shipping address postal code. */
+  /** DPD Pickup: the postal code the point was searched by; absent = the shipping address postal code. Ignored for Store pickup. */
   pickupPostalCode?: string;
 };
 

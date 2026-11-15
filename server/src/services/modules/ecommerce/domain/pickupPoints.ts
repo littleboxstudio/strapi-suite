@@ -2,6 +2,7 @@ import type { Address } from './orders';
 import { EcommerceValidationError } from '../errors';
 import { MAX_PICKUP_POINT_ID_LENGTH } from './storefront/limits';
 import { STORE_PICKUP_ID, STORE_PICKUP_SERVICE_ID } from './storePickup';
+import { marketOf } from './markets';
 
 /** A pickup point as the pickup service returns it (spec 5.1); `openingHours` is not stored. */
 export type PickupPointInput = {
@@ -99,6 +100,20 @@ export const applyPickupPoint = (
 export const readPickupPoint = (order: unknown): OrderPickupPoint | null => {
   const p = (order as { pickupPoint?: unknown } | null)?.pickupPoint;
   return p && typeof p === 'object' && !Array.isArray(p) ? (p as OrderPickupPoint) : null;
+};
+
+/** The customer's own delivery address: the one kept on the order's point, else the stored one. */
+export const customerAddressOf = (order: unknown): Address | null =>
+  readPickupPoint(order)?.customerAddress ??
+  ((order as { shippingAddress?: Address | null } | null)?.shippingAddress ?? null);
+
+/**
+ * The market of the customer's own address. Store pickup is quoted, validated and swapped in this
+ * market (store pickup spec 5), never in the market of a DPD point or store the order points to.
+ */
+export const customerMarketOf = (order: unknown, storeMarkets: readonly string[]): string => {
+  const a = customerAddressOf(order);
+  return marketOf(String(a?.country ?? '').toUpperCase(), a?.postalCode, storeMarkets);
 };
 
 /** The point as the order history shows it. */

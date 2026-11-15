@@ -7,6 +7,7 @@ import {
   STORE_PICKUP_ID,
   STORE_PICKUP_SERVICE_ID,
   storePickupActivationIssues,
+  servedStores,
   storePickupServedMarkets,
   StorePickupConfig,
   storesFor,
@@ -248,5 +249,24 @@ describe('served markets and activation', () => {
   it('storesFor returns the market stores or none', () => {
     expect(storesFor(both, 'PT')).toEqual([stored('st_aaaaaaaaaa')]);
     expect(storesFor(both, 'ES')).toEqual([]);
+  });
+});
+
+describe('servedStores', () => {
+  const stranded = config({
+    rates: { PT: RATE },
+    stores: { PT: [stored('st_aaaaaaaaaa'), stored('st_bbbbbbbbbb', { postalCode: '9000-001' })] },
+  });
+
+  it('drops the stores whose postcode is no longer in the market', () => {
+    expect(servedStores(stranded, 'PT', ['PT']).map((s) => s.id)).toEqual(['st_aaaaaaaaaa', 'st_bbbbbbbbbb']);
+    expect(servedStores(stranded, 'PT', MARKETS).map((s) => s.id)).toEqual(['st_aaaaaaaaaa']);
+    expect(servedStores(stranded, 'PT-ISL', MARKETS)).toEqual([]);
+  });
+
+  it('a market is served only with a served store', () => {
+    const only = config({ rates: { PT: RATE }, stores: { PT: [stored('st_bbbbbbbbbb', { postalCode: '9000-001' })] } });
+    expect(storePickupServedMarkets(only, ['PT'])).toEqual(['PT']);
+    expect(storePickupServedMarkets(only, MARKETS)).toEqual([]);
   });
 });

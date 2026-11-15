@@ -46,7 +46,7 @@ import {
   storePickupActivationIssues,
   storePickupMarkets,
   storePickupServedMarkets,
-  storesFor,
+  servedStores,
 } from './domain/storePickup';
 import type { StoreLogoFile } from './images';
 
@@ -1061,7 +1061,8 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
      */
     async findStore(market: string, id: string): Promise<PickupStore | null> {
       const config = readStorePickup((await findRow(STORE_PICKUP_ID))?.config?.storePickup);
-      return storesFor(config, market).find((s) => s.id === id) ?? null;
+      const storeMarkets = (await getStoreSettings()).markets ?? [];
+      return servedStores(config, market, storeMarkets).find((s) => s.id === id) ?? null;
     },
 
     /**

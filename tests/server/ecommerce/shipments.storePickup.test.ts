@@ -394,3 +394,62 @@ describe('a store pickup shipment afterwards', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 });
+
+describe('the store is fixed once a store pickup shipment is active', () => {
+  it('a swap is refused with PICKUP_ADDRESS_LOCKED and writes nothing; the same store still ships', async () => {
+    const { c, ships, settings } = setup();
+    const { id, lineId } = await paidOrder(c);
+    makeStorePickup(c, id);
+    await ships.create(id, ship(lineId, { mode: 'STORE_PICKUP' }, 'k1'), 'user:1');
+    const before = JSON.stringify(orderRow(c, id));
+    const historyBefore = c.tables[UIDS.orderHistory].length;
+    expect(
+      await codesOf(ships.create(id, ship(lineId, { mode: 'STORE_PICKUP', pickupPointId: STORE_PORTO.id }, 'k2'), 'user:1'))
+    ).toEqual([{ path: 'method.pickupPointId', code: 'PICKUP_ADDRESS_LOCKED' }]);
+    expect(JSON.stringify(orderRow(c, id))).toBe(before);
+    expect(c.tables[UIDS.orderHistory]).toHaveLength(historyBefore);
+    expect(c.tables[UIDS.shipment]).toHaveLength(1);
+    expect(settings.findStore).not.toHaveBeenCalled();
+
+    const same = await ships.create(id, ship(lineId, { mode: 'STORE_PICKUP', pickupPointId: STORE_LISBOA.id }, 'k3'), 'user:1');
+    expect(same.store).toEqual(STORE_LISBOA);
+  });
+
+  it('a cancelled store pickup shipment frees the store again', async () => {
+    const { c, ships } = setup();
+    const { id, lineId } = await paidOrder(c);
+    makeStorePickup(c, id);
+    const first = await ships.create(id, ship(lineId, { mode: 'STORE_PICKUP' }, 'k1'), 'user:1');
+    await ships.cancel(first.id, { reason: 'wrong store' }, 'user:1');
+    const s = await ships.create(id, ship(lineId, { mode: 'STORE_PICKUP', pickupPointId: STORE_PORTO.id }, 'k2'), 'user:1');
+    expect(s.store).toEqual(STORE_PORTO);
+  });
+
+  it('shipMethods marks the store entry storeLocked only while such a shipment is active', async () => {
+    const { c, ships } = setup();
+    const { id, lineId } = await paidOrder(c);
+    makeStorePickup(c, id);
+    expect(storeEntry((await ships.shipMethods(id, 'en')).methods)).not.toHaveProperty('storeLocked');
+    // A manual shipment does not fix the store.
+    const manual = await ships.create(id, ship(lineId, { mode: 'MANUAL', carrierName: 'Courier' }, 'k0'), 'user:1');
+    expect(storeEntry((await ships.shipMethods(id, 'en')).methods)).not.toHaveProperty('storeLocked');
+    await ships.cancel(manual.id, { reason: 'x' }, 'user:1');
+    await ships.create(id, ship(lineId, { mode: 'STORE_PICKUP' }, 'k1'), 'user:1');
+    const entry = storeEntry((await ships.shipMethods(id, 'en')).methods);
+    expect(entry).toMatchObject({ storeLocked: true, selectedStoreId: STORE_LISBOA.id });
+  });
+});
+
+describe('stores whose postcode left their market', () => {
+  // A PT store with a 9xxx postcode saved before PT-ISL became a store market.
+  const STORE_ISLAND_IN_PT = { ...STORE_FUNCHAL, id: 'st_islandpt01' };
+
+  it('are not listed at Ship', async () => {
+    const { c, ships, state } = setup();
+    const { id } = await paidOrder(c);
+    makeStorePickup(c, id);
+    state.storePickup = storeConfig({ PT: [STORE_LISBOA, STORE_ISLAND_IN_PT] });
+    // findStore (the swap) drops them in the settings service: tested there.
+    expect(storeEntry((await ships.shipMethods(id, 'en')).methods).stores).toEqual([STORE_LISBOA]);
+  });
+});

@@ -529,3 +529,78 @@ describe('order editing: Store pickup', () => {
     expect(order.pickupPoint).toBeNull();
   });
 });
+
+describe('order editing: Store pickup from a DPD point in another market', () => {
+  // A DPD point on Madeira (PT-ISL) for a customer in Porto (PT).
+  const ISLAND_POINT = { ...POINT, id: 'PT90001', postalCode: '9000-200', city: 'Funchal' };
+
+  const islandSetup = () => {
+    const t = storeSetup();
+    const quote = vi.fn(async (req: any) => {
+      const island = String(req.postalCode ?? '').startsWith('9');
+      return {
+        options: [
+          { ...STANDARD, name: 'Standard', price: island ? 900 : 500, tax: 23 },
+          { ...PICKUP, name: 'DPD Pickup', price: island ? 800 : 400, tax: 23, requiresPickupPoint: true },
+          {
+            ...STORE,
+            name: 'Store pickup',
+            price: island ? 300 : 0,
+            tax: 23,
+            requiresPickupPoint: true,
+            pickupPoints: island ? [STORE_FUNCHAL] : [STORE_LISBOA, STORE_PORTO],
+          },
+        ],
+        failures: [],
+      };
+    });
+    t.c.services.EcommerceShippingService.quote = quote;
+    return { ...t, quote };
+  };
+
+  const islandOrder = async (t: ReturnType<typeof islandSetup>) => {
+    const { id } = await t.create({ shipping: PICKUP, pickupPointId: POINT.id });
+    const row = t.row(id);
+    row.pickupPoint = { ...ISLAND_POINT, customerAddress };
+    row.shippingAddress = pointAddress(ISLAND_POINT);
+    return id;
+  };
+
+  it("lists the stores of the customer's market, the other options at the point", async () => {
+    const t = islandSetup();
+    const id = await islandOrder(t);
+    const { options } = await t.c.editing.shippingOptionsForOrder(id);
+    const store = options.find((o: any) => o.providerId === 'store-pickup');
+    expect(store).toMatchObject({ price: 0, pickupPoints: [STORE_LISBOA, STORE_PORTO] });
+    expect(options.filter((o: any) => o.providerId === 'store-pickup')).toHaveLength(1);
+    // DPD and manual keep the quote at the order's delivery address (the point).
+    expect(options.find((o: any) => o.providerId === 'dpd-portugal')).toMatchObject({ price: 800 });
+    expect(options.find((o: any) => o.providerId === 'manual')).toMatchObject({ price: 900 });
+  });
+
+  it('a listed store is accepted, a store of the point market is refused', async () => {
+    const t = islandSetup();
+    const id = await islandOrder(t);
+    expect(
+      await issuesOf(
+        t.c.editing.addShippingLine(id, { ...STORE, amount: 0, pickupPointId: STORE_FUNCHAL.id } as any, 'user:1', 'op-isl-0001')
+      )
+    ).toEqual([{ path: 'pickupPointId', code: 'PICKUP_POINT_INVALID' }]);
+    await t.c.editing.addShippingLine(
+      id,
+      { ...STORE, amount: 0, pickupPointId: STORE_LISBOA.id } as any,
+      'user:1',
+      'op-isl-0002'
+    );
+    expect(t.findStore).toHaveBeenLastCalledWith('PT', STORE_LISBOA.id);
+    expect(t.row(id).pickupPoint).toEqual({ ...STORE_LISBOA, customerAddress });
+  });
+
+  it('a pickup order in its customer market is quoted once', async () => {
+    const t = islandSetup();
+    const { id } = await t.create({ shipping: PICKUP, pickupPointId: POINT.id });
+    t.quote.mockClear();
+    await t.c.editing.shippingOptionsForOrder(id);
+    expect(t.quote).toHaveBeenCalledTimes(1);
+  });
+});

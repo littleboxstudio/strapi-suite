@@ -216,13 +216,22 @@ export function readStorePickup(stored: unknown): StorePickupConfig {
   return result;
 }
 
+/** The stores saved under `market` (raw: see `servedStores`). */
 export function storesFor(c: StorePickupConfig, market: string): PickupStore[] {
   return c.stores[market] ?? [];
 }
 
-/** Store markets with a rate table and at least one store, in the order of the store markets. */
+/**
+ * The stores of `market` that are still in it: a PT store with a 9xxx postcode saved before
+ * `PT-ISL` became a store market is no longer offered in `PT` (until it is moved by the next save).
+ */
+export function servedStores(c: StorePickupConfig, market: string, storeMarkets: readonly string[]): PickupStore[] {
+  return storesFor(c, market).filter((s) => marketOf(s.country, s.postalCode, storeMarkets) === market);
+}
+
+/** Store markets with a rate table and at least one served store, in the order of the store markets. */
 export function storePickupServedMarkets(c: StorePickupConfig, storeMarkets: readonly string[]): string[] {
-  return storeMarkets.filter((m) => Array.isArray(c.rates[m]) && storesFor(c, m).length > 0);
+  return storeMarkets.filter((m) => Array.isArray(c.rates[m]) && servedStores(c, m, storeMarkets).length > 0);
 }
 
 /** What activating the integration still needs (spec 2): a store market with a rate table and a store. */
