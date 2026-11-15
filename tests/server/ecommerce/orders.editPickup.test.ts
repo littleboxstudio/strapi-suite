@@ -604,3 +604,126 @@ describe('order editing: Store pickup from a DPD point in another market', () =>
     expect(t.quote).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('once the order has an active shipment, its shipping address stays', () => {
+  /** An ACTIVE shipment of one unit of the order's first line. */
+  const shipOne = (t: ReturnType<typeof setup>, orderId: number) => {
+    const line = t.c.tables[UIDS.orderLine].find((l: any) => l.order === orderId);
+    t.c.tables[UIDS.shipment].push({
+      id: t.c.tables[UIDS.shipment].length + 1,
+      order: orderId,
+      providerId: 'manual',
+      carrierName: 'CTT',
+      status: 'ACTIVE',
+      deliveryStatus: 'IN_TRANSIT',
+      items: { lines: [{ orderLineId: line.id, sku: line.sku, name: line.name, option: null, quantity: 1 }] },
+      idempotencyKey: `ship-${orderId}-${t.c.tables[UIDS.shipment].length + 1}`,
+    });
+    t.row(orderId).fulfillmentStatus = 'PARTIALLY_FULFILLED';
+  };
+  const delivery = (t: ReturnType<typeof setup>, id: number) =>
+    JSON.stringify({ a: t.row(id).shippingAddress, p: t.row(id).pickupPoint ?? null });
+
+  it('a DPD Pickup charge keeps its point on the line; the order address and point do not change', async () => {
+    const t = setup();
+    const { id } = await t.create();
+    shipOne(t, id);
+    const before = delivery(t, id);
+    await t.c.editing.addShippingLine(id, { ...PICKUP, amount: 400, pickupPointId: POINT.id }, 'user:1', 'op-sh-0001');
+    expect(delivery(t, id)).toBe(before);
+    expect(t.row(id).shippingAddress).toEqual(customerAddress);
+    expect(t.history(id, 'ADDRESS_CHANGED')).toHaveLength(0);
+    const lines = t.row(id).shippingLines.lines;
+    expect(lines[lines.length - 1]).toMatchObject({ ...PICKUP, pickupPoint: { id: POINT.id, name: POINT.name } });
+    expect(lines[lines.length - 1].pickupPoint).not.toHaveProperty('customerAddress');
+    expect(lines[lines.length - 1].pickupPoint).not.toHaveProperty('openingHours');
+    // The admin view names it as the next shipment's point.
+    const view = await t.c.orders.get(id);
+    expect(view.nextPickupPoint).toMatchObject({ id: POINT.id, customerAddress });
+    expect(view.pickupPoint).toBeNull();
+  });
+
+  it('without a point and none of the same kind → PICKUP_POINT_REQUIRED', async () => {
+    const t = setup();
+    const { id } = await t.create();
+    shipOne(t, id);
+    const errors = await issuesOf(t.c.editing.addShippingLine(id, { ...PICKUP, amount: 400 }, 'user:1', 'op-sh-0002'));
+    expect(errors).toEqual([{ path: 'pickupPointId', code: 'PICKUP_POINT_REQUIRED' }]);
+  });
+
+  it('a DPD Pickup order: another point goes to the line; the order keeps its point', async () => {
+    const t = setup();
+    const { id } = await t.create({ shipping: PICKUP, pickupPointId: POINT.id });
+    shipOne(t, id);
+    const before = delivery(t, id);
+    await t.c.editing.addShippingLine(id, { ...PICKUP, amount: 400, pickupPointId: OTHER_POINT.id }, 'user:1', 'op-sh-0003');
+    expect(delivery(t, id)).toBe(before);
+    expect((await t.c.orders.get(id)).nextPickupPoint).toMatchObject({ id: OTHER_POINT.id, customerAddress });
+    // No point named: the next one (the line's) is kept on the new line.
+    await t.c.editing.addShippingLine(id, { ...PICKUP, amount: 100 }, 'user:1', 'op-sh-0004');
+    const lines = t.row(id).shippingLines.lines;
+    expect(lines[lines.length - 1].pickupPoint).toMatchObject({ id: OTHER_POINT.id });
+  });
+
+  it('a home delivery charge on a DPD Pickup order does not restore the customer address', async () => {
+    const t = setup();
+    const { id } = await t.create({ shipping: PICKUP, pickupPointId: POINT.id });
+    shipOne(t, id);
+    const before = delivery(t, id);
+    await t.c.editing.addShippingLine(id, { ...STANDARD, amount: 500 }, 'user:1', 'op-sh-0005');
+    expect(delivery(t, id)).toBe(before);
+    expect(t.row(id).shippingAddress).toEqual(pointAddress(POINT));
+    expect(t.history(id, 'ADDRESS_CHANGED')).toHaveLength(0);
+    expect((await t.c.orders.get(id)).nextPickupPoint).toBeNull();
+  });
+
+  it('options are quoted at the customer address, not at the order point', async () => {
+    const t = setup();
+    const { id } = await t.create({ shipping: PICKUP, pickupPointId: POINT.id });
+    shipOne(t, id);
+    const quote = t.c.services.EcommerceShippingService.quote as any;
+    quote.mockClear();
+    await t.c.editing.shippingOptionsForOrder(id);
+    expect(quote).toHaveBeenCalledTimes(1);
+    expect(quote.mock.calls[0][0]).toMatchObject({ country: 'PT', postalCode: customerAddress.postalCode });
+  });
+});
+
+describe('the next point after shipments: recalculation, cancellation, kinds', () => {
+  const shipOne = (t: ReturnType<typeof setup>, orderId: number) => {
+    const line = t.c.tables[UIDS.orderLine].find((l: any) => l.order === orderId);
+    t.c.tables[UIDS.shipment].push({
+      id: t.c.tables[UIDS.shipment].length + 1,
+      order: orderId,
+      providerId: 'manual',
+      carrierName: 'CTT',
+      status: 'ACTIVE',
+      deliveryStatus: 'IN_TRANSIT',
+      items: { lines: [{ orderLineId: line.id, sku: line.sku, name: line.name, option: null, quantity: 1 }] },
+      idempotencyKey: `ship-${orderId}-${t.c.tables[UIDS.shipment].length + 1}`,
+    });
+    t.row(orderId).fulfillmentStatus = 'PARTIALLY_FULFILLED';
+  };
+
+  it('a recalculation keeps the point charged after the shipment', async () => {
+    const t = setup();
+    const { id } = await t.create({ shipping: PICKUP, pickupPointId: POINT.id });
+    shipOne(t, id);
+    await t.c.editing.addShippingLine(id, { ...PICKUP, amount: 900, pickupPointId: OTHER_POINT.id }, 'user:1', 'op-nx-0001');
+    const before = JSON.stringify({ a: t.row(id).shippingAddress, p: t.row(id).pickupPoint });
+    await t.c.editing.recalculateShipping(id, 'user:1', 'op-nx-0002');
+    expect(JSON.stringify({ a: t.row(id).shippingAddress, p: t.row(id).pickupPoint })).toBe(before);
+    expect((await t.c.orders.get(id)).nextPickupPoint).toMatchObject({ id: OTHER_POINT.id });
+  });
+
+  it('after the shipment is cancelled, choosing another point on the order clears the line points', async () => {
+    const t = setup();
+    const { id } = await t.create({ shipping: PICKUP, pickupPointId: POINT.id });
+    shipOne(t, id);
+    await t.c.editing.addShippingLine(id, { ...PICKUP, amount: 400, pickupPointId: OTHER_POINT.id }, 'user:1', 'op-nx-0003');
+    t.c.tables[UIDS.shipment][0].status = 'CANCELLED';
+    await t.c.editing.updateShippingAddress(id, { pickupPointId: POINT.id } as any, 'user:1', 'op-nx-0004');
+    expect(t.row(id).shippingLines.lines.some((l: any) => l.pickupPoint)).toBe(false);
+    expect((await t.c.orders.get(id)).nextPickupPoint).toMatchObject({ id: POINT.id });
+  });
+});

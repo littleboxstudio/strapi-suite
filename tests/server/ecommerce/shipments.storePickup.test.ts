@@ -395,48 +395,77 @@ describe('a store pickup shipment afterwards', () => {
   });
 });
 
-describe('the store is fixed once a store pickup shipment is active', () => {
-  it('a swap is refused with PICKUP_ADDRESS_LOCKED and writes nothing; the same store still ships', async () => {
-    const { c, ships, settings } = setup();
-    const { id, lineId } = await paidOrder(c);
-    makeStorePickup(c, id);
-    await ships.create(id, ship(lineId, { mode: 'STORE_PICKUP' }, 'k1'), 'user:1');
-    const before = JSON.stringify(orderRow(c, id));
-    const historyBefore = c.tables[UIDS.orderHistory].length;
-    expect(
-      await codesOf(ships.create(id, ship(lineId, { mode: 'STORE_PICKUP', pickupPointId: STORE_PORTO.id }, 'k2'), 'user:1'))
-    ).toEqual([{ path: 'method.pickupPointId', code: 'PICKUP_ADDRESS_LOCKED' }]);
-    expect(JSON.stringify(orderRow(c, id))).toBe(before);
-    expect(c.tables[UIDS.orderHistory]).toHaveLength(historyBefore);
-    expect(c.tables[UIDS.shipment]).toHaveLength(1);
-    expect(settings.findStore).not.toHaveBeenCalled();
-
-    const same = await ships.create(id, ship(lineId, { mode: 'STORE_PICKUP', pickupPointId: STORE_LISBOA.id }, 'k3'), 'user:1');
-    expect(same.store).toEqual(STORE_LISBOA);
-  });
-
-  it('a cancelled store pickup shipment frees the store again', async () => {
+describe('once the order has an active shipment, its address stays', () => {
+  it('a store swap is recorded on the shipment only: the order and its history are untouched', async () => {
     const { c, ships } = setup();
     const { id, lineId } = await paidOrder(c);
     makeStorePickup(c, id);
-    const first = await ships.create(id, ship(lineId, { mode: 'STORE_PICKUP' }, 'k1'), 'user:1');
-    await ships.cancel(first.id, { reason: 'wrong store' }, 'user:1');
-    const s = await ships.create(id, ship(lineId, { mode: 'STORE_PICKUP', pickupPointId: STORE_PORTO.id }, 'k2'), 'user:1');
+    await ships.create(id, ship(lineId, { mode: 'STORE_PICKUP' }, 'k1'), 'user:1');
+    const before = JSON.stringify({ a: orderRow(c, id).shippingAddress, p: orderRow(c, id).pickupPoint });
+    const historyBefore = c.tables[UIDS.orderHistory].filter((h) => h.type === 'ADDRESS_CHANGED').length;
+    const s = await ships.create(
+      id,
+      ship(lineId, { mode: 'STORE_PICKUP', pickupPointId: STORE_PORTO.id }, 'k2'),
+      'user:1'
+    );
     expect(s.store).toEqual(STORE_PORTO);
+    expect(JSON.stringify({ a: orderRow(c, id).shippingAddress, p: orderRow(c, id).pickupPoint })).toBe(before);
+    expect(c.tables[UIDS.orderHistory].filter((h) => h.type === 'ADDRESS_CHANGED')).toHaveLength(historyBefore);
+    // The next shipment still defaults to the order's store.
+    expect(storeEntry((await ships.shipMethods(id, 'en')).methods)).toMatchObject({ selectedStoreId: STORE_LISBOA.id });
   });
 
-  it('shipMethods marks the store entry storeLocked only while such a shipment is active', async () => {
+  it('a swap after a manual shipment is not written to the order either', async () => {
     const { c, ships } = setup();
     const { id, lineId } = await paidOrder(c);
     makeStorePickup(c, id);
-    expect(storeEntry((await ships.shipMethods(id, 'en')).methods)).not.toHaveProperty('storeLocked');
-    // A manual shipment does not fix the store.
-    const manual = await ships.create(id, ship(lineId, { mode: 'MANUAL', carrierName: 'Courier' }, 'k0'), 'user:1');
-    expect(storeEntry((await ships.shipMethods(id, 'en')).methods)).not.toHaveProperty('storeLocked');
-    await ships.cancel(manual.id, { reason: 'x' }, 'user:1');
+    await ships.create(id, ship(lineId, { mode: 'MANUAL', carrierName: 'Courier' }, 'k0'), 'user:1');
+    const s = await ships.create(id, ship(lineId, { mode: 'STORE_PICKUP', pickupPointId: STORE_PORTO.id }, 'k1'), 'user:1');
+    expect(s.store).toEqual(STORE_PORTO);
+    expect(orderRow(c, id).pickupPoint.id).toBe(STORE_LISBOA.id);
+    expect(orderRow(c, id).shippingAddress).toEqual(storeAddress(STORE_LISBOA));
+  });
+
+  it('a swap is still validated: another market or an unknown store is PICKUP_POINT_INVALID', async () => {
+    const { c, ships } = setup();
+    const { id, lineId } = await paidOrder(c);
+    makeStorePickup(c, id);
     await ships.create(id, ship(lineId, { mode: 'STORE_PICKUP' }, 'k1'), 'user:1');
-    const entry = storeEntry((await ships.shipMethods(id, 'en')).methods);
-    expect(entry).toMatchObject({ storeLocked: true, selectedStoreId: STORE_LISBOA.id });
+    expect(
+      await codesOf(ships.create(id, ship(lineId, { mode: 'STORE_PICKUP', pickupPointId: STORE_FUNCHAL.id }, 'k2'), 'user:1'))
+    ).toEqual([{ path: 'method.pickupPointId', code: 'PICKUP_POINT_INVALID' }]);
+  });
+
+  it('the store charged on the current shipping line once shipped is the next shipment\'s store', async () => {
+    const { c, ships } = setup();
+    const { id, lineId } = await paidOrder(c);
+    await ships.create(id, ship(lineId, { mode: 'MANUAL', carrierName: 'Courier' }, 'k0'), 'user:1');
+    const row = orderRow(c, id);
+    const checkout = (row.shippingLines?.lines ?? [])[0];
+    row.shippingMethod = { providerId: 'store-pickup', serviceId: 'STORE', name: 'Store pickup', tax: 23 };
+    row.shippingLines = {
+      lines: [
+        ...(checkout ? [checkout] : []),
+        {
+          id: 2,
+          origin: 'MANUAL',
+          amount: 0,
+          providerId: 'store-pickup',
+          serviceId: 'STORE',
+          name: 'Store pickup',
+          tax: 23,
+          createdAt: new Date().toISOString(),
+          actor: 'user:1',
+          pickupPoint: STORE_PORTO,
+        },
+      ],
+    };
+    expect(row.pickupPoint ?? null).toBeNull();
+    expect(storeEntry((await ships.shipMethods(id, 'en')).methods)).toMatchObject({ selectedStoreId: STORE_PORTO.id });
+    const s = await ships.create(id, ship(lineId, { mode: 'STORE_PICKUP' }, 'k1'), 'user:1');
+    expect(s.store).toEqual(STORE_PORTO);
+    expect(orderRow(c, id).shippingAddress).toEqual(customerAddress);
+    expect(orderRow(c, id).pickupPoint ?? null).toBeNull();
   });
 });
 

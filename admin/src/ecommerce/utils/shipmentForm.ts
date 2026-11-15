@@ -70,24 +70,15 @@ export function defaultShipStoreId(methods: ShipMethodOption[]): string {
   return methods.find((m) => m.kind === 'STORE_PICKUP')?.selectedStoreId ?? '';
 }
 
-/** Store pickup: the order's store can no longer change (a store pickup shipment of it is active). */
-export function shipStoreLocked(method: ShipMethodOption | null): boolean {
-  return method?.kind === 'STORE_PICKUP' && method.storeLocked === true;
-}
-
-/**
- * The store `storeId` names among the Store pickup method's stores (the order's own when the store
- * is locked); null otherwise.
- */
+/** The store `storeId` names among the Store pickup method's stores; null otherwise. */
 export function shipStore(method: ShipMethodOption | null, storeId: string): PickupStore | null {
   if (method?.kind !== 'STORE_PICKUP') return null;
-  const id = shipStoreLocked(method) ? (method.selectedStoreId ?? '') : storeId;
-  return method.stores?.find((s) => s.id === id) ?? null;
+  return method.stores?.find((s) => s.id === storeId) ?? null;
 }
 
-/** The message id of a Store pickup error at Ship (PICKUP_ADDRESS_LOCKED: the store is fixed). */
+/** The message id of a Store pickup error at Ship. */
 export function shipStoreErrorId(code: string): string {
-  return code === 'PICKUP_ADDRESS_LOCKED' ? 'ecommerce.orders.ship.storeLocked' : pickupErrorId(code, true);
+  return pickupErrorId(code, true);
 }
 
 /** An integer 1–99 typed in the parcels field; null otherwise. */

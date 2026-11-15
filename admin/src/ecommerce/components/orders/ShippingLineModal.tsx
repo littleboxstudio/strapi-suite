@@ -123,13 +123,15 @@ const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, o
 
   const option = options?.find((o) => shippingOptionKey(o) === selected) ?? null;
   const draft = shippingLineDraftToInput(option, price);
-  const orderPoint = order.pickupPoint ?? null;
+  // The point the next shipment goes to (the order's own until it has shipments).
+  const orderPoint = order.nextPickupPoint ?? null;
   // The order's point counts only for the same kind of method (a DPD point is no store).
   const pickup = pickupNeeded(
     option,
     orderPointKept(currentShippingMethod(order.shippingLines), !!orderPoint, option)
   );
   const stores = storeChoices(option);
+  const shipped = !!order.editing?.hasShipments;
   const pickupErrorText = (code: string) =>
     formatMessage({
       id: getTranslation(pickupErrorId(code, !!stores)),
@@ -293,7 +295,17 @@ const ShippingLineModal = ({ order, mode, line, permissions, onClose, onSaved, o
             />
           </Flex>
         )}
-        {pickup === 'NONE' && orderPoint && option && <NoticeBar text={t('ecommerce.orders.pickup.restore')} />}
+        {shipped && option && (
+          // Once shipped the order's address stays: a point only goes to the next shipments.
+          <NoticeBar
+            text={t(
+              pickup === 'NONE' ? 'ecommerce.orders.pickup.shippedAddress' : 'ecommerce.orders.pickup.shippedPoint'
+            )}
+          />
+        )}
+        {!shipped && pickup === 'NONE' && orderPoint && option && (
+          <NoticeBar text={t('ecommerce.orders.pickup.restore')} />
+        )}
         {errors.form && pickup === 'NONE' && (
           <Typography variant="omega" textColor="danger600">
             {codeText(errors.form)}

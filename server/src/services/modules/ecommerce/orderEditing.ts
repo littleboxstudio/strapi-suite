@@ -36,10 +36,14 @@ import {
   chargedShipping,
   currentMethod,
   invoicedMethod,
+  hasLinePoints,
+  linePoint,
   planLineChange,
   planRecalculation,
   readShippingLines,
   shippingLineViews,
+  withoutLinePoints,
+  type LinePickupPoint,
   type ShippingLine,
   type ShippingLineView,
   type ShippingMethodRef,
@@ -76,6 +80,7 @@ import {
   pointSummary,
   isPickupMethod,
   isStorePickup,
+  nextPickupPoint,
   readPickupPoint,
   samePickupKind,
   type OrderPickupPoint,
@@ -626,7 +631,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
           return { lines, due: pending.items.length ? ('NEW_UNITS' as const) : null };
         }
         // The carrier quote may be a remote call: taken before the transaction.
-        const due = await shippingDue(state, units, state.order.shippingAddress ?? null);
+        const due = await shippingDue(state, units, deliveryAddressOf(state));
         return { lines, due };
       },
       write: async (state, { lines, due }, w) => {
@@ -736,8 +741,8 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
    * method takes the same kind of point (a DPD point is no store, and the other way round).
    */
   const keptPoint = (state: OrderState, method: ShippingMethodRef | null): OrderPickupPoint | null => {
-    const stored = readPickupPoint(state.order);
-    return stored && samePickupKind(currentMethod(readShippingLines(state.order)), method) ? stored : null;
+    const next = nextPickupPoint(state.order);
+    return next && samePickupKind(currentMethod(readShippingLines(state.order)), method) ? next : null;
   };
 
   /**
@@ -756,16 +761,61 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   /**
+   * Once the order has shipments its delivery address and point never change: the point a new
+   * pickup `method` goes to is kept on the shipping line instead. `point`, else the next point of
+   * the same kind (`PICKUP_POINT_REQUIRED` without one); null for any other method.
+   */
+  const linePointFor = (
+    state: OrderState,
+    method: ShippingMethodRef | null,
+    point: PickupPointInput | null
+  ): LinePickupPoint | null => {
+    if (!state.editing.hasShipments) return null;
+    if (!method || !isPickupMethod(method.providerId, method.serviceId)) return null;
+    const chosen = point ?? keptPoint(state, method);
+    if (!chosen) throw invalidPickup('pickupPointId', 'PICKUP_POINT_REQUIRED');
+    return linePoint(chosen);
+  };
+
+  /** The new lines of `next` (not in the stored table) that charge `method` carry `point`. */
+  const withLinePoint = (
+    state: OrderState,
+    next: ShippingLine[],
+    method: ShippingMethodRef | null,
+    point: LinePickupPoint | null
+  ): ShippingLine[] => {
+    if (!point || !method) return next;
+    const before = new Set(readShippingLines(state.order).map((l) => l.id));
+    return next.map((l) => (!before.has(l.id) && samePickupKind(l, method) ? { ...l, pickupPoint: point } : l));
+  };
+
+  /**
+   * The address the order's next shipment goes to, which the quotes use. Before any shipment: the
+   * order's delivery address. After: the customer's own address, or the next point's (the order's
+   * address stays as it was).
+   */
+  const deliveryAddressOf = (state: OrderState): Address | null => {
+    if (!state.editing.hasShipments) return (state.order.shippingAddress ?? null) as Address | null;
+    const customer = customerAddressOf(state.order);
+    const point = nextPickupPoint(state.order);
+    return point && customer ? applyPickupPoint(customer, point).shippingAddress : customer;
+  };
+
+  /**
    * Inside the transaction: the delivery change the order's new current `method` brings. A pickup
    * method takes `point` (the customer's address stays on it) or keeps the stored point of the
    * same kind; leaving Pickup restores the customer's address and clears the point. Null: nothing
-   * changes.
+   * changes, as always once the order has shipments (`linePointFor`).
    */
   const deliveryChange = (
     state: OrderState,
     method: ShippingMethodRef | null,
     point: PickupPointInput | null
   ): DeliveryChange | null => {
+    if (state.editing.hasShipments) {
+      linePointFor(state, method, point);
+      return null;
+    }
     const stored = readPickupPoint(state.order);
     if (method && isPickupMethod(method.providerId, method.serviceId)) {
       const kept = keptPoint(state, method);
@@ -838,7 +888,9 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
           address = normalizeAddress(input?.address, 'address', errors);
           if (errors.length) throw new EcommerceValidationError('Invalid address', errors);
         }
-        if (sameAddress(address, state.order.shippingAddress)) return { address, point, due: null };
+        // Points kept on lines (charged while shipped) are replaced by the order's own: a change.
+        const linePoints = !!point && hasLinePoints(readShippingLines(state.order));
+        if (sameAddress(address, state.order.shippingAddress) && !linePoints) return { address, point, due: null };
         // Only a new market is checked: an unchanged one is kept even if no longer served. The
         // market is the country, or PT-ISL for an island postcode in a store selling there.
         const storeMarkets = (await storeSettings().getStoreSettings()).markets ?? [];
@@ -865,7 +917,8 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         const change = stored && point ? applyPickupPoint(stored.customerAddress, point) : null;
         const address = change ? change.shippingAddress : prepared.address;
         const before = state.order.shippingAddress ?? null;
-        if (sameAddress(address, before) && (!change || change.pickupPoint.id === stored?.id)) {
+        const linePoints = !!change && hasLinePoints(readShippingLines(state.order));
+        if (sameAddress(address, before) && (!change || change.pickupPoint.id === stored?.id) && !linePoints) {
           return {
             outcome: 'NONE',
             difference: 0,
@@ -884,10 +937,13 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         } else if (due.due !== chargedShipping(readShippingLines(state.order))) {
           flags = await w.raise(flags, 'SHIPPING_REVIEW', 'ADDRESS_CHANGED');
         }
+        const lines = readShippingLines(state.order);
         await writeTotals(state, {
           shippingAddress: address,
           reviewFlags: flags,
           ...(change ? { pickupPoint: change.pickupPoint } : {}),
+          // The order's own point is set again: points kept on lines no longer apply.
+          ...(change && hasLinePoints(lines) ? { shippingLines: withoutLinePoints(lines) } : {}),
         });
         return {
           outcome: 'NONE',
@@ -990,7 +1046,10 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         catalog
       );
     }
-    const delivery = (state.order.shippingAddress ?? null) as Address | null;
+    // Once shipped, every option is quoted at the customer's own address (`deliveryAddressOf`).
+    const delivery = state.editing.hasShipments
+      ? customerAddressOf(state.order)
+      : ((state.order.shippingAddress ?? null) as Address | null);
     const result = await shipping().quote(quoteRequest(state, quoted, delivery));
     const customer = customerAddress(state.order);
     if (!customer || customer === delivery) return result;
@@ -1083,8 +1142,11 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
       flags = await w.raise(flags, 'DISCOUNTS_REVIEW', 'SHIPPING_CHANGED');
     }
     if (delivery) await recordDeliveryChange(state, delivery, w);
+    // The order's own delivery changes (before any shipment): points kept on lines no longer apply.
+    const stored = readShippingLines(state.order);
+    const lines = delivery && hasLinePoints(next ?? stored) ? withoutLinePoints(next ?? stored) : next;
     await writeTotals(state, {
-      ...(next ? { shippingLines: next } : {}),
+      ...(lines ? { shippingLines: lines } : {}),
       reviewFlags: flags,
       ...(delivery ? { shippingAddress: delivery.shippingAddress, pickupPoint: delivery.pickupPoint } : {}),
     });
@@ -1140,7 +1202,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     use: 'preview' | 'apply'
   ): Promise<Recalculation> => {
     assertEditable(state, 'RECALCULATE_SHIPPING');
-    const address = state.order.shippingAddress ?? null;
+    const address = deliveryAddressOf(state);
     const basis = recalculationBasis(state);
     if (basis.kind === 'WHOLE_ORDER') {
       const due = await shippingDue(state, orderUnits(state), address);
@@ -1156,7 +1218,8 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     if (!quoted.items.length) return none;
     const picked = pickedMethod(input);
     if (!picked && use === 'apply') throw invalidShipping('method', 'SHIPPING_METHOD_REQUIRED');
-    const { options, failures } = await shipping().quote(quoteRequest(state, quoted, address));
+    const optionsAt = state.editing.hasShipments ? customerAddressOf(state.order) : address;
+    const { options, failures } = await shipping().quote(quoteRequest(state, quoted, optionsAt));
     if (!picked) return { ...none, options, needsMethod: true };
     const o = options.find((x) => x.providerId === picked.providerId && x.serviceId === picked.serviceId);
     if (!o) {
@@ -1255,12 +1318,12 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         assertEditable(state, 'RECALCULATE_SHIPPING');
         const plan = recalculationPlan(state, r, w.actor);
         const delivery = recalculationDelivery(state, plan);
-        const r2 = await writeShippingLines(
-          state,
-          plan.mode === 'UNCHANGED' ? null : plan.lines,
-          w,
-          delivery
-        );
+        const method = currentMethod(plan.lines);
+        const lines =
+          plan.mode === 'UNCHANGED'
+            ? null
+            : withLinePoint(state, plan.lines, method, linePointFor(state, method, null));
+        const r2 = await writeShippingLines(state, lines, w, delivery);
         return {
           outcome: r2.outcome,
           difference: r2.difference,
@@ -1366,12 +1429,15 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
       write: async (state, next, w) => {
         assertEditable(state, 'ADD_SHIPPING_LINE');
         const previous = readShippingLines(state.order);
+        // Once shipped, a pickup charge keeps its point on the line, not on the order.
+        const point = linePointFor(state, next.method, next.point);
         const lines = appendLine(previous, {
           origin: 'MANUAL',
           amount: next.amount,
           ...next.method,
           createdAt: new Date().toISOString(),
           actor: w.actor,
+          ...(point ? { pickupPoint: point } : {}),
         });
         const delivery = deliveryChange(state, currentMethod(lines), next.point);
         const r = await writeShippingLines(state, lines, w, delivery);

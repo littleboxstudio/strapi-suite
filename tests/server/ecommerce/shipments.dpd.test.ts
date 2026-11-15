@@ -219,6 +219,37 @@ describe('DPD shipments', () => {
     expect(body.recipient_pickup_store).toEqual({ number: 'PT10234' });
   });
 
+  it('Pickup: the point is recorded on the shipment; a point charged on the current line wins', async () => {
+    const { c, ships, dpd } = setup();
+    const { id, lineId } = await paidDpdOrder(c, 1);
+    makePickup(c, id);
+    const row = c.tables[UIDS.order].find((o) => o.id === id);
+    const before = JSON.stringify({ a: row.shippingAddress, p: row.pickupPoint });
+    const other = { ...row.pickupPoint, id: 'PT77777', name: 'Quiosque Sul' };
+    delete (other as any).customerAddress;
+    row.shippingLines = {
+      lines: [
+        {
+          id: 1,
+          origin: 'MANUAL',
+          amount: 400,
+          providerId: 'dpd-portugal',
+          serviceId: 'PICKUP',
+          name: 'DPD Pickup',
+          tax: 23,
+          createdAt: new Date().toISOString(),
+          actor: 'user:1',
+          pickupPoint: other,
+        },
+      ],
+    };
+    const s = await ships.create(id, carrier(lineId, 1, 'k1'), 'user:1');
+    expect(dpd.expeditions[0].recipient_pickup_store).toEqual({ number: 'PT77777' });
+    expect(s.pickupPoint).toMatchObject({ id: 'PT77777', name: 'Quiosque Sul' });
+    expect(c.tables[UIDS.shipment].find((r) => r.id === s.id).metadata.pickupPoint).toMatchObject({ id: 'PT77777' });
+    expect(JSON.stringify({ a: row.shippingAddress, p: row.pickupPoint })).toBe(before);
+  });
+
   it('Review Focus 2: an inactive DPD integration with credentials still ships and prints the label', async () => {
     const { c, ships, dpd } = setup({ active: false });
     const { id, lineId } = await paidDpdOrder(c, 1);
