@@ -410,7 +410,6 @@
   "littlebox-strapi-suite.ecommerce.settings.errors.invalid_market": "Este mercado não é um dos mercados da loja.",
   "littlebox-strapi-suite.ecommerce.settings.storePickup.configure": "Configurar",
   "littlebox-strapi-suite.ecommerce.settings.storePickup.title": "Levantamento em loja",
-  "littlebox-strapi-suite.ecommerce.settings.storePickup.empty": "Ainda sem mercados. Em Configurar, adicione os mercados, os preços e as lojas.",
   "littlebox-strapi-suite.ecommerce.settings.storePickup.noMarketsSelected": "Ainda sem mercados. Adicione os mercados onde os clientes podem levantar as encomendas.",
   "littlebox-strapi-suite.ecommerce.settings.storePickup.table.market": "Mercado",
   "littlebox-strapi-suite.ecommerce.settings.storePickup.table.stores": "Lojas",

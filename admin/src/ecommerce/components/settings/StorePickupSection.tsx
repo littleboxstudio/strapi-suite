@@ -135,13 +135,7 @@ const StorePickupSection = ({
       );
     }
     const rows = storePickupSummary(config, markets);
-    if (rows.length === 0) {
-      return (
-        <Typography variant="omega" textColor="neutral600">
-          {t('ecommerce.settings.storePickup.empty')}
-        </Typography>
-      );
-    }
+    if (rows.length === 0) return null;
     return (
       <Table colCount={3} rowCount={rows.length + 1}>
         <Thead>

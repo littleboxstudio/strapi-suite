@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useIntl } from 'react-intl';
 import { Box, Button, Flex, IconButton, Modal, Typography } from '@strapi/design-system';
-import { Pencil, Plus, Trash } from '@strapi/icons';
+import { Pencil, Trash } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { NOTICE_BACKGROUND, NOTICE_TEXT } from '../orders/NoticeBar';
 import { ActionConfirmModal } from '../ActionConfirmModal';
@@ -191,7 +191,6 @@ const StorePickupModal = ({ config, locales, defaultLocale, markets, onClose, on
           <Button
             variant="secondary"
             size="S"
-            startIcon={<Plus />}
             disabled={stores.length >= MAX_STORES}
             aria-label={`${t('ecommerce.settings.storePickup.stores.add')}: ${marketName}`}
             onClick={() =>

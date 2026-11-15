@@ -626,7 +626,6 @@
   "littlebox-strapi-suite.ecommerce.settings.errors.invalid_market": "This market is not one of the store markets.",
   "littlebox-strapi-suite.ecommerce.settings.storePickup.configure": "Configure",
   "littlebox-strapi-suite.ecommerce.settings.storePickup.title": "Store pickup",
-  "littlebox-strapi-suite.ecommerce.settings.storePickup.empty": "No markets yet. In Configure, add the markets, their prices and stores.",
   "littlebox-strapi-suite.ecommerce.settings.storePickup.noMarketsSelected": "No markets yet. Add the markets where customers can collect their orders.",
   "littlebox-strapi-suite.ecommerce.settings.storePickup.table.market": "Market",
   "littlebox-strapi-suite.ecommerce.settings.storePickup.table.stores": "Stores",
