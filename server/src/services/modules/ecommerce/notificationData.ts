@@ -22,6 +22,7 @@ export type NotificationTemplateType = Extract<
   | 'PARTIAL_SHIPMENT'
   | 'FULL_SHIPMENT'
   | 'TRACKING_UPDATED'
+  | 'READY_FOR_PICKUP'
   | 'DELIVERY_CONFIRMATION'
   | 'INVOICE_AVAILABLE'
   | 'CREDIT_NOTE_ISSUED'
@@ -39,6 +40,7 @@ export const NOTIFICATION_TEMPLATE_TYPES: NotificationTemplateType[] = [
   'PARTIAL_SHIPMENT',
   'FULL_SHIPMENT',
   'TRACKING_UPDATED',
+  'READY_FOR_PICKUP',
   'DELIVERY_CONFIRMATION',
   'INVOICE_AVAILABLE',
   'CREDIT_NOTE_ISSUED',
@@ -58,7 +60,13 @@ export function templateForEvent(event: Pick<DomainEvent, 'type' | 'payload'>): 
     REFUND_COMPLETED: () => (p.kind === 'MONEY' ? 'REFUND_COMPLETED' : null),
     STORE_CREDIT_ISSUED: () => 'STORE_CREDIT_ISSUED',
     SHIPMENT_CREATED: () =>
-      p.notify === false ? null : p.full === true ? 'FULL_SHIPMENT' : 'PARTIAL_SHIPMENT',
+      p.notify === false
+        ? null
+        : p.storePickup === true
+          ? 'READY_FOR_PICKUP'
+          : p.full === true
+            ? 'FULL_SHIPMENT'
+            : 'PARTIAL_SHIPMENT',
     SHIPMENT_TRACKING_UPDATED: () => 'TRACKING_UPDATED',
     SHIPMENT_DELIVERED: () =>
       p.allDelivered === true && p.notify !== false ? 'DELIVERY_CONFIRMATION' : null,
@@ -110,6 +118,8 @@ export type ShipmentRow = {
   trackingCode?: string | null;
   trackingUrl?: string | null;
   items?: { lines?: unknown } | null;
+  /** A store pickup shipment keeps its store here (`metadata.store`). */
+  metadata?: { store?: Record<string, unknown> | null } | null;
 };
 
 type ItemRow = { name: string; option: string; sku: string; quantity: number };
@@ -365,6 +375,34 @@ export function buildTemplateData(
         carrier: str(s.carrierName),
         trackingCode: str(s.trackingCode),
         trackingUrl: str(s.trackingUrl),
+      };
+      break;
+    }
+    case 'READY_FOR_PICKUP': {
+      const lines = order?.lines ?? [];
+      const pending = Array.isArray(p.pending) ? (p.pending as any[]) : [];
+      const st = extra.shipment?.metadata?.store ?? {};
+      data.shipment = {
+        items: shipmentItems(extra.shipment),
+        // 'yes' when part of the order is still to be shipped, '' when this completes it.
+        isPartial: p.full === true ? '' : 'yes',
+        pendingItems: pending
+          .map((x) => ({ line: lines.find((l) => l.id === num(x?.orderLineId)), quantity: num(x?.quantity) }))
+          .filter(({ line, quantity }) => !!line && quantity > 0)
+          .map(({ line, quantity }) => ({
+            name: str(line!.name),
+            option: str(line!.option),
+            sku: str(line!.sku),
+            quantity,
+          })),
+      };
+      // Not under `store`: that is the shop (name, logo...) in every template.
+      data.pickup = {
+        name: str(st.name),
+        address: str(st.address),
+        address2: str(st.address2),
+        postalCode: str(st.postalCode),
+        city: str(st.city),
       };
       break;
     }

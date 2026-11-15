@@ -65,6 +65,16 @@ const SPECIFIC: Record<string, string[]> = {
     'shipment.trackingCode',
     'shipment.trackingUrl',
   ],
+  READY_FOR_PICKUP: [
+    'shipment.items',
+    'shipment.isPartial',
+    'shipment.pendingItems',
+    'pickup.name',
+    'pickup.address',
+    'pickup.address2',
+    'pickup.postalCode',
+    'pickup.city',
+  ],
   DELIVERY_CONFIRMATION: ['delivery.date'],
   CANCELLATION: ['order.cancelledAt', 'order.amountPaid'],
   REFUND_STARTED: [
@@ -97,8 +107,8 @@ const resolve = (data: unknown, path: string) =>
     .reduce<unknown>((acc, key) => (acc as Record<string, unknown> | undefined)?.[key], data);
 
 describe('email variable catalog', () => {
-  it('exports the fifteen template types', () => {
-    expect(EMAIL_TEMPLATE_TYPES).toHaveLength(15);
+  it('exports the sixteen template types', () => {
+    expect(EMAIL_TEMPLATE_TYPES).toHaveLength(16);
     expect([...EMAIL_TEMPLATE_TYPES].sort()).toEqual(Object.keys(SPECIFIC).sort());
   });
 

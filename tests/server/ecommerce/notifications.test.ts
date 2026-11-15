@@ -777,11 +777,13 @@ describe('shipment, delivery and invoice e-mails', () => {
       trackingCode: `RR${n}`,
       trackingUrl: `https://www.ctt.pt/track?code=RR${n}`,
       items: { lines: [{ orderLineId: 1, sku: 'SH-M', name: 'Shirt', option: 'M', quantity: 1 }] },
+      metadata: { store: { name: 'Lisbon Store', address: 'Rua A 1', postalCode: '1000-001', city: 'Lisboa' } },
     });
     const ev = (type: any, payload: any) => ({ id: 'e', type, orderId: 1, occurredAt: '2026-11-12T10:00:00.000Z', payload });
     const cases: [any, any][] = [
       ['PARTIAL_SHIPMENT', ev('SHIPMENT_CREATED', { full: false, pending: [{ orderLineId: 1, quantity: 1 }] })],
       ['FULL_SHIPMENT', ev('SHIPMENT_CREATED', { full: true, pending: [] })],
+      ['READY_FOR_PICKUP', ev('SHIPMENT_CREATED', { full: false, storePickup: true, pending: [{ orderLineId: 1, quantity: 1 }] })],
       ['TRACKING_UPDATED', ev('SHIPMENT_TRACKING_UPDATED', { shipmentId: 1 })],
       ['DELIVERY_CONFIRMATION', ev('SHIPMENT_DELIVERED', { deliveredAt: '2026-11-12T10:00:00.000Z' })],
       ['INVOICE_AVAILABLE', ev('INVOICE_ISSUED', { invoiceId: 9, kind: 'INVOICE' })],
@@ -808,6 +810,13 @@ describe('shipment, delivery and invoice e-mails', () => {
       }
       if (type === 'INVOICE_AVAILABLE') {
         expect(urls.filter((u) => u !== store.logo.url && !u.startsWith('mailto:'))).toEqual(['https://shop.example']);
+      }
+      if (type === 'READY_FOR_PICKUP') {
+        expect(html).toContain('Shirt');
+        expect(html).toContain('Lisbon Store');
+        expect(html).toContain('Rua A 1');
+        expect(html).toContain('Part of your order');
+        expect(html).not.toContain('RR1');
       }
       if (type === 'TRACKING_UPDATED') {
         expect(html).toContain('RR1');
