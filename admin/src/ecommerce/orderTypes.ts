@@ -44,6 +44,24 @@ export type OrderPickupPoint = {
   customerAddress: Address;
 };
 
+/** A DPD pickup point found by postal code (`GET orders/pickup-points`); `day` 1–7. */
+export type PickupPoint = {
+  id: string;
+  name: string;
+  address: string;
+  address2: string | null;
+  postalCode: string;
+  city: string;
+  country: string;
+  openingHours: { day: number; from: string; to: string }[];
+};
+
+/** The point chosen in the picker and the postal code it was found with. */
+export type PickupSelection = { point: PickupPoint; postalCode: string };
+
+/** A request's pickup point: sent with DPD Pickup (spec 5.3). */
+export type PickupPointInput = { pickupPointId?: string; pickupPostalCode?: string };
+
 // ---------------------------------------------------------------------------
 // Customers
 // ---------------------------------------------------------------------------
@@ -537,6 +555,9 @@ export type CreateOrderInput = {
   /** `discountPercent`: the manual line discount (spec 4.1); omitted when none. */
   lines: { variantId: number; quantity: number; discountPercent?: number }[];
   shipping: { providerId: string; serviceId: string };
+  /** DPD Pickup: the chosen point, confirmed by the server with a search of `pickupPostalCode`. */
+  pickupPointId?: string;
+  pickupPostalCode?: string;
   notes?: string;
   /** Required by the server: a repeated key returns the order created first. */
   idempotencyKey: string;
@@ -705,7 +726,7 @@ export type ShippingLineView = {
   effectiveAmount?: number;
 };
 
-export type ShippingLineInput = { providerId: string; serviceId: string; amount: number };
+export type ShippingLineInput = { providerId: string; serviceId: string; amount: number } & PickupPointInput;
 
 export type ManualDiscount = {
   id: number;

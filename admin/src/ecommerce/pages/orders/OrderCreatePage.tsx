@@ -29,11 +29,12 @@ import VariantPicker from '../../components/orders/VariantPicker';
 import OrderLinesEditor from '../../components/orders/OrderLinesEditor';
 import TotalsPreview from '../../components/orders/TotalsPreview';
 import OrderQuotePanel from '../../components/orders/OrderQuotePanel';
+import PickupPointPicker from '../../components/orders/PickupPointPicker';
 import { extractFieldErrors } from '../../utils/productForm';
 import { mintUuid } from '../../utils/variantDraft';
 import { formatCents } from '../../utils/money';
 import { useOrderPermissions } from '../../hooks/useOrderPermissions';
-import { apiErrorCode } from '../../utils/orderDetail';
+import { apiErrorCode, apiErrorMessageId } from '../../utils/orderDetail';
 import {
   addLine,
   addPromotionCode,
@@ -171,7 +172,7 @@ const OrderCreatePage = () => {
   quoteSignatureRef.current = quoteSignature;
   useEffect(() => {
     setQuote(null);
-    setForm((f) => (f.shipping ? { ...f, shipping: null } : f));
+    setForm((f) => (f.shipping ? { ...f, shipping: null, pickup: null } : f));
   }, [quoteSignature]);
 
   const quoteInput = useMemo(() => buildQuoteInput(form, giftChoices), [form, giftChoices]);
@@ -398,7 +399,8 @@ const OrderCreatePage = () => {
       }
       const fieldErrors = extractFieldErrors(err);
       if (fieldErrors) showErrors(fieldErrors);
-      else toggleNotification({ type: 'danger', message: t('ecommerce.orders.new.error') });
+      // A carrier answer (e.g. PICKUP_SEARCH_FAILED) has a code but no field.
+      else toggleNotification({ type: 'danger', message: t(apiErrorMessageId(err, 'ecommerce.orders.new.error')) });
     } finally {
       setSubmitting(false);
     }
@@ -591,9 +593,15 @@ const OrderCreatePage = () => {
                       if (!option) return;
                       setForm((f) => ({
                         ...f,
-                        shipping: { providerId: option.providerId, serviceId: option.serviceId },
+                        shipping: {
+                          providerId: option.providerId,
+                          serviceId: option.serviceId,
+                          ...(option.requiresPickupPoint ? { requiresPickupPoint: true } : {}),
+                        },
+                        // DPD Pickup: the point is chosen below; another option drops it.
+                        pickup: option.requiresPickupPoint ? (f.pickup ?? null) : null,
                       }));
-                      clearErrors((p) => p === 'shipping');
+                      clearErrors((p) => p === 'shipping' || p === 'pickupPointId' || p === 'pickupPostalCode');
                     }}
                   >
                     {(quote?.options ?? []).map((o) => (
@@ -604,6 +612,26 @@ const OrderCreatePage = () => {
                   </SingleSelect>
                   <Field.Error />
                 </Field.Root>
+              )}
+              {selectedOption?.requiresPickupPoint && (
+                <Flex direction="column" alignItems="stretch" gap={2}>
+                  <Typography variant="sigma" textColor="neutral600">
+                    {t('ecommerce.orders.pickup.title')}
+                  </Typography>
+                  <Typography variant="pi" textColor="neutral600">
+                    {t('ecommerce.orders.pickup.required')}
+                  </Typography>
+                  <PickupPointPicker
+                    initialPostalCode={form.shippingAddress.postalCode}
+                    value={form.pickup ?? null}
+                    onChange={(pickup) => {
+                      setForm((f) => ({ ...f, pickup }));
+                      clearErrors((p) => p === 'pickupPointId' || p === 'pickupPostalCode');
+                    }}
+                    disabled={disabled}
+                    error={translateCode(errors.pickupPointId ?? errors.pickupPostalCode)}
+                  />
+                </Flex>
               )}
             </Flex>
           </Section>

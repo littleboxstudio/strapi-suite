@@ -1,6 +1,6 @@
 import Registry from '../../../core/di/registry';
 import EcommerceOrdersGateway from '../../gateways/ecommerceOrdersGateway';
-import type { Address, EditResult } from '../../orderTypes';
+import type { Address, EditResult, PickupPointInput } from '../../orderTypes';
 
 export default class UpdateShippingAddress {
   gateway: EcommerceOrdersGateway;
@@ -9,7 +9,10 @@ export default class UpdateShippingAddress {
     this.gateway = Registry.getInstance().inject('ecommerceOrdersGateway');
   }
 
-  async execute(id: number, input: { address: Address; operationId: string }): Promise<EditResult> {
+  async execute(
+    id: number,
+    input: ({ address: Address } | Required<PickupPointInput>) & { operationId: string }
+  ): Promise<EditResult> {
     return this.gateway.updateShippingAddress(id, input);
   }
 }
