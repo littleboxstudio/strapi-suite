@@ -2,6 +2,7 @@ import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID } from '../../../config';
 import { handleDomainError as handleSharedDomainError } from './errors';
 import { sendPdf } from './pdf';
+import { MAX_PARCELS } from '../../../services/modules/ecommerce/shipments';
 import {
   MAX_KEY,
   asObject,
@@ -42,6 +43,14 @@ const EcommerceShipmentController = ({ strapi }: { strapi: Core.Strapi }) => {
     }
   };
 
+  /** Carrier parcels: an integer 1–99. */
+  const parcelsOf = (v: unknown): number => {
+    if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > MAX_PARCELS) {
+      return fail(MSG, 'parcels', 'invalid');
+    }
+    return v;
+  };
+
   const parseShipment = (b: Record<string, unknown>) => {
     const m = asObject(b.method);
     let method: any;
@@ -63,6 +72,7 @@ const EcommerceShipmentController = ({ strapi }: { strapi: Core.Strapi }) => {
       shippingCost: nonNegativeCents(MSG, 'shippingCost', b.shippingCost ?? 0),
       notifyCustomer: optionalBoolean(MSG, 'notifyCustomer', b.notifyCustomer, true),
       idempotencyKey: requiredString(MSG, 'idempotencyKey', b.idempotencyKey, MAX_KEY),
+      ...(b.parcels !== undefined ? { parcels: parcelsOf(b.parcels) } : {}),
     };
   };
 
@@ -96,6 +106,8 @@ const EcommerceShipmentController = ({ strapi }: { strapi: Core.Strapi }) => {
     refreshTracking: (ctx: any) => run(ctx, (id) => shipments().refreshTracking(id, actorOf(ctx))),
 
     retry: (ctx: any) => run(ctx, (id) => shipments().retry(id, actorOf(ctx))),
+
+    markFailed: (ctx: any) => run(ctx, (id) => shipments().markFailed(id, actorOf(ctx))),
 
     cancel: (ctx: any) =>
       run(ctx, (id) => {

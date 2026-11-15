@@ -239,6 +239,10 @@ const EcommerceShippingService = ({ strapi }: { strapi: Core.Strapi }) => {
       if (!adapter || !runtime || !usable) throw new EcommerceCarrierError('CARRIER_NOT_CONFIGURED');
       return { adapter, runtime: { config: runtime.config, secrets: runtime.secrets } };
     },
+    /** The registered adapter of `providerId` (its capabilities), whatever its configuration. */
+    adapterFor(providerId: string): CarrierAdapter | null {
+      return adapters.get(providerId) ?? null;
+    },
     /**
      * The markets a method can ship to: its rates (manual, or the DPD service, active or not) or
      * markets (other carriers), inside the store markets. Market codes, not countries: compare an

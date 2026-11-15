@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
+  asksParcels,
   buildShipmentInput,
+  isRetryUnsafeShipment,
   canShipByCarrier,
   defaultDeliveredAtInput,
   defaultShipLines,
@@ -35,6 +37,7 @@ const form = (overrides: Partial<ShipForm> = {}): ShipForm => ({
   trackingUrl: '',
   shippingCost: '4,50',
   notifyCustomer: true,
+  parcels: '1',
   ...overrides,
 });
 
@@ -57,6 +60,7 @@ const shipment = (overrides: Partial<ShipmentView> = {}): ShipmentView => ({
   error: null,
   createdAt: '2026-11-10T10:00:00.000Z',
   retryable: false,
+  carrierSupport: null,
   events: [],
   ...overrides,
 });
@@ -78,6 +82,68 @@ describe('emptyShipForm', () => {
     );
     expect(f).toMatchObject({ mode: 'MANUAL', carrierName: 'Standard', shippingCost: '4,50', notifyCustomer: true });
     expect(f.lines).toHaveLength(2);
+  });
+});
+
+describe('parcels (DPD)', () => {
+  const dpd = { retry: false, cancel: false, tracking: false };
+
+  it('are asked only for a DPD Portugal order', () => {
+    expect(asksParcels({ providerId: 'dpd-portugal', serviceId: 'EXPRESS' })).toBe(true);
+    expect(asksParcels({ providerId: 'ctt-expresso' })).toBe(false);
+    expect(asksParcels({ providerId: 'manual' })).toBe(false);
+    expect(asksParcels(null)).toBe(false);
+  });
+
+  it('default to 1', () => {
+    const f = emptyShipForm(
+      { lines, shippingMethod: { providerId: 'dpd-portugal', name: 'DPD' }, shipping: { remainingCost: 0 } } as any,
+      'en'
+    );
+    expect(f.parcels).toBe('1');
+  });
+
+  it('must be an integer 1–99 for a carrier shipment that asks for them', () => {
+    const carrier = (parcels: string) => form({ mode: 'CARRIER', parcels });
+    for (const bad of ['0', '100', '1.5', '', 'x', '-1']) {
+      expect(validateShipForm(carrier(bad), lines, { parcels: true })).toEqual({ parcels: 'invalid' });
+    }
+    expect(validateShipForm(carrier('99'), lines, { parcels: true })).toEqual({});
+    // Not asked (another carrier), or a manual shipment: ignored.
+    expect(validateShipForm(carrier('0'), lines)).toEqual({});
+    expect(validateShipForm(form({ parcels: '0' }), lines, { parcels: true })).toEqual({});
+  });
+
+  it('are sent only with a carrier shipment that asks for them', () => {
+    expect(buildShipmentInput(form({ mode: 'CARRIER', parcels: ' 2 ' }), 'k', { parcels: true }).parcels).toBe(2);
+    expect(buildShipmentInput(form({ mode: 'CARRIER', parcels: '2' }), 'k')).not.toHaveProperty('parcels');
+    expect(buildShipmentInput(form({ parcels: '2' }), 'k', { parcels: true })).not.toHaveProperty('parcels');
+  });
+
+  it('an uncertain DPD shipment offers "Mark as failed", never "Retry"', () => {
+    const ctx = { orderStatus: 'OPEN' as const, canManage: true };
+    const s = shipment({
+      status: 'PENDING',
+      providerId: 'dpd-portugal',
+      error: 'UNCERTAIN',
+      deliveryStatus: null,
+      retryable: true,
+      carrierSupport: dpd,
+    });
+    expect(isRetryUnsafeShipment(s)).toBe(true);
+    expect(shipmentActions(s, ctx)).toEqual(['MARK_FAILED']);
+    expect(isRetryUnsafeShipment(shipment({ ...s, retryable: false }))).toBe(false);
+    expect(shipmentActions(shipment({ ...s, retryable: false }), ctx)).toEqual([]);
+    expect(
+      isRetryUnsafeShipment(shipment({ ...s, carrierSupport: { retry: true, cancel: true, tracking: true } }))
+    ).toBe(false);
+  });
+
+  it('an active DPD shipment has no tracking refresh (no DPD tracking API)', () => {
+    const ctx = { orderStatus: 'OPEN' as const, canManage: true };
+    expect(
+      shipmentActions(shipment({ providerId: 'dpd-portugal', labelAvailable: true, carrierSupport: dpd }), ctx)
+    ).toEqual(['DELIVER', 'TRACKING', 'LABEL', 'CANCEL']);
   });
 });
 

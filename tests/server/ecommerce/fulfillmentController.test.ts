@@ -184,6 +184,48 @@ describe('EcommerceShipmentController', () => {
     expect(updateTracking).toHaveBeenCalledWith(5, { trackingCode: null, trackingUrl: 'https://t.example/1' }, 'user:7');
   });
 
+  it('create passes parcels (an integer 1–99) and refuses others before the service', async () => {
+    const create = vi.fn().mockResolvedValue({ id: 9 });
+    const c = createShipments({ strapi: strapiWith({ EcommerceShipmentService: { create } }) });
+    await c.create(body({ ...validShipment, method: { mode: 'CARRIER' }, parcels: 3 }));
+    expect(create).toHaveBeenCalledWith(5, expect.objectContaining({ parcels: 3 }), 'user:7');
+    create.mockClear();
+    await c.create(body(validShipment));
+    expect(create.mock.calls[0][1]).not.toHaveProperty('parcels');
+    create.mockClear();
+    for (const parcels of [0, 100, 1.5, '2', null]) {
+      const ctx = body({ ...validShipment, parcels });
+      await c.create(ctx);
+      expect(ctx.badRequest).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ errors: [{ path: 'parcels', code: 'invalid' }] })
+      );
+    }
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('markFailed passes the actor', async () => {
+    const markFailed = vi.fn().mockResolvedValue({ id: 5, status: 'FAILED' });
+    const c = createShipments({ strapi: strapiWith({ EcommerceShipmentService: { markFailed } }) });
+    const ctx = mkCtx();
+    await c.markFailed(ctx);
+    expect(markFailed).toHaveBeenCalledWith(5, 'user:7');
+    expect(ctx.body).toEqual({ id: 5, status: 'FAILED' });
+  });
+
+  it('a refused retry (CARRIER_RETRY_UNSAFE) is a 400 with its code', async () => {
+    const retry = vi
+      .fn()
+      .mockRejectedValue(new EcommerceValidationError('x', [{ path: 'action', code: 'CARRIER_RETRY_UNSAFE' }]));
+    const c = createShipments({ strapi: strapiWith({ EcommerceShipmentService: { retry } }) });
+    const ctx = mkCtx();
+    await c.retry(ctx);
+    expect(ctx.badRequest).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: 'CARRIER_RETRY_UNSAFE' })
+    );
+  });
+
   it('cancel and refresh pass the actor', async () => {
     const cancel = vi.fn().mockResolvedValue({});
     const refreshTracking = vi.fn().mockResolvedValue({});

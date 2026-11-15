@@ -7,6 +7,7 @@ const notImplemented = async (): Promise<never> => {
 
 /** Structure only: no CTT documentation or credentials are available. */
 export const cttExpressoAdapter: CarrierAdapter = {
+  deduplicatesByReference: true,
   quote: notImplemented,
   createShipment: notImplemented,
   cancelShipment: notImplemented,

@@ -169,6 +169,8 @@ export function setupCommerce(
   services.EcommerceCustomerService = EcommerceCustomerService({ strapi });
   services.EcommerceOrderHistoryService = EcommerceOrderHistoryService({ strapi });
   services.EcommerceShippingService = {
+    /** No registered adapter: carrier shipments keep the default capabilities. */
+    adapterFor: () => null,
     findOption: async (_req: any, providerId: string, serviceId: string) => ({
       providerId,
       serviceId,

@@ -993,11 +993,28 @@ export type ShipmentView = {
   /** `UNCERTAIN` on a PENDING shipment the carrier may have created; else a failure code. */
   error: string | null;
   createdAt: string | null;
-  /** "Retry" is available (uncertain, or stuck PENDING), decided by the server clock. */
+  /**
+   * The outcome is unknown (uncertain, or stuck PENDING), decided by the server clock: "Retry"
+   * when `carrierSupport.retry`, otherwise "Mark as failed" after checking the carrier's portal.
+   */
   retryable: boolean;
+  /** What the carrier's integration can do; null for manual shipments. */
+  carrierSupport: CarrierSupport | null;
   /** Oldest first. */
   events: ShipmentEvent[];
 };
+
+export type CarrierSupport = {
+  /** An uncertain shipment can be created again without a duplicate (false: DPD). */
+  retry: boolean;
+  /** Cancelling also cancels at the carrier (false: only here). */
+  cancel: boolean;
+  /** Tracking can be refreshed from the carrier. */
+  tracking: boolean;
+};
+
+/** The answer of a cancel: `carrierCancelled` false means it must be cancelled at the carrier too. */
+export type CancelledShipmentView = ShipmentView & { carrierCancelled?: boolean };
 
 export type CreateShipmentInput = {
   lines: { orderLineId: number; quantity: number }[];
@@ -1009,6 +1026,8 @@ export type CreateShipmentInput = {
   notifyCustomer: boolean;
   /** One per opening of the ship modal. */
   idempotencyKey: string;
+  /** Carrier shipments of a DPD order: an integer 1–99. */
+  parcels?: number;
 };
 
 export type DeliveryInput = {
