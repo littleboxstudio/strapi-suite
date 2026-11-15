@@ -112,11 +112,16 @@ const pickOption = (o: unknown, providerId: string): ShippingOption | null => {
   const option: ShippingOption = { providerId, serviceId, name, price, tax };
   if (estimatedDays !== undefined) option.estimatedDays = estimatedDays;
   if (requiresPickupPoint === true) option.requiresPickupPoint = true;
-  if (providerId === STORE_PICKUP_ID && Array.isArray(pickupPoints)) {
-    option.pickupPoints = pickupPoints
-      .map(pickPoint)
-      .filter((p): p is PickupStore => p !== null)
-      .slice(0, MAX_PICKUP_POINTS);
+  if (providerId === STORE_PICKUP_ID) {
+    // A store option without a store to pick is useless: dropped.
+    const points = Array.isArray(pickupPoints)
+      ? pickupPoints
+          .map(pickPoint)
+          .filter((p): p is PickupStore => p !== null)
+          .slice(0, MAX_PICKUP_POINTS)
+      : [];
+    if (!points.length) return null;
+    option.pickupPoints = points;
   }
   return option;
 };

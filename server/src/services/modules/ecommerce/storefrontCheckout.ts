@@ -16,6 +16,7 @@ import {
   type PublicOrderStatus,
   type PublicQuote,
   type PublicShippingOption,
+  toPublicShippingOption,
   type QuoteSource,
 } from './domain/storefront/publicViews';
 import { EcommerceNotFoundError, EcommerceValidationError, type ValidationIssue } from './errors';
@@ -240,28 +241,6 @@ const EMPTY_QUOTE_SOURCE: QuoteSource = {
   shippingOption: null,
   giftOptions: [],
 };
-
-const toPublicShippingOption = (o: ShippingOption): PublicShippingOption => ({
-  providerId: o.providerId,
-  serviceId: o.serviceId,
-  name: o.name,
-  price: o.price,
-  estimatedDays: o.estimatedDays ?? null,
-  ...(o.requiresPickupPoint === true ? { requiresPickupPoint: true as const } : {}),
-  ...(o.pickupPoints
-    ? {
-        pickupPoints: o.pickupPoints.map((p) => ({
-          id: p.id,
-          name: p.name,
-          address: p.address,
-          address2: p.address2,
-          postalCode: p.postalCode,
-          city: p.city,
-          country: p.country,
-        })),
-      }
-    : {}),
-});
 
 const appliedOf = (order: any): AppliedPromotion[] =>
   isRecord(order?.promotions) && Array.isArray(order.promotions.applied)
