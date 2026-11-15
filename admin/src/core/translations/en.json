@@ -2048,7 +2048,6 @@
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.origin.MANUAL": "Added manually",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.badge.PAID": "Paid",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.badge.INVOICED": "Invoiced",
-  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.badge.SPENT": "Shipped",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.columns.method": "Method",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.columns.date": "Date",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.columns.amount": "Amount",
@@ -2202,5 +2201,14 @@
   "littlebox-strapi-suite.ecommerce.orders.errors.NOTHING_TO_CREDIT": "There is nothing to credit.",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.review.under": "According to the products and the shipping rules, {amount} more should be charged. Review the shipping charges.",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.review.over": "According to the products and the shipping rules, {amount} was charged above. Review the shipping charges.",
-  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.reviewed": "The shipping charges match the quote."
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.reviewed": "The shipping charges match the quote.",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.remove": "Remove",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.removeTitle": "Remove this shipping charge?",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.removeBody": "{name} · {amount} is removed from the order's shipping charges.",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.removed": "Shipping charge removed.",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.removeError": "The shipping charge could not be removed.",
+  "littlebox-strapi-suite.ecommerce.orders.errors.SHIPPING_LINE_INVOICED": "This shipping charge is already invoiced and cannot be removed.",
+  "littlebox-strapi-suite.ecommerce.orders.errors.SHIPPING_LINE_LAST": "The order must keep at least one shipping charge.",
+  "littlebox-strapi-suite.ecommerce.orders.history.type.SHIPPING_LINE_REMOVED": "Shipping charge removed",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.badge.UNPAID": "Unpaid"
 }

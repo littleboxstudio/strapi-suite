@@ -191,7 +191,11 @@ export function shippingLineViews(
   });
 }
 
-export const isReplaceable = (l: ShippingLineView): boolean => !l.spent && !l.invoiced;
+/**
+ * Changed in place (edited or removed) while neither paid nor invoiced: the charges a customer
+ * paid or an invoice holds are only corrected by an appended line. Shipments do not matter.
+ */
+export const isReplaceable = (l: ShippingLineView): boolean => !l.paid && !l.invoiced;
 
 /** Replaceable within its table: a line with a locked correction is locked too (never orphaned). */
 const replaceableIn = (lines: ShippingLineView[], l: ShippingLineView): boolean =>
@@ -207,6 +211,29 @@ export const hasLinePoints = (lines: ShippingLine[]): boolean => lines.some((l) 
 
 export function appendLine(lines: ShippingLine[], line: Omit<ShippingLine, 'id'>): ShippingLine[] {
   return [...lines, { ...line, id: nextShippingLineId(lines) }];
+}
+
+/**
+ * Why line `id` cannot be removed, or null when it can: `NOT_FOUND` (no such line, or a
+ * correction, removed with its line), `PAID` or `INVOICED` (it or one of its corrections), `LAST`
+ * (the order keeps at least one charge).
+ */
+export function lineRemovalIssue(
+  lines: ShippingLineView[],
+  id: number
+): 'NOT_FOUND' | 'PAID' | 'INVOICED' | 'LAST' | null {
+  const target = lines.find((l) => l.id === id && l.editOf == null);
+  if (!target) return 'NOT_FOUND';
+  const group = [target, ...correctionsOf(lines, id)];
+  if (group.some((l) => l.paid)) return 'PAID';
+  if (group.some((l) => l.invoiced)) return 'INVOICED';
+  if (!lines.some((l) => l.editOf == null && l.id !== id)) return 'LAST';
+  return null;
+}
+
+/** The lines without line `id` and its corrections. */
+export function withoutLine(lines: ShippingLine[], id: number): ShippingLine[] {
+  return lines.filter((l) => l.id !== id && l.editOf !== id).map(plain);
 }
 
 export function planLineChange(

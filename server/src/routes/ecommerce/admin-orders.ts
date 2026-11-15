@@ -53,6 +53,7 @@ export default [
   edit('POST', '/:id/shipping/recalculate/preview', 'previewShippingRecalculation', manage),
   edit('POST', '/:id/shipping/recalculate', 'recalculateShipping', manage),
   edit('PUT', '/:id/shipping-lines/:lineId', 'editShippingLine', manage),
+  edit('POST', '/:id/shipping-lines/:lineId/remove', 'removeShippingLine', manage),
   edit('POST', '/:id/shipping-lines', 'addShippingLine', manage),
   edit('POST', '/:id/discounts/preview', 'previewDiscounts', manage),
   edit('POST', '/:id/discounts', 'applyDiscounts', manage),

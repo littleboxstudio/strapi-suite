@@ -1832,7 +1832,6 @@
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.origin.MANUAL": "Adicionado manualmente",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.badge.PAID": "Pago",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.badge.INVOICED": "Faturado",
-  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.badge.SPENT": "Gasto",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.columns.method": "Método",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.columns.date": "Data",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.columns.amount": "Valor",
@@ -1986,5 +1985,14 @@
   "littlebox-strapi-suite.ecommerce.orders.errors.NOTHING_TO_CREDIT": "Não há nada a creditar.",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.review.under": "De acordo com os produtos e as regras de portes, deveriam ser cobrados mais {amount}. Analise os portes.",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.review.over": "De acordo com os produtos e as regras de portes, foram cobrados {amount} a mais. Analise os portes.",
-  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.reviewed": "Os portes cobrados batem com a cotação."
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.reviewed": "Os portes cobrados batem com a cotação.",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.remove": "Remover",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.removeTitle": "Remover esta linha de portes?",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.removeBody": "{name} · {amount} é removido dos portes da encomenda.",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.removed": "Linha de portes removida.",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.removeError": "Não foi possível remover a linha de portes.",
+  "littlebox-strapi-suite.ecommerce.orders.errors.SHIPPING_LINE_INVOICED": "Esta linha de portes já está faturada e não pode ser removida.",
+  "littlebox-strapi-suite.ecommerce.orders.errors.SHIPPING_LINE_LAST": "A encomenda tem de manter pelo menos uma linha de portes.",
+  "littlebox-strapi-suite.ecommerce.orders.history.type.SHIPPING_LINE_REMOVED": "Linha de portes removida",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.badge.UNPAID": "Por pagar"
 }

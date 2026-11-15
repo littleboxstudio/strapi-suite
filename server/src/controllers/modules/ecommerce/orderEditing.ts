@@ -76,6 +76,10 @@ const EcommerceOrderEditingController = ({ strapi }: { strapi: Core.Strapi }) =>
       return editing().editShippingLine(id, lineId, input, actorOf(ctx), operationId);
     }),
 
+    removeShippingLine: handle(['lineId'], (ctx, id, lineId) =>
+      editing().removeShippingLine(id, lineId, actorOf(ctx), splitBody(ctx).operationId)
+    ),
+
     addShippingLine: handle([], (ctx, id) => {
       const { operationId, input } = splitBody(ctx);
       return editing().addShippingLine(id, input, actorOf(ctx), operationId);

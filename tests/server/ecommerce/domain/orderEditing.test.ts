@@ -30,13 +30,14 @@ describe('orderEditing', () => {
     });
   });
 
-  it('hides address and shipping line edits once a shipment is active', () => {
+  it('hides address edits once a shipment is active; shipping lines stay editable', () => {
     const r = orderEditing({ ...open, hasActiveShipment: true });
     expect(r.editable).toBe(true);
     expect(r.hasShipments).toBe(true);
     expect(r.actions).toEqual([
       'ADD_PRODUCTS',
       'RECALCULATE_SHIPPING',
+      'EDIT_SHIPPING_LINE',
       'ADD_SHIPPING_LINE',
       'RECALCULATE_DISCOUNTS',
       'ADD_DISCOUNT',
