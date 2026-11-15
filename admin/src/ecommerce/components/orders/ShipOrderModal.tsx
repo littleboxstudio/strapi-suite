@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
+import styled from 'styled-components';
 import { useNotification } from '@strapi/strapi/admin';
 import {
   Badge,
@@ -9,7 +10,6 @@ import {
   Flex,
   Loader,
   Modal,
-  Radio,
   Table,
   Tbody,
   Td,
@@ -64,6 +64,60 @@ const METHOD_PATHS: Record<string, string> = {
 
 /** Long product names and options wrap inside their column. */
 const WRAP = { whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'anywhere' } as const;
+
+/** The delivery methods: the list on the left, the chosen method's fields on the right. */
+const MethodsPanel = styled.div`
+  display: flex;
+  border: 1px solid ${({ theme }) => theme.colors.neutral150};
+  border-radius: ${({ theme }) => theme.borderRadius};
+  overflow: hidden;
+  background: ${({ theme }) => theme.colors.neutral0};
+`;
+
+const MethodList = styled.div`
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 240px;
+  max-width: 40%;
+  /* The last item's bottom border sits under the panel's own when the list is the taller side. */
+  margin-bottom: -1px;
+`;
+
+/** Unselected: darker and with the list's right border; the selected one joins the right pane. */
+const MethodItem = styled.button<{ $selected: boolean }>`
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  padding: ${({ theme }) => `${theme.spaces[3]} ${theme.spaces[4]}`};
+  background: ${({ theme, $selected }) => ($selected ? theme.colors.neutral0 : theme.colors.neutral100)};
+  border-bottom: 1px solid ${({ theme }) => theme.colors.neutral150};
+  border-right: 1px solid ${({ theme, $selected }) => ($selected ? 'transparent' : theme.colors.neutral150)};
+  color: ${({ theme, $selected }) => ($selected ? theme.colors.neutral800 : theme.colors.neutral700)};
+  font-weight: ${({ $selected }) => ($selected ? 600 : 400)};
+  font-size: 1.4rem;
+  line-height: 1.43;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+
+  &:hover {
+    color: ${({ theme }) => theme.colors.neutral800};
+  }
+  &:focus-visible {
+    outline: 2px solid ${({ theme }) => theme.colors.primary600};
+    outline-offset: -2px;
+  }
+  &:disabled {
+    cursor: default;
+  }
+`;
+
+/** Fills the rest of the list's height with its right border. */
+const MethodListRest = styled.div`
+  flex: 1;
+  background: ${({ theme }) => theme.colors.neutral100};
+  border-right: 1px solid ${({ theme }) => theme.colors.neutral150};
+`;
 
 /**
  * Ships units of the order (requirements 10.4 and 12.6) with one of the platform's delivery
@@ -279,79 +333,99 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
             ) : !methods.length ? (
               <Typography textColor="neutral600">{t('ecommerce.orders.ship.noMethods')}</Typography>
             ) : (
-              <Field.Root name="method" error={fieldError('method')}>
-                <Field.Label>{t('ecommerce.orders.ship.method')}</Field.Label>
-                <Radio.Group
-                  value={form.methodKey}
-                  aria-label={t('ecommerce.orders.ship.method')}
-                  onValueChange={(value: string) => update({ methodKey: value }, ['method', 'trackingCode', 'trackingUrl', 'parcels'])}
-                >
-                  {methods.map((m) => (
-                    <Radio.Item key={shipMethodKey(m)} value={shipMethodKey(m)} disabled={saving}>
-                      <Flex gap={2} wrap="wrap">
-                        <span style={WRAP}>{m.name}</span>
-                        {m.original && <Badge>{t('ecommerce.orders.ship.originalMethod')}</Badge>}
-                      </Flex>
-                    </Radio.Item>
-                  ))}
-                </Radio.Group>
-                <Field.Error />
-              </Field.Root>
-            )}
-
-            {method?.kind === 'MANUAL' && (
-              <Flex gap={4} alignItems="flex-start" wrap="wrap">
-                <Box flex="1" minWidth="200px">
-                  <Field.Root name="trackingCode" error={fieldError('trackingCode')}>
-                    <Field.Label>{t('ecommerce.orders.shipments.trackingCode')}</Field.Label>
-                    <TextInput
-                      value={form.trackingCode}
-                      disabled={saving}
-                      onChange={(e: any) => update({ trackingCode: e.target.value }, ['trackingCode'])}
-                    />
-                    <Field.Error />
-                  </Field.Root>
-                </Box>
-                <Box flex="2" minWidth="240px">
-                  <Field.Root name="trackingUrl" error={fieldError('trackingUrl')} hint={t('ecommerce.orders.shipments.trackingUrlHint')}>
-                    <Field.Label>{t('ecommerce.orders.shipments.trackingUrl')}</Field.Label>
-                    <TextInput
-                      value={form.trackingUrl}
-                      type="url"
-                      placeholder="https://"
-                      disabled={saving}
-                      onChange={(e: any) => update({ trackingUrl: e.target.value }, ['trackingUrl'])}
-                    />
-                    <Field.Hint />
-                    <Field.Error />
-                  </Field.Root>
-                </Box>
-              </Flex>
-            )}
-
-            {method?.kind === 'CARRIER' && (
-              <>
-                <Box padding={3} background="neutral100" hasRadius>
-                  <Typography variant="omega" textColor="neutral700">
-                    {t('ecommerce.orders.ship.carrierHint')}
-                  </Typography>
-                </Box>
-                {method.parcels && (
-                  <Box maxWidth="200px">
-                    <Field.Root name="parcels" required error={fieldError('parcels')} hint={t('ecommerce.orders.ship.parcelsHint', { max: MAX_PARCELS })}>
-                      <Field.Label>{t('ecommerce.orders.ship.parcels')}</Field.Label>
-                      <TextInput
-                        value={form.parcels}
-                        inputMode="numeric"
+              <MethodsPanel>
+                <MethodList role="listbox" aria-label={t('ecommerce.orders.ship.method')}>
+                  {methods.map((m) => {
+                    const key = shipMethodKey(m);
+                    const selected = key === form.methodKey;
+                    return (
+                      <MethodItem
+                        key={key}
+                        type="button"
+                        role="option"
+                        aria-selected={selected}
+                        $selected={selected}
                         disabled={saving}
-                        onChange={(e: any) => update({ parcels: e.target.value }, ['parcels'])}
-                      />
-                      <Field.Hint />
-                      <Field.Error />
-                    </Field.Root>
-                  </Box>
-                )}
-              </>
+                        onClick={() =>
+                          !selected && update({ methodKey: key }, ['method', 'trackingCode', 'trackingUrl', 'parcels'])
+                        }
+                      >
+                        {m.name}
+                      </MethodItem>
+                    );
+                  })}
+                  <MethodListRest />
+                </MethodList>
+                <Box flex="1" padding={5} minWidth={0}>
+                  {method && (
+                    <Flex direction="column" alignItems="stretch" gap={4}>
+                      <Flex justifyContent="space-between" alignItems="flex-start" gap={3}>
+                        <Typography variant="delta" tag="h3" textColor="neutral800" style={WRAP}>
+                          {method.name}
+                        </Typography>
+                        {method.original && <Badge>{t('ecommerce.orders.ship.originalMethod')}</Badge>}
+                      </Flex>
+
+                      {errors.method && <Typography textColor="danger600">{codeText(errors.method)}</Typography>}
+
+                      {method.kind === 'MANUAL' && (
+                        <Flex gap={4} alignItems="flex-start" wrap="wrap">
+                          <Box flex="1" minWidth="180px">
+                            <Field.Root name="trackingCode" error={fieldError('trackingCode')}>
+                              <Field.Label>{t('ecommerce.orders.shipments.trackingCode')}</Field.Label>
+                              <TextInput
+                                value={form.trackingCode}
+                                disabled={saving}
+                                onChange={(e: any) => update({ trackingCode: e.target.value }, ['trackingCode'])}
+                              />
+                              <Field.Error />
+                            </Field.Root>
+                          </Box>
+                          <Box flex="2" minWidth="220px">
+                            <Field.Root name="trackingUrl" error={fieldError('trackingUrl')} hint={t('ecommerce.orders.shipments.trackingUrlHint')}>
+                              <Field.Label>{t('ecommerce.orders.shipments.trackingUrl')}</Field.Label>
+                              <TextInput
+                                value={form.trackingUrl}
+                                type="url"
+                                placeholder="https://"
+                                disabled={saving}
+                                onChange={(e: any) => update({ trackingUrl: e.target.value }, ['trackingUrl'])}
+                              />
+                              <Field.Hint />
+                              <Field.Error />
+                            </Field.Root>
+                          </Box>
+                        </Flex>
+                      )}
+
+                      {method.kind === 'CARRIER' && (
+                        <>
+                          <Box padding={3} background="neutral100" hasRadius>
+                            <Typography variant="omega" textColor="neutral700">
+                              {t('ecommerce.orders.ship.carrierHint')}
+                            </Typography>
+                          </Box>
+                          {method.parcels && (
+                            <Box maxWidth="200px">
+                              <Field.Root name="parcels" required error={fieldError('parcels')} hint={t('ecommerce.orders.ship.parcelsHint', { max: MAX_PARCELS })}>
+                                <Field.Label>{t('ecommerce.orders.ship.parcels')}</Field.Label>
+                                <TextInput
+                                  value={form.parcels}
+                                  inputMode="numeric"
+                                  disabled={saving}
+                                  onChange={(e: any) => update({ parcels: e.target.value }, ['parcels'])}
+                                />
+                                <Field.Hint />
+                                <Field.Error />
+                              </Field.Root>
+                            </Box>
+                          )}
+                        </>
+                      )}
+                    </Flex>
+                  )}
+                </Box>
+              </MethodsPanel>
             )}
 
             {formError && (
