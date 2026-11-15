@@ -81,6 +81,7 @@ export class EcommerceCarrierError extends Error {
       | 'TIMEOUT'
       | 'INVALID_QUOTE'
       | 'DPD_AUTH_FAILED'
+      | 'DPD_BLOCKED'
       | 'DPD_SHIPMENT_FAILED'
       | 'PICKUP_SEARCH_FAILED'
       | 'PICKUP_POINT_REQUIRED',
