@@ -15,6 +15,7 @@ import {
   Td,
   TextInput,
   Th,
+  Tooltip,
   Thead,
   Tr,
   Typography,
@@ -22,6 +23,7 @@ import {
 } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { NOTICE_BACKGROUND, NOTICE_TEXT } from './NoticeBar';
+import { ActionConfirmModal } from '../ActionConfirmModal';
 import CreateShipment from '../../usecases/orders/createShipment';
 import FetchShipMethods from '../../usecases/orders/fetchShipMethods';
 import { apiErrorCode, apiErrorMessageId, shouldRenewIdempotencyKey } from '../../utils/orderDetail';
@@ -141,6 +143,8 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
   const [errors, setErrors] = useState<FormErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  /** The Ship button asks first; the shipment is created on confirmation. */
+  const [confirming, setConfirming] = useState(false);
   const [methods, setMethods] = useState<ShipMethodOption[] | null>(null);
   const [methodsError, setMethodsError] = useState(false);
   const lineById = new Map(order.lines.map((l) => [l.id, l]));
@@ -193,13 +197,24 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
     }
   };
 
-  const submit = async () => {
+  /** Validates locally, then asks for confirmation. */
+  const askShip = () => {
     if (saving || !methods) return;
     const local = validateShipForm(form, order.lines, method);
     if (!method || Object.keys(local).length) {
       setErrors(local);
       return;
     }
+    setConfirming(true);
+  };
+
+  const originalMethod = methods?.find((m) => m.original) ?? null;
+  /** The chosen method is not the one the order was placed with. */
+  const otherMethod = !!method && !!originalMethod && shipMethodKey(method) !== shipMethodKey(originalMethod);
+
+  const submit = async () => {
+    setConfirming(false);
+    if (saving || !methods || !method) return;
     const input = buildShipmentInput(form, idempotencyKey, method);
     setSaving(true);
     try {
@@ -353,9 +368,11 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
                         <Flex gap={2} wrap="wrap" alignItems="center">
                           <span>{m.name}</span>
                           {m.original && (
-                            <Badge title={t('ecommerce.orders.ship.originalMethodHint')}>
-                              {t('ecommerce.orders.ship.originalMethod')}
-                            </Badge>
+                            <Tooltip label={t('ecommerce.orders.ship.originalMethodHint')}>
+                              <span style={{ display: 'inline-flex' }}>
+                                <Badge>{t('ecommerce.orders.ship.originalMethod')}</Badge>
+                              </span>
+                            </Tooltip>
                           )}
                         </Flex>
                       </MethodItem>
@@ -439,11 +456,30 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
           <Button variant="tertiary" onClick={onClose} disabled={saving}>
             {t('ecommerce.orders.ship.cancel')}
           </Button>
-          <Button onClick={submit} loading={saving} disabled={!form.lines.length || !method}>
+          <Button onClick={askShip} loading={saving} disabled={!form.lines.length || !method}>
             {t('ecommerce.orders.ship.submit')}
           </Button>
         </Modal.Footer>
       </Modal.Content>
+      <ActionConfirmModal
+        open={confirming}
+        title={t('ecommerce.orders.ship.confirm.title')}
+        text={
+          <Flex direction="column" gap={3}>
+            <Typography>{t('ecommerce.orders.ship.confirm.text', { method: method?.name ?? '' })}</Typography>
+            {otherMethod && originalMethod && (
+              <Typography textColor="warning600">
+                {t('ecommerce.orders.ship.confirm.otherMethod', { original: originalMethod.name })}
+              </Typography>
+            )}
+          </Flex>
+        }
+        confirmLabel={t('ecommerce.orders.ship.submit')}
+        cancelLabel={t('ecommerce.orders.ship.cancel')}
+        confirmVariant="default"
+        onConfirm={submit}
+        onCancel={() => setConfirming(false)}
+      />
     </Modal.Root>
   );
 };

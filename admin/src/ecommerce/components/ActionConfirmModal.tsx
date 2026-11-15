@@ -1,10 +1,11 @@
+import type { ReactNode } from 'react';
 import { Button, Dialog, Flex } from '@strapi/design-system';
 import { WarningCircle } from '@strapi/icons';
 
 type Props = {
   open: boolean;
   title: string;
-  text: string;
+  text: ReactNode;
   confirmLabel: string;
   cancelLabel: string;
   /** `danger` for destructive actions (disable), `default` otherwise (enable). */
