@@ -1983,8 +1983,8 @@
   "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.nothingShipping": "Os portes desta fatura não estão faturados acima do que a encomenda cobra agora.",
   "littlebox-strapi-suite.ecommerce.orders.invoices.shippingToCredit": "Foram faturados {amount} de portes acima do que a encomenda cobra agora. Emita uma nota de crédito de Acerto de portes numa fatura com portes.",
   "littlebox-strapi-suite.ecommerce.orders.errors.NOTHING_TO_CREDIT": "Não há nada a creditar.",
-  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.review.under": "De acordo com os produtos e as regras de portes, deveriam ser cobrados mais {amount}. Analise os portes.",
-  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.review.over": "De acordo com os produtos e as regras de portes, foram cobrados {amount} a mais. Analise os portes.",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.review.under": "De acordo com os produtos e as regras de portes, ainda faltam pagar {amount} de portes.",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.review.over": "De acordo com os produtos e as regras de portes, foram pagos {amount} de portes a mais: o cliente tem direito a esse reembolso.",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.reviewed": "Os portes cobrados batem com a cotação.",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.remove": "Remover",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.removeTitle": "Remover esta linha de portes?",
@@ -1999,5 +1999,15 @@
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.seen": "O aviso dos portes foi marcado como visto.",
   "littlebox-strapi-suite.ecommerce.orders.errors.UNITS_NOT_PAID": "Enquanto a encomenda tiver valor em falta, só seguem as unidades pagas.",
   "littlebox-strapi-suite.ecommerce.orders.ship.unpaidUnits": "{count} por pagar",
-  "littlebox-strapi-suite.ecommerce.orders.ship.unpaidNotice": "Ainda existem produtos por liquidar: as quantidades ou os produtos por liquidar não aparecem na lista."
+  "littlebox-strapi-suite.ecommerce.orders.ship.unpaidNotice": "Ainda existem produtos por liquidar: as quantidades ou os produtos por liquidar não aparecem na lista.",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.question": "O que quer recalcular?",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.WHOLE": "A encomenda inteira",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.WHOLE.hint": "Cotar todos os produtos com o método original da encomenda e comparar com o que já foi pago.",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.REMAINING": "Os produtos por enviar",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.REMAINING.hint": "Escolher o método e o preço de uma nova linha de portes para todos os produtos ainda não enviados.",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.SELECT": "Escolher produtos",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.SELECT.hint": "Escolher para que produtos pagos e ainda não enviados é a nova linha de portes.",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.next": "Seguinte",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.back": "Voltar",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.noUnits": "Escolha pelo menos uma unidade."
 }

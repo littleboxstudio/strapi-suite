@@ -751,6 +751,55 @@ describe('EcommerceOrderEditingService.editShippingLine', () => {
   });
 });
 
+describe('EcommerceOrderEditingService.shippingReview', () => {
+  it('quotes the whole order under its original method against what was paid', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    await ctx.payments.addManualPayment(id, { amount: 7000, idempotencyKey: 'pay-rv' }, 'user:1');
+    await ctx.editing.addShippingLine(id, { ...express, amount: 100 }, 'user:1', 'op-add-rv01');
+    setRate(ctx, 650);
+    ctx.findOption.mockClear();
+    const review = await ctx.editing.shippingReview(id);
+    // The original method (the checkout charge), not the current one.
+    expect(ctx.findOption.mock.calls[0].slice(1)).toEqual(['manual', '1']);
+    expect(review).toMatchObject({ hasShipments: false, charged: 600, quote: 650, paid: 500, difference: 150 });
+  });
+
+  it('a lower quote is a refund (negative difference); hasShipments once shipped', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    await ctx.payments.addManualPayment(id, { amount: 7000, idempotencyKey: 'pay-rv2' }, 'user:1');
+    ship(ctx, id, [10]);
+    setRate(ctx, 300);
+    expect(await ctx.editing.shippingReview(id)).toMatchObject({ hasShipments: true, quote: 300, paid: 500, difference: -200 });
+  });
+});
+
+describe('EcommerceOrderEditingService.shippingOptionsForUnits', () => {
+  it('quotes exactly the chosen units not yet shipped', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    ship(ctx, id, [10]);
+    const line = linesOf(ctx, id).find((l: any) => l.variantId === 11);
+    ctx.quote.mockClear();
+    await ctx.editing.shippingOptionsForUnits(id, { lines: [{ orderLineId: line.id, quantity: 1 }] });
+    expect((ctx.quote.mock.calls[0][0] as any).items.map((i: any) => [i.variantId, i.quantity])).toEqual([[11, 1]]);
+  });
+
+  it('refuses no units, an unknown line or more than pending', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    const line = linesOf(ctx, id)[0];
+    expect(await issues(ctx.editing.shippingOptionsForUnits(id, { lines: [] }))).toEqual([{ path: 'lines', code: 'required' }]);
+    expect(
+      await issues(ctx.editing.shippingOptionsForUnits(id, { lines: [{ orderLineId: 999, quantity: 1 }, { orderLineId: line.id, quantity: 99 }] }))
+    ).toEqual([
+      { path: 'lines.0.orderLineId', code: 'invalid' },
+      { path: 'lines.1.quantity', code: 'invalid' },
+    ]);
+  });
+});
+
 describe('EcommerceOrderEditingService.removeShippingLine', () => {
   it('removes an unpaid, uninvoiced charge, even after a shipment; the method follows the rest', async () => {
     const ctx = setup();

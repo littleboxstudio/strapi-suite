@@ -1,276 +1,239 @@
 import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
-import { useNotification } from '@strapi/strapi/admin';
-import { Box, Button, Field, Flex, Loader, Modal, Radio, Typography } from '@strapi/design-system';
+import {
+  Box,
+  Button,
+  Field,
+  Flex,
+  Loader,
+  Modal,
+  Radio,
+  Table,
+  Tbody,
+  Td,
+  TextInput,
+  Th,
+  Thead,
+  Tr,
+  Typography,
+} from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
-import PreviewShippingRecalculation from '../../usecases/orders/previewShippingRecalculation';
-import RecalculateShipping from '../../usecases/orders/recalculateShipping';
-import DismissReviewFlag from '../../usecases/orders/dismissReviewFlag';
-import { formatCents } from '../../utils/money';
-import { shippingOptionKey } from '../../utils/orderEditing';
-import { NOTICE_BACKGROUND, NOTICE_TEXT } from './NoticeBar';
+import FetchShippingReview from '../../usecases/orders/fetchShippingReview';
 import { apiErrorMessageId } from '../../utils/orderDetail';
-import { mintUuid } from '../../utils/variantDraft';
-import type {
-  EditResult,
-  Order,
-  ShippingOption,
-  ShippingRecalculationPreview,
-} from '../../orderTypes';
-import { Tile, Tiles } from './SummaryTiles';
-import { FieldHelpModal } from '../settings/FieldHelpModal';
-
-/** The figures, each with its explanation (`shippingCharges.help.<key>`). */
-type FigureKey = 'charged' | 'invoiced' | 'quote';
+import { parseQuantity, shippableOf } from '../../utils/shipmentForm';
+import type { Order, ShippingReview, ShipUnits } from '../../orderTypes';
+import ShippingReviewSummary from './ShippingReviewSummary';
 
 type Props = {
   order: Order;
   onClose: () => void;
-  onSaved: (result: EditResult) => void;
+  /** Options 2 and 3: a new charge for `units`, in the shipping charge modal with the review. */
+  onAddCharge: (units: ShipUnits, review: ShippingReview) => void;
 };
 
+/** What the admin recalculates once units have shipped. */
+type Choice = 'WHOLE' | 'REMAINING' | 'SELECT';
+type Step = 'CHOOSE' | 'SUMMARY' | 'PRODUCTS';
+
+const CHOICES: Choice[] = ['WHOLE', 'REMAINING', 'SELECT'];
+
 /**
- * Recalculate shipping (spec 6.3), informative: the charged and invoiced shipping, the quote and
- * how much more should be charged (or was charged above). It never changes the charges. An order
- * shipped before products were added first asks for the method of those products (each pick
- * re-previews). When the charges match the quote, Confirm clears the review alert. Mount it only
- * while open: each opening mints one operationId.
+ * Recalculate shipping (informative). Nothing shipped yet: the whole order quoted under its original
+ * method against what was paid (still to pay, or a refund). Once units shipped, in steps: (1) the
+ * same summary; (2) a new charge for the units not yet shipped; (3) a new charge for chosen paid
+ * units not yet shipped. 2 and 3 continue in the shipping charge modal. It never changes charges.
  */
-const RecalculateShippingModal = ({ order, onClose, onSaved }: Props) => {
-  const { formatMessage, locale } = useIntl();
-  const { toggleNotification } = useNotification();
+const RecalculateShippingModal = ({ order, onClose, onAddCharge }: Props) => {
+  const { formatMessage } = useIntl();
   const t = (id: string, values?: Record<string, any>) => formatMessage({ id: getTranslation(id) }, values);
-  const money = (cents: number) => formatCents(cents, locale);
-
-  const [operationId] = useState(() => mintUuid());
-  const [preview, setPreview] = useState<ShippingRecalculationPreview | null>(null);
+  const [review, setReview] = useState<ShippingReview | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  /** The figure whose explanation is open. */
-  const [help, setHelp] = useState<FigureKey | null>(null);
-  const [busy, setBusy] = useState(false);
-  /** NEW_UNITS: the options offered for the added products (kept across picks) and the pick. */
-  const [options, setOptions] = useState<ShippingOption[]>([]);
-  const [picked, setPicked] = useState<ShippingOption | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  const method = picked ? { providerId: picked.providerId, serviceId: picked.serviceId } : {};
+  const [step, setStep] = useState<Step>('CHOOSE');
+  const [choice, setChoice] = useState<Choice>('WHOLE');
+  // Option 3: the paid units not yet shipped, each defaulting to all of them.
+  const selectable = order.lines.filter((l) => shippableOf(l) > 0);
+  const [quantities, setQuantities] = useState<Record<number, string>>(() =>
+    Object.fromEntries(selectable.map((l) => [l.id, String(shippableOf(l))]))
+  );
+  const [quantityError, setQuantityError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setLoadError(null);
-    new PreviewShippingRecalculation()
-      .execute(order.id, method)
-      .then((p) => {
+    new FetchShippingReview()
+      .execute(order.id)
+      .then((r) => {
         if (cancelled) return;
-        setPreview(p);
-        if (p.options.length) setOptions(p.options);
+        setReview(r);
+        if (!r.hasShipments) setStep('SUMMARY');
       })
-      .catch((err) => {
-        if (!cancelled) setLoadError(apiErrorMessageId(err, 'ecommerce.orders.shippingCharges.previewError'));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+      .catch((err) => !cancelled && setLoadError(apiErrorMessageId(err, 'ecommerce.orders.shippingCharges.previewError')));
     return () => {
       cancelled = true;
     };
-    // Loaded per opening and per pick.
+    // Loaded once per opening.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [picked]);
+  }, []);
 
-  /** The shipping review alert is open: it can be marked as seen from here. */
-  const hasReviewAlert = (order.reviewFlags ?? []).some((f) => f.code === 'SHIPPING_REVIEW');
-  const [dismissing, setDismissing] = useState(false);
-
-  /** Marks the shipping review alert as seen (dismissed), whatever the comparison shows. */
-  const markSeen = async () => {
-    if (dismissing || busy) return;
-    setDismissing(true);
-    try {
-      onSaved(await new DismissReviewFlag().execute(order.id, 'SHIPPING_REVIEW', { operationId: mintUuid() }));
-      toggleNotification({ type: 'success', message: t('ecommerce.orders.shippingCharges.seen') });
-      onClose();
-    } catch (err) {
-      toggleNotification({
-        type: 'danger',
-        message: t(apiErrorMessageId(err, 'ecommerce.orders.review.dismissError')),
-      });
-    } finally {
-      setDismissing(false);
+  /** Option 3: the chosen units, or null (and the error) when one is not valid. */
+  const chosenUnits = (): ShipUnits | null => {
+    const units: ShipUnits = [];
+    for (const l of selectable) {
+      const q = parseQuantity(quantities[l.id] ?? '');
+      if (q === null || q > shippableOf(l)) {
+        setQuantityError('ecommerce.orders.errors.QUANTITY_EXCEEDS_PENDING');
+        return null;
+      }
+      if (q > 0) units.push({ orderLineId: l.id, quantity: q });
     }
+    if (!units.length) {
+      setQuantityError('ecommerce.orders.shippingCharges.steps.noUnits');
+      return null;
+    }
+    return units;
   };
 
-  const confirm = async () => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      const result = await new RecalculateShipping().execute(order.id, { ...method, operationId });
-      onSaved(result);
-      toggleNotification({ type: 'success', message: t('ecommerce.orders.shippingCharges.reviewed') });
-      onClose();
-    } catch (err) {
-      toggleNotification({
-        type: 'danger',
-        message: t(apiErrorMessageId(err, 'ecommerce.orders.shippingCharges.saveError')),
-      });
-    } finally {
-      setBusy(false);
+  const next = () => {
+    if (!review) return;
+    if (step === 'CHOOSE') {
+      if (choice === 'WHOLE') setStep('SUMMARY');
+      else if (choice === 'SELECT') setStep('PRODUCTS');
+      else {
+        onAddCharge(
+          order.lines.filter((l) => l.pending > 0).map((l) => ({ orderLineId: l.id, quantity: l.pending })),
+          review
+        );
+      }
+      return;
+    }
+    if (step === 'PRODUCTS') {
+      const units = chosenUnits();
+      if (units) onAddCharge(units, review);
     }
   };
-
-  /** A figure; clicking it (or Enter / Space on it) opens its explanation. */
-  const tile = (key: FigureKey, value: number, tone?: 'warning') => (
-    <Tile
-      $tone={tone}
-      role="button"
-      tabIndex={0}
-      aria-label={t('ecommerce.orders.shippingCharges.help.open', {
-        field: t(`ecommerce.orders.shippingCharges.${key}`),
-      })}
-      style={{ cursor: 'pointer' }}
-      onClick={() => setHelp(key)}
-      onKeyDown={(e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          setHelp(key);
-        }
-      }}
-    >
-      <Typography variant="sigma" textColor="neutral600">
-        {t(`ecommerce.orders.shippingCharges.${key}`)}
-      </Typography>
-      <Typography variant="beta" tag="p" textColor="neutral800" style={{ whiteSpace: 'nowrap' }}>
-        {money(value)}
-      </Typography>
-    </Tile>
-  );
-
-  const difference = preview?.difference ?? 0;
-
-  /** NEW_UNITS: the methods for the products added since the shipment. */
-  const methodPicker = () => (
-    <Field.Root name="method">
-      <Field.Label>{t('ecommerce.orders.shippingCharges.pickMethod')}</Field.Label>
-      {options.length ? (
-        <Radio.Group
-          value={picked ? shippingOptionKey(picked) : undefined}
-          disabled={busy || loading}
-          aria-label={t('ecommerce.orders.shippingCharges.method')}
-          onValueChange={(key: string) => setPicked(options.find((o) => shippingOptionKey(o) === key) ?? null)}
-        >
-          {options.map((o) => (
-            <Radio.Item key={shippingOptionKey(o)} value={shippingOptionKey(o)}>
-              {o.name} · {money(o.price)}
-            </Radio.Item>
-          ))}
-        </Radio.Group>
-      ) : (
-        <Typography variant="omega" textColor="neutral700">
-          {t('ecommerce.orders.shippingCharges.noMethods')}
-        </Typography>
-      )}
-    </Field.Root>
-  );
 
   const body = () => {
-    const picker = preview?.kind === 'NEW_UNITS' && (options.length > 0 || preview.needsMethod);
     if (loadError) {
       return (
-        <Flex direction="column" alignItems="stretch" gap={4}>
-          {picker && methodPicker()}
-          <Typography variant="omega" textColor="danger600">
-            {t(loadError)}
-          </Typography>
-        </Flex>
+        <Typography variant="omega" textColor="danger600">
+          {t(loadError)}
+        </Typography>
       );
     }
-    if (!preview || (loading && !picker)) {
+    if (!review) {
       return (
         <Flex justifyContent="center" padding={4}>
           <Loader small />
         </Flex>
       );
     }
+    if (step === 'SUMMARY') return <ShippingReviewSummary review={review} />;
+    if (step === 'CHOOSE') {
+      return (
+        <Field.Root name="recalculation">
+          <Field.Label>{t('ecommerce.orders.shippingCharges.steps.question')}</Field.Label>
+          <Radio.Group
+            value={choice}
+            aria-label={t('ecommerce.orders.shippingCharges.steps.question')}
+            onValueChange={(v: string) => setChoice(v as Choice)}
+          >
+            {CHOICES.map((c) => {
+              const disabled =
+                (c === 'REMAINING' && !order.lines.some((l) => l.pending > 0)) ||
+                (c === 'SELECT' && selectable.length === 0);
+              return (
+                <Radio.Item key={c} value={c} disabled={disabled}>
+                  <Flex direction="column" alignItems="flex-start" gap={1}>
+                    <Typography>{t(`ecommerce.orders.shippingCharges.steps.${c}`)}</Typography>
+                    <Typography variant="pi" textColor="neutral600">
+                      {t(`ecommerce.orders.shippingCharges.steps.${c}.hint`)}
+                    </Typography>
+                  </Flex>
+                </Radio.Item>
+              );
+            })}
+          </Radio.Group>
+        </Field.Root>
+      );
+    }
+    // PRODUCTS: the paid units not yet shipped (as at Ship).
     return (
-      <Flex direction="column" alignItems="stretch" gap={4}>
-        {picker && methodPicker()}
-        {loading ? (
-          <Flex justifyContent="center" padding={4}>
-            <Loader small />
-          </Flex>
-        ) : preview.needsMethod ? (
-          <Typography variant="omega" textColor="neutral700">
-            {t('ecommerce.orders.shippingCharges.pickMethodFirst')}
+      <Flex direction="column" alignItems="stretch" gap={3}>
+        <Table colCount={3} rowCount={selectable.length + 1}>
+          <Thead>
+            <Tr>
+              <Th>
+                <Typography variant="sigma">{t('ecommerce.orders.ship.columns.product')}</Typography>
+              </Th>
+              <Th>
+                <Typography variant="sigma">{t('ecommerce.orders.ship.columns.pending')}</Typography>
+              </Th>
+              <Th>
+                <Typography variant="sigma">{t('ecommerce.orders.ship.columns.quantity')}</Typography>
+              </Th>
+            </Tr>
+          </Thead>
+          <Tbody>
+            {selectable.map((l) => (
+              <Tr key={l.id}>
+                <Td style={{ maxWidth: 320, whiteSpace: 'normal' }}>
+                  <Flex direction="column" alignItems="flex-start">
+                    <Typography textColor="neutral800" style={{ whiteSpace: 'normal' }}>
+                      {l.name}
+                    </Typography>
+                    {l.option && (
+                      <Typography variant="pi" textColor="neutral600">
+                        {l.option}
+                      </Typography>
+                    )}
+                  </Flex>
+                </Td>
+                <Td>
+                  <Typography textColor="neutral800">{shippableOf(l)}</Typography>
+                </Td>
+                <Td style={{ width: 120 }}>
+                  <TextInput
+                    aria-label={t('ecommerce.orders.ship.columns.quantity')}
+                    value={quantities[l.id] ?? ''}
+                    inputMode="numeric"
+                    onChange={(e: any) => {
+                      setQuantities((q) => ({ ...q, [l.id]: e.target.value }));
+                      setQuantityError(null);
+                    }}
+                  />
+                </Td>
+              </Tr>
+            ))}
+          </Tbody>
+        </Table>
+        {quantityError && (
+          <Typography variant="omega" textColor="danger600">
+            {t(quantityError)}
           </Typography>
-        ) : (
-          <>
-            {/* One column per figure: Invoiced only on a whole-order recalculation. */}
-            <Tiles
-              style={{
-                gridTemplateColumns: `repeat(${preview.kind === 'WHOLE_ORDER' ? 3 : 2}, minmax(0, 1fr))`,
-              }}
-            >
-              {tile('charged', preview.charged)}
-              {preview.kind === 'WHOLE_ORDER' && tile('invoiced', preview.invoiced)}
-              {tile('quote', preview.quote, preview.quote !== preview.charged ? 'warning' : undefined)}
-            </Tiles>
-            {/* Informative: the charges never change; the admin decides what to add or refund. */}
-            {difference === 0 ? (
-              <Typography variant="omega" textColor="neutral700">
-                {t('ecommerce.orders.shippingCharges.unchanged')}
-              </Typography>
-            ) : (
-              <Box padding={3} hasRadius style={{ background: NOTICE_BACKGROUND }}>
-                <Typography variant="omega" style={{ color: NOTICE_TEXT }}>
-                  {t(
-                    difference > 0
-                      ? 'ecommerce.orders.shippingCharges.review.under'
-                      : 'ecommerce.orders.shippingCharges.review.over',
-                    { amount: money(Math.abs(difference)) }
-                  )}
-                </Typography>
-              </Box>
-            )}
-          </>
         )}
       </Flex>
     );
   };
 
+  const canGoBack = !!review?.hasShipments && step !== 'CHOOSE';
+
   return (
-    <Modal.Root open onOpenChange={(next: boolean) => !next && !busy && onClose()}>
-      <Modal.Content>
+    <Modal.Root open onOpenChange={(open: boolean) => !open && onClose()}>
+      <Modal.Content style={{ maxWidth: 760, width: '100%' }}>
         <Modal.Header>
           <Modal.Title>{t('ecommerce.orders.shippingCharges.recalculate')}</Modal.Title>
         </Modal.Header>
-        <Modal.Body>{body()}</Modal.Body>
+        <Modal.Body>
+          <Box>{body()}</Box>
+        </Modal.Body>
         <Modal.Footer>
-          <Button variant="tertiary" onClick={onClose} disabled={busy}>
-            {t('ecommerce.orders.shippingCharges.close')}
+          <Button variant="tertiary" onClick={canGoBack ? () => setStep('CHOOSE') : onClose}>
+            {t(canGoBack ? 'ecommerce.orders.shippingCharges.steps.back' : 'ecommerce.orders.shippingCharges.close')}
           </Button>
-          <Flex gap={2}>
-            {hasReviewAlert && (
-              <Button variant="secondary" onClick={markSeen} loading={dismissing} disabled={busy}>
-                {t('ecommerce.orders.shippingCharges.markSeen')}
-              </Button>
-            )}
-            {/* Only when the charges match the quote: confirming clears the review alert. */}
-            {preview && !loading && !loadError && !preview.needsMethod && difference === 0 && (
-              <Button onClick={confirm} loading={busy} disabled={dismissing}>
-                {t('ecommerce.orders.shippingCharges.confirm')}
-              </Button>
-            )}
-          </Flex>
+          {review && (step === 'CHOOSE' || step === 'PRODUCTS') && (
+            <Button onClick={next}>{t('ecommerce.orders.shippingCharges.steps.next')}</Button>
+          )}
         </Modal.Footer>
       </Modal.Content>
-      {help && (
-        <FieldHelpModal
-          title={t(`ecommerce.orders.shippingCharges.${help}`)}
-          textKey={`ecommerce.orders.shippingCharges.help.${help}`}
-          onClose={() => setHelp(null)}
-        />
-      )}
     </Modal.Root>
   );
 };

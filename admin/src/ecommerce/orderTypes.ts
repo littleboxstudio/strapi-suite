@@ -619,6 +619,23 @@ export type ShippingOption = {
 };
 
 /** `failures` lists the carriers whose quote failed; their options are missing. */
+/** Units not yet shipped, by order line (a quote for a new charge). */
+export type ShipUnits = { orderLineId: number; quantity: number }[];
+
+/** Recalculate shipping's review: the whole order quoted under its original method vs what was paid. */
+export type ShippingReview = {
+  hasShipments: boolean;
+  charged: number;
+  invoiced: number;
+  /** What the payments covered of the shipping (net of the shipping discount). */
+  paid: number;
+  shippingDiscount: number;
+  quote: number;
+  method: { providerId: string; serviceId: string; name: string; tax: number } | null;
+  /** max(0, quote − shippingDiscount) − paid: above 0 still to pay, below 0 to give back. */
+  difference: number;
+};
+
 export type ShippingQuote = {
   options: ShippingOption[];
   failures: { providerId: string; code: string }[];

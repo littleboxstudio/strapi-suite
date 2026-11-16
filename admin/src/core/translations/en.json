@@ -2199,8 +2199,8 @@
   "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.nothingShipping": "No shipping of this invoice is invoiced above what the order now charges.",
   "littlebox-strapi-suite.ecommerce.orders.invoices.shippingToCredit": "{amount} of shipping was invoiced above what the order now charges. Issue a Shipping adjustment credit note on an invoice with shipping.",
   "littlebox-strapi-suite.ecommerce.orders.errors.NOTHING_TO_CREDIT": "There is nothing to credit.",
-  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.review.under": "According to the products and the shipping rules, {amount} more should be charged. Review the shipping charges.",
-  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.review.over": "According to the products and the shipping rules, {amount} was charged above. Review the shipping charges.",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.review.under": "According to the products and the shipping rules, {amount} of shipping is still to be paid.",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.review.over": "According to the products and the shipping rules, {amount} of shipping was paid above: the customer is entitled to that refund.",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.reviewed": "The shipping charges match the quote.",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.remove": "Remove",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.removeTitle": "Remove this shipping charge?",
@@ -2215,5 +2215,15 @@
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.seen": "The shipping alert was marked as seen.",
   "littlebox-strapi-suite.ecommerce.orders.errors.UNITS_NOT_PAID": "Only the paid units can ship while the order still has an amount to pay.",
   "littlebox-strapi-suite.ecommerce.orders.ship.unpaidUnits": "{count} not paid yet",
-  "littlebox-strapi-suite.ecommerce.orders.ship.unpaidNotice": "Some products are not paid yet: their unpaid quantities, or the products themselves, are not listed."
+  "littlebox-strapi-suite.ecommerce.orders.ship.unpaidNotice": "Some products are not paid yet: their unpaid quantities, or the products themselves, are not listed.",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.question": "What should be recalculated?",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.WHOLE": "The whole order",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.WHOLE.hint": "Quote every product with the order's original method and compare with what was already paid.",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.REMAINING": "The products still to ship",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.REMAINING.hint": "Choose a method and price for a new shipping charge for every product not shipped yet.",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.SELECT": "Choose products",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.SELECT.hint": "Choose which paid products not shipped yet the new shipping charge is for.",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.next": "Next",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.back": "Back",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.noUnits": "Choose at least one unit."
 }

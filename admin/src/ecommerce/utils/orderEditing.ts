@@ -424,3 +424,11 @@ export function suggestedChargePrice(quote: number, ctx: { pendingOnly?: boolean
   const suggested = (ctx.pendingOnly === false ? 0 : quote) - (ctx.charged ?? 0);
   return suggested <= 0 ? null : suggested;
 }
+
+/**
+ * Recalculate's comparison for `quote`: what the customer should pay of it (less the shipping
+ * discount) minus what was paid. Above 0 still to pay, below 0 to give back.
+ */
+export function reviewDifference(review: { paid: number; shippingDiscount: number }, quote: number): number {
+  return Math.max(0, quote - review.shippingDiscount) - review.paid;
+}

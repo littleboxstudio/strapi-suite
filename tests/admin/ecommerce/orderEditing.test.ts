@@ -883,3 +883,12 @@ describe('suggestedChargePrice (Add shipping charge)', () => {
     expect(suggestedChargePrice(800, { pendingOnly: false, charged: 500 })).toBeNull();
   });
 });
+
+describe('reviewDifference', () => {
+  it('the quote less the shipping discount, minus what was paid', async () => {
+    const { reviewDifference } = await import('../../../admin/src/ecommerce/utils/orderEditing');
+    expect(reviewDifference({ paid: 2900, shippingDiscount: 200 }, 3100)).toBe(0);
+    expect(reviewDifference({ paid: 2900, shippingDiscount: 200 }, 3600)).toBe(500);
+    expect(reviewDifference({ paid: 2900, shippingDiscount: 200 }, 100)).toBe(-2900);
+  });
+});

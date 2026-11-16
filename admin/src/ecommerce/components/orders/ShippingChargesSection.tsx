@@ -8,7 +8,7 @@ import { formatCents } from '../../utils/money';
 import { apiErrorMessageId } from '../../utils/orderDetail';
 import { canEdit, shippingLineRows } from '../../utils/orderEditing';
 import { mintUuid } from '../../utils/variantDraft';
-import type { EditResult, Order, ShippingLineView } from '../../orderTypes';
+import type { EditResult, Order, ShippingLineView, ShippingReview, ShipUnits } from '../../orderTypes';
 import ShippingChargesTable from './ShippingChargesTable';
 import ShippingLineModal from './ShippingLineModal';
 import RecalculateShippingModal from './RecalculateShippingModal';
@@ -28,7 +28,13 @@ type Props = {
 /** The open shipping modal; it unmounts on close, so each opening mints its own operationId. */
 type ShippingModal =
   | { kind: 'RECALCULATE' }
-  | { kind: 'LINE'; mode: 'EDIT' | 'ADD'; line?: ShippingLineView }
+  | {
+      kind: 'LINE';
+      mode: 'EDIT' | 'ADD';
+      line?: ShippingLineView;
+      /** From Recalculate shipping: a new charge for these units, with its review. */
+      recalculation?: { units: ShipUnits; review: ShippingReview };
+    }
   | { kind: 'REMOVE'; line: ShippingLineView; operationId: string };
 
 /** The order's shipping charges: recalculate, add, edit and remove them. */
@@ -109,13 +115,20 @@ const ShippingChargesSection = ({ id, title, order, canManage, onEdited }: Props
         </Dialog.Root>
       )}
       {canManage && shippingModal?.kind === 'RECALCULATE' && (
-        <RecalculateShippingModal order={order} onClose={() => setShippingModal(null)} onSaved={onEdited} />
+        <RecalculateShippingModal
+          order={order}
+          onClose={() => setShippingModal(null)}
+          onAddCharge={(units, review) =>
+            setShippingModal({ kind: 'LINE', mode: 'ADD', recalculation: { units, review } })
+          }
+        />
       )}
       {canManage && shippingModal?.kind === 'LINE' && (
         <ShippingLineModal
           order={order}
           mode={shippingModal.mode}
           line={shippingModal.line}
+          recalculation={shippingModal.recalculation}
           onClose={() => setShippingModal(null)}
           onSaved={onEdited}
         />

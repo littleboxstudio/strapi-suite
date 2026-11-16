@@ -4,6 +4,8 @@ import { useNotification } from '@strapi/strapi/admin';
 import { Box, Button, Field, Flex, Loader, Modal, TextInput, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchShippingOptions from '../../usecases/orders/fetchShippingOptions';
+import FetchShippingOptionsForUnits from '../../usecases/orders/fetchShippingOptionsForUnits';
+import ShippingReviewSummary from './ShippingReviewSummary';
 import EditShippingLine from '../../usecases/orders/editShippingLine';
 import AddShippingLine from '../../usecases/orders/addShippingLine';
 import { formatAmountInput, formatCents } from '../../utils/money';
@@ -35,6 +37,8 @@ import type {
   PickupSelection,
   ShippingLineView,
   ShippingOption,
+  ShipUnits,
+  ShippingReview,
 } from '../../orderTypes';
 import EmptyNote from './EmptyNote';
 import NoticeBar, { NOTICE_BACKGROUND, NOTICE_TEXT } from './NoticeBar';
@@ -48,6 +52,12 @@ type Props = {
   line?: ShippingLineView;
   onClose: () => void;
   onSaved: (result: EditResult) => void;
+  /**
+   * From Recalculate shipping: the units the new charge is for (the options are quoted for them and
+   * each method's quote is its suggestion), with the review shown above, updated as the method and
+   * price change.
+   */
+  recalculation?: { units: ShipUnits; review: ShippingReview };
 };
 
 type ErrorKey = ReturnType<typeof shippingLineErrorKey>;
@@ -67,7 +77,7 @@ const errorMap = (errors: FieldError[]): Partial<Record<ErrorKey, string>> => {
  * due or to give back is handled from the order page. Mount it only while open: each opening
  * mints one operationId.
  */
-const ShippingLineModal = ({ order, mode, line, onClose, onSaved }: Props) => {
+const ShippingLineModal = ({ order, mode, line, onClose, onSaved, recalculation }: Props) => {
   const { formatMessage, locale } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) => formatMessage({ id: getTranslation(id) }, values);
@@ -95,7 +105,11 @@ const ShippingLineModal = ({ order, mode, line, onClose, onSaved }: Props) => {
    * suggestion.
    */
   const suggestionOf = (o: ShippingOption, base = suggestionBase): number | null =>
-    suggestedChargePrice(o.price, {
+    recalculation
+      ? o.price > 0
+        ? o.price
+        : null
+      : suggestedChargePrice(o.price, {
       ...base,
       // Edit: the line being edited is replaced, so it does not count as already charged.
       charged: (base.charged ?? 0) - (mode === 'EDIT' && line ? shippingLineAmount(line) : 0),
@@ -109,8 +123,10 @@ const ShippingLineModal = ({ order, mode, line, onClose, onSaved }: Props) => {
 
   useEffect(() => {
     let cancelled = false;
-    new FetchShippingOptions()
-      .execute(order.id)
+    (recalculation
+      ? new FetchShippingOptionsForUnits().execute(order.id, recalculation.units)
+      : new FetchShippingOptions().execute(order.id)
+    )
       .then(({ options: offered, failures: failed, pendingOnly, charged }) => {
         if (cancelled) return;
         const base = { pendingOnly, charged };
@@ -210,7 +226,13 @@ const ShippingLineModal = ({ order, mode, line, onClose, onSaved }: Props) => {
     }
   };
 
-  const title = t(mode === 'EDIT' ? 'ecommerce.orders.shippingCharges.editTitle' : 'ecommerce.orders.shippingCharges.add');
+  const title = t(
+    recalculation
+      ? 'ecommerce.orders.shippingCharges.recalculate'
+      : mode === 'EDIT'
+        ? 'ecommerce.orders.shippingCharges.editTitle'
+        : 'ecommerce.orders.shippingCharges.add'
+  );
 
   const body = () => {
     if (loadFailed) {
@@ -242,6 +264,13 @@ const ShippingLineModal = ({ order, mode, line, onClose, onSaved }: Props) => {
         )}
         {!shipped && pickup === 'NONE' && orderPoint && option && (
           <NoticeBar text={t('ecommerce.orders.pickup.restore')} />
+        )}
+        {recalculation && (
+          // Every charge plus the price typed, against what was paid.
+          <ShippingReviewSummary
+            review={recalculation.review}
+            quote={recalculation.review.charged + (draft.input?.amount ?? 0)}
+          />
         )}
         <MethodsPanel>
           <MethodList role="listbox" aria-label={t('ecommerce.orders.shippingCharges.method')}>
@@ -345,7 +374,7 @@ const ShippingLineModal = ({ order, mode, line, onClose, onSaved }: Props) => {
             {t('ecommerce.orders.shippingCharges.close')}
           </Button>
           <Button onClick={save} loading={busy} disabled={!option || unchanged}>
-            {t('ecommerce.orders.shippingCharges.save')}
+            {t(recalculation ? 'ecommerce.orders.shippingCharges.add' : 'ecommerce.orders.shippingCharges.save')}
           </Button>
         </Modal.Footer>
       </Modal.Content>
