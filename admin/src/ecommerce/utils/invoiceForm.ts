@@ -1,8 +1,14 @@
 import { API_ERROR_CODES } from './orderDetail';
-import { selectedValue } from './invoiceSelection';
 import type { FormErrors } from './shipmentForm';
 import type { BadgeVariant } from './statusBadges';
 import type { CreditNoteInput, CreditNoteOptions, CreditType, InvoiceView } from '../orderTypes';
+
+/** Value of `quantity` of the `remainingQuantity` units worth `remainingValue` (same as the server). */
+export const selectedValue = (remainingValue: number, remainingQuantity: number, quantity: number): number => {
+  if (remainingQuantity <= 0) return 0;
+  if (quantity === remainingQuantity) return remainingValue;
+  return Math.floor((remainingValue * quantity) / remainingQuantity);
+};
 
 /** Mirrors the server limit of the credit note reason. */
 export const MAX_CREDIT_NOTE_REASON = 500;

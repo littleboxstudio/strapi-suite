@@ -470,6 +470,9 @@ const OrderDetailPage = () => {
           key={`invoice-${invoiceKey}`}
           orderId={order.id}
           payments={order.payments}
+          lines={order.lines}
+          promotions={order.promotions ?? []}
+          locales={{ locale: order.locale, defaultLocale }}
           canRefund={canRefund}
           onClose={() => setInvoiceOpen(false)}
           onIssued={() => {

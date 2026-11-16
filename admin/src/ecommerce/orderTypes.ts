@@ -250,8 +250,20 @@ export type InvoiceView = {
 export type OrderBilling = { active: boolean; providerId: string | null };
 
 /** What a new invoice can still take: empty lists when the order is not OPEN. */
+/** An order or shipping discount not invoiced, invoiced whole with its pool. */
+export type InvoiceDiscountItem = {
+  /** `m:<id>` manual, `p:<promotionId>:<index>` order promotion, `s:<promotionId>` shipping
+   * promotion, `adj:order` / `adj:shipping` an unexplained difference. */
+  id: string;
+  kind: 'ORDER' | 'SHIPPING';
+  label: string;
+  amount: number;
+  manualKind?: 'FIXED' | 'PERCENT' | 'LEGACY';
+  percent?: number | null;
+};
+
 export type InvoiceSelectionView = {
-  /** Order lines with units left to invoice. */
+  /** Order lines with units left to invoice: `value` = units × (unitPrice − unitDiscount). */
   lines: {
     orderLineId: number;
     sku: string;
@@ -259,10 +271,12 @@ export type InvoiceSelectionView = {
     option: string | null;
     tax: number;
     isGift: boolean;
-    remainingQuantity: number;
-    remainingValue: number;
+    units: number;
+    unitPrice: number;
+    unitDiscount: number;
+    value: number;
   }[];
-  /** Available shipping lines (positive, not invoiced). */
+  /** Shipping lines not invoiced, at their current value (a credit line is negative). */
   shipping: {
     shippingLineId: number;
     name: string;
@@ -271,17 +285,21 @@ export type InvoiceSelectionView = {
     createdAt: string;
     value: number;
   }[];
+  /** Order and shipping discounts not invoiced. */
+  discounts: InvoiceDiscountItem[];
   /** Available payments, in settlement order: `net` = amount − refunded. */
   payments: { paymentId: number; amount: number; refunded: number; net: number }[];
   /** Excess to refund before invoicing. */
   excess: number;
-  /** Value no remaining unit or shipping line can carry (the order changed after it was invoiced). */
-  stranded: { products: number; shipping: number };
+  /** Shipping invoiced above what the order now charges: a SHIPPING credit note credits it. */
+  overInvoiced: { shipping: number };
 };
 
-export type IssueInvoiceSelectionInput = {
-  lines: { orderLineId: number; quantity: number }[];
+/** Whole items: lines + shipping − discounts must equal the payments' net values. */
+export type IssueInvoiceInput = {
+  orderLineIds: number[];
   shippingLineIds: number[];
+  discountIds: string[];
   paymentIds: number[];
   expectedTotal: number;
   idempotencyKey: string;
@@ -298,7 +316,7 @@ export type CreditNoteOptions = {
   correction: { lines: InvoiceLine[]; total: number };
   /**
    * Per ITEM line with whole units left: the units a RETURN may credit (`units`, maybe 0), and the
-   * units and value left on the line (the value of `k` units is `selectedValue(valueLeft, unitsLeft, k)`).
+   * units and value left on the line (the value of `k` units is `selectedValue(valueLeft, unitsLeft, k)`, in invoiceForm).
    */
   returnable: { index: number; units: number; unitsLeft: number; valueLeft: number }[];
   /** SHIPPING lines a RETURN may add whole. */

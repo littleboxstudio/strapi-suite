@@ -5,7 +5,6 @@ import {
   Box,
   Button,
   Checkbox,
-  Field,
   Flex,
   Loader,
   Modal,
@@ -16,7 +15,6 @@ import {
   Thead,
   Tr,
   Typography,
-  VisuallyHidden,
 } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchInvoiceSelection from '../../usecases/orders/fetchInvoiceSelection';
@@ -26,31 +24,35 @@ import { apiErrorDetail, apiErrorMessageId, shouldRenewIdempotencyKey } from '..
 import { invoiceFailureMessageId, isFailedReplay, isUncertainResult, issuedWarnings } from '../../utils/invoiceForm';
 import {
   buildIssueInvoiceInput,
+  canIssueInvoice,
   defaultInvoiceSelectionForm,
+  discountItemLabel,
   invoiceSelectionTotals,
   isSelectionChanged,
-  quantityErrorMessage,
-  selectedValue,
+  selectionLineDiscount,
   selectionPayments,
-  strandedValue,
-  unitValue,
   validateInvoiceSelection,
   type InvoiceSelectionForm,
 } from '../../utils/invoiceSelection';
+import { formatLineDiscount } from '../../utils/lineDiscount';
+import type { PromotionLocales } from '../../utils/orderDetail';
 import InvoiceErrorModal from './InvoiceErrorModal';
 import EmptyNote from './EmptyNote';
-import QuantityInput from './QuantityInput';
 import { FIT_CELL, PRODUCT_CELL } from './lineCells';
 import { Tile, Tiles } from './SummaryTiles';
 import ColumnLabel from '../ColumnLabel';
 import { mintUuid } from '../../utils/variantDraft';
-import type { InvoiceSelectionView, OrderPayment } from '../../orderTypes';
+import type { AppliedPromotion, InvoiceSelectionView, OrderLine, OrderPayment } from '../../orderTypes';
 import { ToneBadge } from './StatusBadges';
 
 type Props = {
   orderId: number;
   /** The order's payments: the method and date of each selectable payment. */
   payments: OrderPayment[];
+  /** The order's lines and applied promotions: what discounted each selectable line. */
+  lines: OrderLine[];
+  promotions: AppliedPromotion[];
+  locales: PromotionLocales;
   /** `payments.refund`: the excess box offers Refund. */
   canRefund: boolean;
   onClose: () => void;
@@ -60,25 +62,38 @@ type Props = {
   onRefund: () => void;
 };
 
-const PRODUCT_COLUMNS = ['product', 'unitValue', 'remaining', 'quantity', 'value'] as const;
+const PRODUCT_COLUMNS = ['select', 'product', 'units', 'unitPrice', 'lineDiscount', 'value'] as const;
 const SHIPPING_COLUMNS = ['select', 'name', 'date', 'value'] as const;
+const DISCOUNT_COLUMNS = ['select', 'discount', 'kind', 'amount'] as const;
 const PAYMENT_COLUMNS = ['select', 'method', 'date', 'paid', 'refunded', 'net'] as const;
 
-const toggle = (ids: number[], id: number, on: boolean) =>
+const toggle = <T,>(ids: T[], id: T, on: boolean): T[] =>
   on ? (ids.includes(id) ? ids : [...ids, id]) : ids.filter((x) => x !== id);
 
 /**
- * Issues an invoice from a selection of products, shipping lines and payments: it can be issued
- * when the selected total equals the ticked payments' net. Mount it only while open: each opening
- * mints a new idempotency key.
+ * Issues an invoice from whole items: products, shipping lines, order and shipping discounts, and
+ * payments. It can be issued when products + shipping − discounts equals the ticked payments' net.
+ * Mount it only while open: each opening mints a new idempotency key.
  */
-const IssueInvoiceModal = ({ orderId, payments, canRefund, onClose, onIssued, onRefund }: Props) => {
+const IssueInvoiceModal = ({
+  orderId,
+  payments,
+  lines,
+  promotions,
+  locales,
+  canRefund,
+  onClose,
+  onIssued,
+  onRefund,
+}: Props) => {
   const { formatMessage, formatDate, locale: uiLocale } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>, defaultMessage?: string) =>
     formatMessage({ id: getTranslation(id), defaultMessage }, values);
   const p = 'ecommerce.orders.invoices.issue';
   const money = (cents: number) => formatCents(cents, uiLocale);
+  const percent = (value: number) =>
+    `${new Intl.NumberFormat(uiLocale, { maximumFractionDigits: 2 }).format(value)} %`;
   const date = (iso: string | null) => (iso ? formatDate(iso, { dateStyle: 'medium', timeStyle: 'short' }) : '—');
 
   // One key per opening, renewed when a refusal (4xx) brings a fresh selection to confirm again;
@@ -126,9 +141,10 @@ const IssueInvoiceModal = ({ orderId, payments, canRefund, onClose, onIssued, on
   /** An attempt was made and did not end in an issued invoice: only Close remains. */
   const attempted = uncertain || error !== null;
   const locked = saving || attempted;
+  const canIssue = selection && form ? canIssueInvoice(selection, form) : false;
 
   const submit = async () => {
-    if (saving || attempted || !selection || !form || !totals?.canIssue) return;
+    if (saving || attempted || !selection || !form || !canIssue) return;
     setSaving(true);
     setError(null);
     try {
@@ -213,7 +229,6 @@ const IssueInvoiceModal = ({ orderId, payments, canRefund, onClose, onIssued, on
 
   const body = (view: InvoiceSelectionView, values: InvoiceSelectionForm) => {
     const paymentRows = selectionPayments(view, payments);
-    const stranded = strandedValue(view);
     return (
       <>
         {view.excess > 0 && (
@@ -228,14 +243,6 @@ const IssueInvoiceModal = ({ orderId, payments, canRefund, onClose, onIssued, on
             )}
           </Flex>
         )}
-        {stranded > 0 && (
-          <Box padding={3} background="warning100" hasRadius>
-            <Typography variant="omega" textColor="warning700">
-              {t(`${p}.stranded`, { amount: money(stranded) })}
-            </Typography>
-          </Box>
-        )}
-
         {block(
           t(`${p}.products`),
           view.lines.length === 0 ? (
@@ -245,15 +252,21 @@ const IssueInvoiceModal = ({ orderId, payments, canRefund, onClose, onIssued, on
               {heading(PRODUCT_COLUMNS)}
               <Tbody>
                 {view.lines.map((line) => {
-                  const quantity = values.quantities[line.orderLineId] ?? 0;
-                  const message = quantityErrorMessage(
-                    errors[`quantities.${line.orderLineId}`],
-                    line.remainingQuantity
-                  );
-                  const fieldError = message ? t(message.id, message.values) : undefined;
-                  const value = fieldError ? 0 : selectedValue(line.remainingValue, line.remainingQuantity, quantity);
+                  const discount = selectionLineDiscount(line.orderLineId, lines, promotions, locales);
                   return (
                     <Tr key={line.orderLineId}>
+                      <Td style={FIT_CELL}>
+                        <Checkbox
+                          aria-label={line.name}
+                          disabled={locked}
+                          checked={values.orderLineIds.includes(line.orderLineId)}
+                          onCheckedChange={(checked: boolean | 'indeterminate') =>
+                            setForm(
+                              (f) => f && { ...f, orderLineIds: toggle(f.orderLineIds, line.orderLineId, checked === true) }
+                            )
+                          }
+                        />
+                      </Td>
                       <Td style={PRODUCT_CELL}>
                         <Flex direction="column" alignItems="flex-start" gap={1}>
                           <Typography textColor="neutral800" fontWeight="semiBold">
@@ -266,30 +279,38 @@ const IssueInvoiceModal = ({ orderId, payments, canRefund, onClose, onIssued, on
                         </Flex>
                       </Td>
                       <Td style={FIT_CELL}>
-                        <Typography textColor="neutral800">{money(unitValue(line))}</Typography>
+                        <Typography textColor="neutral800">{line.units}</Typography>
                       </Td>
                       <Td style={FIT_CELL}>
-                        <Typography textColor="neutral800">{line.remainingQuantity}</Typography>
+                        <Typography textColor="neutral800">{money(line.unitPrice)}</Typography>
                       </Td>
                       <Td style={FIT_CELL}>
-                        <Box style={{ width: 120 }}>
-                          <Field.Root name={`quantities.${line.orderLineId}`} error={fieldError}>
-                            <VisuallyHidden>
-                              <Field.Label>{t(`${p}.columns.quantity`)}</Field.Label>
-                            </VisuallyHidden>
-                            <QuantityInput
-                              value={quantity}
-                              disabled={locked}
-                              onChange={(q) =>
-                                setForm((f) => f && { ...f, quantities: { ...f.quantities, [line.orderLineId]: q } })
-                              }
-                            />
-                            <Field.Error />
-                          </Field.Root>
-                        </Box>
+                        {line.unitDiscount > 0 ? (
+                          <Flex direction="column" alignItems="flex-start">
+                            <Typography textColor="neutral800">
+                              {t('ecommerce.orders.detail.lines.unitDiscount', { amount: money(line.unitDiscount) })}
+                            </Typography>
+                            {discount.promotionNames.length > 0 && (
+                              <Typography variant="pi" textColor="neutral600">
+                                {t('ecommerce.orders.detail.lines.promotions', {
+                                  names: discount.promotionNames.join(', '),
+                                })}
+                              </Typography>
+                            )}
+                            {discount.manualPercent !== null && (
+                              <Typography variant="pi" textColor="neutral600">
+                                {t('ecommerce.orders.detail.lines.manualDiscount', {
+                                  percent: formatLineDiscount(discount.manualPercent, uiLocale),
+                                })}
+                              </Typography>
+                            )}
+                          </Flex>
+                        ) : (
+                          <Typography textColor="neutral800">—</Typography>
+                        )}
                       </Td>
                       <Td style={FIT_CELL}>
-                        <Typography textColor="neutral800">{money(value)}</Typography>
+                        <Typography textColor="neutral800">{money(line.value)}</Typography>
                       </Td>
                     </Tr>
                   );
@@ -313,9 +334,15 @@ const IssueInvoiceModal = ({ orderId, payments, canRefund, onClose, onIssued, on
                       <Checkbox
                         aria-label={line.name}
                         disabled={locked}
-                        checked={values.shipping.includes(line.shippingLineId)}
+                        checked={values.shippingLineIds.includes(line.shippingLineId)}
                         onCheckedChange={(checked: boolean | 'indeterminate') =>
-                          setForm((f) => f && { ...f, shipping: toggle(f.shipping, line.shippingLineId, checked === true) })
+                          setForm(
+                            (f) =>
+                              f && {
+                                ...f,
+                                shippingLineIds: toggle(f.shippingLineIds, line.shippingLineId, checked === true),
+                              }
+                          )
                         }
                       />
                     </Td>
@@ -332,6 +359,57 @@ const IssueInvoiceModal = ({ orderId, payments, canRefund, onClose, onIssued, on
                 ))}
               </Tbody>
             </Table>
+          )
+        )}
+
+        {block(
+          t(`${p}.discounts`),
+          view.discounts.length === 0 ? (
+            <EmptyNote>{t(`${p}.noDiscounts`)}</EmptyNote>
+          ) : (
+            <Flex direction="column" alignItems="stretch" gap={2}>
+              <Table colCount={DISCOUNT_COLUMNS.length} rowCount={view.discounts.length + 1}>
+                {heading(DISCOUNT_COLUMNS)}
+                <Tbody>
+                  {view.discounts.map((item) => {
+                    const label = discountItemLabel(item);
+                    const text = 'id' in label ? t(label.id) : label.text;
+                    return (
+                      <Tr key={item.id}>
+                        <Td style={FIT_CELL}>
+                          <Checkbox
+                            aria-label={text}
+                            disabled={locked}
+                            checked={values.discountIds.includes(item.id)}
+                            onCheckedChange={(checked: boolean | 'indeterminate') =>
+                              setForm((f) => f && { ...f, discountIds: toggle(f.discountIds, item.id, checked === true) })
+                            }
+                          />
+                        </Td>
+                        <Td style={PRODUCT_CELL}>
+                          <Typography textColor="neutral800">
+                            {item.manualKind === 'PERCENT' && typeof item.percent === 'number'
+                              ? `${text} (${percent(item.percent)})`
+                              : text}
+                          </Typography>
+                        </Td>
+                        <Td style={FIT_CELL}>
+                          <Typography textColor="neutral800">{t(`${p}.discountKind.${item.kind}`)}</Typography>
+                        </Td>
+                        <Td style={FIT_CELL}>
+                          <Typography textColor="neutral800">{money(-item.amount)}</Typography>
+                        </Td>
+                      </Tr>
+                    );
+                  })}
+                </Tbody>
+              </Table>
+              {errors.discountIds && (
+                <Typography variant="pi" textColor="danger600">
+                  {t(`ecommerce.orders.errors.${errors.discountIds}`)}
+                </Typography>
+              )}
+            </Flex>
           )
         )}
 
@@ -355,9 +433,9 @@ const IssueInvoiceModal = ({ orderId, payments, canRefund, onClose, onIssued, on
                         <Checkbox
                           aria-label={method}
                           disabled={locked}
-                          checked={values.payments.includes(row.paymentId)}
+                          checked={values.paymentIds.includes(row.paymentId)}
                           onCheckedChange={(checked: boolean | 'indeterminate') =>
-                            setForm((f) => f && { ...f, payments: toggle(f.payments, row.paymentId, checked === true) })
+                            setForm((f) => f && { ...f, paymentIds: toggle(f.paymentIds, row.paymentId, checked === true) })
                           }
                         />
                       </Td>
@@ -387,11 +465,14 @@ const IssueInvoiceModal = ({ orderId, payments, canRefund, onClose, onIssued, on
         )}
 
         {totals && (
-          // The three figures at the end, as tiles like the payments overview.
+          // The figures at the end, as tiles like the payments overview.
           <Tiles style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
             {[
-              { key: 'selectedTotal', amount: totals.selected },
-              { key: 'paymentsTotal', amount: totals.payments },
+              { key: 'products', amount: totals.lines },
+              { key: 'shipping', amount: totals.shipping },
+              { key: 'discounts', amount: -totals.discounts },
+              { key: 'invoiceTotal', amount: totals.total },
+              { key: 'selectedPayments', amount: totals.payments },
               { key: 'difference', amount: totals.difference },
             ].map((tile) => (
               <Tile
@@ -446,7 +527,7 @@ const IssueInvoiceModal = ({ orderId, payments, canRefund, onClose, onIssued, on
             {t(attempted ? 'ecommerce.orders.invoices.close' : 'ecommerce.orders.invoices.back')}
           </Button>
           {!attempted && (
-            <Button variant="secondary" onClick={submit} loading={saving} disabled={saving || !totals?.canIssue}>
+            <Button variant="secondary" onClick={submit} loading={saving} disabled={saving || !canIssue}>
               {t(`${p}.confirm`)}
             </Button>
           )}
