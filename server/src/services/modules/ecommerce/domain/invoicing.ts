@@ -7,7 +7,7 @@ import type { Address } from './orders';
 
 export type InvoiceLine = {
   orderLineId: number | null;
-  kind: 'ITEM' | 'SHIPPING';
+  kind: 'ITEM' | 'SHIPPING' | 'DISCOUNT';
   sku: string;
   name: string;
   quantity: number;
@@ -22,6 +22,10 @@ export type InvoiceLine = {
   partial: boolean;
   /** SHIPPING lines of selection invoices: the shipping line they invoice. */
   shippingLineId?: number | null;
+  /** DISCOUNT lines: the discount item they invoice (`m:1`, `p:5:0`, `adj:order`...). */
+  discountId?: string;
+  /** Cents of order or shipping discounts spread onto this line. */
+  discountShare?: number;
 };
 
 export type InvoiceCustomer = {
@@ -50,9 +54,10 @@ export const readInvoiceLines = (raw: unknown): InvoiceLine[] => {
   return list.filter(isObject).map((l) => {
     const shippingLineId = l.shippingLineId == null ? null : Number(l.shippingLineId);
     const grossTotal = Number(l.grossTotal);
+    const discountShare = Number(l.discountShare);
     return {
       orderLineId: l.orderLineId == null ? null : Number(l.orderLineId),
-      kind: l.kind === 'SHIPPING' ? 'SHIPPING' : 'ITEM',
+      kind: l.kind === 'SHIPPING' ? 'SHIPPING' : l.kind === 'DISCOUNT' ? 'DISCOUNT' : 'ITEM',
       sku: typeof l.sku === 'string' ? l.sku : '',
       name: typeof l.name === 'string' ? l.name : '',
       quantity: num(l.quantity),
@@ -61,6 +66,8 @@ export const readInvoiceLines = (raw: unknown): InvoiceLine[] => {
       tax: num(l.tax),
       partial: l.partial === true,
       ...(Number.isInteger(shippingLineId) ? { shippingLineId } : {}),
+      ...(typeof l.discountId === 'string' ? { discountId: l.discountId } : {}),
+      ...(l.discountShare != null && Number.isInteger(discountShare) ? { discountShare } : {}),
     };
   });
 };
