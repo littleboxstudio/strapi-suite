@@ -80,7 +80,13 @@ const OrderLinesTable = ({ lines, promotions = [], locales = { locale: '' } }: P
         {lines.map((line) => {
           const finalPrice = line.unitPrice - line.unitDiscount;
           const pending = pendingLabel(line.pending);
-          const discountLabel = lineDiscountLabel(line, promotions, uiLocale, locales.defaultLocale);
+          const discountLabel = lineDiscountLabel(
+            line,
+            promotions,
+            uiLocale,
+            (percent) => t('ecommerce.orders.detail.lines.manualDiscount', { percent }),
+            locales.defaultLocale
+          );
           return (
             <Tr key={line.id}>
               <Td>

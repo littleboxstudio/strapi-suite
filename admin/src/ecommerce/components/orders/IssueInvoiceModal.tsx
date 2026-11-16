@@ -251,7 +251,13 @@ const IssueInvoiceModal = ({
               <Tbody>
                 {view.lines.map((line) => {
                   const orderLine = lines.find((l) => l.id === line.orderLineId);
-                  const discountLabel = orderLine ? lineDiscountLabel(orderLine, promotions, uiLocale, locales.defaultLocale) : null;
+                  const discountLabel = orderLine ? lineDiscountLabel(
+                        orderLine,
+                        promotions,
+                        uiLocale,
+                        (percent) => t('ecommerce.orders.detail.lines.manualDiscount', { percent }),
+                        locales.defaultLocale
+                      ) : null;
                   return (
                     <Tr key={line.orderLineId}>
                       <Td style={FIT_CELL}>

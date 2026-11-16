@@ -404,7 +404,7 @@ export function promotionsDiscountTotal(promotions: Pick<AppliedPromotion, 'amou
 /** Labels of the promotions that discounted a line: display name, else the internal name (admin). */
 export function linePromotionNames(
   promotionIds: number[],
-  promotions: AppliedPromotion[],
+  promotions: Pick<AppliedPromotion, 'promotionId' | 'name' | 'displayName'>[],
   locales: PromotionLocales
 ): string[] {
   if (!Array.isArray(promotionIds) || !Array.isArray(promotions)) return [];
@@ -416,22 +416,23 @@ export function linePromotionNames(
 }
 
 /**
- * What discounted a line, in words: the names of its promotions, else the manual discount.
- * Null when the line has no discount. `locale` is the UI locale (names and decimal separator).
+ * What discounted a line, in words: the names of its promotions, then the manual discount (both
+ * when the line has both), joined with ", ". Null when the line has no discount.
+ * `manualText` words the manual percent (a translation of `lines.manualDiscount`); `locale` is
+ * the UI locale (names and decimal separator).
  */
 export function lineDiscountLabel(
   line: Pick<OrderLine, 'promotionIds' | 'manualDiscountPercent'>,
   promotions: Pick<AppliedPromotion, 'promotionId' | 'name' | 'displayName'>[],
   locale: string,
+  manualText: (percent: string) => string,
   defaultLocale?: string | null
 ): string | null {
-  const names = linePromotionNames(line.promotionIds, promotions as AppliedPromotion[], { locale, defaultLocale });
-  if (names.length > 0) return names.join(', ');
+  const parts = linePromotionNames(line.promotionIds, promotions, { locale, defaultLocale });
   if (isNumber(line.manualDiscountPercent)) {
-    const label = locale.toLowerCase().startsWith('pt') ? 'Desconto manual' : 'Manual discount';
-    return `${label} ${formatLineDiscount(line.manualDiscountPercent, locale)}`;
+    parts.push(manualText(formatLineDiscount(line.manualDiscountPercent, locale)));
   }
-  return null;
+  return parts.length > 0 ? parts.join(', ') : null;
 }
 
 /** Badge colour of a code status (applied, waiting, refused). */

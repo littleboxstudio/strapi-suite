@@ -1,6 +1,6 @@
-import type { AppliedPromotion, InvoiceSelectionView, IssueInvoiceInput, OrderLine, OrderPayment } from '../orderTypes';
+import type { InvoiceSelectionView, IssueInvoiceInput, OrderPayment } from '../orderTypes';
 import type { FormErrors } from './shipmentForm';
-import { apiErrorCode, linePromotionNames, type PromotionLocales } from './orderDetail';
+import { apiErrorCode } from './orderDetail';
 
 /** The whole items ticked: order lines, shipping lines, discounts and payments. */
 export type InvoiceSelectionForm = {
@@ -107,21 +107,6 @@ const ADJUSTMENT_IDS: Record<string, string> = {
 export function discountItemLabel(item: { id: string; label: string }): { id: string } | { text: string } {
   const id = ADJUSTMENT_IDS[item.id];
   return id ? { id } : { text: item.label };
-}
-
-/** What discounted a selection line: its promotions' names and the admin's manual percent. */
-export function selectionLineDiscount(
-  orderLineId: number,
-  orderLines: Pick<OrderLine, 'id' | 'promotionIds' | 'manualDiscountPercent'>[],
-  promotions: AppliedPromotion[],
-  locales: PromotionLocales
-): { promotionNames: string[]; manualPercent: number | null } {
-  const line = orderLines.find((l) => l.id === orderLineId);
-  if (!line) return { promotionNames: [], manualPercent: null };
-  return {
-    promotionNames: linePromotionNames(line.promotionIds, promotions, locales),
-    manualPercent: line.manualDiscountPercent ?? null,
-  };
 }
 
 export type SelectionPaymentRow = InvoiceSelectionView['payments'][number] & {
