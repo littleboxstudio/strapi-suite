@@ -100,6 +100,19 @@ export function setModifyLineQuantity(
   return lines.map((l) => (l.key === key && !l.isGift ? { ...l, quantity } : l));
 }
 
+/**
+ * The quantity of a line can be changed while it holds no invoiced units (an invoiced line keeps
+ * its quantity: more units of the product go on a new line); not a gift, not removed.
+ */
+export function modifyLineQuantityEditable(line: ModifyLineDraft): boolean {
+  return !line.isGift && !line.removed && line.invoiced === 0;
+}
+
+/** The typed quantity is below the units already shipped (the server refuses it). */
+export function modifyLineBelowShipped(line: ModifyLineDraft): boolean {
+  return Number.isSafeInteger(line.quantity) && line.quantity < line.shipped;
+}
+
 /** A manual percent goes only on a line with nothing shipped or invoiced, not a gift, not removed. */
 export function modifyLineDiscountEditable(line: ModifyLineDraft): boolean {
   return !line.isGift && !line.removed && line.shipped === 0 && line.invoiced === 0;

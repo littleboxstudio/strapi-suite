@@ -21,6 +21,8 @@ import { FIT_CELL, PRODUCT_CELL } from './lineCells';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { formatCents } from '../../utils/money';
 import {
+  modifyLineBelowShipped,
+  modifyLineQuantityEditable,
   modifyLineDiscountEditable,
   modifyLineUnitPrice,
   type ModifyLineDraft,
@@ -85,10 +87,17 @@ const ModifyLinesEditor = ({
       </Thead>
       <Tbody>
         {lines.map((line) => {
-          const error = errorFor(line.key);
+          // Below the shipped units: said at once (the server refuses it on save).
+          const error =
+            errorFor(line.key) ??
+            (!line.removed && modifyLineBelowShipped(line)
+              ? t('ecommerce.orders.errors.QUANTITY_BELOW_SHIPPED')
+              : undefined);
           const label = line.option ? `${line.name} — ${line.option}` : line.name;
           const validQuantity = Number.isSafeInteger(line.quantity) && line.quantity > 0;
           const editable = !line.isGift && !line.removed;
+          const quantityEditable = modifyLineQuantityEditable(line);
+          const removable = !line.shipped && !line.invoiced;
           const unitPrice = modifyLineUnitPrice(line);
           const discountError = discountErrorFor(line.key);
           return (
@@ -121,7 +130,7 @@ const ModifyLinesEditor = ({
                       </ToneBadge>
                     )}
                   </Flex>
-                  {!editable && error && (
+                  {!quantityEditable && error && (
                     <Typography variant="pi" textColor="danger600">
                       {error}
                     </Typography>
@@ -132,7 +141,7 @@ const ModifyLinesEditor = ({
                 <Typography textColor="neutral800">{formatCents(unitPrice, uiLocale)}</Typography>
               </Td>
               <Td style={FIT_CELL}>
-                {editable ? (
+                {quantityEditable ? (
                   <Box style={{ width: 120 }}>
                     <Field.Root name={`lines.${line.key}.quantity`} error={error}>
                       <VisuallyHidden>
@@ -189,7 +198,9 @@ const ModifyLinesEditor = ({
                             : t('ecommerce.orders.lines.remove')
                       }
                       variant="ghost"
-                      disabled={disabled || line.shipped > 0 || line.invoiced > 0}
+                      disabled={disabled || !removable}
+                      // A disabled ghost icon looks active: dim it so it reads as locked.
+                      style={removable ? undefined : { opacity: 0.35, cursor: 'not-allowed' }}
                       onClick={() => onRemove(line.key)}
                     >
                       <Trash />
