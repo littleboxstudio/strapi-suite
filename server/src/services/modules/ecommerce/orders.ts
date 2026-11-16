@@ -1301,11 +1301,11 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       Math.max(0, num(order.shippingTotal)),
       completedPayments.reduce((sum, p) => sum + coverageShippingOf(p.coverage), 0)
     );
+    // A positive item to invoice (a discount alone never makes an invoice).
     const canIssue =
       order.orderStatus === 'OPEN' &&
-      (items.lines.some((l) => !l.invoiced) ||
-        items.shipping.some((s) => !s.invoiced) ||
-        items.discounts.some((d) => !d.invoiced)) &&
+      (items.lines.some((l) => !l.invoiced && l.value > 0) ||
+        items.shipping.some((s) => !s.invoiced && s.value > 0)) &&
       availablePaymentIds.length > 0;
 
     return {

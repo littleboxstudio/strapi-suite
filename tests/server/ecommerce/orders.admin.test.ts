@@ -241,3 +241,58 @@ describe('EcommerceOrderService.computeOrderState: invoicing position', () => {
     expect((await c.orders.computeOrderState(id)).invoicing.blockingExcess).toBe(1000);
   });
 });
+
+describe('EcommerceOrderService.computeOrderState: canIssue needs a positive invoiceable item', () => {
+  /** Every line and the shipping invoiced; a payment left over. */
+  const allInvoiced = async () => {
+    const c = setupCommerce();
+    const id = await createOrder(c);
+    await c.payments.addManualPayment(id, { amount: 4500, idempotencyKey: 'pay-all' }, 'user:1');
+    const line = c.tables[UIDS.orderLine].find((l: any) => l.order === id);
+    c.tables[UIDS.invoice].push({
+      id: 1,
+      order: id,
+      kind: 'INVOICE',
+      status: 'ISSUED',
+      createdAt: '2026-11-03T10:00:00.000Z',
+      lines: {
+        lines: [
+          { kind: 'ITEM', orderLineId: line.id, sku: 'S', name: 'N', quantity: line.quantity, total: 4000, tax: 23, partial: false, discountShare: 0 },
+          { kind: 'SHIPPING', orderLineId: null, sku: 'SHIPPING', name: 'S', quantity: 1, total: 500, tax: 23, partial: false, shippingLineId: 1, discountShare: 0 },
+        ],
+      },
+    });
+    return { c, id };
+  };
+
+  it('only an uninvoiced discount left: Generate invoice is not offered', async () => {
+    const { c, id } = await allInvoiced();
+    const row = c.tables[UIDS.order].find((o: any) => o.id === id);
+    row.manualDiscounts = {
+      items: [{ id: 1, kind: 'FIXED', percent: null, amount: 100, reason: 'Late', createdAt: '2026-11-04T00:00:00.000Z', actor: 'a' }],
+    };
+    row.orderDiscount = 100;
+    const { invoicing } = await c.orders.computeOrderState(id);
+    expect(invoicing.items.discounts.some((d: any) => !d.invoiced)).toBe(true);
+    expect(invoicing.availablePaymentIds.length).toBeGreaterThan(0);
+    expect(invoicing.canIssue).toBe(false);
+  });
+
+  it('only a legacy negative shipping line left: Generate invoice is not offered', async () => {
+    const { c, id } = await allInvoiced();
+    const row = c.tables[UIDS.order].find((o: any) => o.id === id);
+    const [checkout] = row.shippingLines.lines;
+    row.shippingLines = { lines: [checkout, { ...checkout, id: 2, origin: 'RECALCULATION', amount: -100 }] };
+    const { invoicing } = await c.orders.computeOrderState(id);
+    expect(invoicing.canIssue).toBe(false);
+  });
+
+  it('an uninvoiced shipping charge left: Generate invoice is offered', async () => {
+    const { c, id } = await allInvoiced();
+    const row = c.tables[UIDS.order].find((o: any) => o.id === id);
+    const [checkout] = row.shippingLines.lines;
+    row.shippingLines = { lines: [checkout, { ...checkout, id: 2, origin: 'MANUAL', amount: 100 }] };
+    const { invoicing } = await c.orders.computeOrderState(id);
+    expect(invoicing.canIssue).toBe(true);
+  });
+});
