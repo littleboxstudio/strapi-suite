@@ -144,7 +144,6 @@ describe('returns', () => {
       'invalid_restock',
     ]);
   });
-
 });
 
 describe('input hardening', () => {
@@ -191,5 +190,4 @@ describe('input hardening', () => {
       ]),
     ).toBe('PARTIALLY_DELIVERED');
   });
-
 });

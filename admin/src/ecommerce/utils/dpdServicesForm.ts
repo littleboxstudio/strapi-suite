@@ -15,9 +15,6 @@ export function dpdServiceMarkets(id: DpdServiceId, markets: string[]): string[]
   return id === 'PICKUP' ? markets.filter((m) => PICKUP_MARKETS.includes(m)) : markets;
 }
 
-/** Each service is edited like a manual shipping method (names, VAT, rates per market). */
-export type DpdServicesForm = Record<DpdServiceId, ManualMethodDraft>;
-
 /** Error code per path: `<ID>.name.<locale>`, `<ID>.tax`, `<ID>.rates.<market>.<i>.upTo|price`. */
 export type DpdServicesErrors = Record<string, string>;
 
@@ -28,19 +25,6 @@ export function dpdServiceToDraft(
   markets: string[]
 ): ManualMethodDraft {
   return manualMethodToDraft({ ...service, id: 0, position: 0 }, localeCodes, uiLocale, markets);
-}
-
-/** Only markets that are still store markets are kept. */
-export function dpdServicesToForm(
-  services: DpdServices,
-  localeCodes: string[],
-  uiLocale: string,
-  markets: string[]
-): DpdServicesForm {
-  return {
-    EXPRESS: dpdServiceToDraft(services.EXPRESS, localeCodes, uiLocale, markets),
-    PICKUP: dpdServiceToDraft(services.PICKUP, localeCodes, uiLocale, markets),
-  };
 }
 
 /**
@@ -64,24 +48,6 @@ export function draftToDpdService(
       rates: input.rates ?? {},
     },
   };
-}
-
-/** Both services (the PUT replaces both), or the errors keyed `<ID>.<path>`. */
-export function formToDpdServices(
-  form: DpdServicesForm,
-  defaultLocale: string
-): { services?: DpdServices; errors: DpdServicesErrors } {
-  const errors: DpdServicesErrors = {};
-  const services: Partial<DpdServices> = {};
-  DPD_SERVICE_IDS.forEach((id) => {
-    const result = draftToDpdService(form[id], defaultLocale);
-    Object.entries(result.errors).forEach(([path, code]) => {
-      errors[`${id}.${path}`] = code;
-    });
-    if (result.service) services[id] = result.service;
-  });
-  if (Object.keys(errors).length) return { errors };
-  return { errors, services: services as DpdServices };
 }
 
 export function activeServiceCount(services: Record<DpdServiceId, { active: boolean }>): number {

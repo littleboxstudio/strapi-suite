@@ -504,21 +504,6 @@ export type PromotionCodeStatus =
   | 'NO_BENEFIT'
   | 'AWAITING_SHIPPING';
 
-export const PROMOTION_CODE_STATUSES: PromotionCodeStatus[] = [
-  'APPLIED',
-  'NOT_FOUND',
-  'INACTIVE',
-  'SCHEDULED',
-  'EXPIRED',
-  'USAGE_LIMIT_REACHED',
-  'CUSTOMER_LIMIT_REACHED',
-  'EMAIL_NOT_ELIGIBLE',
-  'CONDITIONS_NOT_MET',
-  'CONFLICT',
-  'NO_BENEFIT',
-  'AWAITING_SHIPPING',
-];
-
 /** At most this many codes per order (server `MAX_PROMOTION_CODES`). */
 export const MAX_PROMOTION_CODES = 5;
 
@@ -868,10 +853,8 @@ export type DiscountRecalculation = {
 export type EditResult = { order: Order; outcome: ModificationOutcome; difference: number };
 
 // ---------------------------------------------------------------------------
-// Payment links and instructions (plan 4)
+// Payment instructions (plan 4)
 // ---------------------------------------------------------------------------
-
-export type PaymentLink = { url: string; expiresAt: string; amount: number; reused: boolean };
 
 export type PaymentInstructionsInput =
   | { mode: 'MANUAL'; instructions: string; methodLabel?: string }

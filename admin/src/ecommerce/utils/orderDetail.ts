@@ -242,56 +242,9 @@ export function historyEntryText(
   };
 }
 
-export type SummaryRowKey =
-  | 'itemsOriginal'
-  | 'productDiscount'
-  | 'orderDiscount'
-  | 'subtotal'
-  | 'shippingOriginal'
-  | 'shippingDiscount'
-  | 'totalDiscount'
-  | 'total'
-  | 'paid'
-  | 'pendingPayments'
-  | 'refunded'
-  | 'net'
-  | 'due'
-  | 'excess'
-  | 'overRefunded';
-
-export type SummaryRow = { key: SummaryRowKey; amount: number; strong?: true };
-
 /** Product + order + shipping discounts of the order (promotions requirement 3.6). */
 export function totalDiscount(totals: OrderTotals): number {
   return (totals.productDiscount || 0) + (totals.orderDiscount || 0) + (totals.shippingDiscount || 0);
-}
-
-/**
- * Rows of the financial summary (requirements 8.1 and promotions 3.6). Discounts are negative;
- * zero discounts, refunds, pending payments and refundable excess are left out.
- */
-export function financialSummaryRows(totals: OrderTotals, summary: FinancialSummary): SummaryRow[] {
-  const rows: SummaryRow[] = [];
-  const add = (key: SummaryRowKey, amount: number, opts: { hideZero?: boolean; strong?: boolean } = {}) => {
-    if (opts.hideZero && !amount) return;
-    rows.push(opts.strong ? { key, amount, strong: true } : { key, amount });
-  };
-  add('itemsOriginal', totals.itemsOriginal);
-  add('productDiscount', -totals.productDiscount, { hideZero: true });
-  add('orderDiscount', -totals.orderDiscount, { hideZero: true });
-  add('subtotal', totals.subtotal - totals.orderDiscount);
-  add('shippingOriginal', totals.shippingOriginal);
-  add('shippingDiscount', -totals.shippingDiscount, { hideZero: true });
-  add('totalDiscount', -totalDiscount(totals), { hideZero: true });
-  add('total', totals.total, { strong: true });
-  add('paid', summary.paid);
-  add('pendingPayments', summary.pendingPayments, { hideZero: true });
-  add('refunded', summary.refunded, { hideZero: true });
-  add('net', summary.net);
-  add('due', summary.due, { strong: true });
-  add('excess', summary.excess, { hideZero: true });
-  add('overRefunded', summary.overRefunded ?? 0, { hideZero: true });
-  return rows;
 }
 
 export type OverviewNoteKey =
