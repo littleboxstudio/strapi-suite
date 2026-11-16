@@ -224,7 +224,7 @@ describe('F2 money cap', () => {
       'ecommerce.orders.refunds.refreshed',
       'ecommerce.orders.refunds.refreshError',
       'ecommerce.orders.history.type.REFUND_OVER_REFUNDED',
-      'ecommerce.orders.detail.summary.overRefunded',
+      'ecommerce.orders.detail.summary.notes.overRefunded',
     ]) {
       expect(en[P + k], k).toBeTruthy();
       expect(pt[P + k], k).toBeTruthy();
