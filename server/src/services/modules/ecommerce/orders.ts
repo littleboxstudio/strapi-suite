@@ -42,6 +42,7 @@ import {
   type InvoicingPosition,
   type PositionOrder,
 } from './domain/invoiceSelection';
+import { invoiceItems, type InvoiceItems } from './domain/invoiceItems';
 import {
   orderDeliveryStatus,
   reservedQuantities,
@@ -352,6 +353,8 @@ export type OrderInvoicing = {
   /** Live (ISSUED, PENDING, UNCERTAIN) invoices and credit notes, by id. */
   docs: InvoiceDoc[];
   position: InvoicingPosition;
+  /** What can still be invoiced, as whole items: lines, shipping lines and discounts (plan 14). */
+  items: InvoiceItems;
   /** Per COMPLETED payment: its amount net of the held refunds attributed to it (ruling 8). */
   paymentNets: Map<number, number>;
   /** COMPLETED payments without an active allocation and with net > 0, in settlement order. */
@@ -1245,6 +1248,15 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       allocations.filter((a) => a.invoiceId === invoiceId).map((a) => a.paymentId);
     const docs = invoices.map((row) => readInvoiceDoc(row, paymentIdsOf(row.id)));
     const position = invoicingPosition(positionOrder, docs);
+    const items = invoiceItems(
+      {
+        ...positionOrder,
+        shippingDiscount: num(order.shippingDiscount),
+        manualDiscounts: readManualDiscounts(order),
+        applied: appliedOf(order),
+      },
+      docs
+    );
     const allocated = new Set(allocations.map((a) => a.paymentId));
     // What an invoice's payments still back: its allocations, less what its live partial credit
     // notes (RETURN, SHIPPING) took off, latest allocation first. A refund of that value then comes
@@ -1291,14 +1303,16 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     );
     const canIssue =
       order.orderStatus === 'OPEN' &&
-      (position.lines.some((l) => l.remainingQuantity > 0) ||
-        position.shipping.some((s) => s.available)) &&
+      (items.lines.some((l) => !l.invoiced) ||
+        items.shipping.some((s) => !s.invoiced) ||
+        items.discounts.some((d) => !d.invoiced)) &&
       availablePaymentIds.length > 0;
 
     return {
       positionOrder,
       docs,
       position,
+      items,
       paymentNets: nets,
       availablePaymentIds,
       blockingExcess,

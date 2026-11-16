@@ -144,8 +144,9 @@ const order = async (c: Commerce, payments: number[] = [4500], quantity = 2) => 
 
 /** The full selection of a 2 × 2000 + 500 order, paid by `paymentIds`. */
 const everything = (c: Commerce, id: number, paymentIds: number[], key: string, expectedTotal = 4500) => ({
-  lines: [{ orderLineId: lineIdOf(c, id), quantity: 2 }],
+  orderLineIds: [lineIdOf(c, id)],
   shippingLineIds: [1],
+  discountIds: [] as string[],
   paymentIds,
   expectedTotal,
   idempotencyKey: key,
@@ -222,8 +223,10 @@ describe('EcommerceInvoiceService.selection', () => {
           option: null,
           tax: 23,
           isGift: false,
-          remainingQuantity: 2,
-          remainingValue: 4000,
+          units: 2,
+          unitPrice: 2000,
+          unitDiscount: 0,
+          value: 4000,
         },
       ],
       shipping: [
@@ -236,9 +239,9 @@ describe('EcommerceInvoiceService.selection', () => {
           value: 500,
         },
       ],
+      discounts: [],
       payments: [{ paymentId, amount: 4500, refunded: 0, net: 4500 }],
       excess: 0,
-      stranded: { products: 0, shipping: 0 },
       overInvoiced: { shipping: 0 },
     });
   });
@@ -247,12 +250,9 @@ describe('EcommerceInvoiceService.selection', () => {
     const { c, inv } = setup();
     const id = await order(c);
     await c.orders.cancel(id, 'user:1');
-    expect(await inv.selection(id)).toMatchObject({
-      lines: [],
-      shipping: [],
-      payments: [],
-      stranded: { products: 0, shipping: 0 },
-    });
+    const empty = await inv.selection(id);
+    expect(empty).toMatchObject({ lines: [], shipping: [], discounts: [], payments: [] });
+    expect(empty).not.toHaveProperty('stranded');
   });
 });
 
@@ -327,8 +327,9 @@ describe('EcommerceInvoiceService.issue', () => {
     expect(draft.payments).toEqual([{ method: 'MANUAL', amount: 4500, name: '', date: DATE }]);
     const history = c.tables[UIDS.orderHistory].find((h) => h.type === 'INVOICE_ISSUED');
     expect(history.newValue.selection).toEqual({
-      lines: [{ orderLineId: lineId, quantity: 2, value: 4000 }],
+      lines: [{ orderLineId: lineId, units: 2, value: 4000, discountShare: 0 }],
       shippingLineIds: [1],
+      discountIds: [],
       paymentIds: [paymentId],
     });
     expect(c.events.filter((e) => e.type === 'INVOICE_ISSUED')).toEqual([
@@ -361,16 +362,24 @@ describe('EcommerceInvoiceService.issue', () => {
     expect((await inv.selection(id)).payments).toEqual([]);
   });
 
-  it('invoices in parts', async () => {
+  it('invoices in parts, whole items each time', async () => {
     const { c, inv } = setup();
-    const id = await order(c, [2000, 2500]);
+    // 1 × 200 (S) + 1 × 2000 (M) + 500 shipping = 2700, paid 2000 + 700.
+    const id = await create(c, [
+      { variantId: 12, quantity: 1 },
+      { variantId: 10, quantity: 1 },
+    ]);
+    await pay(c, id, 2000, 'p1');
+    await pay(c, id, 700, 'p2');
     const [p1, p2] = paymentRows(c, id);
-    const lineId = lineIdOf(c, id);
+    const small = lineIdOf(c, id, 12);
+    const medium = lineIdOf(c, id, 10);
     const first = await inv.issue(
       id,
       {
-        lines: [{ orderLineId: lineId, quantity: 1 }],
+        orderLineIds: [medium],
         shippingLineIds: [],
+        discountIds: [],
         paymentIds: [p1.id],
         expectedTotal: 2000,
         idempotencyKey: 'k1',
@@ -380,15 +389,13 @@ describe('EcommerceInvoiceService.issue', () => {
     expect(first).toMatchObject({ status: 'ISSUED', total: 2000, paymentIds: [p1.id] });
 
     const left = await inv.selection(id);
-    expect(left.lines).toEqual([
-      expect.objectContaining({ orderLineId: lineId, remainingQuantity: 1, remainingValue: 2000 }),
-    ]);
+    expect(left.lines).toEqual([expect.objectContaining({ orderLineId: small, units: 1, value: 200 })]);
     expect(left.shipping.map((s: any) => s.shippingLineId)).toEqual([1]);
-    expect(left.payments).toEqual([{ paymentId: p2.id, amount: 2500, refunded: 0, net: 2500 }]);
+    expect(left.payments).toEqual([{ paymentId: p2.id, amount: 700, refunded: 0, net: 700 }]);
     const second = await testIssueAll(c, id, 'k2');
-    expect(second).toMatchObject({ status: 'ISSUED', total: 2500, paymentIds: [p2.id] });
+    expect(second).toMatchObject({ status: 'ISSUED', total: 700, paymentIds: [p2.id] });
     expect(first.total + second.total).toBe(orderRow(c, id).total);
-    expect(await inv.selection(id)).toMatchObject({ lines: [], shipping: [], payments: [] });
+    expect(await inv.selection(id)).toMatchObject({ lines: [], shipping: [], discounts: [], payments: [] });
   });
 
   it('a gift line at 0 € is invoiced as a 0 line', async () => {
@@ -417,8 +424,10 @@ describe('EcommerceInvoiceService.issue', () => {
     const selection = await inv.selection(id);
     expect(selection.lines.find((l: any) => l.orderLineId === 900)).toMatchObject({
       isGift: true,
-      remainingQuantity: 1,
-      remainingValue: 0,
+      units: 1,
+      unitPrice: 200,
+      unitDiscount: 200,
+      value: 0,
     });
     const view = await testIssueAll(c, id, 'k1');
     expect(view.total).toBe(4500);
@@ -427,7 +436,7 @@ describe('EcommerceInvoiceService.issue', () => {
     );
   });
 
-  it('a negative shipping line is never offered and lowers the shipping value', async () => {
+  it('a negative shipping line is offered as its own item at its negative value', async () => {
     const { c, inv } = setup();
     const id = await order(c, []);
     const row = orderRow(c, id);
@@ -439,11 +448,18 @@ describe('EcommerceInvoiceService.issue', () => {
     row.total -= 200;
     await pay(c, id, 4300, 'p1');
     const selection = await inv.selection(id);
-    expect(selection.shipping).toEqual([expect.objectContaining({ shippingLineId: 1, value: 300 })]);
+    expect(selection.shipping).toEqual([
+      expect.objectContaining({ shippingLineId: 1, value: 500 }),
+      expect.objectContaining({ shippingLineId: 2, value: -200 }),
+    ]);
     const view = await testIssueAll(c, id, 'k1');
     expect(view.total).toBe(4300);
     expect(view.lines).toContainEqual(
-      expect.objectContaining({ kind: 'SHIPPING', shippingLineId: 1, total: 300, grossTotal: 500 })
+      expect.objectContaining({ kind: 'SHIPPING', shippingLineId: 1, total: 500, grossTotal: 500 })
+    );
+    // Stored as is (the reader keeps only a positive grossTotal).
+    expect(invoiceRows(c)[0].lines.lines).toContainEqual(
+      expect.objectContaining({ kind: 'SHIPPING', shippingLineId: 2, total: -200, grossTotal: -200 })
     );
   });
 
@@ -452,10 +468,11 @@ describe('EcommerceInvoiceService.issue', () => {
     const id = await order(c);
     const paymentId = paymentRows(c, id)[0].id;
     const input = {
-      lines: [{ orderLineId: lineIdOf(c, id), quantity: 1 }],
+      orderLineIds: [lineIdOf(c, id)],
       shippingLineIds: [],
+      discountIds: [],
       paymentIds: [paymentId],
-      expectedTotal: 2000,
+      expectedTotal: 4000,
       idempotencyKey: 'k1',
     };
     expect(await codesOf(inv.issue(id, input, 'user:1'))).toEqual(['INVOICE_TOTALS_DIFFER']);
@@ -476,15 +493,64 @@ describe('EcommerceInvoiceService.issue', () => {
     expect(invoiceRows(c)).toEqual([]);
   });
 
-  it('a quantity above what is left → QUANTITY_EXCEEDS_UNINVOICED', async () => {
-    const { c, inv } = setup();
+  it('a request in the old shape (lines with quantities) → orderLineIds required, nothing written', async () => {
+    const { c, inv, provider } = setup();
     const id = await order(c);
     const paymentId = paymentRows(c, id)[0].id;
-    const input = { ...everything(c, id, [paymentId], 'k1') };
-    input.lines = [{ orderLineId: lineIdOf(c, id), quantity: 3 }];
-    const err: any = await inv.issue(id, input, 'user:1').catch((e: unknown) => e);
-    expect(err.errors).toEqual([{ path: 'lines.0.quantity', code: 'QUANTITY_EXCEEDS_UNINVOICED' }]);
+    const err: any = await inv
+      .issue(
+        id,
+        {
+          lines: [{ orderLineId: lineIdOf(c, id), quantity: 2 }],
+          shippingLineIds: [1],
+          paymentIds: [paymentId],
+          expectedTotal: 4500,
+          idempotencyKey: 'k1',
+        } as any,
+        'user:1'
+      )
+      .catch((e: unknown) => e);
+    expect(err.errors).toEqual([{ path: 'orderLineIds', code: 'required' }]);
+    expect(provider.issue).not.toHaveBeenCalled();
     expect(invoiceRows(c)).toEqual([]);
+  });
+
+  it('an invoiced line → LINE_ALREADY_INVOICED; an unknown discount → DISCOUNT_NOT_INVOICEABLE', async () => {
+    const { c, inv } = setup();
+    const id = await order(c, [4000, 500]);
+    const [p1, p2] = paymentRows(c, id);
+    const lineId = lineIdOf(c, id);
+    await inv.issue(
+      id,
+      {
+        orderLineIds: [lineId],
+        shippingLineIds: [],
+        discountIds: [],
+        paymentIds: [p1.id],
+        expectedTotal: 4000,
+        idempotencyKey: 'k1',
+      },
+      'user:1'
+    );
+    const err: any = await inv
+      .issue(
+        id,
+        {
+          orderLineIds: [lineId],
+          shippingLineIds: [1],
+          discountIds: ['m:9'],
+          paymentIds: [p2.id],
+          expectedTotal: 500,
+          idempotencyKey: 'k2',
+        },
+        'user:1'
+      )
+      .catch((e: unknown) => e);
+    expect(err.errors).toEqual([
+      { path: 'orderLineIds.0', code: 'LINE_ALREADY_INVOICED' },
+      { path: 'discountIds.0', code: 'DISCOUNT_NOT_INVOICEABLE' },
+    ]);
+    expect(invoiceRows(c)).toHaveLength(1);
   });
 
   it('Review Focus 1: excess refunded as new store credit: the payment is listed at its net and the invoice is the net', async () => {
@@ -607,7 +673,7 @@ describe('EcommerceInvoiceService.issue', () => {
 
     await inv.reconcile(view.id, { markFailed: true }, 'user:2');
     const back = await inv.selection(id);
-    expect(back.lines).toEqual([expect.objectContaining({ remainingQuantity: 2, remainingValue: 4000 })]);
+    expect(back.lines).toEqual([expect.objectContaining({ units: 2, value: 4000 })]);
     expect(back.shipping).toEqual([expect.objectContaining({ shippingLineId: 1, value: 500 })]);
     expect(back.payments).toEqual([{ paymentId, amount: 4500, refunded: 0, net: 4500 }]);
     expect((await c.orders.get(id)).availableActions).toContain('ISSUE_INVOICE');
@@ -655,11 +721,9 @@ describe('EcommerceInvoiceService.issue', () => {
       second = await inv.issue(
         id,
         {
-          lines: [
-            { orderLineId: small, quantity: 1 },
-            { orderLineId: medium, quantity: 1 },
-          ],
+          orderLineIds: [small, medium],
           shippingLineIds: [],
+          discountIds: [],
           paymentIds: [p2.id],
           expectedTotal: 2200,
           idempotencyKey: 'k2',
@@ -671,8 +735,9 @@ describe('EcommerceInvoiceService.issue', () => {
     const first = await inv.issue(
       id,
       {
-        lines: [{ orderLineId: small, quantity: 1 }],
+        orderLineIds: [small],
         shippingLineIds: [],
+        discountIds: [],
         paymentIds: [p1.id],
         expectedTotal: 200,
         idempotencyKey: 'k1',
@@ -905,6 +970,162 @@ describe('EcommerceInvoiceService.issue', () => {
   });
 });
 
+describe('EcommerceInvoiceService: whole items', () => {
+  /**
+   * 2 × 3100 (M) + 1 × 3100 discounted 3100 (S, free) + 300 shipping − manual discount 1000
+   * = 5500, paid 5500.
+   */
+  const discounted = async (c: Commerce) => {
+    const id = await create(c, [
+      { variantId: 10, quantity: 2 },
+      { variantId: 12, quantity: 1 },
+    ]);
+    const medium = c.tables[UIDS.orderLine].find((l) => l.order === id && l.variantId === 10);
+    medium.unitPrice = 3100;
+    medium.unitDiscount = 0;
+    const small = c.tables[UIDS.orderLine].find((l) => l.order === id && l.variantId === 12);
+    small.unitPrice = 3100;
+    small.unitDiscount = 3100;
+    const row = orderRow(c, id);
+    row.shippingLines.lines[0].amount = 300;
+    row.shippingOriginal = 300;
+    row.shippingTotal = 300;
+    row.shippingDiscount = 0;
+    row.orderDiscount = 1000;
+    row.manualDiscounts = {
+      items: [
+        {
+          id: 1,
+          kind: 'FIXED',
+          percent: null,
+          amount: 1000,
+          reason: 'Loyal customer',
+          createdAt: '2025-03-01T10:00:00.000Z',
+          actor: 'user:1',
+        },
+      ],
+    };
+    row.total = 5500;
+    await pay(c, id, 5500, `pay-${id}`);
+    return { id, medium: medium.id as number, small: small.id as number };
+  };
+
+  it('selection lists whole lines, shipping and discount items', async () => {
+    const { c, inv } = setup();
+    const { id, medium, small } = await discounted(c);
+    const s = await inv.selection(id);
+    expect(s.discounts).toEqual([
+      { id: 'm:1', kind: 'ORDER', label: 'Loyal customer', amount: 1000, manualKind: 'FIXED', percent: null },
+    ]);
+    expect(s.lines.map((l: any) => [l.orderLineId, l.units, l.unitPrice, l.unitDiscount, l.value])).toEqual([
+      [medium, 2, 3100, 0, 6200],
+      [small, 1, 3100, 3100, 0],
+    ]);
+    expect(s.lines.map((l: any) => l.value)).toEqual([6200, 0]);
+    expect(s.shipping).toEqual([expect.objectContaining({ shippingLineId: 1, value: 300 })]);
+    expect(s).not.toHaveProperty('stranded');
+  });
+
+  it('issue stores ITEM/SHIPPING lines net of their share and one DISCOUNT line per discount', async () => {
+    const { c, inv, provider } = setup();
+    const { id, medium, small } = await discounted(c);
+    const paymentId = paymentRows(c, id)[0].id;
+    const view = await inv.issue(
+      id,
+      {
+        orderLineIds: [medium, small],
+        shippingLineIds: [1],
+        discountIds: ['m:1'],
+        paymentIds: [paymentId],
+        expectedTotal: 5500,
+        idempotencyKey: 'k1',
+      },
+      'user:1'
+    );
+    expect(view).toMatchObject({ status: 'ISSUED', total: 5500, paymentIds: [paymentId] });
+    const items = view.lines.filter((l: any) => l.kind === 'ITEM');
+    expect(items.map((l: any) => l.total)).toEqual([5200, 0]);
+    expect(items.map((l: any) => l.discountShare)).toEqual([1000, 0]);
+    expect(items.map((l: any) => [l.quantity, l.grossTotal])).toEqual([
+      [2, 6200],
+      [1, 3100],
+    ]);
+    expect(view.lines.filter((l: any) => l.kind === 'SHIPPING')).toEqual([
+      expect.objectContaining({ shippingLineId: 1, total: 300, grossTotal: 300, discountShare: 0 }),
+    ]);
+    const stored = invoiceRows(c)[0].lines.lines;
+    expect(stored.filter((l: any) => l.kind === 'DISCOUNT')).toEqual([
+      {
+        kind: 'DISCOUNT',
+        orderLineId: null,
+        sku: 'DISCOUNT',
+        name: 'Loyal customer',
+        quantity: 1,
+        total: -1000,
+        grossTotal: -1000,
+        tax: 0,
+        partial: false,
+        discountId: 'm:1',
+      },
+    ]);
+    // The document total is the ITEM and SHIPPING lines; the DISCOUNT line is a record.
+    const draft: InvoiceDraft = provider.issue.mock.calls[0][0];
+    expect(draft.total).toBe(5500);
+    expect(
+      draft.lines.filter((l) => l.kind !== 'DISCOUNT').reduce((s, l) => s + l.total, 0)
+    ).toBe(5500);
+    expect(allocations(c)).toEqual([
+      expect.objectContaining({ payment: paymentId, amount: 5500, uniqueKey: `payment:${paymentId}` }),
+    ]);
+    const history = c.tables[UIDS.orderHistory].find((h) => h.type === 'INVOICE_ISSUED');
+    expect(history.newValue.selection).toEqual({
+      lines: [
+        { orderLineId: medium, units: 2, value: 6200, discountShare: 1000 },
+        { orderLineId: small, units: 1, value: 0, discountShare: 0 },
+      ],
+      shippingLineIds: [1],
+      discountIds: ['m:1'],
+      paymentIds: [paymentId],
+    });
+  });
+
+  it('an invoiced item is never offered again', async () => {
+    const { c, inv } = setup();
+    const { id } = await discounted(c);
+    const view = await testIssueAll(c, id, 'k1');
+    expect(view).toMatchObject({ status: 'ISSUED', total: 5500 });
+    const after = await inv.selection(id);
+    expect(after.lines).toEqual([]);
+    expect(after.discounts).toEqual([]);
+    expect(after.shipping).toEqual([]);
+    expect(after.payments).toEqual([]);
+    const o = await c.orders.get(id);
+    expect(o.availableActions).not.toContain('ISSUE_INVOICE');
+  });
+
+  it('a discount larger than the selected lines → DISCOUNT_EXCEEDS_SELECTION, nothing written', async () => {
+    const { c, inv } = setup();
+    const { id, small } = await discounted(c);
+    const paymentId = paymentRows(c, id)[0].id;
+    const err: any = await inv
+      .issue(
+        id,
+        {
+          orderLineIds: [small],
+          shippingLineIds: [],
+          discountIds: ['m:1'],
+          paymentIds: [paymentId],
+          expectedTotal: 0,
+          idempotencyKey: 'k1',
+        },
+        'user:1'
+      )
+      .catch((e: unknown) => e);
+    expect(err.errors).toEqual([{ path: 'discountIds', code: 'DISCOUNT_EXCEEDS_SELECTION' }]);
+    expect(invoiceRows(c)).toEqual([]);
+  });
+});
+
 describe('EcommerceInvoiceService: a late provider success after the row was made FAILED', () => {
   const STALE = () => new Date(Date.now() - 6 * 60 * 1000).toISOString();
   const paths: [string, (inv: any, id: number) => Promise<unknown>][] = [
@@ -1122,8 +1343,8 @@ describe('EcommerceInvoiceService credit notes', () => {
       expect.objectContaining({ kind: 'ITEM', quantity: 1, total: 2000 }),
       expect.objectContaining({ kind: 'SHIPPING', quantity: 1, total: 500, shippingLineId: 1 }),
     ]);
-    // Its value has no line left to carry it: stranded, shown by the modal, never selectable.
-    expect(await inv.selection(id)).toMatchObject({ shipping: [], stranded: { products: 0, shipping: 500 } });
+    // The shipping line stays invoiced: never offered again.
+    expect((await inv.selection(id)).shipping).toEqual([]);
     expect((await inv.creditNotePreview(view.id)).shipping).toEqual([]);
     const order1 = await c.orders.get(id);
     expect(order1.shippingLines.find((l: any) => l.id === 1).invoiced).toBe(true);
@@ -1158,7 +1379,7 @@ describe('EcommerceInvoiceService credit notes', () => {
     expect(creditHistory(c)[0].newValue).toMatchObject({ creditType: 'CORRECTION' });
     expect(allocations(c)[0].uniqueKey).toBeNull();
     const back = await inv.selection(id);
-    expect(back.lines).toEqual([expect.objectContaining({ remainingQuantity: 2, remainingValue: 4000 })]);
+    expect(back.lines).toEqual([expect.objectContaining({ units: 2, value: 4000 })]);
     expect(back.shipping).toEqual([expect.objectContaining({ shippingLineId: 1, value: 500 })]);
     expect(back.payments).toEqual([{ paymentId, amount: 4500, refunded: 0, net: 4500 }]);
     expect((await c.orders.get(id)).availableActions).toContain('ISSUE_INVOICE');
@@ -1215,9 +1436,7 @@ describe('EcommerceInvoiceService credit notes', () => {
       expect.objectContaining({ kind: 'SHIPPING', total: 500 }),
     ]);
     // Annulled: the order's one kept unit (2 − 1 returned) is invoiceable again, never the returned one.
-    expect((await inv.selection(id)).lines).toEqual([
-      expect.objectContaining({ remainingQuantity: 1, remainingValue: 2000 }),
-    ]);
+    expect((await inv.selection(id)).lines).toEqual([expect.objectContaining({ units: 1, value: 2000 })]);
   });
 
   it('refuses a RETURN above the returnable units, an empty RETURN and a CORRECTION with lines; nothing is written', async () => {
@@ -1513,12 +1732,13 @@ describe('shipping lowered below what was invoiced', () => {
     expect(after.overInvoiced).toEqual({ shipping: 0 });
     const newPayment = paymentRows(c, id).find((p) => p.id !== firstPayment).id;
     expect(after.payments).toEqual([{ paymentId: newPayment, amount: 2000, refunded: 0, net: 2000 }]);
-    expect(after.lines).toEqual([expect.objectContaining({ orderLineId: lineId, remainingQuantity: 1, remainingValue: 2000 })]);
+    expect(after.lines).toEqual([expect.objectContaining({ orderLineId: lineId, units: 1, value: 2000 })]);
     const issued = await inv.issue(
       id,
       {
-        lines: [{ orderLineId: lineId, quantity: 1 }],
+        orderLineIds: [lineId],
         shippingLineIds: [],
+        discountIds: [],
         paymentIds: [newPayment],
         expectedTotal: 2000,
         idempotencyKey: 'k2',

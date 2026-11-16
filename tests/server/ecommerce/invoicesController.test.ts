@@ -25,8 +25,9 @@ const mkCtx = (extra: any = {}): any => {
 };
 const body = (b: any) => mkCtx({ request: { body: b } });
 const VALID_ISSUE = {
-  lines: [{ orderLineId: 3, quantity: 1 }],
+  orderLineIds: [3],
   shippingLineIds: [],
+  discountIds: [],
   paymentIds: [4],
   expectedTotal: 2000,
   idempotencyKey: 'k',
@@ -42,12 +43,13 @@ describe('EcommerceInvoiceController', () => {
     expect(ctx.body).toEqual({ lines: [], shipping: [], payments: [], excess: 0 });
   });
 
-  it('issue returns 201 and validates lines (positive integers), shippingLineIds and paymentIds (positive-integer arrays, at most 200), expectedTotal (cents) and idempotencyKey', async () => {
+  it('issue returns 201 and validates orderLineIds, shippingLineIds and paymentIds (positive-integer arrays, at most 200), discountIds (non-empty strings), expectedTotal (cents) and idempotencyKey', async () => {
     const issue = vi.fn().mockResolvedValue({ id: 1, status: 'ISSUED' });
     const c = createInvoices({ strapi: strapiWith({ issue }) });
     const valid = {
-      lines: [{ orderLineId: 3, quantity: 2 }],
+      orderLineIds: [3, 4],
       shippingLineIds: [1],
+      discountIds: ['m:1', 'p:5:0'],
       paymentIds: [4, 5],
       expectedTotal: 4500,
       idempotencyKey: 'k',
@@ -56,19 +58,27 @@ describe('EcommerceInvoiceController', () => {
     await c.issue(ctx);
     expect(ctx.status).toBe(201);
     expect(issue).toHaveBeenCalledWith(5, valid, 'user:7');
-    // A shipping-only invoice: no lines.
-    await c.issue(body({ ...valid, lines: [], idempotencyKey: 'k2' }));
-    expect(issue).toHaveBeenLastCalledWith(5, { ...valid, lines: [], idempotencyKey: 'k2' }, 'user:7');
+    // A shipping-only invoice: no lines, no discounts (absent lists read as empty).
+    await c.issue(body({ shippingLineIds: [1], paymentIds: [4], expectedTotal: 500, idempotencyKey: 'k2' }));
+    expect(issue).toHaveBeenLastCalledWith(
+      5,
+      { orderLineIds: [], shippingLineIds: [1], discountIds: [], paymentIds: [4], expectedTotal: 500, idempotencyKey: 'k2' },
+      'user:7'
+    );
     const many = Array.from({ length: 201 }, (_, i) => i + 1);
     for (const bad of [
-      { ...valid, lines: [{ orderLineId: 0, quantity: 1 }] },
-      { ...valid, lines: [{ orderLineId: 3, quantity: 1.5 }] },
-      { ...valid, lines: [{ orderLineId: 3, quantity: 0 }] },
-      { ...valid, lines: 'x' },
-      { ...valid, lines: many.map((id) => ({ orderLineId: id, quantity: 1 })) },
+      { ...valid, orderLineIds: [0] },
+      { ...valid, orderLineIds: [1.5] },
+      { ...valid, orderLineIds: ['3'] },
+      { ...valid, orderLineIds: 'x' },
+      { ...valid, orderLineIds: many },
       { ...valid, shippingLineIds: [0] },
       { ...valid, shippingLineIds: ['1'] },
       { ...valid, shippingLineIds: many },
+      { ...valid, discountIds: [''] },
+      { ...valid, discountIds: [1] },
+      { ...valid, discountIds: ['x'.repeat(101)] },
+      { ...valid, discountIds: many.map((i) => `m:${i}`) },
       { ...valid, paymentIds: [1.5] },
       { ...valid, paymentIds: {} },
       { ...valid, paymentIds: many },
@@ -85,11 +95,31 @@ describe('EcommerceInvoiceController', () => {
     expect(issue).toHaveBeenCalledTimes(2);
   });
 
+  it('issue refuses a request in the old shape (lines with quantities): orderLineIds required', async () => {
+    const issue = vi.fn();
+    const c = createInvoices({ strapi: strapiWith({ issue }) });
+    const ctx = body({
+      lines: [{ orderLineId: 3, quantity: 2 }],
+      shippingLineIds: [1],
+      paymentIds: [4],
+      expectedTotal: 4500,
+      idempotencyKey: 'k',
+    });
+    await c.issue(ctx);
+    expect(ctx.badRequest).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: 'required', errors: [{ path: 'orderLineIds', code: 'required' }] })
+    );
+    expect(issue).not.toHaveBeenCalled();
+  });
+
   it.each([
     'PAYMENT_NOT_INVOICEABLE',
     'INVOICE_EXCESS_UNRESOLVED',
     'QUANTITY_EXCEEDS_UNINVOICED',
     'SHIPPING_LINE_NOT_INVOICEABLE',
+    'LINE_ALREADY_INVOICED',
+    'DISCOUNT_NOT_INVOICEABLE',
     'TOTAL_CHANGED',
   ])('%s is a 409', async (code) => {
     const issue = vi.fn().mockRejectedValue(new EcommerceValidationError('x', [{ path: 'p', code }]));
@@ -100,7 +130,7 @@ describe('EcommerceInvoiceController', () => {
     expect(ctx.body.error.details.code).toBe(code);
   });
 
-  it.each(['ACTION_NOT_AVAILABLE', 'INVOICE_TOTALS_DIFFER', 'duplicate'])('validation code %s is a 400 with code', async (code) => {
+  it.each(['ACTION_NOT_AVAILABLE', 'INVOICE_TOTALS_DIFFER', 'DISCOUNT_EXCEEDS_SELECTION', 'duplicate'])('validation code %s is a 400 with code', async (code) => {
     const issue = vi.fn().mockRejectedValue(new EcommerceValidationError('x', [{ path: 'p', code }]));
     const c = createInvoices({ strapi: strapiWith({ issue }) });
     const ctx = body(VALID_ISSUE);
