@@ -32,7 +32,16 @@ const ShippingChargesTable = ({ rows, onEdit, onRemove }: Props) => {
   const t = (id: string, values?: Record<string, any>, defaultMessage?: string) =>
     formatMessage({ id: getTranslation(id), defaultMessage }, values);
   const money = (cents: number) => formatCents(cents, locale);
-  const columns = ['method', 'date', 'amount', 'status', ...(hasRowActions(rows) ? ['actions'] : [])];
+  // Only the buttons this table can show: no button on any row, no Actions column.
+  const shown = (actions: ShippingLineRow['actions']) =>
+    actions.filter((a) => (a === 'EDIT' && !!onEdit) || (a === 'REMOVE' && !!onRemove));
+  const columns = [
+    'method',
+    'date',
+    'amount',
+    'status',
+    ...(hasRowActions(rows.map((r) => ({ actions: shown(r.actions) }))) ? ['actions'] : []),
+  ];
 
   if (!rows.length) return <EmptyNote>{t('ecommerce.orders.shippingCharges.empty')}</EmptyNote>;
 
