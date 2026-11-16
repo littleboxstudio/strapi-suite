@@ -163,7 +163,7 @@ const TemplateVersionsModal = ({ type, locale, readOnly, onClose, onRestored }: 
           </Modal.Header>
           <Modal.Body>
             <Flex direction="column" alignItems="stretch" gap={3}>
-              <Typography variant="pi" textColor="neutral600">
+              <Typography textColor="neutral800">
                 {t('ecommerce.settings.emailTemplates.versions.description')}
               </Typography>
               {content()}

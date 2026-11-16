@@ -183,6 +183,7 @@ const IntegrationsSection = ({ category, readOnly, markets }: Props) => {
           onToggleActive={(active) => onToggleActive(integration, active)}
           toggleInChildren={integration.id === 'manual' || integration.id === 'store-pickup'}
           hideCredentials={category === 'carrier'}
+          hideSavedCredentials={category === 'email'}
           extraActions={
             integration.id === 'stripe' ? (
               <Button
