@@ -34,7 +34,7 @@ const ConfirmModal = ({ open, title, text, confirm, cancel }: any) => {
                   </Button>
                   <Button
                     fullWidth
-                    variant="danger"
+                    variant={confirm.variant ?? 'danger'}
                     onClick={() => {
                       confirm.action();
                     }}

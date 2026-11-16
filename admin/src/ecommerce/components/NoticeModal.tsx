@@ -19,7 +19,7 @@ const NoticeModal = ({ open, title, text, okLabel, onClose }: Props) => (
       </Dialog.Body>
       <Dialog.Footer>
         <Flex style={{ width: '100%' }}>
-          <Button fullWidth onClick={onClose}>
+          <Button variant="secondary" fullWidth onClick={onClose}>
             {okLabel}
           </Button>
         </Flex>

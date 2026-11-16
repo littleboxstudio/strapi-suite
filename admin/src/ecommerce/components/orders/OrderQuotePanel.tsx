@@ -1,7 +1,6 @@
 import { type ReactNode, useState } from 'react';
 import { useIntl } from 'react-intl';
 import {
-  Badge,
   Box,
   Button,
   Divider,
@@ -21,6 +20,7 @@ import { giftSelectors, type PromotionCodeError } from '../../utils/orderForm';
 import { manualLineDiscountRows } from '../../utils/orderEditing';
 import { MAX_PROMOTION_CODES, type OrderQuote } from '../../orderTypes';
 import OrderSection from './OrderSection';
+import { ToneBadge } from './StatusBadges';
 
 type Props = {
   codes: string[];
@@ -166,9 +166,9 @@ const OrderQuotePanel = ({
                       {code}
                     </Tag>
                     {status && (
-                      <Badge size="S" variant={codeStatusBadgeVariant(status)}>
+                      <ToneBadge variant={codeStatusBadgeVariant(status)}>
                         {t(`ecommerce.orders.promotions.codeStatus.${status}`)}
-                      </Badge>
+                      </ToneBadge>
                     )}
                   </Flex>
                 );
@@ -228,9 +228,9 @@ const OrderQuotePanel = ({
               ))}
               {gifts.map((g) => (
                 <Flex key={`gift-${g.variantId}`} gap={2} alignItems="center">
-                  <Badge size="S" variant="success">
+                  <ToneBadge variant="success">
                     {t('ecommerce.orders.quote.gift')}
-                  </Badge>
+                  </ToneBadge>
                   <Typography variant="pi" textColor="neutral800">
                     {g.quantity} × {g.name}
                     {g.option ? ` (${g.option})` : ''}

@@ -662,11 +662,11 @@ const IntegrationConfigModal = ({
             {t('ecommerce.settings.cancel')}
           </Button>
           {twoStep && step === 'credentials' ? (
-            <Button onClick={continueToDetails} loading={checking}>
+            <Button variant="secondary" onClick={continueToDetails} loading={checking}>
               {t('ecommerce.settings.integrations.steps.continue')}
             </Button>
           ) : (
-            <Button onClick={save} loading={saving}>
+            <Button variant="secondary" onClick={save} loading={saving}>
               {t('ecommerce.settings.save')}
             </Button>
           )}

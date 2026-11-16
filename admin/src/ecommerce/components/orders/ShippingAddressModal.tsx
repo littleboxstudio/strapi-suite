@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import { Box, Button, Flex, Loader, Modal, Typography } from '@strapi/design-system';
-import { Pin } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchShippingAddressCountries from '../../usecases/orders/fetchShippingAddressCountries';
 import UpdateShippingAddress from '../../usecases/orders/updateShippingAddress';
@@ -226,7 +225,7 @@ const ShippingAddressDialog = ({ order, canManage, onSaved, onClose }: Props & {
               />
               {pickupPoint && editable && !changingPoint && (
                 <Box>
-                  <Button variant="secondary" startIcon={<Pin />} onClick={() => setChangingPoint(true)} disabled={busy}>
+                  <Button variant="secondary" onClick={() => setChangingPoint(true)} disabled={busy}>
                     {t(storeOrder ? 'ecommerce.orders.pickup.store.change' : 'ecommerce.orders.pickup.change')}
                   </Button>
                 </Box>
@@ -267,7 +266,7 @@ const ShippingAddressDialog = ({ order, canManage, onSaved, onClose }: Props & {
             {t('ecommerce.orders.notifications.close')}
           </Button>
           {editable && (
-            <Button onClick={save} loading={busy} disabled={loading || !changed}>
+            <Button variant="secondary" onClick={save} loading={busy} disabled={loading || !changed}>
               {t('ecommerce.orders.address.save')}
             </Button>
           )}
@@ -285,7 +284,7 @@ const ShippingAddressModal = (props: Props) => {
 
   return (
     <>
-      <Button size="S" variant="tertiary" startIcon={<Pin />} onClick={() => setOpenKey((k) => (k ?? 0) + 1)}>
+      <Button size="S" variant="tertiary" onClick={() => setOpenKey((k) => (k ?? 0) + 1)}>
         {formatMessage({ id: getTranslation('ecommerce.orders.detail.address.shipping') })}
       </Button>
       {openKey !== null && (

@@ -342,7 +342,7 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
 
       {!readOnly && (
         <HeaderActions>
-          <Button onClick={save} loading={saving}>
+          <Button variant="secondary" onClick={save} loading={saving}>
             {t('ecommerce.settings.save')}
           </Button>
         </HeaderActions>

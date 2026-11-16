@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { Link as RouterLink } from 'react-router-dom';
-import { Badge, Flex, Link, Loader, Table, Tbody, Td, Th, Thead, Tr, Typography } from '@strapi/design-system';
+import { Flex, Link, Loader, Table, Tbody, Td, Th, Thead, Tr, Typography } from '@strapi/design-system';
 import config from '../../../core/config';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchPromotionRedemptions from '../../usecases/promotions/fetchPromotionRedemptions';
 import ListPagination from '../ListPagination';
 import { formatCents } from '../../utils/money';
 import type { PromotionRedemption } from '../../promotionTypes';
+import { ToneBadge } from '../orders/StatusBadges';
 
 const COLUMNS = ['order', 'customer', 'amount', 'status', 'date'] as const;
 
@@ -97,9 +98,9 @@ const RedemptionsTable = ({ promotionId }: { promotionId: number }) => {
                 <Typography textColor="neutral800">{formatCents(r.amount, locale)}</Typography>
               </Td>
               <Td>
-                <Badge variant={r.status === 'RESERVED' ? 'success' : 'neutral'} size="S">
+                <ToneBadge variant={r.status === 'RESERVED' ? 'success' : 'neutral'}>
                   {t(`${p}.statuses.${r.status}`)}
-                </Badge>
+                </ToneBadge>
               </Td>
               <Td>
                 <Typography textColor="neutral800">

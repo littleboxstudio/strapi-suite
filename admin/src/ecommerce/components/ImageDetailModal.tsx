@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useIntl } from 'react-intl';
 import { Button, Flex, Modal, Typography } from '@strapi/design-system';
-import { Trash } from '@strapi/icons';
 import ConfirmModal from '../../components/ConfirmModal';
 import { getTranslation } from '../../core/utils/getTranslation';
 import DeleteProductImage from '../usecases/deleteProductImage';
@@ -75,7 +74,6 @@ const ImageDetailModal = ({ image, onClose, onDeleted }: Props) => {
             </Button>
             <Button
               variant="danger-light"
-              startIcon={<Trash />}
               onClick={() => setConfirming(true)}
               loading={deleting}
               disabled={deleting}
@@ -89,7 +87,7 @@ const ImageDetailModal = ({ image, onClose, onDeleted }: Props) => {
         open={confirming}
         title={t('ecommerce.image.detail.confirmTitle')}
         text={t('ecommerce.image.detail.confirmText')}
-        confirm={{ button: t('ecommerce.image.detail.delete'), action: remove }}
+        confirm={{ variant: 'danger-light', button: t('ecommerce.image.detail.delete'), action: remove }}
         cancel={{ button: t('ecommerce.image.detail.cancel'), action: () => setConfirming(false) }}
       />
     </>

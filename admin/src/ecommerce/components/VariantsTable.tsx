@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useIntl } from 'react-intl';
 import styled from 'styled-components';
 import {
-  Badge,
   Box,
   Button,
   Flex,
@@ -16,13 +15,14 @@ import {
   Typography,
   VisuallyHidden,
 } from '@strapi/design-system';
-import { Pencil, Plus, Trash } from '@strapi/icons';
+import { Pencil, Trash } from '@strapi/icons';
 import ConfirmModal from '../../components/ConfirmModal';
 import { NoticeModal } from './NoticeModal';
 import { getTranslation } from '../../core/utils/getTranslation';
 import EmptyVariants from '../illustrations/EmptyVariants';
 import { formatCents } from '../utils/money';
 import { hasErrorsUnder, type ErrorMap, type FormVariant } from '../utils/productForm';
+import { ToneBadge } from './orders/StatusBadges';
 
 type Props = {
   variants: FormVariant[];
@@ -67,7 +67,7 @@ const VariantsTable = ({
         <Typography variant="omega" textColor="neutral600">
           {t('ecommerce.product.variants.empty')}
         </Typography>
-        <Button startIcon={<Plus />} onClick={onAdd} disabled={disabled}>
+        <Button variant="secondary" onClick={onAdd} disabled={disabled}>
           {t('ecommerce.product.variants.add')}
         </Button>
       </Flex>
@@ -168,11 +168,11 @@ const VariantsTable = ({
                 </Td>
                 <Td>
                   {v.active ? (
-                    <Badge backgroundColor="success100" textColor="success700">
+                    <ToneBadge variant="success">
                       {t('ecommerce.product.variants.active')}
-                    </Badge>
+                    </ToneBadge>
                   ) : (
-                    <Badge>{t('ecommerce.product.variants.inactive')}</Badge>
+                    <ToneBadge>{t('ecommerce.product.variants.inactive')}</ToneBadge>
                   )}
                 </Td>
                 <Td>
@@ -203,7 +203,7 @@ const VariantsTable = ({
         </Tbody>
       </Table>
       <Flex justifyContent="flex-start">
-        <Button variant="secondary" startIcon={<Plus />} onClick={onAdd} disabled={disabled}>
+        <Button variant="secondary" onClick={onAdd} disabled={disabled}>
           {t('ecommerce.product.variants.add')}
         </Button>
       </Flex>
@@ -219,6 +219,7 @@ const VariantsTable = ({
         title={t('ecommerce.product.variants.removeConfirm.title')}
         text={t('ecommerce.product.variants.removeConfirm.text')}
         confirm={{
+          variant: 'danger-light',
           button: t('ecommerce.product.variants.remove'),
           action: () => {
             if (confirmIndex !== null && !disabled) onRemove(confirmIndex);

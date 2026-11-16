@@ -111,7 +111,7 @@ const TestEmailModal = ({ type, locale, defaultTo, unsaved = false, onClose }: P
           <Button variant="tertiary" onClick={onClose}>
             {t('ecommerce.settings.emailTemplates.close')}
           </Button>
-          <Button onClick={send} loading={sending} disabled={to.trim() === ''}>
+          <Button variant="secondary" onClick={send} loading={sending} disabled={to.trim() === ''}>
             {t('ecommerce.settings.emailTemplates.test.send')}
           </Button>
         </Modal.Footer>

@@ -107,7 +107,7 @@ const DeliveryModal = ({ shipment, onClose, onDelivered }: Props) => {
           <Button variant="tertiary" onClick={onClose} disabled={saving}>
             {t('ecommerce.orders.shipments.back')}
           </Button>
-          <Button onClick={askConfirm} loading={saving}>
+          <Button variant="secondary" onClick={askConfirm} loading={saving}>
             {t('ecommerce.orders.shipments.deliver.confirm')}
           </Button>
         </Modal.Footer>

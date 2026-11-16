@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import { Box, Button, Field, Flex, Loader, TextInput, Typography } from '@strapi/design-system';
-import { ArrowClockwise, Key, WarningCircle } from '@strapi/icons';
+import { Key, WarningCircle } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchStoreSettings from '../../usecases/settings/fetchStoreSettings';
 import FetchStorefrontToken from '../../usecases/settings/fetchStorefrontToken';
@@ -245,7 +245,6 @@ const StorefrontSettings = ({ readOnly }: { readOnly: boolean }) => {
               {actions.regenerate && (
                 <Button
                   variant="danger-light"
-                  startIcon={<ArrowClockwise />}
                   onClick={() => setConfirmRegenerate(true)}
                   loading={tokenBusy}
                 >
@@ -267,8 +266,7 @@ const StorefrontSettings = ({ readOnly }: { readOnly: boolean }) => {
               {t('ecommerce.settings.storefrontApi.token.none')}
             </Typography>
             {actions.generate && (
-              <Button
-                startIcon={<Key />}
+              <Button variant="secondary"
                 onClick={() => runTokenAction('generate')}
                 loading={tokenBusy}
               >
@@ -323,7 +321,7 @@ const StorefrontSettings = ({ readOnly }: { readOnly: boolean }) => {
 
         {!readOnly && (
           <HeaderActions>
-            <Button onClick={save} loading={saving}>
+            <Button variant="secondary" onClick={save} loading={saving}>
               {t('ecommerce.settings.save')}
             </Button>
           </HeaderActions>
@@ -362,6 +360,7 @@ const StorefrontSettings = ({ readOnly }: { readOnly: boolean }) => {
         title={t('ecommerce.settings.storefrontApi.regenerateConfirm.title')}
         text={t('ecommerce.settings.storefrontApi.regenerateConfirm.text')}
         confirm={{
+          variant: 'danger-light',
           button: t('ecommerce.settings.storefrontApi.regenerate'),
           action: () => {
             setConfirmRegenerate(false);

@@ -2,7 +2,6 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import {
-  Badge,
   Box,
   Button,
   Flex,
@@ -16,7 +15,6 @@ import {
   Typography,
   VisuallyHidden,
 } from '@strapi/design-system';
-import { Plus } from '@strapi/icons';
 import ConfirmModal from '../../../components/ConfirmModal';
 import { NoticeModal } from '../NoticeModal';
 import { getTranslation } from '../../../core/utils/getTranslation';
@@ -27,6 +25,7 @@ import FetchSettingsLocales from '../../usecases/settings/fetchSettingsLocales';
 import { ManualMethodModal } from './ManualMethodModal';
 import type { EcommerceLocales } from '../../types';
 import type { ManualMethod } from '../../settingsTypes';
+import { ToneBadge } from '../orders/StatusBadges';
 
 type Editing = { method: ManualMethod | null };
 
@@ -134,7 +133,7 @@ const ManualMethodsTable = ({ readOnly, markets, toggle }: Props) => {
   // A method needs prices for at least one market, so adding one waits for the store markets.
   const addButton = (variant: 'default' | 'secondary') =>
     !canEdit || markets.length === 0 ? null : (
-      <Button variant={variant} startIcon={<Plus />} onClick={() => setEditing({ method: null })}>
+      <Button variant={variant} onClick={() => setEditing({ method: null })}>
         {t('ecommerce.settings.manualMethods.add')}
       </Button>
     );
@@ -163,7 +162,7 @@ const ManualMethodsTable = ({ readOnly, markets, toggle }: Props) => {
           </Typography>
           <Flex gap={2}>
             {toggle}
-            {addButton('default')}
+            {addButton('secondary')}
           </Flex>
         </Flex>
       );
@@ -206,11 +205,11 @@ const ManualMethodsTable = ({ readOnly, markets, toggle }: Props) => {
                 </Td>
                 <Td>
                   {m.active ? (
-                    <Badge backgroundColor="success100" textColor="success700">
+                    <ToneBadge variant="success">
                       {t('ecommerce.settings.integrations.active')}
-                    </Badge>
+                    </ToneBadge>
                   ) : (
-                    <Badge>{t('ecommerce.settings.integrations.inactive')}</Badge>
+                    <ToneBadge>{t('ecommerce.settings.integrations.inactive')}</ToneBadge>
                   )}
                 </Td>
                 <Td>
@@ -252,6 +251,7 @@ const ManualMethodsTable = ({ readOnly, markets, toggle }: Props) => {
         title={t('ecommerce.settings.manualMethods.deleteConfirm.title')}
         text={t('ecommerce.settings.manualMethods.deleteConfirm.text')}
         confirm={{
+          variant: 'danger-light',
           button: t('ecommerce.settings.manualMethods.delete'),
           action: () => {
             if (confirmDelete && canEdit) remove(confirmDelete);

@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import {
-  Badge,
   Box,
   Button,
   Field,
@@ -29,6 +28,7 @@ import { actorLabel, apiErrorMessageId } from '../../utils/orderDetail';
 import { MAX_LONG_TEXT, isRefreshableStripeRefund, isStuckStripeRefund } from '../../utils/refundForm';
 import type { OrderRefund, RefundView } from '../../orderTypes';
 import ColumnLabel from '../ColumnLabel';
+import { ToneBadge } from './StatusBadges';
 
 type Props = {
   orderId: number;
@@ -228,9 +228,9 @@ const RefundsTable = ({ orderId, summaries, refreshKey, canRefund, onChanged }: 
                 </Td>
                 <Td>
                   <Flex direction="column" alignItems="flex-start" gap={1}>
-                    <Badge variant={STATUS_VARIANT[r.status] ?? 'neutral'} size="S">
+                    <ToneBadge variant={STATUS_VARIANT[r.status] ?? 'neutral'}>
                       {t(`ecommerce.orders.refunds.statuses.${r.status}`, undefined, r.status)}
-                    </Badge>
+                    </ToneBadge>
                     {failure && (
                       <Typography variant="pi" textColor="danger600">
                         {failureText(failure)}
@@ -307,7 +307,7 @@ const RefundsTable = ({ orderId, summaries, refreshKey, canRefund, onChanged }: 
             </Modal.Body>
             <Modal.Footer>
               <span />
-              <Button onClick={() => setViewing(null)}>{t('ecommerce.orders.refunds.details.close')}</Button>
+              <Button variant="secondary" onClick={() => setViewing(null)}>{t('ecommerce.orders.refunds.details.close')}</Button>
             </Modal.Footer>
           </Modal.Content>
         </Modal.Root>
@@ -319,6 +319,7 @@ const RefundsTable = ({ orderId, summaries, refreshKey, canRefund, onChanged }: 
         title={t('ecommerce.orders.refunds.stuck.resumeTitle')}
         text={t('ecommerce.orders.refunds.stuck.warning')}
         confirm={{
+          variant: 'danger-light',
           button: t('ecommerce.orders.refunds.stuck.resumeConfirm'),
           action: () => {
             const target = resuming;
@@ -361,7 +362,7 @@ const RefundsTable = ({ orderId, summaries, refreshKey, canRefund, onChanged }: 
                 {t('ecommerce.orders.refunds.stuck.cancel')}
               </Button>
               <Button
-                variant="danger"
+                variant="danger-light"
                 loading={busy}
                 disabled={note.trim().length > MAX_LONG_TEXT}
                 onClick={() => markFailed(marking)}

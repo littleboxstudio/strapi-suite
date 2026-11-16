@@ -107,7 +107,7 @@ const TrackingModal = ({ shipment, onClose, onSaved }: Props) => {
           <Button variant="tertiary" onClick={onClose} disabled={saving}>
             {t('ecommerce.orders.shipments.back')}
           </Button>
-          <Button onClick={submit} loading={saving}>
+          <Button variant="secondary" onClick={submit} loading={saving}>
             {t('ecommerce.orders.shipments.tracking.save')}
           </Button>
         </Modal.Footer>

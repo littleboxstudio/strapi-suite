@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import { Button, Flex, Loader, Typography } from '@strapi/design-system';
-import { Link as LinkIcon } from '@strapi/icons';
 import ConfirmModal from '../../../components/ConfirmModal';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchIntegrations from '../../usecases/settings/fetchIntegrations';
@@ -183,12 +182,11 @@ const IntegrationsSection = ({ category, readOnly, markets }: Props) => {
           onToggleActive={(active) => onToggleActive(integration, active)}
           toggleInChildren={integration.id === 'manual' || integration.id === 'store-pickup'}
           hideCredentials={category === 'carrier'}
-          hideSavedCredentials={category === 'email'}
+          hideSavedCredentials
           extraActions={
             integration.id === 'stripe' ? (
               <Button
                 variant="secondary"
-                startIcon={<LinkIcon />}
                 onClick={() => setWebhookOpen(true)}
               >
                 {t('ecommerce.settings.stripeWebhook.open')}
@@ -284,6 +282,7 @@ const IntegrationsSection = ({ category, readOnly, markets }: Props) => {
             : ''
         }
         confirm={{
+          variant: 'danger-light',
           button: t('ecommerce.settings.integrations.replaceConfirm.confirm'),
           action: () => {
             if (toActivate) setActive(toActivate, true);

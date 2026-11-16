@@ -218,7 +218,7 @@ const AddPaymentModal = ({ orderId, due, onClose, onAdded }: Props) => {
           <Button variant="tertiary" onClick={onClose} disabled={saving}>
             {t('ecommerce.orders.detail.addPayment.cancel')}
           </Button>
-          <Button onClick={submit} loading={saving}>
+          <Button variant="secondary" onClick={submit} loading={saving}>
             {t(
               tab === 'storeCredit'
                 ? 'ecommerce.orders.detail.addPayment.storeCredit.submit'

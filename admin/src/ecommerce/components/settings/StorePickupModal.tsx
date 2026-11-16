@@ -308,7 +308,7 @@ const StorePickupModal = ({ config, locales, defaultLocale, markets, onClose, on
             <Button variant="tertiary" onClick={onClose}>
               {t('ecommerce.settings.cancel')}
             </Button>
-            <Button onClick={save} loading={saving} disabled={markets.length === 0}>
+            <Button variant="secondary" onClick={save} loading={saving} disabled={markets.length === 0}>
               {t('ecommerce.settings.save')}
             </Button>
           </Modal.Footer>

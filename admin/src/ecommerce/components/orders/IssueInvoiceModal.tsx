@@ -2,7 +2,6 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import {
-  Badge,
   Box,
   Button,
   Checkbox,
@@ -46,6 +45,7 @@ import { Tile, Tiles } from './SummaryTiles';
 import ColumnLabel from '../ColumnLabel';
 import { mintUuid } from '../../utils/variantDraft';
 import type { InvoiceSelectionView, OrderPayment } from '../../orderTypes';
+import { ToneBadge } from './StatusBadges';
 
 type Props = {
   orderId: number;
@@ -262,7 +262,7 @@ const IssueInvoiceModal = ({ orderId, payments, canRefund, onClose, onIssued, on
                           <Typography variant="pi" textColor="neutral600">
                             {line.sku}
                           </Typography>
-                          {line.isGift && <Badge size="S">{t(`${p}.gift`)}</Badge>}
+                          {line.isGift && <ToneBadge>{t(`${p}.gift`)}</ToneBadge>}
                         </Flex>
                       </Td>
                       <Td style={FIT_CELL}>
@@ -446,7 +446,7 @@ const IssueInvoiceModal = ({ orderId, payments, canRefund, onClose, onIssued, on
             {t(attempted ? 'ecommerce.orders.invoices.close' : 'ecommerce.orders.invoices.back')}
           </Button>
           {!attempted && (
-            <Button onClick={submit} loading={saving} disabled={saving || !totals?.canIssue}>
+            <Button variant="secondary" onClick={submit} loading={saving} disabled={saving || !totals?.canIssue}>
               {t(`${p}.confirm`)}
             </Button>
           )}

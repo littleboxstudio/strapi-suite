@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import {
-  Badge,
   Box,
   Button,
   Field,
@@ -50,6 +49,7 @@ import {
   type ShipForm,
 } from '../../utils/shipmentForm';
 import type { Order, ShipMethodOption } from '../../orderTypes';
+import { ToneBadge } from './StatusBadges';
 
 type Props = {
   order: Order;
@@ -352,7 +352,7 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
                           {m.original && (
                             <Tooltip label={t('ecommerce.orders.ship.originalMethodHint')}>
                               <span style={{ display: 'inline-flex' }}>
-                                <Badge>{t('ecommerce.orders.ship.originalMethod')}</Badge>
+                                <ToneBadge>{t('ecommerce.orders.ship.originalMethod')}</ToneBadge>
                               </span>
                             </Tooltip>
                           )}
@@ -457,7 +457,7 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
           <Button variant="tertiary" onClick={onClose} disabled={saving}>
             {t('ecommerce.orders.ship.cancel')}
           </Button>
-          <Button onClick={askShip} loading={saving} disabled={!form.lines.length || !method}>
+          <Button variant="secondary" onClick={askShip} loading={saving} disabled={!form.lines.length || !method}>
             {t('ecommerce.orders.ship.submit')}
           </Button>
         </Modal.Footer>

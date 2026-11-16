@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import {
-  Badge,
   Box,
   Button,
   Flex,
@@ -32,6 +31,7 @@ import {
 import type { ManualMethodErrors } from '../../utils/manualMethodForm';
 import type { EcommerceLocales } from '../../types';
 import type { DpdService, DpdServiceId, DpdServices } from '../../settingsTypes';
+import { ToneBadge } from '../orders/StatusBadges';
 
 type Props = {
   readOnly: boolean;
@@ -237,11 +237,11 @@ const DpdServicesSection = ({
                 </Td>
                 <Td>
                   {service.active ? (
-                    <Badge backgroundColor="success100" textColor="success700">
+                    <ToneBadge variant="success">
                       {t('ecommerce.settings.integrations.active')}
-                    </Badge>
+                    </ToneBadge>
                   ) : (
-                    <Badge>{t('ecommerce.settings.integrations.inactive')}</Badge>
+                    <ToneBadge>{t('ecommerce.settings.integrations.inactive')}</ToneBadge>
                   )}
                 </Td>
                 <Td>

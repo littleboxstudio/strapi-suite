@@ -69,7 +69,7 @@ const StorefrontTokenKeyModal = ({ accessKey, previousTokenDeleted, onClose }: P
         </Modal.Body>
         <Modal.Footer>
           <Flex justifyContent="flex-end" width="100%">
-            <Button onClick={onClose}>{t('ecommerce.settings.storefrontApi.key.done')}</Button>
+            <Button variant="secondary" onClick={onClose}>{t('ecommerce.settings.storefrontApi.key.done')}</Button>
           </Flex>
         </Modal.Footer>
       </Modal.Content>

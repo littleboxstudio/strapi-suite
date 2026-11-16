@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react';
 import { useIntl } from 'react-intl';
-import { Badge, Box, Button, Flex, Typography } from '@strapi/design-system';
-import { Cog, Play } from '@strapi/icons';
+import { Box, Button, Flex, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import type { ConnectionResult, IntegrationView } from '../../settingsTypes';
 import { ActiveToggleButton } from './ActiveToggleButton';
+import { ToneBadge } from '../orders/StatusBadges';
 
 /** `error` is a failed request (not a connection result). */
 export type TestState =
@@ -114,11 +114,11 @@ const IntegrationCard = ({
                 {name}
               </Typography>
               {active ? (
-                <Badge backgroundColor="success100" textColor="success700">
+                <ToneBadge variant="success">
                   {t('ecommerce.settings.integrations.active')}
-                </Badge>
+                </ToneBadge>
               ) : (
-                <Badge>{t('ecommerce.settings.integrations.inactive')}</Badge>
+                <ToneBadge>{t('ecommerce.settings.integrations.inactive')}</ToneBadge>
               )}
             </Flex>
             {description && (
@@ -141,7 +141,7 @@ const IntegrationCard = ({
               />
             )}
             {configurable && !readOnly && (
-              <Button variant="secondary" startIcon={<Cog />} onClick={onConfigure}>
+              <Button variant="secondary" onClick={onConfigure}>
                 {t('ecommerce.settings.integrations.configure')}
               </Button>
             )}
@@ -150,7 +150,6 @@ const IntegrationCard = ({
               <>
                 <Button
                   variant="tertiary"
-                  startIcon={<Play />}
                   onClick={onTest}
                   loading={test.status === 'testing'}
                 >

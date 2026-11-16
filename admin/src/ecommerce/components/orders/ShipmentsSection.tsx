@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import {
-  Badge,
   Box,
   Button,
   Field,
@@ -56,6 +55,7 @@ import TrackingModal from './TrackingModal';
 import ShipmentEventsModal from './ShipmentEventsModal';
 import OrderSection from './OrderSection';
 import ColumnLabel from '../ColumnLabel';
+import { ToneBadge } from './StatusBadges';
 
 type Props = {
   id?: string;
@@ -263,9 +263,9 @@ const ShipmentsSection = ({
 
   /** The order's delivery status, next to the section title. */
   const deliveryBadge = (
-    <Badge variant={ORDER_DELIVERY_VARIANT[deliveryStatus] ?? 'neutral'} size="S">
+    <ToneBadge variant={ORDER_DELIVERY_VARIANT[deliveryStatus] ?? 'neutral'}>
       {t(`ecommerce.orders.shipments.orderDelivery.${deliveryStatus}`, undefined, deliveryStatus)}
-    </Badge>
+    </ToneBadge>
   );
 
   const header = (
@@ -364,9 +364,9 @@ const ShipmentsSection = ({
                     </Td>
                     <Td>
                       <Flex direction="column" alignItems="flex-start" gap={1}>
-                        <Badge variant={STATUS_VARIANT[s.status] ?? 'neutral'} size="S">
+                        <ToneBadge variant={STATUS_VARIANT[s.status] ?? 'neutral'}>
                           {t(`ecommerce.orders.shipments.statuses.${s.status}`, undefined, s.status)}
-                        </Badge>
+                        </ToneBadge>
                         {note && (
                           // The cell does not wrap by default: the note keeps to its column.
                           <Typography
@@ -382,9 +382,9 @@ const ShipmentsSection = ({
                     <Td>
                       {s.status === 'ACTIVE' && s.deliveryStatus ? (
                         // The delivery date is in the shipment's events.
-                        <Badge variant={DELIVERY_VARIANT[s.deliveryStatus] ?? 'neutral'} size="S">
+                        <ToneBadge variant={DELIVERY_VARIANT[s.deliveryStatus] ?? 'neutral'}>
                           {t(`ecommerce.orders.shipments.delivery.${s.deliveryStatus}`, undefined, s.deliveryStatus)}
-                        </Badge>
+                        </ToneBadge>
                       ) : (
                         <Typography textColor="neutral600">—</Typography>
                       )}
@@ -478,7 +478,7 @@ const ShipmentsSection = ({
               <Button variant="tertiary" onClick={() => setCancelling(null)}>
                 {t('ecommerce.orders.shipments.back')}
               </Button>
-              <Button variant="danger" disabled={reason.trim().length > MAX_CANCEL_REASON} onClick={confirmCancel}>
+              <Button variant="danger-light" disabled={reason.trim().length > MAX_CANCEL_REASON} onClick={confirmCancel}>
                 {t('ecommerce.orders.shipments.cancel.confirm')}
               </Button>
             </Modal.Footer>
@@ -502,7 +502,7 @@ const ShipmentsSection = ({
               <Button variant="tertiary" onClick={() => setMarkingFailed(null)}>
                 {t('ecommerce.orders.shipments.back')}
               </Button>
-              <Button variant="danger" onClick={confirmMarkFailed}>
+              <Button variant="danger-light" onClick={confirmMarkFailed}>
                 {t('ecommerce.orders.shipments.markFailed.confirm')}
               </Button>
             </Modal.Footer>

@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNavigate } from 'react-router-dom';
 import {
-  Badge,
   Box,
   Button,
   Flex,
@@ -16,13 +15,13 @@ import {
   Typography,
   VisuallyHidden,
 } from '@strapi/design-system';
-import { Pencil } from '@strapi/icons';
 import config from '../../../core/config';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchEmailTemplates from '../../usecases/settings/fetchEmailTemplates';
 import FetchSettingsLocales from '../../usecases/settings/fetchSettingsLocales';
 import { EMAIL_TEMPLATE_TYPES } from '../../utils/emailTemplateEditor';
 import type { EmailTemplateSummary } from '../../settingsTypes';
+import { ToneBadge } from '../../components/orders/StatusBadges';
 
 /** Used when the locales cannot be read (they need the products read permission). */
 const FALLBACK_LOCALE = 'en';
@@ -121,9 +120,9 @@ const EmailTemplatesSection = () => {
                     {locales.length ? (
                       <Flex gap={1} wrap="wrap">
                         {locales.map((code) => (
-                          <Badge key={code} backgroundColor="primary100" textColor="primary600">
+                          <ToneBadge key={code} variant="primary">
                             {code}
-                          </Badge>
+                          </ToneBadge>
                         ))}
                       </Flex>
                     ) : (
@@ -137,7 +136,6 @@ const EmailTemplatesSection = () => {
                       <Button
                         size="S"
                         variant="tertiary"
-                        startIcon={<Pencil />}
                         onClick={() => navigate(editorPath(type))}
                       >
                         {t('ecommerce.settings.emailTemplates.edit')}

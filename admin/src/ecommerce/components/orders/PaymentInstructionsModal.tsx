@@ -328,14 +328,14 @@ const PaymentInstructionsModal = ({
           {sent ? (
             <>
               <span />
-              <Button onClick={close}>{t('ecommerce.orders.instructions.close')}</Button>
+              <Button variant="secondary" onClick={close}>{t('ecommerce.orders.instructions.close')}</Button>
             </>
           ) : (
             <>
               <Button variant="tertiary" onClick={onClose} disabled={sending}>
                 {dismissLabel ?? t('ecommerce.orders.instructions.cancel')}
               </Button>
-              <Button onClick={send} loading={sending}>
+              <Button variant="secondary" onClick={send} loading={sending}>
                 {t('ecommerce.orders.instructions.send')}
               </Button>
             </>

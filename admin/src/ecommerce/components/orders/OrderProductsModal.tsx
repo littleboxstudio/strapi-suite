@@ -159,7 +159,7 @@ const OrderProductsModal = ({ order, onClose, onSaved }: Props) => {
           <Button variant="tertiary" onClick={onClose} disabled={busy}>
             {t('ecommerce.orders.products.close')}
           </Button>
-          <Button onClick={review} loading={busy && !preview} disabled={!linesDraftChanged(lines)}>
+          <Button variant="secondary" onClick={review} loading={busy && !preview} disabled={!linesDraftChanged(lines)}>
             {t('ecommerce.orders.products.save')}
           </Button>
         </Modal.Footer>
@@ -184,7 +184,7 @@ const OrderProductsModal = ({ order, onClose, onSaved }: Props) => {
                 <Button fullWidth variant="tertiary" disabled={busy} onClick={() => setPreview(null)}>
                   {t('ecommerce.orders.products.confirm.cancel')}
                 </Button>
-                <Button fullWidth loading={busy} onClick={save}>
+                <Button variant="secondary" fullWidth loading={busy} onClick={save}>
                   {t('ecommerce.orders.products.save')}
                 </Button>
               </Flex>

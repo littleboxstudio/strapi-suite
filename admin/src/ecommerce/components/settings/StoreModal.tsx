@@ -103,7 +103,7 @@ const StoreModal = ({ store, isNew, marketName, initialErrors, onClose, onSave }
           <Button variant="tertiary" onClick={onClose}>
             {t('ecommerce.settings.cancel')}
           </Button>
-          <Button onClick={save}>{t('ecommerce.settings.storePickup.store.done')}</Button>
+          <Button variant="secondary" onClick={save}>{t('ecommerce.settings.storePickup.store.done')}</Button>
         </Modal.Footer>
       </Modal.Content>
     </Modal.Root>

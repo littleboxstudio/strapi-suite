@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useIntl } from 'react-intl';
 import { Button, Flex, Modal, Typography } from '@strapi/design-system';
-import { Plus } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { ActionConfirmModal } from '../ActionConfirmModal';
 import { BracketRows } from './BracketRows';
@@ -75,7 +74,6 @@ const FillMarketsModal = ({ marketCount, onClose, onApply }: Props) => {
             <Flex>
               <Button
                 variant="secondary"
-                startIcon={<Plus />}
                 onClick={() => {
                   setRows((current) => [...current, ...newBracketRows()]);
                   setErrors({});
@@ -90,7 +88,7 @@ const FillMarketsModal = ({ marketCount, onClose, onApply }: Props) => {
           <Button variant="tertiary" onClick={onClose}>
             {t('ecommerce.settings.cancel')}
           </Button>
-          <Button onClick={apply}>{t('ecommerce.settings.manual.fillAll.apply')}</Button>
+          <Button variant="secondary" onClick={apply}>{t('ecommerce.settings.manual.fillAll.apply')}</Button>
         </Modal.Footer>
       </Modal.Content>
       <ActionConfirmModal

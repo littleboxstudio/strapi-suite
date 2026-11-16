@@ -420,7 +420,7 @@ const ShippingLineModal = ({ order, mode, line, onClose, onSaved, recalculation 
           <Button variant="tertiary" onClick={recalculation ? recalculation.onBack : onClose} disabled={busy}>
             {t(recalculation ? 'ecommerce.orders.shippingCharges.steps.back' : 'ecommerce.orders.shippingCharges.close')}
           </Button>
-          <Button onClick={save} loading={busy} disabled={!option || unchanged}>
+          <Button variant="secondary" onClick={save} loading={busy} disabled={!option || unchanged}>
             {t(recalculation ? 'ecommerce.orders.shippingCharges.add' : 'ecommerce.orders.shippingCharges.save')}
           </Button>
         </Modal.Footer>

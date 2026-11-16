@@ -10,7 +10,7 @@ import {
   TextInput,
   Typography,
 } from '@strapi/design-system';
-import { Plus, Trash } from '@strapi/icons';
+import { Trash } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import TargetPicker from './TargetPicker';
 import {
@@ -211,7 +211,6 @@ const ConditionGroupEditor = ({ tree, path = [], onChange, labels, onLabels, err
               variant="danger-light"
               disabled={disabled}
               size="S"
-              startIcon={<Trash />}
               onClick={() => onChange(removeNode(tree, path) ?? tree)}
             >
               {t(`${p}.removeGroup`)}
@@ -251,13 +250,12 @@ const ConditionGroupEditor = ({ tree, path = [], onChange, labels, onLabels, err
 
         {!readOnly && (
           <Flex gap={2} wrap="wrap" alignItems="center">
-            <Button variant="secondary" size="S" startIcon={<Plus />} disabled={disabled} onClick={() => onChange(addCondition(tree, path))}>
+            <Button variant="secondary" size="S" disabled={disabled} onClick={() => onChange(addCondition(tree, path))}>
               {t(`${p}.add`)}
             </Button>
             <Button
               variant="tertiary"
               size="S"
-              startIcon={<Plus />}
               disabled={disabled || !canAddGroup(path)}
               onClick={() => onChange(addGroup(tree, path) ?? tree)}
             >

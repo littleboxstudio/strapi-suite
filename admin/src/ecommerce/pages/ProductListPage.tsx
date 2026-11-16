@@ -2,7 +2,6 @@ import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNavigate } from 'react-router-dom';
 import {
-  Badge,
   Box,
   Button,
   Dots,
@@ -23,7 +22,6 @@ import {
   Typography,
   VisuallyHidden,
 } from '@strapi/design-system';
-import { Plus } from '@strapi/icons';
 import config from '../../core/config';
 import { getTranslation } from '../../core/utils/getTranslation';
 import FetchProducts from '../usecases/fetchProducts';
@@ -32,6 +30,7 @@ import EmptyProducts from '../illustrations/EmptyProducts';
 import { formatCents } from '../utils/money';
 import { pageWindow } from '../utils/pagination';
 import type { ProductListItem } from '../types';
+import { ToneBadge } from '../components/orders/StatusBadges';
 
 const SEARCH_DEBOUNCE_MS = 300;
 const THUMBNAIL_SIZE = 36;
@@ -100,7 +99,7 @@ const ProductListPage = () => {
   const noSearch = search === '' && searchTerm === '';
 
   const createButton = (label: string) => (
-    <Button size="S" startIcon={<Plus />} onClick={goToCreate}>
+    <Button variant="secondary" size="S" onClick={goToCreate}>
       {label}
     </Button>
   );
@@ -167,7 +166,7 @@ const ProductListPage = () => {
           <Typography variant="omega" textColor="neutral600">
             {t('ecommerce.products.empty')}
           </Typography>
-          <Button startIcon={<Plus />} onClick={goToCreate}>
+          <Button variant="secondary" onClick={goToCreate}>
             {t('ecommerce.products.createFirst')}
           </Button>
         </Flex>
@@ -242,19 +241,19 @@ const ProductListPage = () => {
                     <Flex gap={2}>
                       <Typography textColor="neutral800">{item.stockTotal}</Typography>
                       {item.hasNegativeStock && (
-                        <Badge backgroundColor="danger100" textColor="danger700">
+                        <ToneBadge variant="danger">
                           {t('ecommerce.products.negativeStock')}
-                        </Badge>
+                        </ToneBadge>
                       )}
                     </Flex>
                   </Td>
                   <Td>
                     {item.active ? (
-                      <Badge backgroundColor="success100" textColor="success700">
+                      <ToneBadge variant="success">
                         {t('ecommerce.products.status.active')}
-                      </Badge>
+                      </ToneBadge>
                     ) : (
-                      <Badge>{t('ecommerce.products.status.inactive')}</Badge>
+                      <ToneBadge>{t('ecommerce.products.status.inactive')}</ToneBadge>
                     )}
                   </Td>
                   <Td>

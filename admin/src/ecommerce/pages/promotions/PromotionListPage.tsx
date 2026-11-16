@@ -2,7 +2,6 @@ import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNavigate } from 'react-router-dom';
 import {
-  Badge,
   Box,
   Button,
   Flex,
@@ -18,7 +17,6 @@ import {
   Typography,
   VisuallyHidden,
 } from '@strapi/design-system';
-import { Plus } from '@strapi/icons';
 import config from '../../../core/config';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchPromotions from '../../usecases/promotions/fetchPromotions';
@@ -28,6 +26,7 @@ import PromotionTabs from '../../components/promotions/PromotionTabs';
 import { usePromotionPermissions } from '../../hooks/usePromotionPermissions';
 import { statusTone, usageLabel, validityLabel } from '../../utils/promotionList';
 import type { PromotionListItem } from '../../promotionTypes';
+import { ToneBadge } from '../../components/orders/StatusBadges';
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -128,7 +127,7 @@ const PromotionListPage = () => {
           </SearchForm>
         </Box>
         {canManage && (
-          <Button startIcon={<Plus />} onClick={create}>
+          <Button variant="secondary" onClick={create}>
             {t('ecommerce.promotions.create')}
           </Button>
         )}
@@ -156,7 +155,7 @@ const PromotionListPage = () => {
           <Typography variant="omega" textColor="neutral600">
             {t('ecommerce.promotions.empty')}
           </Typography>
-          {canManage && <Button onClick={create}>{t('ecommerce.promotions.create')}</Button>}
+          {canManage && <Button variant="secondary" onClick={create}>{t('ecommerce.promotions.create')}</Button>}
         </Flex>
       )}
 
@@ -202,9 +201,9 @@ const PromotionListPage = () => {
                     </Typography>
                   </Td>
                   <Td>
-                    <Badge variant={statusTone(item.status)} size="S">
+                    <ToneBadge variant={statusTone(item.status)}>
                       {t(`ecommerce.promotions.statuses.${item.status}`)}
-                    </Badge>
+                    </ToneBadge>
                   </Td>
                   <Td>
                     <Typography textColor="neutral800">{validityLabel(item, locale)}</Typography>

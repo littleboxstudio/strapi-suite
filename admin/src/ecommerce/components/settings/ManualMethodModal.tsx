@@ -210,7 +210,7 @@ const ManualMethodModal = ({
               )}
             </Button>
           </Flex>
-          <Button onClick={save} loading={saving} disabled={markets.length === 0 || toggling}>
+          <Button variant="secondary" onClick={save} loading={saving} disabled={markets.length === 0 || toggling}>
             {t('ecommerce.settings.save')}
           </Button>
         </Modal.Footer>

@@ -327,7 +327,7 @@ const ImageUploadModal = ({ owner, onClose, onUploaded }: Props) => {
           <Button variant="tertiary" onClick={onClose} disabled={uploading}>
             {t('ecommerce.image.upload.cancel')}
           </Button>
-          <Button onClick={upload} loading={uploading} disabled={!canUpload || uploading}>
+          <Button variant="secondary" onClick={upload} loading={uploading} disabled={!canUpload || uploading}>
             {t('ecommerce.image.upload.submit')}
           </Button>
         </Modal.Footer>

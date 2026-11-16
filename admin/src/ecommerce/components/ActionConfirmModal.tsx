@@ -39,7 +39,8 @@ const ActionConfirmModal = ({
           <Button fullWidth variant="tertiary" onClick={onCancel}>
             {cancelLabel}
           </Button>
-          <Button fullWidth variant={confirmVariant} onClick={onConfirm}>
+          {/* Normalized buttons: blue text on a dark background, or red on red. */}
+          <Button fullWidth variant={confirmVariant === 'danger' ? 'danger-light' : 'secondary'} onClick={onConfirm}>
             {confirmLabel}
           </Button>
         </Flex>

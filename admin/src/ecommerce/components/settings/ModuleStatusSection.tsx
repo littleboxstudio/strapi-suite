@@ -43,11 +43,11 @@ const ModuleStatusSection = ({ readOnly }: { readOnly: boolean }) => {
         </Flex>
         {/* Disabling closes the store, so it asks first; enabling (rare here) does not. */}
         {active ? (
-          <Button variant="danger" onClick={() => setConfirming(true)} loading={saving} disabled={readOnly}>
+          <Button variant="danger-light" onClick={() => setConfirming(true)} loading={saving} disabled={readOnly}>
             {t('ecommerce.settings.module.disable')}
           </Button>
         ) : (
-          <Button onClick={() => setActive(true)} loading={saving} disabled={readOnly}>
+          <Button variant="secondary" onClick={() => setActive(true)} loading={saving} disabled={readOnly}>
             {t('ecommerce.settings.module.enable')}
           </Button>
         )}
@@ -57,6 +57,7 @@ const ModuleStatusSection = ({ readOnly }: { readOnly: boolean }) => {
         title={t('ecommerce.settings.module.confirm.title')}
         text={t('ecommerce.settings.module.confirm.text')}
         confirm={{
+          variant: 'danger-light',
           button: t('ecommerce.settings.module.disable'),
           action: () => {
             setConfirming(false);

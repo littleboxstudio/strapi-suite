@@ -306,7 +306,7 @@ const VariantModal = ({
               {t(draft.active ? 'ecommerce.product.variant.disable' : 'ecommerce.product.variant.enable')}
             </Button>
           </Flex>
-          <Button onClick={confirm}>{t('ecommerce.product.variant.confirm')}</Button>
+          <Button variant="secondary" onClick={confirm}>{t('ecommerce.product.variant.confirm')}</Button>
         </Modal.Footer>
       </Modal.Content>
       <ActionConfirmModal

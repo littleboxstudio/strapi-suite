@@ -11,7 +11,6 @@ import {
   TextInput,
   Typography,
 } from '@strapi/design-system';
-import { Trash } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import TargetPicker from './TargetPicker';
 import {
@@ -106,7 +105,7 @@ const BenefitEditor = ({ benefit, index, onChange, onRemove, labels, onLabels, e
             </Field.Root>
           </Cell>
           {!readOnly && (
-            <Button variant="danger-light" size="S" startIcon={<Trash />} disabled={disabled} onClick={onRemove}>
+            <Button variant="danger-light" size="S" disabled={disabled} onClick={onRemove}>
               {t(`${p}.remove`)}
             </Button>
           )}

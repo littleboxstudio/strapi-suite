@@ -212,7 +212,7 @@ const EcommerceLayout = ({ children }: { children: ReactNode }) => {
               {formatMessage({ id: getTranslation('ecommerce.disabled.description') })}
             </Typography>
             <Box paddingTop={2}>
-              <Button onClick={() => toggleState(true)}>
+              <Button variant="secondary" onClick={() => toggleState(true)}>
                 {formatMessage({ id: getTranslation('ecommerce.disabled.cta') })}
               </Button>
             </Box>

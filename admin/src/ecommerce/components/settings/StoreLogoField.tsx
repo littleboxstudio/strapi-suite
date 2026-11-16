@@ -167,6 +167,7 @@ const StoreLogoField = ({ logo, readOnly, onChange }: Props) => {
         title={t('store.logo.removeConfirm.title')}
         text={t('store.logo.removeConfirm.text')}
         confirm={{
+          variant: 'danger-light',
           button: t('store.logo.remove'),
           action: () => {
             setConfirmRemove(false);

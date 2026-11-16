@@ -1,7 +1,6 @@
 import { shippableOf } from '../../utils/shipmentForm';
 import { useIntl } from 'react-intl';
 import {
-  Badge,
   Box,
   Flex,
   Table,
@@ -24,6 +23,7 @@ import {
 import { formatLineDiscount } from '../../utils/lineDiscount';
 import type { OrderLine, OrderPromotion } from '../../orderTypes';
 import { PRODUCT_CELL } from './lineCells';
+import { ToneBadge } from './StatusBadges';
 
 const THUMBNAIL_SIZE = 40;
 const COLUMNS = ['product', 'sku', 'unitPrice', 'quantity', 'shipped', 'total'] as const;
@@ -64,8 +64,15 @@ const OrderLinesTable = ({ lines, promotions = [], locales = { locale: '' } }: P
             <VisuallyHidden>{t('ecommerce.orders.detail.lines.photo')}</VisuallyHidden>
           </Th>
           {COLUMNS.map((column) => (
+            // Total, the last column, sits on the right.
             <Th key={column}>
-              <Typography variant="sigma">{t(`ecommerce.orders.detail.lines.${column}`)}</Typography>
+              {column === 'total' ? (
+                <Flex justifyContent="flex-end" style={{ width: '100%' }}>
+                  <Typography variant="sigma">{t(`ecommerce.orders.detail.lines.${column}`)}</Typography>
+                </Flex>
+              ) : (
+                <Typography variant="sigma">{t(`ecommerce.orders.detail.lines.${column}`)}</Typography>
+              )}
             </Th>
           ))}
         </Tr>
@@ -105,9 +112,9 @@ const OrderLinesTable = ({ lines, promotions = [], locales = { locale: '' } }: P
                     </Typography>
                   )}
                   {line.isGift && (
-                    <Badge variant="success" size="S">
+                    <ToneBadge variant="success">
                       {t('ecommerce.orders.detail.lines.gift')}
-                    </Badge>
+                    </ToneBadge>
                   )}
                   {promotionNames.length > 0 && (
                     <Typography variant="pi" textColor="success600">
@@ -179,7 +186,7 @@ const OrderLinesTable = ({ lines, promotions = [], locales = { locale: '' } }: P
                 </Flex>
               </Td>
               <Td>
-                <Typography textColor="neutral800" fontWeight="semiBold">
+                <Typography textColor="neutral800" fontWeight="semiBold" style={{ display: 'block', textAlign: 'right' }}>
                   {money(finalPrice * line.quantity)}
                 </Typography>
               </Td>
