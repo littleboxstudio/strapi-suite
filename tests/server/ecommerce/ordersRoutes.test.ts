@@ -23,7 +23,6 @@ const orders: [string, string, string, string][] = [
   ['GET', `${O}/pickup-points`, 'pickupPoints', P.ordersManage],
   ['GET', `${O}/:id`, 'get', P.ordersRead],
   ['POST', `${O}/:id/payments`, 'addPayment', P.ordersManage],
-  ['POST', `${O}/:id/payment-link`, 'createPaymentLink', P.paymentsManage],
   ['POST', `${O}/:id/payment-instructions`, 'sendPaymentInstructions', P.paymentsManage],
   ['POST', `${O}/:id/store-credit-payment`, 'addStoreCreditPayment', P.ordersManage],
   ['POST', `${O}/:id/cancel`, 'cancel', P.ordersManage],

@@ -7,8 +7,6 @@ const EcommerceOrderController = ({ strapi }: { strapi: Core.Strapi }) => {
   const orders = (): any => strapi.plugin(PLUGIN_ID).service('EcommerceOrderService');
   const payments = (): any => strapi.plugin(PLUGIN_ID).service('EcommercePaymentService');
   const pickup = (): any => strapi.plugin(PLUGIN_ID).service('EcommercePickupPointService');
-  const stripePayments = (): any =>
-    strapi.plugin(PLUGIN_ID).service('EcommerceStripePaymentService');
   const actorOf = (ctx: any): string => `user:${ctx.state?.user?.id}`;
   const body = (ctx: any) => ctx.request?.body ?? {};
   const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
@@ -139,15 +137,6 @@ const EcommerceOrderController = ({ strapi }: { strapi: Core.Strapi }) => {
         },
         201
       ),
-
-    /** Gets or creates the Stripe payment link for what is due. Never settles anything. */
-    createPaymentLink: (ctx: any) =>
-      withId(ctx, async (id) => {
-        // The service decides CHECKOUT or SUPPLEMENTARY.
-        const link = await stripePayments().getOrCreatePaymentLink(id, { actor: actorOf(ctx) });
-        const { url, expiresAt, amount, reused } = link;
-        return { url, expiresAt, amount, reused };
-      }, undefined, true),
 
     sendPaymentInstructions: (ctx: any) =>
       withId(ctx, (id) => {

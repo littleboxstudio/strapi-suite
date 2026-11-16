@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   EcommerceNotFoundError,
-  EcommercePaymentError,
   EcommerceValidationError,
 } from '../../../server/src/services/modules/ecommerce/errors';
 import { STRIPE_WEBHOOK_EVENTS } from '../../../server/src/services/modules/ecommerce/stripeWebhooks';
@@ -234,28 +233,6 @@ describe('order payment endpoints', () => {
     await c.addPayment(ctx);
     expect(ctx.status).toBe(409);
     expect(ctx.body.error.details.code).toBe('IDEMPOTENCY_KEY_CONFLICT');
-  });
-
-  it('payment-link leaves the purpose to the service, strips the session id and maps payment errors to 400 code', async () => {
-    const getOrCreatePaymentLink = vi
-      .fn()
-      .mockResolvedValueOnce({ url: 'https://s', expiresAt: 'e', amount: 100, reused: false, sessionId: 'cs_1' })
-      .mockRejectedValueOnce(new EcommercePaymentError('NOTHING_DUE'));
-    const computeOrderState = vi.fn();
-    const c = createOrders({
-      strapi: strapiWith({
-        EcommerceOrderService: { computeOrderState },
-        EcommerceStripePaymentService: { getOrCreatePaymentLink },
-      }),
-    });
-    const a = mkCtx();
-    await c.createPaymentLink(a);
-    expect(getOrCreatePaymentLink).toHaveBeenCalledWith(5, { actor: 'user:7' });
-    expect(computeOrderState).not.toHaveBeenCalled();
-    expect(a.body).toEqual({ url: 'https://s', expiresAt: 'e', amount: 100, reused: false });
-    const b = mkCtx();
-    await c.createPaymentLink(b);
-    expect(b.badRequest).toHaveBeenCalledWith(expect.any(String), { code: 'NOTHING_DUE' });
   });
 
   it('payment-instructions validates mode, passes methodLabel and rejects long values', async () => {
