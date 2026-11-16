@@ -38,7 +38,6 @@ export default [
   route('GET', '/pickup-points', 'pickupPoints', manage),
   route('GET', '/:id', 'get', read),
   route('POST', '/:id/payments', 'addPayment', manage),
-  route('POST', '/:id/payment-link', 'createPaymentLink', pay),
   route('POST', '/:id/payment-instructions', 'sendPaymentInstructions', pay),
   route('POST', '/:id/store-credit-payment', 'addStoreCreditPayment', manage),
   route('POST', '/:id/cancel', 'cancel', manage),
