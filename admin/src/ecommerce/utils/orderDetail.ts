@@ -9,6 +9,7 @@ import type {
   Order,
   OrderActionKey,
   OrderHistoryItem,
+  OrderLine,
   OrderPromotion,
   OrderPromotionCode,
   OrderStatus,
@@ -412,6 +413,25 @@ export function linePromotionNames(
     if (!p) return [];
     return [promotionDisplayName(p, locales.locale, locales.defaultLocale) ?? p.name];
   });
+}
+
+/**
+ * What discounted a line, in words: the names of its promotions, else the manual discount.
+ * Null when the line has no discount. `locale` is the UI locale (names and decimal separator).
+ */
+export function lineDiscountLabel(
+  line: Pick<OrderLine, 'promotionIds' | 'manualDiscountPercent'>,
+  promotions: Pick<AppliedPromotion, 'promotionId' | 'name' | 'displayName'>[],
+  locale: string,
+  defaultLocale?: string | null
+): string | null {
+  const names = linePromotionNames(line.promotionIds, promotions as AppliedPromotion[], { locale, defaultLocale });
+  if (names.length > 0) return names.join(', ');
+  if (isNumber(line.manualDiscountPercent)) {
+    const label = locale.toLowerCase().startsWith('pt') ? 'Desconto manual' : 'Manual discount';
+    return `${label} ${formatLineDiscount(line.manualDiscountPercent, locale)}`;
+  }
+  return null;
 }
 
 /** Badge colour of a code status (applied, waiting, refused). */
