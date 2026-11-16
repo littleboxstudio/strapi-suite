@@ -43,6 +43,7 @@ import {
   shipResultMessageId,
   shipStore,
   shipStoreErrorId,
+  hasUnpaidPending,
   shippableOf,
   validateShipForm,
   type FormErrors,
@@ -226,6 +227,14 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
         </Modal.Header>
         <Modal.Body>
           <Flex direction="column" alignItems="stretch" gap={5}>
+            {hasUnpaidPending(order.lines) && (
+              // Units that wait for payment are left out of the list below.
+              <Box padding={3} hasRadius style={{ background: NOTICE_BACKGROUND }}>
+                <Typography variant="omega" style={{ color: NOTICE_TEXT }}>
+                  {t('ecommerce.orders.ship.unpaidNotice')}
+                </Typography>
+              </Box>
+            )}
             {form.lines.length === 0 ? (
               <Typography textColor="neutral600">{t('ecommerce.orders.ship.nothing')}</Typography>
             ) : (
@@ -284,15 +293,8 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
                           <Typography textColor="neutral800">{line.shipped}</Typography>
                         </Td>
                         <Td>
-                          <Flex direction="column" alignItems="flex-start">
-                            <Typography textColor="neutral800">{line.pending}</Typography>
-                            {/* Units that wait for payment while the order owes money. */}
-                            {line.pending > shippableOf(line) && (
-                              <Typography variant="pi" textColor="danger600">
-                                {t('ecommerce.orders.ship.unpaidUnits', { count: line.pending - shippableOf(line) })}
-                              </Typography>
-                            )}
-                          </Flex>
+                          {/* Only the units that can ship now (paid ones while money is owed). */}
+                          <Typography textColor="neutral800">{shippableOf(line)}</Typography>
                         </Td>
                         <InputTd style={{ width: 120 }}>
                           <Field.Root name={`quantity-${line.id}`} error={error}>
