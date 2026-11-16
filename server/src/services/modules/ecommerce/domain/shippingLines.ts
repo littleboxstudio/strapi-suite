@@ -172,11 +172,28 @@ export function shippingLineViews(
 ): ShippingLineView[] {
   const invoiced = new Set(ctx.invoicedLineIds);
   let remaining = Math.max(0, ctx.coveredShipping);
-  return [...lines].sort(byId).map((l) => {
+  const sorted = [...lines].sort(byId);
+  // A credit (a negative line correcting no other line) lowers what is due without a line of its
+  // own: it comes off the charges before it, latest first, so the coverage pays what is left.
+  const owed = new Map<number, number>();
+  for (const l of sorted) if (l.amount > 0 && l.editOf == null) owed.set(l.id, l.amount);
+  for (const c of sorted) {
+    if (c.amount >= 0 || c.editOf != null) continue;
+    let credit = -c.amount;
+    for (const l of [...sorted].reverse()) {
+      if (credit <= 0) break;
+      if (l.id >= c.id || !owed.has(l.id)) continue;
+      const taken = Math.min(credit, owed.get(l.id)!);
+      owed.set(l.id, owed.get(l.id)! - taken);
+      credit -= taken;
+    }
+  }
+  return sorted.map((l) => {
     let paid = false;
-    if (l.amount > 0 && remaining >= l.amount) {
+    const due = owed.get(l.id) ?? l.amount;
+    if (l.amount > 0 && remaining >= due) {
       paid = true;
-      remaining -= l.amount;
+      remaining -= due;
     } else if (l.amount > 0) {
       remaining = 0;
     }

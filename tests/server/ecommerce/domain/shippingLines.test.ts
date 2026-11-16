@@ -154,6 +154,49 @@ describe('shippingLineViews', () => {
     expect(views.map((v) => v.paid)).toEqual([true, false]);
   });
 
+  it('a credit comes off the latest charges first: the coverage pays what is left of each', () => {
+    // As order #1016: 1500 + 700 + 800 + 360 charged, a credit of 260, 3100 covered.
+    const views = shippingLineViews(
+      [
+        line({ id: 8, amount: 1500 }),
+        line({ id: 9, amount: 700 }),
+        line({ id: 10, amount: 800 }),
+        line({ id: 11, amount: 360 }),
+        line({ id: 17, origin: 'RECALCULATION', amount: -260 }),
+      ],
+      ctx({ coveredShipping: 3100 })
+    );
+    expect(views.map((v) => [v.id, v.paid])).toEqual([
+      [8, true],
+      [9, true],
+      [10, true],
+      [11, true],
+      [17, false],
+    ]);
+    // A charge added after the credit is not reduced by it.
+    const later = shippingLineViews(
+      [
+        line({ id: 8, amount: 1500 }),
+        line({ id: 11, amount: 360 }),
+        line({ id: 17, origin: 'RECALCULATION', amount: -260 }),
+        line({ id: 18, amount: 510 }),
+      ],
+      ctx({ coveredShipping: 1600 })
+    );
+    expect(later.map((v) => [v.id, v.paid])).toEqual([
+      [8, true],
+      [11, true],
+      [17, false],
+      [18, false],
+    ]);
+    // A credit larger than the latest charge reaches the one before it.
+    const big = shippingLineViews(
+      [line({ id: 1, amount: 500 }), line({ id: 2, amount: 300 }), line({ id: 3, amount: -400 })],
+      ctx({ coveredShipping: 300 })
+    );
+    expect(big.map((v) => v.paid)).toEqual([false, true, false]);
+  });
+
   it('marks invoiced lines by id', () => {
     const lines = [line(), line({ id: 2, createdAt: '2026-11-03T10:00:00.000Z' })];
     expect(shippingLineViews(lines, ctx({ invoicedLineIds: [1] })).map((v) => v.invoiced)).toEqual([
