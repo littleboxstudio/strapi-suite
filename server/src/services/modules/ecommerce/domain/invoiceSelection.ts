@@ -29,6 +29,8 @@ export type InvoiceDoc = {
   paymentIds: number[];
   /** Credit notes: what was credited per line index of the credited invoice. */
   creditedLines: { index: number; value: number; quantity: number }[];
+  /** When the document was created (ISO); absent on documents built without it. */
+  createdAt?: string | null;
 };
 
 export type PositionOrder = {
@@ -132,6 +134,7 @@ export function readInvoiceDoc(row: unknown, paymentIds: number[]): InvoiceDoc {
     creditType,
     lines: readInvoiceLines(r.lines),
     paymentIds: [...paymentIds],
+    createdAt: typeof r.createdAt === 'string' ? r.createdAt : r.createdAt instanceof Date ? r.createdAt.toISOString() : null,
     creditedLines: rawCredited.filter(isObject).flatMap((e) => {
       const { index, quantity } = e;
       if (typeof index !== 'number' || !Number.isInteger(index)) return [];
@@ -318,6 +321,42 @@ export function invoicingPosition(order: PositionOrder, docs: InvoiceDoc[]): Inv
   };
 
   return { lines, shipping, products, shippingPool, stranded, overInvoiced, annulledInvoiceIds };
+}
+
+/**
+ * Units of each order line held by invoices: invoiced minus credited by RETURN credit notes (an
+ * annulled invoice holds none). These units can never be removed from the order.
+ */
+export function netInvoicedUnits(position: InvoicingPosition): Map<number, number> {
+  return new Map(
+    position.lines.map((l) => [l.orderLineId, Math.max(0, l.invoicedUnits - l.returnCreditedUnits)])
+  );
+}
+
+/**
+ * The manual discounts an invoice already reflects: created before a counted invoice that was
+ * not annulled (the order discount is spread over the lines that invoice holds). They can never
+ * be removed.
+ */
+export function invoicedManualDiscountIds(
+  discounts: { id: number; createdAt: string }[],
+  docs: InvoiceDoc[],
+  annulledInvoiceIds: number[]
+): number[] {
+  const annulled = new Set(annulledInvoiceIds);
+  const times = docs
+    .filter((d) => d.kind === 'INVOICE' && COUNTED_INVOICE.includes(d.status) && !annulled.has(d.id))
+    .map((d) => new Date(d.createdAt ?? '').getTime())
+    .filter((t) => Number.isFinite(t));
+  if (!times.length) return [];
+  const latest = Math.max(...times);
+  return discounts
+    .filter((m) => {
+      const t = new Date(m.createdAt).getTime();
+      // Without a date it cannot be shown to come after the invoices: treated as invoiced.
+      return !Number.isFinite(t) || t <= latest;
+    })
+    .map((m) => m.id);
 }
 
 // ---------------------------------------------------------------------------

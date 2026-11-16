@@ -33,7 +33,9 @@ import {
 } from './orderModificationSupport';
 import { refundableAmount } from './domain/refunds';
 import {
+  invoicedManualDiscountIds,
   invoicingPosition,
+  netInvoicedUnits,
   paymentNets,
   readInvoiceDoc,
   type InvoiceDoc,
@@ -203,6 +205,8 @@ export type OrderLineView = {
   shippable: number;
   /** shipped − returnedQuantity */
   returnable: number;
+  /** Units held by invoices (invoiced − credited by RETURN): never removed from the order. */
+  invoiced: number;
 };
 
 /** A refund as the order shows it (newest first). No Stripe ids or store credit codes. */
@@ -278,8 +282,11 @@ export type OrderView = {
   /** Why the billing address cannot change, or null while it can. */
   billingAddressLock: BillingAddressLock | null;
   shippingLines: ShippingLineView[];
-  /** The stored manual discounts (a legacy order reads its LEGACY item). */
-  manualDiscounts: ManualDiscount[];
+  /**
+   * The stored manual discounts (a legacy order reads its LEGACY item). `invoiced`: an invoice
+   * already reflects it, so it can never be removed.
+   */
+  manualDiscounts: (ManualDiscount & { invoiced: boolean })[];
   reviewFlags: ReviewFlag[];
 };
 
@@ -1169,6 +1176,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       pending: Math.max(0, quantity - r),
       shippable: Math.max(0, quantity - r),
       returnable: Math.max(0, s - num(l.returnedQuantity)),
+      invoiced: 0,
     };
   };
 
@@ -1351,6 +1359,8 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     // In-flight refunds already claim part of the excess.
     const blockingExcess = refundableAmount(summary, inFlightRefunds);
     const invoicing = await loadInvoicing(order, lines, payments, refunds, blockingExcess);
+    const invoicedUnits = netInvoicedUnits(invoicing.position);
+    for (const l of lines) l.invoiced = invoicedUnits.get(l.id) ?? 0;
     const hasActiveShipment = shipments.some((s) => s.status === 'ACTIVE');
     const editing = orderEditing({
       orderStatus: order.orderStatus,
@@ -1532,7 +1542,13 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       editing,
       billingAddressLock: billingLock,
       shippingLines,
-      manualDiscounts: readManualDiscounts(order),
+      manualDiscounts: (() => {
+        const items = readManualDiscounts(order);
+        const invoiced = new Set(
+          invoicedManualDiscountIds(items, invoicing.docs, invoicing.position.annulledInvoiceIds)
+        );
+        return items.map((m) => ({ ...m, invoiced: invoiced.has(m.id) }));
+      })(),
       reviewFlags: readReviewFlags(order.reviewFlags),
     };
   };

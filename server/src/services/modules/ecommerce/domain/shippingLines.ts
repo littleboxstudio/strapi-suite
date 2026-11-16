@@ -323,10 +323,10 @@ export function invoicedMethod(lines: ShippingLineView[]): ShippingMethodRef | n
 }
 
 /**
- * Recalculate shipping (spec 6.3): `due` is what the lines in scope should charge. Invoiced lines
- * (and lines with an invoiced correction) stay; every other line in scope is dropped and one
- * RECALCULATION line charges `due` minus the invoiced ones (negative: money back to the customer).
- * Lines out of scope are never touched nor counted.
+ * Recalculate shipping (spec 6.3): `due` is what the lines in scope should charge. No charge is
+ * ever removed (paid, invoiced or not): one RECALCULATION line charges the difference, `due`
+ * minus what the lines in scope charge (negative: money back to the customer). Lines out of scope
+ * are never touched nor counted. `invoiced`: what the invoiced lines in scope charge.
  */
 export function planRecalculation(
   lines: ShippingLineView[],
@@ -337,27 +337,20 @@ export function planRecalculation(
   const base = lines.map(plain);
   const scoped = lines.filter(inScope);
   const charged = chargedShipping(scoped);
-  const invoicedLines = scoped.filter((l) => invoicedIn(lines, l));
-  const invoiced = chargedShipping(invoicedLines);
+  const invoiced = chargedShipping(scoped.filter((l) => invoicedIn(lines, l)));
   const delta = due - charged;
   if (delta === 0) return { lines: base, mode: 'UNCHANGED', charged, invoiced, delta };
-
-  const keep = lines.filter((l) => !inScope(l) || invoicedIn(lines, l)).map(plain);
-  const amount = due - invoiced;
-  const dropped = keep.length < base.length;
-  const out =
-    amount === 0 && keep.length
-      ? keep
-      : [
-          ...keep,
-          {
-            id: nextShippingLineId(base),
-            origin: 'RECALCULATION' as const,
-            amount,
-            ...meta.method,
-            createdAt: meta.at,
-            actor: meta.actor,
-          },
-        ];
-  return { lines: out, mode: dropped ? 'REPLACED' : 'APPENDED', charged, invoiced, delta };
+  return {
+    lines: appendLine(base, {
+      origin: 'RECALCULATION',
+      amount: delta,
+      ...meta.method,
+      createdAt: meta.at,
+      actor: meta.actor,
+    }),
+    mode: 'APPENDED',
+    charged,
+    invoiced,
+    delta,
+  };
 }

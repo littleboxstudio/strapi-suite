@@ -353,14 +353,17 @@ describe('appendLine', () => {
 describe('planRecalculation', () => {
   const meta = { method: B, ...META };
 
-  it('collapses replaceable lines into one recalculation line', () => {
+  it('never removes a charge: it appends the difference', () => {
     const r = planRecalculation([view({ amount: 500 }), view({ id: 2, amount: 300 })], 650, meta);
-    expect(r.mode).toBe('REPLACED');
+    expect(r.mode).toBe('APPENDED');
     expect(r.charged).toBe(800);
     expect(r.delta).toBe(-150);
-    expect(r.lines).toEqual([
-      { id: 3, origin: 'RECALCULATION', amount: 650, ...B, createdAt: META.at, actor: META.actor },
+    expect(r.lines.map((l) => [l.id, l.amount])).toEqual([
+      [1, 500],
+      [2, 300],
+      [3, -150],
     ]);
+    expect(r.lines[2]).toEqual({ id: 3, origin: 'RECALCULATION', amount: -150, ...B, createdAt: META.at, actor: META.actor });
   });
 
   it('keeps invoiced lines and appends the quote minus them (negative: money back)', () => {
@@ -373,16 +376,17 @@ describe('planRecalculation', () => {
     expect(r.lines[1]).toMatchObject({ id: 2, origin: 'RECALCULATION', amount: -150 });
   });
 
-  it('a shipment or a payment does not keep a line: only an invoice does', () => {
+  it('keeps paid, shipped and invoiced lines alike', () => {
     const r = planRecalculation(
       [view({ spent: true, paid: true, amount: 500 }), view({ id: 2, amount: 300, invoiced: true })],
       1000,
       meta
     );
-    expect(r.mode).toBe('REPLACED');
+    expect(r.mode).toBe('APPENDED');
     expect(r.lines.map((l) => [l.id, l.origin, l.amount])).toEqual([
+      [1, 'CHECKOUT', 500],
       [2, 'CHECKOUT', 300],
-      [3, 'RECALCULATION', 700],
+      [3, 'RECALCULATION', 200],
     ]);
   });
 
@@ -392,10 +396,11 @@ describe('planRecalculation', () => {
       view({ id: 2, origin: 'RECALCULATION', amount: 400, createdAt: '2026-11-04T00:00:00.000Z' }),
     ];
     const r = planRecalculation(lines, 600, meta, (l) => l.id === 2);
-    expect(r).toMatchObject({ mode: 'REPLACED', charged: 400, invoiced: 0, delta: 200 });
+    expect(r).toMatchObject({ mode: 'APPENDED', charged: 400, invoiced: 0, delta: 200 });
     expect(r.lines.map((l) => [l.id, l.amount])).toEqual([
       [1, 500],
-      [3, 600],
+      [2, 400],
+      [3, 200],
     ]);
   });
 
@@ -418,10 +423,14 @@ describe('planRecalculation', () => {
     ]);
   });
 
-  it('leaves out a zero recalculation line when invoiced lines exist', () => {
+  it('a lower quote appends a negative line, keeping every charge', () => {
     const r = planRecalculation([view({ invoiced: true, amount: 500 }), view({ id: 2, amount: 300 })], 500, meta);
-    expect(r.mode).toBe('REPLACED');
-    expect(r.lines).toEqual([line({ amount: 500 })]);
+    expect(r.mode).toBe('APPENDED');
+    expect(r.lines.map((l) => [l.id, l.amount])).toEqual([
+      [1, 500],
+      [2, 300],
+      [3, -300],
+    ]);
   });
 });
 

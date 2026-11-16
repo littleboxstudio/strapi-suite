@@ -37,11 +37,17 @@ export type DiscountLine = LineAmounts & {
   refs: BenefitRef[];
   /** The manual discount percent (spec 4.1): the line is frozen at its net price. */
   manualDiscountPercent?: number | null;
+  /** Units held by invoices: the line is frozen at its net price (never re-priced). */
+  invoiced?: number;
 };
 
-/** A line with a manual percent keeps its discount and takes no promotion (spec 4.1). */
+/**
+ * Frozen at its net price, taking no new line discount: a line with a manual percent (spec 4.1),
+ * or with invoiced units (an invoiced line is never modified).
+ */
 const isManual = (l: DiscountLine) =>
-  l.manualDiscountPercent !== undefined && l.manualDiscountPercent !== null;
+  (l.manualDiscountPercent !== undefined && l.manualDiscountPercent !== null) ||
+  (l.invoiced ?? 0) > 0;
 
 export type DiscountContext = {
   lines: DiscountLine[];

@@ -57,6 +57,7 @@ import {
   type ManualDiscount,
 } from './domain/manualDiscounts';
 import { releaseLineRefs } from './domain/lineDiscounts';
+import { invoicedManualDiscountIds } from './domain/invoiceSelection';
 import {
   recalculateDiscounts,
   type DiscountLine,
@@ -484,6 +485,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         returnedQuantity: l.returnedQuantity,
         refs: refsOf(rawById.get(l.id)?.promotionRefs),
         manualDiscountPercent: l.manualDiscountPercent,
+        invoiced: l.invoiced ?? 0,
       }));
     const applied = appliedOf(order);
     const appliedIds = applied.map((a) => a.promotionId);
@@ -1853,6 +1855,15 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
       write: async (state) => {
         assertEditable(state, 'REMOVE_DISCOUNT');
         const { items, item } = find(state);
+        // A discount an invoice reflects is never removed.
+        const invoiced = invoicedManualDiscountIds(
+          items,
+          state.invoicing.docs,
+          state.invoicing.position.annulledInvoiceIds
+        );
+        if (invoiced.includes(item.id)) {
+          throw invalidDiscounts('discountId', 'MANUAL_DISCOUNT_INVOICED');
+        }
         const orderDiscount = Math.max(0, num(state.order.orderDiscount) - item.amount);
         return writeManual(
           state,

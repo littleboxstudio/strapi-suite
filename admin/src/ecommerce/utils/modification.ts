@@ -25,6 +25,8 @@ export type ModifyLineDraft = {
   /** Quantity on the order before the edit (0 for new lines). */
   originalQuantity: number;
   shipped: number;
+  /** Units held by invoices: never removed; the line's discount is then fixed. */
+  invoiced: number;
   isGift: boolean;
   removed: boolean;
   /** Known for lines added from the picker only. */
@@ -50,6 +52,7 @@ export function linesDraftFromOrder(order: Order, locale = 'en'): ModifyLineDraf
     quantity: l.quantity,
     originalQuantity: l.quantity,
     shipped: l.shipped,
+    invoiced: l.invoiced ?? 0,
     isGift: l.isGift,
     removed: false,
     stock: null,
@@ -81,6 +84,7 @@ export function addModifyLine(lines: ModifyLineDraft[], v: VariantSearchResult):
       quantity: 1,
       originalQuantity: 0,
       shipped: 0,
+      invoiced: 0,
       isGift: false,
       removed: false,
       stock: v.stock,
@@ -96,9 +100,9 @@ export function setModifyLineQuantity(
   return lines.map((l) => (l.key === key && !l.isGift ? { ...l, quantity } : l));
 }
 
-/** A manual percent goes only on a line with nothing shipped, not a gift, not removed. */
+/** A manual percent goes only on a line with nothing shipped or invoiced, not a gift, not removed. */
 export function modifyLineDiscountEditable(line: ModifyLineDraft): boolean {
-  return !line.isGift && !line.removed && line.shipped === 0;
+  return !line.isGift && !line.removed && line.shipped === 0 && line.invoiced === 0;
 }
 
 /** Sets the typed percent of a line (ignored where it cannot be edited). */
@@ -238,6 +242,8 @@ export function validateLinesDraft(lines: ModifyLineDraft[]): FieldError[] {
     if (!validQuantity(l.quantity)) errors.push({ path: `lines.${i}.quantity`, code: 'INVALID_QUANTITY' });
     else if (l.quantity < l.shipped) {
       errors.push({ path: `lines.${i}.quantity`, code: 'QUANTITY_BELOW_SHIPPED' });
+    } else if (l.quantity < l.invoiced) {
+      errors.push({ path: `lines.${i}.quantity`, code: 'QUANTITY_BELOW_INVOICED' });
     }
     if (!parseDiscountPercent(l.discount).ok) {
       errors.push({ path: `lines.${i}.discountPercent`, code: 'INVALID_PERCENT' });
@@ -246,6 +252,8 @@ export function validateLinesDraft(lines: ModifyLineDraft[]): FieldError[] {
   lines.forEach((l) => {
     if (l.removed && !l.isGift && l.orderLineId !== undefined && l.shipped > 0) {
       errors.push({ path: `removed.${l.orderLineId}`, code: 'QUANTITY_BELOW_SHIPPED' });
+    } else if (l.removed && !l.isGift && l.orderLineId !== undefined && l.invoiced > 0) {
+      errors.push({ path: `removed.${l.orderLineId}`, code: 'QUANTITY_BELOW_INVOICED' });
     }
   });
   return errors;
