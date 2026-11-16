@@ -33,6 +33,8 @@ type Props = {
   children?: ReactNode;
   /** Hides the credentials status line (the shipping cards show only title, badge, text and actions). */
   hideCredentials?: boolean;
+  /** No "Credentials saved" line (the missing / unreadable states still show). */
+  hideSavedCredentials?: boolean;
 };
 
 const IntegrationCard = ({
@@ -47,6 +49,7 @@ const IntegrationCard = ({
   toggleInChildren = false,
   children,
   hideCredentials = false,
+  hideSavedCredentials = false,
 }: Props) => {
   const { formatMessage } = useIntl();
   const t = (id: string, values?: Record<string, any>, defaultMessage?: string) =>
@@ -61,6 +64,7 @@ const IntegrationCard = ({
   const credentials = () => {
     if (!hasSecrets || hideCredentials) return null;
     if (secretsStatus === 'ok') {
+      if (hideSavedCredentials) return null;
       return (
         <Typography variant="pi" textColor="success600">
           {t('ecommerce.settings.integrations.credentials.ok')}
