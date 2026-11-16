@@ -19,6 +19,7 @@ import {
   Typography,
 } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
+import { InputTd } from '../InputTd';
 import FetchShippingReview from '../../usecases/orders/fetchShippingReview';
 import { apiErrorMessageId } from '../../utils/orderDetail';
 import { parseQuantity, shippableOf } from '../../utils/shipmentForm';
@@ -225,7 +226,8 @@ const RecalculateShippingModal = ({ order, onClose, onAddCharge, resume }: Props
                 <Td>
                   <Typography textColor="neutral800">{unitsOf(l)}</Typography>
                 </Td>
-                <Td style={{ width: 120 }}>
+                {/* A plain cell: the Table's keyboard grid would trap the focus in the first field. */}
+                <InputTd style={{ width: 120 }}>
                   <TextInput
                     aria-label={t('ecommerce.orders.ship.columns.quantity')}
                     value={quantities[l.id] ?? ''}
@@ -235,7 +237,7 @@ const RecalculateShippingModal = ({ order, onClose, onAddCharge, resume }: Props
                       setQuantityError(null);
                     }}
                   />
-                </Td>
+                </InputTd>
               </Tr>
             ))}
           </Tbody>
