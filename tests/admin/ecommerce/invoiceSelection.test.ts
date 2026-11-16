@@ -5,6 +5,7 @@ import {
   defaultInvoiceSelectionForm,
   discountItemLabel,
   invoiceSelectionTotals,
+  invoiceTotalsTiles,
   isSelectionChanged,
   selectionPayments,
   validateInvoiceSelection,
@@ -98,6 +99,26 @@ describe('invoiceSelectionTotals', () => {
       payments: 0,
       difference: 1200,
     });
+  });
+});
+
+describe('invoiceTotalsTiles', () => {
+  it('the discounts tile is negative, and a plain 0 when nothing is selected (never −0)', () => {
+    const v = view();
+    const tiles = invoiceTotalsTiles(invoiceSelectionTotals(v, defaultInvoiceSelectionForm(v)));
+    expect(tiles.map((t) => t.key)).toEqual([
+      'products',
+      'shipping',
+      'discounts',
+      'invoiceTotal',
+      'selectedPayments',
+      'difference',
+    ]);
+    expect(tiles.find((t) => t.key === 'discounts')!.amount).toBe(-500);
+    const none = invoiceTotalsTiles(
+      invoiceSelectionTotals(v, { orderLineIds: [], shippingLineIds: [], discountIds: [], paymentIds: [] })
+    );
+    expect(Object.is(none.find((t) => t.key === 'discounts')!.amount, 0)).toBe(true);
   });
 });
 

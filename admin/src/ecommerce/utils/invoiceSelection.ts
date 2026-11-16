@@ -46,6 +46,23 @@ export function invoiceSelectionTotals(
   return { lines, shipping, discounts, total, payments, difference: total - payments };
 }
 
+export type InvoiceTotalsTile = {
+  key: 'products' | 'shipping' | 'discounts' | 'invoiceTotal' | 'selectedPayments' | 'difference';
+  amount: number;
+};
+
+/** The modal's figures, in order; the discounts read negative (a plain 0 when none: never "−0"). */
+export function invoiceTotalsTiles(totals: ReturnType<typeof invoiceSelectionTotals>): InvoiceTotalsTile[] {
+  return [
+    { key: 'products', amount: totals.lines },
+    { key: 'shipping', amount: totals.shipping },
+    { key: 'discounts', amount: totals.discounts === 0 ? 0 : -totals.discounts },
+    { key: 'invoiceTotal', amount: totals.total },
+    { key: 'selectedPayments', amount: totals.payments },
+    { key: 'difference', amount: totals.difference },
+  ];
+}
+
 /**
  * As the server: something to invoice (`orderLineIds`: required) and a payment (`paymentIds`:
  * required); the ORDER discounts at most the selected lines and, when a SHIPPING discount is

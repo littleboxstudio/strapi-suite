@@ -1602,6 +1602,7 @@
   "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.reasonHint": "{count} / {max} characters",
   "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.nothing": "Choose at least one unit or shipping line to credit.",
   "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.nothingCreditable": "Nothing is left to credit on this invoice.",
+  "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.includesDiscounts": "Includes discounts of {amount} already applied to the lines",
   "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.confirm": "Issue credit note",
   "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.success": "Credit note issued.",
   "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.error": "The credit note could not be issued.",

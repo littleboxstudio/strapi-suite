@@ -14,6 +14,8 @@ import {
   issuedWarnings,
   canMarkFailed,
   hasReturnable,
+  returnValue,
+  creditedLinesView,
   selectedValue,
   validateCreditNoteForm,
   type CreditNoteForm,
@@ -151,6 +153,32 @@ describe('creditNoteTotal', () => {
 
   it('CORRECTION: the whole creditable value', () => {
     expect(creditNoteTotal(form({ creditType: 'CORRECTION' }), options())).toBe(1500);
+  });
+
+  it('RETURN of a whole-item line with a discount share: the server rule (net − floor share)', () => {
+    const shared = {
+      orderLineId: 7,
+      kind: 'ITEM' as const,
+      sku: 'S',
+      name: 'N',
+      quantity: 3,
+      total: 2900,
+      tax: 23,
+      partial: false,
+      discountShare: 100,
+    };
+    const row = { index: 0, units: 3, unitsLeft: 3, valueLeft: 2900 };
+    expect(returnValue(row, 1, shared)).toBe(967);
+    expect(returnValue(row, 3, shared)).toBe(2900);
+    // Two units left after one credited (967): 1000 − floor(67 / 2) = 967, the last takes 966.
+    const left = { index: 0, units: 2, unitsLeft: 2, valueLeft: 1933 };
+    expect(returnValue(left, 1, shared)).toBe(967);
+    expect(returnValue({ ...left, units: 1, unitsLeft: 1, valueLeft: 966 }, 1, shared)).toBe(966);
+    // A legacy line (no share) keeps the proportional rule.
+    const { discountShare: _drop, ...legacy } = shared;
+    expect(returnValue(row, 1, legacy)).toBe(966);
+    const opts = options({ lines: [shared], returnable: [row], shipping: [] });
+    expect(creditNoteTotal(form({ quantities: { 0: 1 } }), opts)).toBe(967);
   });
 });
 
@@ -370,5 +398,29 @@ describe('SHIPPING (shipping adjustment) credit notes', () => {
       expect(en[`${P}ecommerce.orders.invoices.creditNote.${k}`]).toBeTruthy();
       expect(pt[`${P}ecommerce.orders.invoices.creditNote.${k}`]).toBeTruthy();
     }
+  });
+});
+
+describe('creditedLinesView (Correction / Shipping adjustment lines)', () => {
+  const base = { orderLineId: null, sku: 'S', name: 'N', quantity: 1, tax: 23, partial: false };
+  it('lists only ITEM and SHIPPING lines; DISCOUNT records add up to one note amount', () => {
+    const view = creditedLinesView([
+      { ...base, orderLineId: 3, kind: 'ITEM', total: 8000, discountShare: 2000 },
+      { ...base, kind: 'SHIPPING', total: 500, discountShare: 0 },
+      { ...base, kind: 'DISCOUNT', total: -2000, discountId: 'm:1' },
+      { ...base, kind: 'DISCOUNT', total: -150, discountId: 'p:5:0' },
+    ]);
+    expect(view.lines.map((l) => l.kind)).toEqual(['ITEM', 'SHIPPING']);
+    expect(view.discounts).toBe(-2150);
+  });
+
+  it('no DISCOUNT records: no note', () => {
+    expect(creditedLinesView([{ ...base, kind: 'SHIPPING', total: 500 }]).discounts).toBe(0);
+  });
+
+  it('the note is translated (en, pt)', () => {
+    const id = `${P}ecommerce.orders.invoices.creditNote.includesDiscounts`;
+    expect(en[id]).toBe('Includes discounts of {amount} already applied to the lines');
+    expect(pt[id]).toBe('Inclui descontos de {amount} já aplicados às linhas');
   });
 });

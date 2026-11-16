@@ -208,7 +208,8 @@ export type InvoiceKind = 'INVOICE' | 'CREDIT_NOTE';
 
 export type InvoiceLine = {
   orderLineId: number | null;
-  kind: 'ITEM' | 'SHIPPING';
+  /** DISCOUNT: a record of a discount item the invoice took (already netted into the lines). */
+  kind: 'ITEM' | 'SHIPPING' | 'DISCOUNT';
   sku: string;
   name: string;
   quantity: number;
@@ -220,6 +221,12 @@ export type InvoiceLine = {
   shippingLineId?: number | null;
   /** Only part of the line's value is covered by this document. */
   partial: boolean;
+  /** Cents before discounts (absent on older lines). */
+  grossTotal?: number;
+  /** DISCOUNT lines: the discount item (`m:1`, `p:5:0`, `adj:order`...). */
+  discountId?: string;
+  /** Whole-item invoices: cents of order or shipping discounts spread onto this line. */
+  discountShare?: number | null;
 };
 
 export type InvoiceView = {
@@ -249,7 +256,6 @@ export type InvoiceView = {
 
 export type OrderBilling = { active: boolean; providerId: string | null };
 
-/** What a new invoice can still take: empty lists when the order is not OPEN. */
 /** An order or shipping discount not invoiced, invoiced whole with its pool. */
 export type InvoiceDiscountItem = {
   /** `m:<id>` manual, `p:<promotionId>:<index>` order promotion, `s:<promotionId>` shipping
@@ -262,6 +268,7 @@ export type InvoiceDiscountItem = {
   percent?: number | null;
 };
 
+/** What a new invoice can still take: empty lists when the order is not OPEN. */
 export type InvoiceSelectionView = {
   /** Order lines with units left to invoice: `value` = units × (unitPrice − unitDiscount). */
   lines: {
@@ -276,7 +283,7 @@ export type InvoiceSelectionView = {
     unitDiscount: number;
     value: number;
   }[];
-  /** Shipping lines not invoiced, at their current value (a credit line is negative). */
+  /** Shipping lines not invoiced, at their current value (never negative). */
   shipping: {
     shippingLineId: number;
     name: string;

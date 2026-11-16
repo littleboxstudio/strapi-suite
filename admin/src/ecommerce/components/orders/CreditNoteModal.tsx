@@ -46,6 +46,7 @@ import {
   isFailedReplay,
   isUncertainResult,
   issuedWarnings,
+  creditedLinesView,
   returnValue,
   validateCreditNoteForm,
   type CreditNoteForm,
@@ -315,7 +316,7 @@ const CreditNoteModal = ({ invoice, onClose, onIssued }: Props) => {
                       </Td>
                       <Td style={FIT_CELL}>
                         <Typography textColor="neutral800">
-                          {money(returnValue(r, quantity))}
+                          {money(returnValue(r, quantity, o.lines[r.index]))}
                         </Typography>
                       </Td>
                     </Tr>
@@ -360,30 +361,42 @@ const CreditNoteModal = ({ invoice, onClose, onIssued }: Props) => {
   /** Read-only: a Correction credits every line still creditable. */
   const correctionBody = (o: CreditNoteOptions) => linesBody(o.correction, `${p}.nothingCreditable`);
 
-  /** Read-only lines of a credit note the server composes (Correction, Shipping adjustment). */
-  const linesBody = (doc: { lines: InvoiceLine[] }, emptyKey: string) =>
-    doc.lines.length === 0 ? (
+  /**
+   * Read-only lines of a credit note the server composes (Correction, Shipping adjustment): its
+   * product and shipping lines; DISCOUNT records (already in those lines) are one muted note.
+   */
+  const linesBody = (doc: { lines: InvoiceLine[] }, emptyKey: string) => {
+    const view = creditedLinesView(doc.lines);
+    return view.lines.length === 0 ? (
       <EmptyNote>{t(emptyKey)}</EmptyNote>
     ) : (
-      <Table colCount={CORRECTION_COLUMNS.length} rowCount={doc.lines.length + 1}>
-        {heading(CORRECTION_COLUMNS, (c) => t(`ecommerce.orders.invoices.lines.${c}`))}
-        <Tbody>
-          {doc.lines.map((line, i) => (
-            <Tr key={i}>
-              <Td style={PRODUCT_CELL}>
-                <Typography textColor="neutral800">{lineName(line)}</Typography>
-              </Td>
-              <Td style={FIT_CELL}>
-                <Typography textColor="neutral800">{line.quantity}</Typography>
-              </Td>
-              <Td style={FIT_CELL}>
-                <Typography textColor="neutral800">{money(line.total)}</Typography>
-              </Td>
-            </Tr>
-          ))}
-        </Tbody>
-      </Table>
+      <Flex direction="column" alignItems="stretch" gap={2}>
+        <Table colCount={CORRECTION_COLUMNS.length} rowCount={view.lines.length + 1}>
+          {heading(CORRECTION_COLUMNS, (c) => t(`ecommerce.orders.invoices.lines.${c}`))}
+          <Tbody>
+            {view.lines.map((line, i) => (
+              <Tr key={i}>
+                <Td style={PRODUCT_CELL}>
+                  <Typography textColor="neutral800">{lineName(line)}</Typography>
+                </Td>
+                <Td style={FIT_CELL}>
+                  <Typography textColor="neutral800">{line.quantity}</Typography>
+                </Td>
+                <Td style={FIT_CELL}>
+                  <Typography textColor="neutral800">{money(line.total)}</Typography>
+                </Td>
+              </Tr>
+            ))}
+          </Tbody>
+        </Table>
+        {view.discounts !== 0 && (
+          <Typography variant="pi" textColor="neutral600">
+            {t(`${p}.includesDiscounts`, { amount: money(view.discounts) })}
+          </Typography>
+        )}
+      </Flex>
     );
+  };
 
   const body = (o: CreditNoteOptions, values: CreditNoteForm) => {
     const returnable = hasReturnable(o);
