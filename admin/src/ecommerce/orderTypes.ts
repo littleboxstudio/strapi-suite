@@ -442,6 +442,11 @@ export type Order = {
   shippingLines: ShippingLineView[];
   /** The manual order discounts (a legacy order reads its LEGACY item). */
   manualDiscounts: ManualDiscount[];
+  /**
+   * What a new manual discount applies to: the products not yet invoiced and the order discounts
+   * not yet invoiced that come off them too (absent on older servers).
+   */
+  discountBase?: { products: number; pendingDiscounts: number };
   reviewFlags: ReviewFlag[];
 };
 

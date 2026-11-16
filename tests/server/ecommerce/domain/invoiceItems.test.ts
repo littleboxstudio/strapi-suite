@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { invoiceItems, priceWholeSelection, type InvoiceItems } from '../../../../server/src/services/modules/ecommerce/domain/invoiceItems';
+import {
+  discountBase, invoiceItems, priceWholeSelection, type InvoiceItems } from '../../../../server/src/services/modules/ecommerce/domain/invoiceItems';
 import type {
   InvoiceDoc,
   PositionOrder,
@@ -297,5 +298,29 @@ describe('priceWholeSelection', () => {
       req({ orderLineIds: [1], discountIds: [] })
     );
     expect(r.issues).toEqual([{ path: 'shippingLineIds.0', code: 'SHIPPING_LINE_NOT_INVOICEABLE' }]);
+  });
+});
+
+describe('discountBase', () => {
+  it('is the value of the lines not yet invoiced and the order discounts not yet invoiced', () => {
+    const items = {
+      lines: [
+        { orderLineId: 1, units: 2, value: 6200, invoiced: false },
+        { orderLineId: 2, units: 1, value: 1550, invoiced: true },
+        { orderLineId: 3, units: 0, value: 0, invoiced: true },
+      ],
+      shipping: [{ shippingLineId: 1, value: 500, invoiced: false }],
+      discounts: [
+        { id: 'm:1', kind: 'ORDER' as const, label: 'a', amount: 1000, invoiced: false },
+        { id: 'm:2', kind: 'ORDER' as const, label: 'b', amount: 300, invoiced: true },
+        { id: 's:1', kind: 'SHIPPING' as const, label: 'c', amount: 200, invoiced: false },
+      ],
+    };
+    expect(discountBase(items)).toEqual({ products: 6200, pendingDiscounts: 1000 });
+  });
+
+  it('never reports negative pending discounts', () => {
+    const items = { lines: [], shipping: [], discounts: [{ id: 'adj:order', kind: 'ORDER' as const, label: 'x', amount: -5, invoiced: false }] };
+    expect(discountBase(items)).toEqual({ products: 0, pendingDiscounts: 0 });
   });
 });

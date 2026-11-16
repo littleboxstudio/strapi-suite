@@ -14,7 +14,7 @@ import {
 import { getTranslation } from '../../../core/utils/getTranslation';
 import AddManualDiscount from '../../usecases/orders/addManualDiscount';
 import { formatCents } from '../../utils/money';
-import { MAX_DISCOUNT_REASON, manualDiscountDraftToInput } from '../../utils/orderEditing';
+import { MAX_DISCOUNT_REASON, manualDiscountBase, manualDiscountDraftToInput } from '../../utils/orderEditing';
 import {
   apiErrorMessageId,
   type OrderActionPermissions,
@@ -139,7 +139,7 @@ const ManualDiscountModal = ({ order, permissions, onClose, onSaved, onAction }:
           hint={
             kind === 'PERCENT'
               ? t('ecommerce.orders.discounts.percentHint', {
-                  amount: formatCents(order.totals.subtotal, locale),
+                  amount: formatCents(manualDiscountBase(order).products, locale),
                 })
               : undefined
           }

@@ -16,6 +16,7 @@ import {
   type ToolbarAction,
 } from '../../utils/orderDetail';
 import {
+  canAddManualDiscount,
   canEdit,
   hasRowActions,
   manualDiscountPercent,
@@ -118,14 +119,14 @@ const PromotionsSection = ({
     </Flex>
   );
 
-  const header = canManage && (canEdit(order, 'RECALCULATE_DISCOUNTS') || canEdit(order, 'ADD_DISCOUNT')) && (
+  const header = canManage && (canEdit(order, 'RECALCULATE_DISCOUNTS') || canAddManualDiscount(order)) && (
     <Flex gap={2} alignItems="center">
       {canEdit(order, 'RECALCULATE_DISCOUNTS') && (
         <Button size="S" variant="secondary" onClick={() => setModal({ kind: 'RECALCULATE' })}>
           {t('ecommerce.orders.discounts.recalculate')}
         </Button>
       )}
-      {canEdit(order, 'ADD_DISCOUNT') && (
+      {canAddManualDiscount(order) && (
         <Button size="S" variant="secondary" onClick={() => setModal({ kind: 'ADD' })}>
           {t('ecommerce.orders.discounts.add')}
         </Button>

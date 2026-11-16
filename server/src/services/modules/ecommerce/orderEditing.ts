@@ -56,6 +56,7 @@ import {
 } from './domain/manualDiscounts';
 import { releaseLineRefs } from './domain/lineDiscounts';
 import { invoicedManualDiscountIds } from './domain/invoiceSelection';
+import { discountBase } from './domain/invoiceItems';
 import {
   recalculateDiscounts,
   type DiscountLine,
@@ -1720,9 +1721,10 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     const orderId = Number(rawOrderId);
     const build = (state: OrderState, by: string) => {
       const items = readManualDiscounts(state.order);
+      const base = discountBase(state.invoicing.items);
       const { discount, errors } = buildManualDiscount(input, {
-        subtotal: num(state.order.subtotal),
-        orderDiscount: num(state.order.orderDiscount),
+        base: base.products,
+        pending: base.pendingDiscounts,
         nextId: Math.max(0, ...items.map((m) => m.id)) + 1,
         at: new Date().toISOString(),
         actor: by,

@@ -2153,7 +2153,7 @@
   "littlebox-strapi-suite.ecommerce.orders.discounts.previewError": "Could not recalculate the discounts.",
   "littlebox-strapi-suite.ecommerce.orders.discounts.greedy": "There are many promotions: the best combination was estimated.",
   "littlebox-strapi-suite.ecommerce.orders.discounts.keptNote": "Discounts already applied are kept as they are. Recalculating only adds the new promotions you select.",
-  "littlebox-strapi-suite.ecommerce.orders.discounts.percentHint": "Of the products total ({amount}), not the shipping. Saved in euros.",
+  "littlebox-strapi-suite.ecommerce.orders.discounts.percentHint": "Of the products not yet invoiced ({amount}), not the shipping. Saved in euros.",
   "littlebox-strapi-suite.ecommerce.orders.discounts.kindLabel": "Type",
   "littlebox-strapi-suite.ecommerce.orders.errors.DPD_AUTH_FAILED": "DPD rejected the credentials. Check Settings → Shipping → DPD Portugal.",
   "littlebox-strapi-suite.ecommerce.orders.errors.DPD_BLOCKED": "DPD blocked the requests from this server before checking the credentials. Ask DPD to allow this server's IP address.",

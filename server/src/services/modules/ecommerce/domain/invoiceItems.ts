@@ -292,3 +292,16 @@ export function priceWholeSelection(
     issues,
   };
 }
+
+/**
+ * What a new manual discount applies to: the value of the product lines not yet invoiced
+ * (`products`) and the order discounts not yet invoiced that will come off them too
+ * (`pendingDiscounts`, never below 0).
+ */
+export function discountBase(items: InvoiceItems): { products: number; pendingDiscounts: number } {
+  const products = items.lines.filter((l) => !l.invoiced).reduce((s, l) => s + l.value, 0);
+  const pending = items.discounts
+    .filter((d) => d.kind === 'ORDER' && !d.invoiced)
+    .reduce((s, d) => s + d.amount, 0);
+  return { products, pendingDiscounts: Math.max(0, pending) };
+}

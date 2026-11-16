@@ -42,7 +42,7 @@ import {
   type InvoicingPosition,
   type PositionOrder,
 } from './domain/invoiceSelection';
-import { invoiceItems, type InvoiceItems } from './domain/invoiceItems';
+import { discountBase, invoiceItems, type InvoiceItems } from './domain/invoiceItems';
 import { readReturnShares, type ReturnShareRecord } from './domain/returnShares';
 import {
   orderDeliveryStatus,
@@ -284,6 +284,11 @@ export type OrderView = {
   /** Why the billing address cannot change, or null while it can. */
   billingAddressLock: BillingAddressLock | null;
   shippingLines: ShippingLineView[];
+  /**
+   * What a new manual discount applies to: the products not yet invoiced and the order discounts
+   * not yet invoiced that come off them too.
+   */
+  discountBase: { products: number; pendingDiscounts: number };
   /**
    * The stored manual discounts (a legacy order reads its LEGACY item). `invoiced`: an invoice
    * already reflects it, so it can never be removed.
@@ -1566,6 +1571,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       editing,
       billingAddressLock: billingLock,
       shippingLines,
+      discountBase: discountBase(invoicing.items),
       manualDiscounts: (() => {
         const items = readManualDiscounts(order);
         const invoiced = new Set(

@@ -26,6 +26,8 @@ import {
   parseDiscountPercent,
   percentToInput,
   manualDiscountRows,
+  manualDiscountBase,
+  canAddManualDiscount,
   orderDiscountTotal,
   manualDiscountDraftToInput,
   reviewAlertDate,
@@ -900,5 +902,20 @@ describe('reviewDifference', () => {
     expect(reviewDifference({ paid: 2900, shippingDiscount: 200 }, 3100)).toBe(0);
     expect(reviewDifference({ paid: 2900, shippingDiscount: 200 }, 3600)).toBe(500);
     expect(reviewDifference({ paid: 2900, shippingDiscount: 200 }, 100)).toBe(-2900);
+  });
+});
+
+describe('manual discount base (products not yet invoiced)', () => {
+  const editable = (discountBase?: { products: number; pendingDiscounts: number }) =>
+    order({ editing: editing({ actions: ['ADD_DISCOUNT'] }), ...(discountBase ? { discountBase } : {}) });
+
+  it('uses the products not yet invoiced, less the pending order discounts', () => {
+    expect(manualDiscountBase(editable({ products: 6200, pendingDiscounts: 1000 }))).toEqual({ products: 6200, available: 5200 });
+  });
+
+  it('offers Add discount only while something can take it', () => {
+    expect(canAddManualDiscount(editable({ products: 6200, pendingDiscounts: 0 }))).toBe(true);
+    expect(canAddManualDiscount(editable({ products: 0, pendingDiscounts: 0 }))).toBe(false);
+    expect(canAddManualDiscount(editable({ products: 1000, pendingDiscounts: 1000 }))).toBe(false);
   });
 });
