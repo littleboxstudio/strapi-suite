@@ -30,17 +30,6 @@ export type StoredCart = {
   locale: string | null;
 };
 
-/** Deeply frozen reference value; use `emptyCart()` for a cart to modify or store. */
-export const EMPTY_CART: StoredCart = Object.freeze({
-  lines: Object.freeze([]) as unknown as StoredCart['lines'],
-  promotionCodes: Object.freeze([]) as unknown as string[],
-  giftChoices: Object.freeze({}) as Record<string, number>,
-  email: null,
-  destination: null,
-  shippingMethod: null,
-  locale: null,
-}) as StoredCart;
-
 export type CheckoutSession = {
   id: number;
   expiresAt: string;

@@ -13,7 +13,6 @@ import {
   nullableString,
   optionalBoolean,
   optionalString,
-  positiveInt,
   requiredString,
 } from './validation';
 

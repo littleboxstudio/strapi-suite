@@ -492,5 +492,3 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
 
   return { priceCart, quote, assertLinesAvailable, assertPricedStock, assertCodesUsable };
 };
-
-export type OrderPricing = ReturnType<typeof createOrderPricing>;

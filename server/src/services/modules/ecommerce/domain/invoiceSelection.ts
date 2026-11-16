@@ -9,7 +9,6 @@
 import { allocateProportionally, coverageDues } from './orders';
 import { isObject, num, readInvoiceLines, type InvoiceLine } from './invoicing';
 import type { ShippingLine } from './shippingLines';
-import type { ValidationIssue } from '../errors';
 
 /**
  * RETURN: returned units and whole shipping lines. CORRECTION: everything left (annuls the
@@ -95,20 +94,6 @@ export type InvoicingPosition = {
    */
   overInvoiced: { products: number; shipping: number };
   annulledInvoiceIds: number[];
-};
-
-export type SelectionRequest = {
-  lines: { orderLineId: number; quantity: number }[];
-  shippingLineIds: number[];
-  paymentIds: number[];
-};
-
-export type PricedSelection = {
-  lines: { orderLineId: number; quantity: number; value: number }[];
-  shipping: { shippingLineId: number; value: number }[];
-  payments: { paymentId: number; value: number }[];
-  total: number;
-  paymentsTotal: number;
 };
 
 const COUNTED_INVOICE: InvoiceDoc['status'][] = ['ISSUED', 'PENDING', 'UNCERTAIN'];
@@ -473,100 +458,6 @@ export const selectedValue = (
   if (quantity === remainingQuantity) return remainingValue;
   return Math.floor((remainingValue * quantity) / remainingQuantity);
 };
-
-const list = <T>(v: T[] | unknown): unknown[] => (Array.isArray(v) ? v : []);
-
-/**
- * Prices a selection against the position (ruling 11.3). Issues are path-indexed by request
- * position; a repeated id is a `duplicate` at its later position. The totals check
- * (`INVOICE_TOTALS_DIFFER`) only runs when every entry is valid. `selection` is null when there
- * are issues.
- */
-export function priceSelection(
-  position: InvoicingPosition,
-  payments: { id: number; net: number; available: boolean }[],
-  request: SelectionRequest
-): { selection: PricedSelection | null; issues: ValidationIssue[] } {
-  const issues: ValidationIssue[] = [];
-  const reqLines = list(request?.lines);
-  const reqShipping = list(request?.shippingLineIds);
-  const reqPayments = list(request?.paymentIds);
-
-  const lines: PricedSelection['lines'] = [];
-  const seenLines = new Set<number>();
-  reqLines.forEach((entry, i) => {
-    const e = isObject(entry) ? entry : {};
-    const line = position.lines.find((l) => l.orderLineId === e.orderLineId);
-    if (!line) {
-      issues.push({ path: `lines.${i}.orderLineId`, code: 'unknown_line' });
-      return;
-    }
-    if (seenLines.has(line.orderLineId)) {
-      issues.push({ path: `lines.${i}.orderLineId`, code: 'duplicate' });
-      return;
-    }
-    seenLines.add(line.orderLineId);
-    const quantity = e.quantity;
-    if (typeof quantity !== 'number' || !Number.isInteger(quantity) || quantity < 1) {
-      issues.push({ path: `lines.${i}.quantity`, code: 'invalid' });
-      return;
-    }
-    if (quantity > line.remainingQuantity) {
-      issues.push({ path: `lines.${i}.quantity`, code: 'QUANTITY_EXCEEDS_UNINVOICED' });
-      return;
-    }
-    lines.push({
-      orderLineId: line.orderLineId,
-      quantity,
-      value: selectedValue(line.remainingValue, line.remainingQuantity, quantity),
-    });
-  });
-
-  const shipping: PricedSelection['shipping'] = [];
-  const seenShipping = new Set<unknown>();
-  reqShipping.forEach((id, i) => {
-    if (seenShipping.has(id)) {
-      issues.push({ path: `shippingLineIds.${i}`, code: 'duplicate' });
-      return;
-    }
-    seenShipping.add(id);
-    const line = position.shipping.find((s) => s.shippingLineId === id);
-    if (!line?.available) {
-      issues.push({ path: `shippingLineIds.${i}`, code: 'SHIPPING_LINE_NOT_INVOICEABLE' });
-      return;
-    }
-    shipping.push({ shippingLineId: line.shippingLineId, value: line.remainingValue });
-  });
-
-  const priced: PricedSelection['payments'] = [];
-  const seenPayments = new Set<unknown>();
-  reqPayments.forEach((id, i) => {
-    if (seenPayments.has(id)) {
-      issues.push({ path: `paymentIds.${i}`, code: 'duplicate' });
-      return;
-    }
-    seenPayments.add(id);
-    const payment = payments.find((p) => p.id === id);
-    if (!payment?.available || !(payment.net > 0)) {
-      issues.push({ path: `paymentIds.${i}`, code: 'PAYMENT_NOT_INVOICEABLE' });
-      return;
-    }
-    priced.push({ paymentId: payment.id, value: payment.net });
-  });
-
-  if (reqLines.length === 0 && reqShipping.length === 0) {
-    issues.push({ path: 'lines', code: 'required' });
-  }
-  if (reqPayments.length === 0) issues.push({ path: 'paymentIds', code: 'required' });
-
-  const total = sum(lines.map((l) => l.value)) + sum(shipping.map((s) => s.value));
-  const paymentsTotal = sum(priced.map((p) => p.value));
-  if (!issues.length && (total !== paymentsTotal || total <= 0)) {
-    issues.push({ path: 'paymentIds', code: 'INVOICE_TOTALS_DIFFER' });
-  }
-  if (issues.length) return { selection: null, issues };
-  return { selection: { lines, shipping, payments: priced, total, paymentsTotal }, issues };
-}
 
 /**
  * Whether a document (left out of `position`) still fits it (ruling 14): none of its ITEM lines

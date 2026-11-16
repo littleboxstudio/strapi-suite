@@ -976,9 +976,6 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
       return getStoreSettings();
     },
 
-    /** Clears the provider runtime cache (after changes committed elsewhere). */
-    invalidateRuntimes: invalidate,
-
     /** The DPD Portugal services as stored (defaults before the first save). */
     async getDpdServices(): Promise<DpdServices> {
       return readDpdServices((await findRow(DPD_PORTUGAL_ID))?.config?.services);

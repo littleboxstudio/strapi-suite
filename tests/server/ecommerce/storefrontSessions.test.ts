@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createHash } from 'node:crypto';
 import { setupCommerce, createOrder, UIDS, type Commerce } from './helpers/commerceSetup';
 import {
-  EMPTY_CART,
   emptyCart,
 } from '../../../server/src/services/modules/ecommerce/storefrontSessions';
 import {
@@ -58,7 +57,7 @@ describe('EcommerceStorefrontSessionService', () => {
       expect(JSON.stringify(row)).not.toContain(r.token);
       expect(row).toMatchObject({
         status: 'ACTIVE',
-        cart: EMPTY_CART,
+        cart: emptyCart(),
         emailVerification: {},
         verificationAttempts: 0,
       });
@@ -134,7 +133,7 @@ describe('EcommerceStorefrontSessionService', () => {
       const row = sessions(c).find((x) => x.id === s.id);
       expect(row).toMatchObject({
         status: 'EXPIRED',
-        cart: EMPTY_CART,
+        cart: emptyCart(),
         emailVerification: {},
         verifiedEmail: null,
         verificationAttempts: 0,
@@ -213,7 +212,7 @@ describe('EcommerceStorefrontSessionService', () => {
       expect(s).toEqual({
         id: sessions(c)[0].id,
         expiresAt: new Date(NOW.getTime() + 168 * HOUR).toISOString(),
-        cart: EMPTY_CART,
+        cart: emptyCart(),
         verifiedEmail: null,
         emailVerification: {},
         verificationAttempts: 0,
@@ -241,7 +240,7 @@ describe('EcommerceStorefrontSessionService', () => {
       expect(sessions(c)[0]).toMatchObject({
         id,
         status: 'ACTIVE',
-        cart: EMPTY_CART,
+        cart: emptyCart(),
         verifiedEmail: null,
       });
       // Not taken by the purge inside the grace either.
@@ -284,7 +283,7 @@ describe('EcommerceStorefrontSessionService', () => {
       expect(await svc(c).resolve(token)).toBeNull();
       expect(sessions(c)[0]).toMatchObject({
         status: 'EXPIRED',
-        cart: EMPTY_CART,
+        cart: emptyCart(),
         emailVerification: {},
         verifiedEmail: null,
       });
@@ -354,13 +353,8 @@ describe('EcommerceStorefrontSessionService', () => {
       expect(sessions(c)[0].cart).toEqual(emptyCart());
     });
 
-    it('EMPTY_CART is deeply frozen and emptyCart() returns fresh objects', () => {
-      expect(Object.isFrozen(EMPTY_CART)).toBe(true);
-      expect(Object.isFrozen(EMPTY_CART.lines)).toBe(true);
-      expect(Object.isFrozen(EMPTY_CART.promotionCodes)).toBe(true);
-      expect(Object.isFrozen(EMPTY_CART.giftChoices)).toBe(true);
+    it('emptyCart() returns fresh objects', () => {
       const a = emptyCart();
-      expect(a).toEqual(EMPTY_CART);
       expect(a.lines).not.toBe(emptyCart().lines);
       expect(Object.isFrozen(a.lines)).toBe(false);
     });
@@ -415,7 +409,7 @@ describe('EcommerceStorefrontSessionService', () => {
         lines: [{ variantId: 10, quantity: 1 }],
       });
       sessions(c)[0].cart = null;
-      expect((await svc(c).resolve(token)).cart).toEqual(EMPTY_CART);
+      expect((await svc(c).resolve(token)).cart).toEqual(emptyCart());
     });
   });
 

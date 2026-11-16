@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   renderTemplate,
-  extractVariables,
   validateTemplate,
   TemplateSyntaxError,
 } from '../../../../server/src/services/modules/ecommerce/email/templateEngine';
@@ -110,20 +109,6 @@ describe('renderTemplate', () => {
     expect(() => renderTemplate('{{{a}}}', {})).toThrow(TemplateSyntaxError);
     expect(() => renderTemplate('{{a + b}}', {})).toThrow(TemplateSyntaxError);
     expect(() => renderTemplate('{{#if a}}x{{/each}}', {})).toThrow(TemplateSyntaxError);
-  });
-});
-
-describe('extractVariables', () => {
-  it('lists value, each and if paths', () => {
-    const source =
-      '{{customer.firstName}}{{#if order.discount}}{{order.discount}}{{/if}}{{#each order.items}}{{this.name}}{{@index}}{{/each}}{{customer.firstName}}';
-    expect(extractVariables(source)).toEqual([
-      { path: 'customer.firstName', kind: 'value' },
-      { path: 'order.discount', kind: 'if' },
-      { path: 'order.discount', kind: 'value' },
-      { path: 'order.items', kind: 'each' },
-      { path: 'this.name', kind: 'value' },
-    ]);
   });
 });
 

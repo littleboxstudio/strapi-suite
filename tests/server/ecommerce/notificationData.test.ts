@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import {
-  NOTIFICATION_TEMPLATE_TYPES,
   buildTemplateData,
   formatMoney,
   notificationKey,
@@ -180,7 +179,8 @@ describe('templateForEvent', () => {
 });
 
 describe('buildTemplateData', () => {
-  it.each(NOTIFICATION_TEMPLATE_TYPES)('%s fills every catalog variable', (type) => {
+  // EVENT_FOR is a complete Record, so its keys are every template type.
+  it.each(Object.keys(EVENT_FOR) as NotificationTemplateType[])('%s fills every catalog variable', (type) => {
     const data = buildTemplateData(type, { order: makeOrder(), store, event: EVENT_FOR[type] });
     for (const def of getVariableCatalog(type)) {
       const v = get(data, def.path);

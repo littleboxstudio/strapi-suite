@@ -8,7 +8,6 @@ import { normalizeEmail } from './domain/email';
 const AREA = 'customers';
 const PAGE_SIZE = 50;
 
-export { normalizeEmail };
 export const isValidEmail = (email: unknown): boolean =>
   typeof email === 'string' && isEmail(email.trim());
 
@@ -50,9 +49,6 @@ const EcommerceCustomerService = ({ strapi }: { strapi: Core.Strapi }) => {
   });
 
   return {
-    normalizeEmail,
-    isValidEmail,
-
     /** Finds the oldest customer with this e-mail or creates one. Never updates an existing customer. */
     async findOrCreate(input: CustomerInput): Promise<{ id: number; created: boolean }> {
       const { values, errors } = validate(input);

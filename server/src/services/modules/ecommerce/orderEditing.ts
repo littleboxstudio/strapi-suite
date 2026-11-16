@@ -41,7 +41,6 @@ import {
   linePoint,
   planLineChange,
   readShippingLines,
-  shippingLineViews,
   withoutLine,
   withoutLinePoints,
   type LinePickupPoint,
@@ -91,7 +90,7 @@ import {
 } from './domain/pickupPoints';
 import { isRecord, type CatalogVariant } from './orderPricingHelpers';
 import type { ShippingOption, ShippingQuoteRequest } from './shipping';
-import { normalizeAddress, shippingLineContext, type OrderState, type OrderView } from './orders';
+import { normalizeAddress, type OrderState, type OrderView } from './orders';
 import type { ValidationIssue } from './errors';
 
 export type EditKind =

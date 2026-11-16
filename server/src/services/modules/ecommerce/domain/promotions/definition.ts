@@ -37,12 +37,6 @@ const MAX_LIMIT = 1_000_000;
 export const normalizePromotionCode = (raw: unknown): string =>
   typeof raw === 'string' ? raw.trim().toUpperCase() : '';
 
-export const displayNameFor = (
-  p: { name: string; displayName: Record<string, string> },
-  locale: string,
-  defaultLocale: string
-): string => p.displayName?.[locale] || p.displayName?.[defaultLocale] || p.name;
-
 const isObj = (v: unknown): v is Record<string, any> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);

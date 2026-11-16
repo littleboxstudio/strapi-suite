@@ -3,7 +3,6 @@ import {
   promotionStatus,
   candidateBlock,
   percentOf,
-  displayNameFor,
   targetMatches,
   requiresVerifiedEmail,
   type PromotionCandidate,
@@ -82,12 +81,6 @@ describe('helpers', () => {
     expect(percentOf(1999, 10)).toBe(200);
     expect(percentOf(1005, 12.5)).toBe(126);
     expect(percentOf(1000, 33.33)).toBe(333);
-  });
-  it('displayNameFor falls back', () => {
-    const p = { name: 'N', displayName: { pt: 'Verão' } };
-    expect(displayNameFor(p, 'pt', 'en')).toBe('Verão');
-    expect(displayNameFor({ name: 'N', displayName: { en: 'Summer' } }, 'pt', 'en')).toBe('Summer');
-    expect(displayNameFor(p, 'fr', 'de')).toBe('N');
   });
   it('targetMatches variant or product', () => {
     const t = { productIds: [1], variantIds: [9] };

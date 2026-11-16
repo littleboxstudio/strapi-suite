@@ -1,7 +1,6 @@
 import type { StoreSettings } from '../settings';
 
-/** Box the stored logo is resized into (pixels), and the box it is shown in inside e-mails. */
-export const LOGO_BOX = { width: 480, height: 96 } as const;
+/** Box the store logo is shown in inside e-mails (pixels). */
 export const LOGO_DISPLAY = { width: 240, height: 48 } as const;
 
 /** Host name, lower case; the scheme and port are ignored (a TLS proxy may change them). */
