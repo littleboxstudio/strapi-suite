@@ -116,6 +116,20 @@ describe('invoiceItems', () => {
     expect(d.map((x) => x.amount)).toEqual([1000, 500, 200]);
   });
 
+  it('several SHIPPING_DISCOUNT benefits of one promotion are one s:<promotionId> item (summed)', () => {
+    const twice = {
+      promotionId: 4,
+      name: 'P4',
+      amount: 300,
+      benefits: [
+        { index: 0, type: 'X', class: 'SHIPPING_DISCOUNT', amount: 200, params: {} },
+        { index: 1, type: 'Y', class: 'SHIPPING_DISCOUNT', amount: 100, params: {} },
+      ],
+    } as unknown as AppliedPromotion;
+    const d = invoiceItems(order({ applied: [twice], shippingDiscount: 300 }), []).discounts;
+    expect(d).toEqual([{ id: 's:4', kind: 'SHIPPING', label: 'P4', amount: 300, invoiced: false }]);
+  });
+
   it('an unexplained difference becomes an adj item', () => {
     const d = invoiceItems(withDiscounts({ orderDiscount: 1501 }), []).discounts;
     expect(d.find((x) => x.id === 'adj:order')).toMatchObject({ amount: 1 });

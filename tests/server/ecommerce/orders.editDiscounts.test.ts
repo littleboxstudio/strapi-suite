@@ -968,6 +968,53 @@ describe('manual discounts (spec 7.2, ruling 18)', () => {
   });
 });
 
+describe('manual discount removal lock (whole-item and legacy invoices)', () => {
+  const invoiceWith = (ctx: Ctx, orderId: number, lines: unknown[]) =>
+    ctx.tables[UIDS.invoice].push({
+      id: ctx.tables[UIDS.invoice].length + 1,
+      order: orderId,
+      kind: 'INVOICE',
+      status: 'ISSUED',
+      createdAt: new Date(Date.now() + 1000).toISOString(),
+      lines: { lines },
+    });
+  const withTwoDiscounts = async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx, [{ variantId: 10, quantity: 2 }]);
+    await ctx.editing.addManualDiscount(id, { kind: 'FIXED', value: 300, reason: 'A' }, 'user:1', 'op-lock-001');
+    await ctx.editing.addManualDiscount(id, { kind: 'FIXED', value: 200, reason: 'B' }, 'user:1', 'op-lock-002');
+    return { ctx, id };
+  };
+
+  it('a whole-item invoice locks only the manual discounts it has a DISCOUNT record of', async () => {
+    const { ctx, id } = await withTwoDiscounts();
+    invoiceWith(ctx, id, [
+      { kind: 'SHIPPING', orderLineId: null, sku: 'SHIPPING', name: 'S', quantity: 1, total: 500, tax: 23, partial: false, shippingLineId: 1, discountShare: 0 },
+      { kind: 'DISCOUNT', orderLineId: null, sku: 'DISCOUNT', name: 'B', quantity: 1, total: -200, tax: 0, partial: false, discountId: 'm:2' },
+    ]);
+    const view = await ctx.orders.get(id);
+    expect(view.manualDiscounts.map((m: any) => [m.id, m.invoiced])).toEqual([
+      [1, false],
+      [2, true],
+    ]);
+    expect(await issues(ctx.editing.removeManualDiscount(id, 2, 'user:1', 'op-lock-003'))).toEqual([
+      { path: 'discountId', code: 'MANUAL_DISCOUNT_INVOICED' },
+    ]);
+    await ctx.editing.removeManualDiscount(id, 1, 'user:1', 'op-lock-004');
+    expect(orderRow(ctx, id).manualDiscounts.items.map((m: any) => m.id)).toEqual([2]);
+  });
+
+  it('a legacy invoice (no DISCOUNT record, no share) keeps the date rule', async () => {
+    const { ctx, id } = await withTwoDiscounts();
+    issueInvoice(ctx, id);
+    const view = await ctx.orders.get(id);
+    expect(view.manualDiscounts.map((m: any) => m.invoiced)).toEqual([true, true]);
+    expect(await issues(ctx.editing.removeManualDiscount(id, 1, 'user:1', 'op-lock-005'))).toEqual([
+      { path: 'discountId', code: 'MANUAL_DISCOUNT_INVOICED' },
+    ]);
+  });
+});
+
 describe('dismissReviewFlag (ruling 23)', () => {
   const raised = (ctx: Ctx, id: number) => {
     orderRow(ctx, id).reviewFlags = {
