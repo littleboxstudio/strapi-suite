@@ -127,7 +127,7 @@ const parseLine = (raw: unknown): ShippingLine | null => {
 };
 
 /** The corrections appended to the line `id`, oldest first. */
-const correctionsOf = <L extends ShippingLine>(lines: L[], id: number): L[] =>
+export const correctionsOf = <L extends ShippingLine>(lines: L[], id: number): L[] =>
   lines.filter((l) => l.editOf === id).sort(byId);
 
 export function readShippingLines(

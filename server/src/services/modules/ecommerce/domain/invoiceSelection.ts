@@ -151,7 +151,7 @@ export function readInvoiceDoc(row: unknown, paymentIds: number[]): InvoiceDoc {
 // ---------------------------------------------------------------------------
 
 /** Legacy SHIPPING lines without an id invoice the CHECKOUT line, or the lowest id (ruling 4). */
-const legacyShippingTarget = (shippingLines: ShippingLine[]): number | null => {
+export const legacyShippingTarget = (shippingLines: ShippingLine[]): number | null => {
   const checkout = shippingLines.find((l) => l.origin === 'CHECKOUT');
   if (checkout) return checkout.id;
   return shippingLines.length ? Math.min(...shippingLines.map((l) => l.id)) : null;
@@ -220,6 +220,7 @@ export function invoicingPosition(order: PositionOrder, docs: InvoiceDoc[]): Inv
 
   for (const doc of counted.values()) {
     for (const l of doc.lines) {
+      if (l.kind === 'DISCOUNT') continue;
       if (l.kind === 'SHIPPING') {
         shippingInvoiced += num(l.total);
         const target = shippingTargetOf(l, legacyTarget);
@@ -233,6 +234,7 @@ export function invoicingPosition(order: PositionOrder, docs: InvoiceDoc[]): Inv
 
   for (const cn of credits) {
     for (const l of cn.lines) {
+      if (l.kind === 'DISCOUNT') continue;
       if (l.kind === 'SHIPPING') shippingInvoiced -= num(l.total);
       else productsInvoiced -= num(l.total);
     }
