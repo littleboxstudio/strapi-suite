@@ -2004,10 +2004,12 @@
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.WHOLE": "A encomenda inteira",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.WHOLE.hint": "Cotar todos os produtos com o método original da encomenda e comparar com o que já foi pago.",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.REMAINING": "Os produtos por enviar",
-  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.REMAINING.hint": "Escolher o método e o preço de uma nova linha de portes para todos os produtos ainda não enviados.",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.REMAINING.hint": "Escolher o método e o preço de uma nova linha de portes para os produtos ainda não enviados.",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.SELECT": "Escolher produtos",
-  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.SELECT.hint": "Escolher para que produtos pagos e ainda não enviados é a nova linha de portes.",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.SELECT.hint": "Escolher para que produtos ainda não enviados é a nova linha de portes.",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.next": "Seguinte",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.back": "Voltar",
-  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.noUnits": "Escolha pelo menos uma unidade."
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.noUnits": "Escolha pelo menos uma unidade.",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.withUnpaid.REMAINING": "Considerar nos cálculos os produtos ainda não pagos",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.withUnpaid.SELECT": "Mostrar na lista os produtos ainda não pagos"
 }
