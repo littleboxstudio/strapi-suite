@@ -523,6 +523,59 @@ describe('exact line discounts: a recalculated promotion splits the line', () =>
   });
 });
 
+describe('exact line discounts: a shipped line is never split', () => {
+  it('buy 2 get 1 on a partially shipped order: the shipped line keeps its units and price', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx, [
+      { variantId: 10, quantity: 3 },
+      { variantId: 12, quantity: 1 },
+    ]);
+    const before = linesOf(ctx, id).map((l) => ({ ...l }));
+    const a = before.find((l) => l.variantId === 10);
+    // An ACTIVE shipment of line A only (B not shipped): the order is partially shipped.
+    ctx.tables[UIDS.shipment].push({
+      id: ctx.tables[UIDS.shipment].length + 1,
+      order: id,
+      providerId: 'manual',
+      carrierName: 'CTT',
+      status: 'ACTIVE',
+      deliveryStatus: 'DELIVERED',
+      items: {
+        lines: [{ orderLineId: a.id, sku: a.sku, name: a.name, option: null, quantity: 3 }],
+      },
+      idempotencyKey: `ship-${id}`,
+    });
+    const stock = stockOf(ctx, 10);
+    const promo = addPromotion(ctx, {
+      name: 'Buy 2 get 1',
+      benefits: {
+        items: [
+          {
+            type: 'BUY_X_GET_Y',
+            buy: { target: T([10]), quantity: 2, minAmount: null },
+            get: { mode: 'IN_CART', target: T([10]), quantity: 1 },
+            reward: { kind: 'FREE' },
+          },
+        ],
+      },
+    });
+
+    await ctx.editing.applyDiscounts(id, { selection: [`p:${promo}`] }, 'user:1', 'op-split-02');
+
+    const after = linesOf(ctx, id);
+    expect(after).toHaveLength(2);
+    expect(after.find((l) => l.id === a.id)).toMatchObject({
+      quantity: 3,
+      unitDiscount: 0,
+      promotionRefs: a.promotionRefs,
+    });
+    expect(orderRow(ctx, id)).toMatchObject({ productDiscount: 0, orderDiscount: 0 });
+    expect(stockOf(ctx, 10)).toBe(stock);
+    const [entry] = historyOf(ctx, id, 'DISCOUNTS_RECALCULATED');
+    expect(entry.newValue).not.toHaveProperty('splitLines');
+  });
+});
+
 describe('applied promotions that are no longer valid (ruling 13)', () => {
   const recalcOf = async (ctx: Ctx, id: number) =>
     (await ctx.editing.previewDiscounts(id, {})).rows;

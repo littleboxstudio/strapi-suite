@@ -4,7 +4,7 @@
  */
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID, LtbConfigs } from '../../../config';
-import { EcommerceValidationError } from './errors';
+import { EcommerceNotFoundError, EcommerceValidationError } from './errors';
 import {
   createEditRunner,
   type EditWriter,
@@ -1657,16 +1657,17 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     const split: SplitLine[] = [];
     for (const l of r.lines) {
       const source = viewById.get(l.id);
+      if (!source) throw new EcommerceNotFoundError(`Order line ${l.id} not found`);
       const [first, ...rest] = l.splits ?? [];
       await lines.update({
         where: { id: l.id },
         data: {
           unitDiscount: l.unitDiscount,
           promotionRefs: { refs: l.refs },
-          ...(first && source ? { quantity: first.quantity + source.returnedQuantity } : {}),
+          ...(first ? { quantity: first.quantity + source.returnedQuantity } : {}),
         },
       });
-      if (!rest.length || !source) continue;
+      if (!rest.length) continue;
       const newLines: SplitLine['newLines'] = [];
       for (const part of rest) {
         const created = await lines.create({
