@@ -835,7 +835,8 @@ export type DiscountRow = {
   invalidReason: string | null;
   /** Initial selection. */
   selected: boolean;
-  locked: 'GIFT_SHIPPED' | null;
+  /** `APPLIED`: an applied discount, never removed by the recalculation. */
+  locked: 'APPLIED' | 'GIFT_SHIPPED' | null;
 };
 
 export type DiscountRecalculation = {

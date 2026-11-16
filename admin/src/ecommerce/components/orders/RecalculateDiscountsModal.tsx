@@ -40,8 +40,9 @@ const cell = { padding: '8px 8px', verticalAlign: 'top' } as const;
 const amountCell = { ...cell, textAlign: 'right', whiteSpace: 'nowrap' } as const;
 
 /**
- * Recalculate discounts (spec 7.1): the applied promotions (still valid or not), the ones that would
- * apply now and the manual discounts, each with a checkbox; the totals before and after follow the
+ * Recalculate discounts (spec 7.1): the applied promotions (still valid or not) and the manual
+ * discounts, always kept (checked and locked: the recalculation never removes a discount), and the
+ * ones that would apply now, each with a checkbox; the totals before and after follow the
  * selection. Nothing changes until Confirm. Mount it only while open: each opening mints one
  * operationId.
  */
@@ -245,6 +246,11 @@ const RecalculateDiscountsModal = ({
     ];
     return (
       <Flex direction="column" alignItems="stretch" gap={4}>
+        {groups.some((g) => g.kind !== 'NEW') && (
+          <Typography variant="pi" textColor="neutral600">
+            {t('ecommerce.orders.discounts.keptNote')}
+          </Typography>
+        )}
         {groups.length === 0 ? (
           <EmptyNote>{t('ecommerce.orders.discounts.nothing')}</EmptyNote>
         ) : (

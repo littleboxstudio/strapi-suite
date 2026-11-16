@@ -127,7 +127,7 @@ describe('recalculateDiscounts — applied and still valid', () => {
   const applied = checkout([p1], [line(1, 1, 2000, 2)]);
   const base = ctx({ lines: [line(1, 1, 2000, 3)], applied, orderDiscount: 400, candidates: [p1] });
 
-  it('is kept selected and recalculated on the current lines', () => {
+  it('is kept selected and locked at its stored amount (never re-priced nor removed)', () => {
     expect(applied[0].amount).toBe(400);
     const r = recalculateDiscounts(base);
     expect(r.rows).toHaveLength(1);
@@ -137,18 +137,17 @@ describe('recalculateDiscounts — applied and still valid', () => {
       promotionId: 1,
       manualId: null,
       currentAmount: 400,
-      amount: 600,
+      amount: 400,
       invalidReason: null,
       selected: true,
-      locked: null,
+      locked: 'APPLIED',
       method: 'AUTOMATIC',
       classes: ['ORDER_DISCOUNT'],
     });
     expect(r.selection).toEqual(['p:1']);
-    expect(r.orderDiscount).toBe(600);
-    expect(r.after.orderDiscount).toBe(600);
-    expect(r.applied).toHaveLength(1);
-    expect(r.applied[0]).toMatchObject({ promotionId: 1, amount: 600 });
+    expect(r.orderDiscount).toBe(400);
+    expect(r.after.orderDiscount).toBe(400);
+    expect(r.applied).toEqual(applied);
     expect(r.added).toEqual([]);
     expect(r.removed).toEqual([]);
     expect(r.conflicts).toEqual([]);
@@ -171,21 +170,21 @@ describe('recalculateDiscounts — applied and still valid', () => {
       excess: before.excess,
     });
     expect(r.before.total).toBe(5600);
-    expect(r.after).toMatchObject({ total: 5400, paid: 5600, due: 0, excess: 200 });
+    expect(r.after).toMatchObject({ total: 5600, paid: 5600, due: 0, excess: 0 });
   });
 
   it('ignores unknown keys in the selection', () => {
     const r = recalculateDiscounts(base, ['x:9', 'p:99', 'p:1']);
     expect(r.selection).toEqual(['p:1']);
-    expect(r.orderDiscount).toBe(600);
+    expect(r.orderDiscount).toBe(400);
   });
 
-  it('removes a deselected valid promotion and still reports the value it would give', () => {
+  it('cannot be deselected: an empty selection keeps it', () => {
     const r = recalculateDiscounts(base, []);
-    expect(r.removed).toEqual([1]);
-    expect(r.applied).toEqual([]);
-    expect(r.orderDiscount).toBe(0);
-    expect(r.rows[0]).toMatchObject({ selected: false, amount: 600 });
+    expect(r.removed).toEqual([]);
+    expect(r.applied).toEqual(applied);
+    expect(r.orderDiscount).toBe(400);
+    expect(r.rows[0]).toMatchObject({ selected: true, amount: 400 });
   });
 });
 
@@ -229,14 +228,13 @@ describe('recalculateDiscounts — applied but no longer valid', () => {
     });
   });
 
-  it('goes away when deselected', () => {
+  it('is never removed, even with an empty selection', () => {
     const r = recalculateDiscounts(base, []);
-    expect(r.removed).toEqual([1]);
-    expect(r.applied).toEqual([]);
-    expect(r.lines).toEqual([{ id: 1, unitDiscount: 0, refs: [] }]);
-    expect(r.after.productDiscount).toBe(0);
-    expect(r.after.total).toBe(5000);
-    expect(r.rows[0]).toMatchObject({ selected: false, amount: 400 });
+    expect(r.removed).toEqual([]);
+    expect(r.applied).toEqual(applied);
+    expect(r.lines).toEqual([]);
+    expect(r.after.productDiscount).toBe(400);
+    expect(r.rows[0]).toMatchObject({ selected: true, locked: 'APPLIED', amount: 400 });
   });
 
   it('keeps its stored ORDER and SHIPPING amounts', () => {
@@ -386,17 +384,18 @@ describe('recalculateDiscounts — manual discounts', () => {
         currentAmount: 500,
         amount: 500,
         selected: true,
+        locked: 'APPLIED',
       }),
     ]);
     expect(r.manual).toEqual(base.manual);
     expect(r.orderDiscount).toBe(500);
   });
 
-  it('is removed when deselected', () => {
+  it('is never removed, even with an empty selection', () => {
     const r = recalculateDiscounts(base, []);
-    expect(r.manual).toEqual([]);
-    expect(r.orderDiscount).toBe(0);
-    expect(r.after.total).toBe(r.before.total + 500);
+    expect(r.manual).toEqual(base.manual);
+    expect(r.orderDiscount).toBe(500);
+    expect(r.after.total).toBe(r.before.total);
   });
 });
 
@@ -449,14 +448,15 @@ describe('recalculateDiscounts — rounding', () => {
       { type: 'PRODUCT_FIXED', target: T(1, 2), amount: 100, per: 'SET', maxQuantity: 3 },
     ]);
     const lines = [line(1, 1, 1000, 2), line(2, 2, 1000, 1)];
+    // A new promotion, selected: priced on the lines.
     const r = recalculateDiscounts(
       ctx({
         lines,
-        applied: checkout([p1], lines),
         manual: [manual(1, 200)],
         orderDiscount: 200,
         candidates: [p1],
-      })
+      }),
+      ['p:1']
     );
     expect(r.lines).toEqual([
       { id: 1, unitDiscount: 33, refs: [{ promotionId: 1, benefitIndex: 0, amount: 67 }] },
@@ -471,7 +471,7 @@ describe('recalculateDiscounts — rounding', () => {
 });
 
 describe('recalculateDiscounts — shipping promotions', () => {
-  it('prices the shipping discount on the gross shipping', () => {
+  it('keeps an applied shipping discount at its stored amount when the shipping grew', () => {
     const p3 = promo(3, [{ type: 'SHIPPING_FREE', maxAmount: null }]);
     const lines = [line(1, 1, 2000, 1)];
     const r = recalculateDiscounts(
@@ -483,10 +483,21 @@ describe('recalculateDiscounts — shipping promotions', () => {
         candidates: [p3],
       })
     );
-    expect(r.rows[0]).toMatchObject({ kind: 'APPLIED_VALID', currentAmount: 500, amount: 700 });
+    expect(r.rows[0]).toMatchObject({ kind: 'APPLIED_VALID', currentAmount: 500, amount: 500 });
+    expect(r.shippingDiscount).toBe(500);
+    expect(r.after.shippingTotal).toBe(200);
+    expect(r.before.shippingTotal).toBe(200);
+  });
+
+  it('prices a new shipping promotion on the gross shipping', () => {
+    const p3 = promo(3, [{ type: 'SHIPPING_FREE', maxAmount: null }]);
+    const r = recalculateDiscounts(
+      ctx({ lines: [line(1, 1, 2000, 1)], shippingGross: 700, candidates: [p3] }),
+      ['p:3']
+    );
+    expect(r.rows[0]).toMatchObject({ kind: 'NEW', selected: true, amount: 700 });
     expect(r.shippingDiscount).toBe(700);
     expect(r.after.shippingTotal).toBe(0);
-    expect(r.before.shippingTotal).toBe(200);
   });
 });
 
@@ -523,7 +534,7 @@ describe('recalculateDiscounts — gift lines', () => {
     expect(r.rows[0]).toMatchObject({
       kind: 'APPLIED_VALID',
       selected: true,
-      locked: null,
+      locked: 'APPLIED',
       amount: 500,
     });
     expect(r.applied[0].amount).toBe(500);
@@ -532,11 +543,11 @@ describe('recalculateDiscounts — gift lines', () => {
     expect(r.after.total).toBe(2000);
   });
 
-  it('removes the unshipped gift line of a deselected promotion', () => {
+  it('never removes the gift line of an applied promotion', () => {
     const r = recalculateDiscounts(base(0), []);
-    expect(r.removed).toEqual([4]);
-    expect(r.removedGiftLines).toEqual([{ id: 2, variantId: 9, quantity: 1 }]);
-    expect(r.after).toMatchObject({ itemsOriginal: 2000, productDiscount: 0, total: 2000 });
+    expect(r.removed).toEqual([]);
+    expect(r.removedGiftLines).toEqual([]);
+    expect(r.rows[0]).toMatchObject({ selected: true, locked: 'APPLIED' });
   });
 
   it('locks a promotion whose gift was shipped: always selected', () => {

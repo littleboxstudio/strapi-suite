@@ -491,7 +491,7 @@ describe('applied promotions that are no longer valid (ruling 13)', () => {
     ]);
   });
 
-  it('kept: its amount is unchanged; deselected: it comes off the total, is released and the outcome is DUE', async () => {
+  it('kept: its amount is unchanged; an empty selection never removes it', async () => {
     const ctx = setup();
     const promo = tenPercent(ctx);
     const id = await createOrder(ctx);
@@ -511,17 +511,15 @@ describe('applied promotions that are no longer valid (ruling 13)', () => {
     expect(redemptionsOf(ctx, id)).toEqual([expect.objectContaining({ status: 'RESERVED' })]);
     expect(release).not.toHaveBeenCalled();
 
-    const res = await ctx.editing.applyDiscounts(id, { selection: [] }, 'user:1', 'op-drop-01');
-    expect(res).toMatchObject({ outcome: 'DUE', difference: 650 });
-    expect(orderRow(ctx, id)).toMatchObject({ orderDiscount: 0, total: 7000 });
-    expect(orderRow(ctx, id).promotions.applied).toEqual([]);
-    expect(release).toHaveBeenCalledWith(id, [promo]);
-    expect(redemptionsOf(ctx, id)).toEqual([expect.objectContaining({ status: 'RELEASED' })]);
-    expect(promotionRow(ctx, promo).redemptions).toBe(0);
-    expect(historyOf(ctx, id, 'DISCOUNTS_RECALCULATED')[1].newValue).toMatchObject({
-      added: [],
-      removed: [{ promotionId: promo, amount: 650 }],
-    });
+    expect(
+      await issues(ctx.editing.applyDiscounts(id, { selection: [] }, 'user:1', 'op-drop-01'))
+    ).toEqual([{ path: 'selection', code: 'DISCOUNT_NOT_REMOVABLE' }]);
+    expect(orderRow(ctx, id)).toMatchObject({ orderDiscount: 650, total: 6350 });
+    expect(orderRow(ctx, id).promotions.applied).toEqual([
+      expect.objectContaining({ promotionId: promo }),
+    ]);
+    expect(release).not.toHaveBeenCalled();
+    expect(redemptionsOf(ctx, id)).toEqual([expect.objectContaining({ status: 'RESERVED' })]);
   });
 
   it("the order's own redemption does not count against perCustomerLimit (Review Focus 1)", async () => {
@@ -553,7 +551,7 @@ describe('gift lines (ruling 16)', () => {
       },
     });
 
-  it('deselecting a gift promotion removes its gift line and restocks it', async () => {
+  it('a gift promotion is never removed: its gift line stays', async () => {
     const ctx = setup();
     const promo = giftOf12(ctx);
     const id = await createOrder(ctx, [{ variantId: 10, quantity: 2 }]);
@@ -561,12 +559,11 @@ describe('gift lines (ruling 16)', () => {
     expect(stockOf(ctx, 12)).toBe(9);
     promotionRow(ctx, promo).active = false;
 
-    await ctx.editing.applyDiscounts(id, { selection: [] }, 'user:1', 'op-gift-01');
-    expect(linesOf(ctx, id).map((l) => l.variantId)).toEqual([10]);
-    expect(stockOf(ctx, 12)).toBe(10);
     expect(
-      ctx.tables[UIDS.stockMovement].find((m) => m.operationKey === 'edit:op-gift-01:12')
-    ).toMatchObject({ type: 'ORDER_RESTOCK', quantity: 1 });
+      await issues(ctx.editing.applyDiscounts(id, { selection: [] }, 'user:1', 'op-gift-01'))
+    ).toEqual([{ path: 'selection', code: 'DISCOUNT_NOT_REMOVABLE' }]);
+    expect(linesOf(ctx, id).map((l) => l.variantId)).toEqual([10, 12]);
+    expect(stockOf(ctx, 12)).toBe(9);
   });
 
   it('deselecting it once its gift was shipped → PROMOTION_GIFT_SHIPPED', async () => {
@@ -745,15 +742,14 @@ describe('legacy manual discount (spec 7.4)', () => {
     ]);
   });
 
-  it('deselecting the LEGACY item removes it from the total', async () => {
+  it('the LEGACY item is never removed by the recalculation', async () => {
     const ctx = setup();
     const id = await createOrder(ctx);
     Object.assign(orderRow(ctx, id), { orderDiscount: 1000, total: 6000, manualDiscounts: null });
-    const res = await ctx.editing.applyDiscounts(id, { selection: [] }, 'user:1', 'op-legacy-03');
-    expect(res.difference).toBe(1000);
-    expect(orderRow(ctx, id)).toMatchObject({ orderDiscount: 0, total: 7000 });
-    expect(orderRow(ctx, id).manualDiscounts.items).toEqual([]);
-    expect(historyOf(ctx, id, 'DISCOUNTS_RECALCULATED')[0].newValue.removedManual).toEqual([1]);
+    expect(
+      await issues(ctx.editing.applyDiscounts(id, { selection: [] }, 'user:1', 'op-legacy-03'))
+    ).toEqual([{ path: 'selection', code: 'DISCOUNT_NOT_REMOVABLE' }]);
+    expect(orderRow(ctx, id)).toMatchObject({ orderDiscount: 1000, total: 6000 });
   });
 });
 
