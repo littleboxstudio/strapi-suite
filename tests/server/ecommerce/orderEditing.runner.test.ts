@@ -210,6 +210,30 @@ describe('createEditRunner helpers', () => {
     ]);
   });
 
+  it('writeTotals never writes a negative shipping line or correction; a stored legacy one stays', async () => {
+    const c = setupCommerce();
+    const id = await createOrder(c);
+    const runner = runnerOf(c);
+    const state = await c.orders.computeOrderState(id);
+    const [checkout] = state.order.shippingLines.lines;
+    const before = JSON.stringify(orderRow(c, id));
+    for (const bad of [
+      { ...checkout, id: 2, origin: 'RECALCULATION', amount: -100 },
+      { ...checkout, id: 2, origin: 'EDIT', amount: -100, editOf: 1 },
+    ]) {
+      expect(await issues(runner.writeTotals(state, { shippingLines: [checkout, bad] }))).toEqual([
+        { path: 'shippingLines', code: 'INVALID_AMOUNT' },
+      ]);
+    }
+    expect(JSON.stringify(orderRow(c, id))).toBe(before);
+    // Legacy data: a negative line already stored is written back unchanged.
+    const legacy = { ...checkout, id: 2, origin: 'RECALCULATION', amount: -100 };
+    orderRow(c, id).shippingLines = { lines: [checkout, legacy] };
+    const legacyState = await c.orders.computeOrderState(id);
+    await runner.writeTotals(legacyState, { shippingLines: [checkout, legacy] });
+    expect(orderRow(c, id).shippingLines.lines).toHaveLength(2);
+  });
+
   it('outcomeOf follows the modification rule', () => {
     const c = setupCommerce();
     const { outcomeOf } = runnerOf(c);

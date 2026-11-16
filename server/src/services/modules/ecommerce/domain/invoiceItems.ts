@@ -100,16 +100,21 @@ export function invoiceItems(
     for (const id of d.settledShippingLineIds ?? []) settled.add(id);
   }
 
+  // Negative shipping lines are never created; legacy ones (old data) are never offered.
   const shipping: ShippingItem[] = [...order.shippingLines]
     .filter((l) => l.editOf === undefined)
     .sort((a, b) => a.id - b.id)
-    .map((l) => ({
-      shippingLineId: l.id,
-      value: l.amount + chargedShipping(correctionsOf(order.shippingLines, l.id)),
-      invoiced:
-        settled.has(l.id) ||
-        (position.shipping.find((s) => s.shippingLineId === l.id)?.invoiced ?? false),
-    }));
+    .map((l) => {
+      const value = l.amount + chargedShipping(correctionsOf(order.shippingLines, l.id));
+      return {
+        shippingLineId: l.id,
+        value,
+        invoiced:
+          value < 0 ||
+          settled.has(l.id) ||
+          (position.shipping.find((s) => s.shippingLineId === l.id)?.invoiced ?? false),
+      };
+    });
 
   const invoicedDiscounts = new Set<string>();
   for (const d of docs) {
@@ -191,7 +196,7 @@ export function priceWholeSelection(
     }
     seenShipping.add(id);
     const line = items.shipping.find((s) => s.shippingLineId === id);
-    if (!line || line.invoiced) {
+    if (!line || line.invoiced || line.value < 0) {
       issues.push({ path: `shippingLineIds.${i}`, code: 'SHIPPING_LINE_NOT_INVOICEABLE' });
       return;
     }

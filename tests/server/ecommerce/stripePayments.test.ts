@@ -1212,7 +1212,7 @@ describe('retiring outdated links when the amount due changes', () => {
 
   it('an edit that keeps the due keeps the link', async () => {
     const { editing, tables, order, events } = await withLink();
-    const res = await editing.recalculateShipping(order.id, actor, 'op-ship-same');
+    const res = await editing.addShippingLine(order.id, { ...SHIP, amount: 0 }, actor, 'op-ship-same');
     expect(res.order.summary.due).toBe(4500);
     expect(events.some((e) => e.type === 'ORDER_MODIFIED')).toBe(true);
     expect(stripe.expireCheckoutSession).not.toHaveBeenCalled();

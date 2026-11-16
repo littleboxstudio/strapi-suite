@@ -40,7 +40,6 @@ import {
   lineRemovalIssue,
   linePoint,
   planLineChange,
-  planRecalculation,
   readShippingLines,
   shippingLineViews,
   withoutLine,
@@ -163,31 +162,6 @@ export type ShippingReview = {
 export type ShippingDue =
   | { due: number; method: ShippingMethodRef; option: ShippingOption | null }
   | { failed: true };
-
-export type ShippingRecalculationPreview = {
-  kind: RecalculationKind;
-  /** The charges in scope (WHOLE_ORDER: every line; NEW_UNITS: the lines since the full shipment). */
-  charged: number;
-  /** The invoiced charges in scope. */
-  invoiced: number;
-  quote: number;
-  /**
-   * The quote minus what is charged (0 while there is nothing to compare): above 0, that much more
-   * would be charged; below 0, that much was charged above. Informative: a recalculation never
-   * changes the charges (only the admin does).
-   */
-  difference: number;
-  /** The method quoted; null while NEW_UNITS waits for a pick or there is nothing to quote. */
-  method: ShippingMethodRef | null;
-  /** NEW_UNITS with units to ship: the methods for those units, with their price. */
-  options: ShippingOption[];
-  /** NEW_UNITS with units to ship and no method picked yet. */
-  needsMethod: boolean;
-  mode: 'REPLACED' | 'APPENDED' | 'UNCHANGED';
-  lines: ShippingLineView[];
-  before: ModificationTotals;
-  after: ModificationTotals;
-};
 
 /** NEW_UNITS: the method picked for the units to ship. */
 export type ShippingRecalculationInput = { providerId?: unknown; serviceId?: unknown };
@@ -1341,18 +1315,6 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     };
   };
 
-  /** The new table: the charges in scope become the quote (invoiced ones stay). */
-  const recalculationPlan = (state: OrderState, r: Recalculation, actor: string) => {
-    const meta = { at: new Date().toISOString(), actor };
-    // Nothing quoted (no units, or no method picked yet): the due is what is charged, unchanged.
-    if (!r.method) {
-      const charged = chargedShipping(state.shippingLines.filter(r.scope));
-      const placeholder = { providerId: '', serviceId: '', name: '', tax: 0 };
-      return planRecalculation(state.shippingLines, charged, { method: placeholder, ...meta }, r.scope);
-    }
-    return planRecalculation(state.shippingLines, r.quote, { method: r.method, ...meta }, r.scope);
-  };
-
   /**
    * The quote the shipping review compares with (as Recalculate shows it), taken before a
    * transaction; `method` is the one a NEW_UNITS comparison uses. Null when there is nothing to
@@ -1375,72 +1337,6 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
   const settledBy = (review: Recalculation | null, lines: ShippingLine[]): boolean =>
     !!review &&
     review.quote === chargedShipping(lines.filter((l) => review.scope(l as ShippingLineView)));
-
-  const previewShippingRecalculation = async (
-    rawOrderId: number | string,
-    input?: ShippingRecalculationInput
-  ): Promise<ShippingRecalculationPreview> => {
-    const state = await orders().computeOrderState(Number(rawOrderId));
-    const r = await recalculationQuote(state, input, 'preview');
-    const plan = recalculationPlan(state, r, 'preview');
-    const totals = totalsWith(state);
-    return {
-      kind: r.kind,
-      charged: plan.charged,
-      invoiced: plan.invoiced,
-      quote: r.quote,
-      difference: r.method ? r.quote - plan.charged : 0,
-      method: r.method,
-      options: r.options,
-      needsMethod: r.needsMethod,
-      // Never applied: the charges stay as they are.
-      mode: 'UNCHANGED',
-      lines: state.shippingLines,
-      before: totals,
-      after: totals,
-    };
-  };
-
-  /**
-   * Recalculate shipping (spec 6.3), informative: the quote is taken and compared with what is
-   * charged, but the charges never change (adding, editing or refunding is the admin's call). It
-   * marks the shipping as reviewed (clears SHIPPING_REVIEW) and records the comparison.
-   */
-  const recalculateShipping = async (
-    rawOrderId: number | string,
-    actor: string,
-    operationId: string,
-    input?: ShippingRecalculationInput
-  ): Promise<EditResult> => {
-    const orderId = Number(rawOrderId);
-    return runEdit(orderId, 'shipping-recalculate', operationId, actor, {
-      // The carrier quote may be a remote call: taken before the transaction.
-      prepare: async () => recalculationQuote(await orders().computeOrderState(orderId), input, 'apply'),
-      write: async (state, r, w) => {
-        assertEditable(state, 'RECALCULATE_SHIPPING');
-        const plan = recalculationPlan(state, r, w.actor);
-        const difference = r.method ? r.quote - plan.charged : 0;
-        // The review alert goes only once the charges match the quote.
-        const r2 = await writeShippingLines(state, null, w, null, difference === 0);
-        return {
-          outcome: r2.outcome,
-          difference: r2.difference,
-          history: {
-            type: 'SHIPPING_RECALCULATED',
-            description: `Shipping reviewed (${r.kind}): charged ${plan.charged} → quote ${r.quote} cents (difference ${difference})`,
-            previousValue: { lines: readShippingLines(state.order) },
-            newValue: {
-              basis: r.kind,
-              charged: plan.charged,
-              invoiced: plan.invoiced,
-              quote: r.quote,
-              quoteDifference: difference,
-            },
-          },
-        };
-      },
-    });
-  };
 
   const lineNotFound = () => invalidShipping('lineId', 'SHIPPING_LINE_NOT_FOUND');
   /** A paid shipping line is never edited (a new line can still be added). */
@@ -1474,6 +1370,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         const charge = { amount: next.amount, method: await offeredMethod(state, next) };
         // The method the order will have (spec 5.3): DPD Pickup needs its point.
         const planned = planLineChange(state.shippingLines, lineId, charge, { at: '', actor });
+        if (planned.issue) throw invalidShipping('amount', planned.issue);
         const point = await pointForMethod(state, currentMethod(planned.lines), input);
         return { ...charge, point, review: await reviewQuote(state, charge.method) };
       },
@@ -1485,6 +1382,8 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
           at: new Date().toISOString(),
           actor: w.actor,
         });
+        // A paid or invoiced charge is never lowered: a refund and a credit note do that.
+        if (plan.issue) throw invalidShipping('amount', plan.issue);
         const delivery = deliveryChange(state, currentMethod(plan.lines), point);
         // Once shipped, a pickup charge keeps its point on the line it changed, not on the order.
         const kept = linePointFor(state, next.method, point);
@@ -1991,8 +1890,6 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     shippingAddressCountries,
     updateShippingAddress,
     shippingOptionsForOrder,
-    previewShippingRecalculation,
-    recalculateShipping,
     editShippingLine,
     removeShippingLine,
     shippingReview,

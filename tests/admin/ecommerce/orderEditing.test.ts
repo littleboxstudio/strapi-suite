@@ -324,6 +324,8 @@ describe('translations', () => {
     'ecommerce.orders.errors.DISCOUNT_EXCEEDS_PRODUCTS',
     'ecommerce.orders.errors.SHIPPING_LINE_NOT_FOUND',
     'ecommerce.orders.errors.SHIPPING_LINE_PAID',
+    'ecommerce.orders.errors.SHIPPING_LINE_LOCKED',
+    'ecommerce.orders.errors.CREDIT_EXCEEDS_INVOICE',
     'ecommerce.orders.errors.BILLING_ADDRESS_LOCKED',
     'ecommerce.orders.address.billingLocked.INVOICED',
     'ecommerce.orders.address.billingLocked.CANCELLED',

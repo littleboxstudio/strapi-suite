@@ -308,45 +308,6 @@ describe('order editing: a Pickup order', () => {
   });
 });
 
-describe('order editing: recalculating shipping changes the current method', () => {
-  /** An issued invoice that includes the checkout shipping, after the order's shipping lines. */
-  const issueInvoice = (t: ReturnType<typeof setup>, orderId: number) => {
-    t.c.tables[UIDS.invoice].push({
-      id: t.c.tables[UIDS.invoice].length + 1,
-      order: orderId,
-      kind: 'INVOICE',
-      status: 'ISSUED',
-      createdAt: new Date(Date.now() + 1000).toISOString(),
-      lines: { lines: [{ kind: 'SHIPPING', total: 500 }] },
-    });
-  };
-
-  it('never changes the method, the address nor the point (informative only)', async () => {
-    const t = setup();
-    const { id } = await t.create();
-    issueInvoice(t, id);
-    await t.c.editing.addShippingLine(
-      id,
-      { ...PICKUP, amount: 400, pickupPointId: POINT.id } as any,
-      'user:1',
-      'op-pk-0020'
-    );
-    const snapshot = () =>
-      JSON.parse(
-        JSON.stringify({
-          m: t.row(id).shippingMethod,
-          a: t.row(id).shippingAddress,
-          p: t.row(id).pickupPoint,
-          l: t.row(id).shippingLines,
-        })
-      );
-    const before = snapshot();
-    await t.c.editing.previewShippingRecalculation(id);
-    await t.c.editing.recalculateShipping(id, 'user:1', 'op-pk-0021');
-    expect(snapshot()).toEqual(before);
-  });
-});
-
 /** Store pickup (store pickup spec 5): the stores of each market, from the current config. */
 const STORE = { providerId: 'store-pickup', serviceId: 'STORE' };
 const STORE_LISBOA = {
@@ -689,17 +650,6 @@ describe('the next point after shipments: recalculation, cancellation, kinds', (
     });
     t.row(orderId).fulfillmentStatus = 'PARTIALLY_FULFILLED';
   };
-
-  it('a recalculation keeps the point charged after the shipment', async () => {
-    const t = setup();
-    const { id } = await t.create({ shipping: PICKUP, pickupPointId: POINT.id });
-    shipOne(t, id);
-    await t.c.editing.addShippingLine(id, { ...PICKUP, amount: 900, pickupPointId: OTHER_POINT.id }, 'user:1', 'op-nx-0001');
-    const before = JSON.stringify({ a: t.row(id).shippingAddress, p: t.row(id).pickupPoint });
-    await t.c.editing.recalculateShipping(id, 'user:1', 'op-nx-0002');
-    expect(JSON.stringify({ a: t.row(id).shippingAddress, p: t.row(id).pickupPoint })).toBe(before);
-    expect((await t.c.orders.get(id)).nextPickupPoint).toMatchObject({ id: OTHER_POINT.id });
-  });
 
   it('after the shipment is cancelled, choosing another point on the order clears the line points', async () => {
     const t = setup();

@@ -265,12 +265,18 @@ export function withoutLine(lines: ShippingLine[], id: number): ShippingLine[] {
   return lines.filter((l) => l.id !== id && l.editOf !== id).map(plain);
 }
 
+/**
+ * Edit a line. A replaceable line (and its corrections) is set to the new non-negative amount. A
+ * locked line (paid or invoiced, or with a locked correction) is only raised, by a positive EDIT
+ * correction (`editOf`); lowering it below what it charges is refused (`SHIPPING_LINE_LOCKED`):
+ * the admin registers a refund and a credit note instead. No negative line is ever planned.
+ */
 export function planLineChange(
   lines: ShippingLineView[],
   targetId: number,
   next: { method: ShippingMethodRef; amount: number },
   meta: { at: string; actor: string }
-): { lines: ShippingLine[]; mode: PlanMode } {
+): { lines: ShippingLine[]; mode: PlanMode; issue?: 'SHIPPING_LINE_LOCKED' } {
   const base = lines.map(plain);
   const target = lines.find((l) => l.id === targetId);
   if (!target) return { lines: base, mode: 'UNCHANGED' };
@@ -287,6 +293,20 @@ export function planLineChange(
     return { lines: base, mode: 'UNCHANGED' };
   }
   if (replaceableIn(lines, target)) {
+    if (target.amount + delta < 0) {
+      // The (replaceable) corrections alone charge more than the new amount: they go, and the
+      // line charges the new amount by itself.
+      return {
+        lines: base
+          .filter((l) => l.editOf !== targetId)
+          .map((l) => {
+            if (l.id !== targetId) return l;
+            const { pickupPoint: _dropped, ...rest } = l;
+            return { ...rest, origin: 'EDIT', amount: next.amount, ...next.method, createdAt: meta.at, actor: meta.actor };
+          }),
+        mode: 'REPLACED',
+      };
+    }
     return {
       // A replaced line charges another method: a point it carried no longer applies.
       lines: base.map((l) => {
@@ -297,6 +317,7 @@ export function planLineChange(
       mode: 'REPLACED',
     };
   }
+  if (delta < 0) return { lines: base, mode: 'UNCHANGED', issue: 'SHIPPING_LINE_LOCKED' };
   return {
     lines: appendLine(base, {
       origin: 'EDIT',
@@ -320,37 +341,4 @@ export function invoicedMethod(lines: ShippingLineView[]): ShippingMethodRef | n
   return latest
     ? { providerId: latest.providerId, serviceId: latest.serviceId, name: latest.name, tax: latest.tax }
     : null;
-}
-
-/**
- * Recalculate shipping (spec 6.3): `due` is what the lines in scope should charge. No charge is
- * ever removed (paid, invoiced or not): one RECALCULATION line charges the difference, `due`
- * minus what the lines in scope charge (negative: money back to the customer). Lines out of scope
- * are never touched nor counted. `invoiced`: what the invoiced lines in scope charge.
- */
-export function planRecalculation(
-  lines: ShippingLineView[],
-  due: number,
-  meta: { method: ShippingMethodRef; at: string; actor: string },
-  inScope: (l: ShippingLineView) => boolean = () => true
-): { lines: ShippingLine[]; mode: PlanMode; charged: number; invoiced: number; delta: number } {
-  const base = lines.map(plain);
-  const scoped = lines.filter(inScope);
-  const charged = chargedShipping(scoped);
-  const invoiced = chargedShipping(scoped.filter((l) => invoicedIn(lines, l)));
-  const delta = due - charged;
-  if (delta === 0) return { lines: base, mode: 'UNCHANGED', charged, invoiced, delta };
-  return {
-    lines: appendLine(base, {
-      origin: 'RECALCULATION',
-      amount: delta,
-      ...meta.method,
-      createdAt: meta.at,
-      actor: meta.actor,
-    }),
-    mode: 'APPENDED',
-    charged,
-    invoiced,
-    delta,
-  };
 }

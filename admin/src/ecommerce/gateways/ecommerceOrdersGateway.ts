@@ -52,8 +52,6 @@ import type {
   ReviewFlagCode,
   ShipmentView,
   ShippingLineInput,
-  ShippingRecalculationInput,
-  ShippingRecalculationPreview,
   TrackingInput,
   StoreCredit,
   StoreCreditPaymentInput,
@@ -109,14 +107,6 @@ export default interface EcommerceOrdersGateway {
   fetchShippingOptions(id: number): Promise<ShippingQuote>;
   fetchShippingOptionsForUnits(id: number, lines: ShipUnits): Promise<ShippingQuote>;
   fetchShippingReview(id: number): Promise<ShippingReview>;
-  previewShippingRecalculation(
-    id: number,
-    input?: ShippingRecalculationInput
-  ): Promise<ShippingRecalculationPreview>;
-  recalculateShipping(
-    id: number,
-    input: ShippingRecalculationInput & { operationId: string }
-  ): Promise<EditResult>;
   editShippingLine(
     id: number,
     lineId: number,
@@ -296,20 +286,6 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
 
   async fetchShippingReview(id: number): Promise<ShippingReview> {
     return this.httpClient.get(`${this.orders}/${id}/shipping/review`);
-  }
-
-  async previewShippingRecalculation(
-    id: number,
-    input: ShippingRecalculationInput = {}
-  ): Promise<ShippingRecalculationPreview> {
-    return this.httpClient.post(`${this.orders}/${id}/shipping/recalculate/preview`, input);
-  }
-
-  async recalculateShipping(
-    id: number,
-    input: ShippingRecalculationInput & { operationId: string }
-  ): Promise<EditResult> {
-    return this.httpClient.post(`${this.orders}/${id}/shipping/recalculate`, input);
   }
 
   async editShippingLine(

@@ -52,8 +52,6 @@ export default [
   edit('GET', '/:id/shipping-options', 'shippingOptions', manage),
   edit('POST', '/:id/shipping-options/units', 'shippingOptionsForUnits', manage),
   edit('GET', '/:id/shipping/review', 'shippingReview', manage),
-  edit('POST', '/:id/shipping/recalculate/preview', 'previewShippingRecalculation', manage),
-  edit('POST', '/:id/shipping/recalculate', 'recalculateShipping', manage),
   edit('PUT', '/:id/shipping-lines/:lineId', 'editShippingLine', manage),
   edit('POST', '/:id/shipping-lines/:lineId/remove', 'removeShippingLine', manage),
   edit('POST', '/:id/shipping-lines', 'addShippingLine', manage),

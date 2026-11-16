@@ -9,7 +9,6 @@ import {
   isReplaceable,
   planLineChange,
   appendLine,
-  planRecalculation,
   invoicedMethod,
   type ShippingLine,
   type ShippingLineView,
@@ -327,6 +326,38 @@ describe('planLineChange', () => {
     expect(r.lines[2]).toMatchObject({ id: 3, amount: 200, editOf: 1 });
   });
 
+  it('a locked line (invoiced or paid) is never lowered: SHIPPING_LINE_LOCKED, nothing appended', () => {
+    for (const locked of [view({ invoiced: true }), view({ paid: true })]) {
+      const r = planLineChange([locked], 1, { method: A, amount: 300 }, META);
+      expect(r.issue).toBe('SHIPPING_LINE_LOCKED');
+      expect(r.mode).toBe('UNCHANGED');
+      expect(r.lines).toEqual([line()]);
+    }
+  });
+
+  it('a locked line with a correction is never lowered below what it charges (500 + 200 → 600)', () => {
+    const lines = [view({ invoiced: true }), view({ id: 2, origin: 'EDIT', amount: 200, editOf: 1 })];
+    expect(planLineChange(lines, 1, { method: A, amount: 600 }, META).issue).toBe('SHIPPING_LINE_LOCKED');
+  });
+
+  it('a locked line raised gets a positive correction', () => {
+    const r = planLineChange([view({ paid: true })], 1, { method: A, amount: 650 }, META);
+    expect(r.issue).toBeUndefined();
+    expect(r.mode).toBe('APPENDED');
+    expect(r.lines[1]).toMatchObject({ id: 2, amount: 150, editOf: 1 });
+  });
+
+  it('a replaceable line can be set to any non-negative amount, never stored negative', () => {
+    const lines = [view(), view({ id: 2, origin: 'EDIT', amount: 200, editOf: 1 })];
+    const r = planLineChange(lines, 1, { method: A, amount: 100 }, META);
+    expect(r.issue).toBeUndefined();
+    expect(r.mode).toBe('REPLACED');
+    expect(chargedShipping(r.lines)).toBe(100);
+    expect(r.lines.every((l) => l.amount >= 0)).toBe(true);
+    const zero = planLineChange([view()], 1, { method: A, amount: 0 }, META);
+    expect(zero.lines).toEqual([{ ...line(), origin: 'EDIT', amount: 0, createdAt: META.at, actor: META.actor }]);
+  });
+
   it('is unchanged for the same method and amount, or an unknown id', () => {
     const lines = [view({ invoiced: true })];
     const same = planLineChange(lines, 1, { method: A, amount: 500 }, META);
@@ -347,90 +378,6 @@ describe('appendLine', () => {
     });
     expect(out.map((l) => l.id)).toEqual([1, 2]);
     expect(out[1]).toMatchObject({ origin: 'MANUAL', amount: 100 });
-  });
-});
-
-describe('planRecalculation', () => {
-  const meta = { method: B, ...META };
-
-  it('never removes a charge: it appends the difference', () => {
-    const r = planRecalculation([view({ amount: 500 }), view({ id: 2, amount: 300 })], 650, meta);
-    expect(r.mode).toBe('APPENDED');
-    expect(r.charged).toBe(800);
-    expect(r.delta).toBe(-150);
-    expect(r.lines.map((l) => [l.id, l.amount])).toEqual([
-      [1, 500],
-      [2, 300],
-      [3, -150],
-    ]);
-    expect(r.lines[2]).toEqual({ id: 3, origin: 'RECALCULATION', amount: -150, ...B, createdAt: META.at, actor: META.actor });
-  });
-
-  it('keeps invoiced lines and appends the quote minus them (negative: money back)', () => {
-    const r = planRecalculation([view({ invoiced: true })], 350, meta);
-    expect(r.mode).toBe('APPENDED');
-    expect(r.delta).toBe(-150);
-    expect(r.invoiced).toBe(500);
-    expect(r.lines).toHaveLength(2);
-    expect(r.lines[0]).toEqual(line());
-    expect(r.lines[1]).toMatchObject({ id: 2, origin: 'RECALCULATION', amount: -150 });
-  });
-
-  it('keeps paid, shipped and invoiced lines alike', () => {
-    const r = planRecalculation(
-      [view({ spent: true, paid: true, amount: 500 }), view({ id: 2, amount: 300, invoiced: true })],
-      1000,
-      meta
-    );
-    expect(r.mode).toBe('APPENDED');
-    expect(r.lines.map((l) => [l.id, l.origin, l.amount])).toEqual([
-      [1, 'CHECKOUT', 500],
-      [2, 'CHECKOUT', 300],
-      [3, 'RECALCULATION', 200],
-    ]);
-  });
-
-  it('only the lines in scope are counted and replaced', () => {
-    const lines = [
-      view({ spent: true, invoiced: true }),
-      view({ id: 2, origin: 'RECALCULATION', amount: 400, createdAt: '2026-11-04T00:00:00.000Z' }),
-    ];
-    const r = planRecalculation(lines, 600, meta, (l) => l.id === 2);
-    expect(r).toMatchObject({ mode: 'APPENDED', charged: 400, invoiced: 0, delta: 200 });
-    expect(r.lines.map((l) => [l.id, l.amount])).toEqual([
-      [1, 500],
-      [2, 400],
-      [3, 200],
-    ]);
-  });
-
-  it('is unchanged when due equals charged', () => {
-    const r = planRecalculation([view({ amount: 500 }), view({ id: 2, amount: 300 })], 800, meta);
-    expect(r.mode).toBe('UNCHANGED');
-    expect(r.delta).toBe(0);
-    expect(r.lines.map((l) => l.id)).toEqual([1, 2]);
-    expect(r.lines.map((l) => l.amount)).toEqual([500, 300]);
-  });
-
-  it('keeps a replaceable line whose correction is locked, so the correction is never orphaned', () => {
-    const lines = [view(), view({ id: 2, origin: 'EDIT', amount: 200, editOf: 1, invoiced: true })];
-    const r = planRecalculation(lines, 900, meta);
-    expect(r.mode).toBe('APPENDED');
-    expect(r.lines.map((l) => [l.id, l.amount, l.editOf])).toEqual([
-      [1, 500, undefined],
-      [2, 200, 1],
-      [3, 200, undefined],
-    ]);
-  });
-
-  it('a lower quote appends a negative line, keeping every charge', () => {
-    const r = planRecalculation([view({ invoiced: true, amount: 500 }), view({ id: 2, amount: 300 })], 500, meta);
-    expect(r.mode).toBe('APPENDED');
-    expect(r.lines.map((l) => [l.id, l.amount])).toEqual([
-      [1, 500],
-      [2, 300],
-      [3, -300],
-    ]);
   });
 });
 

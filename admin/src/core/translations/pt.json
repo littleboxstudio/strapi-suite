@@ -1826,6 +1826,8 @@
   "littlebox-strapi-suite.ecommerce.orders.errors.DISCOUNT_EXCEEDS_PRODUCTS": "O desconto não pode exceder o valor dos produtos.",
   "littlebox-strapi-suite.ecommerce.orders.errors.SHIPPING_LINE_NOT_FOUND": "O valor de portes não foi encontrado. Recarregue a encomenda.",
   "littlebox-strapi-suite.ecommerce.orders.errors.SHIPPING_LINE_PAID": "Este valor de portes já está pago e não pode ser editado.",
+  "littlebox-strapi-suite.ecommerce.orders.errors.CREDIT_EXCEEDS_INVOICE": "A nota de crédito creditaria mais do que a fatura ainda tem.",
+  "littlebox-strapi-suite.ecommerce.orders.errors.SHIPPING_LINE_LOCKED": "Um porte pago ou faturado não pode ser reduzido. Registe um reembolso e uma nota de crédito.",
   "littlebox-strapi-suite.ecommerce.orders.errors.SHIPPING_METHOD_REQUIRED": "Escolha um método de entrega para os produtos acrescentados depois de a encomenda ter sido enviada.",
   "littlebox-strapi-suite.ecommerce.orders.errors.BILLING_ADDRESS_LOCKED": "A morada de faturação já não pode ser alterada: a encomenda já tem uma fatura.",
   "littlebox-strapi-suite.ecommerce.orders.address.billingLocked.INVOICED": "A morada de faturação não pode ser alterada: a encomenda já tem uma fatura.",

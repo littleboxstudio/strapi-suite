@@ -348,209 +348,6 @@ describe('EcommerceOrderEditingService.shippingOptionsForOrder', () => {
   });
 });
 
-describe('EcommerceOrderEditingService.recalculateShipping', () => {
-  const unitsQuoted = (req: any) =>
-    req.items.map((i: any) => [i.variantId, i.quantity]).sort((a: number[], b: number[]) => a[0] - b[0]);
-
-  /** The charges never change: only the review flag and the history. */
-  const unchangedCharges = (ctx: Ctx, id: number, lines: unknown, totals: Record<string, unknown>) => {
-    expect(storedLines(ctx, id)).toEqual(lines);
-    expect(orderRow(ctx, id)).toMatchObject(totals);
-  };
-
-  it('a higher quote is shown as the difference; applying changes no charge, it marks the shipping reviewed', async () => {
-    const ctx = setup();
-    const id = await createOrder(ctx);
-    setRate(ctx, 650);
-    raiseShippingReview(ctx, id);
-    const lines = JSON.parse(JSON.stringify(storedLines(ctx, id)));
-    const snapshot = JSON.stringify(ctx.tables);
-    const preview = await ctx.editing.previewShippingRecalculation(id);
-    expect(JSON.stringify(ctx.tables)).toBe(snapshot);
-    expect(preview).toMatchObject({
-      kind: 'WHOLE_ORDER',
-      charged: 500,
-      invoiced: 0,
-      quote: 650,
-      difference: 150,
-      needsMethod: false,
-      options: [],
-      mode: 'UNCHANGED',
-    });
-    expect(preview.after.total).toBe(preview.before.total);
-
-    const res = await ctx.editing.recalculateShipping(id, 'user:1', 'op-ship-0001');
-    expect(res).toMatchObject({ outcome: 'NONE', difference: 0 });
-    unchangedCharges(ctx, id, lines, { shippingOriginal: 500, total: 7000 });
-    // The charges still differ from the quote: the review alert stays.
-    expect(flag(ctx, id, 'SHIPPING_REVIEW')).toBeDefined();
-    const [entry] = historyOf(ctx, id, 'SHIPPING_RECALCULATED');
-    expect(entry).toMatchObject({ uniqueKey: 'edit:op-ship-0001', actor: 'user:1' });
-    expect(entry.newValue).toMatchObject({ basis: 'WHOLE_ORDER', charged: 500, invoiced: 0, quote: 650, quoteDifference: 150 });
-    expect(historyOf(ctx, id, 'REVIEW_FLAG_CLEARED')).toHaveLength(0);
-
-    // Corrected by a charge of the difference: the alert goes.
-    await ctx.editing.addShippingLine(id, { ...standard, amount: 150 }, 'user:1', 'op-add-0150');
-    expect(flag(ctx, id, 'SHIPPING_REVIEW')).toBeUndefined();
-  });
-
-  it('a manually added charge is never removed by a recalculation', async () => {
-    const ctx = setup();
-    const id = await createOrder(ctx);
-    await ctx.editing.addShippingLine(id, { ...express, amount: 100 }, 'user:1', 'op-add-0001');
-    const lines = JSON.parse(JSON.stringify(storedLines(ctx, id)));
-    const preview = await ctx.editing.previewShippingRecalculation(id);
-    expect(preview.charged).toBe(600);
-    expect(preview.difference).toBe(preview.quote - 600);
-    await ctx.editing.recalculateShipping(id, 'user:1', 'op-ship-0010');
-    expect(storedLines(ctx, id)).toEqual(lines);
-  });
-
-  it('a lower quote on a paid, invoiced order: the difference is shown; nothing changes, nothing becomes refundable', async () => {
-    const ctx = setup();
-    const id = await createOrder(ctx);
-    await ctx.payments.addManualPayment(id, { amount: 7000, idempotencyKey: 'pay-0001' }, 'user:1');
-    issueInvoice(ctx, id);
-    setRate(ctx, 300);
-    const lines = JSON.parse(JSON.stringify(storedLines(ctx, id)));
-    expect(await ctx.editing.previewShippingRecalculation(id)).toMatchObject({ invoiced: 500, quote: 300, difference: -200 });
-    const res = await ctx.editing.recalculateShipping(id, 'user:1', 'op-ship-0011');
-    expect(res).toMatchObject({ outcome: 'NONE', difference: 0 });
-    unchangedCharges(ctx, id, lines, { shippingOriginal: 500, total: 7000 });
-    expect(res.order.availableActions).not.toContain('REFUND');
-  });
-
-  it('partially shipped: the whole order is quoted under the invoiced company (else the current method)', async () => {
-    const ctx = setup();
-    const id = await createOrder(ctx);
-    issueInvoice(ctx, id);
-    ship(ctx, id, [10]);
-    setRate(ctx, 900);
-    ctx.findOption.mockClear();
-    const preview = await ctx.editing.previewShippingRecalculation(id);
-    expect(ctx.findOption.mock.calls[0].slice(1)).toEqual(['manual', '1']);
-    expect(unitsQuoted(ctx.findOption.mock.calls[0][0])).toEqual([
-      [10, 2],
-      [11, 1],
-    ]);
-    expect(preview).toMatchObject({ kind: 'WHOLE_ORDER', charged: 500, quote: 900, difference: 400 });
-  });
-
-  it('partially shipped again after a cancelled shipment (no products edit): still the whole order', async () => {
-    const ctx = setup();
-    const id = await createOrder(ctx);
-    ship(ctx, id, [10]);
-    ctx.tables[UIDS.orderHistory].push({
-      id: 9001,
-      order: id,
-      type: 'FULFILLMENT_STATUS_CHANGED',
-      previousValue: { fulfillmentStatus: 'FULFILLED' },
-      newValue: { fulfillmentStatus: 'PARTIALLY_FULFILLED' },
-      operationId: 'void-1',
-      createdAt: '2026-11-10T00:00:00.000Z',
-    });
-    const preview = await ctx.editing.previewShippingRecalculation(id);
-    expect(preview).toMatchObject({ kind: 'WHOLE_ORDER', needsMethod: false });
-  });
-
-  it('fully shipped, then products added: the user picks the method; only the new units are quoted', async () => {
-    const ctx = setup();
-    const id = await createOrder(ctx);
-    ship(ctx, id);
-    storedLines(ctx, id)[0].createdAt = '2026-11-01T00:00:00.000Z';
-    await ctx.editing.applyLines(
-      id,
-      {
-        lines: [
-          ...linesOf(ctx, id).map((l) => ({ orderLineId: l.id, variantId: l.variantId, quantity: l.quantity })),
-          { variantId: 12, quantity: 1 },
-        ],
-      },
-      'user:1',
-      'op-lines-0001'
-    );
-    const change = historyOf(ctx, id, 'FULFILLMENT_STATUS_CHANGED').pop();
-    change.createdAt = '2026-11-02T00:00:00.000Z';
-
-    ctx.quote.mockClear();
-    const first = await ctx.editing.previewShippingRecalculation(id);
-    expect(first).toMatchObject({ kind: 'NEW_UNITS', needsMethod: true, method: null, difference: 0 });
-    expect(first.options.map((o) => [o.serviceId, o.price])).toEqual([
-      ['1', 500],
-      ['2', 1200],
-    ]);
-    expect(unitsQuoted(ctx.quote.mock.calls[0][0])).toEqual([[12, 1]]);
-    expect(await issues(ctx.editing.recalculateShipping(id, 'user:1', 'op-ship-0020'))).toEqual([
-      { path: 'method', code: 'SHIPPING_METHOD_REQUIRED' },
-    ]);
-
-    const lines = JSON.parse(JSON.stringify(storedLines(ctx, id)));
-    const picked = await ctx.editing.previewShippingRecalculation(id, express);
-    expect(picked).toMatchObject({ kind: 'NEW_UNITS', charged: 0, quote: 1200, difference: 1200, needsMethod: false });
-    await ctx.editing.recalculateShipping(id, 'user:1', 'op-ship-0021', express);
-    expect(storedLines(ctx, id)).toEqual(lines);
-    expect(flag(ctx, id, 'SHIPPING_REVIEW')).toBeDefined();
-  });
-
-  it('fully shipped, nothing added: no carrier call, nothing changes', async () => {
-    const ctx = setup();
-    const id = await createOrder(ctx);
-    ship(ctx, id);
-    ctx.findOption.mockClear();
-    ctx.quote.mockClear();
-    const preview = await ctx.editing.previewShippingRecalculation(id);
-    expect(preview).toMatchObject({ kind: 'NEW_UNITS', quote: 0, needsMethod: false, difference: 0 });
-    await ctx.editing.recalculateShipping(id, 'user:1', 'op-ship-0003b');
-    expect(ctx.findOption).not.toHaveBeenCalled();
-    expect(ctx.quote).not.toHaveBeenCalled();
-    expect(orderRow(ctx, id).shippingOriginal).toBe(500);
-  });
-
-  it('quote equals charged: the flag clears, the history records no difference', async () => {
-    const ctx = setup();
-    const id = await createOrder(ctx);
-    raiseShippingReview(ctx, id);
-    const res = await ctx.editing.recalculateShipping(id, 'user:1', 'op-ship-0004');
-    expect(res).toMatchObject({ outcome: 'NONE', difference: 0 });
-    expect(storedLines(ctx, id)).toMatchObject([{ id: 1, origin: 'CHECKOUT', amount: 500 }]);
-    expect(flagsOf(ctx, id)).toEqual([]);
-    const [entry] = historyOf(ctx, id, 'SHIPPING_RECALCULATED');
-    expect(entry.newValue).toMatchObject({ charged: 500, quote: 500, quoteDifference: 0 });
-  });
-
-  it('a failed quote is SHIPPING_QUOTE_FAILED: nothing is written and the flag stays', async () => {
-    const ctx = setup();
-    const id = await createOrder(ctx);
-    raiseShippingReview(ctx, id);
-    ctx.findOption.mockRejectedValueOnce(new Error('carrier down'));
-    const before = JSON.stringify(ctx.tables);
-    expect(await issues(ctx.editing.recalculateShipping(id, 'user:1', 'op-ship-0005'))).toEqual([
-      { path: 'shipping', code: 'SHIPPING_QUOTE_FAILED' },
-    ]);
-    expect(JSON.stringify(ctx.tables)).toBe(before);
-    ctx.findOption.mockResolvedValueOnce(null);
-    expect(await issues(ctx.editing.previewShippingRecalculation(id))).toEqual([
-      { path: 'shipping', code: 'SHIPPING_QUOTE_FAILED' },
-    ]);
-    expect(flag(ctx, id, 'SHIPPING_REVIEW')).toBeDefined();
-  });
-
-  it('a shipping discount is untouched (no charge changes, no DISCOUNTS_REVIEW)', async () => {
-    const ctx = setup();
-    const id = await createOrder(ctx);
-    withShippingDiscount(ctx, id);
-    const before = { ...orderRow(ctx, id) };
-    setRate(ctx, 700);
-    await ctx.editing.recalculateShipping(id, 'user:1', 'op-ship-0006');
-    expect(orderRow(ctx, id)).toMatchObject({
-      shippingOriginal: before.shippingOriginal,
-      shippingDiscount: before.shippingDiscount,
-      total: before.total,
-    });
-    expect(flag(ctx, id, 'DISCOUNTS_REVIEW')).toBeUndefined();
-  });
-});
-
 describe('EcommerceOrderEditingService.editShippingLine', () => {
   it('replaces a replaceable line in place with the new method', async () => {
     const ctx = setup();
@@ -634,6 +431,24 @@ describe('EcommerceOrderEditingService.editShippingLine', () => {
     expect(res.order.shippingLines.find((l: any) => l.id === 1)).toMatchObject({
       effectiveAmount: 800,
     });
+  });
+
+  it('an invoiced line is never lowered: SHIPPING_LINE_LOCKED and nothing is written', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    issueInvoice(ctx, id);
+    const before = JSON.stringify(orderRow(ctx, id));
+    expect(
+      await issues(ctx.editing.editShippingLine(id, 1, { ...standard, amount: 300 }, 'user:1', 'op-line-0020'))
+    ).toEqual([{ path: 'amount', code: 'SHIPPING_LINE_LOCKED' }]);
+    expect(JSON.stringify(orderRow(ctx, id))).toBe(before);
+    // Raised after a raise, then lowered back below the charge: refused too.
+    await ctx.editing.editShippingLine(id, 1, { ...standard, amount: 700 }, 'user:1', 'op-line-0021');
+    expect(
+      await issues(ctx.editing.editShippingLine(id, 1, { ...standard, amount: 600 }, 'user:1', 'op-line-0022'))
+    ).toEqual([{ path: 'amount', code: 'SHIPPING_LINE_LOCKED' }]);
+    expect(storedLines(ctx, id).every((l: any) => l.amount >= 0)).toBe(true);
+    expect(orderRow(ctx, id).shippingOriginal).toBe(700);
   });
 
   it('a correction line (editOf) cannot be edited: SHIPPING_LINE_NOT_FOUND', async () => {
