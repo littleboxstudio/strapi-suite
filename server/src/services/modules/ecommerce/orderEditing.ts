@@ -1794,7 +1794,11 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     const orderId = Number(rawOrderId);
     const check = (state: OrderState) => {
       if (!isReviewFlagCode(code)) throw invalidDiscounts('code', 'invalid');
-      if (state.editing.editable) throw invalidDiscounts('code', 'REVIEW_FLAG_NOT_DISMISSABLE');
+      // A locked order's flags can no longer be fixed; the shipping one is also marked as seen
+      // from Recalculate shipping while the order is editable.
+      if (state.editing.editable && code !== 'SHIPPING_REVIEW') {
+        throw invalidDiscounts('code', 'REVIEW_FLAG_NOT_DISMISSABLE');
+      }
       const { flags, cleared } = clearFlag(readReviewFlags(state.order.reviewFlags), code);
       if (!cleared) throw invalidDiscounts('code', 'invalid');
       return flags;
