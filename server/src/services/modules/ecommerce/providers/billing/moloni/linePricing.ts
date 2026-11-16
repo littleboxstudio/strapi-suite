@@ -1,9 +1,10 @@
 /**
  * Moloni line prices (pure; no Strapi imports). A line is sent with its price before discounts
- * and the discount as a percentage (Moloni's `discount`, 0–100), so the document shows it. The
- * percentage goes with 2 decimal places; it is only used when it gives the same cents as the
- * discounted price, line by line and for the whole document. Otherwise every line goes as before:
- * the discounted price, no percentage (the total never changes).
+ * (`grossTotal`) and one discount percentage (Moloni's `discount`, 0–100, 2 decimal places) that
+ * combines its own discount and its share of the order or shipping discounts (`discountShare`):
+ * `1 − total / grossTotal`. The percentage is only used when it gives the line's exact cents;
+ * where it cannot (or the document sum would differ), only that line falls back to its discounted
+ * unit price with no percentage, so the total never changes. A short note names the parts.
  */
 import type { InvoiceLine } from '../../../domain/invoicing';
 
@@ -70,17 +71,20 @@ const fmtEuros = (cents: number) =>
 
 /**
  * Note of a line with discounts, in Portuguese: its own discount (% of the price before
- * discounts) and its share of the order discounts (euros). `null` when it has neither.
+ * discounts) and its share of the order discounts (euros), or of the shipping discounts on a
+ * SHIPPING line. `null` when it has neither.
  */
 export function moloniLineNote(
-  line: Pick<InvoiceLine, 'total' | 'grossTotal' | 'discountShare'>
+  line: Pick<InvoiceLine, 'total' | 'grossTotal' | 'discountShare'> & { kind?: InvoiceLine['kind'] }
 ): string | null {
   const share = line.discountShare && line.discountShare > 0 ? line.discountShare : 0;
   const gross = line.grossTotal ?? 0;
   const own = gross > 0 ? gross - line.total - share : 0;
   const parts: string[] = [];
   if (own > 0) parts.push(`Desconto da linha ${fmtPercent((own / gross) * 100)}%`);
-  if (share > 0) parts.push(`desconto da encomenda ${fmtEuros(share)}`);
+  if (share > 0) {
+    parts.push(`${line.kind === 'SHIPPING' ? 'desconto dos portes' : 'desconto da encomenda'} ${fmtEuros(share)}`);
+  }
   return parts.length ? parts.join(' + ') : null;
 }
 

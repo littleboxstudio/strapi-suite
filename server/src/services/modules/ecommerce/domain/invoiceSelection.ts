@@ -345,9 +345,12 @@ export function netInvoicedUnits(position: InvoicingPosition): Map<number, numbe
 }
 
 /**
- * The manual discounts an invoice already reflects: created before a counted invoice that was
- * not annulled (the order discount is spread over the lines that invoice holds). They can never
- * be removed.
+ * The manual discounts an invoice already reflects, on counted invoices that were not annulled.
+ * They can never be removed.
+ * - A whole-item invoice (plan 14: it has DISCOUNT records or lines with `discountShare`) reflects
+ *   exactly the manual discounts it has a DISCOUNT record `m:<id>` of.
+ * - A legacy invoice (neither) spread the order discount over the lines it held: every manual
+ *   discount created before it (or without a date) counts as invoiced.
  */
 export function invoicedManualDiscountIds(
   discounts: { id: number; createdAt: string }[],
@@ -355,14 +358,24 @@ export function invoicedManualDiscountIds(
   annulledInvoiceIds: number[]
 ): number[] {
   const annulled = new Set(annulledInvoiceIds);
-  const times = docs
-    .filter((d) => d.kind === 'INVOICE' && COUNTED_INVOICE.includes(d.status) && !annulled.has(d.id))
+  const counted = docs.filter(
+    (d) => d.kind === 'INVOICE' && COUNTED_INVOICE.includes(d.status) && !annulled.has(d.id)
+  );
+  const wholeItem = (d: InvoiceDoc) =>
+    d.lines.some((l) => l.kind === 'DISCOUNT' || l.discountShare != null);
+  const recorded = new Set<string>();
+  for (const d of counted.filter(wholeItem)) {
+    for (const l of d.lines) if (l.kind === 'DISCOUNT' && l.discountId) recorded.add(l.discountId);
+  }
+  const times = counted
+    .filter((d) => !wholeItem(d))
     .map((d) => new Date(d.createdAt ?? '').getTime())
     .filter((t) => Number.isFinite(t));
-  if (!times.length) return [];
-  const latest = Math.max(...times);
+  const latest = times.length ? Math.max(...times) : null;
   return discounts
     .filter((m) => {
+      if (recorded.has(`m:${m.id}`)) return true;
+      if (latest === null) return false;
       const t = new Date(m.createdAt).getTime();
       // Without a date it cannot be shown to come after the invoices: treated as invoiced.
       return !Number.isFinite(t) || t <= latest;

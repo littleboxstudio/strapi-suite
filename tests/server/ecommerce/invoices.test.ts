@@ -1188,6 +1188,55 @@ describe('EcommerceInvoiceService: a late provider success after the row was mad
     });
   }
 
+  it('a discount item another invoice took meanwhile → DUPLICATE_INVOICE, no customer event', async () => {
+    const { c, inv, provider } = setup();
+    // 2 × 3100 (M) + 1 × 3100 (S) + 300 shipping − manual discount 1000 = 8600.
+    const id = await create(c, [
+      { variantId: 10, quantity: 2 },
+      { variantId: 12, quantity: 1 },
+    ]);
+    for (const l of c.tables[UIDS.orderLine].filter((x) => x.order === id)) {
+      l.unitPrice = 3100;
+      l.unitDiscount = 0;
+    }
+    const row = orderRow(c, id);
+    row.shippingLines.lines[0].amount = 300;
+    Object.assign(row, { shippingOriginal: 300, shippingTotal: 300, shippingDiscount: 0, orderDiscount: 1000, total: 8600 });
+    row.manualDiscounts = {
+      items: [{ id: 1, kind: 'FIXED', percent: null, amount: 1000, reason: 'Loyal', createdAt: '2025-03-01T10:00:00.000Z', actor: 'user:1' }],
+    };
+    await pay(c, id, 2100, 'pa');
+    await pay(c, id, 5200, 'pb');
+    await pay(c, id, 1300, 'pc');
+    const [pa, pb] = paymentRows(c, id);
+    const small = lineIdOf(c, id, 12);
+    const medium = lineIdOf(c, id, 10);
+    let second: any;
+    provider.issue.mockImplementationOnce(async (draft: InvoiceDraft) => {
+      const failed = invoiceRows(c)[0];
+      failed.createdAt = STALE();
+      await inv.reconcile(failed.id, { markFailed: true }, 'user:7');
+      // Other lines and another payment, but the same manual discount.
+      second = await inv.issue(
+        id,
+        { orderLineIds: [medium], shippingLineIds: [], discountIds: ['m:1'], paymentIds: [pb.id], expectedTotal: 5200, idempotencyKey: 'k2' },
+        'user:1'
+      );
+      return issued(draft);
+    });
+    const first = await inv.issue(
+      id,
+      { orderLineIds: [small], shippingLineIds: [], discountIds: ['m:1'], paymentIds: [pa.id], expectedTotal: 2100, idempotencyKey: 'k1' },
+      'user:1'
+    );
+    expect(second.status).toBe('ISSUED');
+    expect(first.status).toBe('ISSUED');
+    expect(first.warnings).toEqual(expect.arrayContaining(['ISSUED_AFTER_FAILED', 'DUPLICATE_INVOICE']));
+    expect(c.events.filter((e) => e.type === 'INVOICE_ISSUED').map((e) => e.payload)).toEqual([
+      { invoiceId: second.id, kind: 'INVOICE' },
+    ]);
+  });
+
   it('the payment was refunded meanwhile (its net is below the allocation) → DUPLICATE_INVOICE, no customer event', async () => {
     const { c, inv, provider } = setup();
     const id = await order(c);

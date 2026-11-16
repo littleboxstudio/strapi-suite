@@ -926,4 +926,26 @@ describe('invoicedManualDiscountIds', () => {
     const docs = [invoice(11, [], { ...at('2026-11-13T10:00:00.000Z'), kind: 'CREDIT_NOTE' })];
     expect(invoicedManualDiscountIds(discounts, docs, [])).toEqual([]);
   });
+
+  const base = { sku: 'S', name: 'N', quantity: 1, tax: 23, partial: false };
+  const item = { ...base, orderLineId: 3, kind: 'ITEM' as const, total: 1000, discountShare: 0 };
+  const record = (id: string) => ({ ...base, orderLineId: null, kind: 'DISCOUNT' as const, total: -100, discountId: id });
+
+  it('whole-item invoices: only a DISCOUNT record m:<id> makes a manual discount invoiced (not its date)', () => {
+    const late = at('2026-11-13T10:00:00.000Z');
+    // Both discounts predate the invoice; only m:2 is on it.
+    expect(invoicedManualDiscountIds(discounts, [invoice(10, [item, record('m:2')], late)], [])).toEqual([2]);
+    // A whole-item invoice that took no discount locks none.
+    expect(invoicedManualDiscountIds(discounts, [invoice(10, [item], late)], [])).toEqual([]);
+    // Annulled: its records no longer count.
+    expect(invoicedManualDiscountIds(discounts, [invoice(10, [item, record('m:2')], late)], [10])).toEqual([]);
+  });
+
+  it('legacy invoices (no DISCOUNT record, no share) keep the date rule alongside whole-item ones', () => {
+    const docs = [
+      invoice(9, [{ ...base, orderLineId: 3, kind: 'ITEM', total: 1000 }], at('2026-11-11T10:00:00.000Z')),
+      invoice(10, [item, record('m:2')], at('2026-11-13T10:00:00.000Z')),
+    ];
+    expect(invoicedManualDiscountIds(discounts, docs, [])).toEqual([1, 2]);
+  });
 });

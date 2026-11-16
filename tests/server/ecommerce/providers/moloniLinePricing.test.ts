@@ -113,4 +113,13 @@ describe('moloniLineNote', () => {
     expect(moloniLineNote({ grossTotal: 1000, total: 1000 })).toBeNull();
     expect(moloniLineNote({ total: 1000 })).toBeNull();
   });
+
+  it('on a SHIPPING line the share is the shipping discount', () => {
+    expect(moloniLineNote({ kind: 'SHIPPING', grossTotal: 500, total: 300, discountShare: 200 })).toBe(
+      'desconto dos portes 2,00 €'
+    );
+    expect(moloniLineNote({ kind: 'ITEM', grossTotal: 500, total: 300, discountShare: 200 })).toBe(
+      'desconto da encomenda 2,00 €'
+    );
+  });
 });

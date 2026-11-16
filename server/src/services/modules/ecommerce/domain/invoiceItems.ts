@@ -51,7 +51,11 @@ export function discountItemsOf(order: {
       if (b.class === 'ORDER_DISCOUNT') {
         items.push({ id: `p:${p.promotionId}:${b.index}`, kind: 'ORDER', label: p.name, amount: b.amount });
       } else if (b.class === 'SHIPPING_DISCOUNT') {
-        items.push({ id: `s:${p.promotionId}`, kind: 'SHIPPING', label: p.name, amount: b.amount });
+        // One item per promotion: its shipping benefits add up.
+        const id = `s:${p.promotionId}`;
+        const existing = items.find((i) => i.id === id);
+        if (existing) existing.amount += b.amount;
+        else items.push({ id, kind: 'SHIPPING', label: p.name, amount: b.amount });
       }
     }
   }
