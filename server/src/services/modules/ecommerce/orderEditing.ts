@@ -113,7 +113,14 @@ export type EditResult = { order: OrderView } & EditOutcome;
 
 /** `discountPercent`: the line's manual discount (spec 4.1); absent, null or '' = none. */
 export type LinesInput = {
-  lines: { orderLineId?: number; variantId: number; quantity: number; discountPercent?: unknown }[];
+  lines: {
+    orderLineId?: number;
+    variantId: number;
+    quantity: number;
+    discountPercent?: unknown;
+    /** A separate new line even when the order has the variant (see ModificationInput). */
+    newLine?: boolean;
+  }[];
 };
 
 export type LinesPreview = Pick<
@@ -532,6 +539,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
       variantId: Number(l?.variantId),
       quantity: l?.quantity,
       ...(l?.discountPercent !== undefined ? { discountPercent: l.discountPercent } : {}),
+      ...(l?.newLine === true && (l?.orderLineId === undefined || l?.orderLineId === null) ? { newLine: true } : {}),
     }));
   };
 

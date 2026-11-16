@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   addModifyLine,
   buildLinesInput,
+  linesPayload,
   linesDraftChanged,
   linesDraftFromOrder,
   modifyLineDiscountEditable,
@@ -114,7 +115,7 @@ describe('buildLinesInput', () => {
     expect(buildLinesInput(lines).lines).toEqual([
       { orderLineId: 11, variantId: 2, quantity: 3 },
       { orderLineId: 12, variantId: 3, quantity: 1 },
-      { variantId: 5, quantity: 1 },
+      { variantId: 5, quantity: 1, newLine: true },
     ]);
   });
 
@@ -158,14 +159,40 @@ describe('line helpers', () => {
     expect(setModifyLineQuantity(lines, giftKey, 5)).toEqual(lines);
   });
 
-  it('adding a variant already on a (non-gift) line bumps it or restores it', () => {
+  it('adding a variant the order already has opens a new line (quantity and discount editable)', () => {
     const lines = linesDraftFromOrder(order());
-    const bumped = addModifyLine(lines, variant({ variantId: 1 }));
-    expect(bumped).toHaveLength(3);
-    expect(bumped[0].quantity).toBe(3);
-    const removed = removeModifyLine(lines, keyOf(lines, 1));
-    expect(addModifyLine(removed, variant({ variantId: 1 }))[0]).toMatchObject({ removed: false, quantity: 2 });
-    expect(addModifyLine(lines, variant({ variantId: 3 }))).toHaveLength(4);
+    const added = addModifyLine(addModifyLine(lines, variant({ variantId: 1 })), variant({ variantId: 1 }));
+    expect(added).toHaveLength(lines.length + 2);
+    expect(added[0].quantity).toBe(lines[0].quantity);
+    expect(added.slice(lines.length).map((l) => [l.key, l.quantity, l.orderLineId])).toEqual([
+      ['new-1-1', 1, undefined],
+      ['new-1-2', 1, undefined],
+    ]);
+  });
+
+  it('on save: the same variant and discount joins the existing line; other conditions are a separate line', () => {
+    const plainOrder = order({ lines: [orderLine({ id: 30, variantId: 1, quantity: 2, unitDiscount: 0 })] });
+    let lines = linesDraftFromOrder(plainOrder);
+    lines = addModifyLine(lines, variant({ variantId: 1 }));
+    lines = setModifyLineQuantity(lines, 'new-1-1', 3);
+    // No discount, as the existing line: 3 more units on it.
+    expect(linesPayload(lines)).toEqual({
+      entries: [{ orderLineId: 30, variantId: 1, quantity: 5 }],
+      keys: ['line-30'],
+    });
+    // 10 % on the third unit: a separate line of the same product.
+    lines = setModifyLineDiscount(lines, 'new-1-1', '10');
+    expect(linesPayload(lines)).toEqual({
+      entries: [
+        { orderLineId: 30, variantId: 1, quantity: 2 },
+        { variantId: 1, quantity: 3, discountPercent: 10, newLine: true },
+      ],
+      keys: ['line-30', 'new-1-1'],
+    });
+    // Server errors of the separate line land on it.
+    expect(
+      toModificationErrorMap(lines, [{ path: 'lines.1.quantity', code: 'INSUFFICIENT_STOCK' }], linesPayload(lines).keys)
+    ).toEqual({ 'line.new-1-1': 'INSUFFICIENT_STOCK' });
   });
 
   it('does not add variants without stock', () => {
@@ -300,7 +327,7 @@ describe('manual line discount in the products draft (spec 4.1)', () => {
   it('a new line can take a percent', () => {
     let lines = addModifyLine(linesDraftFromOrder(plain()), variant());
     lines = setModifyLineDiscount(lines, keyOf(lines, 5), '50');
-    expect(buildLinesInput(lines).lines.at(-1)).toEqual({ variantId: 5, quantity: 1, discountPercent: 50 });
+    expect(buildLinesInput(lines).lines.at(-1)).toEqual({ variantId: 5, quantity: 1, discountPercent: 50, newLine: true });
     expect(modifyLineUnitPrice(lines.at(-1)!)).toBe(450);
   });
 
