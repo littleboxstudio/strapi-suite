@@ -283,8 +283,9 @@ const PromotionsSection = ({
                 {/* The total: label and amount in one cell, on the right (under Amount). */}
                 <Tr>
                   <Td colSpan={columns.length - (showActions ? 1 : 0)}>
-                    {/* The rows' own height (52px): 16px above and below the 20px line. */}
-                    <Flex justifyContent="flex-end" gap={2} paddingTop={4} paddingBottom={4}>
+                    {/* The rows' own height (52px): 16px above and below the 20px line. The spanning
+                        cell has 4px on the right, the others 16px: 12px more aligns the amount. */}
+                    <Flex justifyContent="flex-end" gap={2} paddingTop={4} paddingBottom={4} paddingRight={3}>
                       <Typography fontWeight="bold" textColor="neutral800">
                         {t('ecommerce.orders.promotions.total')}
                       </Typography>
