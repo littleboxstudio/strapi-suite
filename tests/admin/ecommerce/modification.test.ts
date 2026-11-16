@@ -344,3 +344,21 @@ describe('manual line discount in the products draft (spec 4.1)', () => {
     });
   });
 });
+
+describe('invoiced units in the products draft', () => {
+  const invoicedOrder = () =>
+    order({ lines: [orderLine({ id: 40, variantId: 7, quantity: 3, invoiced: 2 })] });
+
+  it('flags a quantity below the invoiced units and the removal of an invoiced line', () => {
+    let lines = linesDraftFromOrder(invoicedOrder());
+    lines = setModifyLineQuantity(lines, 'line-40', 1);
+    expect(validateLinesDraft(lines)).toEqual([{ path: 'lines.0.quantity', code: 'QUANTITY_BELOW_INVOICED' }]);
+    const removed = linesDraftFromOrder(invoicedOrder()).map((l) => ({ ...l, removed: true }));
+    expect(validateLinesDraft(removed)).toContainEqual({ path: 'removed.40', code: 'QUANTITY_BELOW_INVOICED' });
+  });
+
+  it('keeps the discount of an invoiced line fixed', () => {
+    const [line] = linesDraftFromOrder(invoicedOrder());
+    expect(modifyLineDiscountEditable(line)).toBe(false);
+  });
+});

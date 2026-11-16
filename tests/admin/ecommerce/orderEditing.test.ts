@@ -635,6 +635,14 @@ describe('manualDiscountRows', () => {
     expect(manualDiscountRows(closed, true)[0].actions).toEqual([]);
   });
 
+  it('never offers Remove on a discount an invoice reflects', () => {
+    const invoiced = order({
+      editing: editing({ actions: ['REMOVE_DISCOUNT'] }),
+      manualDiscounts: [manual({ invoiced: true }), manual({ id: 2 })],
+    });
+    expect(manualDiscountRows(invoiced, true).map((r) => r.actions)).toEqual([[], ['REMOVE']]);
+  });
+
   it('reads a missing list as empty', () => {
     expect(manualDiscountRows(order({ manualDiscounts: undefined }), true)).toEqual([]);
   });

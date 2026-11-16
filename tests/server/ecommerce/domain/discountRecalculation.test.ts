@@ -560,6 +560,17 @@ describe('recalculateDiscounts — gift lines', () => {
 });
 
 describe('recalculateDiscounts — manual line discount (spec 4.1)', () => {
+  it('an invoiced line takes no new product promotion and keeps its unit discount', () => {
+    const p1 = promo(1, [{ type: 'PRODUCT_PERCENT', target: T(1), percent: 10, maxQuantity: null }]);
+    const r = recalculateDiscounts(
+      ctx({ lines: [line(1, 1, 2000, 2, { invoiced: 1 }), line(2, 1, 2000, 1)], candidates: [p1] }),
+      ['p:1']
+    );
+    expect(r.lines).toEqual([
+      { id: 2, unitDiscount: 200, refs: [{ promotionId: 1, benefitIndex: 0, amount: 200 }] },
+    ]);
+  });
+
   const productPromo = promo(1, [{ type: 'PRODUCT_PERCENT', target: T(1, 2), percent: 50, maxQuantity: null }]);
   const orderPromo = promo(2, [{ type: 'ORDER_PERCENT', percent: 10 }]);
   // Line 1: 2 × 2000 with a manual 10 % (unit discount 200). Line 2: 1 × 1000 at full price.

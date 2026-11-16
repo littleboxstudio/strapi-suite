@@ -172,6 +172,42 @@ describe('simulateModification', () => {
     expect(removed.errors).toEqual([{ path: 'removed.7', code: 'QUANTITY_BELOW_SHIPPED' }]);
   });
 
+  it('invoiced units are never removed, and the discount of an invoiced line never changes', () => {
+    const current = {
+      lines: [existing({ id: 7, quantity: 3, invoiced: 2 }), existing({ id: 8, variantId: 102, quantity: 1 })],
+      orderDiscount: 0,
+      shippingOriginal: 0,
+      shippingDiscount: 0,
+      payments: [],
+      refunds: [],
+    };
+    const other = { orderLineId: 8, variantId: 102, quantity: 1 };
+    const below = simulateModification(
+      current,
+      { lines: [{ orderLineId: 7, variantId: 101, quantity: 1 }, other], shipping: keep },
+      catalogOf(),
+    );
+    expect(below.errors).toEqual([{ path: 'lines.0.quantity', code: 'QUANTITY_BELOW_INVOICED' }]);
+
+    // The uninvoiced unit can go.
+    const ok = simulateModification(
+      current,
+      { lines: [{ orderLineId: 7, variantId: 101, quantity: 2 }, other], shipping: keep },
+      catalogOf(),
+    );
+    expect(ok.errors).toEqual([]);
+
+    const removed = simulateModification(current, { lines: [other], shipping: keep }, catalogOf());
+    expect(removed.errors).toEqual([{ path: 'removed.7', code: 'QUANTITY_BELOW_INVOICED' }]);
+
+    const percent = simulateModification(
+      current,
+      { lines: [{ orderLineId: 7, variantId: 101, quantity: 3, discountPercent: 10 }, other], shipping: keep },
+      catalogOf(),
+    );
+    expect(percent.errors).toEqual([{ path: 'lines.0.discountPercent', code: 'DISCOUNT_LINE_INVOICED' }]);
+  });
+
   it('insufficient stock for an increase → INSUFFICIENT_STOCK', () => {
     const current = {
       lines: [existing({ id: 1, variantId: 101, quantity: 2 })],

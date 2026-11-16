@@ -6,6 +6,8 @@ import {
   fitsPosition,
   selectedValue,
   readInvoiceDoc,
+  invoicedManualDiscountIds,
+  netInvoicedUnits,
   type InvoiceDoc,
   type PositionOrder,
   type InvoicingPosition,
@@ -785,6 +787,7 @@ describe('readInvoiceDoc', () => {
         { index: 0, value: 880, quantity: 1 },
         { index: 1, value: 500, quantity: 0 },
       ],
+      createdAt: null,
     });
   });
 
@@ -861,5 +864,41 @@ describe('readInvoiceLines', () => {
       },
     ]);
     expect(readInvoiceLines(null)).toEqual([]);
+  });
+});
+
+describe('netInvoicedUnits', () => {
+  it('is invoiced minus RETURN-credited units per order line', () => {
+    const position = {
+      lines: [
+        { orderLineId: 1, invoicedUnits: 3, returnCreditedUnits: 1, remainingQuantity: 0, remainingValue: 0 },
+        { orderLineId: 2, invoicedUnits: 0, returnCreditedUnits: 0, remainingQuantity: 2, remainingValue: 0 },
+      ],
+    } as unknown as InvoicingPosition;
+    expect([...netInvoicedUnits(position)]).toEqual([
+      [1, 2],
+      [2, 0],
+    ]);
+  });
+});
+
+describe('invoicedManualDiscountIds', () => {
+  const at = (iso: string) => ({ createdAt: iso });
+  const discounts = [
+    { id: 1, createdAt: '2026-11-10T10:00:00.000Z' },
+    { id: 2, createdAt: '2026-11-12T10:00:00.000Z' },
+  ];
+  it('the discounts created before a counted invoice', () => {
+    const docs = [invoice(10, [], at('2026-11-11T10:00:00.000Z'))];
+    expect(invoicedManualDiscountIds(discounts, docs, [])).toEqual([1]);
+  });
+  it('none without invoices, or when the only invoice was annulled', () => {
+    expect(invoicedManualDiscountIds(discounts, [], [])).toEqual([]);
+    const docs = [invoice(10, [], at('2026-11-13T10:00:00.000Z'))];
+    expect(invoicedManualDiscountIds(discounts, docs, [10])).toEqual([]);
+  });
+  it('a credit note does not count', () => {
+    const docs = [invoice(11, [], { ...at('2026-11-13T10:00:00.000Z'), kind: 'CREDIT_NOTE' })];
+    expect(invoicedManualDiscountIds(discounts, docs, [])).toEqual([]);
   });
 });

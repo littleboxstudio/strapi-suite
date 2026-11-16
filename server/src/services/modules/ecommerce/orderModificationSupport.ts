@@ -80,6 +80,7 @@ export function createOrderModificationSupport(strapi: Core.Strapi) {
       returnedQuantity: l.returnedQuantity,
       manualDiscountPercent: l.manualDiscountPercent,
       promotionIds: l.promotionIds,
+      invoiced: l.invoiced ?? 0,
     })),
     orderDiscount: num(state.order.orderDiscount),
     shippingOriginal: num(state.order.shippingOriginal),

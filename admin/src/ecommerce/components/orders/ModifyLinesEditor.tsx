@@ -106,6 +106,7 @@ const ModifyLinesEditor = ({
                     {line.sku}
                     {line.stock !== null ? ` · ${t('ecommerce.orders.picker.stock', { count: line.stock })}` : ''}
                     {line.shipped > 0 ? ` · ${t('ecommerce.orders.modify.lines.shipped', { count: line.shipped })}` : ''}
+                    {line.invoiced > 0 ? ` · ${t('ecommerce.orders.modify.lines.invoiced', { count: line.invoiced })}` : ''}
                   </Typography>
                   <Flex gap={1}>
                     {line.isGift && <ToneBadge>{t('ecommerce.orders.detail.lines.gift')}</ToneBadge>}
@@ -183,10 +184,12 @@ const ModifyLinesEditor = ({
                       label={
                         line.shipped > 0
                           ? t('ecommerce.orders.modify.lines.cannotRemove')
-                          : t('ecommerce.orders.lines.remove')
+                          : line.invoiced > 0
+                            ? t('ecommerce.orders.modify.lines.cannotRemoveInvoiced')
+                            : t('ecommerce.orders.lines.remove')
                       }
                       variant="ghost"
-                      disabled={disabled || line.shipped > 0}
+                      disabled={disabled || line.shipped > 0 || line.invoiced > 0}
                       onClick={() => onRemove(line.key)}
                     >
                       <Trash />

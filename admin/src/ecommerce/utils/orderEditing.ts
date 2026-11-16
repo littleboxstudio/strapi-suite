@@ -279,7 +279,8 @@ export function manualDiscountRows(order: Order, canManage: boolean): ManualDisc
   return (Array.isArray(order.manualDiscounts) ? order.manualDiscounts : []).map((discount) => ({
     discount,
     legacy: discount.kind === 'LEGACY',
-    actions: canRemove ? ['REMOVE'] : [],
+    // A discount an invoice reflects is never removed.
+    actions: canRemove && !discount.invoiced ? ['REMOVE'] : [],
   }));
 }
 

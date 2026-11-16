@@ -174,6 +174,8 @@ export type OrderLine = {
   promotionIds: number[];
   /** Units in ACTIVE shipments. */
   shipped: number;
+  /** Units held by invoices: never removed, and the line's discount never changes. */
+  invoiced?: number;
   /** Units in ACTIVE and PENDING shipments: they cannot be shipped again. */
   reserved: number;
   /** quantity − reserved */
@@ -780,6 +782,8 @@ export type ManualDiscount = {
   reason: string;
   createdAt: string;
   actor: string;
+  /** An invoice already reflects it: it can never be removed. */
+  invoiced?: boolean;
 };
 
 /** FIXED: `value` is cents. PERCENT: `value` is a percentage in (0, 100], at most 2 decimals. */

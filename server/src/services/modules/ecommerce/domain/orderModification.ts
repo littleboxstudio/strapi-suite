@@ -33,6 +33,8 @@ export type ExistingLine = LineAmounts & {
   manualDiscountPercent?: number | null;
   /** Promotions that discounted this line (absent = none). */
   promotionIds?: number[];
+  /** Units held by invoices: never removed, and the line's price never changes (absent = 0). */
+  invoiced?: number;
 };
 
 export type ShippingModification =
@@ -83,7 +85,9 @@ export type ModificationErrorCode =
   | 'INVALID_AMOUNT'
   | 'LINES_REQUIRED'
   | 'INVALID_PERCENT'
-  | 'DISCOUNT_LINE_SHIPPED';
+  | 'DISCOUNT_LINE_SHIPPED'
+  | 'QUANTITY_BELOW_INVOICED'
+  | 'DISCOUNT_LINE_INVOICED';
 
 export type ModificationTotals = OrderTotals & { paid: number; due: number; excess: number };
 
@@ -265,6 +269,12 @@ export const simulateModification = (
         lineError(index, 'QUANTITY_BELOW_SHIPPED');
         return;
       }
+      // Invoiced units are never removed: a refund (and a return once delivered) with the
+      // admin's credit note takes them back first.
+      if (entry.quantity < (target.invoiced ?? 0)) {
+        lineError(index, 'QUANTITY_BELOW_INVOICED');
+        return;
+      }
       // Spec 4.1: the manual discount is set, changed or removed only on a line with nothing
       // shipped (a removed line ignores it). It replaces a promotion discount.
       const previousPercent = target.manualDiscountPercent ?? null;
@@ -282,6 +292,10 @@ export const simulateModification = (
           }
           if (target.shipped > 0) {
             percentError(index, 'DISCOUNT_LINE_SHIPPED');
+            return;
+          }
+          if ((target.invoiced ?? 0) > 0) {
+            percentError(index, 'DISCOUNT_LINE_INVOICED');
             return;
           }
           discount = {
@@ -370,6 +384,9 @@ export const simulateModification = (
       newQuantity.set(line.id, line.quantity);
     } else if (line.shipped > 0) {
       errors.push({ path: `removed.${line.id}`, code: 'QUANTITY_BELOW_SHIPPED' });
+      newQuantity.set(line.id, line.quantity);
+    } else if ((line.invoiced ?? 0) > 0) {
+      errors.push({ path: `removed.${line.id}`, code: 'QUANTITY_BELOW_INVOICED' });
       newQuantity.set(line.id, line.quantity);
     } else {
       newQuantity.set(line.id, 0);
