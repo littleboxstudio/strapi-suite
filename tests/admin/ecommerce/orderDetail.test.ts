@@ -1066,6 +1066,21 @@ describe('paymentLinkOutdated', () => {
   });
 });
 
+describe('returns section actions', () => {
+  it('Register return moves from the header to the Returns section', async () => {
+    const { allowedToolbarActions, headerActions, returnSectionActions } = await import(
+      '../../../admin/src/ecommerce/utils/orderDetail'
+    );
+    const all = allowedToolbarActions(['REGISTER_RETURN', 'CANCEL'] as any[], {
+      canManage: true,
+      canPay: true,
+      canRefund: true,
+    });
+    expect(returnSectionActions(all)).toEqual(['REGISTER_RETURN']);
+    expect(headerActions(all)).toEqual(['CANCEL']);
+  });
+});
+
 describe('payment section actions', () => {
   it('Add payment, Send payment instructions and Refund move to the sections, same rules', async () => {
     const { allowedToolbarActions, headerActions, paymentSectionActions, refundSectionActions, shipmentSectionActions } =

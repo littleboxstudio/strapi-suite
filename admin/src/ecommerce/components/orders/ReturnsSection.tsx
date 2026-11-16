@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { useIntl } from 'react-intl';
 import { Flex, Table, Tbody, Td, Th, Thead, Tr, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
@@ -9,13 +10,22 @@ import OrderSection from './OrderSection';
 const COLUMNS = ['date', 'items', 'reason', 'value'] as const;
 
 /** Read-only list of the order's returns (oldest first, as the API sends them). */
-const ReturnsSection = ({ title, returns }: { title: string; returns: ReturnView[] }) => {
+const ReturnsSection = ({
+  title,
+  returns,
+  actions,
+}: {
+  title: string;
+  returns: ReturnView[];
+  /** The section's buttons (Register return), top right. */
+  actions?: ReactNode;
+}) => {
   const { formatMessage, formatDate, locale: uiLocale } = useIntl();
   const t = (id: string, values?: Record<string, any>) => formatMessage({ id: getTranslation(id) }, values);
   const money = (cents: number) => formatCents(cents, uiLocale);
 
   return (
-    <OrderSection title={title}>
+    <OrderSection title={title} actions={actions}>
       {returns.length === 0 ? (
         <EmptyNote>{t('ecommerce.orders.returns.list.empty')}</EmptyNote>
       ) : (
