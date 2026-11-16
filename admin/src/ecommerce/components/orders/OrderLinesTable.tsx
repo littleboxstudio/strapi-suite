@@ -16,11 +16,10 @@ import { getTranslation } from '../../../core/utils/getTranslation';
 import { formatCents } from '../../utils/money';
 import {
   formatShippedProgress,
-  linePromotionNames,
+  lineDiscountLabel,
   pendingLabel,
   type PromotionLocales,
 } from '../../utils/orderDetail';
-import { formatLineDiscount } from '../../utils/lineDiscount';
 import type { OrderLine, OrderPromotion } from '../../orderTypes';
 import { PRODUCT_CELL } from './lineCells';
 import { ToneBadge } from './StatusBadges';
@@ -81,7 +80,7 @@ const OrderLinesTable = ({ lines, promotions = [], locales = { locale: '' } }: P
         {lines.map((line) => {
           const finalPrice = line.unitPrice - line.unitDiscount;
           const pending = pendingLabel(line.pending);
-          const promotionNames = linePromotionNames(line.promotionIds, promotions, locales);
+          const discountLabel = lineDiscountLabel(line, promotions, uiLocale, locales.defaultLocale);
           return (
             <Tr key={line.id}>
               <Td>
@@ -116,11 +115,6 @@ const OrderLinesTable = ({ lines, promotions = [], locales = { locale: '' } }: P
                       {t('ecommerce.orders.detail.lines.gift')}
                     </ToneBadge>
                   )}
-                  {promotionNames.length > 0 && (
-                    <Typography variant="pi" textColor="success600">
-                      {t('ecommerce.orders.detail.lines.promotions', { names: promotionNames.join(', ') })}
-                    </Typography>
-                  )}
                 </Flex>
               </Td>
               <Td>
@@ -143,12 +137,9 @@ const OrderLinesTable = ({ lines, promotions = [], locales = { locale: '' } }: P
                       {t('ecommerce.orders.detail.lines.unitDiscount', { amount: money(line.unitDiscount) })}
                     </Typography>
                   )}
-                  {line.manualDiscountPercent != null && (
-                    // Spec 4.1: the admin's manual percent on this line.
-                    <Typography variant="pi" textColor="success600" style={{ whiteSpace: 'nowrap' }}>
-                      {t('ecommerce.orders.detail.lines.manualDiscount', {
-                        percent: formatLineDiscount(line.manualDiscountPercent, uiLocale),
-                      })}
+                  {line.unitDiscount > 0 && discountLabel && (
+                    <Typography variant="pi" textColor="success600">
+                      {discountLabel}
                     </Typography>
                   )}
                   <Typography textColor="neutral800">{money(finalPrice)}</Typography>

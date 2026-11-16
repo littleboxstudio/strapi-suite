@@ -20,7 +20,7 @@ import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchInvoiceSelection from '../../usecases/orders/fetchInvoiceSelection';
 import IssueInvoice from '../../usecases/orders/issueInvoice';
 import { formatCents } from '../../utils/money';
-import { apiErrorDetail, apiErrorMessageId, shouldRenewIdempotencyKey } from '../../utils/orderDetail';
+import { apiErrorDetail, apiErrorMessageId, lineDiscountLabel, shouldRenewIdempotencyKey } from '../../utils/orderDetail';
 import { invoiceFailureMessageId, isFailedReplay, isUncertainResult, issuedWarnings } from '../../utils/invoiceForm';
 import {
   buildIssueInvoiceInput,
@@ -29,12 +29,10 @@ import {
   discountItemLabel,
   invoiceSelectionTotals,
   isSelectionChanged,
-  selectionLineDiscount,
   selectionPayments,
   validateInvoiceSelection,
   type InvoiceSelectionForm,
 } from '../../utils/invoiceSelection';
-import { formatLineDiscount } from '../../utils/lineDiscount';
 import type { PromotionLocales } from '../../utils/orderDetail';
 import InvoiceErrorModal from './InvoiceErrorModal';
 import EmptyNote from './EmptyNote';
@@ -252,7 +250,8 @@ const IssueInvoiceModal = ({
               {heading(PRODUCT_COLUMNS)}
               <Tbody>
                 {view.lines.map((line) => {
-                  const discount = selectionLineDiscount(line.orderLineId, lines, promotions, locales);
+                  const orderLine = lines.find((l) => l.id === line.orderLineId);
+                  const discountLabel = orderLine ? lineDiscountLabel(orderLine, promotions, uiLocale, locales.defaultLocale) : null;
                   return (
                     <Tr key={line.orderLineId}>
                       <Td style={FIT_CELL}>
@@ -290,18 +289,9 @@ const IssueInvoiceModal = ({
                             <Typography textColor="neutral800">
                               {t('ecommerce.orders.detail.lines.unitDiscount', { amount: money(line.unitDiscount) })}
                             </Typography>
-                            {discount.promotionNames.length > 0 && (
+                            {discountLabel && (
                               <Typography variant="pi" textColor="neutral600">
-                                {t('ecommerce.orders.detail.lines.promotions', {
-                                  names: discount.promotionNames.join(', '),
-                                })}
-                              </Typography>
-                            )}
-                            {discount.manualPercent !== null && (
-                              <Typography variant="pi" textColor="neutral600">
-                                {t('ecommerce.orders.detail.lines.manualDiscount', {
-                                  percent: formatLineDiscount(discount.manualPercent, uiLocale),
-                                })}
+                                {discountLabel}
                               </Typography>
                             )}
                           </Flex>
