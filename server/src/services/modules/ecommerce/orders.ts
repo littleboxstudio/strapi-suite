@@ -43,6 +43,7 @@ import {
   type PositionOrder,
 } from './domain/invoiceSelection';
 import { invoiceItems, type InvoiceItems } from './domain/invoiceItems';
+import { readReturnShares, type ReturnShareRecord } from './domain/returnShares';
 import {
   orderDeliveryStatus,
   reservedQuantities,
@@ -371,6 +372,8 @@ export type OrderInvoicing = {
   allocations: { id: number; invoiceId: number | null; paymentId: number; amount: number; coverage: unknown }[];
   /** Invoice and credit-note rows ISSUED, PENDING or UNCERTAIN, sorted by id. */
   invoices: any[];
+  /** The discount shares the order's returns recorded (C1), oldest first. */
+  returnShares: ReturnShareRecord[];
 };
 
 const IN_FLIGHT_REFUND = ['PENDING', 'PROCESSING'];
@@ -1196,7 +1199,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     blockingExcess: number
   ): Promise<OrderInvoicing> => {
     const u = uids();
-    const [allocationRows, invoices] = await Promise.all([
+    const [allocationRows, invoices, returnRows] = await Promise.all([
       strapi.db.query(u.invoiceAllocation).findMany({
         where: { order: { id: order.id }, uniqueKey: { $null: false } },
         populate: { invoice: { select: ['id'] }, payment: { select: ['id'] } },
@@ -1207,7 +1210,12 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         populate: { creditedInvoice: { select: ['id'] } },
         orderBy: { id: 'asc' },
       }) as Promise<any[]>,
+      strapi.db.query(u.orderReturn).findMany({
+        where: { order: { id: order.id } },
+        orderBy: { id: 'asc' },
+      }) as Promise<any[]>,
     ]);
+    const returnShares = (returnRows ?? []).map((r) => readReturnShares(r?.items));
     const allocations = allocationRows
       .map((a) => ({
         id: a.id as number,
@@ -1254,6 +1262,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         shippingDiscount: num(order.shippingDiscount),
         manualDiscounts: readManualDiscounts(order),
         applied: appliedOf(order),
+        returnShares,
       },
       docs
     );
@@ -1321,6 +1330,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       completedPayments,
       allocations,
       invoices,
+      returnShares,
     };
   };
 

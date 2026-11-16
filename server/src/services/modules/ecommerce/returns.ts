@@ -3,7 +3,8 @@ import { PLUGIN_ID, LtbConfigs } from '../../../config';
 import { EcommerceValidationError, type ValidationIssue } from './errors';
 import { isUniqueViolation } from './dbErrors';
 import { computeTotals, type OrderActionKey } from './domain/orders';
-import { computeReturn, returnableQuantities, validateReturnRequest } from './domain/fulfillment';
+import { returnableQuantities, validateReturnRequest } from './domain/fulfillment';
+import { computeReturnShares } from './domain/returnShares';
 import { refundableAmount } from './domain/refunds';
 import type { OrderState } from './orders';
 import type { OrderHistoryEntry } from './orderHistory';
@@ -112,6 +113,12 @@ const normalizeInput = (input: ReturnInput) => {
  * the order total (and takes its share of the order discount back) but never refunds: the
  * admin refunds through `EcommerceRefundService` (reason RETURN), capped at the excess. It
  * changes neither the shipments nor the FulfillmentStatus.
+ *
+ * The discount share (C1, `computeReturnShares`): a line on a whole-item invoice gives back its
+ * invoice line's share (the RETURN credit note's rule, so refund and credit note match to the
+ * cent); other lines the pro-rata share of the order discounts not invoiced. The row records the
+ * share against the discount items it came from, so the discount items keep adding up to the
+ * stored order discount.
  */
 const EcommerceReturnService = ({ strapi }: { strapi: Core.Strapi }) => {
   const uids = () => {
@@ -190,17 +197,20 @@ const EcommerceReturnService = ({ strapi }: { strapi: Core.Strapi }) => {
 
         const order = state.order;
         const orderDiscountBefore = num(order.orderDiscount);
-        const computed = computeReturn(
-          state.lines.map((l) => ({
+        const computed = computeReturnShares({
+          lines: state.lines.map((l) => ({
             id: l.id,
             unitPrice: l.unitPrice,
             unitDiscount: l.unitDiscount,
             quantity: l.quantity,
             returnedQuantity: l.returnedQuantity,
           })),
-          orderDiscountBefore,
-          n.lines
-        );
+          request: n.lines,
+          docs: state.invoicing.docs,
+          annulledInvoiceIds: state.invoicing.position.annulledInvoiceIds,
+          discounts: state.invoicing.items.discounts,
+          previous: state.invoicing.returnShares,
+        });
         // A cancelled order already put every held unit back: restocking again would count
         // the unit twice.
         const cancelled = order.orderStatus === 'CANCELLED';
@@ -222,7 +232,7 @@ const EcommerceReturnService = ({ strapi }: { strapi: Core.Strapi }) => {
         const created = await strapi.db.query(u.orderReturn).create({
           data: {
             order: orderId,
-            items: { lines: items },
+            items: { lines: items, ...computed.record },
             grossValue: computed.grossValue,
             discountShare: computed.discountShare,
             refundableValue: computed.refundableValue,

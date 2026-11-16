@@ -8,6 +8,7 @@ import type { ValidationIssue } from '../errors';
 import { chargedShipping, correctionsOf } from './shippingLines';
 import type { ManualDiscount } from './manualDiscounts';
 import type { AppliedPromotion } from './promotions';
+import { returnedDiscountAmounts, type ReturnShareRecord } from './returnShares';
 
 export type DiscountItem = {
   id: string;
@@ -26,12 +27,17 @@ export type InvoiceItems = {
   discounts: DiscountItem[];
 };
 
-/** The discounts an order carries, one item each; any unexplained difference is an `adj` item. */
+/**
+ * The discounts an order carries, one item each, at their effective amount: less what returns
+ * took of them (`returnShares`, C1), as the stored order discount was. Any unexplained difference
+ * is an `adj` item.
+ */
 export function discountItemsOf(order: {
   orderDiscount: number;
   shippingDiscount: number;
   manualDiscounts: ManualDiscount[];
   applied: AppliedPromotion[];
+  returnShares?: ReturnShareRecord[];
 }): Omit<DiscountItem, 'invoiced'>[] {
   const items: Omit<DiscountItem, 'invoiced'>[] = [];
   for (const m of order.manualDiscounts) {
@@ -59,6 +65,8 @@ export function discountItemsOf(order: {
       }
     }
   }
+  const returned = returnedDiscountAmounts(order.returnShares ?? []);
+  for (const item of items) item.amount -= returned.get(item.id) ?? 0;
   const total = (kind: 'ORDER' | 'SHIPPING') =>
     items.filter((i) => i.kind === kind).reduce((s, i) => s + i.amount, 0);
   const orderDiff = order.orderDiscount - total('ORDER');
@@ -78,6 +86,7 @@ export function invoiceItems(
     shippingDiscount: number;
     manualDiscounts: ManualDiscount[];
     applied: AppliedPromotion[];
+    returnShares?: ReturnShareRecord[];
   },
   docs: InvoiceDoc[]
 ): InvoiceItems {
@@ -128,9 +137,14 @@ export function invoiceItems(
     if (d.kind !== 'INVOICE' || d.status === 'FAILED' || annulled.has(d.id)) continue;
     for (const l of d.lines) if (l.kind === 'DISCOUNT' && l.discountId) invoicedDiscounts.add(l.discountId);
   }
+  // An item returns took entirely has nothing left to invoice.
+  const returned = returnedDiscountAmounts(order.returnShares ?? []);
   const discounts: DiscountItem[] = discountItemsOf(order).map((d) => ({
     ...d,
-    invoiced: invoicedDiscounts.has(d.id) || settledDiscounts.has(d.id),
+    invoiced:
+      invoicedDiscounts.has(d.id) ||
+      settledDiscounts.has(d.id) ||
+      ((returned.get(d.id) ?? 0) > 0 && d.amount <= 0),
   }));
 
   return { lines, shipping, discounts };
