@@ -8,10 +8,11 @@ import { formatCents } from '../../utils/money';
 import { apiErrorMessageId } from '../../utils/orderDetail';
 import { canEdit, shippingLineRows } from '../../utils/orderEditing';
 import { mintUuid } from '../../utils/variantDraft';
-import type { EditResult, Order, ShippingLineView, ShippingReview, ShipUnits } from '../../orderTypes';
+import type { EditResult, Order, ShippingLineView, ShipUnits } from '../../orderTypes';
+import { shippableOf } from '../../utils/shipmentForm';
 import ShippingChargesTable from './ShippingChargesTable';
 import ShippingLineModal from './ShippingLineModal';
-import RecalculateShippingModal from './RecalculateShippingModal';
+import RecalculateShippingModal, { type RecalculationState } from './RecalculateShippingModal';
 import OrderSection from './OrderSection';
 
 type Props = {
@@ -27,13 +28,13 @@ type Props = {
 
 /** The open shipping modal; it unmounts on close, so each opening mints its own operationId. */
 type ShippingModal =
-  | { kind: 'RECALCULATE' }
+  | { kind: 'RECALCULATE'; resume?: RecalculationState }
   | {
       kind: 'LINE';
       mode: 'EDIT' | 'ADD';
       line?: ShippingLineView;
-      /** From Recalculate shipping: a new charge for these units, with its review. */
-      recalculation?: { units: ShipUnits; review: ShippingReview };
+      /** From Recalculate shipping: a new charge for these units, and the steps to go back to. */
+      recalculation?: { units: ShipUnits; state: RecalculationState };
     }
   | { kind: 'REMOVE'; line: ShippingLineView; operationId: string };
 
@@ -44,6 +45,40 @@ const ShippingChargesSection = ({ id, title, order, canManage, onEdited }: Props
   const t = (key: string, values?: Record<string, any>) => formatMessage({ id: getTranslation(key) }, values);
   const [shippingModal, setShippingModal] = useState<ShippingModal | null>(null);
   const [removing, setRemoving] = useState(false);
+
+  /**
+   * The shipping charge modal's recalculation: the review, Back to the steps and, for option 2 (the
+   * products still to ship), the checkbox that adds the units not paid yet.
+   */
+  const recalculationProps = (m: Extract<ShippingModal, { kind: 'LINE' }>) => {
+    const r = m.recalculation;
+    if (!r) return undefined;
+    const unitsFor = (unpaid: boolean): ShipUnits =>
+      order.lines
+        .map((l) => ({ orderLineId: l.id, quantity: unpaid ? l.pending : shippableOf(l) }))
+        .filter((u) => u.quantity > 0);
+    const remaining = r.state.choice === 'REMAINING';
+    const paid = unitsFor(false);
+    const all = unitsFor(true);
+    return {
+      // Option 2 quotes the units still to ship (the paid ones unless the checkbox adds the others).
+      units: remaining ? (r.state.withUnpaid ? all : paid) : r.units,
+      review: r.state.review,
+      onBack: () => setShippingModal({ kind: 'RECALCULATE', resume: r.state }),
+      // The checkbox only when some unit still to ship is not paid.
+      ...(remaining && JSON.stringify(paid) !== JSON.stringify(all)
+        ? {
+            unpaid: {
+              paid,
+              all,
+              withUnpaid: r.state.withUnpaid,
+              onChange: (withUnpaid: boolean) =>
+                setShippingModal({ ...m, recalculation: { ...r, state: { ...r.state, withUnpaid } } }),
+            },
+          }
+        : {}),
+    };
+  };
 
   /** Removes the line the confirmation names (one operationId per opening). */
   const remove = async () => {
@@ -117,10 +152,9 @@ const ShippingChargesSection = ({ id, title, order, canManage, onEdited }: Props
       {canManage && shippingModal?.kind === 'RECALCULATE' && (
         <RecalculateShippingModal
           order={order}
+          resume={shippingModal.resume}
           onClose={() => setShippingModal(null)}
-          onAddCharge={(units, review) =>
-            setShippingModal({ kind: 'LINE', mode: 'ADD', recalculation: { units, review } })
-          }
+          onAddCharge={(units, state) => setShippingModal({ kind: 'LINE', mode: 'ADD', recalculation: { units, state } })}
         />
       )}
       {canManage && shippingModal?.kind === 'LINE' && (
@@ -128,7 +162,7 @@ const ShippingChargesSection = ({ id, title, order, canManage, onEdited }: Props
           order={order}
           mode={shippingModal.mode}
           line={shippingModal.line}
-          recalculation={shippingModal.recalculation}
+          recalculation={recalculationProps(shippingModal)}
           onClose={() => setShippingModal(null)}
           onSaved={onEdited}
         />

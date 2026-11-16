@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
-import { Box, Button, Field, Flex, Loader, Modal, TextInput, Typography } from '@strapi/design-system';
+import { Box, Button, Checkbox, Field, Flex, Loader, Modal, TextInput, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchShippingOptions from '../../usecases/orders/fetchShippingOptions';
 import FetchShippingOptionsForUnits from '../../usecases/orders/fetchShippingOptionsForUnits';
@@ -57,7 +57,17 @@ type Props = {
    * each method's quote is its suggestion), with the review shown above, updated as the method and
    * price change.
    */
-  recalculation?: { units: ShipUnits; review: ShippingReview };
+  recalculation?: {
+    units: ShipUnits;
+    review: ShippingReview;
+    /**
+     * Option 2 (the products still to ship): a checkbox switches between the paid units and every
+     * unit not yet shipped; the options are quoted again.
+     */
+    unpaid?: { paid: ShipUnits; all: ShipUnits; withUnpaid: boolean; onChange: (withUnpaid: boolean) => void };
+    /** Back to Recalculate shipping's previous step. */
+    onBack: () => void;
+  };
 };
 
 type ErrorKey = ReturnType<typeof shippingLineErrorKey>;
@@ -121,10 +131,23 @@ const ShippingLineModal = ({ order, mode, line, onClose, onSaved, recalculation 
       ? shippingLineAmount(line)
       : (suggestionOf(o, base) ?? 0);
 
+  // Recalculation: the units quoted (option 2 switches them with its checkbox).
+  const units = recalculation?.unpaid
+    ? recalculation.unpaid.withUnpaid
+      ? recalculation.unpaid.all
+      : recalculation.unpaid.paid
+    : recalculation?.units;
+  const unitsKey = JSON.stringify(units ?? null);
+
   useEffect(() => {
     let cancelled = false;
-    (recalculation
-      ? new FetchShippingOptionsForUnits().execute(order.id, recalculation.units)
+    if (units && units.length === 0) {
+      setOptions([]);
+      return;
+    }
+    setOptions(null);
+    (units
+      ? new FetchShippingOptionsForUnits().execute(order.id, units)
       : new FetchShippingOptions().execute(order.id)
     )
       .then(({ options: offered, failures: failed, pendingOnly, charged }) => {
@@ -151,9 +174,9 @@ const ShippingLineModal = ({ order, mode, line, onClose, onSaved, recalculation 
     return () => {
       cancelled = true;
     };
-    // Loaded once per opening.
+    // Loaded once per opening (and per units in a recalculation).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [unitsKey]);
 
   const option = options?.find((o) => shippingOptionKey(o) === selected) ?? null;
   const draft = shippingLineDraftToInput(option, price);
@@ -234,6 +257,17 @@ const ShippingLineModal = ({ order, mode, line, onClose, onSaved, recalculation 
         : 'ecommerce.orders.shippingCharges.add'
   );
 
+  /** Option 2: count the products not paid yet too (the options are quoted again). */
+  const unpaidCheckbox = recalculation?.unpaid ? (
+    <Checkbox
+      checked={recalculation.unpaid.withUnpaid}
+      disabled={busy}
+      onCheckedChange={(v: boolean | 'indeterminate') => recalculation.unpaid!.onChange(v === true)}
+    >
+      {t('ecommerce.orders.shippingCharges.steps.withUnpaid.REMAINING')}
+    </Checkbox>
+  ) : null;
+
   const body = () => {
     if (loadFailed) {
       return (
@@ -250,11 +284,23 @@ const ShippingLineModal = ({ order, mode, line, onClose, onSaved, recalculation 
       );
     }
     if (!options.length) {
-      return <EmptyNote>{t('ecommerce.orders.shippingCharges.noMethods')}</EmptyNote>;
+      // Option 2 with no paid unit left to ship: the checkbox can still add the unpaid ones.
+      return (
+        <Flex direction="column" alignItems="stretch" gap={4}>
+          {unpaidCheckbox}
+          <EmptyNote>
+            {t(
+              units && units.length === 0
+                ? 'ecommerce.orders.shippingCharges.steps.noUnits'
+                : 'ecommerce.orders.shippingCharges.noMethods'
+            )}
+          </EmptyNote>
+        </Flex>
+      );
     }
     return (
       <Flex direction="column" alignItems="stretch" gap={4}>
-        {shipped && option && (
+        {!recalculation && shipped && option && (
           // Once shipped the order's address stays: a point only goes to the next shipments.
           <Box padding={3} hasRadius style={{ background: NOTICE_BACKGROUND }}>
             <Typography variant="omega" style={{ color: NOTICE_TEXT }}>
@@ -262,9 +308,10 @@ const ShippingLineModal = ({ order, mode, line, onClose, onSaved, recalculation 
             </Typography>
           </Box>
         )}
-        {!shipped && pickup === 'NONE' && orderPoint && option && (
+        {!recalculation && !shipped && pickup === 'NONE' && orderPoint && option && (
           <NoticeBar text={t('ecommerce.orders.pickup.restore')} />
         )}
+        {unpaidCheckbox}
         {recalculation && (
           // Every charge plus the price typed, against what was paid.
           <ShippingReviewSummary
@@ -370,8 +417,8 @@ const ShippingLineModal = ({ order, mode, line, onClose, onSaved, recalculation 
         </Modal.Header>
         <Modal.Body>{body()}</Modal.Body>
         <Modal.Footer>
-          <Button variant="tertiary" onClick={onClose} disabled={busy}>
-            {t('ecommerce.orders.shippingCharges.close')}
+          <Button variant="tertiary" onClick={recalculation ? recalculation.onBack : onClose} disabled={busy}>
+            {t(recalculation ? 'ecommerce.orders.shippingCharges.steps.back' : 'ecommerce.orders.shippingCharges.close')}
           </Button>
           <Button onClick={save} loading={busy} disabled={!option || unchanged}>
             {t(recalculation ? 'ecommerce.orders.shippingCharges.add' : 'ecommerce.orders.shippingCharges.save')}
