@@ -15,6 +15,7 @@ import {
 } from '@strapi/design-system';
 import { ArrowLeft } from '@strapi/icons';
 import config from '../../../core/config';
+import { HeaderActions } from '../../components/HeaderActions';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchCustomer from '../../usecases/orders/fetchCustomer';
 import UpdateCustomer from '../../usecases/orders/updateCustomer';
@@ -170,9 +171,12 @@ const CustomerDetailPage = () => {
           </Typography>
         </Flex>
         {canManage && (
-          <Button onClick={save} loading={saving}>
-            {t('ecommerce.customers.save')}
-          </Button>
+          // In the page header, top right (as the other pages' save).
+          <HeaderActions>
+            <Button onClick={save} loading={saving}>
+              {t('ecommerce.customers.save')}
+            </Button>
+          </HeaderActions>
         )}
       </Flex>
 
