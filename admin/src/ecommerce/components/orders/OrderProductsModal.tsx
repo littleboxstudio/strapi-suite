@@ -9,6 +9,7 @@ import { formatCents } from '../../utils/money';
 import {
   addModifyLine,
   buildLinesInput,
+  linesPayload,
   linesDraftChanged,
   linesDraftFromOrder,
   removeModifyLine,
@@ -74,7 +75,7 @@ const OrderProductsModal = ({ order, onClose, onSaved }: Props) => {
     try {
       const result = await new PreviewOrderLines().execute(order.id, buildLinesInput(lines));
       if (result.errors.length) {
-        setErrors(toModificationErrorMap(lines, result.errors));
+        setErrors(toModificationErrorMap(lines, result.errors, linesPayload(lines).keys));
       } else {
         setPreview(result);
         setErrors({});
@@ -101,7 +102,7 @@ const OrderProductsModal = ({ order, onClose, onSaved }: Props) => {
       const fieldErrors = extractFieldErrors(err);
       if (fieldErrors?.length) {
         // The lines changed under us (stock, shipped units): back to the editor with the errors.
-        setErrors(toModificationErrorMap(lines, fieldErrors));
+        setErrors(toModificationErrorMap(lines, fieldErrors, linesPayload(lines).keys));
         setPreview(null);
       } else {
         toggleNotification({

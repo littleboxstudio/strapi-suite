@@ -43,9 +43,16 @@ export type ModificationInput = {
   /**
    * `discountPercent` (spec 4.1): the line's manual discount. Absent = keep the line's current
    * one (none for a new line); null or '' = none (a line that had one loses it). Only the admin
-   * editing flows pass it.
+   * editing flows pass it. `newLine` (no `orderLineId`): always a separate new line, even when
+   * the order already has the variant (other conditions, e.g. a discount on one more unit).
    */
-  lines: { orderLineId?: number; variantId: number; quantity: number; discountPercent?: unknown }[];
+  lines: {
+    orderLineId?: number;
+    variantId: number;
+    quantity: number;
+    discountPercent?: unknown;
+    newLine?: boolean;
+  }[];
   shipping: ShippingModification;
   addresses?: { shipping?: Address; billing?: Address };
   /**
@@ -209,7 +216,8 @@ export const simulateModification = (
   /** Existing line id → input index that targeted it. */
   const claimedBy = new Map<number, number>();
   const added: AddedLine[] = [];
-  const addedVariants = new Set<number>();
+  /** New lines by variant and percent: the same twice is one line asked twice. */
+  const addedVariants = new Set<string>();
   /** Lines of an ambiguous entry (see below): kept unchanged, not claimed. */
   const keptUnchanged = new Set<number>();
   /** Existing line id → its manual discount change (spec 4.1). */
@@ -223,6 +231,8 @@ export const simulateModification = (
         lineError(index, 'INVALID_QUANTITY');
         return;
       }
+    } else if (entry.newLine === true) {
+      // A separate new line: never resolved to an existing line of the variant.
     } else {
       const matches = current.lines.filter((l) => !l.isGift && l.variantId === entry.variantId);
       // A variant split over several lines (promotions) needs the line id: resolving to the
@@ -316,17 +326,18 @@ export const simulateModification = (
     }
 
     // New line.
-    if (addedVariants.has(entry.variantId)) {
-      lineError(index, 'INVALID_QUANTITY'); // the same new variant twice
-      return;
-    }
-    addedVariants.add(entry.variantId);
-    if (entry.quantity === 0) return;
     const parsed = readDiscountPercent(entry.discountPercent);
     if (!parsed.ok) {
       percentError(index, 'INVALID_PERCENT');
       return;
     }
+    const addedKey = `${entry.variantId}:${parsed.value ?? ''}`;
+    if (addedVariants.has(addedKey)) {
+      lineError(index, 'INVALID_QUANTITY'); // the same new variant (and percent) twice
+      return;
+    }
+    addedVariants.add(addedKey);
+    if (entry.quantity === 0) return;
     const variant = catalog.get(entry.variantId);
     if (!variant || !variant.active) {
       lineError(index, 'VARIANT_UNAVAILABLE');

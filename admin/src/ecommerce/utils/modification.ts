@@ -6,7 +6,7 @@ import { lineUnitDiscount, parseDiscountPercent, percentToInput } from './lineDi
  * marks it (it can be restored), removing a new line drops it. Gift lines are read-only.
  */
 export type ModifyLineDraft = {
-  /** Stable UI key: `line-<orderLineId>` or `new-<variantId>`. */
+  /** Stable UI key: `line-<orderLineId>` or `new-<variantId>-<n>` (a variant may be added twice). */
   key: string;
   orderLineId?: number;
   variantId: number;
@@ -56,20 +56,20 @@ export function linesDraftFromOrder(order: Order, locale = 'en'): ModifyLineDraf
   }));
 }
 
-/** Adds a variant (quantity 1), or bumps / restores the non-gift line that already has it. */
+/**
+ * Adds a new line for the variant (quantity 1, no discount), even when the order already has it:
+ * its quantity and discount are set on this line. On save it joins the line of the same variant
+ * and discount, else it is a separate line (`linesPayload`).
+ */
 export function addModifyLine(lines: ModifyLineDraft[], v: VariantSearchResult): ModifyLineDraft[] {
   if (v.stock <= 0) return lines;
-  const index = lines.findIndex((l) => !l.isGift && l.variantId === v.variantId);
-  if (index !== -1) {
-    return lines.map((l, i) => {
-      if (i !== index) return l;
-      return l.removed ? { ...l, removed: false } : { ...l, quantity: l.quantity + 1 };
-    });
-  }
+  const taken = new Set(lines.map((l) => l.key));
+  let n = 1;
+  while (taken.has(`new-${v.variantId}-${n}`)) n += 1;
   return [
     ...lines,
     {
-      key: `new-${v.variantId}`,
+      key: `new-${v.variantId}-${n}`,
       variantId: v.variantId,
       name: v.name,
       option: v.option,
@@ -163,22 +163,67 @@ const sentPercent = (l: ModifyLineDraft): { discountPercent?: number | null } =>
   return l.originalDiscountPercent !== null ? { discountPercent: null } : {};
 };
 
+type LineEntry = {
+  orderLineId?: number;
+  variantId: number;
+  quantity: number;
+  discountPercent?: number | null;
+  newLine?: true;
+};
+
+/** The manual percent a line will have (null = none); undefined while the typed one is invalid. */
+const percentAfter = (l: ModifyLineDraft): number | null | undefined => {
+  const parsed = parseDiscountPercent(l.discount);
+  return parsed.ok ? parsed.value : undefined;
+};
+
+/**
+ * The lines the server gets, and for each one the draft line it stands for (`keys`). A new line
+ * with the same variant and discount as a kept existing line adds its units to that line; two new
+ * lines with the same variant and discount are one; any other new line is separate (`newLine`),
+ * even when the order already has the variant.
+ */
+export function linesPayload(lines: ModifyLineDraft[]): { entries: LineEntry[]; keys: string[] } {
+  const entries: LineEntry[] = [];
+  const keys: string[] = [];
+  const sent = sentLines(lines);
+  for (const l of sent) {
+    if (l.orderLineId === undefined) continue;
+    entries.push({
+      orderLineId: l.orderLineId,
+      variantId: l.variantId,
+      quantity: l.isGift ? l.originalQuantity : l.quantity,
+      ...sentPercent(l),
+    });
+    keys.push(l.key);
+  }
+  for (const l of sent) {
+    if (l.orderLineId !== undefined) continue;
+    const percent = percentAfter(l);
+    const same = (other: ModifyLineDraft) =>
+      !other.isGift && other.variantId === l.variantId && percent !== undefined && percentAfter(other) === percent;
+    const existing = sent.findIndex((o) => o.orderLineId !== undefined && same(o));
+    if (existing !== -1) {
+      const at = keys.indexOf(sent[existing].key);
+      entries[at] = { ...entries[at], quantity: entries[at].quantity + l.quantity };
+      continue;
+    }
+    const earlier = entries.findIndex(
+      (e, i) => e.newLine && e.variantId === l.variantId && percent !== undefined && (e.discountPercent ?? null) === percent && keys[i] !== l.key
+    );
+    if (earlier !== -1) {
+      entries[earlier] = { ...entries[earlier], quantity: entries[earlier].quantity + l.quantity };
+      continue;
+    }
+    entries.push({ variantId: l.variantId, quantity: l.quantity, ...sentPercent(l), newLine: true });
+    keys.push(l.key);
+  }
+  return { entries, keys };
+}
+
 /** Request body of `lines/preview` and (with an operationId) `lines`. */
-export function buildLinesInput(lines: ModifyLineDraft[]): {
-  lines: { orderLineId?: number; variantId: number; quantity: number; discountPercent?: number | null }[];
-} {
-  return {
-    lines: sentLines(lines).map((l) =>
-      l.orderLineId !== undefined
-        ? {
-            orderLineId: l.orderLineId,
-            variantId: l.variantId,
-            quantity: l.isGift ? l.originalQuantity : l.quantity,
-            ...sentPercent(l),
-          }
-        : { variantId: l.variantId, quantity: l.quantity, ...sentPercent(l) }
-    ),
-  };
+export function buildLinesInput(lines: ModifyLineDraft[]): { lines: LineEntry[] } {
+  return { lines: linesPayload(lines).entries };
 }
 
 const validQuantity = (q: number) => Number.isSafeInteger(q) && q >= 1;
@@ -210,12 +255,19 @@ const LINE_PATH = /^lines\.(\d+)(\.|$)/;
 const DISCOUNT_PATH = /^lines\.(\d+)\.discountPercent$/;
 const REMOVED_PATH = /^removed\.(\d+)$/;
 
-/** Server (or local) error paths → the UI keys of the products draft. First code per key wins. */
+/**
+ * Error paths → the UI keys of the products draft. First code per key wins. `keys`: the draft
+ * line of each request entry (`linesPayload(lines).keys`) for the server's errors; without it,
+ * the order of `sentLines` (the local checks of `validateLinesDraft`).
+ */
 export function toModificationErrorMap(
   lines: ModifyLineDraft[],
-  errors: FieldError[]
+  errors: FieldError[],
+  keys?: string[]
 ): ModificationErrorMap {
-  const sent = sentLines(lines);
+  const sent = keys
+    ? keys.map((k) => lines.find((l) => l.key === k)).filter((l): l is ModifyLineDraft => !!l)
+    : sentLines(lines);
   const map: ModificationErrorMap = {};
   const put = (key: string, code: string) => {
     if (!(key in map)) map[key] = code;

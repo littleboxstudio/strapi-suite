@@ -360,6 +360,34 @@ describe('EcommerceOrderEditingService.previewLines', () => {
 });
 
 describe('EcommerceOrderEditingService.applyLines', () => {
+  it('newLine: one more unit of a product the order has, with a discount, is a separate line', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    const before = linesOf(ctx, id).length;
+    const stock = stockOf(ctx, 10);
+    await ctx.editing.applyLines(
+      id,
+      { lines: [...lineInputs(ctx, id), { variantId: 10, quantity: 1, discountPercent: 50, newLine: true }] },
+      'user:1',
+      'op-newline-01'
+    );
+    const lines = linesOf(ctx, id).filter((l) => l.variantId === 10);
+    expect(linesOf(ctx, id)).toHaveLength(before + 1);
+    expect(lines.map((l) => [l.quantity, l.manualDiscountPercent ?? null])).toEqual([
+      [2, null],
+      [1, 50],
+    ]);
+    expect(stockOf(ctx, 10)).toBe(stock - 1);
+  });
+
+  it('without newLine, the variant still resolves to its line (sets its quantity)', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    const others = lineInputs(ctx, id).filter((l) => l.variantId !== 10);
+    await ctx.editing.applyLines(id, { lines: [...others, { variantId: 10, quantity: 3 }] }, 'user:1', 'op-newline-02');
+    expect(linesOf(ctx, id).filter((l) => l.variantId === 10).map((l) => l.quantity)).toEqual([3]);
+  });
+
   it('adding a variant to a paid order: one LINES_CHANGED entry, stock edit:<op>:<variant>, shipping untouched', async () => {
     const ctx = setup();
     const id = await createOrder(ctx);
