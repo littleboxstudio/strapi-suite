@@ -4,7 +4,6 @@ import { Navigate, useBlocker, useNavigate, useParams } from 'react-router-dom';
 import styled from 'styled-components';
 import { useAuth, useNotification } from '@strapi/strapi/admin';
 import {
-  Badge,
   Box,
   Button,
   Field,
@@ -14,13 +13,7 @@ import {
   TextInput,
   Typography,
 } from '@strapi/design-system';
-import {
-  ArrowLeft,
-  ArrowsCounterClockwise,
-  ClockCounterClockwise,
-  Code,
-  Mail,
-} from '@strapi/icons';
+import { ArrowLeft } from '@strapi/icons';
 import ConfirmModal from '../../../components/ConfirmModal';
 import config from '../../../core/config';
 import { getTranslation } from '../../../core/utils/getTranslation';
@@ -44,6 +37,7 @@ import type {
   EmailTemplateView,
   TemplateIssue,
 } from '../../settingsTypes';
+import { ToneBadge } from '../../components/orders/StatusBadges';
 
 /** Delay between the last keystroke and the preview request. */
 const PREVIEW_DEBOUNCE_MS = 400;
@@ -271,35 +265,33 @@ const EmailTemplateEditorPage = () => {
         </Typography>
         {template &&
           (template.isCustom ? (
-            <Badge backgroundColor="primary100" textColor="primary600">
+            <ToneBadge variant="primary">
               {t('ecommerce.settings.emailTemplates.editor.customized')}
-            </Badge>
+            </ToneBadge>
           ) : (
-            <Badge>{t('ecommerce.settings.emailTemplates.editor.default')}</Badge>
+            <ToneBadge>{t('ecommerce.settings.emailTemplates.editor.default')}</ToneBadge>
           ))}
       </Flex>
       {template && (
         <HeaderActions>
-          <Button variant="tertiary" startIcon={<Code />} onClick={() => setVariablesOpen(true)}>
+          <Button variant="tertiary" onClick={() => setVariablesOpen(true)}>
             {t('ecommerce.settings.emailTemplates.editor.variables')}
           </Button>
           <Button
             variant="tertiary"
-            startIcon={<ClockCounterClockwise />}
             onClick={() => setVersionsOpen(true)}
           >
             {t('ecommerce.settings.emailTemplates.editor.versions')}
           </Button>
           {/* Sending a test needs the manage permission. */}
           {!readOnly && (
-            <Button variant="tertiary" startIcon={<Mail />} onClick={() => setTestOpen(true)}>
+            <Button variant="tertiary" onClick={() => setTestOpen(true)}>
               {t('ecommerce.settings.emailTemplates.editor.sendTest')}
             </Button>
           )}
           {!readOnly && template.isCustom && (
             <Button
               variant="danger-light"
-              startIcon={<ArrowsCounterClockwise />}
               loading={restoring}
               onClick={() => setConfirmRestore(true)}
             >
@@ -307,7 +299,7 @@ const EmailTemplateEditorPage = () => {
             </Button>
           )}
           {!readOnly && (
-            <Button onClick={save} loading={saving} disabled={!dirty || restoring}>
+            <Button variant="secondary" onClick={save} loading={saving} disabled={!dirty || restoring}>
               {t('ecommerce.settings.emailTemplates.editor.save')}
             </Button>
           )}
@@ -438,6 +430,7 @@ const EmailTemplateEditorPage = () => {
         title={t('ecommerce.settings.emailTemplates.editor.restoreConfirm.title')}
         text={t('ecommerce.settings.emailTemplates.editor.restoreConfirm.text')}
         confirm={{
+          variant: 'danger-light',
           button: t('ecommerce.settings.emailTemplates.editor.restoreDefault'),
           action: () => {
             setConfirmRestore(false);
@@ -455,6 +448,7 @@ const EmailTemplateEditorPage = () => {
         title={t('ecommerce.settings.emailTemplates.editor.discardConfirm.title')}
         text={t('ecommerce.settings.emailTemplates.editor.discardConfirm.text')}
         confirm={{
+          variant: 'danger-light',
           button: t('ecommerce.settings.emailTemplates.editor.discardConfirm.confirm'),
           action: () => blocker.proceed?.(),
         }}

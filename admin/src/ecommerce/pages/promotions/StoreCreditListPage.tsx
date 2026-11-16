@@ -2,7 +2,6 @@ import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import {
-  Badge,
   Box,
   Button,
   Flex,
@@ -33,6 +32,7 @@ import { apiErrorMessageId } from '../../utils/orderDetail';
 import { storeCreditDisplayStatus, type StoreCreditDisplayStatus } from '../../utils/refundForm';
 import type { StoreCredit } from '../../orderTypes';
 import type { StoreCreditMovement } from '../../promotionTypes';
+import { ToneBadge } from '../../components/orders/StatusBadges';
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -324,9 +324,9 @@ const StoreCreditListPage = () => {
                       </Typography>
                     </Td>
                     <Td>
-                      <Badge variant={STATUS_VARIANT[status]} size="S">
+                      <ToneBadge variant={STATUS_VARIANT[status]}>
                         {t(`ecommerce.customers.storeCredits.statuses.${status}`)}
-                      </Badge>
+                      </ToneBadge>
                     </Td>
                     <Td>
                       <Box style={{ textAlign: 'right' }}>
@@ -360,6 +360,7 @@ const StoreCreditListPage = () => {
         title={t('ecommerce.customers.storeCredits.voidTitle', { code: voiding?.code ?? '' })}
         text={t('ecommerce.customers.storeCredits.voidText', { balance: money(voiding?.balance ?? 0) })}
         confirm={{
+          variant: 'danger-light',
           button: t('ecommerce.customers.storeCredits.voidConfirm'),
           action: () => voiding && voidCredit(voiding),
         }}

@@ -15,12 +15,10 @@ import {
   Tr,
   Typography,
 } from '@strapi/design-system';
-import { Cog } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchStorePickup from '../../usecases/settings/fetchStorePickup';
 import SaveStorePickup from '../../usecases/settings/saveStorePickup';
 import FetchSettingsLocales from '../../usecases/settings/fetchSettingsLocales';
-import { NOTICE_BACKGROUND, NOTICE_TEXT } from '../orders/NoticeBar';
 import { StorePickupModal } from './StorePickupModal';
 import { extractFieldErrors } from '../../utils/productForm';
 import { marketOptions } from '../../utils/settingsForm';
@@ -31,6 +29,7 @@ import {
 } from '../../utils/storePickupForm';
 import type { EcommerceLocales } from '../../types';
 import type { StorePickupConfig, StorePickupInput } from '../../settingsTypes';
+import { ToneBadge } from '../orders/StatusBadges';
 
 type Props = {
   readOnly: boolean;
@@ -162,25 +161,12 @@ const StorePickupSection = ({
               </Td>
               <Td>
                 {stores > 0 ? (
-                  <Badge backgroundColor="success100" textColor="success700">
+                  <ToneBadge variant="success">
                     {t('ecommerce.settings.storePickup.offered')}
-                  </Badge>
+                  </ToneBadge>
                 ) : (
                   <Flex direction="column" alignItems="flex-start" gap={1}>
-                    {/* A badge in the notice orange (the design-system Badge only takes theme colours). */}
-                    <Box
-                      tag="span"
-                      hasRadius
-                      paddingLeft={2}
-                      paddingRight={2}
-                      paddingTop={1}
-                      paddingBottom={1}
-                      style={{ background: NOTICE_BACKGROUND, display: 'inline-block', lineHeight: 0 }}
-                    >
-                      <Typography variant="sigma" style={{ color: NOTICE_TEXT }}>
-                        {t('ecommerce.settings.storePickup.notOffered')}
-                      </Typography>
-                    </Box>
+                    <ToneBadge variant="warning">{t('ecommerce.settings.storePickup.notOffered')}</ToneBadge>
                     <Typography variant="pi" textColor="neutral600">
                       {t('ecommerce.settings.storePickup.noStores')}
                     </Typography>
@@ -203,7 +189,6 @@ const StorePickupSection = ({
             {!readOnly && (
               <Button
                 variant="secondary"
-                startIcon={<Cog />}
                 disabled={!canEdit}
                 onClick={() => setEditing(true)}
               >

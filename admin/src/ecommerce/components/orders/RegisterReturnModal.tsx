@@ -168,7 +168,7 @@ const RegisterReturnModal = ({ order, canRefund, onClose, onRefundNow }: Props) 
               {t('ecommerce.orders.returns.close')}
             </Button>
             {showRefund && (
-              <Button
+              <Button variant="secondary"
                 onClick={() =>
                   onRefundNow({ reason: 'RETURN', amount: Math.min(r.refundableValue, result.refundable) })
                 }
@@ -312,7 +312,7 @@ const RegisterReturnModal = ({ order, canRefund, onClose, onRefundNow }: Props) 
           <Button variant="tertiary" onClick={() => onClose(false)} disabled={saving}>
             {t('ecommerce.orders.returns.cancel')}
           </Button>
-          <Button onClick={submit} loading={saving} disabled={!form.lines.length}>
+          <Button variant="secondary" onClick={submit} loading={saving} disabled={!form.lines.length}>
             {t('ecommerce.orders.returns.submit')}
           </Button>
         </Modal.Footer>

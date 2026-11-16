@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import {
-  Badge,
   Box,
   Button,
   Flex,
@@ -16,7 +15,6 @@ import {
   Tr,
   Typography,
 } from '@strapi/design-system';
-import { ArrowClockwise } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchOrderNotifications from '../../usecases/orders/fetchOrderNotifications';
 import ResendNotification from '../../usecases/orders/resendNotification';
@@ -24,6 +22,7 @@ import { apiErrorMessageId, notificationErrorParts } from '../../utils/orderDeta
 import type { NotificationView } from '../../orderTypes';
 import OrderSection from './OrderSection';
 import ColumnLabel from '../ColumnLabel';
+import { ToneBadge } from './StatusBadges';
 
 type Props = {
   orderId: number;
@@ -112,7 +111,6 @@ const NotificationsSection = ({ orderId, refreshKey, canResend }: Props) => {
     <Button
       size="S"
       variant="tertiary"
-      startIcon={<ArrowClockwise />}
       onClick={() => load()}
       loading={loading && !!items}
     >
@@ -124,9 +122,9 @@ const NotificationsSection = ({ orderId, refreshKey, canResend }: Props) => {
   const hasReasonRow = (n: NotificationView) => n.status !== 'SENT' && !!notificationErrorParts(n.error);
 
   const statusBadge = (n: NotificationView) => (
-    <Badge variant={STATUS_VARIANT[n.status ?? ''] ?? 'neutral'} size="S">
+    <ToneBadge variant={STATUS_VARIANT[n.status ?? ''] ?? 'neutral'}>
       {n.status ? t(`ecommerce.orders.notifications.statuses.${n.status}`, undefined, n.status) : '—'}
-    </Badge>
+    </ToneBadge>
   );
 
   const detailsModal = () => {
@@ -163,7 +161,7 @@ const NotificationsSection = ({ orderId, refreshKey, canResend }: Props) => {
               {t('ecommerce.orders.notifications.close')}
             </Button>
             {canRetryRow(n) && (
-              <Button
+              <Button variant="secondary"
                 loading={resending === n.id}
                 disabled={resending !== null && resending !== n.id}
                 onClick={async () => {

@@ -19,7 +19,6 @@ import {
   Typography,
   VisuallyHidden,
 } from '@strapi/design-system';
-import { Plus } from '@strapi/icons';
 import config from '../../../core/config';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchOrders from '../../usecases/orders/fetchOrders';
@@ -175,7 +174,7 @@ const OrderListPage = () => {
           </SearchForm>
         </Box>
         {canManage && (
-          <Button size="S" startIcon={<Plus />} onClick={goToCreate}>
+          <Button variant="secondary" size="S" onClick={goToCreate}>
             {t('ecommerce.orders.create')}
           </Button>
         )}
@@ -210,7 +209,7 @@ const OrderListPage = () => {
             {t('ecommerce.orders.empty')}
           </Typography>
           {canManage && (
-            <Button startIcon={<Plus />} onClick={goToCreate}>
+            <Button variant="secondary" onClick={goToCreate}>
               {t('ecommerce.orders.create')}
             </Button>
           )}

@@ -17,7 +17,6 @@ import {
   Typography,
   VisuallyHidden,
 } from '@strapi/design-system';
-import { Plus } from '@strapi/icons';
 import config from '../../../core/config';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchCustomerOrders from '../../usecases/orders/fetchCustomerOrders';
@@ -96,7 +95,7 @@ const CustomerOrdersSection = ({ customerId, canCreateOrder }: Props) => {
             {t('ecommerce.customers.orders.title')}
           </Typography>
           {canCreateOrder && (
-            <Button size="S" startIcon={<Plus />} onClick={createOrder}>
+            <Button variant="secondary" size="S" onClick={createOrder}>
               {t('ecommerce.customers.orders.create')}
             </Button>
           )}

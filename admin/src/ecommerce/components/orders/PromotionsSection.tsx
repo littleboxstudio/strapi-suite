@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
-import { Badge, Button, Flex, Modal, Table, Tbody, Td, Th, Thead, Tr, Typography } from '@strapi/design-system';
+import { Button, Flex, Modal, Table, Tbody, Td, Th, Thead, Tr, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import EmptyNote from './EmptyNote';
 import RemoveManualDiscount from '../../usecases/orders/removeManualDiscount';
@@ -32,6 +32,7 @@ import ManualDiscountModal from './ManualDiscountModal';
 import RecalculateDiscountsModal from './RecalculateDiscountsModal';
 import OrderSection from './OrderSection';
 import ColumnLabel from '../ColumnLabel';
+import { ToneBadge } from './StatusBadges';
 
 const COLUMNS = ['promotion', 'method', 'type', 'benefit', 'amount', 'actions'] as const;
 
@@ -84,6 +85,8 @@ const PromotionsSection = ({
   const lineRows = manualLineDiscountRows(order.lines ?? [], uiLocale);
   const showActions = hasRowActions(manualRows);
   const columns = showActions ? COLUMNS : COLUMNS.filter((c) => c !== 'actions');
+  // Without the Actions column, Amount is the last one: its values (and the total) sit on the right.
+  const amountCell = showActions ? undefined : ({ textAlign: 'right' } as const);
 
   const [modal, setModal] = useState<DiscountModal | null>(null);
   const closeModal = () => setModal(null);
@@ -104,12 +107,12 @@ const PromotionsSection = ({
           <Typography textColor="neutral800" fontWeight="semiBold">
             {c.code}
           </Typography>
-          <Badge size="S" variant={codeStatusBadgeVariant(c.status)}>
+          <ToneBadge variant={codeStatusBadgeVariant(c.status)}>
             {formatMessage({
               id: getTranslation(`ecommerce.orders.promotions.codeStatus.${c.status}`),
               defaultMessage: c.status,
             })}
-          </Badge>
+          </ToneBadge>
         </Flex>
       ))}
     </Flex>
@@ -144,7 +147,13 @@ const PromotionsSection = ({
                 <Tr>
                   {columns.map((c) => (
                     <Th key={c}>
-                      <ColumnLabel column={c}>{t(`ecommerce.orders.promotions.columns.${c}`)}</ColumnLabel>
+                      {c === 'amount' && amountCell ? (
+                        <Flex justifyContent="flex-end" style={{ width: '100%' }}>
+                          <ColumnLabel column={c}>{t(`ecommerce.orders.promotions.columns.${c}`)}</ColumnLabel>
+                        </Flex>
+                      ) : (
+                        <ColumnLabel column={c}>{t(`ecommerce.orders.promotions.columns.${c}`)}</ColumnLabel>
+                      )}
                     </Th>
                   ))}
                 </Tr>
@@ -161,9 +170,9 @@ const PromotionsSection = ({
                           {t('ecommerce.orders.promotions.internalName', { name: row.name })}
                         </Typography>
                         {row.released && (
-                          <Badge size="S" title={t('ecommerce.orders.promotions.releasedHint')}>
+                          <ToneBadge title={t('ecommerce.orders.promotions.releasedHint')}>
                             {t('ecommerce.orders.promotions.released')}
-                          </Badge>
+                          </ToneBadge>
                         )}
                       </Flex>
                     </Td>
@@ -188,7 +197,7 @@ const PromotionsSection = ({
                       <Typography textColor="neutral800">{describeBenefit(row.benefit, money, t)}</Typography>
                     </Td>
                     <Td>
-                      <Typography textColor="neutral800" style={{ whiteSpace: 'nowrap' }}>
+                      <Typography textColor="neutral800" style={{ whiteSpace: 'nowrap', display: 'block', ...amountCell }}>
                         {discount(row.amount)}
                       </Typography>
                     </Td>
@@ -225,7 +234,7 @@ const PromotionsSection = ({
                         </Flex>
                       </Td>
                       <Td>
-                        <Typography textColor="neutral800" style={{ whiteSpace: 'nowrap' }}>
+                        <Typography textColor="neutral800" style={{ whiteSpace: 'nowrap', display: 'block', ...amountCell }}>
                           {discount(m.amount)}
                         </Typography>
                       </Td>
@@ -264,27 +273,28 @@ const PromotionsSection = ({
                       </Typography>
                     </Td>
                     <Td>
-                      <Typography textColor="neutral800" style={{ whiteSpace: 'nowrap' }}>
+                      <Typography textColor="neutral800" style={{ whiteSpace: 'nowrap', display: 'block', ...amountCell }}>
                         {discount(r.amount)}
                       </Typography>
                     </Td>
                     {showActions && <Td />}
                   </Tr>
                 ))}
-                {/* The total: one cell across the first columns, the amount under Amount. */}
+                {/* The total: label and amount in one cell, on the right (under Amount). */}
                 <Tr>
-                  <Td colSpan={4} style={{ textAlign: 'right', paddingRight: 15 }}>
-                    <Typography fontWeight="bold" textColor="neutral800">
-                      {t('ecommerce.orders.promotions.total')}
-                    </Typography>
-                  </Td>
-                  <Td>
-                    <Typography fontWeight="bold" textColor="neutral800" style={{ whiteSpace: 'nowrap' }}>
-                      {discount(
-                        orderDiscountTotal(promotions, order.manualDiscounts ?? []) +
-                          manualLineDiscountTotal(lineRows)
-                      )}
-                    </Typography>
+                  <Td colSpan={columns.length - (showActions ? 1 : 0)}>
+                    {/* The rows' own height (52px): 16px above and below the 20px line. */}
+                    <Flex justifyContent="flex-end" gap={2} paddingTop={4} paddingBottom={4}>
+                      <Typography fontWeight="bold" textColor="neutral800">
+                        {t('ecommerce.orders.promotions.total')}
+                      </Typography>
+                      <Typography fontWeight="bold" textColor="neutral800" style={{ whiteSpace: 'nowrap' }}>
+                        {discount(
+                          orderDiscountTotal(promotions, order.manualDiscounts ?? []) +
+                            manualLineDiscountTotal(lineRows)
+                        )}
+                      </Typography>
+                    </Flex>
                   </Td>
                   {showActions && <Td />}
                 </Tr>
@@ -407,7 +417,7 @@ const RemoveDiscountModal = ({
             {t('ecommerce.orders.discounts.close')}
           </Button>
           {!saved && (
-            <Button variant="danger" onClick={remove} loading={busy}>
+            <Button variant="danger-light" onClick={remove} loading={busy}>
               {t('ecommerce.orders.discounts.remove')}
             </Button>
           )}

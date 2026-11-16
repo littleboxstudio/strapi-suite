@@ -514,7 +514,7 @@ const OrderDetailPage = () => {
             )}
           </Flex>
         }
-        confirm={{ button: t('ecommerce.orders.detail.archive.confirm'), action: () => runTransition('ARCHIVE') }}
+        confirm={{ variant: 'danger-light', button: t('ecommerce.orders.detail.archive.confirm'), action: () => runTransition('ARCHIVE') }}
         cancel={{ button: t('ecommerce.orders.detail.archive.back'), action: closeModal('ARCHIVE') }}
       />
     </Flex>

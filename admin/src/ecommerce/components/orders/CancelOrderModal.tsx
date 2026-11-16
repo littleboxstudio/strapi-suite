@@ -19,7 +19,7 @@ const CancelOrderModal = ({ open, reference, onConfirm, onClose }: Props) => {
       open={open}
       title={t('ecommerce.orders.detail.cancel.title')}
       text={t('ecommerce.orders.detail.cancel.text', { reference })}
-      confirm={{ button: t('ecommerce.orders.detail.cancel.confirm'), action: onConfirm }}
+      confirm={{ variant: 'danger-light', button: t('ecommerce.orders.detail.cancel.confirm'), action: onConfirm }}
       cancel={{ button: t('ecommerce.orders.detail.cancel.back'), action: onClose }}
     />
   );

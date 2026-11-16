@@ -17,7 +17,7 @@ import {
   Typography,
   VisuallyHidden,
 } from '@strapi/design-system';
-import { Plus, Trash } from '@strapi/icons';
+import { Trash } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { addAllMarkets, addMarket, marketRows, removeMarket } from '../../utils/markets';
 
@@ -81,7 +81,7 @@ const MarketsTable = ({ value, countries, readOnly, error, onChange }: Props) =>
                 ))}
               </Combobox>
             </Box>
-            <Button size="L" startIcon={<Plus />} onClick={add} disabled={!pick}>
+            <Button variant="secondary" size="L" onClick={add} disabled={!pick}>
               {t('markets.add')}
             </Button>
             <Button

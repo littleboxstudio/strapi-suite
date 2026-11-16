@@ -24,8 +24,8 @@ type Props = {
   onAction: (action: ToolbarAction) => void;
 };
 
-const VARIANTS: Record<ToolbarAction, 'default' | 'secondary' | 'danger-light' | 'tertiary'> = {
-  SHIP: 'default',
+const VARIANTS: Record<ToolbarAction, 'secondary' | 'danger-light' | 'tertiary'> = {
+  SHIP: 'secondary',
   ADD_PAYMENT: 'secondary',
   SEND_PAYMENT_INSTRUCTIONS: 'secondary',
   REFUND: 'secondary',

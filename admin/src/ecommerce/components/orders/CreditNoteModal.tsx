@@ -496,7 +496,7 @@ const CreditNoteModal = ({ invoice, onClose, onIssued }: Props) => {
             {t(uncertain ? 'ecommerce.orders.invoices.close' : 'ecommerce.orders.invoices.back')}
           </Button>
           {!uncertain && (
-            <Button
+            <Button variant="secondary"
               onClick={submit}
               loading={saving}
               disabled={!form || saving || nothingToCorrect}

@@ -284,7 +284,7 @@ const InvoicesSection = ({ title, order, canInvoice, canManage, onEdited, onIssu
                   </Button>
                 )}
                 {actions.includes('RECONCILE') && (
-                  <Button
+                  <Button variant="secondary"
                     disabled={busy !== null && busy !== invoice.id}
                     loading={busy === invoice.id}
                     onClick={async () => {
@@ -505,7 +505,7 @@ const InvoicesSection = ({ title, order, canInvoice, canManage, onEdited, onIssu
                 {t('ecommerce.orders.invoices.back')}
               </Button>
               <Button
-                variant="danger"
+                variant="danger-light"
                 disabled={!canMarkFailed(markingFailed, confirmed)}
                 onClick={() => {
                   const target = markingFailed;

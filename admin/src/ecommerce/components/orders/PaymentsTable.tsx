@@ -1,9 +1,10 @@
 import { useIntl } from 'react-intl';
-import { Badge, Box, Table, Tbody, Td, Th, Thead, Tr, Typography } from '@strapi/design-system';
+import { Box, Table, Tbody, Td, Th, Thead, Tr, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { formatCents } from '../../utils/money';
 import type { OrderPayment } from '../../orderTypes';
 import ColumnLabel from '../ColumnLabel';
+import { ToneBadge } from './StatusBadges';
 
 const COLUMNS = ['method', 'amount', 'reference', 'status', 'date'] as const;
 
@@ -62,9 +63,9 @@ const PaymentsTable = ({ payments }: Props) => {
                 </Typography>
               </Td>
               <Td>
-                <Badge variant={STATUS_VARIANT[p.status] ?? 'neutral'} size="S">
+                <ToneBadge variant={STATUS_VARIANT[p.status] ?? 'neutral'}>
                   {t(`ecommerce.orders.detail.payments.statuses.${p.status}`, p.status)}
-                </Badge>
+                </ToneBadge>
               </Td>
               <Td>
                 <Typography textColor="neutral800">

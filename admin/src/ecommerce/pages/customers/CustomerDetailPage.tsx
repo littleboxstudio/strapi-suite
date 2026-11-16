@@ -173,7 +173,7 @@ const CustomerDetailPage = () => {
         {canManage && (
           // In the page header, top right (as the other pages' save).
           <HeaderActions>
-            <Button onClick={save} loading={saving}>
+            <Button variant="secondary" onClick={save} loading={saving}>
               {t('ecommerce.customers.save')}
             </Button>
           </HeaderActions>

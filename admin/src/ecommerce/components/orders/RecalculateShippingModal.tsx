@@ -267,7 +267,7 @@ const RecalculateShippingModal = ({ order, onClose, onAddCharge, resume }: Props
             {t(canGoBack ? 'ecommerce.orders.shippingCharges.steps.back' : 'ecommerce.orders.shippingCharges.close')}
           </Button>
           {review && (step === 'CHOOSE' || step === 'PRODUCTS') && (
-            <Button onClick={next}>{t('ecommerce.orders.shippingCharges.steps.next')}</Button>
+            <Button variant="secondary" onClick={next}>{t('ecommerce.orders.shippingCharges.steps.next')}</Button>
           )}
         </Modal.Footer>
       </Modal.Content>

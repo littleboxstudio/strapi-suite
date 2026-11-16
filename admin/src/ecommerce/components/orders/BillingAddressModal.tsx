@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import { Button, Flex, Modal, Typography } from '@strapi/design-system';
-import { Pin } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import UpdateBillingAddress from '../../usecases/orders/updateBillingAddress';
 import { addressFormFromAddress, toAddress, type AddressForm } from '../../utils/orderForm';
@@ -121,7 +120,7 @@ const BillingAddressDialog = ({ order, canManage, onSaved, onClose }: Props & { 
             {t('ecommerce.orders.notifications.close')}
           </Button>
           {editable && (
-            <Button onClick={save} loading={busy} disabled={!changed}>
+            <Button variant="secondary" onClick={save} loading={busy} disabled={!changed}>
               {t('ecommerce.orders.address.save')}
             </Button>
           )}
@@ -139,7 +138,7 @@ const BillingAddressModal = (props: Props) => {
 
   return (
     <>
-      <Button size="S" variant="tertiary" startIcon={<Pin />} onClick={() => setOpenKey((k) => (k ?? 0) + 1)}>
+      <Button size="S" variant="tertiary" onClick={() => setOpenKey((k) => (k ?? 0) + 1)}>
         {formatMessage({ id: getTranslation('ecommerce.orders.detail.address.billing') })}
       </Button>
       {openKey !== null && (

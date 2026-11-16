@@ -447,7 +447,7 @@ const OrderCreatePage = () => {
             {t('ecommerce.orders.new.title')}
           </Typography>
         </Flex>
-        <Button onClick={submit} loading={submitting} disabled={permissionsLoading}>
+        <Button variant="secondary" onClick={submit} loading={submitting} disabled={permissionsLoading}>
           {t('ecommerce.orders.create')}
         </Button>
       </Flex>

@@ -200,7 +200,7 @@ const ManualDiscountModal = ({ order, permissions, onClose, onSaved, onAction }:
             {t('ecommerce.orders.discounts.close')}
           </Button>
           {!saved && (
-            <Button onClick={save} loading={busy}>
+            <Button variant="secondary" onClick={save} loading={busy}>
               {t('ecommerce.orders.discounts.save')}
             </Button>
           )}

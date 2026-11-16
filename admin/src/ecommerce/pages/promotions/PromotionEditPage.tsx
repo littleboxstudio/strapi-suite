@@ -4,7 +4,6 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useNotification } from '@strapi/strapi/admin';
 import {
   Alert,
-  Badge,
   Box,
   Button,
   Field,
@@ -17,7 +16,7 @@ import {
   TextInput,
   Typography,
 } from '@strapi/design-system';
-import { ArrowLeft, Plus, Trash } from '@strapi/icons';
+import { ArrowLeft } from '@strapi/icons';
 import config from '../../../core/config';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { DateInput } from '../../components/DateInput';
@@ -58,6 +57,7 @@ import {
   type PromotionForm,
 } from '../../utils/promotionForm';
 import type { Promotion, PromotionEditorContext, PromotionMethod } from '../../promotionTypes';
+import { ToneBadge } from '../../components/orders/StatusBadges';
 
 const Section = ({ title, children }: { title: string; children: ReactNode }) => (
   <Box background="neutral0" shadow="tableShadow" hasRadius padding={6}>
@@ -276,19 +276,19 @@ const PromotionEditPage = () => {
             {title}
           </Typography>
           {view && (
-            <Badge variant={statusTone(view.status)} size="S">
+            <ToneBadge variant={statusTone(view.status)}>
               {t(`ecommerce.promotions.statuses.${view.status}`)}
-            </Badge>
+            </ToneBadge>
           )}
         </Flex>
         {!readOnly && (
           <Flex gap={2}>
             {view && (
-              <Button variant="danger-light" startIcon={<Trash />} disabled={saving} onClick={() => setConfirmDelete(true)}>
+              <Button variant="danger-light" disabled={saving} onClick={() => setConfirmDelete(true)}>
                 {t(`${p}.delete`)}
               </Button>
             )}
-            <Button onClick={() => save()} loading={saving}>
+            <Button variant="secondary" onClick={() => save()} loading={saving}>
               {t(`${p}.save`)}
             </Button>
           </Flex>
@@ -562,7 +562,6 @@ const PromotionEditPage = () => {
           <Box>
             <Button
               variant="secondary"
-              startIcon={<Plus />}
               disabled={saving || form.benefits.length >= MAX_BENEFITS}
               onClick={() => update({ benefits: [...form.benefits, emptyBenefit()] }, ['benefits'])}
             >
@@ -602,7 +601,7 @@ const PromotionEditPage = () => {
         <PromotionSummary form={form} />
         {!readOnly && (
           <Flex justifyContent="flex-end">
-            <Button onClick={() => save()} loading={saving}>
+            <Button variant="secondary" onClick={() => save()} loading={saving}>
               {t(`${p}.save`)}
             </Button>
           </Flex>
@@ -619,7 +618,7 @@ const PromotionEditPage = () => {
         open={confirmDelete}
         title={t(`${p}.deleteTitle`)}
         text={t(`${p}.deleteText`, { name: view?.name ?? '' })}
-        confirm={{ button: t(`${p}.deleteConfirm`), action: remove }}
+        confirm={{ variant: 'danger-light', button: t(`${p}.deleteConfirm`), action: remove }}
         cancel={{ button: t(`${p}.deleteCancel`), action: () => setConfirmDelete(false) }}
       />
     </Flex>

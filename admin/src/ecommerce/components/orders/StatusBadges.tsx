@@ -30,11 +30,26 @@ const Pill = styled.span<{ $colors: BadgeColors }>`
   white-space: nowrap;
 `;
 
-/** A status badge in one of the readable colour pairs, for the current theme. */
-const ToneBadge = ({ variant, children }: { variant: BadgeVariant; children: ReactNode }) => {
+/**
+ * A status badge in one of the readable colour pairs, for the current theme: the one badge of the
+ * e-commerce admin (the order statuses set the colours; every other badge reuses them).
+ */
+const ToneBadge = ({
+  variant = 'neutral',
+  title,
+  children,
+}: {
+  variant?: BadgeVariant;
+  title?: string;
+  children: ReactNode;
+}) => {
   const theme = useTheme();
   const palette = BADGE_COLORS[isDarkColor(theme?.colors?.neutral0) ? 'dark' : 'light'];
-  return <Pill $colors={palette[variant]}>{children}</Pill>;
+  return (
+    <Pill $colors={palette[variant] ?? palette.neutral} title={title}>
+      {children}
+    </Pill>
+  );
 };
 
 const TranslatedBadge = ({ badge, status }: { badge: StatusBadge; status: string }) => {

@@ -3,7 +3,6 @@ import { useIntl } from 'react-intl';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useNotification } from '@strapi/strapi/admin';
 import {
-  Badge,
   Box,
   Button,
   Field,
@@ -15,7 +14,7 @@ import {
   Tooltip,
   Typography,
 } from '@strapi/design-system';
-import { ArrowLeft, Sparkle } from '@strapi/icons';
+import { ArrowLeft } from '@strapi/icons';
 import config from '../../core/config';
 import { getTranslation } from '../../core/utils/getTranslation';
 import { convertToSlug } from '../../core/utils/convertToSlug';
@@ -50,6 +49,7 @@ import {
   type ProductTranslation,
 } from '../utils/productForm';
 import type { EcommerceLocales, ImageRecord, ProductDetail } from '../types';
+import { ToneBadge } from '../components/orders/StatusBadges';
 
 type ModalState = { index: number | null; newKey: string };
 
@@ -360,7 +360,6 @@ const ProductEditPage = () => {
     <Button
       variant="secondary"
       size="S"
-      startIcon={<Sparkle />}
       onClick={translateWithAi}
       loading={translating}
       disabled={!aiAvailable || translating || saving}
@@ -380,11 +379,11 @@ const ProductEditPage = () => {
             {title}
           </Typography>
           {form.active ? (
-            <Badge backgroundColor="success100" textColor="success700">
+            <ToneBadge variant="success">
               {t('ecommerce.products.status.active')}
-            </Badge>
+            </ToneBadge>
           ) : (
-            <Badge>{t('ecommerce.products.status.inactive')}</Badge>
+            <ToneBadge>{t('ecommerce.products.status.inactive')}</ToneBadge>
           )}
         </Flex>
       </Flex>
@@ -409,7 +408,7 @@ const ProductEditPage = () => {
         >
           {t(form.active ? 'ecommerce.product.disable' : 'ecommerce.product.enable')}
         </Button>
-        <Button onClick={save} loading={saving} disabled={translating || deleting}>
+        <Button variant="secondary" onClick={save} loading={saving} disabled={translating || deleting}>
           {t('ecommerce.product.save')}
         </Button>
       </HeaderActions>
@@ -432,7 +431,7 @@ const ProductEditPage = () => {
         open={deleteDialog === 'confirm'}
         title={t('ecommerce.product.deleteConfirm.title')}
         text={t('ecommerce.product.deleteConfirm.text')}
-        confirm={{ button: t('ecommerce.product.delete'), action: deleteProduct }}
+        confirm={{ variant: 'danger-light', button: t('ecommerce.product.delete'), action: deleteProduct }}
         cancel={{
           button: t('ecommerce.product.deleteConfirm.cancel'),
           action: () => setDeleteDialog(null),

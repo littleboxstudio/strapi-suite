@@ -188,6 +188,7 @@ const TemplateVersionsModal = ({ type, locale, readOnly, onClose, onRestored }: 
             : ''
         }
         confirm={{
+          variant: 'danger-light',
           button: t('ecommerce.settings.emailTemplates.versions.restore'),
           action: () => {
             if (confirm && !readOnly) restore(confirm);

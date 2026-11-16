@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import {
-  Badge,
   Box,
   Button,
   Field,
@@ -11,11 +10,12 @@ import {
   TextInput,
   Typography,
 } from '@strapi/design-system';
-import { Plus, Search } from '@strapi/icons';
+import { Search } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import SearchOrderVariants from '../../usecases/orders/searchOrderVariants';
 import { formatCents } from '../../utils/money';
 import type { VariantSearchResult } from '../../orderTypes';
+import { ToneBadge } from './StatusBadges';
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -171,15 +171,14 @@ const VariantPicker = ({ locale, onAdd, disabled }: Props) => {
                   </Typography>
                 </Flex>
                 <Flex gap={3} alignItems="center" shrink={0}>
-                  <Badge variant={outOfStock ? 'danger' : 'neutral'} size="S">
+                  <ToneBadge variant={outOfStock ? 'danger' : 'neutral'}>
                     {outOfStock
                       ? t('ecommerce.orders.picker.outOfStock')
                       : t('ecommerce.orders.picker.stock', { count: v.stock })}
-                  </Badge>
+                  </ToneBadge>
                   <Button
                     size="S"
                     variant="secondary"
-                    startIcon={<Plus />}
                     disabled={disabled || outOfStock}
                     onClick={() => add(v)}
                   >

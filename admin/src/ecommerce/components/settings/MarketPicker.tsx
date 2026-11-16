@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import styled from 'styled-components';
 import { useIntl } from 'react-intl';
 import { Box, Button, Checkbox, Flex, Popover, TextInput, Typography } from '@strapi/design-system';
-import { Plus, Search } from '@strapi/icons';
+import { Search } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { filterMarketsByName, foldText } from '../../utils/markets';
 
@@ -106,7 +106,6 @@ const MarketPicker = ({ options, selected, onChange, hasError = false }: Props) 
         <Button
           variant={hasError ? 'danger-light' : 'secondary'}
           size="L"
-          startIcon={<Plus />}
           aria-haspopup="listbox"
         >
           {t('ecommerce.settings.manual.addMarkets')}

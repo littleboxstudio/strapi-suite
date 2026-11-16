@@ -348,7 +348,7 @@ const RefundModal = ({ orderId, reference, initial, onClose, onSubmitting, onRef
           <Button variant="tertiary" onClick={onClose} disabled={saving}>
             {t('ecommerce.orders.refund.cancel')}
           </Button>
-          <Button onClick={review} disabled={!canReview || saving}>
+          <Button variant="secondary" onClick={review} disabled={!canReview || saving}>
             {t('ecommerce.orders.refund.review')}
           </Button>
         </Modal.Footer>
@@ -376,7 +376,7 @@ const RefundModal = ({ orderId, reference, initial, onClose, onSubmitting, onRef
                 <Button fullWidth variant="tertiary" disabled={saving} onClick={() => setDraft(null)}>
                   {t('ecommerce.orders.refund.cancel')}
                 </Button>
-                <Button fullWidth variant="danger" loading={saving} onClick={submit}>
+                <Button fullWidth variant="danger-light" loading={saving} onClick={submit}>
                   {t('ecommerce.orders.refund.confirm')}
                 </Button>
               </Flex>

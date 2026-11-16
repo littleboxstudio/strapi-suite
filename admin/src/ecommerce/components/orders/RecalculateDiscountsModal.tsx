@@ -357,7 +357,7 @@ const RecalculateDiscountsModal = ({
             {t('ecommerce.orders.discounts.close')}
           </Button>
           {!saved && (
-            <Button onClick={confirm} loading={busy} disabled={blocked}>
+            <Button variant="secondary" onClick={confirm} loading={busy} disabled={blocked}>
               {t('ecommerce.orders.discounts.confirm')}
             </Button>
           )}

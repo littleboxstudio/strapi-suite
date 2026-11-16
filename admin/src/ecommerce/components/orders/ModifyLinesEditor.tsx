@@ -1,6 +1,5 @@
 import { useIntl } from 'react-intl';
 import {
-  Badge,
   Box,
   Button,
   Field,
@@ -26,6 +25,7 @@ import {
   modifyLineUnitPrice,
   type ModifyLineDraft,
 } from '../../utils/modification';
+import { ToneBadge } from './StatusBadges';
 
 type Props = {
   lines: ModifyLineDraft[];
@@ -108,16 +108,16 @@ const ModifyLinesEditor = ({
                     {line.shipped > 0 ? ` · ${t('ecommerce.orders.modify.lines.shipped', { count: line.shipped })}` : ''}
                   </Typography>
                   <Flex gap={1}>
-                    {line.isGift && <Badge size="S">{t('ecommerce.orders.detail.lines.gift')}</Badge>}
+                    {line.isGift && <ToneBadge>{t('ecommerce.orders.detail.lines.gift')}</ToneBadge>}
                     {line.orderLineId === undefined && (
-                      <Badge size="S" variant="success">
+                      <ToneBadge variant="success">
                         {t('ecommerce.orders.modify.lines.new')}
-                      </Badge>
+                      </ToneBadge>
                     )}
                     {line.removed && (
-                      <Badge size="S" variant="danger">
+                      <ToneBadge variant="danger">
                         {t('ecommerce.orders.modify.lines.removed')}
-                      </Badge>
+                      </ToneBadge>
                     )}
                   </Flex>
                   {!editable && error && (

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import {
-  Badge,
   Box,
   Button,
   Field,
@@ -20,7 +19,7 @@ import {
   Tr,
   Typography,
 } from '@strapi/design-system';
-import { Duplicate, Plus } from '@strapi/icons';
+import { Duplicate } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { DateInput } from '../DateInput';
 import ConfirmModal from '../../../components/ConfirmModal';
@@ -43,6 +42,7 @@ import {
 } from '../../utils/refundForm';
 import type { FieldError, StoreCredit } from '../../orderTypes';
 import ColumnLabel from '../ColumnLabel';
+import { ToneBadge } from '../orders/StatusBadges';
 
 type Props = {
   customerId: number;
@@ -241,7 +241,7 @@ const IssueStoreCreditModal = ({
           <Button variant="tertiary" onClick={onClose} disabled={saving}>
             {t('ecommerce.customers.storeCredits.modal.cancel')}
           </Button>
-          <Button onClick={submit} loading={saving}>
+          <Button variant="secondary" onClick={submit} loading={saving}>
             {t(
               credit
                 ? 'ecommerce.customers.storeCredits.edit.submit'
@@ -405,9 +405,9 @@ const CustomerStoreCredits = ({ customerId, email, canManage }: Props) => {
                   </Typography>
                 </Td>
                 <Td>
-                  <Badge variant={STATUS_VARIANT[status]} size="S">
+                  <ToneBadge variant={STATUS_VARIANT[status]}>
                     {t(`ecommerce.customers.storeCredits.statuses.${status}`)}
-                  </Badge>
+                  </ToneBadge>
                 </Td>
                 {withActions && (
                   <Td>
@@ -450,7 +450,7 @@ const CustomerStoreCredits = ({ customerId, email, canManage }: Props) => {
             {t('ecommerce.customers.storeCredits.title')}
           </Typography>
           {canManage && (
-            <Button size="S" startIcon={<Plus />} onClick={() => setIssuing(true)}>
+            <Button variant="secondary" size="S" onClick={() => setIssuing(true)}>
               {t('ecommerce.customers.storeCredits.issue')}
             </Button>
           )}
@@ -491,6 +491,7 @@ const CustomerStoreCredits = ({ customerId, email, canManage }: Props) => {
           balance: money(voiding?.balance ?? 0),
         })}
         confirm={{
+          variant: 'danger-light',
           button: t('ecommerce.customers.storeCredits.voidConfirm'),
           action: () => voiding && voidCredit(voiding),
         }}
