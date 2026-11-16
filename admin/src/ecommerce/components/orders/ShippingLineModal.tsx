@@ -13,6 +13,7 @@ import {
   shippingLineDraftToInput,
   shippingLineEditUnchanged,
   shippingLineErrorKey,
+  shippingLineAmount,
   shippingOptionKey,
   suggestedChargePrice,
 } from '../../utils/orderEditing';
@@ -89,11 +90,22 @@ const ShippingLineModal = ({ order, mode, line, onClose, onSaved }: Props) => {
   const [suggestionBase, setSuggestionBase] = useState<{ pendingOnly?: boolean; charged?: number }>({});
 
   /**
-   * The suggested price of an option: Add, its quote of the units not yet shipped minus the
-   * shipping already charged (null below 0: no suggestion, the price starts at 0); Edit, its quote.
+   * The suggested price of an option (Add and Edit): its quote of the units not yet shipped minus
+   * the shipping already charged (Edit: without the line being edited). Null at 0 or below: no
+   * suggestion.
    */
   const suggestionOf = (o: ShippingOption, base = suggestionBase): number | null =>
-    mode === 'ADD' ? suggestedChargePrice(o.price, base) : o.price;
+    suggestedChargePrice(o.price, {
+      ...base,
+      // Edit: the line being edited is replaced, so it does not count as already charged.
+      charged: (base.charged ?? 0) - (mode === 'EDIT' && line ? shippingLineAmount(line) : 0),
+    });
+
+  /** The price a method starts with: Edit, the line's own amount for its own method; else the suggestion. */
+  const startPrice = (o: ShippingOption, base = suggestionBase): number =>
+    mode === 'EDIT' && line && o.providerId === line.providerId && o.serviceId === line.serviceId
+      ? shippingLineAmount(line)
+      : (suggestionOf(o, base) ?? 0);
 
   useEffect(() => {
     let cancelled = false;
@@ -110,7 +122,7 @@ const ShippingLineModal = ({ order, mode, line, onClose, onSaved }: Props) => {
         setOptions(offered);
         setSelected(key);
         const option = offered.find((o) => shippingOptionKey(o) === key);
-        if (option) setPrice(formatAmountInput(suggestionOf(option, base) ?? 0, locale));
+        if (option) setPrice(formatAmountInput(startPrice(option, base), locale));
       })
       .catch((err) => {
         if (cancelled) return;
@@ -158,7 +170,7 @@ const ShippingLineModal = ({ order, mode, line, onClose, onSaved }: Props) => {
     // A point chosen for another method does not carry over.
     if (key !== selected) setPoint(null);
     // A new method starts from its suggested price.
-    if (next) setPrice(formatAmountInput(suggestionOf(next) ?? 0, locale));
+    if (next) setPrice(formatAmountInput(startPrice(next), locale));
     setErrors({});
   };
 
