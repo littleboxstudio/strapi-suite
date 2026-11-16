@@ -43,11 +43,13 @@ export type DiscountLine = LineAmounts & {
 
 /**
  * Frozen at its net price, taking no new line discount: a line with a manual percent (spec 4.1),
- * or with invoiced units (an invoiced line is never modified).
+ * with invoiced units (an invoiced line is never modified), or with shipped units (its shipments
+ * reference its units: it is never split).
  */
 const isManual = (l: DiscountLine) =>
   (l.manualDiscountPercent !== undefined && l.manualDiscountPercent !== null) ||
-  (l.invoiced ?? 0) > 0;
+  (l.invoiced ?? 0) > 0 ||
+  l.shipped > 0;
 
 export type DiscountContext = {
   lines: DiscountLine[];

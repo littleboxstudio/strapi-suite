@@ -520,6 +520,44 @@ describe('recalculateDiscounts — exact line discounts (splits, no remainders)'
   });
 });
 
+describe('recalculateDiscounts — shipped lines are frozen', () => {
+  it('a line with shipped units is never split nor re-priced; it still counts as bought', () => {
+    const p5 = promo(5, [
+      {
+        type: 'BUY_X_GET_Y',
+        buy: { target: T(1), quantity: 2, minAmount: null },
+        get: { mode: 'IN_CART', target: T(1), quantity: 1 },
+        reward: { kind: 'FREE' },
+      },
+    ]);
+    const r = recalculateDiscounts(
+      ctx({ lines: [line(1, 1, 3100, 3, { shipped: 3 }), line(2, 2, 1000, 1)], candidates: [p5] }),
+      ['p:5']
+    );
+    expect(r.lines).toEqual([]);
+    expect(r.orderDiscount).toBe(0);
+    expect(r.after.productDiscount).toBe(0);
+    expect(r.after.total).toBe(10300);
+  });
+
+  it('a partially shipped line is frozen too', () => {
+    const p5 = promo(5, [
+      {
+        type: 'BUY_X_GET_Y',
+        buy: { target: T(1), quantity: 2, minAmount: null },
+        get: { mode: 'IN_CART', target: T(1), quantity: 1 },
+        reward: { kind: 'FREE' },
+      },
+    ]);
+    const r = recalculateDiscounts(
+      ctx({ lines: [line(1, 1, 3100, 3, { shipped: 1 })], candidates: [p5] }),
+      ['p:5']
+    );
+    expect(r.lines).toEqual([]);
+    expect(r.after.total).toBe(9300);
+  });
+});
+
 describe('recalculateDiscounts — shipping promotions', () => {
   it('keeps an applied shipping discount at its stored amount when the shipping grew', () => {
     const p3 = promo(3, [{ type: 'SHIPPING_FREE', maxAmount: null }]);
