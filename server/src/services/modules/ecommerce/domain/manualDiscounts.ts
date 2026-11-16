@@ -128,9 +128,14 @@ export const manualDiscountTotal = (items: ManualDiscount[]): number =>
 /** Percent in (0, 100] with at most two decimals. */
 const isPercent = isDiscountPercent;
 
+/**
+ * A manual discount (spec 7.2) applies to the products not yet invoiced (an invoiced product never
+ * changes value): `base` is their value, `pending` the order discounts not yet invoiced that will
+ * come off them too. A percent is of `base`; the amount never exceeds `base − pending`.
+ */
 export function buildManualDiscount(
   input: unknown,
-  ctx: { subtotal: number; orderDiscount: number; nextId: number; at: string; actor: string }
+  ctx: { base: number; pending: number; nextId: number; at: string; actor: string }
 ): { discount: ManualDiscount | null; errors: DiscountError[] } {
   const body = isRecord(input) ? input : {};
   const errors: DiscountError[] = [];
@@ -149,12 +154,12 @@ export function buildManualDiscount(
   } else if (kind === 'PERCENT') {
     if (isPercent(body.value)) {
       percent = body.value;
-      amount = percentOf(ctx.subtotal, percent);
+      amount = percentOf(ctx.base, percent);
     }
   }
   if (kind && amount < 1) {
     errors.push({ path: 'value', code: 'INVALID_AMOUNT' });
-  } else if (kind && amount > ctx.subtotal - ctx.orderDiscount) {
+  } else if (kind && amount > ctx.base - ctx.pending) {
     errors.push({ path: 'value', code: 'DISCOUNT_EXCEEDS_PRODUCTS' });
   }
 

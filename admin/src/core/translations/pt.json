@@ -1937,7 +1937,7 @@
   "littlebox-strapi-suite.ecommerce.orders.discounts.previewError": "Não foi possível recalcular os descontos.",
   "littlebox-strapi-suite.ecommerce.orders.discounts.greedy": "Há muitas promoções: a melhor combinação foi estimada.",
   "littlebox-strapi-suite.ecommerce.orders.discounts.keptNote": "Os descontos já aplicados mantêm-se como estão. O recálculo só acrescenta as promoções novas que selecionar.",
-  "littlebox-strapi-suite.ecommerce.orders.discounts.percentHint": "Sobre o total dos produtos ({amount}), não sobre os portes. Guardado em euros.",
+  "littlebox-strapi-suite.ecommerce.orders.discounts.percentHint": "Sobre os produtos ainda por faturar ({amount}), não sobre os portes. Guardado em euros.",
   "littlebox-strapi-suite.ecommerce.orders.discounts.kindLabel": "Tipo",
   "littlebox-strapi-suite.ecommerce.orders.errors.DPD_AUTH_FAILED": "A DPD recusou as credenciais. Verifique Definições → Envios → DPD Portugal.",
   "littlebox-strapi-suite.ecommerce.orders.errors.DPD_BLOCKED": "A DPD bloqueou os pedidos deste servidor antes de verificar as credenciais. Peça à DPD para autorizar o endereço IP deste servidor.",

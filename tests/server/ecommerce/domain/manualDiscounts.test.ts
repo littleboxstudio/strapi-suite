@@ -14,7 +14,7 @@ const CREATED = '2026-11-01T10:00:00.000Z';
 const applied = (amount: number, cls = 'ORDER_DISCOUNT') => ({
   applied: [{ promotionId: 1, amount, benefits: [{ class: cls, amount }] }],
 });
-const CTX = { subtotal: 4000, orderDiscount: 0, nextId: 2, at: '2026-11-05T10:00:00.000Z', actor: 'admin:1' };
+const CTX = { base: 4000, pending: 0, nextId: 2, at: '2026-11-05T10:00:00.000Z', actor: 'admin:1' };
 
 describe('legacyManualDiscount', () => {
   it('is the order discount minus the applied order-discount benefits', () => {
@@ -91,7 +91,7 @@ describe('buildManualDiscount', () => {
   });
 
   it('builds a PERCENT discount from the subtotal', () => {
-    const r = buildManualDiscount({ kind: 'PERCENT', value: 10, reason: 'VIP' }, { ...CTX, subtotal: 5000 });
+    const r = buildManualDiscount({ kind: 'PERCENT', value: 10, reason: 'VIP' }, { ...CTX, base: 5000 });
     expect(r.discount).toMatchObject({ kind: 'PERCENT', percent: 10, amount: 500 });
   });
 
@@ -108,10 +108,10 @@ describe('buildManualDiscount', () => {
   });
 
   it('rejects an amount above what is left of the products', () => {
-    const r = buildManualDiscount({ kind: 'FIXED', value: 3600, reason: 'x' }, { ...CTX, orderDiscount: 500 });
+    const r = buildManualDiscount({ kind: 'FIXED', value: 3600, reason: 'x' }, { ...CTX, pending: 500 });
     expect(r.discount).toBeNull();
     expect(r.errors).toEqual([{ path: 'value', code: 'DISCOUNT_EXCEEDS_PRODUCTS' }]);
-    expect(buildManualDiscount({ kind: 'FIXED', value: 3500, reason: 'x' }, { ...CTX, orderDiscount: 500 }).errors).toEqual([]);
+    expect(buildManualDiscount({ kind: 'FIXED', value: 3500, reason: 'x' }, { ...CTX, pending: 500 }).errors).toEqual([]);
   });
 
   it('requires a kind', () => {

@@ -274,6 +274,21 @@ export type ManualDiscountRow = {
 };
 
 /** The manual discounts as rows of the promotions table; Remove behind `REMOVE_DISCOUNT`. */
+/**
+ * A new manual discount applies to the products not yet invoiced: their value, and what is left of
+ * it once the order discounts not yet invoiced come off. Without `discountBase`, the products total.
+ */
+export function manualDiscountBase(order: Order): { products: number; available: number } {
+  const base = order.discountBase;
+  if (!base) return { products: order.totals.subtotal, available: order.totals.subtotal - order.totals.orderDiscount };
+  return { products: base.products, available: Math.max(0, base.products - base.pendingDiscounts) };
+}
+
+/** Add discount is offered only while some product not yet invoiced can take it. */
+export function canAddManualDiscount(order: Order): boolean {
+  return canEdit(order, 'ADD_DISCOUNT') && manualDiscountBase(order).available > 0;
+}
+
 export function manualDiscountRows(order: Order, canManage: boolean): ManualDiscountRow[] {
   const canRemove = canManage && canEdit(order, 'REMOVE_DISCOUNT');
   return (Array.isArray(order.manualDiscounts) ? order.manualDiscounts : []).map((discount) => ({
