@@ -441,9 +441,9 @@ describe('recalculateDiscounts — stacking', () => {
   });
 });
 
-describe('recalculateDiscounts — rounding', () => {
-  it('stores floor(D / q) per line and moves the remainder to the order discount', () => {
-    // 100 over a set of 3 equal units: 34 + 33 + 33; line 1 (two units) gets 67.
+describe('recalculateDiscounts — exact line discounts (splits, no remainders)', () => {
+  it('splits per distinct unit discount; the order discount keeps the manual 200', () => {
+    // 100 over a set of 3 equal units: 34 + 33 + 33; line 1 (two units) gets 33 and 34.
     const p1 = promo(1, [
       { type: 'PRODUCT_FIXED', target: T(1, 2), amount: 100, per: 'SET', maxQuantity: 3 },
     ]);
@@ -459,14 +459,64 @@ describe('recalculateDiscounts — rounding', () => {
       ['p:1']
     );
     expect(r.lines).toEqual([
-      { id: 1, unitDiscount: 33, refs: [{ promotionId: 1, benefitIndex: 0, amount: 67 }] },
+      {
+        id: 1,
+        unitDiscount: 33,
+        refs: [{ promotionId: 1, benefitIndex: 0, amount: 33 }],
+        splits: [
+          {
+            quantity: 1,
+            unitDiscount: 33,
+            refs: [{ promotionId: 1, benefitIndex: 0, amount: 33 }],
+          },
+          {
+            quantity: 1,
+            unitDiscount: 34,
+            refs: [{ promotionId: 1, benefitIndex: 0, amount: 34 }],
+          },
+        ],
+      },
       { id: 2, unitDiscount: 33, refs: [{ promotionId: 1, benefitIndex: 0, amount: 33 }] },
     ]);
-    expect(r.orderDiscount).toBe(201);
+    expect(r.lines[1]).not.toHaveProperty('splits');
+    expect(r.orderDiscount).toBe(200);
     expect(r.rows[0].amount).toBe(100);
     // Combination total 2900, minus the kept manual 200, to the cent.
     expect(r.after.total).toBe(2700);
-    expect(r.after.productDiscount + r.after.orderDiscount).toBe(300);
+    expect(r.after.productDiscount).toBe(100);
+    expect(r.after.orderDiscount).toBe(200);
+  });
+
+  it('buy 2 get 1 on a 3-unit line splits it', () => {
+    const p5 = promo(5, [
+      {
+        type: 'BUY_X_GET_Y',
+        buy: { target: T(1), quantity: 2, minAmount: null },
+        get: { mode: 'IN_CART', target: T(1), quantity: 1 },
+        reward: { kind: 'FREE' },
+      },
+    ]);
+    const r = recalculateDiscounts(ctx({ lines: [line(1, 1, 3100, 3)], candidates: [p5] }), [
+      'p:5',
+    ]);
+    expect(r.lines).toEqual([
+      {
+        id: 1,
+        unitDiscount: 0,
+        refs: [],
+        splits: [
+          { quantity: 2, unitDiscount: 0, refs: [] },
+          {
+            quantity: 1,
+            unitDiscount: 3100,
+            refs: [{ promotionId: 5, benefitIndex: 0, amount: 3100 }],
+          },
+        ],
+      },
+    ]);
+    expect(r.orderDiscount).toBe(0);
+    expect(r.after.productDiscount).toBe(3100);
+    expect(r.after.total).toBe(6200);
   });
 });
 

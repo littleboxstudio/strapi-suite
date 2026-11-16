@@ -1635,16 +1635,66 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     return discountEvaluation(state, { selection });
   };
 
-  /** Writes the priced lines and removes the deselected promotions' gift lines (ruling 16). */
-  const writeDiscountLines = async (state: OrderState, r: DiscountRecalculation, w: EditWriter) => {
+  type SplitLine = {
+    orderLineId: number;
+    quantity: number;
+    newLines: { id: number; quantity: number; unitDiscount: number }[];
+  };
+
+  /**
+   * Writes the priced lines and removes the deselected promotions' gift lines (ruling 16). A line
+   * priced at several unit discounts (exact line discounts) keeps its first part and each further
+   * part becomes a new line of the same variant and snapshot: the same units, so no stock moves.
+   */
+  const writeDiscountLines = async (
+    state: OrderState,
+    r: DiscountRecalculation,
+    w: EditWriter
+  ): Promise<SplitLine[]> => {
     const lines = strapi.db.query(uids().orderLine);
+    const viewById = new Map(state.lines.map((l) => [l.id, l]));
+    let position = Math.max(-1, ...(state.order.lines ?? []).map((l: any) => num(l.position))) + 1;
+    const split: SplitLine[] = [];
     for (const l of r.lines) {
+      const source = viewById.get(l.id);
+      const [first, ...rest] = l.splits ?? [];
       await lines.update({
         where: { id: l.id },
-        data: { unitDiscount: l.unitDiscount, promotionRefs: { refs: l.refs } },
+        data: {
+          unitDiscount: l.unitDiscount,
+          promotionRefs: { refs: l.refs },
+          ...(first && source ? { quantity: first.quantity + source.returnedQuantity } : {}),
+        },
       });
+      if (!rest.length || !source) continue;
+      const newLines: SplitLine['newLines'] = [];
+      for (const part of rest) {
+        const created = await lines.create({
+          data: {
+            order: state.order.id,
+            variant: source.variantId,
+            variantId: source.variantId,
+            productId: source.productId,
+            sku: source.sku,
+            name: source.name,
+            option: source.option,
+            imageUrl: source.imageUrl,
+            unitPrice: source.unitPrice,
+            unitDiscount: part.unitDiscount,
+            manualDiscountPercent: null,
+            quantity: part.quantity,
+            returnedQuantity: 0,
+            tax: source.tax,
+            isGift: false,
+            promotionRefs: { refs: part.refs },
+            position: position++,
+          },
+        });
+        newLines.push({ id: created.id, quantity: part.quantity, unitDiscount: part.unitDiscount });
+      }
+      split.push({ orderLineId: l.id, quantity: first.quantity, newLines });
     }
-    if (!r.removedGiftLines.length) return;
+    if (!r.removedGiftLines.length) return split;
     const byId = new Map(state.lines.map((l) => [l.id, l]));
     const restock = new Map<number, number>();
     for (const g of r.removedGiftLines) {
@@ -1669,6 +1719,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         stockKey: (variantId) => `edit:${w.operationId}:${variantId}`,
       }
     );
+    return split;
   };
 
   /**
@@ -1702,7 +1753,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         const order = state.order;
         const stored = appliedOf(order);
 
-        await writeDiscountLines(state, r, w);
+        const splitLines = await writeDiscountLines(state, r, w);
         const added = r.applied.filter((a) => r.added.includes(a.promotionId));
         if (added.length) {
           await promotions().reserve(added, {
@@ -1751,6 +1802,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
                 .map((m) => m.id)
                 .filter((id) => !manualIds.includes(id)),
               totals: r.after,
+              ...(splitLines.length ? { splitLines } : {}),
             },
           },
         };
