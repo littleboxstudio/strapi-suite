@@ -54,6 +54,9 @@ import IssueInvoiceModal from '../../components/orders/IssueInvoiceModal';
 import { formatCents } from '../../utils/money';
 
 /** Order management screen (requirements 3–8). The fetched order is the single source of truth. */
+/** The amount-due notice's buttons, left to right. */
+const DUE_NOTICE_ORDER: ToolbarAction[] = ['SEND_PAYMENT_INSTRUCTIONS', 'ADD_PAYMENT', 'REFUND'];
+
 const OrderDetailPage = () => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const navigate = useNavigate();
@@ -255,17 +258,19 @@ const OrderDetailPage = () => {
       {/* Every notice of the order in one stack, 12px apart. */}
       <ReviewAlerts order={order} canManage={canManage} onResult={showResult}>
         {order.orderStatus === 'OPEN' && order.summary.due > 0 && (
-          // The customer still owes money: Add payment / Send payment instructions (the latter
+          // The customer still owes money: Send payment instructions / Add payment (the former
           // stays on the outdated-link notice when that one shows).
           <NoticeBar
             text={t('ecommerce.orders.amountDue.text', { amount: formatCents(order.summary.due, uiLocale) })}
             actions={
               paymentActions.length ? (
                 <>
-                  {paymentActions
+                  {/* Send payment instructions on the left, Add payment last (on the right). */}
+                  {[...paymentActions]
                     .filter(
                       (a) => !(a === 'SEND_PAYMENT_INSTRUCTIONS' && paymentLinkOutdated(order.summary))
                     )
+                    .sort((a, b) => DUE_NOTICE_ORDER.indexOf(a) - DUE_NOTICE_ORDER.indexOf(b))
                     .map((action) => (
                       <Button
                         key={action}
