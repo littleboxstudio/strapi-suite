@@ -314,7 +314,8 @@ export type OrderState = {
  * position. Covered shipping is net of the shipping discount, while lines carry gross amounts:
  * the discount is added back before lines consume it, but only once the order received payment
  * (covered shipping, or else any completed payment; a fully discounted shipping is never
- * covered), so an unpaid order never shows a line as PAID.
+ * covered), so an unpaid order never shows a line as PAID. A line added after the last payment
+ * is never PAID (coverage left over by earlier payments does not reach it).
  */
 export const shippingLineContext = (
   invoicing: Pick<OrderInvoicing, 'position' | 'coveredShipping' | 'completedPayments'>,
@@ -324,8 +325,12 @@ export const shippingLineContext = (
   const covered = invoicing.coveredShipping;
   const paid =
     covered > 0 || invoicing.completedPayments.some((p) => (Number(p?.amount) || 0) > 0);
+  const times = invoicing.completedPayments
+    .map((p) => new Date((p?.completedAt ?? p?.createdAt) as string).getTime())
+    .filter((t) => Number.isFinite(t));
   return {
     coveredShipping: covered + (paid ? Math.max(0, Number(shippingDiscount) || 0) : 0),
+    lastPaymentAt: times.length ? Math.max(...times) : null,
     invoicedLineIds: invoicing.position.shipping
       .filter((s) => s.invoiced)
       .map((s) => s.shippingLineId),

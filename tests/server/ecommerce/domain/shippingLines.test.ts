@@ -197,6 +197,23 @@ describe('shippingLineViews', () => {
     expect(big.map((v) => v.paid)).toEqual([false, true, false]);
   });
 
+  it('a line added after the last payment is never paid by coverage left over', () => {
+    const views = shippingLineViews(
+      [
+        line({ id: 1, amount: 500, createdAt: '2026-11-01T10:00:00.000Z' }),
+        line({ id: 2, amount: 200, createdAt: '2026-11-03T10:00:00.000Z' }),
+      ],
+      ctx({ coveredShipping: 900, lastPaymentAt: Date.parse('2026-11-02T10:00:00.000Z') })
+    );
+    expect(views.map((v) => v.paid)).toEqual([true, false]);
+    // Before that payment, it is paid as usual.
+    const before = shippingLineViews(
+      [line({ id: 1, amount: 500 }), line({ id: 2, amount: 200, createdAt: '2026-11-01T11:00:00.000Z' })],
+      ctx({ coveredShipping: 900, lastPaymentAt: Date.parse('2026-11-02T10:00:00.000Z') })
+    );
+    expect(before.map((v) => v.paid)).toEqual([true, true]);
+  });
+
   it('marks invoiced lines by id', () => {
     const lines = [line(), line({ id: 2, createdAt: '2026-11-03T10:00:00.000Z' })];
     expect(shippingLineViews(lines, ctx({ invoicedLineIds: [1] })).map((v) => v.invoiced)).toEqual([
