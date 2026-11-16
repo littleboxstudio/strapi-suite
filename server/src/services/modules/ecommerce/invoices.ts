@@ -27,6 +27,7 @@ import {
   buildCreditLines,
   creditOptions,
   exceedsCreditable,
+  settledDiscountIds,
   settledShippingLineIds,
   type CreditOptions,
 } from './domain/creditNotes';
@@ -1178,6 +1179,14 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
         // SHIPPING: the negative shipping lines this credit settles are never invoiced again.
         const settled =
           creditType === 'SHIPPING' ? settledShippingLineIds(state.invoicing.items.shipping, total) : [];
+        // ... and the shipping discount items it explains with what is left of it.
+        const settledLinesValue = state.invoicing.items.shipping
+          .filter((s) => settled.includes(s.shippingLineId))
+          .reduce((sum, s) => sum - s.value, 0);
+        const settledDiscounts =
+          creditType === 'SHIPPING'
+            ? settledDiscountIds(state.invoicing.items.discounts, total - settledLinesValue)
+            : [];
         const locale = clean(original.metadata?.locale) || state.order.locale;
         const customer = (original.customerData ?? customerOf(state.order)) as InvoiceCustomer;
 
@@ -1197,6 +1206,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
             creditType,
             creditedLines,
             ...(settled.length ? { settledShippingLineIds: settled } : {}),
+            ...(settledDiscounts.length ? { settledDiscountIds: settledDiscounts } : {}),
           },
         });
         const draft: InvoiceDraft = {

@@ -3,6 +3,7 @@ import {
   creditOptions,
   buildCreditLines,
   settledShippingLineIds,
+  settledDiscountIds,
   type CreditRequest,
 } from '../../../../server/src/services/modules/ecommerce/domain/creditNotes';
 import type {
@@ -420,6 +421,27 @@ describe('settledShippingLineIds', () => {
     expect(settledShippingLineIds([s(2, -300)], 200)).toEqual([]);
     expect(settledShippingLineIds([s(2, -300, true), s(3, 400)], 300)).toEqual([]);
     expect(settledShippingLineIds([s(2, -300)], 0)).toEqual([]);
+  });
+});
+
+describe('settledDiscountIds', () => {
+  const d = (id: string, amount: number, kind: 'ORDER' | 'SHIPPING' = 'SHIPPING', invoiced = false) => ({
+    id,
+    kind,
+    amount,
+    invoiced,
+  });
+
+  it('settles the uninvoiced SHIPPING discount items the credit covers, in order, whole only', () => {
+    expect(settledDiscountIds([d('s:1', 200)], 200)).toEqual(['s:1']);
+    expect(settledDiscountIds([d('s:1', 200), d('adj:shipping', 50)], 250)).toEqual(['s:1', 'adj:shipping']);
+    // Not fully covered: stops there.
+    expect(settledDiscountIds([d('s:1', 200), d('s:2', 100)], 250)).toEqual(['s:1']);
+    expect(settledDiscountIds([d('s:1', 200)], 199)).toEqual([]);
+  });
+
+  it('never an ORDER item, an invoiced one or one that is not positive', () => {
+    expect(settledDiscountIds([d('m:1', 200, 'ORDER'), d('s:1', 200, 'SHIPPING', true), d('adj:shipping', -5)], 500)).toEqual([]);
   });
 });
 

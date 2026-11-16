@@ -97,11 +97,14 @@ export function invoiceItems(
   // Negative shipping lines settled by a SHIPPING credit note that counts (on an invoice that is
   // not annulled): the credit note already took their reduction off what was invoiced.
   const annulled = new Set(position.annulledInvoiceIds);
+  // Shipping discount items they settled likewise (`settledDiscountIds`).
   const settled = new Set<number>();
+  const settledDiscounts = new Set<string>();
   for (const d of docs) {
     if (d.kind !== 'CREDIT_NOTE' || d.status === 'FAILED' || d.creditType !== 'SHIPPING') continue;
     if (d.creditedInvoiceId !== null && annulled.has(d.creditedInvoiceId)) continue;
     for (const id of d.settledShippingLineIds ?? []) settled.add(id);
+    for (const id of d.settledDiscountIds ?? []) settledDiscounts.add(id);
   }
 
   // Negative shipping lines are never created; legacy ones (old data) are never offered.
@@ -127,7 +130,7 @@ export function invoiceItems(
   }
   const discounts: DiscountItem[] = discountItemsOf(order).map((d) => ({
     ...d,
-    invoiced: invoicedDiscounts.has(d.id),
+    invoiced: invoicedDiscounts.has(d.id) || settledDiscounts.has(d.id),
   }));
 
   return { lines, shipping, discounts };

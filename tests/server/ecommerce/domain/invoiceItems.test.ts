@@ -174,6 +174,29 @@ describe('invoiceItems', () => {
   });
 });
 
+describe('invoiceItems: shipping discounts settled by a SHIPPING credit note', () => {
+  it('reads invoiced while the credit note counts', () => {
+    // Shipping 500 invoiced; a shipping promotion of 200 came later (over-invoiced 200).
+    const o = order({ shippingTotal: 300, shippingDiscount: 200, applied: [promo(1, 'SHIPPING_DISCOUNT', 200)] });
+    const inv = doc(1, [line({ kind: 'SHIPPING', total: 500, shippingLineId: 1, discountShare: 0 })]);
+    const cn = (over: Partial<InvoiceDoc> = {}) =>
+      doc(2, [line({ kind: 'SHIPPING', total: 200, shippingLineId: 1 })], {
+        kind: 'CREDIT_NOTE',
+        creditedInvoiceId: 1,
+        creditType: 'SHIPPING',
+        settledDiscountIds: ['s:1'],
+        ...over,
+      });
+    const settled = (docs: InvoiceDoc[]) => invoiceItems(o, docs).discounts.find((x) => x.id === 's:1')!.invoiced;
+    expect(settled([inv])).toBe(false);
+    expect(settled([inv, cn()])).toBe(true);
+    expect(settled([inv, cn({ status: 'PENDING' })])).toBe(true);
+    expect(settled([inv, cn({ status: 'FAILED' })])).toBe(false);
+    const correction = doc(3, [], { kind: 'CREDIT_NOTE', creditedInvoiceId: 1, creditType: 'CORRECTION' });
+    expect(settled([inv, cn(), correction])).toBe(false);
+  });
+});
+
 describe('priceWholeSelection', () => {
   const items = (over: Partial<InvoiceItems> = {}): InvoiceItems => ({
     lines: [

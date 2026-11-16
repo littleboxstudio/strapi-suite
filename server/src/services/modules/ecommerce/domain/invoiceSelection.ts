@@ -36,6 +36,11 @@ export type InvoiceDoc = {
    * note settles. They are never invoiced while it counts.
    */
   settledShippingLineIds?: number[];
+  /**
+   * SHIPPING credit notes: the SHIPPING discount items (`s:<id>`, `adj:shipping`) whose reduction
+   * the credit note settles. They are never invoiced while it counts.
+   */
+  settledDiscountIds?: string[];
 };
 
 export type PositionOrder = {
@@ -134,6 +139,9 @@ export function readInvoiceDoc(row: unknown, paymentIds: number[]): InvoiceDoc {
   const settled = Array.isArray(metadata.settledShippingLineIds)
     ? metadata.settledShippingLineIds.filter((v): v is number => typeof v === 'number' && Number.isInteger(v))
     : [];
+  const settledDiscounts = Array.isArray(metadata.settledDiscountIds)
+    ? metadata.settledDiscountIds.filter((v): v is string => typeof v === 'string' && v.length > 0)
+    : [];
   return {
     id: Number(r.id),
     kind: r.kind === 'CREDIT_NOTE' ? 'CREDIT_NOTE' : 'INVOICE',
@@ -152,6 +160,7 @@ export function readInvoiceDoc(row: unknown, paymentIds: number[]): InvoiceDoc {
       return [{ index, value: num(e.value), quantity: units ? quantity : 0 }];
     }),
     ...(settled.length ? { settledShippingLineIds: settled } : {}),
+    ...(settledDiscounts.length ? { settledDiscountIds: settledDiscounts } : {}),
   };
 }
 
