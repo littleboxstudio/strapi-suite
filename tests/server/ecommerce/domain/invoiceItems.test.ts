@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { invoiceItems } from '../../../../server/src/services/modules/ecommerce/domain/invoiceItems';
+import { invoiceItems, priceWholeSelection, type InvoiceItems } from '../../../../server/src/services/modules/ecommerce/domain/invoiceItems';
 import type {
   InvoiceDoc,
   PositionOrder,
@@ -125,5 +125,109 @@ describe('invoiceItems', () => {
     expect(get([inv])).toBe(true);
     const cn = doc(2, [], { kind: 'CREDIT_NOTE', creditedInvoiceId: 1, creditType: 'CORRECTION' });
     expect(get([inv, cn])).toBe(false);
+  });
+});
+
+describe('priceWholeSelection', () => {
+  const items = (over: Partial<InvoiceItems> = {}): InvoiceItems => ({
+    lines: [
+      { orderLineId: 1, units: 2, value: 8100, invoiced: false },
+      { orderLineId: 2, units: 1, value: 4500, invoiced: false },
+    ],
+    shipping: [{ shippingLineId: 7, value: 300, invoiced: false }],
+    discounts: [{ id: 'm:1', kind: 'ORDER', label: 'x', amount: 1400, invoiced: false }],
+    ...over,
+  });
+  const pay = (net: number) => [{ id: 9, net, available: true }];
+  const req = (over: Record<string, unknown> = {}) =>
+    ({ orderLineIds: [1, 2], shippingLineIds: [7], discountIds: ['m:1'], paymentIds: [9], ...over }) as Parameters<
+      typeof priceWholeSelection
+    >[2];
+
+  it('prices lines + shipping - discounts and checks the payments', () => {
+    const r = priceWholeSelection(items(), pay(11500), req());
+    expect(r.issues).toEqual([]);
+    expect(r.selection?.total).toBe(11500);
+    expect(r.selection?.lines.map((l) => l.discountShare)).toEqual([900, 500]);
+    expect(r.selection?.shipping.map((s) => s.discountShare)).toEqual([0]);
+  });
+
+  it('a free line takes no share', () => {
+    const r = priceWholeSelection(
+      items({
+        lines: [
+          { orderLineId: 1, units: 1, value: 6200, invoiced: false },
+          { orderLineId: 2, units: 1, value: 0, invoiced: false },
+        ],
+        shipping: [],
+        discounts: [{ id: 'm:1', kind: 'ORDER', label: 'x', amount: 620, invoiced: false }],
+      }),
+      pay(5580),
+      req({ shippingLineIds: [] })
+    );
+    expect(r.issues).toEqual([]);
+    expect(r.selection?.lines.map((l) => l.discountShare)).toEqual([620, 0]);
+  });
+
+  it('refuses a discount above its pool', () => {
+    const r = priceWholeSelection(
+      items({
+        lines: [{ orderLineId: 1, units: 1, value: 500, invoiced: false }],
+        shipping: [],
+        discounts: [{ id: 'm:1', kind: 'ORDER', label: 'x', amount: 600, invoiced: false }],
+      }),
+      pay(1),
+      req({ orderLineIds: [1], shippingLineIds: [] })
+    );
+    expect(r.selection).toBeNull();
+    expect(r.issues).toEqual([{ path: 'discountIds', code: 'DISCOUNT_EXCEEDS_SELECTION' }]);
+  });
+
+  it('refuses an invoiced line, a duplicate and an unknown discount', () => {
+    const r = priceWholeSelection(
+      items({ lines: [{ orderLineId: 1, units: 0, value: 0, invoiced: true }] }),
+      pay(1),
+      req({ orderLineIds: [1, 1, 5], shippingLineIds: [7, 99], discountIds: ['m:1', 'm:1', 'zz'], paymentIds: [9, 9, 8] })
+    );
+    expect(r.selection).toBeNull();
+    expect(r.issues).toEqual(
+      expect.arrayContaining([
+        { path: 'orderLineIds.0', code: 'LINE_ALREADY_INVOICED' },
+        { path: 'orderLineIds.1', code: 'duplicate' },
+        { path: 'orderLineIds.2', code: 'unknown_line' },
+        { path: 'shippingLineIds.1', code: 'SHIPPING_LINE_NOT_INVOICEABLE' },
+        { path: 'discountIds.1', code: 'duplicate' },
+        { path: 'discountIds.2', code: 'DISCOUNT_NOT_INVOICEABLE' },
+        { path: 'paymentIds.1', code: 'duplicate' },
+        { path: 'paymentIds.2', code: 'PAYMENT_NOT_INVOICEABLE' },
+      ])
+    );
+  });
+
+  it('needs something to invoice and a payment', () => {
+    const r = priceWholeSelection(items(), pay(1), req({ orderLineIds: [], shippingLineIds: [], discountIds: [], paymentIds: [] }));
+    expect(r.issues).toEqual([
+      { path: 'orderLineIds', code: 'required' },
+      { path: 'paymentIds', code: 'required' },
+    ]);
+  });
+
+  it('totals must match', () => {
+    const r = priceWholeSelection(items(), pay(11499), req());
+    expect(r.issues).toEqual([{ path: 'paymentIds', code: 'INVOICE_TOTALS_DIFFER' }]);
+  });
+
+  it('a negative shipping item lowers the total', () => {
+    const r = priceWholeSelection(
+      items({
+        lines: [{ orderLineId: 1, units: 1, value: 1000, invoiced: false }],
+        shipping: [{ shippingLineId: 7, value: -260, invoiced: false }],
+        discounts: [],
+      }),
+      pay(740),
+      req({ orderLineIds: [1], discountIds: [] })
+    );
+    expect(r.issues).toEqual([]);
+    expect(r.selection?.total).toBe(740);
   });
 });

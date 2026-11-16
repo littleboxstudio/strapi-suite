@@ -3,6 +3,8 @@
  * An invoice is built from whole items: order-line units, shipping lines and discounts.
  */
 import { invoicingPosition, type InvoiceDoc, type PositionOrder } from './invoiceSelection';
+import { allocateProportionally } from './orders';
+import type { ValidationIssue } from '../errors';
 import { chargedShipping, correctionsOf } from './shippingLines';
 import type { ManualDiscount } from './manualDiscounts';
 import type { AppliedPromotion } from './promotions';
@@ -108,4 +110,147 @@ export function invoiceItems(
   }));
 
   return { lines, shipping, discounts };
+}
+
+export type WholeSelectionRequest = {
+  orderLineIds: number[];
+  shippingLineIds: number[];
+  discountIds: string[];
+  paymentIds: number[];
+};
+
+export type PricedWholeSelection = {
+  lines: { orderLineId: number; units: number; value: number; discountShare: number }[];
+  shipping: { shippingLineId: number; value: number; discountShare: number }[];
+  discounts: { id: string; kind: 'ORDER' | 'SHIPPING'; amount: number }[];
+  payments: { paymentId: number; value: number }[];
+  total: number;
+  paymentsTotal: number;
+};
+
+const sum = (values: number[]): number => values.reduce((s, v) => s + v, 0);
+const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+
+/**
+ * Prices a whole-item selection: lines + shipping - discounts must equal the payments' net values.
+ * Issues are path-indexed by request position; a repeated id is a `duplicate` at its later
+ * position. The totals check only runs when there is no other issue. `selection` is null when
+ * there are issues. The ORDER discounts are spread over the selected lines by value, the SHIPPING
+ * discounts over the selected shipping lines with a positive value; each pool's shares add up
+ * exactly to its discounts.
+ */
+export function priceWholeSelection(
+  items: InvoiceItems,
+  payments: { id: number; net: number; available: boolean }[],
+  request: WholeSelectionRequest
+): { selection: PricedWholeSelection | null; issues: ValidationIssue[] } {
+  const issues: ValidationIssue[] = [];
+  const reqLines = list(request?.orderLineIds);
+  const reqShipping = list(request?.shippingLineIds);
+  const reqDiscounts = list(request?.discountIds);
+  const reqPayments = list(request?.paymentIds);
+
+  const lines: { orderLineId: number; units: number; value: number }[] = [];
+  const seenLines = new Set<unknown>();
+  reqLines.forEach((id, i) => {
+    const line = items.lines.find((l) => l.orderLineId === id);
+    if (!line) {
+      issues.push({ path: `orderLineIds.${i}`, code: 'unknown_line' });
+      return;
+    }
+    if (seenLines.has(id)) {
+      issues.push({ path: `orderLineIds.${i}`, code: 'duplicate' });
+      return;
+    }
+    seenLines.add(id);
+    if (line.invoiced || !(line.units > 0)) {
+      issues.push({ path: `orderLineIds.${i}`, code: 'LINE_ALREADY_INVOICED' });
+      return;
+    }
+    lines.push({ orderLineId: line.orderLineId, units: line.units, value: line.value });
+  });
+
+  const shipping: { shippingLineId: number; value: number }[] = [];
+  const seenShipping = new Set<unknown>();
+  reqShipping.forEach((id, i) => {
+    if (seenShipping.has(id)) {
+      issues.push({ path: `shippingLineIds.${i}`, code: 'duplicate' });
+      return;
+    }
+    seenShipping.add(id);
+    const line = items.shipping.find((s) => s.shippingLineId === id);
+    if (!line || line.invoiced) {
+      issues.push({ path: `shippingLineIds.${i}`, code: 'SHIPPING_LINE_NOT_INVOICEABLE' });
+      return;
+    }
+    shipping.push({ shippingLineId: line.shippingLineId, value: line.value });
+  });
+
+  const discounts: PricedWholeSelection['discounts'] = [];
+  const seenDiscounts = new Set<unknown>();
+  reqDiscounts.forEach((id, i) => {
+    if (seenDiscounts.has(id)) {
+      issues.push({ path: `discountIds.${i}`, code: 'duplicate' });
+      return;
+    }
+    seenDiscounts.add(id);
+    const d = items.discounts.find((x) => x.id === id);
+    if (!d || d.invoiced) {
+      issues.push({ path: `discountIds.${i}`, code: 'DISCOUNT_NOT_INVOICEABLE' });
+      return;
+    }
+    discounts.push({ id: d.id, kind: d.kind, amount: d.amount });
+  });
+
+  const priced: PricedWholeSelection['payments'] = [];
+  const seenPayments = new Set<unknown>();
+  reqPayments.forEach((id, i) => {
+    if (seenPayments.has(id)) {
+      issues.push({ path: `paymentIds.${i}`, code: 'duplicate' });
+      return;
+    }
+    seenPayments.add(id);
+    const payment = payments.find((p) => p.id === id);
+    if (!payment?.available || !(payment.net > 0)) {
+      issues.push({ path: `paymentIds.${i}`, code: 'PAYMENT_NOT_INVOICEABLE' });
+      return;
+    }
+    priced.push({ paymentId: payment.id, value: payment.net });
+  });
+
+  if (reqLines.length === 0 && reqShipping.length === 0 && reqDiscounts.length === 0) {
+    issues.push({ path: 'orderLineIds', code: 'required' });
+  }
+  if (reqPayments.length === 0) issues.push({ path: 'paymentIds', code: 'required' });
+
+  const poolOf = (kind: 'ORDER' | 'SHIPPING') =>
+    sum(discounts.filter((d) => d.kind === kind).map((d) => d.amount));
+  const linesValue = sum(lines.map((l) => l.value));
+  const shippingValue = sum(shipping.map((s) => s.value));
+  const orderDiscounts = poolOf('ORDER');
+  const shippingDiscounts = poolOf('SHIPPING');
+  if (orderDiscounts > linesValue || (shippingDiscounts > 0 && shippingDiscounts > shippingValue)) {
+    issues.push({ path: 'discountIds', code: 'DISCOUNT_EXCEEDS_SELECTION' });
+  }
+
+  const total = linesValue + shippingValue - orderDiscounts - shippingDiscounts;
+  const paymentsTotal = sum(priced.map((p) => p.value));
+  if (!issues.length && (total !== paymentsTotal || total <= 0)) {
+    issues.push({ path: 'paymentIds', code: 'INVOICE_TOTALS_DIFFER' });
+  }
+  if (issues.length) return { selection: null, issues };
+
+  const lineShares = allocateProportionally(orderDiscounts, lines.map((l) => Math.max(0, l.value)));
+  const shippingShares = allocateProportionally(shippingDiscounts, shipping.map((s) => Math.max(0, s.value)));
+  return {
+    selection: {
+      lines: lines.map((l, i) => ({ ...l, discountShare: lineShares[i] })),
+      shipping: shipping.map((s, i) => ({ ...s, discountShare: shippingShares[i] })),
+      discounts,
+      payments: priced,
+      total,
+      paymentsTotal,
+    },
+    issues,
+  };
 }
