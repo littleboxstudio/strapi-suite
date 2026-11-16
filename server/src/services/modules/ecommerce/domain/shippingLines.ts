@@ -168,6 +168,11 @@ export function shippingLineViews(
     /** Lines an invoice counts (the invoicing position). */
     invoicedLineIds: number[];
     hasActiveShipment: boolean;
+    /**
+     * When the last COMPLETED payment was made (ms): a line created after it was paid by nothing
+     * (it never takes coverage left over by earlier payments). Absent: no such limit.
+     */
+    lastPaymentAt?: number | null;
   }
 ): ShippingLineView[] {
   const invoiced = new Set(ctx.invoicedLineIds);
@@ -188,10 +193,17 @@ export function shippingLineViews(
       credit -= taken;
     }
   }
+  const after = (l: ShippingLine) => {
+    if (ctx.lastPaymentAt == null) return false;
+    const t = new Date(l.createdAt).getTime();
+    return Number.isFinite(t) && t > ctx.lastPaymentAt;
+  };
   return sorted.map((l) => {
     let paid = false;
     const due = owed.get(l.id) ?? l.amount;
-    if (l.amount > 0 && remaining >= due) {
+    if (l.amount > 0 && after(l)) {
+      // Added after the last payment: nothing paid it yet.
+    } else if (l.amount > 0 && remaining >= due) {
       paid = true;
       remaining -= due;
     } else if (l.amount > 0) {
