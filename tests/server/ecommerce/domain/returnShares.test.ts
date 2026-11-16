@@ -78,6 +78,7 @@ const registerReturn = (
     request,
     docs,
     annulledInvoiceIds: [],
+    orderDiscount: state.orderDiscount,
     discounts: items.discounts,
     previous: state.records,
   });
@@ -195,6 +196,61 @@ describe('computeReturnShares (C1): refund equals the RETURN credit note', () =>
     expect(r).toMatchObject({ discountShare: 0, refundableValue: 10000 });
     const items = invoiceItems(orderOf(state.lines, state.orderDiscount, manuals, state.records), docs);
     expect(items.discounts.map((d) => d.id)).toEqual(['m:1']);
+  });
+
+  it('the pool share never exceeds the order discount before the return (discount items above it)', () => {
+    // The discount items say €20 but the stored order discount is €10 (a negative adj item).
+    const lines = [
+      { id: 1, unitPrice: 10000, unitDiscount: 0, quantity: 1, returnedQuantity: 0 },
+      { id: 2, unitPrice: 10000, unitDiscount: 0, quantity: 1, returnedQuantity: 0 },
+    ];
+    const r = computeReturnShares({
+      lines,
+      request: [
+        { orderLineId: 1, quantity: 1 },
+        { orderLineId: 2, quantity: 1 },
+      ],
+      docs: [],
+      annulledInvoiceIds: [],
+      orderDiscount: 1000,
+      discounts: [
+        { id: 'm:1', kind: 'ORDER', amount: 2000, invoiced: false },
+        { id: 'adj:order', kind: 'ORDER', amount: -1000, invoiced: false },
+      ],
+      previous: [],
+    });
+    expect(r.discountShare).toBe(1000);
+    expect(r.refundableValue).toBe(19000);
+    expect(r.record.discounts).toEqual([{ id: 'm:1', amount: 1000, invoiceId: null }]);
+  });
+
+  it('the pool share is capped at the order discount less the invoice shares of this return', () => {
+    // Line 1 on a whole-item invoice with €10 of share; €5 not invoiced but the order holds €12.
+    const lines = [
+      { id: 1, unitPrice: 10000, unitDiscount: 0, quantity: 1, returnedQuantity: 0 },
+      { id: 2, unitPrice: 10000, unitDiscount: 0, quantity: 1, returnedQuantity: 0 },
+    ];
+    const docs = [invoice(1, [itemLine(1, 1, 9000, 1000), discountLine('m:1', 1000)])];
+    const r = computeReturnShares({
+      lines,
+      request: [
+        { orderLineId: 1, quantity: 1 },
+        { orderLineId: 2, quantity: 1 },
+      ],
+      docs,
+      annulledInvoiceIds: [],
+      orderDiscount: 1200,
+      discounts: [
+        { id: 'm:1', kind: 'ORDER', amount: 1000, invoiced: true },
+        { id: 'm:2', kind: 'ORDER', amount: 500, invoiced: false },
+      ],
+      previous: [],
+    });
+    expect(r.items).toEqual([
+      { orderLineId: 1, quantity: 1, value: 10000, share: 1000 },
+      { orderLineId: 2, quantity: 1, value: 10000, share: 200 },
+    ]);
+    expect(r.discountShare).toBe(1200);
   });
 
   it('readReturnShares reads what a return row stores and drops malformed entries', () => {

@@ -1781,11 +1781,14 @@ describe('shipping lowered below what was invoiced', () => {
     expect(after.shipping).toEqual([]);
     const newPayment = paymentRows(c, id).find((p) => p.id !== firstPayment).id;
     expect(after.payments).toEqual([{ paymentId: newPayment, amount: 2000, refunded: 0, net: 2000 }]);
-    expect(after.lines).toEqual([expect.objectContaining({ orderLineId: lineId, units: 1, value: 2000 })]);
+    // The invoiced line keeps its 2 units: the extra unit is a new line (invoice whole items, Locks).
+    expect(after.lines).toEqual([expect.objectContaining({ units: 1, value: 2000 })]);
+    const newLineId = after.lines[0].orderLineId;
+    expect(newLineId).not.toBe(lineId);
     const issued = await inv.issue(
       id,
       {
-        orderLineIds: [lineId],
+        orderLineIds: [newLineId],
         shippingLineIds: [],
         discountIds: [],
         paymentIds: [newPayment],

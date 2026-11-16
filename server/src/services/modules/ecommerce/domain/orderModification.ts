@@ -314,7 +314,12 @@ export const simulateModification = (
       // (promotion prize, split line) keeps its discount for the units it has; the extra units
       // become a separate line at that line's full price. A line with a manual percent keeps it
       // on every unit (spec 4.1: no split).
-      if (unitDiscountAfter > 0 && percentAfter === null && entry.quantity > target.quantity) {
+      // A line with invoiced units keeps its quantity (invoice whole items, Locks): the extra
+      // units are a new line at the line's full price (a manual percent is not copied), so they
+      // are invoiced on their own line.
+      const splitDiscounted = unitDiscountAfter > 0 && percentAfter === null;
+      const splitInvoiced = (target.invoiced ?? 0) > 0;
+      if ((splitDiscounted || splitInvoiced) && entry.quantity > target.quantity) {
         requested.set(target.id, target.quantity);
         added.push({
           inputIndex: index,

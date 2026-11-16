@@ -1219,3 +1219,61 @@ describe('simulateModification: manual line discount (spec 4.1)', () => {
     expect(r.after.subtotal).toBe(2000 + 2 * 1250);
   });
 });
+
+describe('simulateModification: an invoiced line keeps its quantity (invoice whole items, Locks)', () => {
+  const catalog = () => catalogOf(variant({ variantId: 101, productId: 1, sku: 'SKU-101', unitPrice: 3500, stock: 10 }));
+  const current = (lines: ExistingLine[]) => ({
+    lines,
+    orderDiscount: 0,
+    shippingOriginal: 0,
+    shippingDiscount: 0,
+    payments: paid(6000),
+    refunds: [],
+  });
+
+  it('an invoiced line 2 → 3 stays 2; the extra unit is a new line with sourceOrderLineId', () => {
+    const lines = [existing({ id: 1, quantity: 2, invoiced: 2 })];
+    const r = simulateModification(
+      current(lines),
+      { lines: [{ orderLineId: 1, variantId: 101, quantity: 3 }], shipping: keep },
+      catalog(),
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.lineChanges).toEqual([
+      { kind: 'UNCHANGED', orderLineId: 1, variantId: 101, previousQuantity: 2, newQuantity: 2 },
+      { kind: 'ADDED', variantId: 101, previousQuantity: 0, newQuantity: 1, sourceOrderLineId: 1 },
+    ]);
+    // The line's own price (30), not the catalog's 35.
+    expect(r.after.subtotal).toBe(9000);
+    expect(r.stockMovements).toEqual([{ variantId: 101, quantity: -1 }]);
+  });
+
+  it('a manual percent on an invoiced line is not copied to the extra units', () => {
+    const lines = [
+      existing({ id: 1, unitPrice: 1000, unitDiscount: 100, manualDiscountPercent: 10, quantity: 2, invoiced: 2 }),
+    ];
+    const r = simulateModification(
+      current(lines),
+      { lines: [{ orderLineId: 1, variantId: 101, quantity: 3 }], shipping: keep },
+      catalog(),
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.lineChanges.filter((c) => c.kind === 'ADDED')).toEqual([
+      { kind: 'ADDED', variantId: 101, previousQuantity: 0, newQuantity: 1, sourceOrderLineId: 1 },
+    ]);
+    expect(r.after.subtotal).toBe(2 * 900 + 1000);
+  });
+
+  it('a line without invoiced units still grows in place', () => {
+    const lines = [existing({ id: 1, quantity: 2, invoiced: 0 })];
+    const r = simulateModification(
+      current(lines),
+      { lines: [{ orderLineId: 1, variantId: 101, quantity: 3 }], shipping: keep },
+      catalog(),
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.lineChanges).toEqual([
+      { kind: 'QUANTITY_CHANGED', orderLineId: 1, variantId: 101, previousQuantity: 2, newQuantity: 3 },
+    ]);
+  });
+});

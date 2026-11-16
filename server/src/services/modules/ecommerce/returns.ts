@@ -208,6 +208,7 @@ const EcommerceReturnService = ({ strapi }: { strapi: Core.Strapi }) => {
           request: n.lines,
           docs: state.invoicing.docs,
           annulledInvoiceIds: state.invoicing.position.annulledInvoiceIds,
+          orderDiscount: orderDiscountBefore,
           discounts: state.invoicing.items.discounts,
           previous: state.invoicing.returnShares,
         });
