@@ -2214,5 +2214,6 @@
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.markSeen": "Mark as seen",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.seen": "The shipping alert was marked as seen.",
   "littlebox-strapi-suite.ecommerce.orders.errors.UNITS_NOT_PAID": "Only the paid units can ship while the order still has an amount to pay.",
-  "littlebox-strapi-suite.ecommerce.orders.ship.unpaidUnits": "{count} not paid yet"
+  "littlebox-strapi-suite.ecommerce.orders.ship.unpaidUnits": "{count} not paid yet",
+  "littlebox-strapi-suite.ecommerce.orders.ship.unpaidNotice": "Some products are not paid yet: their unpaid quantities, or the products themselves, are not listed."
 }

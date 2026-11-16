@@ -1,3 +1,4 @@
+import { shippableOf } from '../../utils/shipmentForm';
 import { useIntl } from 'react-intl';
 import {
   Badge,
@@ -157,6 +158,12 @@ const OrderLinesTable = ({ lines, promotions = [], locales = { locale: '' } }: P
                   {pending && (
                     <Typography variant="pi" textColor="warning600">
                       {t(pending.id, pending.values)}
+                    </Typography>
+                  )}
+                  {/* Units left to ship that wait for payment (the order still owes money). */}
+                  {line.pending > shippableOf(line) && (
+                    <Typography variant="pi" textColor="danger600">
+                      {t('ecommerce.orders.ship.unpaidUnits', { count: line.pending - shippableOf(line) })}
                     </Typography>
                   )}
                   {line.reserved > line.shipped && (

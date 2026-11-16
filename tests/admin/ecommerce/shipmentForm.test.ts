@@ -6,6 +6,7 @@ import {
   defaultDeliveredAtInput,
   defaultShipMethodKey,
   defaultShipLines,
+  hasUnpaidPending,
   deliveredAtInputToIso,
   emptyShipForm,
   isHttpUrl,
@@ -482,18 +483,20 @@ describe('paid units while money is owed', () => {
   const mixed = [
     { id: 1, pending: 3, shippable: 1 },
     { id: 2, pending: 2 },
+    { id: 3, pending: 2, shippable: 0 },
   ];
-  it('defaults each line to the units that can ship now', () => {
+  it('lists only the units that can ship now; a line with none is left out', () => {
     expect(defaultShipLines(mixed)).toEqual([
       { orderLineId: 1, quantity: '1' },
       { orderLineId: 2, quantity: '2' },
     ]);
+    expect(hasUnpaidPending(mixed)).toBe(true);
+    expect(hasUnpaidPending([{ pending: 2 }, { pending: 1, shippable: 1 }])).toBe(false);
   });
 
-  it('more than the paid units is UNITS_NOT_PAID; more than pending stays QUANTITY_EXCEEDS_PENDING', () => {
+  it('allows at most the units that can ship now', () => {
     const form = (q: string) => ({ ...emptyShipForm({ lines: [] } as any, [manual]), methodKey: shipMethodKey(manual), trackingCode: 'RR1', lines: [{ orderLineId: 1, quantity: q }] });
-    expect(validateShipForm(form('2'), mixed, manual)).toEqual({ 'lines.1': 'UNITS_NOT_PAID' });
-    expect(validateShipForm(form('4'), mixed, manual)).toEqual({ 'lines.1': 'QUANTITY_EXCEEDS_PENDING' });
+    expect(validateShipForm(form('2'), mixed, manual)).toEqual({ 'lines.1': 'QUANTITY_EXCEEDS_PENDING' });
     expect(validateShipForm(form('1'), mixed, manual)).toEqual({});
   });
 });

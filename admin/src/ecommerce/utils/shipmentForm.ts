@@ -48,12 +48,19 @@ export function parseQuantity(text: string): number | null {
 export const shippableOf = (l: { pending: number; shippable?: number }): number =>
   Math.min(l.pending, l.shippable ?? l.pending);
 
-/** Lines with units left to ship, each defaulting to every unit that can ship now. */
+/**
+ * Lines with units that can ship now, each defaulting to all of them. Units that wait for payment
+ * are left out (a line with none that can ship is not listed).
+ */
 export function defaultShipLines(lines: { id: number; pending: number; shippable?: number }[]): ShipLineDraft[] {
   return lines
-    .filter((l) => l.pending > 0)
+    .filter((l) => shippableOf(l) > 0)
     .map((l) => ({ orderLineId: l.id, quantity: String(shippableOf(l)) }));
 }
+
+/** Some pending unit waits for payment: the ship modal says those are left out. */
+export const hasUnpaidPending = (lines: { pending: number; shippable?: number }[]): boolean =>
+  lines.some((l) => l.pending > shippableOf(l));
 
 /** A delivery method's identity in the ship form (radio value). */
 export function shipMethodKey(m: Pick<ShipMethodOption, 'providerId' | 'serviceId'>): string {
@@ -125,9 +132,9 @@ export function validateShipForm(
   for (const line of form.lines) {
     const q = parseQuantity(line.quantity);
     const l = lineOf.get(line.orderLineId);
+    // The pending units shown are the ones that can ship now (paid while money is owed).
     if (q === null) errors[`lines.${line.orderLineId}`] = 'invalid_quantity';
-    else if (q > (l?.pending ?? 0)) errors[`lines.${line.orderLineId}`] = 'QUANTITY_EXCEEDS_PENDING';
-    else if (l && q > shippableOf(l)) errors[`lines.${line.orderLineId}`] = 'UNITS_NOT_PAID';
+    else if (q > (l ? shippableOf(l) : 0)) errors[`lines.${line.orderLineId}`] = 'QUANTITY_EXCEEDS_PENDING';
     else units += q;
   }
   if (!units && !Object.keys(errors).length) errors.lines = 'required';
