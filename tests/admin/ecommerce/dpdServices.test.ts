@@ -3,9 +3,9 @@ import {
   DPD_SERVICE_IDS,
   activeServiceCount,
   dpdServiceMarkets,
+  dpdServiceToDraft,
   dpdServicesErrorMap,
-  dpdServicesToForm,
-  formToDpdServices,
+  draftToDpdService,
   withServiceActive,
 } from '../../../admin/src/ecommerce/utils/dpdServicesForm';
 import type { DpdServices } from '../../../admin/src/ecommerce/settingsTypes';
@@ -32,8 +32,10 @@ describe('dpd services form', () => {
   });
 
   it('round-trips the stored services', () => {
-    const form = dpdServicesToForm(SERVICES, ['pt', 'en'], 'pt', ['PT', 'PT-ISL', 'ES']);
-    expect(form.EXPRESS).toMatchObject({
+    const markets = ['PT', 'PT-ISL', 'ES'];
+    const express = dpdServiceToDraft(SERVICES.EXPRESS, ['pt', 'en'], 'pt', markets);
+    const pickup = dpdServiceToDraft(SERVICES.PICKUP, ['pt', 'en'], 'pt', markets);
+    expect(express).toMatchObject({
       names: { pt: 'DPD Expresso', en: 'DPD Express' },
       markets: ['PT', 'PT-ISL'],
       brackets: {
@@ -45,26 +47,27 @@ describe('dpd services form', () => {
       taxChoice: '23',
       active: true,
     });
-    expect(form.PICKUP).toMatchObject({
+    expect(pickup).toMatchObject({
       names: { pt: 'DPD Pickup', en: '' },
       markets: [],
       active: false,
     });
-    expect(formToDpdServices(form, 'pt')).toEqual({ errors: {}, services: SERVICES });
+    expect(draftToDpdService(express, 'pt')).toEqual({ errors: {}, service: SERVICES.EXPRESS });
+    expect(draftToDpdService(pickup, 'pt')).toEqual({ errors: {}, service: SERVICES.PICKUP });
   });
 
   it('drops markets that are no longer store markets', () => {
-    const form = dpdServicesToForm(SERVICES, ['pt'], 'pt', ['PT']);
-    expect(form.EXPRESS.markets).toEqual(['PT']);
-    expect(formToDpdServices(form, 'pt').services?.EXPRESS.rates).toEqual({
+    const draft = dpdServiceToDraft(SERVICES.EXPRESS, ['pt'], 'pt', ['PT']);
+    expect(draft.markets).toEqual(['PT']);
+    expect(draftToDpdService(draft, 'pt').service?.rates).toEqual({
       PT: SERVICES.EXPRESS.rates.PT,
     });
   });
 
   it('allows a service without markets (it serves no market)', () => {
-    const form = dpdServicesToForm(SERVICES, ['pt'], 'pt', ['PT']);
-    form.PICKUP.active = true;
-    expect(formToDpdServices(form, 'pt').services?.PICKUP).toEqual({
+    const draft = dpdServiceToDraft(SERVICES.PICKUP, ['pt'], 'pt', ['PT']);
+    draft.active = true;
+    expect(draftToDpdService(draft, 'pt').service).toEqual({
       active: true,
       name: { pt: 'DPD Pickup' },
       tax: 6,
@@ -72,22 +75,25 @@ describe('dpd services form', () => {
     });
   });
 
-  it('keys errors by service', () => {
-    const form = dpdServicesToForm(SERVICES, ['pt'], 'pt', ['PT']);
-    form.EXPRESS.names.pt = ' ';
-    form.PICKUP.markets = ['PT'];
-    form.PICKUP.brackets = { PT: [{ upTo: '', price: 'x' }] };
-    expect(formToDpdServices(form, 'pt')).toEqual({
-      errors: { 'EXPRESS.name.pt': 'required', 'PICKUP.rates.PT.0.price': 'invalid_number' },
-    });
+  it('reports errors as a manual method does', () => {
+    const express = dpdServiceToDraft(SERVICES.EXPRESS, ['pt'], 'pt', ['PT']);
+    express.names.pt = ' ';
+    expect(draftToDpdService(express, 'pt')).toEqual({ errors: { 'name.pt': 'required' } });
+    const pickup = dpdServiceToDraft(SERVICES.PICKUP, ['pt'], 'pt', ['PT']);
+    pickup.markets = ['PT'];
+    pickup.brackets = { PT: [{ upTo: '', price: 'x' }] };
+    expect(draftToDpdService(pickup, 'pt')).toEqual({ errors: { 'rates.PT.0.price': 'invalid_number' } });
   });
 
   it('counts the active services', () => {
     expect(activeServiceCount(SERVICES)).toBe(1);
     expect(activeServiceCount(withServiceActive(SERVICES, 'PICKUP', true))).toBe(2);
     expect(activeServiceCount(withServiceActive(SERVICES, 'EXPRESS', false))).toBe(0);
-    const form = dpdServicesToForm(SERVICES, ['pt'], 'pt', ['PT']);
-    expect(activeServiceCount(form)).toBe(1);
+    const drafts = {
+      EXPRESS: dpdServiceToDraft(SERVICES.EXPRESS, ['pt'], 'pt', ['PT']),
+      PICKUP: dpdServiceToDraft(SERVICES.PICKUP, ['pt'], 'pt', ['PT']),
+    };
+    expect(activeServiceCount(drafts)).toBe(1);
   });
 
   it('withServiceActive changes one service only, without mutating', () => {

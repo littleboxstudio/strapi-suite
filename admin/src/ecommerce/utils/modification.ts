@@ -1,4 +1,4 @@
-import type { FieldError, LinesPreview, Order, VariantSearchResult } from '../orderTypes';
+import type { FieldError, Order, VariantSearchResult } from '../orderTypes';
 import { lineUnitDiscount, parseDiscountPercent, percentToInput } from './lineDiscount';
 
 /**

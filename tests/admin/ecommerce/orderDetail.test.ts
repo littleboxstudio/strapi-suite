@@ -3,7 +3,6 @@ import {
   apiErrorDetail,
   notificationErrorParts,
   actorLabel,
-  financialSummaryRows,
   paymentsOverview,
   formatAddressLine,
   formatShippedProgress,
@@ -400,94 +399,6 @@ describe('formatAddressLine', () => {
   });
 });
 
-describe('financialSummaryRows', () => {
-  const totals: OrderTotals = {
-    itemsOriginal: 15000,
-    productDiscount: 2000,
-    subtotal: 13000,
-    orderDiscount: 1300,
-    shippingOriginal: 800,
-    shippingDiscount: 800,
-    shippingTotal: 0,
-    total: 11700,
-  };
-  const summary: FinancialSummary = {
-    orderTotal: 11700,
-    total: 11700,
-    paid: 10000,
-    pendingPayments: 0,
-    refunded: 0,
-    net: 10000,
-    due: 1700,
-    excess: 0,
-    overRefunded: 0,
-  };
-
-  it('F4: shows an over-refunded row only when > 0', () => {
-    expect(financialSummaryRows(totals, summary).some((r) => r.key === 'overRefunded')).toBe(false);
-    const rows = financialSummaryRows(totals, { ...summary, refunded: 2000, net: 8000, due: 0, overRefunded: 1000 });
-    expect(rows.find((r) => r.key === 'overRefunded')).toEqual({ key: 'overRefunded', amount: 1000 });
-  });
-
-  it('lists every amount of the requirement example, discounts as negatives', () => {
-    expect(financialSummaryRows(totals, summary)).toEqual([
-      { key: 'itemsOriginal', amount: 15000 },
-      { key: 'productDiscount', amount: -2000 },
-      { key: 'orderDiscount', amount: -1300 },
-      { key: 'subtotal', amount: 11700 },
-      { key: 'shippingOriginal', amount: 800 },
-      { key: 'shippingDiscount', amount: -800 },
-      { key: 'totalDiscount', amount: -4100 },
-      { key: 'total', amount: 11700, strong: true },
-      { key: 'paid', amount: 10000 },
-      { key: 'net', amount: 10000 },
-      { key: 'due', amount: 1700, strong: true },
-    ]);
-  });
-
-  it('hides zero discount and refund rows; shows refunds, pending payments and the refundable excess when present', () => {
-    const rows = financialSummaryRows(
-      { ...totals, productDiscount: 0, orderDiscount: 0, shippingDiscount: 0, subtotal: 15000, total: 15800 },
-      { ...summary, refunded: 500, pendingPayments: 300, excess: 200, due: 0 }
-    ).map((r) => r.key);
-    expect(rows).toEqual([
-      'itemsOriginal',
-      'subtotal',
-      'shippingOriginal',
-      'total',
-      'paid',
-      'pendingPayments',
-      'refunded',
-      'net',
-      'due',
-      'excess',
-    ]);
-  });
-
-  it('has en + pt labels for every row', () => {
-    [
-      'itemsOriginal',
-      'productDiscount',
-      'orderDiscount',
-      'subtotal',
-      'shippingOriginal',
-      'shippingDiscount',
-      'totalDiscount',
-      'total',
-      'paid',
-      'pendingPayments',
-      'refunded',
-      'net',
-      'due',
-      'excess',
-    ].forEach((k) => {
-      const key = `littlebox-strapi-suite.ecommerce.orders.detail.summary.${k}`;
-      expect(en[key], key).toBeTruthy();
-      expect(pt[key], key).toBeTruthy();
-    });
-  });
-});
-
 describe('isActionUnavailable', () => {
   it('detects the ACTION_NOT_AVAILABLE validation error', () => {
     const err = (code: string) => ({ response: { data: { error: { details: { errors: [{ path: 'action', code }] } } } } });
@@ -755,23 +666,6 @@ describe('totalDiscount', () => {
         total: 11700,
       })
     ).toBe(4100);
-  });
-
-  it('has no totalDiscount row without discounts', () => {
-    const rows = financialSummaryRows(
-      {
-        itemsOriginal: 1000,
-        productDiscount: 0,
-        subtotal: 1000,
-        orderDiscount: 0,
-        shippingOriginal: 0,
-        shippingDiscount: 0,
-        shippingTotal: 0,
-        total: 1000,
-      },
-      { orderTotal: 1000, total: 1000, paid: 0, pendingPayments: 0, refunded: 0, net: 0, due: 1000, excess: 0, overRefunded: 0 }
-    );
-    expect(rows.some((r) => r.key === 'totalDiscount')).toBe(false);
   });
 });
 

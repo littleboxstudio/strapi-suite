@@ -2,7 +2,7 @@ import { useIntl } from 'react-intl';
 import { Flex, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { formatCents } from '../../utils/money';
-import { paymentsOverview, type OverviewTile } from '../../utils/orderDetail';
+import { paymentsOverview } from '../../utils/orderDetail';
 import type { FinancialSummary, OrderTotals } from '../../orderTypes';
 import { Tile, Tiles } from './SummaryTiles';
 

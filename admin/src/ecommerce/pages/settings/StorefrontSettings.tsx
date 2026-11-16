@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import { Box, Button, Field, Flex, Loader, TextInput, Typography } from '@strapi/design-system';
-import { Key, WarningCircle } from '@strapi/icons';
+import { WarningCircle } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchStoreSettings from '../../usecases/settings/fetchStoreSettings';
 import FetchStorefrontToken from '../../usecases/settings/fetchStorefrontToken';

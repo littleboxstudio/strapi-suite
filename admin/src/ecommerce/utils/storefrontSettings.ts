@@ -28,14 +28,6 @@ export function tokenWarnings(
   return list;
 }
 
-/** The most serious warning, or null. */
-export function tokenWarning(
-  token: Pick<StorefrontTokenView, 'type' | 'expiresAt'> | null,
-  now: Date
-): TokenWarning | null {
-  return tokenWarnings(token, now)[0] ?? null;
-}
-
 /** Which token buttons to show: Generate without a token, Regenerate with one, none when read-only. */
 export function storefrontTokenActions(
   state: StorefrontTokenState,
