@@ -21,6 +21,7 @@ import {
   paymentSectionActions,
   shipmentSectionActions,
   refundSectionActions,
+  returnSectionActions,
   promotionDisplayName,
   type ToolbarAction,
 } from '../../utils/orderDetail';
@@ -388,7 +389,11 @@ const OrderDetailPage = () => {
         }}
         onChanged={load}
       />
-      <ReturnsSection title={t('ecommerce.orders.detail.sections.returns')} returns={order.returns} />
+      <ReturnsSection
+        title={t('ecommerce.orders.detail.sections.returns')}
+        returns={order.returns}
+        actions={sectionButtons(returnSectionActions(allowedActions))}
+      />
       <OrderSection
         title={t('ecommerce.orders.detail.sections.refunds')}
         actions={sectionButtons(refundActions)}
