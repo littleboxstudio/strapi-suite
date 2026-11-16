@@ -160,7 +160,29 @@ describe('moloniProvider.issue (FR, default)', () => {
       qty: 2,
       price: 16.2602,
       discount: 10,
+      summary: 'Desconto da linha 10%',
       taxes: [{ tax_id: 11 }],
+    });
+  });
+
+  it('skips DISCOUNT lines and sends the discount note as summary', async () => {
+    const m = moloniFake(happyRoutes());
+    await moloniProvider.issue(
+      draft({
+        lines: [
+          { orderLineId: 1, kind: 'ITEM', sku: 'SKU-1', name: 'Mug', quantity: 1, total: 8100, grossTotal: 10000, discountShare: 900, tax: 23, partial: false },
+          { orderLineId: null, kind: 'DISCOUNT', sku: '', name: 'Promo', quantity: 1, total: -900, tax: 0, partial: false, discountId: 'adj:order' },
+        ],
+        total: 8100,
+        payments: [{ method: 'STRIPE', name: '', amount: 8100, date: '2026-11-10' }],
+      }),
+      rt()
+    );
+    const products = m.of('invoiceReceipts/insert')[0].body.products;
+    expect(products).toHaveLength(1);
+    expect(products[0]).toMatchObject({
+      discount: 19,
+      summary: 'Desconto da linha 10% + desconto da encomenda 9,00 €',
     });
   });
 
