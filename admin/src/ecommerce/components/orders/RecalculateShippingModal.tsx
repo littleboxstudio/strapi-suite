@@ -3,6 +3,7 @@ import { useIntl } from 'react-intl';
 import {
   Box,
   Button,
+  Checkbox,
   Field,
   Flex,
   Loader,
@@ -50,12 +51,20 @@ const RecalculateShippingModal = ({ order, onClose, onAddCharge }: Props) => {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [step, setStep] = useState<Step>('CHOOSE');
   const [choice, setChoice] = useState<Choice>('WHOLE');
-  // Option 3: the paid units not yet shipped, each defaulting to all of them.
-  const selectable = order.lines.filter((l) => shippableOf(l) > 0);
-  const [quantities, setQuantities] = useState<Record<number, string>>(() =>
-    Object.fromEntries(selectable.map((l) => [l.id, String(shippableOf(l))]))
-  );
   const [quantityError, setQuantityError] = useState<string | null>(null);
+  /** Options 2 and 3: count the units not paid yet too (off: only the paid ones). */
+  const [withUnpaid, setWithUnpaid] = useState(false);
+  /** The units of a line options 2 and 3 work with. */
+  const unitsOf = (l: Order['lines'][number]) => (withUnpaid ? l.pending : shippableOf(l));
+  const hasUnpaid = order.lines.some((l) => l.pending > shippableOf(l));
+  // Option 3: those units, each line defaulting to all of them (reset when the checkbox changes).
+  const selectable = order.lines.filter((l) => unitsOf(l) > 0);
+  const [quantities, setQuantities] = useState<Record<number, string>>({});
+  useEffect(() => {
+    setQuantities(Object.fromEntries(selectable.map((l) => [l.id, String(unitsOf(l))])));
+    setQuantityError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [withUnpaid]);
 
   useEffect(() => {
     let cancelled = false;
@@ -79,7 +88,7 @@ const RecalculateShippingModal = ({ order, onClose, onAddCharge }: Props) => {
     const units: ShipUnits = [];
     for (const l of selectable) {
       const q = parseQuantity(quantities[l.id] ?? '');
-      if (q === null || q > shippableOf(l)) {
+      if (q === null || q > unitsOf(l)) {
         setQuantityError('ecommerce.orders.errors.QUANTITY_EXCEEDS_PENDING');
         return null;
       }
@@ -99,7 +108,7 @@ const RecalculateShippingModal = ({ order, onClose, onAddCharge }: Props) => {
       else if (choice === 'SELECT') setStep('PRODUCTS');
       else {
         onAddCharge(
-          order.lines.filter((l) => l.pending > 0).map((l) => ({ orderLineId: l.id, quantity: l.pending })),
+          order.lines.filter((l) => unitsOf(l) > 0).map((l) => ({ orderLineId: l.id, quantity: unitsOf(l) })),
           review
         );
       }
@@ -137,9 +146,7 @@ const RecalculateShippingModal = ({ order, onClose, onAddCharge }: Props) => {
             onValueChange={(v: string) => setChoice(v as Choice)}
           >
             {CHOICES.map((c) => {
-              const disabled =
-                (c === 'REMAINING' && !order.lines.some((l) => l.pending > 0)) ||
-                (c === 'SELECT' && selectable.length === 0);
+              const disabled = c !== 'WHOLE' && !order.lines.some((l) => l.pending > 0);
               return (
                 <Radio.Item key={c} value={c} disabled={disabled}>
                   <Flex direction="column" alignItems="flex-start" gap={1}>
@@ -152,6 +159,13 @@ const RecalculateShippingModal = ({ order, onClose, onAddCharge }: Props) => {
               );
             })}
           </Radio.Group>
+          {choice !== 'WHOLE' && hasUnpaid && (
+            <Box paddingTop={4}>
+              <Checkbox checked={withUnpaid} onCheckedChange={(v: boolean | 'indeterminate') => setWithUnpaid(v === true)}>
+                {t(`ecommerce.orders.shippingCharges.steps.withUnpaid.${choice}`)}
+              </Checkbox>
+            </Box>
+          )}
         </Field.Root>
       );
     }
@@ -188,7 +202,7 @@ const RecalculateShippingModal = ({ order, onClose, onAddCharge }: Props) => {
                   </Flex>
                 </Td>
                 <Td>
-                  <Typography textColor="neutral800">{shippableOf(l)}</Typography>
+                  <Typography textColor="neutral800">{unitsOf(l)}</Typography>
                 </Td>
                 <Td style={{ width: 120 }}>
                   <TextInput

@@ -2220,10 +2220,12 @@
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.WHOLE": "The whole order",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.WHOLE.hint": "Quote every product with the order's original method and compare with what was already paid.",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.REMAINING": "The products still to ship",
-  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.REMAINING.hint": "Choose a method and price for a new shipping charge for every product not shipped yet.",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.REMAINING.hint": "Choose a method and price for a new shipping charge for the products not shipped yet.",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.SELECT": "Choose products",
-  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.SELECT.hint": "Choose which paid products not shipped yet the new shipping charge is for.",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.SELECT.hint": "Choose which products not shipped yet the new shipping charge is for.",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.next": "Next",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.back": "Back",
-  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.noUnits": "Choose at least one unit."
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.noUnits": "Choose at least one unit.",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.withUnpaid.REMAINING": "Include products not paid yet in the calculation",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.withUnpaid.SELECT": "Show products not paid yet in the list"
 }
