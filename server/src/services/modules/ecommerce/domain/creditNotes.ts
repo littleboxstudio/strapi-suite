@@ -65,10 +65,22 @@ const isWholeItem = (l: InvoiceLine): boolean =>
   l.kind === 'ITEM' && l.orderLineId !== null && !l.partial;
 
 /**
+ * The discount share `q` of the `u` units left of an invoice line take, of the `shareLeft` cents
+ * of its `discountShare` not taken yet: the floor share, the last units taking all that is left.
+ * One rule for the RETURN credit note (`sharedUnitsCredit`) and the return's refund
+ * (`computeReturnShares`), so both are the same to the cent.
+ */
+export const unitsShare = (shareLeft: number, u: number, q: number): number =>
+  q >= u ? shareLeft : Math.floor((shareLeft * q) / u);
+
+/** A whole ITEM line of a whole-item invoice: it carries `discountShare`. */
+export const isSharedLine = (line: InvoiceLine): boolean =>
+  line.discountShare != null && isWholeItem(line) && line.quantity > 0;
+
+/**
  * A whole ITEM line of a whole-item invoice (`discountShare` set), credited `q` of its `u` units
- * left with `valueLeft` cents left: `net_unit × q − shareFor(q)`, where the share left is
- * `net_unit × u − valueLeft` and `shareFor(q)` is its floor share of q units (all of it when
- * q === u). Null for a legacy line (no `discountShare`).
+ * left with `valueLeft` cents left: `net_unit × q − unitsShare(shareLeft, u, q)`, where the share
+ * left is `net_unit × u − valueLeft`. Null for a legacy line (no `discountShare`).
  */
 const sharedUnitsCredit = (
   line: InvoiceLine,
@@ -76,10 +88,10 @@ const sharedUnitsCredit = (
   u: number,
   q: number
 ): InvoiceLine | null => {
-  if (line.discountShare == null || !isWholeItem(line) || !(line.quantity > 0) || u <= 0) return null;
-  const netUnit = Math.round((num(line.total) + line.discountShare) / line.quantity);
+  if (!isSharedLine(line) || u <= 0) return null;
+  const netUnit = Math.round((num(line.total) + line.discountShare!) / line.quantity);
   const shareLeft = Math.max(0, netUnit * u - valueLeft);
-  const share = q === u ? shareLeft : Math.floor((shareLeft * q) / u);
+  const share = unitsShare(shareLeft, u, q);
   const value = q === u ? valueLeft : netUnit * q - share;
   const grossUnit = line.grossTotal == null ? null : line.grossTotal / line.quantity;
   return {

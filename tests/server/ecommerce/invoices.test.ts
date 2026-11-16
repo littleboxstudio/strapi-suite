@@ -1829,6 +1829,65 @@ describe('a shipping discount granted after the shipping was invoiced', () => {
   });
 });
 
+describe('returns of invoiced products (C1): the refund is the RETURN credit note', () => {
+  it('A €100 + B €100, m:1 €20 invoiced with A: returning A refunds €80, the credit note credits €80, no adj item', async () => {
+    const { c, inv } = setup();
+    // A (variant 10) and B (variant 12) at €100 each, shipping 500, manual discount 2000 = 18500.
+    const id = await create(c, [
+      { variantId: 10, quantity: 1 },
+      { variantId: 12, quantity: 1 },
+    ]);
+    for (const l of c.tables[UIDS.orderLine].filter((x) => x.order === id)) {
+      l.unitPrice = 10000;
+      l.unitDiscount = 0;
+    }
+    const row = orderRow(c, id);
+    Object.assign(row, { itemsOriginal: 20000, subtotal: 20000, orderDiscount: 2000, total: 18500 });
+    row.manualDiscounts = {
+      items: [{ id: 1, kind: 'FIXED', percent: null, amount: 2000, reason: 'Gesture', createdAt: '2025-03-01T10:00:00.000Z', actor: 'user:1' }],
+    };
+    await pay(c, id, 8000, 'pa');
+    await pay(c, id, 10500, 'pb');
+    const [pa, pb] = paymentRows(c, id);
+    const a = lineIdOf(c, id, 10);
+    const b = lineIdOf(c, id, 12);
+    const inv1 = await inv.issue(
+      id,
+      { orderLineIds: [a], shippingLineIds: [], discountIds: ['m:1'], paymentIds: [pa.id], expectedTotal: 8000, idempotencyKey: 'k1' },
+      'user:1'
+    );
+    await inv.issue(
+      id,
+      { orderLineIds: [b], shippingLineIds: [1], discountIds: [], paymentIds: [pb.id], expectedTotal: 10500, idempotencyKey: 'k2' },
+      'user:1'
+    );
+    await c.services.EcommerceShipmentService.create(
+      id,
+      { lines: [{ orderLineId: a, quantity: 1 }], method: { mode: 'MANUAL', carrierName: 'CTT' }, notifyCustomer: false, idempotencyKey: 's1' },
+      'user:1'
+    );
+    const registered = await c.services.EcommerceReturnService.register(
+      id,
+      { lines: [{ orderLineId: a, quantity: 1, restock: false }], reason: 'Damaged', idempotencyKey: 'r1' },
+      'user:1'
+    );
+    expect(registered.return).toMatchObject({ grossValue: 10000, discountShare: 2000, refundableValue: 8000 });
+    expect(registered.refundable).toBe(8000);
+    expect(orderRow(c, id)).toMatchObject({ orderDiscount: 0, total: 10500 });
+
+    const cn = await inv.issueCreditNote(
+      inv1.id,
+      { creditType: 'RETURN', lines: [{ index: 0, quantity: 1 }], shippingIndexes: [], reason: 'Returned', idempotencyKey: 'cn1' } as any,
+      'user:1'
+    );
+    expect(cn.total).toBe(registered.refundable);
+
+    const { invoicing } = await c.services.EcommerceOrderService.computeOrderState(id);
+    expect(invoicing.items.discounts.map((d: any) => d.id)).toEqual(['m:1']);
+    expect(invoicing.position.overInvoiced).toEqual({ products: 0, shipping: 0 });
+  });
+});
+
 describe('billingErrorDetail', () => {
   it('is null when the message only repeats the code', () => {
     expect(billingErrorDetail(new EcommerceBillingError('BILLING_UNREACHABLE', 'BILLING_UNREACHABLE', true))).toBeNull();
