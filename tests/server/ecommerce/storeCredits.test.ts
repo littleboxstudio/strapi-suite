@@ -575,14 +575,18 @@ describe('EcommerceStoreCreditService.update', () => {
     expect(await codesOf(c.storeCredits.update(issued.id, { amount: 999, actor: 'user:1', operationKey: 'up-2' }))).toEqual([
       'STORE_CREDIT_BELOW_USED',
     ]);
-    // Down to exactly what was used: balance 0.
-    await c.storeCredits.update(issued.id, { amount: 1000, actor: 'user:1', operationKey: 'up-3' });
-    expect(credit(c, issued.id)).toMatchObject({ initialAmount: 1000, balance: 0 });
+    // Nothing changed: no movement, no e-mail.
     const count = movements(c).length;
     const events = c.events.length;
-    await c.storeCredits.update(issued.id, { amount: 1000, actor: 'user:1', operationKey: 'up-4' });
+    await c.storeCredits.update(issued.id, { amount: 3000, actor: 'user:1', operationKey: 'up-4' });
     expect(movements(c)).toHaveLength(count);
     expect(c.events).toHaveLength(events);
+    // Down to exactly what was used: balance 0, and then it is used up (no longer editable).
+    await c.storeCredits.update(issued.id, { amount: 1000, actor: 'user:1', operationKey: 'up-3' });
+    expect(credit(c, issued.id)).toMatchObject({ initialAmount: 1000, balance: 0 });
+    expect(await codesOf(c.storeCredits.update(issued.id, { amount: 2000, actor: 'user:1', operationKey: 'up-7' }))).toEqual([
+      'STORE_CREDIT_NOT_EDITABLE',
+    ]);
   });
 
   it('a void or expired credit is not editable', async () => {

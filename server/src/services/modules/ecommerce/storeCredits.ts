@@ -543,7 +543,7 @@ const EcommerceStoreCreditService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   /**
-   * Updates a credit still valid (ACTIVE, not expired): total value, expiry, conditions. The total
+   * Updates a credit still valid (ACTIVE, not expired, balance left): total value, expiry, conditions. The total
    * never goes below what was used (`STORE_CREDIT_BELOW_USED`); the balance follows it, recorded
    * by an ADJUST movement. A change emits `STORE_CREDIT_UPDATED` (the customer gets the new data);
    * nothing changed: no movement, no e-mail.
@@ -569,7 +569,10 @@ const EcommerceStoreCreditService = ({ strapi }: { strapi: Core.Strapi }) => {
       const row = await strapi.db.query(u.storeCredit).findOne({ where: { id } });
       if (!row) throw new EcommerceNotFoundError('Store credit not found');
       const expired = row.expiresAt && new Date(row.expiresAt).getTime() <= Date.now();
-      if (row.status !== 'ACTIVE' || expired) throw invalid('storeCredit', 'STORE_CREDIT_NOT_EDITABLE');
+      // Still valid and with something left: a used-up credit (balance 0) is not edited.
+      if (row.status !== 'ACTIVE' || expired || num(row.balance) <= 0) {
+        throw invalid('storeCredit', 'STORE_CREDIT_NOT_EDITABLE');
+      }
       const initial = num(row.initialAmount);
       const balance = num(row.balance);
       const used = Math.max(0, initial - balance);
