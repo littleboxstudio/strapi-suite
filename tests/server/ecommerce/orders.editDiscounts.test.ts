@@ -447,6 +447,82 @@ describe("spec 2's example: 2× X offers Y", () => {
   });
 });
 
+describe('exact line discounts: a recalculated promotion splits the line', () => {
+  it('buy 2 get 1 on a 3-unit line → lines of 2 and 1 of the same variant; stock unchanged', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx, [{ variantId: 10, quantity: 3 }]);
+    expect(orderRow(ctx, id)).toMatchObject({ subtotal: 6000, total: 6500 });
+    const stock = stockOf(ctx, 10);
+    const movements = ctx.tables[UIDS.stockMovement].length;
+    const original = linesOf(ctx, id)[0];
+    const promo = addPromotion(ctx, {
+      name: 'Buy 2 get 1',
+      benefits: {
+        items: [
+          {
+            type: 'BUY_X_GET_Y',
+            buy: { target: T([10]), quantity: 2, minAmount: null },
+            get: { mode: 'IN_CART', target: T([10]), quantity: 1 },
+            reward: { kind: 'FREE' },
+          },
+        ],
+      },
+    });
+
+    const res = await ctx.editing.applyDiscounts(
+      id,
+      { selection: [`p:${promo}`] },
+      'user:1',
+      'op-split-01'
+    );
+    expect(res).toMatchObject({ difference: -2000 });
+
+    const lines = linesOf(ctx, id).filter((l) => l.variantId === 10);
+    expect(lines).toHaveLength(2);
+    const [kept, added] = lines;
+    expect(kept).toMatchObject({
+      id: original.id,
+      quantity: 2,
+      unitDiscount: 0,
+      promotionRefs: { refs: [] },
+    });
+    expect(added).toMatchObject({
+      variant: 10,
+      variantId: 10,
+      productId: original.productId,
+      sku: original.sku,
+      name: original.name,
+      option: original.option,
+      imageUrl: original.imageUrl,
+      unitPrice: 2000,
+      tax: original.tax,
+      quantity: 1,
+      returnedQuantity: 0,
+      isGift: false,
+      manualDiscountPercent: null,
+      unitDiscount: 2000,
+      promotionRefs: { refs: [{ promotionId: promo, benefitIndex: 0, amount: 2000 }] },
+    });
+    expect(added.position).toBeGreaterThan(kept.position);
+    expect(orderRow(ctx, id)).toMatchObject({
+      subtotal: 4000,
+      productDiscount: 2000,
+      orderDiscount: 0,
+      total: 4500,
+    });
+    expect(stockOf(ctx, 10)).toBe(stock);
+    expect(ctx.tables[UIDS.stockMovement]).toHaveLength(movements);
+    const [entry] = historyOf(ctx, id, 'DISCOUNTS_RECALCULATED');
+    expect(entry.newValue).toMatchObject({
+      added: [{ promotionId: promo, amount: 2000 }],
+      totals: { total: 4500 },
+      splitLines: [
+        { orderLineId: original.id, quantity: 2, newLines: [{ id: added.id, quantity: 1 }] },
+      ],
+    });
+  });
+});
+
 describe('applied promotions that are no longer valid (ruling 13)', () => {
   const recalcOf = async (ctx: Ctx, id: number) =>
     (await ctx.editing.previewDiscounts(id, {})).rows;

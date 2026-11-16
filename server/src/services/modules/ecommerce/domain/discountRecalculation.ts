@@ -91,9 +91,24 @@ export type DiscountRow = {
   locked: 'APPLIED' | 'GIFT_SHIPPED' | null;
 };
 
+/** Part of a line at one unit discount (checkout's model: one priced line per unit discount). */
+export type DiscountSplit = { quantity: number; unitDiscount: number; refs: BenefitRef[] };
+
+export type DiscountLineChange = {
+  id: number;
+  unitDiscount: number;
+  refs: BenefitRef[];
+  /**
+   * Several distinct unit discounts on the line, by unit discount ascending: the first stays on
+   * the line (its `unitDiscount`/`refs`), each further one becomes a new line of the same variant.
+   * Σ quantity = the line's effective units. Absent when the line keeps a single unit discount.
+   */
+  splits?: DiscountSplit[];
+};
+
 export type DiscountPricing = {
   /** Changed lines only. */
-  lines: { id: number; unitDiscount: number; refs: BenefitRef[] }[];
+  lines: DiscountLineChange[];
   removedGiftLines: { id: number; variantId: number; quantity: number }[];
   applied: AppliedPromotion[];
   manual: ManualDiscount[];
@@ -334,20 +349,39 @@ export function recalculateDiscounts(
     giftChoices: {},
   });
 
+  // Exact line discounts (no remainders): one part per distinct unit discount, as checkout does.
   const lines: DiscountPricing['lines'] = [];
-  const newDiscount = new Map<number, number>();
-  let remainders = 0;
+  const newParts = new Map<number, DiscountSplit[]>();
   evaluationLines.forEach(({ line }, index) => {
     if (isFrozen(line)) return;
-    const groups = combination.lines.filter((l) => l.sourceIndex === index);
-    const q = effective(line);
-    const discount = groups.reduce((s, g) => s + g.unitDiscount * g.quantity, 0);
-    const unitDiscount = Math.floor(discount / q);
-    remainders += discount - unitDiscount * q;
-    const refs = mergeRefs(groups.flatMap((g) => g.refs));
-    newDiscount.set(line.id, unitDiscount);
-    if (unitDiscount !== line.unitDiscount || !sameRefs(refs, line.refs))
-      lines.push({ id: line.id, unitDiscount, refs });
+    const byDiscount = new Map<number, { quantity: number; refs: BenefitRef[] }>();
+    for (const g of combination.lines) {
+      if (g.sourceIndex !== index || g.quantity <= 0) continue;
+      const part = byDiscount.get(g.unitDiscount) ?? { quantity: 0, refs: [] };
+      part.quantity += g.quantity;
+      part.refs.push(...g.refs);
+      byDiscount.set(g.unitDiscount, part);
+    }
+    const parts: DiscountSplit[] = [...byDiscount]
+      .sort(([a], [b]) => a - b)
+      .map(([unitDiscount, p]) => ({
+        quantity: p.quantity,
+        unitDiscount,
+        refs: mergeRefs(p.refs),
+      }));
+    if (!parts.length) parts.push({ quantity: effective(line), unitDiscount: 0, refs: [] });
+    newParts.set(line.id, parts);
+    const [first] = parts;
+    if (parts.length > 1) {
+      lines.push({
+        id: line.id,
+        unitDiscount: first.unitDiscount,
+        refs: first.refs,
+        splits: parts,
+      });
+    } else if (first.unitDiscount !== line.unitDiscount || !sameRefs(first.refs, line.refs)) {
+      lines.push({ id: line.id, unitDiscount: first.unitDiscount, refs: first.refs });
+    }
   });
 
   const removedGiftLines: DiscountPricing['removedGiftLines'] = ctx.lines
@@ -372,8 +406,8 @@ export function recalculateDiscounts(
   const selectedKeys = new Set(selectedRows.map((r) => r.key));
   const manual = ctx.manual.filter((m) => selectedKeys.has(manualKey(m.id)));
   // Every applied promotion and manual discount is kept: the stored order and shipping discounts
-  // (with their rounding remainders) stay, and only the new promotions add to them.
-  const storedOrderDiscount = ctx.orderDiscount + combination.orderDiscount + remainders;
+  // stay, and only the new promotions add to them. No line remainder ever reaches it.
+  const storedOrderDiscount = ctx.orderDiscount + combination.orderDiscount;
   const shippingDiscount = Math.min(
     ctx.shippingGross,
     ctx.shippingDiscount + combination.shippingDiscount
@@ -428,9 +462,23 @@ export function recalculateDiscounts(
     }),
     ctx
   );
+  // A split line keeps its first part (and its returned units); each further part is a new line.
   const afterLines = ctx.lines
     .filter((l) => !removedGiftIds.has(l.id))
-    .map((l) => ({ ...l, unitDiscount: newDiscount.get(l.id) ?? l.unitDiscount }));
+    .flatMap((l): LineAmounts[] => {
+      const parts = newParts.get(l.id);
+      if (!parts) return [l];
+      const [first, ...rest] = parts;
+      return [
+        { ...l, quantity: first.quantity + l.returnedQuantity, unitDiscount: first.unitDiscount },
+        ...rest.map((p) => ({
+          ...l,
+          quantity: p.quantity,
+          returnedQuantity: 0,
+          unitDiscount: p.unitDiscount,
+        })),
+      ];
+    });
   const after = withMoney(
     computeTotals(afterLines, {
       ...stateFor,
