@@ -54,7 +54,10 @@ type Props = {
 
 const COLUMNS = ['code', 'balance', 'expiresAt', 'status', 'actions'] as const;
 
-const STATUS_VARIANT: Record<StoreCreditDisplayStatus, 'success' | 'neutral' | 'warning' | 'danger'> = {
+const STATUS_VARIANT: Record<
+  StoreCreditDisplayStatus,
+  'success' | 'neutral' | 'warning' | 'danger'
+> = {
   ACTIVE: 'success',
   USED: 'neutral',
   EXPIRED: 'warning',
@@ -103,7 +106,8 @@ const IssueStoreCreditModal = ({
   const toMap = (list: FieldError[]): FormErrors => {
     const map: FormErrors = {};
     list.forEach((e) => {
-      const key = e.path === 'amount' || e.path === 'expiresAt' || e.path === 'conditions' ? e.path : 'form';
+      const key =
+        e.path === 'amount' || e.path === 'expiresAt' || e.path === 'conditions' ? e.path : 'form';
       if (!map[key]) map[key] = errorText(e.code);
     });
     return map;
@@ -130,11 +134,18 @@ const IssueStoreCreditModal = ({
           conditions: result.input.conditions ?? null,
           idempotencyKey,
         });
-        toggleNotification({ type: 'success', message: t('ecommerce.customers.storeCredits.updated') });
+        toggleNotification({
+          type: 'success',
+          message: t('ecommerce.customers.storeCredits.updated'),
+        });
         onIssued(updated);
         return;
       }
-      const issued = await new IssueStoreCredit().execute({ customerId, ...result.input, idempotencyKey });
+      const issued = await new IssueStoreCredit().execute({
+        customerId,
+        ...result.input,
+        idempotencyKey,
+      });
       toggleNotification({
         type: 'success',
         message: t('ecommerce.customers.storeCredits.issued', { code: issued.code }),
@@ -149,7 +160,9 @@ const IssueStoreCreditModal = ({
           message: t(
             apiErrorMessageId(
               err,
-              credit ? 'ecommerce.customers.storeCredits.updateError' : 'ecommerce.customers.storeCredits.issueError'
+              credit
+                ? 'ecommerce.customers.storeCredits.updateError'
+                : 'ecommerce.customers.storeCredits.issueError'
             )
           ),
         });
@@ -182,12 +195,18 @@ const IssueStoreCreditModal = ({
               error={errors.amount}
               hint={
                 credit
-                  ? t('ecommerce.customers.storeCredits.edit.used', { used: formatCents(used, locale) })
+                  ? t('ecommerce.customers.storeCredits.edit.used', {
+                      used: formatCents(used, locale),
+                    })
                   : undefined
               }
             >
               <Field.Label>
-                {t(credit ? 'ecommerce.customers.storeCredits.edit.amount' : 'ecommerce.customers.storeCredits.modal.amount')}
+                {t(
+                  credit
+                    ? 'ecommerce.customers.storeCredits.edit.amount'
+                    : 'ecommerce.customers.storeCredits.modal.amount'
+                )}
               </Field.Label>
               <TextInput
                 value={form.amount}
@@ -200,12 +219,19 @@ const IssueStoreCreditModal = ({
             </Field.Root>
             <Field.Root name="expiresAt" required error={errors.expiresAt}>
               <Field.Label>{t('ecommerce.customers.storeCredits.modal.expiresAt')}</Field.Label>
-              <DateInput type="date" value={form.expiresAt} onChange={(e: any) => update('expiresAt', e.target.value)} />
+              <DateInput
+                type="date"
+                value={form.expiresAt}
+                onChange={(e: any) => update('expiresAt', e.target.value)}
+              />
               <Field.Error />
             </Field.Root>
             <Field.Root name="conditions" error={errors.conditions}>
               <Field.Label>{t('ecommerce.customers.storeCredits.modal.conditions')}</Field.Label>
-              <Textarea value={form.conditions} onChange={(e: any) => update('conditions', e.target.value)} />
+              <Textarea
+                value={form.conditions}
+                onChange={(e: any) => update('conditions', e.target.value)}
+              />
               <Field.Error />
             </Field.Root>
             {errors.form && <Typography textColor="danger600">{errors.form}</Typography>}
@@ -216,7 +242,11 @@ const IssueStoreCreditModal = ({
             {t('ecommerce.customers.storeCredits.modal.cancel')}
           </Button>
           <Button onClick={submit} loading={saving}>
-            {t(credit ? 'ecommerce.customers.storeCredits.edit.submit' : 'ecommerce.customers.storeCredits.modal.submit')}
+            {t(
+              credit
+                ? 'ecommerce.customers.storeCredits.edit.submit'
+                : 'ecommerce.customers.storeCredits.modal.submit'
+            )}
           </Button>
         </Modal.Footer>
       </Modal.Content>
@@ -262,9 +292,15 @@ const CustomerStoreCredits = ({ customerId, email, canManage }: Props) => {
   const copy = async (code: string) => {
     try {
       await navigator.clipboard.writeText(code);
-      toggleNotification({ type: 'success', message: t('ecommerce.customers.storeCredits.copied') });
+      toggleNotification({
+        type: 'success',
+        message: t('ecommerce.customers.storeCredits.copied'),
+      });
     } catch {
-      toggleNotification({ type: 'danger', message: t('ecommerce.customers.storeCredits.copyError') });
+      toggleNotification({
+        type: 'danger',
+        message: t('ecommerce.customers.storeCredits.copyError'),
+      });
     }
   };
 
@@ -274,7 +310,10 @@ const CustomerStoreCredits = ({ customerId, email, canManage }: Props) => {
     setBusy(true);
     try {
       await new VoidStoreCredit().execute(credit.id);
-      toggleNotification({ type: 'success', message: t('ecommerce.customers.storeCredits.voided') });
+      toggleNotification({
+        type: 'success',
+        message: t('ecommerce.customers.storeCredits.voided'),
+      });
     } catch (err) {
       toggleNotification({
         type: 'danger',
@@ -288,7 +327,11 @@ const CustomerStoreCredits = ({ customerId, email, canManage }: Props) => {
 
   const content = () => {
     if (error && !credits) {
-      return <Typography textColor="danger600">{t('ecommerce.customers.storeCredits.loadError')}</Typography>;
+      return (
+        <Typography textColor="danger600">
+          {t('ecommerce.customers.storeCredits.loadError')}
+        </Typography>
+      );
     }
     if (!credits) {
       return (
@@ -306,13 +349,18 @@ const CustomerStoreCredits = ({ customerId, email, canManage }: Props) => {
         </Box>
       );
     }
+    // No row with a button (no active credit, or no refunds.manage): no Actions column.
+    const withActions = canManage && credits.some((c) => storeCreditDisplayStatus(c) === 'ACTIVE');
+    const columns = COLUMNS.filter((c) => c !== 'actions' || withActions);
     return (
-      <Table colCount={COLUMNS.length} rowCount={credits.length + 1}>
+      <Table colCount={columns.length} rowCount={credits.length + 1}>
         <Thead>
           <Tr>
-            {COLUMNS.map((column) => (
+            {columns.map((column) => (
               <Th key={column}>
-                <ColumnLabel column={column}>{t(`ecommerce.customers.storeCredits.columns.${column}`)}</ColumnLabel>
+                <ColumnLabel column={column}>
+                  {t(`ecommerce.customers.storeCredits.columns.${column}`)}
+                </ColumnLabel>
               </Th>
             ))}
           </Tr>
@@ -324,7 +372,11 @@ const CustomerStoreCredits = ({ customerId, email, canManage }: Props) => {
               <Tr key={credit.id}>
                 <Td>
                   <Flex gap={1} alignItems="center">
-                    <Typography textColor="neutral800" fontWeight="semiBold" style={{ fontFamily: 'monospace' }}>
+                    <Typography
+                      textColor="neutral800"
+                      fontWeight="semiBold"
+                      style={{ fontFamily: 'monospace' }}
+                    >
                       {credit.code}
                     </Typography>
                     <IconButton
@@ -357,21 +409,31 @@ const CustomerStoreCredits = ({ customerId, email, canManage }: Props) => {
                     {t(`ecommerce.customers.storeCredits.statuses.${status}`)}
                   </Badge>
                 </Td>
-                <Td>
-                  {canManage && (status === 'ACTIVE' || status === 'USED') && (
-                    // Still valid (not expired nor void): editable; with a balance: voidable.
-                    <Flex justifyContent="flex-end" gap={2}>
-                      <Button size="S" variant="tertiary" disabled={busy} onClick={() => setEditing(credit)}>
-                        {t('ecommerce.customers.storeCredits.editButton')}
-                      </Button>
-                      {status === 'ACTIVE' && (
-                        <Button size="S" variant="danger-light" disabled={busy} onClick={() => setVoiding(credit)}>
+                {withActions && (
+                  <Td>
+                    {canManage && status === 'ACTIVE' && (
+                      // Still valid with a balance left: editable and voidable (USED, EXPIRED, VOID: neither).
+                      <Flex justifyContent="flex-end" gap={2}>
+                        <Button
+                          size="S"
+                          variant="tertiary"
+                          disabled={busy}
+                          onClick={() => setEditing(credit)}
+                        >
+                          {t('ecommerce.customers.storeCredits.editButton')}
+                        </Button>
+                        <Button
+                          size="S"
+                          variant="danger-light"
+                          disabled={busy}
+                          onClick={() => setVoiding(credit)}
+                        >
                           {t('ecommerce.customers.storeCredits.void')}
                         </Button>
-                      )}
-                    </Flex>
-                  )}
-                </Td>
+                      </Flex>
+                    )}
+                  </Td>
+                )}
               </Tr>
             );
           })}
@@ -425,12 +487,17 @@ const CustomerStoreCredits = ({ customerId, email, canManage }: Props) => {
         key={`void-${voiding?.id ?? 0}`}
         open={canManage && !!voiding}
         title={t('ecommerce.customers.storeCredits.voidTitle', { code: voiding?.code ?? '' })}
-        text={t('ecommerce.customers.storeCredits.voidText', { balance: money(voiding?.balance ?? 0) })}
+        text={t('ecommerce.customers.storeCredits.voidText', {
+          balance: money(voiding?.balance ?? 0),
+        })}
         confirm={{
           button: t('ecommerce.customers.storeCredits.voidConfirm'),
           action: () => voiding && voidCredit(voiding),
         }}
-        cancel={{ button: t('ecommerce.customers.storeCredits.voidCancel'), action: () => setVoiding(null) }}
+        cancel={{
+          button: t('ecommerce.customers.storeCredits.voidCancel'),
+          action: () => setVoiding(null),
+        }}
       />
     </Box>
   );
