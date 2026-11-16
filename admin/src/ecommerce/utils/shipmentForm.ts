@@ -44,9 +44,15 @@ export function parseQuantity(text: string): number | null {
   return /^\d{1,9}$/.test(s) ? Number(s) : null;
 }
 
-/** Lines with units left to ship, each defaulting to everything pending. */
-export function defaultShipLines(lines: { id: number; pending: number }[]): ShipLineDraft[] {
-  return lines.filter((l) => l.pending > 0).map((l) => ({ orderLineId: l.id, quantity: String(l.pending) }));
+/** The units of a line that can ship now: the paid pending ones (all pending ones when settled). */
+export const shippableOf = (l: { pending: number; shippable?: number }): number =>
+  Math.min(l.pending, l.shippable ?? l.pending);
+
+/** Lines with units left to ship, each defaulting to every unit that can ship now. */
+export function defaultShipLines(lines: { id: number; pending: number; shippable?: number }[]): ShipLineDraft[] {
+  return lines
+    .filter((l) => l.pending > 0)
+    .map((l) => ({ orderLineId: l.id, quantity: String(shippableOf(l)) }));
 }
 
 /** A delivery method's identity in the ship form (radio value). */
@@ -110,16 +116,18 @@ export function emptyShipForm(
  */
 export function validateShipForm(
   form: ShipForm,
-  lines: { id: number; pending: number }[],
+  lines: { id: number; pending: number; shippable?: number }[],
   method: ShipMethodOption | null
 ): FormErrors {
   const errors: FormErrors = {};
-  const pendingOf = new Map(lines.map((l) => [l.id, l.pending]));
+  const lineOf = new Map(lines.map((l) => [l.id, l]));
   let units = 0;
   for (const line of form.lines) {
     const q = parseQuantity(line.quantity);
+    const l = lineOf.get(line.orderLineId);
     if (q === null) errors[`lines.${line.orderLineId}`] = 'invalid_quantity';
-    else if (q > (pendingOf.get(line.orderLineId) ?? 0)) errors[`lines.${line.orderLineId}`] = 'QUANTITY_EXCEEDS_PENDING';
+    else if (q > (l?.pending ?? 0)) errors[`lines.${line.orderLineId}`] = 'QUANTITY_EXCEEDS_PENDING';
+    else if (l && q > shippableOf(l)) errors[`lines.${line.orderLineId}`] = 'UNITS_NOT_PAID';
     else units += q;
   }
   if (!units && !Object.keys(errors).length) errors.lines = 'required';

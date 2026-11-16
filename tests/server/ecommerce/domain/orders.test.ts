@@ -9,6 +9,7 @@ import {
   deriveFulfillmentStatus,
   canTransition,
   availableActions,
+  paidUnitsByLine,
   ORDER_STATUSES,
   PAYMENT_STATUSES,
   FULFILLMENT_STATUSES,
@@ -617,5 +618,44 @@ describe('allocateProportionally', () => {
     expect(allocateProportionally(10, [Number.POSITIVE_INFINITY, 1])).toEqual([0, 0]);
     expect(allocateProportionally(Number.NaN, [1, 1])).toEqual([0, 0]);
     expect(allocateProportionally(10, [Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER])).toEqual([0, 0]);
+  });
+});
+
+describe('paid units (shipping while money is owed)', () => {
+  const order = {
+    lines: [
+      { id: 1, tax: 23, unitPrice: 2000, unitDiscount: 0, quantity: 3, returnedQuantity: 0 },
+      { id: 2, tax: 23, unitPrice: 0, unitDiscount: 0, quantity: 1, returnedQuantity: 0 },
+    ],
+    orderDiscount: 0,
+    shippingTotal: 500,
+    shippingTax: 23,
+  };
+  it('whole units of each line its coverage pays; a line worth nothing is paid', () => {
+    const paid = paidUnitsByLine(order, [
+      { coverage: { lines: [{ orderLineId: 1, value: 2500 }], shipping: { value: 0 } } },
+      { coverage: { lines: [{ orderLineId: 1, value: 1600 }] } },
+      { coverage: 'broken' },
+    ]);
+    expect(paid.get(1)).toBe(2);
+    expect(paid.get(2)).toBe(1);
+  });
+
+  it('SHIP while money is owed only with paid units not yet shipped', () => {
+    const summary = financialSummary(10000, [{ status: 'COMPLETED', amount: 4000 }], []);
+    const base = {
+      orderStatus: 'OPEN' as const,
+      paymentStatus: 'PARTIALLY_PAID' as const,
+      fulfillmentStatus: 'UNFULFILLED' as const,
+      summary,
+      hasUnshippedQuantity: true,
+      hasShippedUnreturned: false,
+      allShipmentsDelivered: false,
+      hasPendingPayments: false,
+      hasPendingRefunds: false,
+      canIssueInvoice: false,
+    };
+    expect(availableActions(base)).not.toContain('SHIP');
+    expect(availableActions({ ...base, hasPaidUnshippedQuantity: true })).toContain('SHIP');
   });
 });

@@ -43,6 +43,7 @@ import {
   shipResultMessageId,
   shipStore,
   shipStoreErrorId,
+  shippableOf,
   validateShipForm,
   type FormErrors,
   type ShipForm,
@@ -283,7 +284,15 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
                           <Typography textColor="neutral800">{line.shipped}</Typography>
                         </Td>
                         <Td>
-                          <Typography textColor="neutral800">{line.pending}</Typography>
+                          <Flex direction="column" alignItems="flex-start">
+                            <Typography textColor="neutral800">{line.pending}</Typography>
+                            {/* Units that wait for payment while the order owes money. */}
+                            {line.pending > shippableOf(line) && (
+                              <Typography variant="pi" textColor="danger600">
+                                {t('ecommerce.orders.ship.unpaidUnits', { count: line.pending - shippableOf(line) })}
+                              </Typography>
+                            )}
+                          </Flex>
                         </Td>
                         <InputTd style={{ width: 120 }}>
                           <Field.Root name={`quantity-${line.id}`} error={error}>

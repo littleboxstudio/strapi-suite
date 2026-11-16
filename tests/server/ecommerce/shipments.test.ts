@@ -716,3 +716,33 @@ describe('EcommerceShipmentService.getLabel', () => {
     expect(await codesOf(ships.getLabel(s.id))).toEqual(['LABEL_NOT_AVAILABLE']);
   });
 });
+
+describe('shipping while the order still owes money', () => {
+  it('only the paid units ship; the others wait for payment', async () => {
+    const { c } = setup();
+    const { id, lineId } = await paidOrder(c, 2, 'manual', false);
+    // 2 × 2000 + 500 shipping: 2500 paid covers one unit's worth (and part of the rest).
+    await c.payments.addManualPayment(id, { amount: 2500, idempotencyKey: `part-${id}` }, 'user:1');
+    const view = await c.orders.get(id);
+    expect(view.availableActions).toContain('SHIP');
+    expect(view.lines[0]).toMatchObject({ pending: 2, shippable: 1 });
+
+    expect(await codesOf(c.services.EcommerceShipmentService.create(id, manual(lineId, 2, 'k-2'), 'user:1'))).toEqual([
+      'UNITS_NOT_PAID',
+    ]);
+    await c.services.EcommerceShipmentService.create(id, manual(lineId, 1, 'k-1'), 'user:1');
+    const after = await c.orders.get(id);
+    expect(after.lines[0]).toMatchObject({ pending: 1, shippable: 0 });
+    expect(after.availableActions).not.toContain('SHIP');
+
+    // Paid in full: the rest ships.
+    await c.payments.addManualPayment(id, { amount: 2000, idempotencyKey: `rest-${id}` }, 'user:1');
+    expect((await c.orders.get(id)).availableActions).toContain('SHIP');
+  });
+
+  it('nothing paid: no SHIP', async () => {
+    const { c } = setup();
+    const { id } = await paidOrder(c, 2, 'manual', false);
+    expect((await c.orders.get(id)).availableActions).not.toContain('SHIP');
+  });
+});

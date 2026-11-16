@@ -2212,5 +2212,7 @@
   "littlebox-strapi-suite.ecommerce.orders.history.type.SHIPPING_LINE_REMOVED": "Shipping charge removed",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.badge.UNPAID": "Unpaid",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.markSeen": "Mark as seen",
-  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.seen": "The shipping alert was marked as seen."
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.seen": "The shipping alert was marked as seen.",
+  "littlebox-strapi-suite.ecommerce.orders.errors.UNITS_NOT_PAID": "Only the paid units can ship while the order still has an amount to pay.",
+  "littlebox-strapi-suite.ecommerce.orders.ship.unpaidUnits": "{count} not paid yet"
 }

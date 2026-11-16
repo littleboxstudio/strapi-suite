@@ -14,6 +14,7 @@ import {
   deriveFulfillmentStatus,
   derivePaymentStatus,
   financialSummary,
+  paidUnitsByLine,
   shippedQuantities,
   type Address,
   type FinancialSummary,
@@ -195,6 +196,11 @@ export type OrderLineView = {
   reserved: number;
   /** quantity − reserved */
   pending: number;
+  /**
+   * The pending units that can ship now: all of them once the order owes nothing, else the ones
+   * its payments cover (paid units not yet shipped).
+   */
+  shippable: number;
   /** shipped − returnedQuantity */
   returnable: number;
 };
@@ -1156,6 +1162,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       shipped: s,
       reserved: r,
       pending: Math.max(0, quantity - r),
+      shippable: Math.max(0, quantity - r),
       returnable: Math.max(0, s - num(l.returnedQuantity)),
     };
   };
@@ -1308,6 +1315,31 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     const payments: any[] = [...(order.payments ?? [])].sort((a, b) => a.id - b.id);
     const refunds = await loadRefunds(orderId);
     const summary = summaryOf(order, payments.map(toPaymentLike), refunds.map(toRefundLike));
+    // While the order owes money, only the units its payments cover ship (the rest wait).
+    const settled = summary.due === 0 && (summary.paid > 0 || summary.orderTotal === 0);
+    if (!settled) {
+      const paid = paidUnitsByLine(
+        {
+          lines: lines.map((l) => ({
+            id: l.id,
+            tax: l.tax,
+            unitPrice: l.unitPrice,
+            unitDiscount: l.unitDiscount,
+            quantity: l.quantity,
+            returnedQuantity: l.returnedQuantity,
+          })),
+          orderDiscount: num(order.orderDiscount),
+          shippingTotal: num(order.shippingTotal),
+          shippingTax: num(order.shippingTax),
+        },
+        payments.filter((p) => p.status === 'COMPLETED')
+      );
+      for (const l of lines) {
+        // Paid units already in a shipment (returned ones were shipped, then came back).
+        const used = Math.max(0, l.reserved - l.returnedQuantity);
+        l.shippable = Math.max(0, Math.min(l.pending, (paid.get(l.id) ?? 0) - used));
+      }
+    }
     const inFlight = refunds.filter((r) => IN_FLIGHT_REFUND.includes(r.status));
     const inFlightRefunds = inFlight.reduce((s, r) => s + num(r.amount), 0);
     const hasPendingRefunds = inFlight.length > 0;
@@ -1334,6 +1366,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       fulfillmentStatus: order.fulfillmentStatus,
       summary,
       hasUnshippedQuantity: lines.some((l) => l.pending > 0),
+      hasPaidUnshippedQuantity: lines.some((l) => l.shippable > 0),
       hasShippedUnreturned: lines.some((l) => l.shipped > l.returnedQuantity),
       allShipmentsDelivered: shipments
         .filter((s) => s.status === 'ACTIVE')

@@ -1104,6 +1104,14 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
           n.lines
         );
         if (issues.length) throw new EcommerceValidationError('Invalid shipment', issues);
+        // While the order owes money, only paid units ship (`shippable`).
+        const unpaid = n.lines.flatMap((r, i) => {
+          const line = state.lines.find((l) => l.id === r.orderLineId);
+          return line && r.quantity > line.shippable
+            ? [{ path: `lines.${i}.quantity`, code: 'UNITS_NOT_PAID' }]
+            : [];
+        });
+        if (unpaid.length) throw new EcommerceValidationError('Invalid shipment', unpaid);
 
         const lineById = new Map(state.lines.map((l) => [l.id, l]));
         const items: ShipmentItem[] = n.lines.map((r) => {

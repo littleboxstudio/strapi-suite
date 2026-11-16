@@ -1996,5 +1996,7 @@
   "littlebox-strapi-suite.ecommerce.orders.history.type.SHIPPING_LINE_REMOVED": "Linha de portes removida",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.badge.UNPAID": "Por pagar",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.markSeen": "Marcar como visto",
-  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.seen": "O aviso dos portes foi marcado como visto."
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.seen": "O aviso dos portes foi marcado como visto.",
+  "littlebox-strapi-suite.ecommerce.orders.errors.UNITS_NOT_PAID": "Enquanto a encomenda tiver valor em falta, só seguem as unidades pagas.",
+  "littlebox-strapi-suite.ecommerce.orders.ship.unpaidUnits": "{count} por pagar"
 }

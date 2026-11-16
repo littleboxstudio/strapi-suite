@@ -477,3 +477,23 @@ describe('store pickup ship method', () => {
     expect(cancelWarningId(s)).toBe('ecommerce.orders.shipments.cancel.warning');
   });
 });
+
+describe('paid units while money is owed', () => {
+  const mixed = [
+    { id: 1, pending: 3, shippable: 1 },
+    { id: 2, pending: 2 },
+  ];
+  it('defaults each line to the units that can ship now', () => {
+    expect(defaultShipLines(mixed)).toEqual([
+      { orderLineId: 1, quantity: '1' },
+      { orderLineId: 2, quantity: '2' },
+    ]);
+  });
+
+  it('more than the paid units is UNITS_NOT_PAID; more than pending stays QUANTITY_EXCEEDS_PENDING', () => {
+    const form = (q: string) => ({ ...emptyShipForm({ lines: [] } as any, [manual]), methodKey: shipMethodKey(manual), trackingCode: 'RR1', lines: [{ orderLineId: 1, quantity: q }] });
+    expect(validateShipForm(form('2'), mixed, manual)).toEqual({ 'lines.1': 'UNITS_NOT_PAID' });
+    expect(validateShipForm(form('4'), mixed, manual)).toEqual({ 'lines.1': 'QUANTITY_EXCEEDS_PENDING' });
+    expect(validateShipForm(form('1'), mixed, manual)).toEqual({});
+  });
+});

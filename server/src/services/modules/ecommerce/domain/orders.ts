@@ -263,6 +263,11 @@ export type AvailableActionsInput = {
   /** For cancelled orders, pass the summary computed with `orderCancelled: true`. */
   summary: Pick<FinancialSummary, 'due' | 'excess' | 'paid' | 'orderTotal'>;
   hasUnshippedQuantity: boolean;
+  /**
+   * Some unit not yet shipped is already paid (its line's payment coverage): it ships even while
+   * the order still owes money for other units.
+   */
+  hasPaidUnshippedQuantity?: boolean;
   hasShippedUnreturned: boolean;
   allShipmentsDelivered: boolean;
   hasPendingPayments: boolean;
@@ -280,7 +285,7 @@ export const availableActions = (input: AvailableActionsInput): OrderActionKey[]
   // Shipping is gated on the settled balance, not on the PAID label (which a
   // partial refund or a zero-total order would never reach).
   const settled = due === 0 && (input.summary.paid > 0 || input.summary.orderTotal === 0);
-  if (open && settled && input.hasUnshippedQuantity) actions.push('SHIP');
+  if (open && (settled ? input.hasUnshippedQuantity : !!input.hasPaidUnshippedQuantity)) actions.push('SHIP');
   if (open) actions.push('CANCEL');
   if (excess > 0) actions.push('REFUND');
   if (open && due > 0) actions.push('ADD_PAYMENT', 'SEND_PAYMENT_INSTRUCTIONS');
@@ -384,6 +389,35 @@ export const coverageDues = (
     lineDue: nets.map((n, i) => n - shares[i]),
     shippingDue: Math.max(0, finiteOr0(order.shippingTotal)),
   };
+};
+
+/**
+ * The units of each line its payments cover (by value, design 4.4): the line's covered value over
+ * what each of its units is worth, whole units only. A line worth nothing counts as paid.
+ * `payments`: the COMPLETED ones; malformed coverages count as nothing.
+ */
+export const paidUnitsByLine = (
+  order: CoverageOrderState,
+  payments: { coverage?: unknown }[]
+): Map<number, number> => {
+  const { lineDue } = coverageDues(order);
+  const covered = new Map<number, number>();
+  for (const p of payments) {
+    const c = p?.coverage as Partial<PaymentCoverage> | null | undefined;
+    if (!c || typeof c !== 'object' || !Array.isArray(c.lines)) continue;
+    for (const l of c.lines) {
+      const id = Number(l?.orderLineId);
+      if (Number.isFinite(id)) covered.set(id, (covered.get(id) ?? 0) + finiteOr0(l?.value));
+    }
+  }
+  const out = new Map<number, number>();
+  order.lines.forEach((l, i) => {
+    const units = Math.max(0, l.quantity - l.returnedQuantity);
+    const due = lineDue[i];
+    const value = covered.get(l.id) ?? 0;
+    out.set(l.id, due <= 0 || value >= due ? units : Math.floor((value * units) / due));
+  });
+  return out;
 };
 
 /**
