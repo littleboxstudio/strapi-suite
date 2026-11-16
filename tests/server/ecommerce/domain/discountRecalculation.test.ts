@@ -556,6 +556,23 @@ describe('recalculateDiscounts — shipped lines are frozen', () => {
     expect(r.lines).toEqual([]);
     expect(r.after.total).toBe(9300);
   });
+
+  it('a line held by a PENDING shipment (reserved, not shipped yet) is frozen too', () => {
+    const p5 = promo(5, [
+      {
+        type: 'BUY_X_GET_Y',
+        buy: { target: T(1), quantity: 2, minAmount: null },
+        get: { mode: 'IN_CART', target: T(1), quantity: 1 },
+        reward: { kind: 'FREE' },
+      },
+    ]);
+    const r = recalculateDiscounts(
+      ctx({ lines: [line(1, 1, 3100, 3, { shipped: 0, reserved: 3 })], candidates: [p5] }),
+      ['p:5']
+    );
+    expect(r.lines).toEqual([]);
+    expect(r.after.total).toBe(9300);
+  });
 });
 
 describe('recalculateDiscounts — shipping promotions', () => {
