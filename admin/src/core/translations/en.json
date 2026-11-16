@@ -2042,6 +2042,8 @@
   "littlebox-strapi-suite.ecommerce.orders.errors.DISCOUNT_EXCEEDS_PRODUCTS": "The discount cannot exceed the value of the products.",
   "littlebox-strapi-suite.ecommerce.orders.errors.SHIPPING_LINE_NOT_FOUND": "The shipping charge was not found. Reload the order.",
   "littlebox-strapi-suite.ecommerce.orders.errors.SHIPPING_LINE_PAID": "This shipping charge is already paid and cannot be edited.",
+  "littlebox-strapi-suite.ecommerce.orders.errors.CREDIT_EXCEEDS_INVOICE": "The credit note would credit more than the invoice still holds.",
+  "littlebox-strapi-suite.ecommerce.orders.errors.SHIPPING_LINE_LOCKED": "A paid or invoiced shipping charge cannot be lowered. Register a refund and a credit note.",
   "littlebox-strapi-suite.ecommerce.orders.errors.SHIPPING_METHOD_REQUIRED": "Choose a shipping method for the products added after the order was shipped.",
   "littlebox-strapi-suite.ecommerce.orders.errors.BILLING_ADDRESS_LOCKED": "The billing address can no longer be changed: the order already has an invoice.",
   "littlebox-strapi-suite.ecommerce.orders.address.billingLocked.INVOICED": "The billing address cannot be changed: the order already has an invoice.",

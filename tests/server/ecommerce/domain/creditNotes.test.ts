@@ -422,3 +422,40 @@ describe('settledShippingLineIds', () => {
     expect(settledShippingLineIds([s(2, -300)], 0)).toEqual([]);
   });
 });
+
+describe('legacy invoices with a negative shipping line: a credit never exceeds what the invoice holds', () => {
+  /** Legacy: shipping 500 and a −260 credit line invoiced together (holds 1500 + 240). */
+  const legacyOrder = (): PositionOrder => {
+    const o = order(returned);
+    return {
+      ...o,
+      shippingTotal: 240,
+      shippingLines: [...o.shippingLines, { ...o.shippingLines[0], id: 2, origin: 'RECALCULATION', amount: -260 }],
+    };
+  };
+  const negative: InvoiceLine = { ...ship, total: -260, shippingLineId: 2 };
+  const inv = invoice([item(3, 1500), ship, negative]);
+
+  it('CORRECTION credits exactly what the invoice holds (1740), never the positive line alone', () => {
+    const options = creditOptions(inv, [inv], legacyOrder());
+    const built = buildCreditLines(inv, options, { creditType: 'CORRECTION', lines: [], shippingIndexes: [] });
+    expect(built.issues).toEqual([]);
+    expect(built.total).toBe(1740);
+    expect(built.lines.every((l) => l.total >= 0)).toBe(true);
+  });
+
+  it('RETURN of the shipping line credits at most the shipping the invoice holds (240)', () => {
+    const options = creditOptions(inv, [inv], legacyOrder());
+    expect(options.shipping).toEqual([{ index: 1, value: 240 }]);
+    const built = buildCreditLines(inv, options, request({ shippingIndexes: [1] }));
+    expect(built.total).toBe(240);
+  });
+
+  it('a request above what is left is refused (CREDIT_EXCEEDS_INVOICE)', () => {
+    const options = creditOptions(inv, [inv], legacyOrder());
+    const forged = { ...options, shipping: [{ index: 1, value: 5000 }] };
+    expect(buildCreditLines(inv, forged, request({ shippingIndexes: [1] })).issues).toEqual([
+      { path: 'lines', code: 'CREDIT_EXCEEDS_INVOICE' },
+    ]);
+  });
+});

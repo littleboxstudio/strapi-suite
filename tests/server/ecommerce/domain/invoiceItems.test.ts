@@ -102,9 +102,12 @@ describe('invoiceItems', () => {
     expect(items.shipping).toEqual([{ shippingLineId: 1, value: 700, invoiced: false }]);
   });
 
-  it('a negative credit line is its own item', () => {
+  it('a legacy negative shipping line is never offered: it reads invoiced', () => {
     const items = invoiceItems(order({ shippingLines: [ship(1, 500), ship(2, -260)] }), []);
-    expect(items.shipping.map((s) => s.value)).toEqual([500, -260]);
+    expect(items.shipping).toEqual([
+      { shippingLineId: 1, value: 500, invoiced: false },
+      { shippingLineId: 2, value: -260, invoiced: true },
+    ]);
   });
 
   it('discount items: manual, ORDER promotion benefit, shipping promotion', () => {
@@ -148,14 +151,12 @@ describe('invoiceItems', () => {
       });
     const negative = (docs: InvoiceDoc[]) =>
       invoiceItems(o, docs).shipping.find((x) => x.shippingLineId === 2)!.invoiced;
-    expect(negative([inv])).toBe(false);
+    // Legacy negative lines are never offered, settled or not (negative lines are never created).
+    expect(negative([inv])).toBe(true);
     expect(negative([inv, cn()])).toBe(true);
-    expect(negative([inv, cn({ status: 'PENDING' })])).toBe(true);
-    expect(negative([inv, cn({ status: 'UNCERTAIN' })])).toBe(true);
-    expect(negative([inv, cn({ status: 'FAILED' })])).toBe(false);
-    // Its invoice annulled: the shipping is no longer invoiced, so the credit line is offered again.
+    expect(negative([inv, cn({ status: 'FAILED' })])).toBe(true);
     const correction = doc(3, [], { kind: 'CREDIT_NOTE', creditedInvoiceId: 1, creditType: 'CORRECTION' });
-    expect(negative([inv, cn(), correction])).toBe(false);
+    expect(negative([inv, cn(), correction])).toBe(true);
   });
 });
 
@@ -248,7 +249,7 @@ describe('priceWholeSelection', () => {
     expect(r.issues).toEqual([{ path: 'paymentIds', code: 'INVOICE_TOTALS_DIFFER' }]);
   });
 
-  it('a negative shipping item lowers the total', () => {
+  it('a negative shipping item is never priced (SHIPPING_LINE_NOT_INVOICEABLE)', () => {
     const r = priceWholeSelection(
       items({
         lines: [{ orderLineId: 1, units: 1, value: 1000, invoiced: false }],
@@ -258,7 +259,6 @@ describe('priceWholeSelection', () => {
       pay(740),
       req({ orderLineIds: [1], discountIds: [] })
     );
-    expect(r.issues).toEqual([]);
-    expect(r.selection?.total).toBe(740);
+    expect(r.issues).toEqual([{ path: 'shippingLineIds.0', code: 'SHIPPING_LINE_NOT_INVOICEABLE' }]);
   });
 });

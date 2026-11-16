@@ -31,6 +31,8 @@ export type CreditOptions = {
    * order now charges (latest line first); empty when there is none.
    */
   shippingAdjustment: { index: number; value: number }[];
+  /** Cents the invoice still holds (its lines less what live credit notes took): no credit exceeds it. */
+  held: number;
 };
 
 export type CreditRequest = {
@@ -151,6 +153,22 @@ export function creditOptions(
     );
     return Math.max(0, num(l.total) - credited);
   });
+  // Legacy invoices may hold a negative shipping line (never creditable by itself): it comes off
+  // the positive shipping lines, latest first, so no credit exceeds the shipping invoiced.
+  let negative = -sum(
+    invoice.lines.filter((l) => l.kind === 'SHIPPING' && num(l.total) < 0).map((l) => num(l.total))
+  );
+  for (let i = invoice.lines.length - 1; i >= 0 && negative > 0; i--) {
+    if (invoice.lines[i].kind !== 'SHIPPING' || creditable[i] <= 0) continue;
+    const take = Math.min(negative, creditable[i]);
+    creditable[i] -= take;
+    negative -= take;
+  }
+  const held = Math.max(
+    0,
+    sum(invoice.lines.filter((l) => l.kind !== 'DISCOUNT').map((l) => num(l.total))) -
+      sum(live.flatMap((cn) => cn.creditedLines.map((e) => e.value)))
+  );
   const unitsLeft = invoice.lines.map((l, i) => {
     if (!isWholeItem(l) || creditable[i] <= 0) return 0;
     const credited = sum(
@@ -209,7 +227,7 @@ export function creditOptions(
     left -= value;
   });
 
-  return { creditable, unitsLeft, returnable, shipping, shippingAdjustment };
+  return { creditable, unitsLeft, returnable, shipping, shippingAdjustment, held };
 }
 
 /**
@@ -336,10 +354,14 @@ export function buildCreditLines(
   }
 
   entries.sort((a, b) => a.index - b.index);
+  const total = sum(entries.map((e) => e.value));
+  if (options.held !== undefined && total > options.held) {
+    return failed([{ path: 'lines', code: 'CREDIT_EXCEEDS_INVOICE' }]);
+  }
   return {
     lines: entries.map((e) => e.line),
     creditedLines: entries.map((e) => ({ index: e.index, value: e.value, quantity: e.quantity })),
-    total: sum(entries.map((e) => e.value)),
+    total,
     issues: [],
   };
 }

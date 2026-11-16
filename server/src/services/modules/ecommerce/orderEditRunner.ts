@@ -271,6 +271,13 @@ export function createEditRunner(
       ? await strapi.db.query(u.orderLine).findMany({ where: { order: order.id } })
       : state.lines;
     const shippingLines = data.shippingLines ?? readShippingLines(order);
+    if (data.shippingLines) {
+      // No negative shipping line or correction is ever written; legacy ones already stored stay.
+      const stored = new Map(readShippingLines(order).map((l) => [l.id, l.amount]));
+      if (data.shippingLines.some((l) => l.amount < 0 && stored.get(l.id) !== l.amount)) {
+        throw issue('Invalid shipping', { path: 'shippingLines', code: 'INVALID_AMOUNT' });
+      }
+    }
     const changes: Record<string, unknown> = {};
     let shippingOriginal = num(order.shippingOriginal);
     if (data.shippingLines) {

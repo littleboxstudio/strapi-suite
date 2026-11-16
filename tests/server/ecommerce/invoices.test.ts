@@ -436,7 +436,7 @@ describe('EcommerceInvoiceService.issue', () => {
     );
   });
 
-  it('a negative shipping line is offered as its own item at its negative value', async () => {
+  it('a legacy negative shipping line is never offered nor invoiced', async () => {
     const { c, inv } = setup();
     const id = await order(c, []);
     const row = orderRow(c, id);
@@ -448,19 +448,17 @@ describe('EcommerceInvoiceService.issue', () => {
     row.total -= 200;
     await pay(c, id, 4300, 'p1');
     const selection = await inv.selection(id);
-    expect(selection.shipping).toEqual([
-      expect.objectContaining({ shippingLineId: 1, value: 500 }),
-      expect.objectContaining({ shippingLineId: 2, value: -200 }),
-    ]);
-    const view = await testIssueAll(c, id, 'k1');
-    expect(view.total).toBe(4300);
-    expect(view.lines).toContainEqual(
-      expect.objectContaining({ kind: 'SHIPPING', shippingLineId: 1, total: 500, grossTotal: 500 })
-    );
-    // Stored as is (the reader keeps only a positive grossTotal).
-    expect(invoiceRows(c)[0].lines.lines).toContainEqual(
-      expect.objectContaining({ kind: 'SHIPPING', shippingLineId: 2, total: -200, grossTotal: -200 })
-    );
+    expect(selection.shipping).toEqual([expect.objectContaining({ shippingLineId: 1, value: 500 })]);
+    const paymentId = paymentRows(c, id)[0].id;
+    const err: any = await inv
+      .issue(
+        id,
+        { orderLineIds: [], shippingLineIds: [1, 2], discountIds: [], paymentIds: [paymentId], expectedTotal: 300, idempotencyKey: 'k1' },
+        'user:1'
+      )
+      .catch((e: unknown) => e);
+    expect(err.errors).toContainEqual({ path: 'shippingLineIds.1', code: 'SHIPPING_LINE_NOT_INVOICEABLE' });
+    expect(invoiceRows(c)).toHaveLength(0);
   });
 
   it('totals that differ → INVOICE_TOTALS_DIFFER and nothing is written', async () => {
@@ -1728,9 +1726,7 @@ describe('shipping lowered below what was invoiced', () => {
     expect(cn).toMatchObject({ status: 'ISSUED', total: 300 });
     expect((await c.orders.get(id)).invoicing.shippingToCredit).toBe(0);
 
-    // The credit note settles the −300 credit line: it is never offered (nor counted) again.
-    const cnRow = invoiceRows(c).find((r) => r.kind === 'CREDIT_NOTE');
-    expect(cnRow.metadata.settledShippingLineIds).toEqual([2]);
+    // The legacy −300 credit line is never offered (negative lines are never invoiced).
     const after = await inv.selection(id);
     expect(after.overInvoiced).toEqual({ shipping: 0 });
     expect(after.shipping).toEqual([]);

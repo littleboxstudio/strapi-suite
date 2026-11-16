@@ -101,8 +101,8 @@ describe('EcommerceOrderEditingController', () => {
     'maps %s to 409 with details.code',
     async (code) => {
       const ctx = mkCtx({ params: { id: '1' } });
-      await controller({ recalculateShipping: vi.fn().mockRejectedValue(invalid(code)) })
-        .recalculateShipping(ctx);
+      await controller({ addShippingLine: vi.fn().mockRejectedValue(invalid(code)) })
+        .addShippingLine(ctx);
       expect(ctx.status).toBe(409);
       expect(ctx.body.error.details.code).toBe(code);
     }
