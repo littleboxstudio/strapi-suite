@@ -867,6 +867,19 @@ describe('dismissReviewFlag (ruling 23)', () => {
     expect(flagsOf(ctx, id)).toHaveLength(1);
   });
 
+  it('SHIPPING_REVIEW can be marked as seen on an editable order; the other flags stay', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    orderRow(ctx, id).reviewFlags = {
+      flags: [
+        { code: 'SHIPPING_REVIEW', reason: 'PRODUCTS_CHANGED', raisedAt: '2026-01-01T00:00:00.000Z', actor: 'user:1' },
+        { code: 'DISCOUNTS_REVIEW', reason: 'PRODUCTS_CHANGED', raisedAt: '2026-01-01T00:00:00.000Z', actor: 'user:1' },
+      ],
+    };
+    await ctx.editing.dismissReviewFlag(id, 'SHIPPING_REVIEW', 'user:1', 'op-dismiss-ship');
+    expect(flagsOf(ctx, id).map((f: any) => f.code)).toEqual(['DISCOUNTS_REVIEW']);
+  });
+
   it('on a cancelled order: the flag is removed and REVIEW_FLAG_DISMISSED recorded', async () => {
     const ctx = setup();
     const id = await createOrder(ctx);

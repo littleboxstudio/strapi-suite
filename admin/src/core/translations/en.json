@@ -2210,5 +2210,7 @@
   "littlebox-strapi-suite.ecommerce.orders.errors.SHIPPING_LINE_INVOICED": "This shipping charge is already invoiced and cannot be removed.",
   "littlebox-strapi-suite.ecommerce.orders.errors.SHIPPING_LINE_LAST": "The order must keep at least one shipping charge.",
   "littlebox-strapi-suite.ecommerce.orders.history.type.SHIPPING_LINE_REMOVED": "Shipping charge removed",
-  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.badge.UNPAID": "Unpaid"
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.badge.UNPAID": "Unpaid",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.markSeen": "Mark as seen",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.seen": "The shipping alert was marked as seen."
 }

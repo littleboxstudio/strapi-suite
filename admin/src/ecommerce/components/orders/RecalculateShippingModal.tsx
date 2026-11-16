@@ -5,6 +5,7 @@ import { Box, Button, Field, Flex, Loader, Modal, Radio, Typography } from '@str
 import { getTranslation } from '../../../core/utils/getTranslation';
 import PreviewShippingRecalculation from '../../usecases/orders/previewShippingRecalculation';
 import RecalculateShipping from '../../usecases/orders/recalculateShipping';
+import DismissReviewFlag from '../../usecases/orders/dismissReviewFlag';
 import { formatCents } from '../../utils/money';
 import { shippingOptionKey } from '../../utils/orderEditing';
 import { NOTICE_BACKGROUND, NOTICE_TEXT } from './NoticeBar';
@@ -77,6 +78,28 @@ const RecalculateShippingModal = ({ order, onClose, onSaved }: Props) => {
     // Loaded per opening and per pick.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [picked]);
+
+  /** The shipping review alert is open: it can be marked as seen from here. */
+  const hasReviewAlert = (order.reviewFlags ?? []).some((f) => f.code === 'SHIPPING_REVIEW');
+  const [dismissing, setDismissing] = useState(false);
+
+  /** Marks the shipping review alert as seen (dismissed), whatever the comparison shows. */
+  const markSeen = async () => {
+    if (dismissing || busy) return;
+    setDismissing(true);
+    try {
+      onSaved(await new DismissReviewFlag().execute(order.id, 'SHIPPING_REVIEW', { operationId: mintUuid() }));
+      toggleNotification({ type: 'success', message: t('ecommerce.orders.shippingCharges.seen') });
+      onClose();
+    } catch (err) {
+      toggleNotification({
+        type: 'danger',
+        message: t(apiErrorMessageId(err, 'ecommerce.orders.review.dismissError')),
+      });
+    } finally {
+      setDismissing(false);
+    }
+  };
 
   const confirm = async () => {
     if (busy) return;
@@ -226,12 +249,19 @@ const RecalculateShippingModal = ({ order, onClose, onSaved }: Props) => {
           <Button variant="tertiary" onClick={onClose} disabled={busy}>
             {t('ecommerce.orders.shippingCharges.close')}
           </Button>
-          {/* Only when the charges match the quote: confirming clears the review alert. */}
-          {preview && !loading && !loadError && !preview.needsMethod && difference === 0 && (
-            <Button onClick={confirm} loading={busy}>
-              {t('ecommerce.orders.shippingCharges.confirm')}
-            </Button>
-          )}
+          <Flex gap={2}>
+            {hasReviewAlert && (
+              <Button variant="secondary" onClick={markSeen} loading={dismissing} disabled={busy}>
+                {t('ecommerce.orders.shippingCharges.markSeen')}
+              </Button>
+            )}
+            {/* Only when the charges match the quote: confirming clears the review alert. */}
+            {preview && !loading && !loadError && !preview.needsMethod && difference === 0 && (
+              <Button onClick={confirm} loading={busy} disabled={dismissing}>
+                {t('ecommerce.orders.shippingCharges.confirm')}
+              </Button>
+            )}
+          </Flex>
         </Modal.Footer>
       </Modal.Content>
       {help && (
