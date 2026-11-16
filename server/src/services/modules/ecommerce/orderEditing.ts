@@ -453,6 +453,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         productId: l.productId,
         isGift: l.isGift,
         shipped: l.shipped,
+        reserved: l.reserved,
         unitPrice: l.unitPrice,
         unitDiscount: l.unitDiscount,
         quantity: l.quantity,
