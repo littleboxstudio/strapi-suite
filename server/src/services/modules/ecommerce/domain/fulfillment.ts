@@ -1,14 +1,7 @@
 /**
  * Pure shipment, delivery and return domain rules (no Strapi imports). Money is integer cents.
  */
-import {
-  orderDiscountShareForReturn,
-  type FulfillmentStatus,
-  type LineAmounts,
-  type ShipmentLike,
-  type ShipmentStatus,
-} from './orders';
-import { EcommerceValidationError } from '../errors';
+import type { FulfillmentStatus, ShipmentLike, ShipmentStatus } from './orders';
 
 export type { ShipmentStatus };
 
@@ -147,34 +140,4 @@ export const validateReturnRequest = (
     });
   }
   return issues;
-};
-
-export type ReturnComputation = {
-  items: { orderLineId: number; quantity: number; value: number }[];
-  grossValue: number;
-  discountShare: number;
-  refundableValue: number;
-};
-
-/**
- * `lines` must reflect the order before this return. Call after `validateReturnRequest`;
- * an unknown `orderLineId` throws.
- */
-export const computeReturn = (
-  lines: (LineAmounts & { id: number })[],
-  orderDiscount: number,
-  request: { orderLineId: number; quantity: number }[],
-): ReturnComputation => {
-  const byId = new Map(lines.map((l) => [l.id, l]));
-  const items = request.map((r) => {
-    const l = byId.get(r.orderLineId);
-    if (!l) {
-      throw new EcommerceValidationError('Unknown order line', [{ path: 'lines', code: 'unknown_line' }]);
-    }
-    const value = (l.unitPrice - l.unitDiscount) * r.quantity;
-    return { orderLineId: r.orderLineId, quantity: r.quantity, value };
-  });
-  const grossValue = items.reduce((sum, i) => sum + i.value, 0);
-  const discountShare = orderDiscountShareForReturn(lines, orderDiscount, request);
-  return { items, grossValue, discountShare, refundableValue: grossValue - discountShare };
 };

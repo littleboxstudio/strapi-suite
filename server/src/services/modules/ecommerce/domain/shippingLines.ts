@@ -331,10 +331,6 @@ export function planLineChange(
   };
 }
 
-/** Kept by a recalculation: an invoice includes the line or one of its corrections (spec 6.3). */
-const invoicedIn = (lines: ShippingLineView[], l: ShippingLineView): boolean =>
-  l.invoiced || correctionsOf(lines, l.id).some((c) => c.invoiced);
-
 /** The method of the most recent invoiced line: a recalculation charges the same company. */
 export function invoicedMethod(lines: ShippingLineView[]): ShippingMethodRef | null {
   const latest = [...lines].sort(byId).reverse().find((l) => l.invoiced);

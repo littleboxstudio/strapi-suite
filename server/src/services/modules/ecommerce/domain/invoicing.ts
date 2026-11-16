@@ -142,26 +142,3 @@ export function paymentMethodName(method: string, methodLabel: unknown): string 
     ? methodLabel.trim().slice(0, MAX_METHOD_NAME).trim()
     : '';
 }
-
-// ---------------------------------------------------------------------------
-// Dates
-// ---------------------------------------------------------------------------
-
-/** `YYYY-MM-DD` in the store time zone (UTC when the zone is invalid). */
-export const issueDate = (now: Date, timeZone: string): string => {
-  const format = (tz: string) => {
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: tz,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).formatToParts(now);
-    const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
-    return `${get('year')}-${get('month')}-${get('day')}`;
-  };
-  try {
-    return format(timeZone);
-  } catch {
-    return format('UTC');
-  }
-};

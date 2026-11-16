@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   allocateProportionally,
   computeTotals,
-  orderDiscountShareForReturn,
   financialSummary,
   derivePaymentStatus,
   shippedQuantities,
@@ -555,44 +554,6 @@ describe('fix round 1', () => {
     expect(s.due).toBe(7000);
     expect(s.due).toBeGreaterThan(s.total);
     expect(derivePaymentStatus(s)).toBe('PENDING');
-  });
-});
-
-describe('orderDiscountShareForReturn', () => {
-  const twoUnits = (returnedQuantity: number) => [
-    { id: 1, unitPrice: 5000, unitDiscount: 1000, quantity: 2, returnedQuantity },
-  ];
-
-  it('returning 1 of 2 units → share 650 of 1300', () => {
-    expect(orderDiscountShareForReturn(twoUnits(0), 1300, [{ orderLineId: 1, quantity: 1 }])).toBe(650);
-  });
-
-  it('a second return of the last unit, with the discount now 650 → share 650', () => {
-    expect(orderDiscountShareForReturn(twoUnits(1), 650, [{ orderLineId: 1, quantity: 1 }])).toBe(650);
-  });
-
-  it('rounds half-up to integer cents', () => {
-    // 1001 × 4000 / 8000 = 500.5 → 501
-    expect(orderDiscountShareForReturn(twoUnits(0), 1001, [{ orderLineId: 1, quantity: 1 }])).toBe(501);
-  });
-
-  it('is 0 when the subtotal is 0 or nothing is returned', () => {
-    expect(orderDiscountShareForReturn(twoUnits(2), 1300, [{ orderLineId: 1, quantity: 1 }])).toBe(0);
-    expect(orderDiscountShareForReturn(twoUnits(0), 1300, [])).toBe(0);
-  });
-
-  it('is capped at the order discount and ignores unknown lines', () => {
-    const lines = [
-      { id: 1, unitPrice: 3000, unitDiscount: 0, quantity: 1, returnedQuantity: 0 },
-      { id: 2, unitPrice: 1000, unitDiscount: 0, quantity: 1, returnedQuantity: 0 },
-    ];
-    expect(
-      orderDiscountShareForReturn(lines, 500, [
-        { orderLineId: 1, quantity: 5 },
-        { orderLineId: 99, quantity: 1 },
-      ]),
-    ).toBe(500);
-    expect(orderDiscountShareForReturn(lines, 1000, [{ orderLineId: 2, quantity: 1 }])).toBe(250);
   });
 });
 

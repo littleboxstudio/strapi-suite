@@ -15,7 +15,6 @@ import {
   type PublicCodeStatus,
   type PublicOrderStatus,
   type PublicQuote,
-  type PublicShippingOption,
   toPublicShippingOption,
   type QuoteSource,
 } from './domain/storefront/publicViews';

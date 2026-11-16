@@ -9,7 +9,7 @@
  *   credit note are the same to the cent. It is recorded against the invoice's ORDER DISCOUNT
  *   records it came from.
  * - Any other line (not invoiced, or on a legacy invoice): the pro-rata rule of the order
- *   discount (`orderDiscountShareForReturn`), over the ORDER discount items not invoiced and the
+ *   discount (round half-up of discount × returned net / subtotal, capped), over the ORDER discount items not invoiced and the
  *   lines no whole-item invoice holds. It is recorded against those discount items.
  *
  * The recorded shares (on the return row) lower each discount item's effective amount, so the
@@ -199,8 +199,7 @@ export function computeReturnShares(input: ReturnSharesInput): ReturnShares {
     }
     const returnedNet = sum(uninvoiced.map((u) => net(byId.get(u.orderLineId)!) * u.units));
     // Round half-up of pool × returnedNet / subtotal, capped at the pool and at the order
-    // discount before this return less the invoice shares this return already took
-    // (orderDiscountShareForReturn caps at the stored order discount).
+    // discount before this return less the invoice shares this return already took.
     const cap = Math.max(0, Math.min(poolTotal, input.orderDiscount - sum(invoiceShares.map((e) => e.share))));
     const share =
       subtotal <= 0 || returnedNet <= 0 || cap <= 0

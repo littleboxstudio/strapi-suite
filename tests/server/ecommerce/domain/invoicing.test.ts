@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   invoiceCustomer,
-  issueDate,
   paymentMethodName,
   STORE_CREDIT_METHOD_NAME,
 } from '../../../../server/src/services/modules/ecommerce/domain/invoicing';
@@ -49,21 +48,6 @@ describe('invoiceCustomer', () => {
       country: '',
       email: 'ana@example.com',
     });
-  });
-});
-
-describe('issueDate', () => {
-  it('23:30 UTC on 31/12 in Europe/Lisbon (winter) → 12-31', () => {
-    expect(issueDate(new Date('2026-12-31T23:30:00Z'), 'Europe/Lisbon')).toBe('2026-12-31');
-  });
-
-  it('uses the store time zone', () => {
-    expect(issueDate(new Date('2026-12-31T23:30:00Z'), 'Europe/Madrid')).toBe('2027-01-01');
-    expect(issueDate(new Date('2026-07-01T23:30:00Z'), 'Europe/Lisbon')).toBe('2026-07-02');
-  });
-
-  it('falls back to UTC for an invalid time zone', () => {
-    expect(issueDate(new Date('2026-07-01T23:30:00Z'), 'Not/AZone')).toBe('2026-07-01');
   });
 });
 

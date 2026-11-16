@@ -29,25 +29,6 @@ export type NotificationTemplateType = Extract<
   | 'CREDIT_NOTE_ISSUED'
 >;
 
-export const NOTIFICATION_TEMPLATE_TYPES: NotificationTemplateType[] = [
-  'ORDER_CONFIRMATION',
-  'PAYMENT_CONFIRMATION',
-  'PAYMENT_INSTRUCTIONS',
-  'SUPPLEMENTARY_PAYMENT',
-  'CANCELLATION',
-  'REFUND_STARTED',
-  'REFUND_COMPLETED',
-  'STORE_CREDIT_ISSUED',
-  'STORE_CREDIT_UPDATED',
-  'PARTIAL_SHIPMENT',
-  'FULL_SHIPMENT',
-  'TRACKING_UPDATED',
-  'READY_FOR_PICKUP',
-  'DELIVERY_CONFIRMATION',
-  'INVOICE_AVAILABLE',
-  'CREDIT_NOTE_ISSUED',
-];
-
 /** The template an event sends, or null when it sends none. */
 export function templateForEvent(event: Pick<DomainEvent, 'type' | 'payload'>): NotificationTemplateType | null {
   const p = event.payload ?? {};

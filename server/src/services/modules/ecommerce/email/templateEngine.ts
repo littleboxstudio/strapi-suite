@@ -235,27 +235,6 @@ export function renderTemplate(
 }
 
 // ---------------------------------------------------------------------------
-// Variable extraction
-
-export function extractVariables(
-  source: string
-): { path: string; kind: 'value' | 'each' | 'if' }[] {
-  const seen = new Set<string>();
-  const result: { path: string; kind: 'value' | 'each' | 'if' }[] = [];
-  for (const token of tokenize(source)) {
-    let entry: { path: string; kind: 'value' | 'each' | 'if' } | undefined;
-    if (token.type === 'value') entry = { path: token.path, kind: 'value' };
-    else if (token.type === 'open') entry = { path: token.path, kind: token.block };
-    if (!entry) continue;
-    const key = `${entry.kind}:${entry.path}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(entry);
-  }
-  return result;
-}
-
-// ---------------------------------------------------------------------------
 // Validation
 
 const UNSAFE_PATTERNS: { re: RegExp; detail: string }[] = [

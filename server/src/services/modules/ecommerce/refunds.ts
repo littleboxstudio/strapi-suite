@@ -92,7 +92,6 @@ export type RefundPreview = {
 
 type Collector = { emit(e: any): void; flush(): Promise<void> };
 
-const IN_FLIGHT = ['PENDING', 'PROCESSING'];
 /** Refund statuses that hold part of a payment (a FAILED/CANCELLED refund gives it back). */
 const HOLDING = ['PENDING', 'PROCESSING', 'COMPLETED'];
 const MAX_TEXT = 5000;
