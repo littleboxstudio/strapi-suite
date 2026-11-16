@@ -129,6 +129,29 @@ export type LinesPreview = Pick<
 export type RecalculationKind = 'WHOLE_ORDER' | 'NEW_UNITS';
 
 /** A quote of the whole order: `due` is what the shipping charges should add up to. */
+/**
+ * Recalculate shipping's review (informative): the whole order quoted under its original method,
+ * against what its payments already paid of the shipping.
+ */
+export type ShippingReview = {
+  /** An ACTIVE shipment exists: Recalculate offers its steps. */
+  hasShipments: boolean;
+  /** Every shipping charge (cents, gross). */
+  charged: number;
+  /** The charges an invoice holds. */
+  invoiced: number;
+  /** What the payments covered of the shipping (net of the shipping discount). */
+  paid: number;
+  /** The order's shipping discount (promotions), taken off a quote before comparing. */
+  shippingDiscount: number;
+  /** The whole order under its original method (gross). */
+  quote: number;
+  /** The original method (the order's first shipping charge). */
+  method: ShippingMethodRef | null;
+  /** max(0, quote − shippingDiscount) − paid: above 0 still to pay, below 0 to give back. */
+  difference: number;
+};
+
 export type ShippingDue =
   | { due: number; method: ShippingMethodRef; option: ShippingOption | null }
   | { failed: true };
@@ -368,11 +391,12 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
   const shippingDue = async (
     state: OrderState,
     units: QuoteUnit[],
-    address: Address | null
+    address: Address | null,
+    using?: ShippingMethodRef | null
   ): Promise<ShippingDue> => {
     const whole = wholeUnits(state, units);
     const quoted = quoteItems(state, whole, await catalogFor(state, whole));
-    const method = wholeOrderMethod(state);
+    const method = using ?? wholeOrderMethod(state);
     if (!method) return { failed: true };
     if (!quoted.items.length) return { due: 0, method, option: null };
     let option: ShippingOption | null;
@@ -1066,6 +1090,65 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
    * quotes are of the units not yet shipped; false when every unit has shipped and the quotes
    * are of the whole order) and `charged` (the shipping charges so far, cents).
    */
+  /** The order's original method: its first shipping charge (the checkout one). */
+  const originalMethod = (state: OrderState): ShippingMethodRef | null => {
+    const first = [...readShippingLines(state.order)].sort((a, b) => a.id - b.id).find((l) => l.editOf == null);
+    return first ? { providerId: first.providerId, serviceId: first.serviceId, name: first.name, tax: first.tax } : null;
+  };
+
+  /**
+   * Recalculate shipping's review: the whole order (every unit, shipped or not) quoted under its
+   * original method, compared with what was paid of the shipping. A failed quote is
+   * SHIPPING_QUOTE_FAILED. Nothing is written.
+   */
+  const shippingReview = async (rawOrderId: number | string): Promise<ShippingReview> => {
+    const state = await orders().computeOrderState(Number(rawOrderId));
+    const method = originalMethod(state);
+    const due = await shippingDue(state, orderUnits(state), deliveryAddressOf(state), method);
+    if ('failed' in due) throw invalidShipping('shipping', 'SHIPPING_QUOTE_FAILED');
+    const lines = readShippingLines(state.order);
+    const shippingDiscount = num(state.order.shippingDiscount);
+    const paid = Math.max(0, num(state.invoicing.coveredShipping));
+    return {
+      hasShipments: state.editing.hasShipments,
+      charged: chargedShipping(lines),
+      invoiced: chargedShipping(state.shippingLines.filter((l) => l.invoiced)),
+      paid,
+      shippingDiscount,
+      quote: due.due,
+      method,
+      difference: Math.max(0, due.due - shippingDiscount) - paid,
+    };
+  };
+
+  /**
+   * The options for chosen units not yet shipped (`lines`: order line id and quantity, at most its
+   * pending units), as the shipping charge modal lists them. Quoted at the address the next
+   * shipment goes to (the customer's own once shipped).
+   */
+  const shippingOptionsForUnits = async (rawOrderId: number | string, input: { lines?: unknown }) => {
+    const state = await orders().computeOrderState(Number(rawOrderId));
+    const raw = Array.isArray(input?.lines) ? input.lines : [];
+    const byId = new Map(state.lines.map((l) => [l.id, l]));
+    const errors: ValidationIssue[] = [];
+    const units: QuoteUnit[] = [];
+    raw.forEach((entry: any, i: number) => {
+      const line = byId.get(Number(entry?.orderLineId));
+      const q = Number(entry?.quantity);
+      if (!line) errors.push({ path: `lines.${i}.orderLineId`, code: 'invalid' });
+      else if (!Number.isInteger(q) || q < 1 || q > line.pending) errors.push({ path: `lines.${i}.quantity`, code: 'invalid' });
+      // `quoteItems` takes off the reserved units: add them back to quote exactly `q`.
+      else units.push({ variantId: line.variantId, quantity: q + line.reserved, orderLineId: line.id });
+    });
+    if (!raw.length) errors.push({ path: 'lines', code: 'required' });
+    if (errors.length) throw new EcommerceValidationError('Invalid units', errors);
+    const quoted = quoteItems(state, units, await catalogFor(state, units));
+    const delivery = state.editing.hasShipments
+      ? customerAddressOf(state.order)
+      : ((state.order.shippingAddress ?? null) as Address | null);
+    return shipping().quote(quoteRequest(state, quoted, delivery));
+  };
+
   const shippingOptionsForOrder = async (rawOrderId: number | string) => {
     const state = await orders().computeOrderState(Number(rawOrderId));
     const result = await optionsFor(state);
@@ -1837,6 +1920,8 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     recalculateShipping,
     editShippingLine,
     removeShippingLine,
+    shippingReview,
+    shippingOptionsForUnits,
     updateBillingAddress,
     addShippingLine,
     previewDiscounts,

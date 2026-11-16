@@ -62,6 +62,10 @@ const EcommerceOrderEditingController = ({ strapi }: { strapi: Core.Strapi }) =>
 
     shippingOptions: handle([], (_ctx, id) => editing().shippingOptionsForOrder(id)),
 
+    shippingOptionsForUnits: handle([], (ctx, id) => editing().shippingOptionsForUnits(id, body(ctx))),
+
+    shippingReview: handle([], (_ctx, id) => editing().shippingReview(id)),
+
     previewShippingRecalculation: handle([], (ctx, id) =>
       editing().previewShippingRecalculation(id, splitBody(ctx).input)
     ),

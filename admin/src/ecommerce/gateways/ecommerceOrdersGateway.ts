@@ -57,6 +57,8 @@ import type {
   StoreCredit,
   StoreCreditPaymentInput,
   ShippingQuote,
+  ShippingReview,
+  ShipUnits,
   ShippingQuoteInput,
   VariantSearchResult,
 } from '../orderTypes';
@@ -104,6 +106,8 @@ export default interface EcommerceOrdersGateway {
   ): Promise<EditResult>;
   /** Quotes the order's pending units at its current address. */
   fetchShippingOptions(id: number): Promise<ShippingQuote>;
+  fetchShippingOptionsForUnits(id: number, lines: ShipUnits): Promise<ShippingQuote>;
+  fetchShippingReview(id: number): Promise<ShippingReview>;
   previewShippingRecalculation(
     id: number,
     input?: ShippingRecalculationInput
@@ -282,6 +286,14 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
 
   async fetchShippingOptions(id: number): Promise<ShippingQuote> {
     return this.httpClient.get(`${this.orders}/${id}/shipping-options`);
+  }
+
+  async fetchShippingOptionsForUnits(id: number, lines: ShipUnits): Promise<ShippingQuote> {
+    return this.httpClient.post(`${this.orders}/${id}/shipping-options/units`, { lines });
+  }
+
+  async fetchShippingReview(id: number): Promise<ShippingReview> {
+    return this.httpClient.get(`${this.orders}/${id}/shipping/review`);
   }
 
   async previewShippingRecalculation(

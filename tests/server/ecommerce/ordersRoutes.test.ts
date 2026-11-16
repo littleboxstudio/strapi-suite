@@ -36,6 +36,8 @@ const editing: [string, string, string, string][] = [
   ['POST', `${O}/:id/lines/preview`, 'previewLines', P.ordersManage],
   ['POST', `${O}/:id/lines`, 'applyLines', P.ordersManage],
   ['GET', `${O}/:id/shipping-options`, 'shippingOptions', P.ordersManage],
+  ['POST', `${O}/:id/shipping-options/units`, 'shippingOptionsForUnits', P.ordersManage],
+  ['GET', `${O}/:id/shipping/review`, 'shippingReview', P.ordersManage],
   ['POST', `${O}/:id/shipping/recalculate/preview`, 'previewShippingRecalculation', P.ordersManage],
   ['POST', `${O}/:id/shipping/recalculate`, 'recalculateShipping', P.ordersManage],
   ['PUT', `${O}/:id/shipping-lines/:lineId`, 'editShippingLine', P.ordersManage],

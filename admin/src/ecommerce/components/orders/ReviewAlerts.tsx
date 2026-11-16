@@ -74,6 +74,18 @@ const ReviewAlerts = ({ order, canManage, onResult, children }: Props) => {
             text={alertText(alert, reason)}
             actions={
               <>
+                {/* The shipping alert can be marked as seen while the order is still editable. */}
+                {!alert.dismissable && alert.code === 'SHIPPING_REVIEW' && canManage && (
+                  <Button
+                    variant="tertiary"
+                    size="S"
+                    loading={dismissing === alert.code}
+                    disabled={dismissing !== null}
+                    onClick={() => dismiss(alert.code)}
+                  >
+                    {t('ecommerce.orders.shippingCharges.markSeen')}
+                  </Button>
+                )}
                 {alert.dismissable && canManage && (
                   <Button
                     variant="tertiary"
