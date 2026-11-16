@@ -31,6 +31,11 @@ export type InvoiceDoc = {
   creditedLines: { index: number; value: number; quantity: number }[];
   /** When the document was created (ISO); absent on documents built without it. */
   createdAt?: string | null;
+  /**
+   * SHIPPING credit notes: the negative shipping lines (credit lines) whose reduction the credit
+   * note settles. They are never invoiced while it counts.
+   */
+  settledShippingLineIds?: number[];
 };
 
 export type PositionOrder = {
@@ -126,6 +131,9 @@ export function readInvoiceDoc(row: unknown, paymentIds: number[]): InvoiceDoc {
   // An unknown status never counts.
   const status = COUNTED_INVOICE.find((s) => s === r.status) ?? 'FAILED';
   const rawCredited = Array.isArray(metadata.creditedLines) ? metadata.creditedLines : [];
+  const settled = Array.isArray(metadata.settledShippingLineIds)
+    ? metadata.settledShippingLineIds.filter((v): v is number => typeof v === 'number' && Number.isInteger(v))
+    : [];
   return {
     id: Number(r.id),
     kind: r.kind === 'CREDIT_NOTE' ? 'CREDIT_NOTE' : 'INVOICE',
@@ -143,6 +151,7 @@ export function readInvoiceDoc(row: unknown, paymentIds: number[]): InvoiceDoc {
       const units = typeof quantity === 'number' && Number.isInteger(quantity) && quantity > 0;
       return [{ index, value: num(e.value), quantity: units ? quantity : 0 }];
     }),
+    ...(settled.length ? { settledShippingLineIds: settled } : {}),
   };
 }
 

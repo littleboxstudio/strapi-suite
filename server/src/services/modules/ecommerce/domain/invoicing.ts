@@ -62,7 +62,12 @@ export const readInvoiceLines = (raw: unknown): InvoiceLine[] => {
       name: typeof l.name === 'string' ? l.name : '',
       quantity: num(l.quantity),
       total: num(l.total),
-      ...(l.grossTotal != null && Number.isInteger(grossTotal) && grossTotal > 0 ? { grossTotal } : {}),
+      // DISCOUNT lines carry their (negative) amount as grossTotal too.
+      ...(l.grossTotal != null &&
+      Number.isInteger(grossTotal) &&
+      (l.kind === 'DISCOUNT' ? grossTotal < 0 : grossTotal > 0)
+        ? { grossTotal }
+        : {}),
       tax: num(l.tax),
       partial: l.partial === true,
       ...(Number.isInteger(shippingLineId) ? { shippingLineId } : {}),
@@ -73,13 +78,21 @@ export const readInvoiceLines = (raw: unknown): InvoiceLine[] => {
 };
 
 /**
- * `line` with `total = value`: its `grossTotal`, if any, scales by the same ratio, so a part of
- * the line keeps its discount percentage.
+ * `line` with `total = value`: its `grossTotal` and `discountShare`, if any, scale by the same
+ * ratio, so a part of the line keeps its discount percentage.
  */
 export const withTotal = (line: InvoiceLine, value: number): InvoiceLine => {
-  const { grossTotal, ...rest } = line;
-  if (grossTotal == null || !(line.total > 0)) return { ...rest, total: value };
-  return { ...rest, total: value, grossTotal: Math.round((grossTotal * value) / line.total) };
+  const { grossTotal, discountShare, ...rest } = line;
+  if (!(line.total > 0)) {
+    return { ...rest, total: value, ...(discountShare != null ? { discountShare } : {}) };
+  }
+  const scale = (v: number) => Math.round((v * value) / line.total);
+  return {
+    ...rest,
+    total: value,
+    ...(grossTotal != null ? { grossTotal: scale(grossTotal) } : {}),
+    ...(discountShare != null ? { discountShare: scale(discountShare) } : {}),
+  };
 };
 
 // ---------------------------------------------------------------------------

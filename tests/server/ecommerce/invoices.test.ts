@@ -1728,8 +1728,12 @@ describe('shipping lowered below what was invoiced', () => {
     expect(cn).toMatchObject({ status: 'ISSUED', total: 300 });
     expect((await c.orders.get(id)).invoicing.shippingToCredit).toBe(0);
 
+    // The credit note settles the −300 credit line: it is never offered (nor counted) again.
+    const cnRow = invoiceRows(c).find((r) => r.kind === 'CREDIT_NOTE');
+    expect(cnRow.metadata.settledShippingLineIds).toEqual([2]);
     const after = await inv.selection(id);
     expect(after.overInvoiced).toEqual({ shipping: 0 });
+    expect(after.shipping).toEqual([]);
     const newPayment = paymentRows(c, id).find((p) => p.id !== firstPayment).id;
     expect(after.payments).toEqual([{ paymentId: newPayment, amount: 2000, refunded: 0, net: 2000 }]);
     expect(after.lines).toEqual([expect.objectContaining({ orderLineId: lineId, units: 1, value: 2000 })]);
@@ -1747,6 +1751,9 @@ describe('shipping lowered below what was invoiced', () => {
     );
     expect(issued).toMatchObject({ status: 'ISSUED', total: 2000 });
     expect(provider.issue).toHaveBeenCalledTimes(3);
+    const { invoicing } = await c.services.EcommerceOrderService.computeOrderState(id);
+    expect(invoicing.items.shipping.filter((s: any) => !s.invoiced)).toEqual([]);
+    expect(invoicing.canIssue).toBe(false);
   });
 });
 

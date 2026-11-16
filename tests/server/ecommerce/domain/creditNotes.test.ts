@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   creditOptions,
   buildCreditLines,
+  settledShippingLineIds,
   type CreditRequest,
 } from '../../../../server/src/services/modules/ecommerce/domain/creditNotes';
 import type {
@@ -287,5 +288,137 @@ describe('SHIPPING credit notes (shipping recalculated below what was invoiced)'
     expect(creditOptions(inv, [inv, cn], lowered()).shippingAdjustment).toEqual([]);
     // A pending one counts too.
     expect(creditOptions(inv, [inv, { ...cn, status: 'PENDING' }], lowered()).shippingAdjustment).toEqual([]);
+  });
+});
+
+describe('discount shares (invoices of whole items)', () => {
+  /** 3 units at 3100 net, 1000 of order discount spread on them; shipping 500; the discount. */
+  const shared = (): InvoiceLine => ({ ...item(3, 8300), grossTotal: 9300, discountShare: 1000 });
+  const shipShared: InvoiceLine = { ...ship, grossTotal: 500, discountShare: 0 };
+  const discount: InvoiceLine = {
+    orderLineId: null,
+    kind: 'DISCOUNT',
+    sku: 'DISCOUNT',
+    name: 'Gesture',
+    quantity: 1,
+    total: -1000,
+    grossTotal: -1000,
+    tax: 0,
+    partial: false,
+    discountId: 'm:1',
+  };
+  const shareInvoice = () => invoice([shared(), shipShared, discount]);
+  const shareOrder = (returnedQuantity: number) =>
+    order({ unitPrice: 3100, returnedQuantity });
+
+  it('RETURN of 1 of 3 units with share 1000 credits net − 333', () => {
+    const inv = shareInvoice();
+    const r = buildCreditLines(
+      inv,
+      creditOptions(inv, [inv], shareOrder(1)),
+      request({ lines: [{ index: 0, quantity: 1 }] })
+    );
+    expect(r.issues).toEqual([]);
+    expect(r.total).toBe(2767);
+    expect(r.creditedLines).toEqual([{ index: 0, value: 2767, quantity: 1 }]);
+    expect(r.lines).toEqual([
+      { ...shared(), quantity: 1, total: 2767, grossTotal: 3100, discountShare: 333 },
+    ]);
+  });
+
+  it('the last unit takes the remaining share', () => {
+    const inv = shareInvoice();
+    const first = credit(2, 'RETURN', [{ index: 0, value: 2 * 3100 - 666, quantity: 2 }]);
+    const options = creditOptions(inv, [inv, first], shareOrder(3));
+    expect(options.returnable).toEqual([{ index: 0, units: 1, unitsLeft: 1, valueLeft: 2766 }]);
+    const r = buildCreditLines(inv, options, request({ lines: [{ index: 0, quantity: 1 }] }));
+    expect(r.issues).toEqual([]);
+    expect(r.total).toBe(3100 - 334);
+    expect(r.lines[0]).toMatchObject({ quantity: 1, total: 2766, grossTotal: 3100, discountShare: 334 });
+    // One unit at a time adds up to the line total too.
+    const one = credit(2, 'RETURN', [{ index: 0, value: 2767, quantity: 1 }]);
+    const two = buildCreditLines(
+      inv,
+      creditOptions(inv, [inv, one], shareOrder(2)),
+      request({ lines: [{ index: 0, quantity: 1 }] })
+    );
+    expect(two.total).toBe(3100 - 333);
+    const second = credit(3, 'RETURN', [{ index: 0, value: two.total, quantity: 1 }]);
+    const three = buildCreditLines(
+      inv,
+      creditOptions(inv, [inv, one, second], shareOrder(3)),
+      request({ lines: [{ index: 0, quantity: 1 }] })
+    );
+    expect(2767 + two.total + three.total).toBe(8300);
+  });
+
+  it('CORRECTION credits the invoice total and never a DISCOUNT line alone', () => {
+    const inv = shareInvoice();
+    const r = buildCreditLines(inv, creditOptions(inv, [inv], shareOrder(0)), request({ creditType: 'CORRECTION' }));
+    expect(r.issues).toEqual([]);
+    expect(r.total).toBe(8300 + 500);
+    expect(r.lines).toEqual([shared(), shipShared, discount]);
+    expect(r.creditedLines).toEqual([
+      { index: 0, value: 8300, quantity: 3 },
+      { index: 1, value: 500, quantity: 1 },
+      { index: 2, value: 0, quantity: 0 },
+    ]);
+
+    // After a RETURN of one unit: the rest, with the share it still holds.
+    const one = credit(2, 'RETURN', [{ index: 0, value: 2767, quantity: 1 }]);
+    const rest = buildCreditLines(
+      inv,
+      creditOptions(inv, [inv, one], shareOrder(1)),
+      request({ creditType: 'CORRECTION' })
+    );
+    expect(rest.total).toBe(8300 + 500 - 2767);
+    expect(rest.lines[0]).toEqual({ ...shared(), quantity: 2, total: 5533, grossTotal: 6200, discountShare: 667 });
+    expect(rest.lines[2]).toEqual(discount);
+
+    // Only a DISCOUNT line left: nothing to credit.
+    const all = credit(3, 'RETURN', [
+      { index: 0, value: 8300, quantity: 3 },
+      { index: 1, value: 500, quantity: 1 },
+    ]);
+    expect(
+      buildCreditLines(inv, creditOptions(inv, [inv, all], shareOrder(3)), request({ creditType: 'CORRECTION' }))
+        .issues
+    ).toEqual([{ path: 'lines', code: 'required' }]);
+  });
+
+  it('a DISCOUNT line is not creditable', () => {
+    const inv = shareInvoice();
+    const options = creditOptions(inv, [inv], shareOrder(1));
+    expect(options.creditable[2]).toBe(0);
+    expect(options.unitsLeft[2]).toBe(0);
+    expect(options.returnable.map((r) => r.index)).toEqual([0]);
+    expect(options.shipping.map((s) => s.index)).toEqual([1]);
+    const r = buildCreditLines(inv, options, request({ lines: [{ index: 2, quantity: 1 }], shippingIndexes: [2] }));
+    expect(r.issues).toEqual([
+      { path: 'lines.0.index', code: 'invalid' },
+      { path: 'shippingIndexes.0', code: 'SHIPPING_NOT_CREDITABLE' },
+    ]);
+  });
+
+  it('a legacy line (no discountShare) keeps the proportional rule', () => {
+    const inv = invoice([{ ...item(3, 1000), grossTotal: 1500 }]);
+    const r = buildCreditLines(inv, creditOptions(inv, [inv], order(returned)), request({ lines: [{ index: 0, quantity: 1 }] }));
+    expect(r.total).toBe(333);
+    expect(r.lines[0]).not.toHaveProperty('discountShare');
+  });
+});
+
+describe('settledShippingLineIds', () => {
+  const s = (shippingLineId: number, value: number, invoiced = false) => ({ shippingLineId, value, invoiced });
+
+  it('settles the negative lines the credit covers, oldest first', () => {
+    expect(settledShippingLineIds([s(1, 500, true), s(2, -300)], 300)).toEqual([2]);
+    expect(settledShippingLineIds([s(1, 500, true), s(2, -100), s(3, -200), s(4, -50)], 300)).toEqual([2, 3]);
+  });
+
+  it('a line the credit does not cover, an invoiced one or a positive one is not settled', () => {
+    expect(settledShippingLineIds([s(2, -300)], 200)).toEqual([]);
+    expect(settledShippingLineIds([s(2, -300, true), s(3, 400)], 300)).toEqual([]);
+    expect(settledShippingLineIds([s(2, -300)], 0)).toEqual([]);
   });
 });
