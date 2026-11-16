@@ -1,97 +1,128 @@
-import type { InvoiceSelectionView, IssueInvoiceSelectionInput, OrderPayment } from '../orderTypes';
+import type { AppliedPromotion, InvoiceSelectionView, IssueInvoiceInput, OrderLine, OrderPayment } from '../orderTypes';
 import type { FormErrors } from './shipmentForm';
-import { apiErrorCode } from './orderDetail';
+import { apiErrorCode, linePromotionNames, type PromotionLocales } from './orderDetail';
 
-type SelectionLine = InvoiceSelectionView['lines'][number];
-
-/** One quantity per order line (0 = not invoiced), the shipping lines and payments ticked. */
+/** The whole items ticked: order lines, shipping lines, discounts and payments. */
 export type InvoiceSelectionForm = {
-  quantities: Record<number, number>;
-  shipping: number[];
-  payments: number[];
+  orderLineIds: number[];
+  shippingLineIds: number[];
+  discountIds: string[];
+  paymentIds: number[];
 };
 
-/** Value of `quantity` of the `remainingQuantity` units worth `remainingValue` (same as the server). */
-export const selectedValue = (remainingValue: number, remainingQuantity: number, quantity: number): number => {
-  if (remainingQuantity <= 0) return 0;
-  if (quantity === remainingQuantity) return remainingValue;
-  return Math.floor((remainingValue * quantity) / remainingQuantity);
-};
-
-/** Display only: the average value of a remaining unit. */
-export function unitValue(line: SelectionLine): number {
-  return line.remainingQuantity > 0 ? Math.round(line.remainingValue / line.remainingQuantity) : 0;
-}
-
-/** Everything the selection offers is ticked, every product at its full remaining quantity. */
+/** Everything the selection offers is ticked. */
 export function defaultInvoiceSelectionForm(view: InvoiceSelectionView): InvoiceSelectionForm {
   return {
-    quantities: Object.fromEntries(view.lines.map((l) => [l.orderLineId, l.remainingQuantity])),
-    shipping: view.shipping.map((s) => s.shippingLineId),
-    payments: view.payments.map((p) => p.paymentId),
+    orderLineIds: view.lines.map((l) => l.orderLineId),
+    shippingLineIds: view.shipping.map((s) => s.shippingLineId),
+    discountIds: view.discounts.map((d) => d.id),
+    paymentIds: view.payments.map((p) => p.paymentId),
   };
 }
 
-const quantityOf = (form: InvoiceSelectionForm, line: SelectionLine): number =>
-  form.quantities[line.orderLineId] ?? 0;
+const sum = (values: number[]): number => values.reduce((s, v) => s + v, 0);
 
-/** `quantities.<orderLineId>`: exceeds_remaining (or invalid for a non-integer / negative one). */
+/** The ticked items of the view, in its order (ids the view does not offer are ignored). */
+function selected(view: InvoiceSelectionView, form: InvoiceSelectionForm) {
+  return {
+    lines: view.lines.filter((l) => form.orderLineIds.includes(l.orderLineId)),
+    shipping: view.shipping.filter((s) => form.shippingLineIds.includes(s.shippingLineId)),
+    discounts: view.discounts.filter((d) => form.discountIds.includes(d.id)),
+    payments: view.payments.filter((p) => form.paymentIds.includes(p.paymentId)),
+  };
+}
+
+/** Selected products + shipping − discounts (the invoice total) against the ticked payments' net. */
+export function invoiceSelectionTotals(
+  view: InvoiceSelectionView,
+  form: InvoiceSelectionForm
+): { lines: number; shipping: number; discounts: number; total: number; payments: number; difference: number } {
+  const s = selected(view, form);
+  const lines = sum(s.lines.map((l) => l.value));
+  const shipping = sum(s.shipping.map((l) => l.value));
+  const discounts = sum(s.discounts.map((d) => d.amount));
+  const total = lines + shipping - discounts;
+  const payments = sum(s.payments.map((p) => p.net));
+  return { lines, shipping, discounts, total, payments, difference: total - payments };
+}
+
+/**
+ * As the server: something to invoice (`orderLineIds`: required) and a payment (`paymentIds`:
+ * required); the ORDER discounts at most the selected lines and, when a SHIPPING discount is
+ * ticked, the SHIPPING discounts at most the selected shipping (`discountIds`:
+ * DISCOUNT_EXCEEDS_SELECTION).
+ */
 export function validateInvoiceSelection(view: InvoiceSelectionView, form: InvoiceSelectionForm): FormErrors {
   const errors: FormErrors = {};
-  for (const line of view.lines) {
-    const q = quantityOf(form, line);
-    if (!Number.isInteger(q) || q < 0) errors[`quantities.${line.orderLineId}`] = 'invalid';
-    else if (q > line.remainingQuantity) errors[`quantities.${line.orderLineId}`] = 'exceeds_remaining';
+  const s = selected(view, form);
+  if (!s.lines.length && !s.shipping.length && !s.discounts.length) errors.orderLineIds = 'required';
+  if (!s.payments.length) errors.paymentIds = 'required';
+  const pool = (kind: 'ORDER' | 'SHIPPING') => sum(s.discounts.filter((d) => d.kind === kind).map((d) => d.amount));
+  const orderDiscounts = pool('ORDER');
+  const shippingDiscounts = pool('SHIPPING');
+  if (
+    orderDiscounts > sum(s.lines.map((l) => l.value)) ||
+    (shippingDiscounts > 0 && shippingDiscounts > sum(s.shipping.map((l) => l.value)))
+  ) {
+    errors.discountIds = 'DISCOUNT_EXCEEDS_SELECTION';
   }
   return errors;
 }
 
-/** Selected products + shipping, the ticked payments' net, and whether the invoice can be issued. */
-export function invoiceSelectionTotals(
-  view: InvoiceSelectionView,
-  form: InvoiceSelectionForm
-): { selected: number; payments: number; difference: number; canIssue: boolean } {
-  const lines = view.lines.reduce((sum, l) => {
-    const q = quantityOf(form, l);
-    return Number.isInteger(q) && q > 0 && q <= l.remainingQuantity
-      ? sum + selectedValue(l.remainingValue, l.remainingQuantity, q)
-      : sum;
-  }, 0);
-  const shipping = view.shipping.filter((s) => form.shipping.includes(s.shippingLineId)).reduce((a, s) => a + s.value, 0);
-  const payments = view.payments.filter((p) => form.payments.includes(p.paymentId)).reduce((a, p) => a + p.net, 0);
-  const selected = lines + shipping;
-  const noErrors = Object.keys(validateInvoiceSelection(view, form)).length === 0;
-  return {
-    selected,
-    payments,
-    difference: selected - payments,
-    canIssue: noErrors && view.excess === 0 && selected === payments && payments > 0,
-  };
+/** No errors, no excess to refund, a positive total equal to the ticked payments. */
+export function canIssueInvoice(view: InvoiceSelectionView, form: InvoiceSelectionForm): boolean {
+  const totals = invoiceSelectionTotals(view, form);
+  return (
+    Object.keys(validateInvoiceSelection(view, form)).length === 0 &&
+    view.excess === 0 &&
+    totals.difference === 0 &&
+    totals.total > 0
+  );
 }
 
-/** The request body of a selection the server will price again; quantity-0 lines are left out. */
+/** The request body of a selection the server will price again; ids in the view's order. */
 export function buildIssueInvoiceInput(
   view: InvoiceSelectionView,
   form: InvoiceSelectionForm,
   idempotencyKey: string
-): IssueInvoiceSelectionInput {
+): IssueInvoiceInput {
+  const s = selected(view, form);
   return {
-    lines: view.lines
-      .map((l) => ({ orderLineId: l.orderLineId, quantity: quantityOf(form, l) }))
-      .filter((l) => l.quantity > 0),
-    shippingLineIds: view.shipping.map((s) => s.shippingLineId).filter((id) => form.shipping.includes(id)),
-    paymentIds: view.payments.map((p) => p.paymentId).filter((id) => form.payments.includes(id)),
-    expectedTotal: invoiceSelectionTotals(view, form).selected,
+    orderLineIds: s.lines.map((l) => l.orderLineId),
+    shippingLineIds: s.shipping.map((l) => l.shippingLineId),
+    discountIds: s.discounts.map((d) => d.id),
+    paymentIds: s.payments.map((p) => p.paymentId),
+    expectedTotal: invoiceSelectionTotals(view, form).total,
     idempotencyKey,
   };
 }
 
-/**
- * Value of the order no remaining unit or shipping line can carry (it changed after it was
- * invoiced): never selectable, a Correction credit note and a new invoice take it up.
- */
-export const strandedValue = (view: InvoiceSelectionView): number =>
-  view.stranded.products + view.stranded.shipping;
+/** Items of an unexplained difference: their server label is a placeholder, translated by id. */
+const ADJUSTMENT_IDS: Record<string, string> = {
+  'adj:order': 'ecommerce.orders.invoices.issue.adjustment.order',
+  'adj:shipping': 'ecommerce.orders.invoices.issue.adjustment.shipping',
+};
+
+/** A discount item's label: a translation id (no plugin prefix) for an adjustment, else its text. */
+export function discountItemLabel(item: { id: string; label: string }): { id: string } | { text: string } {
+  const id = ADJUSTMENT_IDS[item.id];
+  return id ? { id } : { text: item.label };
+}
+
+/** What discounted a selection line: its promotions' names and the admin's manual percent. */
+export function selectionLineDiscount(
+  orderLineId: number,
+  orderLines: Pick<OrderLine, 'id' | 'promotionIds' | 'manualDiscountPercent'>[],
+  promotions: AppliedPromotion[],
+  locales: PromotionLocales
+): { promotionNames: string[]; manualPercent: number | null } {
+  const line = orderLines.find((l) => l.id === orderLineId);
+  if (!line) return { promotionNames: [], manualPercent: null };
+  return {
+    promotionNames: linePromotionNames(line.promotionIds, promotions, locales),
+    manualPercent: line.manualDiscountPercent ?? null,
+  };
+}
 
 export type SelectionPaymentRow = InvoiceSelectionView['payments'][number] & {
   method: string | null;
@@ -114,24 +145,12 @@ export function selectionPayments(view: InvoiceSelectionView, payments: OrderPay
   });
 }
 
-/**
- * The message of a quantity error: "at most {max}" above the remaining units, the generic invalid
- * text otherwise (a non-integer or negative quantity). Ids without the plugin prefix.
- */
-export function quantityErrorMessage(
-  code: string | undefined,
-  max: number
-): { id: string; values?: Record<string, number> } | null {
-  if (!code) return null;
-  if (code === 'exceeds_remaining') return { id: 'ecommerce.orders.invoices.issue.atMost', values: { max } };
-  return { id: 'ecommerce.orders.errors.invalid' };
-}
-
 /** Refusals that mean the order changed since the selection was fetched: fetch it again. */
 const SELECTION_CHANGED_CODES = [
   'TOTAL_CHANGED',
-  'QUANTITY_EXCEEDS_UNINVOICED',
+  'LINE_ALREADY_INVOICED',
   'SHIPPING_LINE_NOT_INVOICEABLE',
+  'DISCOUNT_NOT_INVOICEABLE',
   'PAYMENT_NOT_INVOICEABLE',
 ];
 

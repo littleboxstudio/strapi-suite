@@ -14,6 +14,7 @@ import {
   issuedWarnings,
   canMarkFailed,
   hasReturnable,
+  selectedValue,
   validateCreditNoteForm,
   type CreditNoteForm,
 } from '../../../admin/src/ecommerce/utils/invoiceForm';
@@ -39,6 +40,16 @@ const form = (overrides: Partial<CreditNoteForm> = {}): CreditNoteForm => ({
   shipping: [],
   reason: 'Returned item',
   ...overrides,
+});
+
+describe('selectedValue', () => {
+  it('matches the server vectors', () => {
+    expect(selectedValue(1000, 3, 1)).toBe(333);
+    expect(selectedValue(1000, 3, 3)).toBe(1000);
+    expect(selectedValue(1000, 3, 2)).toBe(666);
+    expect(selectedValue(1000, 3, 0)).toBe(0);
+    expect(selectedValue(0, 0, 0)).toBe(0);
+  });
 });
 
 describe('emptyCreditNoteForm', () => {
