@@ -1,7 +1,7 @@
 import { API_ERROR_CODES } from './orderDetail';
 import type { FormErrors } from './shipmentForm';
 import type { BadgeVariant } from './statusBadges';
-import type { CreditNoteInput, CreditNoteOptions, CreditType, InvoiceView } from '../orderTypes';
+import type { CreditNoteInput, CreditNoteOptions, CreditType, InvoiceLine, InvoiceView } from '../orderTypes';
 
 /** Value of `quantity` of the `remainingQuantity` units worth `remainingValue` (same as the server). */
 export const selectedValue = (remainingValue: number, remainingQuantity: number, quantity: number): number => {
@@ -72,21 +72,53 @@ export function validateCreditNoteForm(
   return errors;
 }
 
-/** Value of `quantity` units of a returnable line (as the server); 0 when above its units. */
+/**
+ * As the server's `sharedUnitsCredit`: `q` of the `u` units left (worth `valueLeft`) of a whole
+ * ITEM line with a `discountShare` credit `net_unit × q − floor(shareLeft × q / u)`, the last
+ * units taking all that is left. Null for a legacy line (no share).
+ */
+const sharedUnitsValue = (line: InvoiceLine | undefined, valueLeft: number, u: number, q: number): number | null => {
+  if (!line || line.discountShare == null || line.kind !== 'ITEM' || line.orderLineId === null || line.partial)
+    return null;
+  if (!(line.quantity > 0) || u <= 0) return null;
+  if (q === u) return valueLeft;
+  const netUnit = Math.round((line.total + line.discountShare) / line.quantity);
+  const shareLeft = Math.max(0, netUnit * u - valueLeft);
+  return netUnit * q - Math.floor((shareLeft * q) / u);
+};
+
+/**
+ * Value of `quantity` units of a returnable line (as the server); 0 when above its units.
+ * `invoiceLine`: the invoice line it credits (its discount share sets the value).
+ */
 export const returnValue = (
   line: CreditNoteOptions['returnable'][number],
-  quantity: number
+  quantity: number,
+  invoiceLine?: InvoiceLine
 ): number =>
   quantity > 0 && quantity <= line.units
-    ? selectedValue(line.valueLeft, line.unitsLeft, quantity)
+    ? (sharedUnitsValue(invoiceLine, line.valueLeft, line.unitsLeft, quantity) ??
+      selectedValue(line.valueLeft, line.unitsLeft, quantity))
     : 0;
+
+/**
+ * The lines a composed credit note (Correction, Shipping adjustment) shows: its ITEM and SHIPPING
+ * lines. DISCOUNT records are already netted into those lines: their sum (negative cents) is shown
+ * once as a note, never as credited lines.
+ */
+export function creditedLinesView(lines: InvoiceLine[]): { lines: InvoiceLine[]; discounts: number } {
+  return {
+    lines: lines.filter((l) => l.kind !== 'DISCOUNT'),
+    discounts: lines.filter((l) => l.kind === 'DISCOUNT').reduce((s, l) => s + l.total, 0),
+  };
+}
 
 /** Total in cents: RETURN Σ the chosen units and ticked shipping lines; CORRECTION all that is left. */
 export function creditNoteTotal(form: CreditNoteForm, options: CreditNoteOptions): number {
   if (form.creditType === 'CORRECTION') return options.correction.total;
   if (form.creditType === 'SHIPPING') return options.shippingAdjustment?.total ?? 0;
   const lines = options.returnable.reduce(
-    (sum, r) => sum + returnValue(r, quantityOf(form, r.index)),
+    (sum, r) => sum + returnValue(r, quantityOf(form, r.index), options.lines[r.index]),
     0
   );
   const shipping = options.shipping

@@ -28,6 +28,7 @@ import {
   defaultInvoiceSelectionForm,
   discountItemLabel,
   invoiceSelectionTotals,
+  invoiceTotalsTiles,
   isSelectionChanged,
   selectionPayments,
   validateInvoiceSelection,
@@ -463,14 +464,7 @@ const IssueInvoiceModal = ({
         {totals && (
           // The figures at the end, as tiles like the payments overview.
           <Tiles style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
-            {[
-              { key: 'products', amount: totals.lines },
-              { key: 'shipping', amount: totals.shipping },
-              { key: 'discounts', amount: -totals.discounts },
-              { key: 'invoiceTotal', amount: totals.total },
-              { key: 'selectedPayments', amount: totals.payments },
-              { key: 'difference', amount: totals.difference },
-            ].map((tile) => (
+            {invoiceTotalsTiles(totals).map((tile) => (
               <Tile
                 key={tile.key}
                 $tone={tile.key === 'difference' ? (tile.amount === 0 ? 'success' : 'warning') : undefined}

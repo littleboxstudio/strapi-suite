@@ -1386,6 +1386,7 @@
   "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.reasonHint": "{count} / {max} caracteres",
   "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.nothing": "Escolha pelo menos uma unidade ou linha de portes a creditar.",
   "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.nothingCreditable": "Nada a creditar nesta fatura.",
+  "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.includesDiscounts": "Inclui descontos de {amount} já aplicados às linhas",
   "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.confirm": "Emitir nota de crédito",
   "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.success": "Nota de crédito emitida.",
   "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.error": "Não foi possível emitir a nota de crédito.",
