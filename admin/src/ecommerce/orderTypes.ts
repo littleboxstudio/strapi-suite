@@ -178,6 +178,8 @@ export type OrderLine = {
   reserved: number;
   /** quantity − reserved */
   pending: number;
+  /** The pending units that can ship now: all once nothing is owed, else the paid ones. */
+  shippable?: number;
   /** shipped − returnedQuantity */
   returnable: number;
 };
