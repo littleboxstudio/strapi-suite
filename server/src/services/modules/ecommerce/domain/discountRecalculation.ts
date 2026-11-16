@@ -78,7 +78,11 @@ export type DiscountRow = {
   invalidReason: RejectionReason | 'NOT_FOUND' | null;
   /** Initial selection. */
   selected: boolean;
-  locked: 'GIFT_SHIPPED' | null;
+  /**
+   * Never unselected: `APPLIED` (an applied promotion or a manual discount: the recalculation
+   * never removes a discount, it only adds new ones), `GIFT_SHIPPED` (its gift has shipped).
+   */
+  locked: 'APPLIED' | 'GIFT_SHIPPED' | null;
 };
 
 export type DiscountPricing = {
@@ -234,7 +238,7 @@ const classify = (ctx: DiscountContext): Classified => {
         ? null
         : (candidates.has(a.promotionId) && rejected.get(a.promotionId)) || 'NOT_FOUND',
       selected: true,
-      locked: giftShipped.has(a.promotionId) ? 'GIFT_SHIPPED' : null,
+      locked: giftShipped.has(a.promotionId) ? 'GIFT_SHIPPED' : 'APPLIED',
     });
   }
   for (const a of evaluation.applied) {
@@ -271,7 +275,7 @@ const classify = (ctx: DiscountContext): Classified => {
       amount: m.amount,
       invalidReason: null,
       selected: true,
-      locked: null,
+      locked: 'APPLIED',
     });
   }
   return { rows, evaluation, evaluationLines, candidates, stored, giftAmounts };
@@ -295,20 +299,24 @@ export function recalculateDiscounts(
   const wanted = new Set(selection ?? rows.filter((r) => r.selected).map((r) => r.key));
   const isSelected = (r: DiscountRow) => r.locked !== null || wanted.has(r.key);
   const selectedRows = rows.filter(isSelected);
-  const keptInvalid = new Set(
-    selectedRows.filter((r) => r.kind === 'APPLIED_INVALID').map((r) => r.promotionId as number)
+  // The applied promotions are kept as stored (never removed nor re-priced, valid or not): their
+  // lines keep their discount, their order and shipping amounts stay. Only NEW ones are priced.
+  const keptApplied = new Set(
+    selectedRows
+      .filter((r) => r.kind === 'APPLIED_VALID' || r.kind === 'APPLIED_INVALID')
+      .map((r) => r.promotionId as number)
   );
   const priced = selectedRows
-    .filter((r) => r.kind === 'APPLIED_VALID' || r.kind === 'NEW')
+    .filter((r) => r.kind === 'NEW')
     .map((r) => candidates.get(r.promotionId as number) as PromotionCandidate);
   const pricedIds = new Set(priced.map((p) => p.id));
-  const keptIds = new Set([...keptInvalid, ...pricedIds]);
+  const keptIds = new Set([...keptApplied, ...pricedIds]);
 
   // Frozen lines keep their discount: they enter the combination at their net price, taking no
   // line-level benefit but counting in the order-level bases and the buy thresholds. A line with
   // a manual percent is always frozen (its evaluation input already is).
   const isFrozen = (l: DiscountLine) =>
-    isManual(l) || l.refs.some((r) => keptInvalid.has(r.promotionId));
+    isManual(l) || l.refs.some((r) => keptApplied.has(r.promotionId));
   const combination = applyCombination(priced, {
     lines: evaluationLines.map(({ line, input }) =>
       isFrozen(line)
@@ -350,25 +358,19 @@ export function recalculateDiscounts(
   const amountsOf = (id: number) =>
     withGifts(combination.benefitAmounts.get(id) ?? [], giftAmounts.get(id));
   const fresh = priced.map((p) => appliedPromotionOf(p, amountsOf(p.id)));
-  const kept = [...keptInvalid].map((id) => stored.get(id) as AppliedPromotion);
+  const kept = [...keptApplied].map((id) => stored.get(id) as AppliedPromotion);
   const applied = [...kept, ...fresh].sort(
     (a, b) => b.snapshot.priority - a.snapshot.priority || a.promotionId - b.promotionId
   );
 
-  const keptAmount = (cls: DiscountClass) =>
-    kept.reduce(
-      (s, a) => s + a.benefits.filter((b) => b.class === cls).reduce((t, b) => t + b.amount, 0),
-      0
-    );
-  const manual = ctx.manual.filter((m) => wanted.has(manualKey(m.id)));
-  const storedOrderDiscount =
-    combination.orderDiscount +
-    keptAmount('ORDER_DISCOUNT') +
-    manual.reduce((s, m) => s + m.amount, 0) +
-    remainders;
+  const selectedKeys = new Set(selectedRows.map((r) => r.key));
+  const manual = ctx.manual.filter((m) => selectedKeys.has(manualKey(m.id)));
+  // Every applied promotion and manual discount is kept: the stored order and shipping discounts
+  // (with their rounding remainders) stay, and only the new promotions add to them.
+  const storedOrderDiscount = ctx.orderDiscount + combination.orderDiscount + remainders;
   const shippingDiscount = Math.min(
     ctx.shippingGross,
-    combination.shippingDiscount + keptAmount('SHIPPING_DISCOUNT')
+    ctx.shippingDiscount + combination.shippingDiscount
   );
 
   const definitions = new Map<number, PromotionDefinition>([
@@ -406,7 +408,7 @@ export function recalculateDiscounts(
   };
   const finalRows = rows.map((r) => {
     const selected = isSelected(r);
-    if (r.kind === 'MANUAL' || r.kind === 'APPLIED_INVALID') return { ...r, selected };
+    if (r.kind !== 'NEW') return { ...r, selected };
     const id = r.promotionId as number;
     return { ...r, selected, amount: selected ? sumOf(amountsOf(id)) : wouldGive(id) };
   });
