@@ -6,12 +6,11 @@ import {
   discountItemLabel,
   invoiceSelectionTotals,
   isSelectionChanged,
-  selectionLineDiscount,
   selectionPayments,
   validateInvoiceSelection,
 } from '../../../admin/src/ecommerce/utils/invoiceSelection';
 import * as selectionModule from '../../../admin/src/ecommerce/utils/invoiceSelection';
-import type { AppliedPromotion, InvoiceSelectionView, OrderPayment } from '../../../admin/src/ecommerce/orderTypes';
+import type { InvoiceSelectionView, OrderPayment } from '../../../admin/src/ecommerce/orderTypes';
 
 const en = require('../../../admin/src/core/translations/en.json');
 const pt = require('../../../admin/src/core/translations/pt.json');
@@ -202,34 +201,6 @@ describe('discountItemLabel', () => {
   it('shows the server label of the other items', () => {
     expect(discountItemLabel({ id: 'm:4', label: 'Loyalty' })).toEqual({ text: 'Loyalty' });
     expect(discountItemLabel({ id: 'p:3:0', label: 'Summer' })).toEqual({ text: 'Summer' });
-  });
-});
-
-describe('selectionLineDiscount', () => {
-  const promotion = (over: Partial<AppliedPromotion>): AppliedPromotion =>
-    ({ promotionId: 3, name: 'summer-internal', displayName: { pt: 'Verão' }, ...over }) as AppliedPromotion;
-  const orderLines = [
-    { id: 1, promotionIds: [], manualDiscountPercent: null },
-    { id: 2, promotionIds: [3, 99], manualDiscountPercent: 10 },
-  ];
-
-  it('names the promotions of the order line and its manual percent', () => {
-    expect(selectionLineDiscount(2, orderLines, [promotion({})], { locale: 'pt' })).toEqual({
-      promotionNames: ['Verão'],
-      manualPercent: 10,
-    });
-    expect(selectionLineDiscount(2, orderLines, [promotion({ displayName: {} })], { locale: 'pt' })).toEqual({
-      promotionNames: ['summer-internal'],
-      manualPercent: 10,
-    });
-  });
-
-  it('nothing for a line without them or not on the order', () => {
-    expect(selectionLineDiscount(1, orderLines, [promotion({})], { locale: 'pt' })).toEqual({
-      promotionNames: [],
-      manualPercent: null,
-    });
-    expect(selectionLineDiscount(5, orderLines, [], { locale: 'pt' })).toEqual({ promotionNames: [], manualPercent: null });
   });
 });
 
