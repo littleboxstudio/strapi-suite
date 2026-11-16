@@ -118,6 +118,14 @@ describe('invoiceItems', () => {
     expect(d.find((x) => x.id === 'adj:order')).toMatchObject({ amount: 1 });
   });
 
+  it('an applied promotion stored without benefits (older rows) adds no item and never throws', () => {
+    const legacy = { promotionId: 7, name: 'Old', amount: 500 } as unknown as AppliedPromotion;
+    const d = invoiceItems(order({ applied: [legacy], orderDiscount: 500 }), []).discounts;
+    expect(d).toEqual([
+      { id: 'adj:order', kind: 'ORDER', label: 'Order discount adjustment', amount: 500, invoiced: false },
+    ]);
+  });
+
   it('a discount item on an invoice reads invoiced', () => {
     const inv = doc(1, [line({ kind: 'DISCOUNT', discountId: 'm:1', total: -1000 })]);
     const get = (docs: InvoiceDoc[]) =>

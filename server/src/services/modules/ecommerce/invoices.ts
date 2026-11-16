@@ -10,14 +10,13 @@ import {
   type InvoiceCustomer,
   type InvoiceLine,
 } from './domain/invoicing';
+import { fitsPosition, readInvoiceDoc, type CreditType } from './domain/invoiceSelection';
 import {
-  fitsPosition,
-  priceSelection,
-  readInvoiceDoc,
-  type CreditType,
-  type PricedSelection,
-  type SelectionRequest,
-} from './domain/invoiceSelection';
+  priceWholeSelection,
+  type DiscountItem,
+  type PricedWholeSelection,
+  type WholeSelectionRequest,
+} from './domain/invoiceItems';
 import {
   getBillingProvider,
   type BillingProvider,
@@ -72,9 +71,12 @@ export type InvoiceView = {
   reconcilable: boolean;
 };
 
-/** What a new invoice can still take (plan 11): empty lists when the order is not OPEN. */
+/**
+ * What a new invoice can still take, as whole items (plan 14): empty lists when the order is not
+ * OPEN. Every listed item is taken whole: its units, its value.
+ */
 export type InvoiceSelectionView = {
-  /** Order lines with units left to invoice. */
+  /** Order lines with units left to invoice: `value` = units × (unitPrice − unitDiscount). */
   lines: {
     orderLineId: number;
     sku: string;
@@ -82,10 +84,12 @@ export type InvoiceSelectionView = {
     option: string | null;
     tax: number;
     isGift: boolean;
-    remainingQuantity: number;
-    remainingValue: number;
+    units: number;
+    unitPrice: number;
+    unitDiscount: number;
+    value: number;
   }[];
-  /** Available shipping lines (positive, not invoiced). */
+  /** Shipping lines not invoiced, at their current value (a credit line is negative). */
   shipping: {
     shippingLineId: number;
     name: string;
@@ -94,20 +98,17 @@ export type InvoiceSelectionView = {
     createdAt: string;
     value: number;
   }[];
+  /** Order and shipping discounts not invoiced. */
+  discounts: Omit<DiscountItem, 'invoiced'>[];
   /** Available payments, in settlement order: `net` = amount − refunded. */
   payments: { paymentId: number; amount: number; refunded: number; net: number }[];
   /** Excess to refund before invoicing (ruling 10). */
   excess: number;
-  /**
-   * Value no remaining unit or available shipping line can carry (the order changed after it was
-   * invoiced): never selectable, a Correction credit note and a new invoice take it up.
-   */
-  stranded: { products: number; shipping: number };
   /** Shipping invoiced above what the order now charges: a SHIPPING credit note credits it. */
   overInvoiced: { shipping: number };
 };
 
-export type IssueInvoiceInput = SelectionRequest & { expectedTotal: number; idempotencyKey: string };
+export type IssueInvoiceInput = WholeSelectionRequest & { expectedTotal: number; idempotencyKey: string };
 
 /** What a credit note on an ISSUED invoice can still credit, by reason (ruling 13). */
 export type CreditNoteOptions = {
@@ -388,7 +389,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     });
   };
 
-  /** The payments as `priceSelection` reads them: net values and availability. */
+  /** The payments as `priceWholeSelection` reads them: net values and availability. */
   const selectablePayments = (state: OrderState) => {
     const { invoicing } = state;
     const available = new Set(invoicing.availablePaymentIds);
@@ -407,18 +408,19 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
       return {
         lines: [],
         shipping: [],
+        discounts: [],
         payments: [],
         excess,
-        stranded: { products: 0, shipping: 0 },
         overInvoiced: { shipping: 0 },
       };
     }
+    const { items } = invoicing;
     const orderLines = new Map(state.lines.map((l) => [l.id, l]));
     const shippingLines = new Map(invoicing.positionOrder.shippingLines.map((l) => [l.id, l]));
     const available = new Set(invoicing.availablePaymentIds);
     return {
-      lines: invoicing.position.lines
-        .filter((l) => l.remainingQuantity > 0 && orderLines.has(l.orderLineId))
+      lines: items.lines
+        .filter((l) => !l.invoiced && orderLines.has(l.orderLineId))
         .map((l) => {
           const line = orderLines.get(l.orderLineId)!;
           return {
@@ -428,12 +430,14 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
             option: line.option,
             tax: line.tax,
             isGift: line.isGift,
-            remainingQuantity: l.remainingQuantity,
-            remainingValue: l.remainingValue,
+            units: l.units,
+            unitPrice: line.unitPrice,
+            unitDiscount: line.unitDiscount,
+            value: l.value,
           };
         }),
-      shipping: invoicing.position.shipping
-        .filter((s) => s.available && shippingLines.has(s.shippingLineId))
+      shipping: items.shipping
+        .filter((s) => !s.invoiced && shippingLines.has(s.shippingLineId))
         .map((s) => {
           const line = shippingLines.get(s.shippingLineId)!;
           return {
@@ -442,9 +446,12 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
             tax: line.tax,
             origin: line.origin,
             createdAt: line.createdAt,
-            value: s.remainingValue,
+            value: s.value,
           };
         }),
+      discounts: items.discounts
+        .filter((d) => !d.invoiced)
+        .map(({ invoiced: _invoiced, ...d }) => d),
       payments: invoicing.completedPayments
         .filter((p) => available.has(p.id))
         .map((p) => {
@@ -453,19 +460,20 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
           return { paymentId: p.id as number, amount, refunded: amount - net, net };
         }),
       excess,
-      stranded: { ...invoicing.position.stranded },
       overInvoiced: { shipping: invoicing.position.overInvoiced.shipping },
     };
   };
 
-  /** The history's record of a selection: ids, quantities and values, never names. */
-  const selectionRecord = (priced: PricedSelection) => ({
+  /** The history's record of a selection: ids, units, values and shares, never names. */
+  const selectionRecord = (priced: PricedWholeSelection) => ({
     lines: priced.lines.map((l) => ({
       orderLineId: l.orderLineId,
-      quantity: l.quantity,
+      units: l.units,
       value: l.value,
+      discountShare: l.discountShare,
     })),
     shippingLineIds: priced.shipping.map((s) => s.shippingLineId),
+    discountIds: priced.discounts.map((d) => d.id),
     paymentIds: priced.payments.map((p) => p.paymentId),
   });
 
@@ -614,10 +622,18 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
    * allocation is re-claimed only when its payment has no other active allocation (checked by a
    * query under the order lock). A payment invoiced again or refunded meanwhile (its net is below
    * the allocation), or units or shipping lines the position no longer has left (`fitsPosition`),
-   * flag it DUPLICATE_INVOICE; a credit note whose value was credited again (or whose invoice was
+   * or discounts another invoice took meanwhile, flag it DUPLICATE_INVOICE; a credit note whose value was credited again (or whose invoice was
    * annulled) meanwhile is flagged DUPLICATE_CREDIT_NOTE. A flagged document emits no customer
    * event.
    */
+  /** A DISCOUNT line of `row` whose discount item another invoice took meanwhile. */
+  const discountsTakenMeanwhile = (row: any, discounts: DiscountItem[]): boolean => {
+    const invoiced = new Set(discounts.filter((d) => d.invoiced).map((d) => d.id));
+    return readInvoiceLines(row.lines).some(
+      (l) => l.kind === 'DISCOUNT' && !!l.discountId && invoiced.has(l.discountId)
+    );
+  };
+
   const recordLateSuccess = async (
     row: any,
     orderId: number,
@@ -629,7 +645,8 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     const creditNote = row.kind === 'CREDIT_NOTE';
     let duplicate = creditNote
       ? await lateCreditNoteDuplicates(row, invoicing)
-      : !fitsPosition(invoicing.position, readInvoiceDoc(row, []), invoicing.positionOrder);
+      : !fitsPosition(invoicing.position, readInvoiceDoc(row, []), invoicing.positionOrder) ||
+        discountsTakenMeanwhile(row, invoicing.items.discounts);
     const q = strapi.db.query(uids().invoiceAllocation);
     const rows: any[] = await q.findMany({
       where: { invoice: { id: row.id } },
@@ -795,10 +812,14 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
   // ---------------------------------------------------------------------------
 
   /**
-   * Issues one invoice for the selected units, shipping lines and payments (ruling 11): the order
-   * is OPEN, no excess is left to refund, the selection is priced against the position and equals
-   * the payments' net values, and `expectedTotal` is the total the admin saw. Every check runs
-   * before anything is written.
+   * Issues one invoice for whole items (plan 14): order lines (all their units left), shipping
+   * lines and discounts, paid by the selected payments. The order is OPEN, no excess is left to
+   * refund, lines + shipping − discounts equals the payments' net values, and `expectedTotal` is
+   * the total the admin saw. Every check runs before anything is written.
+   *
+   * Stored lines: ITEM and SHIPPING lines net of their `discountShare` (the selected discounts
+   * spread over them), so they add up to the total; one DISCOUNT line per selected discount, a
+   * record of what was invoiced (never added to the total again).
    */
   const issue = async (
     rawOrderId: number | string,
@@ -807,6 +828,10 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
   ): Promise<InvoiceView> => {
     const orderId = Number(rawOrderId);
     const key = keyOf(input);
+    // Invoices take whole items: a request in the old shape (lines with quantities) is refused.
+    if ((input as { lines?: unknown } | undefined)?.lines !== undefined) {
+      throw invalid('orderLineIds', 'required');
+    }
     const u = uids();
 
     const existing = await findByKey(orderId, key, 'INVOICE');
@@ -827,10 +852,15 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
         if (order.orderStatus !== 'OPEN') throw notAvailable();
         const { invoicing } = state;
         if (invoicing.blockingExcess > 0) throw invalid('excess', 'INVOICE_EXCESS_UNRESOLVED');
-        const { selection: priced, issues } = priceSelection(
-          invoicing.position,
+        const { selection: priced, issues } = priceWholeSelection(
+          invoicing.items,
           selectablePayments(state),
-          { lines: input?.lines, shippingLineIds: input?.shippingLineIds, paymentIds: input?.paymentIds }
+          {
+            orderLineIds: input?.orderLineIds,
+            shippingLineIds: input?.shippingLineIds,
+            discountIds: input?.discountIds,
+            paymentIds: input?.paymentIds,
+          }
         );
         if (!priced) throw new EcommerceValidationError('Invalid invoice', issues);
         if (input?.expectedTotal !== priced.total) {
@@ -841,6 +871,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
 
         const orderLines = new Map(state.lines.map((l) => [l.id, l]));
         const shippingLines = new Map(invoicing.positionOrder.shippingLines.map((l) => [l.id, l]));
+        const labels = new Map(invoicing.items.discounts.map((d) => [d.id, d.label]));
         const lines: InvoiceLine[] = [
           ...priced.lines.map((l) => {
             const line = orderLines.get(l.orderLineId)!;
@@ -849,11 +880,12 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
               kind: 'ITEM' as const,
               sku: line.sku,
               name: line.option ? `${line.name} - ${line.option}` : line.name,
-              quantity: l.quantity,
-              total: l.value,
-              grossTotal: line.unitPrice * l.quantity,
+              quantity: l.units,
+              total: l.value - l.discountShare,
+              grossTotal: line.unitPrice * l.units,
               tax: line.tax,
               partial: false,
+              discountShare: l.discountShare,
             };
           }),
           ...priced.shipping.map((s) => {
@@ -864,14 +896,37 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
               sku: 'SHIPPING',
               name: clean(line.name) || 'Shipping',
               quantity: 1,
-              total: s.value,
-              grossTotal: line.amount,
+              total: s.value - s.discountShare,
+              grossTotal: s.value,
               tax: line.tax,
               partial: false,
               shippingLineId: s.shippingLineId,
+              discountShare: s.discountShare,
             };
           }),
+          ...priced.discounts.map((d) => ({
+            kind: 'DISCOUNT' as const,
+            orderLineId: null,
+            sku: 'DISCOUNT',
+            name: clean(labels.get(d.id)) || 'Discount',
+            quantity: 1,
+            total: -d.amount,
+            grossTotal: -d.amount,
+            tax: 0,
+            partial: false,
+            discountId: d.id,
+          })),
         ];
+        // Σ ITEM + SHIPPING = lines + shipping − discounts = the priced total (shares add up to
+        // the discounts exactly); the DISCOUNT lines are not added again.
+        const documentTotal = lines
+          .filter((l) => l.kind !== 'DISCOUNT')
+          .reduce((sum, l) => sum + l.total, 0);
+        if (documentTotal !== priced.total) {
+          throw new EcommerceValidationError('Invalid invoice', [
+            { path: 'paymentIds', code: 'INVOICE_TOTALS_DIFFER' },
+          ]);
+        }
         const customer = customerOf(order);
         const row = await createPending({
           order: orderId,
@@ -906,7 +961,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
           customer,
           lines,
           total: priced.total,
-          // Σ amounts = total (checked by priceSelection).
+          // Σ amounts = total (checked by priceWholeSelection).
           payments: priced.payments.map(({ paymentId, value }) => {
             const p = paymentRows.get(paymentId);
             return {

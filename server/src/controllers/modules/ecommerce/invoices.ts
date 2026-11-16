@@ -16,6 +16,8 @@ import {
 const MSG = 'Invalid invoice';
 /** Most entries in each list of an invoice selection. */
 const MAX_LIST = 200;
+/** Longest discount item id (`m:<id>`, `p:<promotionId>:<index>`, `s:<promotionId>`, `adj:order`). */
+const MAX_DISCOUNT_ID = 100;
 
 const EcommerceInvoiceController = ({ strapi }: { strapi: Core.Strapi }) => {
   const invoices = (): any => strapi.plugin(PLUGIN_ID).service('EcommerceInvoiceService');
@@ -64,15 +66,16 @@ const EcommerceInvoiceController = ({ strapi }: { strapi: Core.Strapi }) => {
         ctx,
         (id) => {
           const b = asObject(ctx.request?.body);
+          // Invoices take whole items: the old shape (lines with quantities) is refused.
+          if (b.lines !== undefined) fail(MSG, 'orderLineIds', 'required');
           const input = {
-            lines: list('lines', b.lines).map((raw, i) => {
-              const l = asObject(raw);
-              return {
-                orderLineId: positiveInt(MSG, `lines.${i}.orderLineId`, l.orderLineId),
-                quantity: positiveInt(MSG, `lines.${i}.quantity`, l.quantity),
-              };
-            }),
+            orderLineIds: ids('orderLineIds', b.orderLineIds),
             shippingLineIds: ids('shippingLineIds', b.shippingLineIds),
+            discountIds: list('discountIds', b.discountIds).map((v, i) =>
+              typeof v === 'string' && v.length > 0 && v.length <= MAX_DISCOUNT_ID
+                ? v
+                : fail(MSG, `discountIds.${i}`, 'invalid')
+            ),
             paymentIds: ids('paymentIds', b.paymentIds),
             expectedTotal: nonNegativeCents(MSG, 'expectedTotal', b.expectedTotal),
             idempotencyKey: requiredString(MSG, 'idempotencyKey', b.idempotencyKey, MAX_KEY),

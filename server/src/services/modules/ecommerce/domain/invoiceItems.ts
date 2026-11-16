@@ -45,8 +45,9 @@ export function discountItemsOf(order: {
     });
   }
   for (const p of order.applied) {
-    for (const b of p.benefits) {
-      if (!(b.amount > 0)) continue;
+    // Older rows may store an applied promotion without `benefits`: it adds no item.
+    for (const b of Array.isArray(p.benefits) ? p.benefits : []) {
+      if (!(b?.amount > 0)) continue;
       if (b.class === 'ORDER_DISCOUNT') {
         items.push({ id: `p:${p.promotionId}:${b.index}`, kind: 'ORDER', label: p.name, amount: b.amount });
       } else if (b.class === 'SHIPPING_DISCOUNT') {
