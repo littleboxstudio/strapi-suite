@@ -90,16 +90,27 @@ export function invoiceItems(
     };
   });
 
+  // Negative shipping lines settled by a SHIPPING credit note that counts (on an invoice that is
+  // not annulled): the credit note already took their reduction off what was invoiced.
+  const annulled = new Set(position.annulledInvoiceIds);
+  const settled = new Set<number>();
+  for (const d of docs) {
+    if (d.kind !== 'CREDIT_NOTE' || d.status === 'FAILED' || d.creditType !== 'SHIPPING') continue;
+    if (d.creditedInvoiceId !== null && annulled.has(d.creditedInvoiceId)) continue;
+    for (const id of d.settledShippingLineIds ?? []) settled.add(id);
+  }
+
   const shipping: ShippingItem[] = [...order.shippingLines]
     .filter((l) => l.editOf === undefined)
     .sort((a, b) => a.id - b.id)
     .map((l) => ({
       shippingLineId: l.id,
       value: l.amount + chargedShipping(correctionsOf(order.shippingLines, l.id)),
-      invoiced: position.shipping.find((s) => s.shippingLineId === l.id)?.invoiced ?? false,
+      invoiced:
+        settled.has(l.id) ||
+        (position.shipping.find((s) => s.shippingLineId === l.id)?.invoiced ?? false),
     }));
 
-  const annulled = new Set(position.annulledInvoiceIds);
   const invoicedDiscounts = new Set<string>();
   for (const d of docs) {
     if (d.kind !== 'INVOICE' || d.status === 'FAILED' || annulled.has(d.id)) continue;

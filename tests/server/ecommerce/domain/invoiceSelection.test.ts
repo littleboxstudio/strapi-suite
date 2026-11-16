@@ -865,6 +865,31 @@ describe('readInvoiceLines', () => {
     ]);
     expect(readInvoiceLines(null)).toEqual([]);
   });
+
+  it('a DISCOUNT line keeps its negative grossTotal; another line never has one', () => {
+    const base = { orderLineId: null, sku: 'D', name: 'N', quantity: 1, total: -1000, tax: 0, grossTotal: -1000 };
+    const [discount, item] = readInvoiceLines({
+      lines: [
+        { ...base, kind: 'DISCOUNT', discountId: 'm:1' },
+        { ...base, kind: 'ITEM' },
+      ],
+    });
+    expect(discount).toMatchObject({ kind: 'DISCOUNT', grossTotal: -1000, discountId: 'm:1' });
+    expect(item).not.toHaveProperty('grossTotal');
+  });
+});
+
+describe('readInvoiceDoc settledShippingLineIds', () => {
+  it('reads the shipping lines a SHIPPING credit note settles (integers only)', () => {
+    const row = { id: 5, kind: 'CREDIT_NOTE', status: 'ISSUED', creditedInvoice: 1, lines: null };
+    expect(
+      readInvoiceDoc({ ...row, metadata: { creditType: 'SHIPPING', settledShippingLineIds: [2, 'x', 3.5, 4] } }, [])
+        .settledShippingLineIds
+    ).toEqual([2, 4]);
+    expect(readInvoiceDoc({ ...row, metadata: { creditType: 'SHIPPING' } }, [])).not.toHaveProperty(
+      'settledShippingLineIds'
+    );
+  });
 });
 
 describe('netInvoicedUnits', () => {

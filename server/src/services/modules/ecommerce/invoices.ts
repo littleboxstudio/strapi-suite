@@ -27,6 +27,7 @@ import {
   buildCreditLines,
   creditOptions,
   exceedsCreditable,
+  settledShippingLineIds,
   type CreditOptions,
 } from './domain/creditNotes';
 import type { ShippingLineOrigin } from './domain/shippingLines';
@@ -1174,6 +1175,9 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
         if (built.issues.length) throw new EcommerceValidationError('Invalid credit note', built.issues);
 
         const { lines, total, creditedLines } = built;
+        // SHIPPING: the negative shipping lines this credit settles are never invoiced again.
+        const settled =
+          creditType === 'SHIPPING' ? settledShippingLineIds(state.invoicing.items.shipping, total) : [];
         const locale = clean(original.metadata?.locale) || state.order.locale;
         const customer = (original.customerData ?? customerOf(state.order)) as InvoiceCustomer;
 
@@ -1187,7 +1191,13 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
           customerData: customer,
           idempotencyKey: key,
           actor,
-          metadata: { locale, reason, creditType, creditedLines },
+          metadata: {
+            locale,
+            reason,
+            creditType,
+            creditedLines,
+            ...(settled.length ? { settledShippingLineIds: settled } : {}),
+          },
         });
         const draft: InvoiceDraft = {
           kind: 'CREDIT_NOTE',

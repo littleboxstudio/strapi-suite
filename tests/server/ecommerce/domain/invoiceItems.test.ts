@@ -134,6 +134,29 @@ describe('invoiceItems', () => {
     const cn = doc(2, [], { kind: 'CREDIT_NOTE', creditedInvoiceId: 1, creditType: 'CORRECTION' });
     expect(get([inv, cn])).toBe(false);
   });
+
+  it('a negative shipping line settled by a live SHIPPING credit note reads invoiced', () => {
+    const o = order({ shippingTotal: 240, shippingLines: [ship(1, 500), { ...ship(2, -260), origin: 'RECALCULATION' }] });
+    const inv = doc(1, [line({ kind: 'SHIPPING', total: 500, shippingLineId: 1 })]);
+    const cn = (over: Partial<InvoiceDoc> = {}) =>
+      doc(2, [line({ kind: 'SHIPPING', total: 260, shippingLineId: 1 })], {
+        kind: 'CREDIT_NOTE',
+        creditedInvoiceId: 1,
+        creditType: 'SHIPPING',
+        settledShippingLineIds: [2],
+        ...over,
+      });
+    const negative = (docs: InvoiceDoc[]) =>
+      invoiceItems(o, docs).shipping.find((x) => x.shippingLineId === 2)!.invoiced;
+    expect(negative([inv])).toBe(false);
+    expect(negative([inv, cn()])).toBe(true);
+    expect(negative([inv, cn({ status: 'PENDING' })])).toBe(true);
+    expect(negative([inv, cn({ status: 'UNCERTAIN' })])).toBe(true);
+    expect(negative([inv, cn({ status: 'FAILED' })])).toBe(false);
+    // Its invoice annulled: the shipping is no longer invoiced, so the credit line is offered again.
+    const correction = doc(3, [], { kind: 'CREDIT_NOTE', creditedInvoiceId: 1, creditType: 'CORRECTION' });
+    expect(negative([inv, cn(), correction])).toBe(false);
+  });
 });
 
 describe('priceWholeSelection', () => {

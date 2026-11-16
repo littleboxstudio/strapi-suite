@@ -4,6 +4,10 @@
  * A RETURN credits units that came back and were invoiced past what the order still holds, plus
  * whole shipping lines. A CORRECTION credits everything an invoice has left. Credit notes that
  * are ISSUED, PENDING or UNCERTAIN count, so nothing is credited twice.
+ *
+ * Lines of whole-item invoices (plan 14) carry `discountShare`, already netted into `total`: a
+ * returned unit credits what was effectively paid for it, its net value less its share of the
+ * discounts, and the last unit takes the share left. DISCOUNT lines are never credited alone.
  */
 import type { ValidationIssue } from '../errors';
 import { isObject, num, withTotal, type InvoiceLine } from './invoicing';
@@ -57,6 +61,54 @@ export const creditLine = (line: InvoiceLine, value: number): InvoiceLine => {
 
 const isWholeItem = (l: InvoiceLine): boolean =>
   l.kind === 'ITEM' && l.orderLineId !== null && !l.partial;
+
+/**
+ * A whole ITEM line of a whole-item invoice (`discountShare` set), credited `q` of its `u` units
+ * left with `valueLeft` cents left: `net_unit × q − shareFor(q)`, where the share left is
+ * `net_unit × u − valueLeft` and `shareFor(q)` is its floor share of q units (all of it when
+ * q === u). Null for a legacy line (no `discountShare`).
+ */
+const sharedUnitsCredit = (
+  line: InvoiceLine,
+  valueLeft: number,
+  u: number,
+  q: number
+): InvoiceLine | null => {
+  if (line.discountShare == null || !isWholeItem(line) || !(line.quantity > 0) || u <= 0) return null;
+  const netUnit = Math.round((num(line.total) + line.discountShare) / line.quantity);
+  const shareLeft = Math.max(0, netUnit * u - valueLeft);
+  const share = q === u ? shareLeft : Math.floor((shareLeft * q) / u);
+  const value = q === u ? valueLeft : netUnit * q - share;
+  const grossUnit = line.grossTotal == null ? null : line.grossTotal / line.quantity;
+  return {
+    ...line,
+    quantity: q,
+    total: value,
+    partial: false,
+    discountShare: share,
+    ...(grossUnit != null && Number.isInteger(grossUnit) ? { grossTotal: grossUnit * q } : {}),
+  };
+};
+
+/**
+ * SHIPPING credit notes: the negative shipping lines (not invoiced or settled yet) whose
+ * reduction `credited` covers, oldest first. They explain the over-invoiced shipping the credit
+ * note credits, so they are never invoiced again while it counts.
+ */
+export function settledShippingLineIds(
+  shipping: { shippingLineId: number; value: number; invoiced: boolean }[],
+  credited: number
+): number[] {
+  let left = credited;
+  const ids: number[] = [];
+  for (const s of [...shipping].sort((a, b) => a.shippingLineId - b.shippingLineId)) {
+    if (s.invoiced || s.value >= 0) continue;
+    if (-s.value > left) break;
+    ids.push(s.shippingLineId);
+    left += s.value;
+  }
+  return ids;
+}
 
 /** Units of each order line credited by live RETURN credit notes (legacy ones read as RETURN). */
 const liveCreditedUnits = (docs: InvoiceDoc[], counted: Map<number, InvoiceDoc>) => {
@@ -208,13 +260,18 @@ export function buildCreditLines(
     invoice.lines.forEach((l, index) => {
       const value = options.creditable[index];
       if (!(value > 0)) return;
-      const whole = options.unitsLeft[index] > 0;
+      const units = options.unitsLeft[index];
+      const whole = units > 0;
       const line = whole
-        ? { ...l, quantity: options.unitsLeft[index], total: value }
+        ? (sharedUnitsCredit(l, value, units, units) ?? { ...l, quantity: units, total: value })
         : creditLine(l, value);
       entries.push({ index, line, value, quantity: line.quantity });
     });
     if (!entries.length) return failed([{ path: 'lines', code: 'required' }]);
+    // DISCOUNT lines are already netted into the lines' totals: kept as a record, crediting 0.
+    invoice.lines.forEach((l, index) => {
+      if (l.kind === 'DISCOUNT') entries.push({ index, line: l, value: 0, quantity: 0 });
+    });
   } else if (request?.creditType === 'SHIPPING') {
     if (reqLines.length) issues.push({ path: 'lines', code: 'invalid' });
     if (reqShipping.length) issues.push({ path: 'shippingIndexes', code: 'invalid' });
@@ -247,10 +304,12 @@ export function buildCreditLines(
         issues.push({ path: `lines.${i}.quantity`, code: 'QUANTITY_EXCEEDS_CREDITABLE' });
         return;
       }
-      const value = selectedValue(option.valueLeft, option.unitsLeft, quantity);
+      const original = invoice.lines[option.index];
+      const shared = sharedUnitsCredit(original, option.valueLeft, option.unitsLeft, quantity);
+      const value = shared ? shared.total : selectedValue(option.valueLeft, option.unitsLeft, quantity);
       entries.push({
         index: option.index,
-        line: { ...withTotal(invoice.lines[option.index], value), quantity, partial: false },
+        line: shared ?? { ...withTotal(original, value), quantity, partial: false },
         value,
         quantity,
       });
