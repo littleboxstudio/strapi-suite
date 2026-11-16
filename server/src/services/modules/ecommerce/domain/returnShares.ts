@@ -89,6 +89,8 @@ export type ReturnSharesInput = {
   /** The order's documents and the annulled invoices (the invoicing position). */
   docs: InvoiceDoc[];
   annulledInvoiceIds: number[];
+  /** The stored order discount before this return (caps the shares taken from the pool). */
+  orderDiscount: number;
   /** The discount items now (effective amounts, `invoiced`), as `invoiceItems` gives them. */
   discounts: { id: string; kind: 'ORDER' | 'SHIPPING'; amount: number; invoiced: boolean }[];
   /** The shares earlier returns recorded. */
@@ -196,11 +198,14 @@ export function computeReturnShares(input: ReturnSharesInput): ReturnShares {
       subtotal += net(l) * Math.max(0, l.quantity - l.returnedQuantity - onInvoice);
     }
     const returnedNet = sum(uninvoiced.map((u) => net(byId.get(u.orderLineId)!) * u.units));
-    // Round half-up of pool × returnedNet / subtotal, capped at the pool (orderDiscountShareForReturn).
+    // Round half-up of pool × returnedNet / subtotal, capped at the pool and at the order
+    // discount before this return less the invoice shares this return already took
+    // (orderDiscountShareForReturn caps at the stored order discount).
+    const cap = Math.max(0, Math.min(poolTotal, input.orderDiscount - sum(invoiceShares.map((e) => e.share))));
     const share =
-      subtotal <= 0 || returnedNet <= 0 || poolTotal <= 0
+      subtotal <= 0 || returnedNet <= 0 || cap <= 0
         ? 0
-        : Math.min(poolTotal, Math.floor((2 * poolTotal * returnedNet + subtotal) / (2 * subtotal)));
+        : Math.min(cap, Math.floor((2 * poolTotal * returnedNet + subtotal) / (2 * subtotal)));
     if (share > 0) {
       // Spread over the returned lines by value, then recorded against the discount items.
       const perLine = allocateProportionally(
