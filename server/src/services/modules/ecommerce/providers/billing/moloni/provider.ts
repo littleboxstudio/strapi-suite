@@ -3,7 +3,7 @@ import { str, timedFetch } from '../../http';
 import { EcommerceBillingError } from '../../../errors';
 import type { BillingProvider, InvoiceDraft, InvoiceLine, IssuedDocument } from '../types';
 import { createMoloniClient, describeShape } from './client';
-import { grossUnitPrice, moloniLinePrices } from './linePricing';
+import { NOTE_TARGET, grossUnitPrice, moloniLineNote, moloniLinePrices } from './linePricing';
 
 /**
  * Moloni billing provider (design 4.15), built from the public API docs and NOT verified against
@@ -343,11 +343,13 @@ export const moloniProvider: BillingProvider = {
       if (paid !== draft.total) throw requestFailed('The payments do not add up to the document total.');
     }
     const exemptionReason = str(rt, 'exemptionReason');
-    if (draft.lines.some((l) => l.tax === 0) && !exemptionReason) {
+    // DISCOUNT lines are only a record (their value is inside the item totals): never sent.
+    const lines = draft.lines.filter((l) => l.kind !== 'DISCOUNT');
+    if (lines.some((l) => l.tax === 0) && !exemptionReason) {
       throw new EcommerceBillingError('BILLING_EXEMPTION_REASON_MISSING', 'A 0% line needs an exemption reason.');
     }
     const lineTaxes: LineTax[] = [];
-    for (const line of draft.lines) {
+    for (const line of lines) {
       lineTaxes.push(line.tax === 0 ? { exemption_reason: exemptionReason } : { taxes: [{ tax_id: await ctx.taxId(line.tax) }] });
     }
     const documentSetId = await ctx.idOf('documentSetId', 'documentSets/getAll', 'document_set_id');
@@ -379,8 +381,8 @@ export const moloniProvider: BillingProvider = {
     const shippingReference = str(rt, 'shippingReference') || DEFAULT_SHIPPING_REFERENCE;
     const products: Record<string, unknown>[] = [];
     const known = new Map<string, number>();
-    const prices = moloniLinePrices(draft.lines);
-    for (const [i, line] of draft.lines.entries()) {
+    const prices = moloniLinePrices(lines);
+    for (const [i, line] of lines.entries()) {
       const reference = line.kind === 'SHIPPING' ? shippingReference : line.sku;
       let id = known.get(reference);
       if (id === undefined) {
@@ -388,16 +390,18 @@ export const moloniProvider: BillingProvider = {
         known.set(reference, id);
       }
       const { price, discount } = prices[i];
+      const note = moloniLineNote(line);
       products.push({
         product_id: id,
-        name: line.name,
+        name: note && NOTE_TARGET === 'name' ? `${line.name} — ${note}` : line.name,
         qty: line.quantity,
         price,
         ...(discount > 0 ? { discount } : {}),
+        ...(note && NOTE_TARGET === 'summary' ? { summary: note } : {}),
         ...lineTaxes[i],
       });
     }
-    if (isCredit) await relateToOriginal(ctx, documentId(draft.original!.externalId), products, draft.lines);
+    if (isCredit) await relateToOriginal(ctx, documentId(draft.original!.externalId), products, lines);
 
     const document: Record<string, unknown> = {
       date: draft.date,

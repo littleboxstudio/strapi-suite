@@ -55,5 +55,37 @@ export function moloniLinePrices(lines: InvoiceLine[]): MoloniLinePrice[] {
       },
       { net: 0, gross: 0 }
     );
-  return sameCents(total(plain), total(shown)) ? shown : plain;
+  // Document exactness: if the sums still differ, drop the percentage line by line (not for all).
+  const reference = total(plain);
+  const result = [...shown];
+  for (let i = 0; i < result.length && !sameCents(reference, total(result)); i++) {
+    if (result[i].discount > 0) result[i] = plain[i];
+  }
+  return result;
 }
+
+const fmtPercent = (n: number) => String(round2(n)).replace('.', ',');
+const fmtEuros = (cents: number) =>
+  `${(cents / 100).toFixed(2).replace('.', ',')} €`;
+
+/**
+ * Note of a line with discounts, in Portuguese: its own discount (% of the price before
+ * discounts) and its share of the order discounts (euros). `null` when it has neither.
+ */
+export function moloniLineNote(
+  line: Pick<InvoiceLine, 'total' | 'grossTotal' | 'discountShare'>
+): string | null {
+  const share = line.discountShare && line.discountShare > 0 ? line.discountShare : 0;
+  const gross = line.grossTotal ?? 0;
+  const own = gross > 0 ? gross - line.total - share : 0;
+  const parts: string[] = [];
+  if (own > 0) parts.push(`Desconto da linha ${fmtPercent((own / gross) * 100)}%`);
+  if (share > 0) parts.push(`desconto da encomenda ${fmtEuros(share)}`);
+  return parts.length ? parts.join(' + ') : null;
+}
+
+/**
+ * Where the note goes: Moloni's product `summary`. If a draft shows Moloni drops it, set this to
+ * 'name' and the note becomes a suffix of the product name (`name — note`).
+ */
+export const NOTE_TARGET: 'summary' | 'name' = 'summary';

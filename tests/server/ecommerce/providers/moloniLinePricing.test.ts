@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   grossUnitPrice,
+  moloniLineNote,
   moloniLinePrices,
 } from '../../../../server/src/services/modules/ecommerce/providers/billing/moloni/linePricing';
 import type { InvoiceLine } from '../../../../server/src/services/modules/ecommerce/domain/invoicing';
@@ -78,5 +79,38 @@ describe('grossUnitPrice', () => {
   it('is the price before discounts, or the net price without grossTotal', () => {
     expect(grossUnitPrice(line({ total: 1300, grossTotal: 1500 }))).toBe(12.1951);
     expect(grossUnitPrice(line({ total: 1230 }))).toBe(10);
+  });
+});
+
+describe('combined discounts', () => {
+  it('combined %: gross 10000, total 8100 is 19%', () => {
+    expect(moloniLinePrices([line({ grossTotal: 10000, total: 8100, discountShare: 500 })])[0].discount).toBe(19);
+  });
+
+  it('a free line: gross 3100, total 0 is 100%', () => {
+    expect(moloniLinePrices([line({ grossTotal: 3100, total: 0, discountShare: 3100 })])[0].discount).toBe(100);
+  });
+
+  it('per-line fallback: the line that cannot reproduce its cents falls back alone', () => {
+    const [ok, bad] = moloniLinePrices([
+      line({ total: 900, grossTotal: 1000 }),
+      line({ total: 98997, grossTotal: 99999 }),
+    ]);
+    expect(ok.discount).toBe(10);
+    expect(bad.discount).toBe(0);
+  });
+});
+
+describe('moloniLineNote', () => {
+  it('own discount and order discount', () => {
+    expect(moloniLineNote({ grossTotal: 10000, total: 8100, discountShare: 900 })).toBe(
+      'Desconto da linha 10% + desconto da encomenda 9,00 €'
+    );
+  });
+  it('only one part, or none', () => {
+    expect(moloniLineNote({ grossTotal: 10000, total: 9100, discountShare: 900 })).toBe('desconto da encomenda 9,00 €');
+    expect(moloniLineNote({ grossTotal: 10000, total: 8750 })).toBe('Desconto da linha 12,5%');
+    expect(moloniLineNote({ grossTotal: 1000, total: 1000 })).toBeNull();
+    expect(moloniLineNote({ total: 1000 })).toBeNull();
   });
 });
