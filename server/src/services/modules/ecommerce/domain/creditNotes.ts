@@ -112,6 +112,27 @@ export function settledShippingLineIds(
   return ids;
 }
 
+/**
+ * SHIPPING credit notes: the uninvoiced SHIPPING discount items (`s:<id>`, `adj:shipping`) whose
+ * reduction `credited` covers, in item order, only whole ones. A shipping discount granted after
+ * the shipping was invoiced is what the over-invoice comes from: the credit note settles it, so it
+ * is never invoiced again while the credit note counts.
+ */
+export function settledDiscountIds(
+  discounts: { id: string; kind: 'ORDER' | 'SHIPPING'; amount: number; invoiced: boolean }[],
+  credited: number
+): string[] {
+  let left = credited;
+  const ids: string[] = [];
+  for (const d of discounts) {
+    if (d.kind !== 'SHIPPING' || d.invoiced || !(d.amount > 0)) continue;
+    if (d.amount > left) break;
+    ids.push(d.id);
+    left -= d.amount;
+  }
+  return ids;
+}
+
 /** Units of each order line credited by live RETURN credit notes (legacy ones read as RETURN). */
 const liveCreditedUnits = (docs: InvoiceDoc[], counted: Map<number, InvoiceDoc>) => {
   const byLine = new Map<number, number>();

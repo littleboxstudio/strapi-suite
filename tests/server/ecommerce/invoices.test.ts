@@ -1802,6 +1802,33 @@ describe('shipping lowered below what was invoiced', () => {
   });
 });
 
+describe('a shipping discount granted after the shipping was invoiced', () => {
+  it('the SHIPPING credit note settles the uninvoiced shipping discount item: never offered again', async () => {
+    const { c, inv } = setup();
+    const id = await order(c); // 2 × 2000 + 500, paid 4500
+    await testIssueAll(c, id, 'k1');
+    const row = orderRow(c, id);
+    row.shippingDiscount = 200;
+    row.shippingTotal = 300;
+    row.total = Number(row.total) - 200;
+    await c.refunds.create(id, { method: 'MANUAL_TRANSFER', amount: 200, reason: 'OTHER', idempotencyKey: 'rf1' }, 'user:1');
+    expect((await inv.selection(id)).discounts).toEqual([expect.objectContaining({ id: 'adj:shipping', amount: 200 })]);
+
+    const invoiceId = invoiceRows(c).find((r) => r.kind === 'INVOICE').id;
+    const cn = await inv.issueCreditNote(
+      invoiceId,
+      { creditType: 'SHIPPING', reason: 'Shipping discount', idempotencyKey: 'cn-ship' } as any,
+      'user:1'
+    );
+    expect(cn).toMatchObject({ status: 'ISSUED', total: 200 });
+    const cnRow = invoiceRows(c).find((r) => r.kind === 'CREDIT_NOTE');
+    expect(cnRow.metadata.settledDiscountIds).toEqual(['adj:shipping']);
+    expect((await inv.selection(id)).discounts).toEqual([]);
+    const { invoicing } = await c.services.EcommerceOrderService.computeOrderState(id);
+    expect(invoicing.items.discounts).toEqual([expect.objectContaining({ id: 'adj:shipping', invoiced: true })]);
+  });
+});
+
 describe('billingErrorDetail', () => {
   it('is null when the message only repeats the code', () => {
     expect(billingErrorDetail(new EcommerceBillingError('BILLING_UNREACHABLE', 'BILLING_UNREACHABLE', true))).toBeNull();
