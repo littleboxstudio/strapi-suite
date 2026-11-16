@@ -27,6 +27,7 @@ import type {
   InvoiceView,
   IssueInvoiceSelectionInput,
   IssueStoreCreditInput,
+  UpdateStoreCreditInput,
   LinesInput,
   LinesPreview,
   ManualDiscountInput,
@@ -153,6 +154,7 @@ export default interface EcommerceOrdersGateway {
   fetchCustomerStoreCredits(customerId: number): Promise<StoreCredit[]>;
   issueStoreCredit(input: IssueStoreCreditInput): Promise<StoreCredit>;
   voidStoreCredit(id: number): Promise<StoreCredit>;
+  updateStoreCredit(id: number, input: UpdateStoreCreditInput): Promise<StoreCredit>;
 
   // Shipments and returns (write: orders.manage; label: orders.read)
   /** The delivery methods the ship modal offers, named in `locale` (orders.manage). */
@@ -410,6 +412,10 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
 
   async voidStoreCredit(id: number): Promise<StoreCredit> {
     return this.httpClient.post(`${this.base}/store-credits/${id}/void`, {});
+  }
+
+  async updateStoreCredit(id: number, input: UpdateStoreCreditInput): Promise<StoreCredit> {
+    return this.httpClient.put(`${this.base}/store-credits/${id}`, input);
   }
 
   async fetchShipMethods(orderId: number, locale: string): Promise<{ methods: ShipMethodOption[] }> {

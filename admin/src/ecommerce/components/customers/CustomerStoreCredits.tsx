@@ -27,6 +27,7 @@ import ConfirmModal from '../../../components/ConfirmModal';
 import FetchCustomerStoreCredits from '../../usecases/orders/fetchCustomerStoreCredits';
 import IssueStoreCredit from '../../usecases/orders/issueStoreCredit';
 import VoidStoreCredit from '../../usecases/orders/voidStoreCredit';
+import UpdateStoreCredit from '../../usecases/orders/updateStoreCredit';
 import { formatCents } from '../../utils/money';
 import { apiErrorMessageId } from '../../utils/orderDetail';
 import { extractFieldErrors } from '../../utils/productForm';
@@ -34,6 +35,8 @@ import { mintUuid } from '../../utils/variantDraft';
 import {
   emptyStoreCreditForm,
   storeCreditDisplayStatus,
+  storeCreditEditForm,
+  validateStoreCreditEdit,
   validateStoreCreditForm,
   type StoreCreditDisplayStatus,
   type StoreCreditForm,
@@ -60,25 +63,34 @@ const STATUS_VARIANT: Record<StoreCreditDisplayStatus, 'success' | 'neutral' | '
 
 type FormErrors = Partial<Record<keyof StoreCreditForm | 'form', string>>;
 
-/** Issues a store credit for the customer. Mount only while open: one idempotency key per opening. */
+/**
+ * Issues a store credit for the customer, or edits one still valid (`credit`): its total value
+ * (never below what was used), expiry and conditions; the customer is e-mailed the new data.
+ * Mount only while open: one idempotency key per opening.
+ */
 const IssueStoreCreditModal = ({
   customerId,
   email,
+  credit,
   onClose,
   onIssued,
 }: {
   customerId: number;
   email: string;
+  credit?: StoreCredit;
   onClose: () => void;
   onIssued: (credit: StoreCredit) => void;
 }) => {
-  const { formatMessage } = useIntl();
+  const { formatMessage, locale } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
 
   const [idempotencyKey] = useState(() => mintUuid());
-  const [form, setForm] = useState<StoreCreditForm>(() => emptyStoreCreditForm());
+  const [form, setForm] = useState<StoreCreditForm>(() =>
+    credit ? storeCreditEditForm(credit, locale) : emptyStoreCreditForm()
+  );
+  const used = credit ? Math.max(0, credit.initialAmount - credit.balance) : 0;
   const [errors, setErrors] = useState<FormErrors>({});
   const [saving, setSaving] = useState(false);
 
@@ -104,26 +116,42 @@ const IssueStoreCreditModal = ({
 
   const submit = async () => {
     if (saving) return;
-    const result = validateStoreCreditForm(form);
+    const result = credit ? validateStoreCreditEdit(form, credit) : validateStoreCreditForm(form);
     if (!result.input) {
       setErrors(toMap(result.errors));
       return;
     }
     setSaving(true);
     try {
-      const credit = await new IssueStoreCredit().execute({ customerId, ...result.input, idempotencyKey });
+      if (credit) {
+        const updated = await new UpdateStoreCredit().execute(credit.id, {
+          amount: result.input.amount,
+          expiresAt: result.input.expiresAt,
+          conditions: result.input.conditions ?? null,
+          idempotencyKey,
+        });
+        toggleNotification({ type: 'success', message: t('ecommerce.customers.storeCredits.updated') });
+        onIssued(updated);
+        return;
+      }
+      const issued = await new IssueStoreCredit().execute({ customerId, ...result.input, idempotencyKey });
       toggleNotification({
         type: 'success',
-        message: t('ecommerce.customers.storeCredits.issued', { code: credit.code }),
+        message: t('ecommerce.customers.storeCredits.issued', { code: issued.code }),
       });
-      onIssued(credit);
+      onIssued(issued);
     } catch (err) {
       const map = toMap(extractFieldErrors(err) ?? []);
       setErrors(map);
       if (!map.amount && !map.expiresAt && !map.conditions) {
         toggleNotification({
           type: 'danger',
-          message: t(apiErrorMessageId(err, 'ecommerce.customers.storeCredits.issueError')),
+          message: t(
+            apiErrorMessageId(
+              err,
+              credit ? 'ecommerce.customers.storeCredits.updateError' : 'ecommerce.customers.storeCredits.issueError'
+            )
+          ),
         });
       }
     } finally {
@@ -135,21 +163,39 @@ const IssueStoreCreditModal = ({
     <Modal.Root open onOpenChange={(next: boolean) => !next && !saving && onClose()}>
       <Modal.Content>
         <Modal.Header>
-          <Modal.Title>{t('ecommerce.customers.storeCredits.modal.title')}</Modal.Title>
+          <Modal.Title>
+            {credit
+              ? t('ecommerce.customers.storeCredits.edit.title', { code: credit.code })
+              : t('ecommerce.customers.storeCredits.modal.title')}
+          </Modal.Title>
         </Modal.Header>
         <Modal.Body>
           <Flex direction="column" alignItems="stretch" gap={5}>
             <Typography variant="omega" textColor="neutral600">
-              {t('ecommerce.customers.storeCredits.modal.hint', { email })}
+              {credit
+                ? t('ecommerce.customers.storeCredits.edit.hint', { email })
+                : t('ecommerce.customers.storeCredits.modal.hint', { email })}
             </Typography>
-            <Field.Root name="amount" required error={errors.amount}>
-              <Field.Label>{t('ecommerce.customers.storeCredits.modal.amount')}</Field.Label>
+            <Field.Root
+              name="amount"
+              required
+              error={errors.amount}
+              hint={
+                credit
+                  ? t('ecommerce.customers.storeCredits.edit.used', { used: formatCents(used, locale) })
+                  : undefined
+              }
+            >
+              <Field.Label>
+                {t(credit ? 'ecommerce.customers.storeCredits.edit.amount' : 'ecommerce.customers.storeCredits.modal.amount')}
+              </Field.Label>
               <TextInput
                 value={form.amount}
                 inputMode="decimal"
                 endAction={<span>€</span>}
                 onChange={(e: any) => update('amount', e.target.value)}
               />
+              <Field.Hint />
               <Field.Error />
             </Field.Root>
             <Field.Root name="expiresAt" required error={errors.expiresAt}>
@@ -170,7 +216,7 @@ const IssueStoreCreditModal = ({
             {t('ecommerce.customers.storeCredits.modal.cancel')}
           </Button>
           <Button onClick={submit} loading={saving}>
-            {t('ecommerce.customers.storeCredits.modal.submit')}
+            {t(credit ? 'ecommerce.customers.storeCredits.edit.submit' : 'ecommerce.customers.storeCredits.modal.submit')}
           </Button>
         </Modal.Footer>
       </Modal.Content>
@@ -193,6 +239,7 @@ const CustomerStoreCredits = ({ customerId, email, canManage }: Props) => {
   const [error, setError] = useState(false);
   const [issuing, setIssuing] = useState(false);
   const [voiding, setVoiding] = useState<StoreCredit | null>(null);
+  const [editing, setEditing] = useState<StoreCredit | null>(null);
   const [busy, setBusy] = useState(false);
   const request = useRef(0);
 
@@ -311,11 +358,17 @@ const CustomerStoreCredits = ({ customerId, email, canManage }: Props) => {
                   </Badge>
                 </Td>
                 <Td>
-                  {canManage && status === 'ACTIVE' && (
-                    <Flex justifyContent="flex-end">
-                      <Button size="S" variant="danger-light" disabled={busy} onClick={() => setVoiding(credit)}>
-                        {t('ecommerce.customers.storeCredits.void')}
+                  {canManage && (status === 'ACTIVE' || status === 'USED') && (
+                    // Still valid (not expired nor void): editable; with a balance: voidable.
+                    <Flex justifyContent="flex-end" gap={2}>
+                      <Button size="S" variant="tertiary" disabled={busy} onClick={() => setEditing(credit)}>
+                        {t('ecommerce.customers.storeCredits.editButton')}
                       </Button>
+                      {status === 'ACTIVE' && (
+                        <Button size="S" variant="danger-light" disabled={busy} onClick={() => setVoiding(credit)}>
+                          {t('ecommerce.customers.storeCredits.void')}
+                        </Button>
+                      )}
                     </Flex>
                   )}
                 </Td>
@@ -350,6 +403,19 @@ const CustomerStoreCredits = ({ customerId, email, canManage }: Props) => {
           onClose={() => setIssuing(false)}
           onIssued={() => {
             setIssuing(false);
+            load();
+          }}
+        />
+      )}
+
+      {canManage && editing && (
+        <IssueStoreCreditModal
+          customerId={customerId}
+          email={email}
+          credit={editing}
+          onClose={() => setEditing(null)}
+          onIssued={() => {
+            setEditing(null);
             load();
           }}
         />

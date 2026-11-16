@@ -19,6 +19,7 @@ export const EMAIL_TEMPLATE_TYPES = [
   'INVOICE_AVAILABLE',
   'CREDIT_NOTE_ISSUED',
   'STORE_CREDIT_ISSUED',
+  'STORE_CREDIT_UPDATED',
   'EMAIL_VERIFICATION',
 ] as const;
 
@@ -164,6 +165,13 @@ const SPECIFIC: Record<EmailTemplateType, VariableDef[]> = {
     value('credit.expiresAt', 'Credit expiry date'),
     value('credit.conditions', 'Credit conditions'),
   ],
+  STORE_CREDIT_UPDATED: [
+    value('credit.balance', 'Credit still available'),
+    value('credit.amount', 'Credit total value'),
+    value('credit.code', 'Credit code'),
+    value('credit.expiresAt', 'Credit expiry date'),
+    value('credit.conditions', 'Credit conditions'),
+  ],
   EMAIL_VERIFICATION: [
     value('verification.code', 'Verification code'),
     value('verification.validMinutes', 'Minutes the code stays valid'),
@@ -258,6 +266,7 @@ const SAMPLE_VALUES: Record<string, unknown> = {
   'creditNote.amount': '9,90 €',
   'creditNote.invoiceNumber': 'FT 2026/123',
   'credit.amount': '10,00 €',
+  'credit.balance': '7,50 €',
   'credit.code': 'CREDIT-7Q2X',
   'credit.expiresAt': '11/11/2027',
   'credit.conditions': 'Valid for one purchase on the online store.',

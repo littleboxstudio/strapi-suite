@@ -27,6 +27,19 @@ export type IssueStoreCreditInput = {
   operationKey: string;
 };
 
+/**
+ * Changes a credit still valid: its total value (`amount`, never below what was already used: the
+ * balance becomes `amount − used`), its expiry and its conditions. Absent fields stay.
+ */
+export type UpdateStoreCreditInput = {
+  amount?: number;
+  expiresAt?: string | null;
+  conditions?: string | null;
+  actor: string;
+  /** Idempotency key of the ADJUST movement: a repeated key changes nothing. */
+  operationKey: string;
+};
+
 export type ConsumeStoreCreditInput = {
   code: string;
   /** The e-mail of the buyer (the order snapshot e-mail); compared normalized. */
@@ -529,7 +542,84 @@ const EcommerceStoreCreditService = ({ strapi }: { strapi: Core.Strapi }) => {
     return toStoreCreditView(row);
   };
 
-  return { issue, consume, restore, listForCustomer, get, list, void: voidCredit };
+  /**
+   * Updates a credit still valid (ACTIVE, not expired): total value, expiry, conditions. The total
+   * never goes below what was used (`STORE_CREDIT_BELOW_USED`); the balance follows it, recorded
+   * by an ADJUST movement. A change emits `STORE_CREDIT_UPDATED` (the customer gets the new data);
+   * nothing changed: no movement, no e-mail.
+   */
+  const update = async (rawId: number | string, input: UpdateStoreCreditInput): Promise<StoreCreditView> => {
+    const id = Number(rawId);
+    const operationKey = clean(input?.operationKey);
+    if (!operationKey) throw invalid('operationKey', 'required');
+    const u = uids();
+    const replay = await movementByKey(operationKey);
+    if (replay) return toStoreCreditView(await strapi.db.query(u.storeCredit).findOne({ where: { id } }));
+
+    if (input.amount !== undefined && !validAmount(input.amount)) throw invalid('amount', 'invalid_amount');
+    let expiresAt: string | undefined;
+    if (input.expiresAt !== undefined && input.expiresAt !== null && input.expiresAt !== '') {
+      const t = Date.parse(String(input.expiresAt));
+      if (!Number.isFinite(t) || t <= Date.now()) throw invalid('expiresAt', 'invalid_date');
+      expiresAt = new Date(t).toISOString();
+    }
+
+    const collector = events().collector();
+    const changed = await strapi.db.transaction(async () => {
+      const row = await strapi.db.query(u.storeCredit).findOne({ where: { id } });
+      if (!row) throw new EcommerceNotFoundError('Store credit not found');
+      const expired = row.expiresAt && new Date(row.expiresAt).getTime() <= Date.now();
+      if (row.status !== 'ACTIVE' || expired) throw invalid('storeCredit', 'STORE_CREDIT_NOT_EDITABLE');
+      const initial = num(row.initialAmount);
+      const balance = num(row.balance);
+      const used = Math.max(0, initial - balance);
+      const amount = input.amount ?? initial;
+      if (amount < used) throw invalid('amount', 'STORE_CREDIT_BELOW_USED');
+      const nextBalance = amount - used;
+      const nextExpiry = expiresAt ?? (row.expiresAt ? new Date(row.expiresAt).toISOString() : null);
+      const nextConditions =
+        input.conditions !== undefined ? clean(input.conditions) || null : (row.conditions ?? null);
+      const sameExpiry =
+        (row.expiresAt ? new Date(row.expiresAt).toISOString() : null) === nextExpiry;
+      if (amount === initial && sameExpiry && nextConditions === (row.conditions ?? null)) return null;
+      // Conditional on the balance read: a concurrent consumption makes it retry from the start.
+      const { count } = await strapi.db.query(u.storeCredit).updateMany({
+        where: { id, status: 'ACTIVE', balance: row.balance, initialAmount: row.initialAmount },
+        data: { initialAmount: amount, balance: nextBalance, expiresAt: nextExpiry, conditions: nextConditions },
+      });
+      if (!count) throw invalid('balance', 'STORE_CREDIT_CONFLICT');
+      await strapi.db.query(u.storeCreditMovement).create({
+        data: {
+          storeCredit: id,
+          type: 'ADJUST',
+          amount: nextBalance - balance,
+          order: null,
+          payment: null,
+          refund: null,
+          operationKey,
+          actor: input.actor,
+        },
+      });
+      collector.emit({
+        type: 'STORE_CREDIT_UPDATED',
+        ...(idOf(row.sourceOrder) ? { orderId: idOf(row.sourceOrder) } : {}),
+        payload: {
+          storeCreditId: id,
+          code: row.code,
+          amount,
+          balance: nextBalance,
+          expiresAt: nextExpiry,
+          conditions: nextConditions,
+          customerId: idOf(row.customer),
+        },
+      });
+      return true;
+    });
+    if (changed) await collector.flush();
+    return toStoreCreditView(await strapi.db.query(u.storeCredit).findOne({ where: { id } }));
+  };
+
+  return { issue, consume, restore, listForCustomer, get, list, void: voidCredit, update };
 };
 
 export default EcommerceStoreCreditService;

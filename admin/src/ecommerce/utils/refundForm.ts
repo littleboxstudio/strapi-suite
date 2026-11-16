@@ -252,3 +252,32 @@ export function storeCreditDisplayStatus(
   if (credit.balance <= 0) return 'USED';
   return 'ACTIVE';
 }
+
+/** The edit form of a credit still valid: its total value, expiry date and conditions. */
+export function storeCreditEditForm(
+  credit: Pick<StoreCredit, 'initialAmount' | 'expiresAt' | 'conditions'>,
+  locale: string
+): StoreCreditForm {
+  return {
+    amount: formatAmountInput(credit.initialAmount, locale),
+    expiresAt: credit.expiresAt ? toDateInput(new Date(credit.expiresAt)) : '',
+    conditions: credit.conditions ?? '',
+  };
+}
+
+/**
+ * The edit form checked: as an issue, and the total never below what was already used
+ * (`STORE_CREDIT_BELOW_USED`).
+ */
+export function validateStoreCreditEdit(
+  form: StoreCreditForm,
+  credit: Pick<StoreCredit, 'initialAmount' | 'balance'>,
+  now = new Date()
+): ReturnType<typeof validateStoreCreditForm> {
+  const result = validateStoreCreditForm(form, now);
+  const used = Math.max(0, credit.initialAmount - credit.balance);
+  if (result.input && result.input.amount < used) {
+    return { errors: [{ path: 'amount', code: 'STORE_CREDIT_BELOW_USED' }], input: null };
+  }
+  return result;
+}

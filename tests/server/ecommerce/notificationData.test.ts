@@ -124,6 +124,13 @@ const EVENT_FOR: Record<NotificationTemplateType, DomainEvent> = {
     expiresAt: '2027-11-11T10:00:00.000Z',
     conditions: null,
   }),
+  STORE_CREDIT_UPDATED: event('STORE_CREDIT_UPDATED', {
+    code: 'ABCD-EFGH-JKLM',
+    amount: 3000,
+    balance: 2990,
+    expiresAt: '2027-11-11T10:00:00.000Z',
+    conditions: 'One purchase',
+  }),
 };
 
 const get = (data: any, path: string) => path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), data);
@@ -333,6 +340,21 @@ describe('buildTemplateData', () => {
     });
     expect(data.payment.method).toBe('MB WAY');
     expect(buildTemplateData('ORDER_CONFIRMATION', { order, store, event: EVENT_FOR.ORDER_CONFIRMATION }).order.paymentStatus).toBe('Pendente');
+  });
+
+  it('an updated credit gives what is left of its total ("€29.90 of €30.00")', () => {
+    const data = buildTemplateData('STORE_CREDIT_UPDATED', {
+      order: null,
+      store,
+      event: { ...EVENT_FOR.STORE_CREDIT_UPDATED, orderId: undefined },
+      extra: { customer: { firstName: 'Rui', lastName: 'Lopes', email: 'rui@example.pt' }, locale: 'en' },
+    });
+    expect(data.credit).toMatchObject({
+      balance: '€29.90',
+      amount: '€30.00',
+      code: 'ABCD-EFGH-JKLM',
+      conditions: 'One purchase',
+    });
   });
 
   it('a credit issued without an order uses the given customer', () => {

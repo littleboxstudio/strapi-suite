@@ -1000,6 +1000,14 @@ export type StoreCredit = {
   createdAt: string | null;
 };
 
+/** Changes a credit still valid: total value (never below what was used), expiry, conditions. */
+export type UpdateStoreCreditInput = {
+  amount: number;
+  expiresAt: string;
+  conditions: string | null;
+  idempotencyKey: string;
+};
+
 export type IssueStoreCreditInput = {
   customerId: number;
   /** Integer cents > 0. */

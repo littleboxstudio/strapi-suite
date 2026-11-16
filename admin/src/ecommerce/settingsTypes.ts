@@ -183,6 +183,7 @@ export type EmailTemplateType =
   | 'INVOICE_AVAILABLE'
   | 'CREDIT_NOTE_ISSUED'
   | 'STORE_CREDIT_ISSUED'
+  | 'STORE_CREDIT_UPDATED'
   | 'EMAIL_VERIFICATION';
 
 export type EmailTemplateSummary = { type: EmailTemplateType; customLocales: string[] };

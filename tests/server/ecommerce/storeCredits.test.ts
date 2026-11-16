@@ -538,3 +538,65 @@ describe('EcommerceStoreCreditService queries and void', () => {
     expect(movements(c).filter((m) => m.type === 'ADJUST')).toHaveLength(0);
   });
 });
+
+describe('EcommerceStoreCreditService.update', () => {
+  const future = () => new Date(Date.now() + 90 * 86400000).toISOString();
+
+  it('changes the total (balance = total − used), expiry and conditions; ADJUST and one e-mail event', async () => {
+    const c = setupCommerce();
+    const orderId = await createOrder(c);
+    const issued = await issueFor(c, orderId, 3000);
+    credit(c, issued.id).balance = 2000; // 1000 used
+    const before = c.events.length;
+    const expiresAt = future();
+    const view = await c.storeCredits.update(issued.id, {
+      amount: 4000,
+      expiresAt,
+      conditions: 'Any purchase',
+      actor: 'user:1',
+      operationKey: 'up-1',
+    });
+    expect(view).toMatchObject({ initialAmount: 4000, balance: 3000, conditions: 'Any purchase' });
+    expect(movements(c).at(-1)).toMatchObject({ type: 'ADJUST', amount: 1000, operationKey: 'up-1' });
+    const emitted = c.events.slice(before).filter((e: any) => e.type === 'STORE_CREDIT_UPDATED');
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].payload).toMatchObject({ amount: 4000, balance: 3000, storeCreditId: issued.id });
+
+    // The same key again changes nothing.
+    await c.storeCredits.update(issued.id, { amount: 5000, actor: 'user:1', operationKey: 'up-1' });
+    expect(credit(c, issued.id)).toMatchObject({ initialAmount: 4000, balance: 3000 });
+  });
+
+  it('never below what was used; nothing changed: no movement, no e-mail', async () => {
+    const c = setupCommerce();
+    const orderId = await createOrder(c);
+    const issued = await issueFor(c, orderId, 3000);
+    credit(c, issued.id).balance = 2000;
+    expect(await codesOf(c.storeCredits.update(issued.id, { amount: 999, actor: 'user:1', operationKey: 'up-2' }))).toEqual([
+      'STORE_CREDIT_BELOW_USED',
+    ]);
+    // Down to exactly what was used: balance 0.
+    await c.storeCredits.update(issued.id, { amount: 1000, actor: 'user:1', operationKey: 'up-3' });
+    expect(credit(c, issued.id)).toMatchObject({ initialAmount: 1000, balance: 0 });
+    const count = movements(c).length;
+    const events = c.events.length;
+    await c.storeCredits.update(issued.id, { amount: 1000, actor: 'user:1', operationKey: 'up-4' });
+    expect(movements(c)).toHaveLength(count);
+    expect(c.events).toHaveLength(events);
+  });
+
+  it('a void or expired credit is not editable', async () => {
+    const c = setupCommerce();
+    const orderId = await createOrder(c);
+    const issued = await issueFor(c, orderId, 3000);
+    credit(c, issued.id).expiresAt = new Date(Date.now() - 1000).toISOString();
+    expect(await codesOf(c.storeCredits.update(issued.id, { amount: 4000, actor: 'user:1', operationKey: 'up-5' }))).toEqual([
+      'STORE_CREDIT_NOT_EDITABLE',
+    ]);
+    credit(c, issued.id).expiresAt = future();
+    await c.storeCredits.void(issued.id, 'user:1');
+    expect(await codesOf(c.storeCredits.update(issued.id, { amount: 4000, actor: 'user:1', operationKey: 'up-6' }))).toEqual([
+      'STORE_CREDIT_NOT_EDITABLE',
+    ]);
+  });
+});
