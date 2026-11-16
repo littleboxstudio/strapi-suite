@@ -6,6 +6,8 @@ import {
   linesDraftChanged,
   linesDraftFromOrder,
   modifyLineDiscountEditable,
+  modifyLineQuantityEditable,
+  modifyLineBelowShipped,
   modifyLineUnitPrice,
   removeModifyLine,
   setModifyLineDiscount,
@@ -360,5 +362,23 @@ describe('invoiced units in the products draft', () => {
   it('keeps the discount of an invoiced line fixed', () => {
     const [line] = linesDraftFromOrder(invoicedOrder());
     expect(modifyLineDiscountEditable(line)).toBe(false);
+  });
+});
+
+describe('quantity of invoiced and shipped lines in the products draft', () => {
+  it('an invoiced line keeps its quantity; others stay editable', () => {
+    const [invoiced] = linesDraftFromOrder(order({ lines: [orderLine({ id: 50, variantId: 7, quantity: 2, invoiced: 2 })] }));
+    const [open] = linesDraftFromOrder(order({ lines: [orderLine({ id: 51, variantId: 8, quantity: 2 })] }));
+    expect(modifyLineQuantityEditable(invoiced)).toBe(false);
+    expect(modifyLineQuantityEditable(open)).toBe(true);
+  });
+
+  it('flags a quantity below the shipped units at once', () => {
+    let lines = linesDraftFromOrder(order({ lines: [orderLine({ id: 52, variantId: 9, quantity: 4, shipped: 3 })] }));
+    expect(modifyLineBelowShipped(lines[0])).toBe(false);
+    lines = setModifyLineQuantity(lines, 'line-52', 2);
+    expect(modifyLineBelowShipped(lines[0])).toBe(true);
+    lines = setModifyLineQuantity(lines, 'line-52', 3);
+    expect(modifyLineBelowShipped(lines[0])).toBe(false);
   });
 });
