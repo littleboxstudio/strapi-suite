@@ -19,6 +19,7 @@ export type NotificationTemplateType = Extract<
   | 'REFUND_STARTED'
   | 'REFUND_COMPLETED'
   | 'STORE_CREDIT_ISSUED'
+  | 'STORE_CREDIT_UPDATED'
   | 'PARTIAL_SHIPMENT'
   | 'FULL_SHIPMENT'
   | 'TRACKING_UPDATED'
@@ -37,6 +38,7 @@ export const NOTIFICATION_TEMPLATE_TYPES: NotificationTemplateType[] = [
   'REFUND_STARTED',
   'REFUND_COMPLETED',
   'STORE_CREDIT_ISSUED',
+  'STORE_CREDIT_UPDATED',
   'PARTIAL_SHIPMENT',
   'FULL_SHIPMENT',
   'TRACKING_UPDATED',
@@ -59,6 +61,7 @@ export function templateForEvent(event: Pick<DomainEvent, 'type' | 'payload'>): 
     // Store-credit refunds are announced by STORE_CREDIT_ISSUED (or not at all).
     REFUND_COMPLETED: () => (p.kind === 'MONEY' ? 'REFUND_COMPLETED' : null),
     STORE_CREDIT_ISSUED: () => 'STORE_CREDIT_ISSUED',
+    STORE_CREDIT_UPDATED: () => 'STORE_CREDIT_UPDATED',
     SHIPMENT_CREATED: () =>
       p.notify === false
         ? null
@@ -89,9 +92,10 @@ export type NotificationExtra = {
     externalId?: string | null;
     status?: string | null;
   } | null;
-  /** The store credit row (STORE_CREDIT_ISSUED). */
+  /** The store credit row (STORE_CREDIT_ISSUED, STORE_CREDIT_UPDATED). */
   storeCredit?: {
     code?: string | null;
+    balance?: number | null;
     initialAmount?: number | null;
     expiresAt?: string | null;
     conditions?: string | null;
@@ -458,6 +462,18 @@ export function buildTemplateData(
     case 'STORE_CREDIT_ISSUED': {
       const c = extra.storeCredit ?? {};
       data.credit = {
+        amount: money(p.amount ?? c.initialAmount),
+        code: str(p.code ?? c.code),
+        expiresAt: date(p.expiresAt ?? c.expiresAt),
+        conditions: str(p.conditions ?? c.conditions),
+      };
+      break;
+    }
+    case 'STORE_CREDIT_UPDATED': {
+      // "€29.90 of €30.00": what is left of the credit's total value.
+      const c = extra.storeCredit ?? {};
+      data.credit = {
+        balance: money(p.balance ?? c.balance),
         amount: money(p.amount ?? c.initialAmount),
         code: str(p.code ?? c.code),
         expiresAt: date(p.expiresAt ?? c.expiresAt),

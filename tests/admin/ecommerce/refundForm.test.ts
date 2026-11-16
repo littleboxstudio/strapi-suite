@@ -351,3 +351,18 @@ describe('new UI strings', () => {
     expect(pt[`${P}ecommerce.orders.refunds.stuck.warning`]).toEqual(expect.any(String));
   });
 });
+
+describe('store credit edit form', () => {
+  it('starts from the credit; the total never below what was used', async () => {
+    const { storeCreditEditForm, validateStoreCreditEdit } = await import('../../../admin/src/ecommerce/utils/refundForm');
+    const credit = { initialAmount: 5000, balance: 2010, expiresAt: '2027-11-11T23:59:59.999Z', conditions: 'Teste' };
+    const form = storeCreditEditForm(credit, 'en');
+    expect(form).toMatchObject({ amount: '50.00', conditions: 'Teste' });
+    const now = new Date('2026-11-16T10:00:00Z');
+    expect(validateStoreCreditEdit({ ...form, amount: '20' }, credit, now)).toEqual({
+      errors: [{ path: 'amount', code: 'STORE_CREDIT_BELOW_USED' }],
+      input: null,
+    });
+    expect(validateStoreCreditEdit({ ...form, amount: '29.90' }, credit, now).input).toMatchObject({ amount: 2990 });
+  });
+});

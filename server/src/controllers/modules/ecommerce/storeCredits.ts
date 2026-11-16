@@ -72,6 +72,21 @@ const EcommerceStoreCreditController = ({ strapi }: { strapi: Core.Strapi }) => 
       ),
 
     void: (ctx: any) => withId(ctx, (id) => credits().void(id, actorOf(ctx))),
+
+    update: (ctx: any) =>
+      withId(ctx, (id) => {
+        const b = asObject(ctx.request?.body);
+        const key = requiredString(MSG, 'idempotencyKey', b.idempotencyKey, MAX_KEY);
+        return credits().update(id, {
+          ...(b.amount !== undefined ? { amount: cents(MSG, 'amount', b.amount) } : {}),
+          ...(b.expiresAt !== undefined ? { expiresAt: optionalString(MSG, 'expiresAt', b.expiresAt, 64) } : {}),
+          ...(b.conditions !== undefined
+            ? { conditions: optionalString(MSG, 'conditions', b.conditions, MAX_LONG) }
+            : {}),
+          actor: actorOf(ctx),
+          operationKey: `admin-update:${key}`,
+        });
+      }),
   };
 };
 

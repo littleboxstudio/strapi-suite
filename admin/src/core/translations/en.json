@@ -2227,5 +2227,17 @@
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.back": "Back",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.noUnits": "Choose at least one unit.",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.withUnpaid.REMAINING": "Include products not paid yet in the calculation",
-  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.withUnpaid.SELECT": "Show products not paid yet in the list"
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.withUnpaid.SELECT": "Show products not paid yet in the list",
+  "littlebox-strapi-suite.ecommerce.customers.storeCredits.editButton": "Edit",
+  "littlebox-strapi-suite.ecommerce.customers.storeCredits.edit.title": "Edit store credit {code}",
+  "littlebox-strapi-suite.ecommerce.customers.storeCredits.edit.hint": "The customer ({email}) is e-mailed the new data.",
+  "littlebox-strapi-suite.ecommerce.customers.storeCredits.edit.amount": "Total value",
+  "littlebox-strapi-suite.ecommerce.customers.storeCredits.edit.used": "{used} already used: the total cannot be lower. What is left of it is the balance.",
+  "littlebox-strapi-suite.ecommerce.customers.storeCredits.edit.submit": "Save",
+  "littlebox-strapi-suite.ecommerce.customers.storeCredits.updated": "Store credit updated. The customer was e-mailed the new data.",
+  "littlebox-strapi-suite.ecommerce.customers.storeCredits.updateError": "The store credit could not be updated.",
+  "littlebox-strapi-suite.ecommerce.orders.errors.STORE_CREDIT_BELOW_USED": "The total cannot be lower than what was already used.",
+  "littlebox-strapi-suite.ecommerce.orders.errors.STORE_CREDIT_NOT_EDITABLE": "Only a store credit still valid can be edited.",
+  "littlebox-strapi-suite.ecommerce.settings.emailTemplates.types.STORE_CREDIT_UPDATED.name": "Store credit updated",
+  "littlebox-strapi-suite.ecommerce.settings.emailTemplates.types.STORE_CREDIT_UPDATED.description": "Sent when an admin changes a store credit still valid (value, expiry or conditions)."
 }

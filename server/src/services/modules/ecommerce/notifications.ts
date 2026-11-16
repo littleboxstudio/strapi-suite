@@ -213,7 +213,7 @@ const EcommerceNotificationService = ({ strapi }: { strapi: Core.Strapi }) => {
       if (refundId !== null) extra.refund = await strapi.db.query(u.refund).findOne({ where: { id: refundId } });
     }
     let creditEmail: string | null = null;
-    if (type === 'STORE_CREDIT_ISSUED') {
+    if (type === 'STORE_CREDIT_ISSUED' || type === 'STORE_CREDIT_UPDATED') {
       const creditId = idOf(p.storeCreditId);
       const credit =
         creditId === null

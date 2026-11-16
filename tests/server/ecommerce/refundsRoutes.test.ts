@@ -21,6 +21,7 @@ const expected: [string, string, string, string][] = [
   ['GET', `${A}/store-credits/:id`, `${S}.get`, P.customersRead],
   ['POST', `${A}/store-credits`, `${S}.issue`, P.refundsManage],
   ['POST', `${A}/store-credits/:id/void`, `${S}.void`, P.refundsManage],
+  ['PUT', `${A}/store-credits/:id`, `${S}.update`, P.refundsManage],
   ['GET', `${A}/customers/:id/store-credits`, `${S}.listForCustomer`, P.customersRead],
 ];
 

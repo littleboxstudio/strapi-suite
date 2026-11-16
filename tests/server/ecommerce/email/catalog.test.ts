@@ -94,6 +94,7 @@ const SPECIFIC: Record<string, string[]> = {
   INVOICE_AVAILABLE: ['invoice.number'],
   CREDIT_NOTE_ISSUED: ['creditNote.number', 'creditNote.amount', 'creditNote.invoiceNumber'],
   STORE_CREDIT_ISSUED: ['credit.amount', 'credit.code', 'credit.expiresAt', 'credit.conditions'],
+  STORE_CREDIT_UPDATED: ['credit.balance', 'credit.amount', 'credit.code', 'credit.expiresAt', 'credit.conditions'],
   EMAIL_VERIFICATION: ['verification.code', 'verification.validMinutes'],
 };
 
@@ -107,8 +108,8 @@ const resolve = (data: unknown, path: string) =>
     .reduce<unknown>((acc, key) => (acc as Record<string, unknown> | undefined)?.[key], data);
 
 describe('email variable catalog', () => {
-  it('exports the sixteen template types', () => {
-    expect(EMAIL_TEMPLATE_TYPES).toHaveLength(16);
+  it('exports the seventeen template types', () => {
+    expect(EMAIL_TEMPLATE_TYPES).toHaveLength(17);
     expect([...EMAIL_TEMPLATE_TYPES].sort()).toEqual(Object.keys(SPECIFIC).sort());
   });
 

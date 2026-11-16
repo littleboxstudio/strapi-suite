@@ -35,5 +35,6 @@ export default [
   route('GET', '/store-credits/:id', `${S}.get`, cRead),
   route('POST', '/store-credits', `${S}.issue`, ref),
   route('POST', '/store-credits/:id/void', `${S}.void`, ref),
+  route('PUT', '/store-credits/:id', `${S}.update`, ref),
   route('GET', '/customers/:id/store-credits', `${S}.listForCustomer`, cRead),
 ];

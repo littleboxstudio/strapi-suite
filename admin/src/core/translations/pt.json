@@ -2011,5 +2011,17 @@
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.back": "Voltar",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.noUnits": "Escolha pelo menos uma unidade.",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.withUnpaid.REMAINING": "Considerar nos cálculos os produtos ainda não pagos",
-  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.withUnpaid.SELECT": "Mostrar na lista os produtos ainda não pagos"
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.steps.withUnpaid.SELECT": "Mostrar na lista os produtos ainda não pagos",
+  "littlebox-strapi-suite.ecommerce.customers.storeCredits.editButton": "Editar",
+  "littlebox-strapi-suite.ecommerce.customers.storeCredits.edit.title": "Editar crédito {code}",
+  "littlebox-strapi-suite.ecommerce.customers.storeCredits.edit.hint": "O cliente ({email}) recebe um e-mail com os novos dados.",
+  "littlebox-strapi-suite.ecommerce.customers.storeCredits.edit.amount": "Valor total",
+  "littlebox-strapi-suite.ecommerce.customers.storeCredits.edit.used": "Já foram usados {used}: o total não pode ser inferior. O que sobra é o saldo.",
+  "littlebox-strapi-suite.ecommerce.customers.storeCredits.edit.submit": "Guardar",
+  "littlebox-strapi-suite.ecommerce.customers.storeCredits.updated": "Crédito atualizado. O cliente recebeu um e-mail com os novos dados.",
+  "littlebox-strapi-suite.ecommerce.customers.storeCredits.updateError": "Não foi possível atualizar o crédito.",
+  "littlebox-strapi-suite.ecommerce.orders.errors.STORE_CREDIT_BELOW_USED": "O total não pode ser inferior ao que já foi usado.",
+  "littlebox-strapi-suite.ecommerce.orders.errors.STORE_CREDIT_NOT_EDITABLE": "Só um crédito ainda válido pode ser editado.",
+  "littlebox-strapi-suite.ecommerce.settings.emailTemplates.types.STORE_CREDIT_UPDATED.name": "Crédito de loja atualizado",
+  "littlebox-strapi-suite.ecommerce.settings.emailTemplates.types.STORE_CREDIT_UPDATED.description": "Enviado quando um admin altera um crédito de loja ainda válido (valor, validade ou condições)."
 }
