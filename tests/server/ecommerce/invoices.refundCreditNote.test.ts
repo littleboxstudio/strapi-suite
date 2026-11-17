@@ -492,7 +492,8 @@ describe('a CORRECTION on an invoice a REFUND credit note credited', () => {
   it('is refused in the preview and on issue (REFUND_CREDITED_INVOICE)', async () => {
     const { c, inv, id, a, b } = await twoInvoices();
     const r = await refund(c, id, 2000);
-    expect((await inv.creditNotePreview(a.id)).correctionRefused).toBeNull();
+    // Its elements are reserved on invoice A already (fix round 1), before any credit note.
+    expect((await inv.creditNotePreview(a.id)).correctionRefused).toBe('REFUND_CREDITED_INVOICE');
     await inv.issueRefundCreditNote(r.id, { items: [{ invoiceId: a.id, index: 0, quantity: 1 }], idempotencyKey: 'cn-1' }, actor);
     const preview = await inv.creditNotePreview(a.id);
     expect(preview.correctionRefused).toBe('REFUND_CREDITED_INVOICE');

@@ -427,3 +427,36 @@ describe('a legacy INVOICED refund (no metadata.items)', () => {
     expect((await c.refunds.list(id))[0].items).toEqual([]);
   });
 });
+
+describe('fix round 1', () => {
+  it('the preview and create offer only invoices of the active billing provider', async () => {
+    const { c, id, a, b } = await twoInvoices();
+    const shippingLineId = orderRow(c, id).shippingLines.lines[0].id;
+    seedInvoice(c, id, 905, [
+      { orderLineId: null, kind: 'SHIPPING', sku: '', name: 'Shipping', quantity: 1, total: 100, tax: 23, partial: false, shippingLineId },
+    ]);
+    c.tables[UIDS.invoice].find((r) => r.id === 905).provider = 'otherbill';
+    const p = await c.refunds.preview(id);
+    expect(p.invoicedElements.invoices.map((i: any) => i.invoiceId)).toEqual([a.id, b.id]);
+    expect(await codesOf(create(c, id, [{ invoiceId: 905, index: 0, quantity: 1 }]))).toEqual(['REFUND_ITEMS_INVALID']);
+    // Billing not active: nothing to pick.
+    c.services.EcommerceSettingsService.getActiveProviders = async () => [];
+    expect((await c.refunds.preview(id)).invoicedElements).toEqual({ invoices: [] });
+    expect(await codesOf(create(c, id, [{ invoiceId: a.id, index: 0, quantity: 1 }]))).toEqual(['REFUND_ITEMS_INVALID']);
+  });
+
+  it('an invoice holding elements of an uncredited INVOICED refund refuses a CORRECTION', async () => {
+    const { c, inv, id, a, b } = await twoInvoices();
+    const [r] = await create(c, id, [{ invoiceId: a.id, index: 0, quantity: 1 }]);
+    const preview = await inv.creditNotePreview(a.id);
+    expect(preview.correctionRefused).toBe('REFUND_CREDITED_INVOICE');
+    expect(preview.correction).toEqual({ lines: [], total: 0 });
+    expect(
+      await codesOf(inv.issueCreditNote(a.id, { creditType: 'CORRECTION', reason: 'Wrong data', idempotencyKey: 'c1' }, actor))
+    ).toEqual(['REFUND_CREDITED_INVOICE']);
+    expect((await inv.creditNotePreview(b.id)).correctionRefused).toBeNull();
+    // Removed, the refund reserves nothing: the CORRECTION is offered again.
+    await c.refunds.remove(r.id, actor);
+    expect((await inv.creditNotePreview(a.id)).correctionRefused).toBeNull();
+  });
+});

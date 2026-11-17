@@ -49,12 +49,23 @@ const deliver = (c: Commerce, id: string, type: string, object: any) => {
   return c.webhooks.handle(raw, sig);
 };
 
+/**
+ * The active billing provider (never called here: no document is issued). An INVOICED refund picks
+ * elements of its invoices only.
+ */
+const withBilling = (c: Commerce) => {
+  c.services.EcommerceSettingsService.getActiveProviders = async (category: string) =>
+    category === 'billing' ? ['moloni'] : [];
+};
+
 /** An ISSUED invoice of the whole order: 2 × 2000 (one line, 4000) and the 500 shipping line. */
 const seedInvoice = (c: Commerce, orderId: number, id = 900) => {
+  withBilling(c);
   const shippingLineId = order(c, orderId).shippingLines.lines[0].id;
   c.tables[UIDS.invoice].push({
     id,
     order: orderId,
+    provider: 'moloni',
     kind: 'INVOICE',
     status: 'ISSUED',
     creditedInvoice: null,
@@ -156,7 +167,65 @@ describe('INVOICED refunds: preview and the REFUND action', () => {
   });
 });
 
+const issuesOf = async (p: Promise<unknown>): Promise<any[]> => {
+  try {
+    await p;
+  } catch (e) {
+    if (e instanceof EcommerceValidationError) return e.errors as any[];
+    throw e;
+  }
+  return [];
+};
+
+describe('INVOICED refunds: elements above the invoiced refundable value (fix round 1)', () => {
+  it('value invoiced above what the order charges: REFUND_ITEMS_INVALID on items, with the limit', async () => {
+    const { c, id } = await invoicedOrder();
+    c.tables[UIDS.orderLine].find((l) => l.order === id).returnedQuantity = 1;
+    order(c, id).total = 2500;
+    expect((await c.refunds.preview(id)).invoicedRefundable).toBe(2500);
+    expect(await issuesOf(c.refunds.create(id, invoiced(4000), actor))).toEqual([
+      { path: 'items', code: 'REFUND_ITEMS_INVALID', detail: '2500' },
+    ]);
+    expect(c.tables[UIDS.refund]).toHaveLength(0);
+  });
+
+  it('a legacy refund reserving by amount: REFUND_ITEMS_INVALID on items, with the limit', async () => {
+    const { c, id } = await invoicedOrder();
+    c.tables[UIDS.refund].push({
+      id: 700, order: id, payment: null, method: 'MANUAL_TRANSFER', kind: 'MONEY', status: 'COMPLETED',
+      scope: 'INVOICED', amount: 500, currency: 'EUR', reason: 'GOODWILL', idempotencyKey: 'legacy',
+      storeCredit: null, metadata: null,
+    });
+    await c.orders.recalculate(id, { actor });
+    expect((await c.refunds.preview(id)).invoicedRefundable).toBe(4000);
+    expect(
+      await issuesOf(
+        c.refunds.create(id, invoiced(2500, { items: [...ELEMENTS[4000], ...ELEMENTS[500]], amount: undefined }), actor)
+      )
+    ).toEqual([{ path: 'items', code: 'REFUND_ITEMS_INVALID', detail: '4000' }]);
+  });
+});
+
 describe('INVOICED refunds: create', () => {
+  it('Stripe: elements that would span several Stripe payments are stripe_split_unavailable', async () => {
+    const c = setupCommerce();
+    const id = await createOrder(c);
+    for (const [pid, amount, at] of [[801, 2500, '2026-11-01T10:00:00.000Z'], [802, 2000, '2026-11-02T10:00:00.000Z']] as const) {
+      c.tables[UIDS.payment].push({
+        id: pid, order: id, method: 'STRIPE', status: 'COMPLETED', amount, currency: 'EUR',
+        externalId: `pi_${pid}`, idempotencyKey: `stripe:${pid}`, coverage: null,
+        completedAt: at, actor: 'webhook:stripe', metadata: null,
+      });
+    }
+    await c.orders.recalculate(id, { actor });
+    seedInvoice(c, id);
+    expect(await issuesOf(c.refunds.create(id, invoiced(4000, { method: 'STRIPE' }), actor))).toEqual([
+      { path: 'method', code: 'stripe_split_unavailable' },
+    ]);
+    expect(stripe.createRefund).not.toHaveBeenCalled();
+    expect(c.tables[UIDS.refund]).toHaveLength(0);
+  });
+
   it('lowers the order total; the order stays PAID and refunded grows', async () => {
     const { c, id } = await invoicedOrder();
     const [r] = await c.refunds.create(id, invoiced(500), actor);

@@ -458,6 +458,10 @@ describe('units a REFUND credit note credited (plan 15)', () => {
       },
       metadata: null,
     });
+    // The active billing provider (never called here): its invoices hold the refund's elements.
+    c.tables[UIDS.invoice].find((i) => i.id === 900).provider = 'moloni';
+    c.services.EcommerceSettingsService.getActiveProviders = async (category: string) =>
+      category === 'billing' ? ['moloni'] : [];
     const [refund] = await c.refunds.create(
       id,
       {
