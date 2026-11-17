@@ -10,6 +10,7 @@ import type {
   StoreCredit,
 } from '../orderTypes';
 import {
+  isZeroValueElement,
   refundCreditItems,
   refundElementsFit,
   refundElementsTotal,
@@ -113,9 +114,32 @@ export function previewForScope(preview: RefundPreview, scope: RefundScope): Ref
   return { ...preview, ...scopeLimits(preview, scope) };
 }
 
-/** The scopes with something to refund, EXCESS first. */
+/** Promotional gift units (elements valued 0) are left: a units-only INVOICED refund is possible. */
+export function unitsOnlyAvailable(preview: RefundPreview): boolean {
+  return (preview.invoicedElements?.invoices ?? []).some((i) => i.lines.some(isZeroValueElement));
+}
+
+/** The scopes with something to refund, EXCESS first (INVOICED also with gift units only). */
 export function refundScopes(preview: RefundPreview): RefundScope[] {
-  return REFUND_SCOPES.filter((scope) => scopeLimits(preview, scope).refundable > 0);
+  return REFUND_SCOPES.filter(
+    (scope) =>
+      scopeLimits(preview, scope).refundable > 0 || (scope === 'INVOICED' && unitsOnlyAvailable(preview))
+  );
+}
+
+/**
+ * An INVOICED selection of gift units only: non-empty, every quantity fits, and its total is 0. It
+ * is a units-only refund: no money moves, so the method and money fields do not apply.
+ */
+export function isUnitsOnlyRefund(form: RefundForm, preview: RefundPreview, lineOf?: InvoiceLineLookup): boolean {
+  if (form.scope !== 'INVOICED') return false;
+  const elements = preview.invoicedElements?.invoices ?? [];
+  const selection = form.selection ?? {};
+  return (
+    refundCreditItems({ invoices: elements }, selection).length > 0 &&
+    refundElementsFit(elements, selection) &&
+    refundElementsTotal(elements, selection, lineOf) === 0
+  );
 }
 
 /** EXCESS when there is an excess, else INVOICED when there is invoiced value (else EXCESS). */
@@ -191,6 +215,22 @@ export function validateRefundForm(
   lineOf?: InvoiceLineLookup
 ): { errors: FieldError[]; input: RefundDraft | null } {
   const errors: FieldError[] = [];
+  // Gift units only (total 0): a units-only refund, stored as a MANUAL_TRANSFER of 0.
+  if (isUnitsOnlyRefund(form, fullPreview, lineOf)) {
+    if (!REFUND_REASONS.includes(form.reason as RefundReason)) errors.push({ path: 'reason', code: 'required' });
+    if (tooLong(form.description, MAX_LONG_TEXT)) errors.push({ path: 'description', code: 'too_long' });
+    if (errors.length) return { errors, input: null };
+    const input: RefundDraft = {
+      method: 'MANUAL_TRANSFER',
+      amount: 0,
+      reason: form.reason,
+      scope: 'INVOICED',
+      items: refundCreditItems({ invoices: fullPreview.invoicedElements?.invoices ?? [] }, form.selection),
+    };
+    const description = form.description.trim();
+    if (description) input.description = description;
+    return { errors: [], input };
+  }
   const preview = previewForScope(fullPreview, form.scope ?? 'EXCESS');
   // INVOICED: the amount is the value of the chosen elements (whole units, whole shipping lines).
   const invoiced = form.scope === 'INVOICED';

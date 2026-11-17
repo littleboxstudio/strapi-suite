@@ -283,9 +283,9 @@ describe('refundItemRows', () => {
         invoices
       )
     ).toEqual([
-      { key: '6:1', invoice: 'FT X/6', kind: 'SHIPPING', name: 'CTT', quantity: 1, value: 500 },
-      { key: '7:0', invoice: '#7', kind: 'ITEM', name: 'Mug', quantity: 2, value: 667 },
-      { key: '8:0', invoice: '#8', kind: 'ITEM', name: null, quantity: 1, value: 100 },
+      { key: '6:1', invoice: 'FT X/6', kind: 'SHIPPING', orderLineId: 1, name: 'CTT', quantity: 1, value: 500 },
+      { key: '7:0', invoice: '#7', kind: 'ITEM', orderLineId: 1, name: 'Mug', quantity: 2, value: 667 },
+      { key: '8:0', invoice: '#8', kind: 'ITEM', orderLineId: null, name: null, quantity: 1, value: 100 },
     ]);
   });
 });

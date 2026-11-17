@@ -29,6 +29,8 @@ export function refundOptionValue(
   invoiceLine?: InvoiceLine
 ): number {
   if (!Number.isInteger(quantity) || quantity <= 0 || quantity > option.quantityLeft) return 0;
+  // A promotional gift (invoiced at 0): its units are worth 0.
+  if (option.kind === 'ITEM' && option.valueLeft === 0) return 0;
   if (option.kind === 'SHIPPING' || quantity === option.quantityLeft) return option.valueLeft;
   if (!invoiceLine && quantity === 1) return option.unitValue;
   return returnValue(
@@ -148,11 +150,22 @@ export function storedCreditItems(options: RefundCreditNoteOptions): RefundCredi
   return (options.selected ?? []).map(({ invoiceId, index, quantity }) => ({ invoiceId, index, quantity }));
 }
 
+/** Whether an element is a promotional gift's units (an ITEM invoiced at 0). */
+export const isZeroValueElement = (option: RefundCreditLineOption): boolean =>
+  option.kind === 'ITEM' && option.valueLeft === 0;
+
+/** The ids of the order's gift lines: an element shows the gift badge by its `orderLineId`. */
+export function giftOrderLineIds(lines: { id: number; isGift?: boolean | null }[]): Set<number> {
+  return new Set(lines.filter((l) => l.isGift).map((l) => l.id));
+}
+
 export type RefundItemRow = {
   key: string;
   /** The invoice number, or `#id` while it has none (or is not listed). */
   invoice: string;
   kind: InvoiceLine['kind'];
+  /** The order line the invoice line invoiced (the gift badge); null when unknown. */
+  orderLineId: number | null;
   /** The invoice line's name; null when the line is not listed. */
   name: string | null;
   quantity: number;
@@ -168,6 +181,7 @@ export function refundItemRows(items: RefundItem[], invoices: InvoiceView[]): Re
       key: selectionKey(item.invoiceId, item.index),
       invoice: invoice?.number || `#${item.invoiceId}`,
       kind: line?.kind ?? 'ITEM',
+      orderLineId: line?.orderLineId ?? null,
       name: line?.name ?? null,
       quantity: item.quantity,
       value: item.value,
@@ -189,13 +203,15 @@ export type RefundRowContext = {
 
 /**
  * The actions of a refund (plan 15), only for INVOICED ones:
- * - Credit note: billing active, none yet, order not archived, refund COMPLETED;
+ * - Credit note: billing active, none yet, order not archived, refund COMPLETED, an amount above 0
+ *   (a units-only refund of gifts has nothing to credit);
  * - PDF: its credit note issued;
  * - Remove: the server's `removable` (the remove rules, a used store credit included). An older
  *   server sends none: then no credit note, order not archived, refund COMPLETED, not STRIPE.
  */
 export function refundRowActions(
-  refund: Pick<RefundView, 'scope' | 'creditNoteId' | 'status' | 'method' | 'removable'>,
+  refund: Pick<RefundView, 'scope' | 'creditNoteId' | 'status' | 'method' | 'removable'> &
+    Partial<Pick<RefundView, 'amount'>>,
   ctx: RefundRowContext
 ): { creditNote: boolean; pdf: boolean; remove: boolean } {
   const invoiced = refund.scope === 'INVOICED';
@@ -203,7 +219,7 @@ export function refundRowActions(
   const removable =
     typeof refund.removable === 'boolean' ? refund.removable : open && refund.method !== 'STRIPE';
   return {
-    creditNote: open && ctx.billingActive && ctx.canInvoice,
+    creditNote: open && ctx.billingActive && ctx.canInvoice && (refund.amount === undefined || refund.amount > 0),
     pdf: invoiced && refund.creditNoteId != null && ctx.creditNote?.status === 'ISSUED',
     remove: removable && ctx.canRefund,
   };

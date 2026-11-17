@@ -25,7 +25,7 @@ import RefreshRefund from '../../usecases/orders/refreshRefund';
 import MarkRefundFailed from '../../usecases/orders/markRefundFailed';
 import RemoveRefund from '../../usecases/orders/removeRefund';
 import { openInvoicePdf } from '../../utils/openInvoicePdf';
-import { refundItemRows, refundRowActions } from '../../utils/refundCreditNote';
+import { giftOrderLineIds, refundItemRows, refundRowActions } from '../../utils/refundCreditNote';
 import { formatCents } from '../../utils/money';
 import { actorLabel, apiErrorMessageId } from '../../utils/orderDetail';
 import { MAX_LONG_TEXT, isRefreshableStripeRefund, isStuckStripeRefund } from '../../utils/refundForm';
@@ -52,6 +52,8 @@ type Props = {
   archived: boolean;
   /** The order's documents: a refund's credit note (status, number, PDF). */
   invoices: InvoiceView[];
+  /** The order's lines: gift lines show the gift badge on the refund's elements. */
+  orderLines?: { id: number; isGift?: boolean | null }[];
   /** After resume / mark as failed (the order changed). */
   onChanged: () => void;
 };
@@ -78,8 +80,10 @@ const RefundsTable = ({
   billingActive,
   archived,
   invoices,
+  orderLines = [],
   onChanged,
 }: Props) => {
+  const giftLineIds = giftOrderLineIds(orderLines);
   const { formatMessage, formatDate, locale: uiLocale } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>, defaultMessage?: string) =>
@@ -432,13 +436,18 @@ const RefundsTable = ({
                             <Typography textColor="neutral800">{row.invoice}</Typography>
                           </Td>
                           <Td style={PRODUCT_CELL}>
-                            <Typography textColor="neutral800">
-                              {row.name === null
-                                ? '—'
-                                : row.kind === 'SHIPPING'
-                                  ? t('ecommerce.orders.invoices.lines.shipping', { name: row.name })
-                                  : row.name}
-                            </Typography>
+                            <Flex direction="column" alignItems="flex-start" gap={1}>
+                              <Typography textColor="neutral800">
+                                {row.name === null
+                                  ? '—'
+                                  : row.kind === 'SHIPPING'
+                                    ? t('ecommerce.orders.invoices.lines.shipping', { name: row.name })
+                                    : row.name}
+                              </Typography>
+                              {row.kind === 'ITEM' && row.orderLineId !== null && giftLineIds.has(row.orderLineId) && (
+                                <ToneBadge variant="success">{t('ecommerce.orders.detail.lines.gift')}</ToneBadge>
+                              )}
+                            </Flex>
                           </Td>
                           <Td style={FIT_CELL}>
                             <Typography textColor="neutral800">{row.quantity}</Typography>
@@ -497,6 +506,7 @@ const RefundsTable = ({
           key={`credit-${crediting.id}`}
           refund={crediting}
           invoices={invoices}
+          giftLineIds={giftLineIds}
           onClose={() => setCrediting(null)}
           onIssued={() => {
             setCrediting(null);

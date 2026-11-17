@@ -2068,6 +2068,8 @@
   "littlebox-strapi-suite.ecommerce.orders.refund.scopes.INVOICED": "Valor faturado",
   "littlebox-strapi-suite.ecommerce.orders.refund.scopes.INVOICED.hint": "Valor faturado ainda não creditado, até {amount}. O total da encomenda desce no valor reembolsado.",
   "littlebox-strapi-suite.ecommerce.orders.refund.reviewNote.INVOICED": "O total da encomenda desce {amount}, por isso a encomenda continua paga. Com a faturação ativa, emita a nota de crédito em Reembolsos e créditos.",
+  "littlebox-strapi-suite.ecommerce.orders.refund.unitsOnly.notice": "Só foram escolhidas ofertas (valor €0): as unidades deixam de ser enviadas e não há dinheiro a devolver.",
+  "littlebox-strapi-suite.ecommerce.orders.refund.unitsOnly.confirm": "Registar as unidades oferecidas como reembolsadas? Deixam de ser enviadas; não há dinheiro a devolver e o cliente não recebe e-mail.",
   "littlebox-strapi-suite.ecommerce.orders.detail.summary.creditAdjustment": "Reembolsos de valor faturado",
   "littlebox-strapi-suite.ecommerce.orders.refunds.details.scope": "Tipo",
   "littlebox-strapi-suite.ecommerce.orders.refunds.details.creditNote": "Nota de crédito",

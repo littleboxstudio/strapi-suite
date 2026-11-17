@@ -18,6 +18,7 @@ import { formatCents } from '../../utils/money';
 import { selectionKey, type RefundCreditSelection } from '../../utils/refundCreditNote';
 import type { RefundCreditLineOption, RefundElementInvoice } from '../../orderTypes';
 import ColumnLabel from '../ColumnLabel';
+import { ToneBadge } from './StatusBadges';
 import QuantityInput from './QuantityInput';
 import { FIT_CELL, PRODUCT_CELL } from './lineCells';
 
@@ -37,6 +38,8 @@ type Props = {
   readOnly?: boolean;
   /** Only the elements with a quantity chosen are listed. */
   selectedOnly?: boolean;
+  /** The order's gift lines (`giftOrderLineIds`): their elements show the gift badge. */
+  giftLineIds?: Set<number>;
   onChoose: (invoiceId: number, index: number, quantity: number) => void;
 };
 
@@ -53,6 +56,7 @@ const RefundElementsTable = ({
   disabled,
   readOnly,
   selectedOnly,
+  giftLineIds,
   onChoose,
 }: Props) => {
   const { formatMessage, locale } = useIntl();
@@ -145,7 +149,12 @@ const RefundElementsTable = ({
             return (
               <Tr key={key}>
                 <Td style={PRODUCT_CELL}>
-                  <Typography textColor="neutral800">{name}</Typography>
+                  <Flex direction="column" alignItems="flex-start" gap={1}>
+                    <Typography textColor="neutral800">{name}</Typography>
+                    {option.kind === 'ITEM' && option.orderLineId != null && giftLineIds?.has(option.orderLineId) && (
+                      <ToneBadge variant="success">{t('ecommerce.orders.detail.lines.gift')}</ToneBadge>
+                    )}
+                  </Flex>
                 </Td>
                 <Td style={FIT_CELL}>
                   <Typography textColor="neutral800">{option.quantityLeft}</Typography>
