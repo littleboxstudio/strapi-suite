@@ -16,8 +16,14 @@ type Props = {
   removeLabel: string;
 };
 
+/** Floats over the content below the field instead of pushing it down. */
 const List = styled.div`
-  margin-top: ${({ theme }) => theme.spaces[1]};
+  position: absolute;
+  top: calc(100% + ${({ theme }) => theme.spaces[1]});
+  left: 0;
+  right: 0;
+  z-index: 10;
+  box-shadow: ${({ theme }) => theme.shadows.popupShadow};
   max-height: 200px;
   overflow-y: auto;
   border: 1px solid ${({ theme }) => theme.colors.neutral200};
@@ -105,7 +111,7 @@ const PaymentMethodField = ({
   };
 
   return (
-    <div onBlur={onBlur}>
+    <div onBlur={onBlur} style={{ position: 'relative' }}>
       <TextInput
         value={value}
         placeholder={placeholder}
