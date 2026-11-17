@@ -1240,17 +1240,20 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     );
 
   /**
-   * A live REFUND credit note credits `invoiceId` (plan 15): a CORRECTION is refused on it, since
-   * annulling the invoice would make its units invoiceable again while the refund keeps them out.
+   * A live REFUND credit note credits `invoiceId`, or an active INVOICED refund without a credit
+   * note holds elements of it (plan 15): a CORRECTION is refused on it, since annulling the invoice
+   * would make its units invoiceable again while the refund keeps them out.
    */
-  const refundCredited = (invoiceId: number, state: OrderState): boolean =>
-    state.invoicing.docs.some(
+  const refundCredited = (invoiceId: number, state: OrderState): boolean => {
+    const { docs } = state.invoicing;
+    return [...docs, ...refundReservationDocs(state.refunds, docs)].some(
       (d) =>
         d.kind === 'CREDIT_NOTE' &&
         d.creditType === 'REFUND' &&
         d.status !== 'FAILED' &&
         creditsInvoice(d, invoiceId)
     );
+  };
 
   const creditNotePreview = async (invoiceId: number | string): Promise<CreditNoteOptions> => {
     const row = await loadIssuedInvoice(Number(invoiceId));
@@ -1441,12 +1444,14 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   /**
-   * The elements a new INVOICED refund may pick (plan 15), per ISSUED invoice of the order (any
-   * provider), with their available values: what live credit notes and other active refunds left.
-   * `targets` keeps each invoice and its options for the valuation (`refundCreditLine`).
+   * The elements a new INVOICED refund may pick (plan 15), per ISSUED invoice of the active billing
+   * provider (the one its credit note will use; none while billing is not active), with their
+   * available values: what live credit notes and other active refunds left. `targets` keeps each
+   * invoice and its options for the valuation (`refundCreditLine`).
    */
   const refundElements = async (orderId: number, state: OrderState) => {
-    const targets = await refundableInvoices(orderId, state, null);
+    const { providerId } = await billingStatus();
+    const targets = providerId ? await refundableInvoices(orderId, state, providerId) : [];
     return {
       targets,
       invoices: targets

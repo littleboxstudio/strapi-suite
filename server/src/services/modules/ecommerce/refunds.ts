@@ -316,6 +316,12 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
     ...extra,
   });
 
+  /** An INVOICED refund's elements, for its history entries. */
+  const historyItems = (r: any): { items?: RefundItem[] } => {
+    const items = r.scope === 'INVOICED' ? refundItemsOf(r) : null;
+    return items ? { items } : {};
+  };
+
   const historyValue = (r: any) => ({
     refundId: r.id,
     method: r.method,
@@ -325,7 +331,7 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
     storeCreditId: idOf(r.storeCredit),
     externalId: r.externalId ?? null,
     ...(r.scope === 'INVOICED' ? { scope: 'INVOICED' } : {}),
-    ...(r.scope === 'INVOICED' && refundItemsOf(r) ? { items: refundItemsOf(r) } : {}),
+    ...historyItems(r),
   });
 
   /** The limits of each scope: EXCESS from the excess, INVOICED from the invoiced value (plan 15). */
@@ -840,6 +846,13 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
         }
         const own = items ? { items } : null;
         const limits = (await refundContext(state)).limits[scope];
+        // Valid elements whose sum is above what may still be refunded (value invoiced above what
+        // the order charges, a legacy refund's amount): the selection is refused, not an amount.
+        if (items && amount > limits.refundable) {
+          throw new EcommerceValidationError('Invalid refund', [
+            { path: 'items', code: 'REFUND_ITEMS_INVALID', detail: String(limits.refundable) },
+          ]);
+        }
         const issues = validateRefundRequest(
           { amount: amount as number, method, reason },
           {
@@ -872,7 +885,7 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
           const { allocations, unallocated } = allocateStripeRefund(amount, stripeSources(state));
           if (unallocated > 0) throw invalid('method', 'stripe_unavailable');
           // An INVOICED refund's elements belong to one refund row: never split across payments.
-          if (own && allocations.length > 1) throw invalid('method', 'stripe_unavailable');
+          if (own && allocations.length > 1) throw invalid('method', 'stripe_split_unavailable');
           const rows: any[] = [];
           for (const a of allocations) {
             const row = await strapi.db.query(u.refund).create({
