@@ -1094,12 +1094,13 @@ const EcommerceShipmentService = ({ strapi }: { strapi: Core.Strapi }) => {
 
         const state = await orders().computeOrderState(orderId);
         // Everything already reserved (another tab shipped it): the units are the reason.
+        // `pending` leaves refunded units out: they never ship.
         const allReserved =
           state.order.orderStatus === 'OPEN' && state.lines.every((l) => l.pending === 0);
         if (!allReserved) orders().assertAction(state, 'SHIP');
         const reserved = reservedQuantities(state.shipments as LoadedShipment[]);
         const issues = validateShipmentRequest(
-          state.lines.map((l) => ({ id: l.id, quantity: l.quantity })),
+          state.lines.map((l) => ({ id: l.id, quantity: Math.max(0, l.quantity - l.refundCredited) })),
           reserved,
           n.lines
         );

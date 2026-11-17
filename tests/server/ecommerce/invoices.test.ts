@@ -1937,11 +1937,11 @@ describe('elements reserved by an INVOICED refund without a credit note (plan 15
       { invoiceId: inv1.id, index: 0, quantity: 1, value: 501 },
     ]);
 
-    // The other unit comes back: what is left of the line is 500 (share 100), the RETURN credit
-    // note credits the same 500.
+    // The other unit (the refunded one never ships) comes back: what is left of the line is 500
+    // (share 100), the RETURN credit note credits the same 500.
     await c.services.EcommerceShipmentService.create(
       id,
-      { lines: [{ orderLineId: lineId, quantity: 2 }], method: { mode: 'MANUAL', carrierName: 'CTT' }, notifyCustomer: false, idempotencyKey: 's1' },
+      { lines: [{ orderLineId: lineId, quantity: 1 }], method: { mode: 'MANUAL', carrierName: 'CTT' }, notifyCustomer: false, idempotencyKey: 's1' },
       'user:1'
     );
     const preview = await inv.creditNotePreview(inv1.id);

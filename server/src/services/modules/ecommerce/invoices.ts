@@ -266,6 +266,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     lockOrder(orderId: number): Promise<void>;
     computeOrderState(orderId: number): Promise<OrderState>;
     assertAction(state: OrderState, action: OrderActionKey, allowed?: boolean): void;
+    recalculate(orderId: number, opts: { actor?: string; operationId?: string }): Promise<unknown>;
   } => service('EcommerceOrderService');
   const settings = (): {
     getActiveProviders(category: 'billing'): Promise<string[]>;
@@ -616,6 +617,16 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     await strapi.db.query(uids().refund).update({ where: { id: refund.id }, data: { metadata: rest } });
   };
 
+  /**
+   * A REFUND credit note that is issued, fails or is refused may change the units refunds hold
+   * (a late one of a removed refund counts its units): the fulfillment status is derived again.
+   */
+  const recalculateForRefundNote = async (row: any, orderId: number, actor: string) => {
+    if (row?.kind === 'CREDIT_NOTE' && row.metadata?.creditType === 'REFUND') {
+      await orders().recalculate(orderId, { actor });
+    }
+  };
+
   const recordIssued = async (
     row: any,
     orderId: number,
@@ -675,6 +686,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
       },
       actor: ctx.actor,
     });
+    await recalculateForRefundNote(row, orderId, ctx.actor);
     if (ctx.late && !ctx.late.emit) return;
     ctx.collector.emit({
       type: 'INVOICE_ISSUED',
@@ -703,6 +715,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
       newValue: { kind: row.kind, error, ...(detail ? { detail } : {}) },
       actor,
     });
+    await recalculateForRefundNote(row, orderId, actor);
   };
 
   const recordFailed = async (
@@ -731,6 +744,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
       newValue: { invoiceId: row.id, kind: row.kind, error },
       actor,
     });
+    await recalculateForRefundNote(row, orderId, actor);
   };
 
   /**

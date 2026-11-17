@@ -89,6 +89,18 @@ describe('defaultShipLines', () => {
       { orderLineId: 3, quantity: '1' },
     ]);
   });
+
+  it('skips a line whose units are all refunded (pending 0 from the server), and the unpaid hint ignores it', () => {
+    // A line of 2 with 1 refunded unit (pending 1) and a line of 1 fully refunded (pending 0).
+    const refunded = [
+      { id: 1, pending: 1, shippable: 1 },
+      { id: 2, pending: 0, shippable: 0 },
+    ];
+    expect(defaultShipLines(refunded)).toEqual([{ orderLineId: 1, quantity: '1' }]);
+    expect(emptyShipForm({ lines: refunded } as any).lines).toEqual([{ orderLineId: 1, quantity: '1' }]);
+    expect(hasUnpaidPending(refunded)).toBe(false);
+    expect(defaultShipLines([{ id: 2, pending: 0, shippable: 0 }])).toEqual([]);
+  });
 });
 
 describe('ship methods', () => {
