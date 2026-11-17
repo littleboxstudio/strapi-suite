@@ -12,7 +12,7 @@ const orderRow = (c: Commerce, id: number) => c.tables[UIDS.order].find((o) => o
  * Order 4500 (2 × 2000 + 500 shipping), paid in full, with a COMPLETED INVOICED refund of 500
  * as the refund service leaves it: the stored total already lowered to 4000.
  */
-const adjustedOrder = async () => {
+const adjustedOrder = async (amount = 500) => {
   const c = setupCommerce();
   const id = await createOrder(c);
   await c.payments.addManualPayment(id, { amount: 4500, idempotencyKey: 'pay-1' }, actor);
@@ -24,14 +24,14 @@ const adjustedOrder = async () => {
     kind: 'MONEY',
     status: 'COMPLETED',
     scope: 'INVOICED',
-    amount: 500,
+    amount,
     currency: 'EUR',
     reason: 'GOODWILL',
     idempotencyKey: 'inv-1',
     storeCredit: null,
     metadata: null,
   });
-  orderRow(c, id).total = 4000;
+  orderRow(c, id).total = Math.max(0, 4500 - amount);
   await c.orders.recalculate(id, { actor });
   return { c, id };
 };
@@ -42,6 +42,12 @@ describe('creditAdjustment (INVOICED refunds lower the order total)', () => {
     const view = await c.orders.get(id);
     expect(view.totals).toMatchObject({ creditAdjustment: 500, total: 4000 });
     expect(view.paymentStatus).toBe('PAID');
+  });
+
+  it('the view shows the adjustment as applied: never above the total before it', async () => {
+    const { c, id } = await adjustedOrder(5000);
+    const view = await c.orders.get(id);
+    expect(view.totals).toMatchObject({ creditAdjustment: 4500, total: 0 });
   });
 
   it('an order edit that rewrites the totals keeps the adjustment', async () => {

@@ -287,3 +287,107 @@ describe('INVOICED refunds: remove', () => {
     expect(order(c, id).total).toBe(4000);
   });
 });
+
+describe('INVOICED refunds with their REFUND credit note (plan 15, task 3)', () => {
+  /** The invoice 900's allocation of the 4500 payment, so nothing is left to invoice. */
+  const allocate = (c: Commerce, id: number) => {
+    const payment = c.tables[UIDS.payment].find((p) => p.order === id);
+    c.tables[UIDS.invoiceAllocation].push({
+      id: 800,
+      order: id,
+      invoice: 900,
+      payment: payment.id,
+      amount: 4500,
+      uniqueKey: `alloc-${payment.id}`,
+    });
+  };
+  /** An ISSUED REFUND credit note of `refundId`, crediting `entries` of invoice 900. */
+  const refundNote = (
+    c: Commerce,
+    orderId: number,
+    noteId: number,
+    refundId: number,
+    entries: { index: number; value: number; quantity: number }[]
+  ) => {
+    const invoice = c.tables[UIDS.invoice].find((i) => i.id === 900);
+    c.tables[UIDS.invoice].push({
+      id: noteId,
+      order: orderId,
+      kind: 'CREDIT_NOTE',
+      status: 'ISSUED',
+      creditedInvoice: 900,
+      number: `NC 2026/${noteId}`,
+      total: entries.reduce((s, e) => s + e.value, 0),
+      lines: {
+        lines: entries.map((e) => ({ ...invoice.lines.lines[e.index], quantity: e.quantity || 1, total: e.value })),
+      },
+      metadata: {
+        creditType: 'REFUND',
+        refundId,
+        creditedLines: entries.map((e) => ({ ...e, invoiceId: 900 })),
+      },
+    });
+    refundRow(c, refundId).metadata = { ...(refundRow(c, refundId).metadata ?? {}), creditNoteId: noteId };
+  };
+
+  it('shipping refunded and credited: nothing to invoice, nothing over-invoiced or stranded', async () => {
+    const { c, id } = await invoicedOrder();
+    allocate(c, id);
+    const [r] = await c.refunds.create(id, invoiced(500), actor);
+    refundNote(c, id, 901, r.id, [{ index: 1, value: 500, quantity: 1 }]);
+
+    const state = await c.orders.computeOrderState(id);
+    expect(state.invoicing.position.stranded).toEqual({ products: 0, shipping: 0 });
+    expect(state.invoicing.position.overInvoiced).toEqual({ products: 0, shipping: 0 });
+    const selection = await c.services.EcommerceInvoiceService.selection(id);
+    expect(selection).toMatchObject({ lines: [], shipping: [], discounts: [], payments: [], overInvoiced: { shipping: 0 } });
+    expect((await c.orders.get(id)).invoicing.shippingToCredit).toBe(0);
+    // Only the products are left to refund; the shipping is never offered twice.
+    expect((await c.refunds.preview(id)).invoicedRefundable).toBe(4000);
+
+    // The rest refunded and credited too: nothing left at all.
+    const [r2] = await c.refunds.create(id, invoiced(4000, { idempotencyKey: 'inv-rest' }), actor);
+    refundNote(c, id, 902, r2.id, [{ index: 0, value: 4000, quantity: 2 }]);
+    expect(order(c, id).total).toBe(0);
+    const after = await c.orders.computeOrderState(id);
+    expect(after.invoicing.position.stranded).toEqual({ products: 0, shipping: 0 });
+    expect(after.invoicing.position.overInvoiced).toEqual({ products: 0, shipping: 0 });
+    expect(after.invoicing.items.lines.every((l: any) => l.invoiced)).toBe(true);
+    expect(await c.services.EcommerceInvoiceService.selection(id)).toMatchObject({ lines: [], shipping: [], payments: [] });
+    expect((await c.refunds.preview(id)).invoicedRefundable).toBe(0);
+  });
+
+  it('an order with a promotion: an INVOICED refund lowers the total by its amount', async () => {
+    const c = setupCommerce();
+    c.tables[UIDS.promotion].push({
+      id: 1,
+      name: 'Promo',
+      description: null,
+      code: null,
+      method: 'AUTOMATIC',
+      active: true,
+      startsAt: '2020-01-01T00:00:00.000Z',
+      endsAt: null,
+      priority: 0,
+      displayName: {},
+      eligibility: { mode: 'ALL' },
+      conditions: { type: 'GROUP', operator: 'AND', children: [] },
+      benefits: { items: [{ type: 'ORDER_PERCENT', percent: 10 }] },
+      stacking: { exclusive: false, withProduct: true, withOrder: true, withShipping: true },
+      usageLimit: null,
+      perCustomerLimit: null,
+      perOrderLimit: null,
+      redemptions: 0,
+      version: 1,
+    });
+    const id = await createOrder(c);
+    const before = order(c, id).total;
+    expect(order(c, id).orderDiscount).toBeGreaterThan(0);
+    await c.payments.addManualPayment(id, { amount: before, idempotencyKey: 'pay-1' }, actor);
+    seedInvoice(c, id);
+    await c.refunds.create(id, invoiced(300), actor);
+    expect(order(c, id).total).toBe(before - 300);
+    expect(order(c, id).paymentStatus).toBe('PAID');
+    expect((await c.orders.get(id)).totals).toMatchObject({ creditAdjustment: 300, total: before - 300 });
+  });
+});

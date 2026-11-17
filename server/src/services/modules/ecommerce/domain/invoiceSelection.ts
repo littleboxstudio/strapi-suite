@@ -13,8 +13,19 @@ import type { ShippingLine } from './shippingLines';
 /**
  * RETURN: returned units and whole shipping lines. CORRECTION: everything left (annuls the
  * invoice). SHIPPING: the shipping invoiced above what the order now charges (`overInvoiced`).
+ * REFUND (plan 15): the value an INVOICED refund gave back. It credits value, never units of the
+ * order: its units stay in the order, so they are never invoiceable again, and the order total
+ * already dropped by the refund (`creditAdjustment`), so it leaves the invoicing pools alone.
  */
-export type CreditType = 'RETURN' | 'CORRECTION' | 'SHIPPING';
+export type CreditType = 'RETURN' | 'CORRECTION' | 'SHIPPING' | 'REFUND';
+
+const CREDIT_TYPES: CreditType[] = ['RETURN', 'CORRECTION', 'SHIPPING', 'REFUND'];
+
+/**
+ * A credit-note entry: what it credited of line `index` of invoice `invoiceId` (absent on old
+ * entries: the credit note's `creditedInvoiceId`).
+ */
+export type CreditedEntry = { index: number; value: number; quantity: number; invoiceId?: number };
 
 export type InvoiceDoc = {
   id: number;
@@ -26,8 +37,11 @@ export type InvoiceDoc = {
   lines: InvoiceLine[];
   /** Payments of the document's active allocations. */
   paymentIds: number[];
-  /** Credit notes: what was credited per line index of the credited invoice. */
-  creditedLines: { index: number; value: number; quantity: number }[];
+  /**
+   * Credit notes: what was credited per line index of each entry's invoice (`entryInvoiceId`).
+   * One credit note may credit several invoices (plan 15); `creditedInvoiceId` is the first one.
+   */
+  creditedLines: CreditedEntry[];
   /** When the document was created (ISO); absent on documents built without it. */
   createdAt?: string | null;
   /**
@@ -114,10 +128,7 @@ export function readInvoiceDoc(row: unknown, paymentIds: number[]): InvoiceDoc {
   const credited = isObject(r.creditedInvoice) ? r.creditedInvoice.id : r.creditedInvoice;
   const creditedInvoiceId = credited == null ? null : Number(credited);
   const metadata = isObject(r.metadata) ? r.metadata : {};
-  const creditType: CreditType | null =
-    metadata.creditType === 'RETURN' || metadata.creditType === 'CORRECTION' || metadata.creditType === 'SHIPPING'
-      ? metadata.creditType
-      : null;
+  const creditType: CreditType | null = CREDIT_TYPES.find((t) => t === metadata.creditType) ?? null;
   // An unknown status never counts.
   const status = COUNTED_INVOICE.find((s) => s === r.status) ?? 'FAILED';
   const rawCredited = Array.isArray(metadata.creditedLines) ? metadata.creditedLines : [];
@@ -142,12 +153,39 @@ export function readInvoiceDoc(row: unknown, paymentIds: number[]): InvoiceDoc {
       if (!Number.isFinite(Number(e.value))) return [];
       // Legacy entries have no quantity: they credited no units (ruling 13).
       const units = typeof quantity === 'number' && Number.isInteger(quantity) && quantity > 0;
-      return [{ index, value: num(e.value), quantity: units ? quantity : 0 }];
+      const invoiceId = typeof e.invoiceId === 'number' && Number.isInteger(e.invoiceId) ? e.invoiceId : null;
+      return [
+        {
+          index,
+          value: num(e.value),
+          quantity: units ? quantity : 0,
+          ...(invoiceId !== null ? { invoiceId } : {}),
+        },
+      ];
     }),
     ...(settled.length ? { settledShippingLineIds: settled } : {}),
     ...(settledDiscounts.length ? { settledDiscountIds: settledDiscounts } : {}),
   };
 }
+
+/** The invoice a credit-note entry credits: its own, else the credit note's credited invoice. */
+export const entryInvoiceId = (doc: InvoiceDoc, entry: CreditedEntry): number | null =>
+  entry.invoiceId ?? doc.creditedInvoiceId;
+
+/** Every invoice a credit note credits: its credited invoice and its entries' invoices. */
+export const creditedInvoiceIds = (doc: InvoiceDoc): number[] => {
+  const ids = new Set<number>();
+  if (doc.creditedInvoiceId !== null) ids.add(doc.creditedInvoiceId);
+  for (const e of doc.creditedLines) {
+    const id = entryInvoiceId(doc, e);
+    if (id !== null) ids.add(id);
+  }
+  return [...ids];
+};
+
+/** Whether a credit note credits something of `invoiceId`. */
+export const creditsInvoice = (doc: InvoiceDoc, invoiceId: number): boolean =>
+  creditedInvoiceIds(doc).includes(invoiceId);
 
 // ---------------------------------------------------------------------------
 // Position
@@ -187,9 +225,12 @@ const duesOf = (order: PositionOrder): Map<number, number> => {
  * What is invoiced and left to invoice (rulings 1–4, 6). Invoices count while ISSUED, PENDING or
  * UNCERTAIN; an invoice with an ISSUED CORRECTION credit note is annulled and left out with its
  * credit notes; ISSUED RETURN credit notes (legacy ones included) reduce the invoiced value and
- * units. Each pool's remaining value is split over what is left, so already invoiced parts stay
- * fixed. Value no remaining unit or available shipping line can carry is `stranded`, never put
- * on a line: Σ invoiced + Σ remainingValue + stranded equals the order total.
+ * units, each entry on its own invoice. REFUND credit notes are left out: their value is the
+ * INVOICED refunds' `creditAdjustment`, already off the order total and outside the pools, and
+ * their units stay in the order. Each pool's remaining value is split over what is left, so
+ * already invoiced parts stay fixed. Value no remaining unit or available shipping line can carry
+ * is `stranded`, never put on a line: Σ invoiced + Σ remainingValue + stranded equals the order
+ * total before its `creditAdjustment`.
  */
 export function invoicingPosition(order: PositionOrder, docs: InvoiceDoc[]): InvoicingPosition {
   const lineDue = duesOf(order);
@@ -204,13 +245,15 @@ export function invoicingPosition(order: PositionOrder, docs: InvoiceDoc[]): Inv
   const invoices = docs.filter((d) => d.kind === 'INVOICE' && COUNTED_INVOICE.includes(d.status));
   const annulledInvoiceIds = invoices.filter((d) => annulled.has(d.id)).map((d) => d.id);
   const counted = new Map(invoices.filter((d) => !annulled.has(d.id)).map((d) => [d.id, d]));
+  // REFUND credit notes credit value the order total already gave back (`creditAdjustment`, out
+  // of the pools) and no units: they never move the position.
   const credits = docs.filter(
     (d) =>
       d.kind === 'CREDIT_NOTE' &&
       d.status === 'ISSUED' &&
       d.creditType !== 'CORRECTION' &&
-      d.creditedInvoiceId !== null &&
-      counted.has(d.creditedInvoiceId)
+      d.creditType !== 'REFUND' &&
+      creditedInvoiceIds(d).some((id) => counted.has(id))
   );
 
   const invoicedUnits = new Map<number, number>();
@@ -244,9 +287,9 @@ export function invoicingPosition(order: PositionOrder, docs: InvoiceDoc[]): Inv
     if (cn.creditType === 'SHIPPING') {
       // Shipping only: no units.
     } else if (cn.creditType === 'RETURN') {
-      const original = counted.get(cn.creditedInvoiceId!)!;
       for (const e of cn.creditedLines) {
-        const target = original.lines[e.index];
+        const invoiceId = entryInvoiceId(cn, e);
+        const target = invoiceId === null ? undefined : counted.get(invoiceId)?.lines[e.index];
         if (target?.kind === 'ITEM' && target.orderLineId !== null) {
           add(creditedUnits, target.orderLineId, e.quantity);
         }

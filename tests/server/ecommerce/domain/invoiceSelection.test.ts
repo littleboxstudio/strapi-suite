@@ -793,3 +793,95 @@ describe('invoicedManualDiscountIds', () => {
     expect(invoicedManualDiscountIds(discounts, docs, [])).toEqual([1, 2]);
   });
 });
+
+describe('credit notes across several invoices; REFUND credit notes (plan 15)', () => {
+  /** The whole order invoiced on two invoices: 100 (A × 1, shipping) and 101 (A × 1, B × 1). */
+  const both = () => [
+    invoice(100, [item(A, 1, 880), ship(500, 1)]),
+    invoice(101, [item(A, 1, 880), item(B, 1, 440)]),
+  ];
+
+  it('readInvoiceDoc accepts REFUND and reads each entry invoice (old entries carry none)', () => {
+    const doc = readInvoiceDoc(
+      {
+        id: 9,
+        kind: 'CREDIT_NOTE',
+        status: 'ISSUED',
+        creditedInvoice: { id: 100 },
+        lines: { lines: [] },
+        metadata: {
+          creditType: 'REFUND',
+          refundId: 4,
+          creditedLines: [
+            { index: 0, value: 300, quantity: 1, invoiceId: 100 },
+            { index: 1, value: 440, quantity: 1, invoiceId: 101 },
+            { index: 1, value: 10, quantity: 0, invoiceId: 'x' },
+          ],
+        },
+      },
+      []
+    );
+    expect(doc.creditType).toBe('REFUND');
+    expect(doc.creditedLines).toEqual([
+      { index: 0, value: 300, quantity: 1, invoiceId: 100 },
+      { index: 1, value: 440, quantity: 1, invoiceId: 101 },
+      { index: 1, value: 10, quantity: 0 },
+    ]);
+  });
+
+  it('a REFUND credit note never frees units nor leaves value stranded or over-invoiced', () => {
+    const refund = creditNote(200, 100, 'REFUND', [item(A, 1, 300), item(B, 1, 440)], {
+      creditedLines: [
+        { index: 0, value: 300, quantity: 1, invoiceId: 100 },
+        { index: 1, value: 440, quantity: 1, invoiceId: 101 },
+      ],
+    });
+    const before = invoicingPosition(baseOrder(), both());
+    const p = invoicingPosition(baseOrder(), [...both(), refund]);
+    expect(p.lines).toEqual(before.lines);
+    expect(lineOf(p, A)).toMatchObject({ invoicedUnits: 2, returnCreditedUnits: 0, remainingQuantity: 0 });
+    expect(lineOf(p, B)).toMatchObject({ invoicedUnits: 1, returnCreditedUnits: 0, remainingQuantity: 0 });
+    expect(p.products).toEqual(before.products);
+    expect(p.stranded).toEqual({ products: 0, shipping: 0 });
+    expect(p.overInvoiced).toEqual({ products: 0, shipping: 0 });
+    expect(p.annulledInvoiceIds).toEqual([]);
+  });
+
+  it('a REFUND credit note on the shipping line leaves it invoiced, nothing stranded', () => {
+    const refund = creditNote(200, 100, 'REFUND', [ship(500, 1)], {
+      creditedLines: [{ index: 1, value: 500, quantity: 1, invoiceId: 100 }],
+    });
+    const p = invoicingPosition(baseOrder(), [...both(), refund]);
+    expect(shipOf(p, 1)).toMatchObject({ invoiced: true, available: false, remainingValue: 0 });
+    expect(p.shippingPool).toEqual({ due: 500, invoiced: 500, remaining: 0 });
+    expect(p.stranded).toEqual({ products: 0, shipping: 0 });
+    expect(p.overInvoiced).toEqual({ products: 0, shipping: 0 });
+  });
+
+  it('a RETURN entry counts its units on its own invoice', () => {
+    const order = baseOrder({
+      lines: [
+        { id: A, unitPrice: 1000, unitDiscount: 0, quantity: 2, returnedQuantity: 0, tax: 23 },
+        { id: B, unitPrice: 500, unitDiscount: 0, quantity: 1, returnedQuantity: 1, tax: 23 },
+      ],
+    });
+    // Credited on invoice 100, but its entry points at invoice 101's B line (index 1).
+    const ret = creditNote(201, 100, 'RETURN', [item(B, 1, 440)], {
+      creditedLines: [{ index: 1, value: 440, quantity: 1, invoiceId: 101 }],
+    });
+    const p = computePosition(order, [...both(), ret]);
+    expect(lineOf(p, B)).toMatchObject({ invoicedUnits: 1, returnCreditedUnits: 1 });
+  });
+
+  it('a CORRECTION of one invoice annuls only it; a REFUND note never annuls', () => {
+    const refund = creditNote(200, 100, 'REFUND', [item(A, 1, 300), item(B, 1, 440)], {
+      creditedLines: [
+        { index: 0, value: 300, quantity: 1, invoiceId: 100 },
+        { index: 1, value: 440, quantity: 1, invoiceId: 101 },
+      ],
+    });
+    const correction = creditNote(202, 101, 'CORRECTION', [item(A, 1, 880), item(B, 1, 440)]);
+    const p = computePosition(baseOrder(), [...both(), refund, correction]);
+    expect(p.annulledInvoiceIds).toEqual([101]);
+  });
+});

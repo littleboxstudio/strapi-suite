@@ -10,7 +10,14 @@ import {
   type InvoiceCustomer,
   type InvoiceLine,
 } from './domain/invoicing';
-import { fitsPosition, readInvoiceDoc, type CreditType } from './domain/invoiceSelection';
+import {
+  creditedInvoiceIds,
+  creditsInvoice,
+  entryInvoiceId,
+  fitsPosition,
+  readInvoiceDoc,
+  type CreditType,
+} from './domain/invoiceSelection';
 import {
   priceWholeSelection,
   type DiscountItem,
@@ -312,17 +319,41 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
   const toViews = async (rows: any[]): Promise<InvoiceView[]> => {
     if (!rows.length) return [];
     const ids = rows.map((r) => r.id);
+    const orderIds = [
+      ...new Set(rows.map((r) => idOf(r.order)).filter((id): id is number => id !== null)),
+    ];
     const [allocationRows, creditRows] = await Promise.all([
       strapi.db.query(uids().invoiceAllocation).findMany({
         where: { invoice: { id: { $in: ids } } },
         populate: { invoice: { select: ['id'] }, payment: { select: ['id'] } },
         orderBy: { id: 'asc' },
       }) as Promise<any[]>,
+      // A credit note may credit several invoices of its order (plan 15): its entries say which.
       strapi.db.query(uids().invoice).findMany({
-        where: { creditedInvoice: { id: { $in: ids } }, kind: 'CREDIT_NOTE', status: 'ISSUED' },
+        where: {
+          kind: 'CREDIT_NOTE',
+          status: 'ISSUED',
+          $or: [
+            { creditedInvoice: { id: { $in: ids } } },
+            ...(orderIds.length ? [{ order: { id: { $in: orderIds } } }] : []),
+          ],
+        },
         populate: { creditedInvoice: { select: ['id'] } },
       }) as Promise<any[]>,
     ]);
+    const creditDocs = creditRows.map((cn) => ({ doc: readInvoiceDoc(cn, []), total: num(cn.total) }));
+    /** What issued credit notes credited of `invoiceId`: their entries on it (old ones: their total). */
+    const creditedOf = (invoiceId: number): number =>
+      creditDocs.reduce((s, { doc, total }) => {
+        if (!creditsInvoice(doc, invoiceId)) return s;
+        if (creditedInvoiceIds(doc).length === 1) return s + total;
+        return (
+          s +
+          doc.creditedLines
+            .filter((e) => entryInvoiceId(doc, e) === invoiceId)
+            .reduce((v, e) => v + e.value, 0)
+        );
+      }, 0);
     return rows.map((r) => ({
       id: r.id,
       kind: r.kind === 'CREDIT_NOTE' ? 'CREDIT_NOTE' : 'INVOICE',
@@ -334,9 +365,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
       total: num(r.total),
       lines: readInvoiceLines(r.lines),
       creditedInvoiceId: idOf(r.creditedInvoice),
-      credited: creditRows
-        .filter((cn) => idOf(cn.creditedInvoice) === r.id)
-        .reduce((s, cn) => s + num(cn.total), 0),
+      credited: creditedOf(r.id),
       paymentIds: allocationRows
         .filter((a) => idOf(a.invoice) === r.id)
         .map((a) => idOf(a.payment))
@@ -357,7 +386,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     toViews(
       await strapi.db.query(uids().invoice).findMany({
         where: { order: { id: Number(orderId) } },
-        populate: { creditedInvoice: { select: ['id'] } },
+        populate: { order: { select: ['id'] }, creditedInvoice: { select: ['id'] } },
         orderBy: { id: 'asc' },
       })
     );
@@ -610,12 +639,18 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
    * is FAILED, so `docs` count it out.
    */
   const lateCreditNoteDuplicates = async (row: any, invoicing: OrderState['invoicing']) => {
-    const originalId = idOf(row.creditedInvoice);
-    const original = originalId === null ? null : await findRow({ id: originalId });
-    if (!original || invoicing.position.annulledInvoiceIds.includes(original.id)) return true;
-    const invoice = readInvoiceDoc(original, []);
-    const options = creditOptions(invoice, invoicing.docs, invoicing.positionOrder);
-    return exceedsCreditable(readInvoiceDoc(row, []), invoice, options);
+    const creditNote = readInvoiceDoc(row, []);
+    const invoiceIds = creditedInvoiceIds(creditNote);
+    if (!invoiceIds.length) return true;
+    // Each invoice it credits (one credit note may credit several, plan 15), on its own entries.
+    for (const invoiceId of invoiceIds) {
+      const original = await findRow({ id: invoiceId });
+      if (!original || invoicing.position.annulledInvoiceIds.includes(original.id)) return true;
+      const invoice = readInvoiceDoc(original, []);
+      const options = creditOptions(invoice, invoicing.docs, invoicing.positionOrder);
+      if (exceedsCreditable(creditNote, invoice, options)) return true;
+    }
+    return false;
   };
 
   /**
@@ -1096,7 +1131,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     state.invoicing.docs.some(
       (d) =>
         d.kind === 'CREDIT_NOTE' &&
-        d.creditedInvoiceId === invoiceId &&
+        creditsInvoice(d, invoiceId) &&
         (d.status === 'PENDING' || d.status === 'UNCERTAIN')
     );
 

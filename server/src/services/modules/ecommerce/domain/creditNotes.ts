@@ -12,6 +12,8 @@
 import type { ValidationIssue } from '../errors';
 import { isObject, num, withTotal, type InvoiceLine } from './invoicing';
 import {
+  creditsInvoice,
+  entryInvoiceId,
   invoicingPosition,
   selectedValue,
   type CreditType,
@@ -145,22 +147,26 @@ export function settledDiscountIds(
   return ids;
 }
 
-/** Units of each order line credited by live RETURN credit notes (legacy ones read as RETURN). */
+/**
+ * Units of each order line credited by live RETURN credit notes (legacy ones read as RETURN),
+ * each entry on its own invoice. REFUND credit notes credit no units of the order.
+ */
 const liveCreditedUnits = (docs: InvoiceDoc[], counted: Map<number, InvoiceDoc>) => {
   const byLine = new Map<number, number>();
   const add = (id: number, n: number) => byLine.set(id, (byLine.get(id) ?? 0) + n);
   for (const cn of docs) {
-    if (cn.kind !== 'CREDIT_NOTE' || !LIVE.includes(cn.status) || cn.creditType === 'CORRECTION')
-      continue;
-    const original = cn.creditedInvoiceId === null ? undefined : counted.get(cn.creditedInvoiceId);
-    if (!original) continue;
+    if (cn.kind !== 'CREDIT_NOTE' || !LIVE.includes(cn.status)) continue;
+    if (cn.creditType === 'CORRECTION' || cn.creditType === 'REFUND') continue;
     if (cn.creditType === 'RETURN') {
       for (const e of cn.creditedLines) {
-        const target = original.lines[e.index];
+        const invoiceId = entryInvoiceId(cn, e);
+        const target = invoiceId === null ? undefined : counted.get(invoiceId)?.lines[e.index];
         if (target?.kind === 'ITEM' && target.orderLineId !== null)
           add(target.orderLineId, e.quantity);
       }
     } else {
+      const original = cn.creditedInvoiceId === null ? undefined : counted.get(cn.creditedInvoiceId);
+      if (!original) continue;
       for (const l of cn.lines) {
         if (isWholeItem(l)) add(l.orderLineId!, Math.max(0, Math.floor(num(l.quantity))));
       }
@@ -169,7 +175,15 @@ const liveCreditedUnits = (docs: InvoiceDoc[], counted: Map<number, InvoiceDoc>)
   return byLine;
 };
 
-/** What can still be credited on `invoice` (ruling 13). `docs` holds the order's documents. */
+/** The entries of `creditNote` on `invoiceId` (old entries are on its credited invoice). */
+const entriesOn = (creditNote: InvoiceDoc, invoiceId: number) =>
+  creditNote.creditedLines.filter((e) => entryInvoiceId(creditNote, e) === invoiceId);
+
+/**
+ * What can still be credited on `invoice` (ruling 13). `docs` holds the order's documents. Every
+ * live credit note counts with its entries on this invoice, REFUND ones included: their value and
+ * units are credited, so never credited twice.
+ */
 export function creditOptions(
   invoice: InvoiceDoc,
   docs: InvoiceDoc[],
@@ -177,13 +191,12 @@ export function creditOptions(
 ): CreditOptions {
   const all = docs.some((d) => d.id === invoice.id) ? docs : [...docs, invoice];
   const live = all.filter(
-    (d) => d.kind === 'CREDIT_NOTE' && d.creditedInvoiceId === invoice.id && LIVE.includes(d.status)
+    (d) => d.kind === 'CREDIT_NOTE' && LIVE.includes(d.status) && creditsInvoice(d, invoice.id)
   );
+  const entries = live.flatMap((cn) => entriesOn(cn, invoice.id));
 
   const creditable = invoice.lines.map((l, i) => {
-    const credited = sum(
-      live.flatMap((cn) => cn.creditedLines.filter((e) => e.index === i).map((e) => e.value))
-    );
+    const credited = sum(entries.filter((e) => e.index === i).map((e) => e.value));
     return Math.max(0, num(l.total) - credited);
   });
   // Legacy invoices may hold a negative shipping line (never creditable by itself): it comes off
@@ -200,13 +213,11 @@ export function creditOptions(
   const held = Math.max(
     0,
     sum(invoice.lines.filter((l) => l.kind !== 'DISCOUNT').map((l) => num(l.total))) -
-      sum(live.flatMap((cn) => cn.creditedLines.map((e) => e.value)))
+      sum(entries.map((e) => e.value))
   );
   const unitsLeft = invoice.lines.map((l, i) => {
     if (!isWholeItem(l) || creditable[i] <= 0) return 0;
-    const credited = sum(
-      live.flatMap((cn) => cn.creditedLines.filter((e) => e.index === i).map((e) => e.quantity))
-    );
+    const credited = sum(entries.filter((e) => e.index === i).map((e) => e.quantity));
     return Math.max(0, Math.floor(num(l.quantity)) - credited);
   });
 
@@ -245,10 +256,16 @@ export function creditOptions(
     l.kind === 'SHIPPING' && creditable[index] > 0 ? [{ index, value: creditable[index] }] : []
   );
 
-  // Only what live credit notes (any status that counts) have not credited yet.
+  // Only what live credit notes (any status that counts) have not credited yet. REFUND credit
+  // notes never touch the over-invoiced shipping (the position leaves them out).
   const pendingShippingCredit = sum(
     all
-      .filter((d) => d.kind === 'CREDIT_NOTE' && (d.status === 'PENDING' || d.status === 'UNCERTAIN'))
+      .filter(
+        (d) =>
+          d.kind === 'CREDIT_NOTE' &&
+          d.creditType !== 'REFUND' &&
+          (d.status === 'PENDING' || d.status === 'UNCERTAIN')
+      )
       .flatMap((d) => d.lines.filter((l) => l.kind === 'SHIPPING').map((l) => num(l.total)))
   );
   let left = Math.max(0, position.overInvoiced.shipping - pendingShippingCredit);
@@ -266,10 +283,11 @@ export function creditOptions(
 /**
  * Whether `creditNote` (left out of `options`, e.g. a FAILED row a late success turns ISSUED)
  * credits more than `invoice` still has: a line's value above its creditable value, a whole ITEM
- * line's units above its units left, or (RETURN) units above the returnable ones.
+ * line's units above its units left, or (RETURN) units above the returnable ones. Only its
+ * entries on `invoice` are weighed: call it once per invoice it credits.
  */
 export function exceedsCreditable(creditNote: InvoiceDoc, invoice: InvoiceDoc, options: CreditOptions): boolean {
-  return creditNote.creditedLines.some((e) => {
+  return entriesOn(creditNote, invoice.id).some((e) => {
     const line = invoice.lines[e.index];
     if (!line || e.value > (options.creditable[e.index] ?? 0)) return true;
     if (!isWholeItem(line) || e.quantity <= 0) return false;
