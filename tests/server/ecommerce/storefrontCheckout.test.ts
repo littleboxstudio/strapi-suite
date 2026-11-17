@@ -275,6 +275,78 @@ describe('EcommerceStorefrontCheckoutService', () => {
       expect(q.taxes).toEqual([{ rate: 23, base: 3659, vat: 841, gross: 4500 }]);
     });
 
+    it("an automatic gift: the options are priced with the gift's weight, as the order is charged", async () => {
+      const t = setup();
+      const { s } = await t.open();
+      // Buy 2, get 1 free as a gift: the parcel carries 3 units.
+      t.addPromotion(7, {
+        benefits: {
+          items: [
+            {
+              type: 'BUY_X_GET_Y',
+              buy: { target: { productIds: [], variantIds: [10] }, quantity: 2, minAmount: null },
+              get: { mode: 'GIFT', variantIds: [10], quantity: 1 },
+              reward: { kind: 'FREE' },
+            },
+          ],
+        },
+      });
+      // 10 % off the order: the carrier gets the subtotal after it (3600), as `create` sends it.
+      t.addPromotion(8);
+      // The carrier charges by units (weight); the two services differ per unit.
+      const perUnit: Record<string, number> = { '1': 300, '2': 450 };
+      const units = (req: any) => req.items.reduce((n: number, i: any) => n + i.quantity, 0);
+      const shipping = t.c.services.EcommerceShippingService;
+      shipping.quote.mockImplementation(async (req: any) => ({
+        options: Object.entries(perUnit).map(([serviceId, unit]) => ({
+          providerId: 'manual',
+          serviceId,
+          name: `S${serviceId}`,
+          price: unit * units(req),
+          tax: 23,
+        })),
+        failures: [],
+      }));
+      shipping.findOption = vi.fn(async (req: any, providerId: string, serviceId: string) => ({
+        providerId,
+        serviceId,
+        name: `S${serviceId}`,
+        price: perUnit[serviceId] * units(req),
+        tax: 23,
+      }));
+
+      const q = await t.checkout.quote(s, t.cart({ destination: { country: 'PT', postalCode: '1000-001' } }));
+      expect(q.shippingOptions?.map((o) => o.price)).toEqual([900, 1350]);
+
+      for (const serviceId of ['1', '2']) {
+        const listed = q.shippingOptions!.find((o) => o.serviceId === serviceId)!.price;
+        const chosen = await t.checkout.quote(
+          s,
+          t.cart({
+            destination: { country: 'PT', postalCode: '1000-001' },
+            shippingMethod: { providerId: 'manual', serviceId },
+          })
+        );
+        expect(chosen.shippingOptions!.find((o) => o.serviceId === serviceId)!.price).toBe(listed);
+        expect(chosen.totals.shippingTotal).toBe(listed);
+        // Same parcel and the same subtotal (the gift adds nothing to it) as the order pricing.
+        const [optionsRequest] = shipping.quote.mock.calls.at(-1) as any[];
+        const [pricingRequest] = shipping.findOption.mock.calls.at(-1) as any[];
+        expect(optionsRequest.items).toEqual(pricingRequest.items);
+        expect(optionsRequest.subtotal).toBe(pricingRequest.subtotal);
+        expect(optionsRequest.subtotal).toBe(3600);
+      }
+
+      const placed = await t.checkout.placeOrder(
+        s,
+        t.orderInput({ shippingMethod: { providerId: 'manual', serviceId: '2' }, expectedTotal: 3600 + 1350 }),
+        'key-gift-0001'
+      );
+      expect(placed.total).toBe(4950);
+      const order = t.c.tables[UIDS.order][0];
+      expect(order.shippingOriginal).toBe(q.shippingOptions!.find((o) => o.serviceId === '2')!.price);
+    });
+
     it('without a destination: shippingOptions null and no carrier quote', async () => {
       const t = setup();
       const { s } = await t.open();

@@ -2054,9 +2054,11 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
    * Shipping options for a draft order. The caller sends only variant ids and quantities;
    * weight and dimensions come from the catalog.
    *
-   * With `admin` (Create order), the lines may be the order quote's: a `gift` line weighs but
-   * adds nothing to the subtotal, and `subtotal` (cents, the quote's products after promotions)
-   * replaces the catalog one, so each option is priced as the order quote prices it.
+   * With `fromQuote` (trusted callers only: the admin's Create order and the storefront checkout,
+   * which pass their own order quote's), the lines may be the order quote's: a `gift` line weighs
+   * but adds nothing to the subtotal, and `subtotal` (cents, the quote's products after
+   * promotions) replaces the catalog one, so each option is priced as the order quote (and
+   * `create`) prices it. See `shippingInputOfQuote`.
    */
   const quoteForLines = async (
     input: {
@@ -2066,7 +2068,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       locale: string;
       subtotal?: number;
     },
-    options: { admin?: boolean } = {}
+    options: { fromQuote?: boolean } = {}
   ) => {
     const errors: ValidationIssue[] = [];
     const rawLines: any[] = Array.isArray(input?.lines) ? input.lines : [];
@@ -2087,12 +2089,12 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         errors.push({ path: `lines.${i}.quantity`, code: 'invalid' });
       } else {
         merged.set(variantId, (merged.get(variantId) ?? 0) + quantity);
-        const gift = options.admin && l?.gift === true;
+        const gift = options.fromQuote && l?.gift === true;
         paid.set(variantId, (paid.get(variantId) ?? 0) + (gift ? 0 : quantity));
         if (!firstIndex.has(variantId)) firstIndex.set(variantId, i);
       }
     });
-    const subtotalOverride = options.admin ? input?.subtotal : undefined;
+    const subtotalOverride = options.fromQuote ? input?.subtotal : undefined;
     if (
       subtotalOverride !== undefined &&
       subtotalOverride !== null &&

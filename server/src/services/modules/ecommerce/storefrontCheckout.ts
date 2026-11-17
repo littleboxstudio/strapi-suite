@@ -19,7 +19,7 @@ import {
   type QuoteSource,
 } from './domain/storefront/publicViews';
 import { EcommerceNotFoundError, EcommerceValidationError, type ValidationIssue } from './errors';
-import { isRecord } from './orderPricingHelpers';
+import { isRecord, shippingInputOfQuote } from './orderPricingHelpers';
 import type { Address, PaymentStatus } from './domain/orders';
 import type { CreatedOrder, OrderQuote, OrderState } from './orders';
 import {
@@ -274,7 +274,10 @@ const EcommerceStorefrontCheckoutService = ({ strapi }: { strapi: Core.Strapi })
   const service = (name: string): any => strapi.plugin(PLUGIN_ID).service(name);
   const orders = (): {
     quote(input: Record<string, unknown>): Promise<OrderQuote>;
-    quoteForLines(input: Record<string, unknown>): Promise<{ options: ShippingOption[] }>;
+    quoteForLines(
+      input: Record<string, unknown>,
+      options?: { fromQuote?: boolean }
+    ): Promise<{ options: ShippingOption[] }>;
     create(
       input: Record<string, unknown>,
       ctx: { actor: string; source: 'storefront'; checkoutSessionId: number }
@@ -298,16 +301,6 @@ const EcommerceStorefrontCheckoutService = ({ strapi }: { strapi: Core.Strapi })
       });
     }
     const { destination, shippingMethod, email } = cart;
-    const shippingOptions = destination
-      ? (
-          await orders().quoteForLines({
-            country: destination.country,
-            postalCode: destination.postalCode,
-            lines: cart.lines,
-            locale,
-          })
-        ).options.map(toPublicShippingOption)
-      : null;
     const quote = await orders().quote({
       lines: cart.lines,
       locale,
@@ -318,6 +311,21 @@ const EcommerceStorefrontCheckoutService = ({ strapi }: { strapi: Core.Strapi })
       // Only the session says whether the e-mail is verified, never the request.
       emailVerified: email ? sessions().isEmailVerified(s, email) : false,
     });
+    // Options priced on the quote's parcel (its automatic gifts weigh) and subtotal, as `create`
+    // prices the chosen one: a listed price is the one the order is charged.
+    const shippingOptions = destination
+      ? (
+          await orders().quoteForLines(
+            {
+              country: destination.country,
+              postalCode: destination.postalCode,
+              locale,
+              ...shippingInputOfQuote(quote),
+            },
+            { fromQuote: true }
+          )
+        ).options.map(toPublicShippingOption)
+      : null;
     return toPublicQuote(quote, {
       locale,
       defaultLocale,

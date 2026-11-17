@@ -136,7 +136,7 @@ describe('EcommerceOrderController', () => {
     // Admin: gift lines and the order quote's subtotal are honoured.
     expect(quoteForLines).toHaveBeenCalledWith(
       { country: 'PT', postalCode: '1000', lines: [], locale: 'en', subtotal: 900 },
-      { admin: true }
+      { fromQuote: true }
     );
     await c.variantSearch(mkCtx({ query: { q: 'abc', locale: 'pt' } }));
     expect(searchVariants).toHaveBeenCalledWith('abc', 'pt');
