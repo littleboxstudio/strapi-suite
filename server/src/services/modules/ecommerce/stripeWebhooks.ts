@@ -12,6 +12,7 @@ import type { ProviderRuntime } from './providers/registry';
 import type { OrderHistoryEntry } from './orderHistory';
 import { raiseFlag, readReviewFlags } from './domain/orderEditing';
 import type { OrderState } from './orders';
+import { refundElementsConflict } from './domain/refunds';
 
 /** The Stripe event types `dispatch` handles (shown in the admin so the webhook can be set up). */
 export const STRIPE_WEBHOOK_EVENTS = [
@@ -284,6 +285,9 @@ const EcommerceStripeWebhookService = ({ strapi }: { strapi: Core.Strapi }) => {
     if (reversed && current.scope === 'INVOICED') {
       await flagReversedCreditNote(orderId, row.id, existingMeta, operationId);
     }
+    if (promoted && current.scope === 'INVOICED') {
+      await flagElementsConflict(orderId, row.id, operationId);
+    }
     if (promoted) {
       // Its amount may have been refunded again meanwhile: the customer got it twice.
       const { summary } = await orders().computeOrderState(orderId);
@@ -316,6 +320,54 @@ const EcommerceStripeWebhookService = ({ strapi }: { strapi: Core.Strapi }) => {
       },
     });
     return true;
+  };
+
+  /**
+   * Stripe completed an INVOICED refund we held as FAILED (plan 15): it reserves its elements
+   * again, but while it was FAILED they were free, so another refund, a credit note or a return may
+   * have taken them (`refundElementsConflict`, itself left out). Nothing is undone (the money left);
+   * recorded and flagged for the admin.
+   */
+  const flagElementsConflict = async (orderId: number, refundId: number, operationId: string) => {
+    const state = await orders().computeOrderState(orderId);
+    const refund = state.refunds.find((r: any) => r.id === refundId);
+    if (!refund) return;
+    const conflict = refundElementsConflict({
+      refund,
+      refunds: state.refunds,
+      docs: state.invoicing.docs,
+      order: state.invoicing.positionOrder,
+      annulledInvoiceIds: state.invoicing.position.annulledInvoiceIds,
+    });
+    if (!conflict) return;
+    const u = uids();
+    await history().record({
+      orderId,
+      type: 'REFUND_ELEMENTS_CONFLICT',
+      description: `Stripe completed refund ${refundId} after it was held as failed: elements it reserves were used meanwhile`,
+      previousValue: null,
+      newValue: { refundId },
+      actor: ACTOR,
+      operationId,
+    });
+    const order = await strapi.db.query(u.order).findOne({ where: { id: orderId } });
+    const reason = 'REFUND_ELEMENTS_CONFLICT' as const;
+    const flags = raiseFlag(readReviewFlags(order?.reviewFlags), {
+      code: 'REFUND_REVIEW',
+      reason,
+      raisedAt: new Date().toISOString(),
+      actor: ACTOR,
+    });
+    await strapi.db.query(u.order).update({ where: { id: orderId }, data: { reviewFlags: { flags } } });
+    await history().record({
+      orderId,
+      type: 'REVIEW_FLAG_RAISED',
+      description: `Review flag raised: REFUND_REVIEW (${reason})`,
+      previousValue: null,
+      newValue: { code: 'REFUND_REVIEW', reason },
+      actor: ACTOR,
+      operationId,
+    });
   };
 
   /**

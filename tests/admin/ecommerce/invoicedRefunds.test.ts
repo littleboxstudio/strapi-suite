@@ -429,6 +429,12 @@ describe('invoiced refunds translations', () => {
     );
   });
 
+  it('a late Stripe success whose elements were used reads as the store owner asked (pt)', () => {
+    expect(pt[P + 'ecommerce.orders.review.REFUND_ELEMENTS_CONFLICT']).toBe(
+      'Um reembolso confirmado tardiamente pelo Stripe reserva elementos que já foram usados: reveja os reembolsos e notas de crédito.'
+    );
+  });
+
   it('maps the new refusal codes to messages', () => {
     for (const code of [
       'REFUND_NOT_REMOVABLE',
@@ -458,6 +464,10 @@ describe('invoiced refunds translations', () => {
     'ecommerce.orders.review.REFUND_REVIEW',
     'ecommerce.orders.review.reason.REFUND_REVERSED_WITH_CREDIT_NOTE',
     'ecommerce.orders.review.reasonNoDate.REFUND_REVERSED_WITH_CREDIT_NOTE',
+    'ecommerce.orders.history.type.REFUND_ELEMENTS_CONFLICT',
+    'ecommerce.orders.review.REFUND_ELEMENTS_CONFLICT',
+    'ecommerce.orders.review.reason.REFUND_ELEMENTS_CONFLICT',
+    'ecommerce.orders.review.reasonNoDate.REFUND_ELEMENTS_CONFLICT',
     'ecommerce.orders.errors.UNITS_REFUND_CREDITED',
     'ecommerce.orders.returns.refundCredited',
   ])('%s has en and pt', (key) => {

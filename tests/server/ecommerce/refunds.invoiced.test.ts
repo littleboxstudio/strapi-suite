@@ -487,6 +487,48 @@ describe('INVOICED refunds with their REFUND credit note (plan 15, task 3)', () 
     ]);
   });
 
+  /** An order paid 4500 by Stripe, invoiced (900), with a Stripe INVOICED refund of the shipping line we marked FAILED. */
+  const failedStripeRefund = async () => {
+    const c = setupCommerce();
+    const id = await createOrder(c);
+    c.tables[UIDS.payment].push({
+      id: 801, order: id, method: 'STRIPE', status: 'COMPLETED', amount: 4500, currency: 'EUR',
+      externalId: 'pi_1', idempotencyKey: 'stripe:801', coverage: null,
+      completedAt: '2026-11-01T10:00:00.000Z', actor: 'webhook:stripe', metadata: null,
+    });
+    await c.orders.recalculate(id, { actor });
+    seedInvoice(c, id);
+    stripe.createRefund.mockResolvedValueOnce({ id: 're_7', status: 'succeeded' });
+    const [r] = await c.refunds.create(id, invoiced(500, { method: 'STRIPE' }), actor);
+    // Held as failed by us (an indeterminate answer): its shipping line is free again.
+    refundRow(c, r.id).status = 'FAILED';
+    await c.orders.recalculate(id, { actor });
+    return { c, id, r };
+  };
+
+  it('a late Stripe success whose elements another refund took meanwhile: history and a review flag', async () => {
+    const { c, id, r } = await failedStripeRefund();
+    const [other] = await c.refunds.create(id, invoiced(500, { idempotencyKey: 'inv-500-again' }), actor);
+    expect(other.status).toBe('COMPLETED');
+
+    await deliver(c, 'evt_late', 'refund.updated', { id: 're_7', object: 'refund', status: 'succeeded' });
+    expect(refundRow(c, r.id).status).toBe('COMPLETED');
+    const entry = c.tables[UIDS.orderHistory].find((h) => h.type === 'REFUND_ELEMENTS_CONFLICT');
+    expect(entry).toMatchObject({ newValue: { refundId: r.id }, actor: 'webhook:stripe' });
+    const view = await c.orders.get(id);
+    expect(view.reviewFlags).toEqual([
+      expect.objectContaining({ code: 'REFUND_REVIEW', reason: 'REFUND_ELEMENTS_CONFLICT' }),
+    ]);
+  });
+
+  it('a late Stripe success whose elements are still free (itself left out) raises no flag', async () => {
+    const { c, id, r } = await failedStripeRefund();
+    await deliver(c, 'evt_late2', 'refund.updated', { id: 're_7', object: 'refund', status: 'succeeded' });
+    expect(refundRow(c, r.id).status).toBe('COMPLETED');
+    expect(historyTypes(c)).not.toContain('REFUND_ELEMENTS_CONFLICT');
+    expect((await c.orders.get(id)).reviewFlags).toEqual([]);
+  });
+
   it('a reversal whose credit note FAILED raises no flag', async () => {
     const c = setupCommerce();
     const id = await createOrder(c);

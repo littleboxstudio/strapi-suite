@@ -51,7 +51,9 @@ export type OrderHistoryType =
   | 'REVIEW_FLAG_CLEARED'
   | 'REVIEW_FLAG_DISMISSED'
   // Stripe reversed an INVOICED refund that has its credit note (plan 15).
-  | 'REFUND_REVERSED_WITH_CREDIT_NOTE';
+  | 'REFUND_REVERSED_WITH_CREDIT_NOTE'
+  // Stripe completed an INVOICED refund held as failed whose elements were used meanwhile.
+  | 'REFUND_ELEMENTS_CONFLICT';
 
 export type OrderHistoryEntry = {
   orderId: number;

@@ -818,7 +818,8 @@ export type ReviewReason =
   | 'ADDRESS_CHANGED'
   | 'SHIPPING_CHANGED'
   | 'SHIPPING_QUOTE_FAILED'
-  | 'REFUND_REVERSED_WITH_CREDIT_NOTE';
+  | 'REFUND_REVERSED_WITH_CREDIT_NOTE'
+  | 'REFUND_ELEMENTS_CONFLICT';
 
 export type ReviewFlag = { code: ReviewFlagCode; reason: ReviewReason; raisedAt: string; actor: string };
 

@@ -33,6 +33,8 @@ export function canEdit(order: Order, action: OrderEditAction): boolean {
 
 export type ReviewAlert = {
   code: ReviewFlagCode;
+  /** Translation id (without the plugin prefix) of the message: the code's, or the reason's own. */
+  messageKey: string;
   /** Translation id (without the plugin prefix) of the reason. */
   reasonKey: string;
   raisedAt: string;
@@ -62,6 +64,8 @@ export function reviewAlerts(order: Order): ReviewAlert[] {
       const refund = f.code === 'REFUND_REVIEW';
       return {
         code: f.code,
+        // A late Stripe success whose elements were used (plan 15) is a different message.
+        messageKey: `ecommerce.orders.review.${f.reason === 'REFUND_ELEMENTS_CONFLICT' ? f.reason : f.code}`,
         reasonKey: `ecommerce.orders.review.reason.${f.reason}`,
         raisedAt: f.raisedAt,
         sectionId: ALERT_SECTION[f.code],
