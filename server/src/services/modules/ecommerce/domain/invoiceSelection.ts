@@ -279,10 +279,22 @@ export function invoicingPosition(order: PositionOrder, docs: InvoiceDoc[]): Inv
   }
 
   for (const cn of credits) {
-    for (const l of cn.lines) {
-      if (l.kind === 'DISCOUNT') continue;
-      if (l.kind === 'SHIPPING') shippingInvoiced -= num(l.total);
-      else productsInvoiced -= num(l.total);
+    if (creditedInvoiceIds(cn).length > 1) {
+      // Across several invoices: each entry's value comes off only while its own invoice counts
+      // (an annulled one is already out), in the pool of the invoice line it credits.
+      for (const e of cn.creditedLines) {
+        const invoiceId = entryInvoiceId(cn, e);
+        const target = invoiceId === null ? undefined : counted.get(invoiceId)?.lines[e.index];
+        if (!target || target.kind === 'DISCOUNT') continue;
+        if (target.kind === 'SHIPPING') shippingInvoiced -= num(e.value);
+        else productsInvoiced -= num(e.value);
+      }
+    } else {
+      for (const l of cn.lines) {
+        if (l.kind === 'DISCOUNT') continue;
+        if (l.kind === 'SHIPPING') shippingInvoiced -= num(l.total);
+        else productsInvoiced -= num(l.total);
+      }
     }
     if (cn.creditType === 'SHIPPING') {
       // Shipping only: no units.
