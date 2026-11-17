@@ -1399,6 +1399,7 @@
   "littlebox-strapi-suite.ecommerce.orders.returns.columns.returnable": "Returnable",
   "littlebox-strapi-suite.ecommerce.orders.returns.columns.quantity": "Quantity to return",
   "littlebox-strapi-suite.ecommerce.orders.returns.columns.restock": "Return to stock",
+  "littlebox-strapi-suite.ecommerce.orders.returns.refundCredited": "{count, plural, one {# unit credited by a refund} other {# units credited by a refund}}",
   "littlebox-strapi-suite.ecommerce.orders.returns.cancelledNoRestock": "The order is cancelled: its units already went back to stock, so a return cannot restock them again.",
   "littlebox-strapi-suite.ecommerce.orders.returns.reason": "Reason",
   "littlebox-strapi-suite.ecommerce.orders.returns.notes": "Notes",

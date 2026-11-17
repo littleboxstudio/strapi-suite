@@ -384,6 +384,27 @@ export function invoicingPosition(order: PositionOrder, docs: InvoiceDoc[]): Inv
 }
 
 /**
+ * Units of each order line credited by live REFUND credit notes (plan 15), each entry on its own
+ * invoice line. These units stay in the order (never invoiceable again) but their value was
+ * already credited: they can never be returned, or the same value would be credited twice.
+ */
+export function refundCreditedUnits(docs: InvoiceDoc[]): Map<number, number> {
+  const out = new Map<number, number>();
+  const invoices = new Map(docs.filter((d) => d.kind === 'INVOICE').map((d) => [d.id, d]));
+  for (const cn of docs) {
+    if (cn.kind !== 'CREDIT_NOTE' || cn.creditType !== 'REFUND') continue;
+    if (!COUNTED_INVOICE.includes(cn.status)) continue;
+    for (const e of cn.creditedLines) {
+      const invoiceId = entryInvoiceId(cn, e);
+      const target = invoiceId === null ? undefined : invoices.get(invoiceId)?.lines[e.index];
+      if (target?.kind !== 'ITEM' || target.orderLineId === null || e.quantity <= 0) continue;
+      out.set(target.orderLineId, (out.get(target.orderLineId) ?? 0) + e.quantity);
+    }
+  }
+  return out;
+}
+
+/**
  * Units of each order line held by invoices: invoiced minus credited by RETURN credit notes (an
  * annulled invoice holds none). These units can never be removed from the order.
  */

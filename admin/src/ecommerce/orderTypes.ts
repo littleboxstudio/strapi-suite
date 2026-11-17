@@ -182,8 +182,12 @@ export type OrderLine = {
   pending: number;
   /** The pending units that can ship now: all once nothing is owed, else the paid ones. */
   shippable?: number;
-  /** shipped − returnedQuantity */
+  /**
+   * shipped − returnedQuantity, and at most quantity − returnedQuantity − refundCredited (plan 15).
+   */
   returnable: number;
+  /** Units credited by live REFUND credit notes: never returnable (absent on older servers). */
+  refundCredited?: number;
 };
 
 export type OrderPayment = {

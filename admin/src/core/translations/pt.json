@@ -1183,6 +1183,7 @@
   "littlebox-strapi-suite.ecommerce.orders.returns.columns.returnable": "Devolvível",
   "littlebox-strapi-suite.ecommerce.orders.returns.columns.quantity": "Quantidade a devolver",
   "littlebox-strapi-suite.ecommerce.orders.returns.columns.restock": "Repor stock",
+  "littlebox-strapi-suite.ecommerce.orders.returns.refundCredited": "{count, plural, one {# unidade creditada por um reembolso} other {# unidades creditadas por um reembolso}}",
   "littlebox-strapi-suite.ecommerce.orders.returns.cancelledNoRestock": "A encomenda está cancelada: as unidades já voltaram ao stock, por isso a devolução não as pode repor outra vez.",
   "littlebox-strapi-suite.ecommerce.orders.returns.reason": "Motivo",
   "littlebox-strapi-suite.ecommerce.orders.returns.notes": "Notas",

@@ -434,3 +434,83 @@ describe('EcommerceReturnService.register', () => {
     expect(c.tables[UIDS.orderReturn]).toHaveLength(0);
   });
 });
+
+describe('units a REFUND credit note credited (plan 15)', () => {
+  /** A whole-order ISSUED invoice (900) of a 1 × 2000 + 500 order, an INVOICED refund of the unit, credited. */
+  const creditedUnit = async (noteStatus = 'ISSUED') => {
+    const { c, returns } = setup();
+    const { id, lineId } = await paidOrder(c, { quantity: 1 });
+    await ship(c, id, lineId, 1);
+    const shippingLineId = orderRow(c, id).shippingLines.lines[0].id;
+    c.tables[UIDS.invoice].push({
+      id: 900,
+      order: id,
+      kind: 'INVOICE',
+      status: 'ISSUED',
+      creditedInvoice: null,
+      number: 'FR 2026/900',
+      total: 2500,
+      lines: {
+        lines: [
+          { orderLineId: lineId, kind: 'ITEM', sku: 'SH-M', name: 'Shirt', quantity: 1, total: 2000, tax: 23, partial: false, discountShare: 0 },
+          { orderLineId: null, kind: 'SHIPPING', sku: '', name: 'Shipping', quantity: 1, total: 500, tax: 23, partial: false, shippingLineId },
+        ],
+      },
+      metadata: null,
+    });
+    const [refund] = await c.refunds.create(
+      id,
+      {
+        method: 'MANUAL_TRANSFER',
+        scope: 'INVOICED',
+        amount: 2000,
+        reason: 'GOODWILL',
+        description: 'Lost in transit',
+        idempotencyKey: 'ref-1',
+      },
+      'user:1'
+    );
+    c.tables[UIDS.invoice].push({
+      id: 950,
+      order: id,
+      kind: 'CREDIT_NOTE',
+      status: noteStatus,
+      creditedInvoice: 900,
+      number: 'NC 2026/950',
+      total: 2000,
+      lines: {
+        lines: [{ orderLineId: lineId, kind: 'ITEM', sku: 'SH-M', name: 'Shirt', quantity: 1, total: 2000, tax: 23, partial: false }],
+      },
+      metadata: {
+        creditType: 'REFUND',
+        refundId: refund.id,
+        creditedLines: [{ invoiceId: 900, index: 0, value: 2000, quantity: 1 }],
+      },
+    });
+    const refundRow = c.tables[UIDS.refund].find((r) => r.id === refund.id);
+    refundRow.metadata = { ...(refundRow.metadata ?? {}), creditNoteId: 950 };
+    return { c, returns, id, lineId };
+  };
+
+  it('a single-unit line refunded and credited cannot be returned (UNITS_REFUND_CREDITED)', async () => {
+    const { c, returns, id, lineId } = await creditedUnit();
+    const view = await c.orders.get(id);
+    expect(view.lines.find((l: any) => l.id === lineId)).toMatchObject({
+      shipped: 1,
+      returnedQuantity: 0,
+      refundCredited: 1,
+      returnable: 0,
+    });
+    expect(await codesOf(returns.preview(id, ret(lineId, 1, true).lines))).toEqual(['UNITS_REFUND_CREDITED']);
+    expect(await codesOf(returns.register(id, ret(lineId, 1, true), 'user:1'))).toEqual(['UNITS_REFUND_CREDITED']);
+    expect(c.tables[UIDS.orderReturn]).toEqual([]);
+  });
+
+  it('a FAILED REFUND credit note credits no units: the unit can be returned', async () => {
+    const { c, returns, id, lineId } = await creditedUnit('FAILED');
+    const view = await c.orders.get(id);
+    expect(view.lines.find((l: any) => l.id === lineId)).toMatchObject({ refundCredited: 0, returnable: 1 });
+    await returns.register(id, ret(lineId, 1, true), 'user:1');
+    expect(c.tables[UIDS.orderReturn]).toHaveLength(1);
+  });
+});
