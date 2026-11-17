@@ -1227,12 +1227,15 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
 
   /**
    * What `original` (an ISSUED invoice) can still credit, against the order's live documents.
-   * Credit notes ISSUED, PENDING or UNCERTAIN count, so nothing is credited twice.
+   * Credit notes ISSUED, PENDING or UNCERTAIN count, so nothing is credited twice. The elements
+   * reserved by active INVOICED refunds without a credit note (plan 15) are taken too: a RETURN or
+   * SHIPPING credit note never credits them (a CORRECTION is refused while they exist).
    */
   const creditOptionsOf = (original: any, state: OrderState) => {
     const invoice = readInvoiceDoc(original, []);
     const { docs, positionOrder } = state.invoicing;
-    return { invoice, options: creditOptions(invoice, docs, positionOrder) };
+    const withReservations = [...docs, ...refundReservationDocs(state.refunds, docs)];
+    return { invoice, options: creditOptions(invoice, withReservations, positionOrder) };
   };
 
   /** A credit note on `invoiceId` is PENDING or UNCERTAIN: a CORRECTION must wait for it. */
@@ -1497,6 +1500,14 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     };
   };
 
+  /** Whether a request names exactly the stored elements (same invoice, line and units). */
+  const sameElements = (stored: RefundItem[], items: unknown[]): boolean => {
+    const elementKey = (i: any) => `${Number(i?.invoiceId)}:${Number(i?.index)}:${Number(i?.quantity)}`;
+    const a = stored.map(elementKey).sort();
+    const b = items.map(elementKey).sort();
+    return a.length === b.length && a.every((k, i) => k === b[i]);
+  };
+
   /**
    * Issues ONE credit note for an INVOICED refund (plan 15), across the order's invoices.
    * - Exactly the refund's own elements (`metadata.items`): their stored values, no re-valuation,
@@ -1509,14 +1520,6 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
    * `creditedLines` entry names its own. The refund's `metadata.creditNoteId` is set with the
    * PENDING row (cleared again if the document fails or is refused).
    */
-  /** Whether a request names exactly the stored elements (same invoice, line and units). */
-  const sameElements = (stored: RefundItem[], items: unknown[]): boolean => {
-    const elementKey = (i: any) => `${Number(i?.invoiceId)}:${Number(i?.index)}:${Number(i?.quantity)}`;
-    const a = stored.map(elementKey).sort();
-    const b = items.map(elementKey).sort();
-    return a.length === b.length && a.every((k, i) => k === b[i]);
-  };
-
   const issueRefundCreditNote = async (
     rawRefundId: number | string,
     input: RefundCreditNoteInput,
