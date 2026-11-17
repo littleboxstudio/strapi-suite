@@ -209,3 +209,47 @@ Money is integer cents with VAT included.
 - [ ] Rsync to `backend-base` and restart.
 - [ ] Browser: on an invoiced order, open Refund and see the INVOICED scope and limit. Close
   without creating anything.
+
+---
+
+## Amendment tasks (spec "Amendment: the INVOICED amount is the sum of chosen elements")
+
+### Task 7: server — INVOICED refunds are built from elements
+
+**Files:**
+- `refunds.ts`: create, preview, reservation.
+- `invoices.ts`: refund credit-note options and issue.
+- `returns.ts`, `domain/invoiceSelection.ts`, `domain/creditNotes.ts`, `domain/refunds.ts`.
+- `controllers/.../errors.ts`: `REFUND_AMOUNT_DIFFERS` and `REFUND_ITEMS_INVALID` → 409.
+
+**Rules:** as in the spec amendment. The valuation is one shared function (the one the refund
+credit-note options already use). Available elements =
+creditOptions − reservations of other active refunds without a credit note.
+
+**Tests:**
+- create INVOICED from items stores `metadata.items` with values, and its amount = Σ;
+- a client amount that differs → `REFUND_AMOUNT_DIFFERS`;
+- invalid items → `REFUND_ITEMS_INVALID`;
+- a second refund cannot reserve the same units, and `invoicedRefundable` drops;
+- the preview lists the available elements;
+- the credit note with the stored items equals the refund to the cent, even when the line's
+  remainder cent sits with another refund's units (3 units, value 1000);
+- a fallback reselection still works;
+- a return of reserved units → `UNITS_REFUND_CREDITED`;
+- a legacy refund without items reserves by amount.
+
+- [ ] TDD, run the suite, commit
+  `feat(ecommerce): an invoiced refund is the sum of chosen invoiced elements`.
+
+### Task 8: admin — pick the elements in the refund modal
+
+**Files:**
+- `RefundModal.tsx`: with the INVOICED scope, one table per invoice under a sigma title. Whole
+  units for products, a checkbox for shipping. The amount is read-only = Σ, and it is sent as
+  `items` + `amount`.
+- `RefundCreditNoteModal.tsx`: prefilled with the refund's `items`, which are fixed by default;
+  another selection is allowed only when the server says an element is unavailable.
+- Helpers in `utils/` with tests; translations en/pt.
+
+- [ ] TDD, run the suite, commit
+  `feat(ecommerce): admin — an invoiced refund picks its elements`.

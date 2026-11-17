@@ -67,3 +67,36 @@ there is no way to refund, and no credit note documents it.
 ## Out of scope
 
 Existing EXCESS refunds, returns and the existing credit-note types are unchanged.
+
+## Amendment (2026-11-17): the INVOICED amount is the sum of chosen elements
+
+Store owner decision (option a): an `INVOICED` refund is not a free amount. The admin picks
+invoiced, not yet credited elements — product lines by whole units, whole shipping lines — and
+the refund amount **is** their sum. So its credit note always matches to the cent.
+
+- **Create (`scope: 'INVOICED'`):** takes `items: [{ invoiceId, index, quantity }]` (required).
+  - The server values each item with the same rule as the refund credit note (unit share rule
+    for products, whole shipping lines) and stores
+    `metadata.items: [{ invoiceId, index, quantity, value }]`.
+  - The refund amount is Σ value. A client `amount` that differs is refused
+    (`REFUND_AMOUNT_DIFFERS`, 409).
+  - Empty items, an unknown element, a DISCOUNT record, partial shipping or more units than
+    available are refused (`REFUND_ITEMS_INVALID`, 409, `items.N` details).
+- **Reservation:** the elements of an active INVOICED refund (status COMPLETED, PROCESSING,
+  PENDING) **without** a credit note are reserved. Other refunds cannot pick them, and the
+  available value of a line is its value left minus the reserved values.
+  `invoicedRefundable` is the Σ of the available values.
+- **Preview:** the refund preview lists the available elements per invoice (the same shape as
+  the credit-note options), so the modal can offer them.
+- **Credit note:** the modal starts from the refund's own elements.
+  - Issuing exactly those elements uses their stored values. No re-valuation, so the total
+    always equals the refund.
+  - If an element is no longer creditable (for example, a return credit note took it), the
+    admin may pick another set whose total equals the refund, as before.
+- **Returns:** units in the elements of an active INVOICED refund, with or without a credit note,
+  cannot be returned (`UNITS_REFUND_CREDITED`). Each refund counts its units once: its credit note
+  entries if it has one, otherwise its items.
+- **Legacy:** an INVOICED refund without `metadata.items` reserves by amount (as before).
+- **Admin:** the refund modal with the INVOICED scope shows one table per invoice, with whole
+  units for products and a checkbox for shipping. The amount is read-only and equals the
+  selection. A goodwill amount that matches no element is not an INVOICED refund.
