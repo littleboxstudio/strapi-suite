@@ -70,12 +70,12 @@ const RefundCreditNoteModal = ({ refund, invoices, onClose, onIssued }: Props) =
   const [mode, setMode] = useState<Mode>('FREE');
   /** False once unmounted: a late answer must not set state. */
   const mounted = useRef(true);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
       mounted.current = false;
-    },
-    []
-  );
+    };
+  }, []);
   /** Per element key: the server's code for it. */
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
