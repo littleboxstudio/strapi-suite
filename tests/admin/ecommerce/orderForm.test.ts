@@ -18,6 +18,10 @@ import {
   giftSelectors,
   normalizePromotionCodes,
   pruneGiftChoices,
+  manualDiscountsInput,
+  manualDiscountEntryError,
+  createTotalsTiles,
+  MAX_CREATE_MANUAL_DISCOUNTS,
   type OrderForm,
   type OrderLineDraft,
 } from '../../../admin/src/ecommerce/utils/orderForm';
@@ -627,5 +631,67 @@ describe('manual line discount on a new order (spec 4.1)', () => {
       { variantId: 1, quantity: 1, discountPercent: 15 },
       { variantId: 2, quantity: 1 },
     ]);
+  });
+});
+
+describe('create order manual discounts', () => {
+  const discounts = [
+    { key: 'a', kind: 'FIXED' as const, value: 500, reason: 'Gesture' },
+    { key: 'b', kind: 'PERCENT' as const, value: 10, reason: 'Loyal' },
+  ];
+
+  it('manualDiscountsInput drops the keys', () => {
+    expect(manualDiscountsInput(discounts)).toEqual([
+      { kind: 'FIXED', value: 500, reason: 'Gesture' },
+      { kind: 'PERCENT', value: 10, reason: 'Loyal' },
+    ]);
+    expect(MAX_CREATE_MANUAL_DISCOUNTS).toBe(10);
+  });
+
+  it('quote and create send them only when there are some', () => {
+    const form = { ...validForm(), manualDiscounts: discounts };
+    expect(buildQuoteInput(form, {}).manualDiscounts).toEqual(manualDiscountsInput(discounts));
+    expect(buildCreateOrderInput(form, 'k').manualDiscounts).toEqual(manualDiscountsInput(discounts));
+    expect('manualDiscounts' in buildQuoteInput(validForm(), {})).toBe(false);
+    expect('manualDiscounts' in buildCreateOrderInput(validForm(), 'k')).toBe(false);
+  });
+
+  it('manualDiscountEntryError reads the first error of entry N', () => {
+    const map = { 'manualDiscounts.1.reason': 'required', 'manualDiscounts.1.value': 'DISCOUNT_EXCEEDS_PRODUCTS' };
+    expect(manualDiscountEntryError(map, 1)).toBe('DISCOUNT_EXCEEDS_PRODUCTS');
+    expect(manualDiscountEntryError(map, 0)).toBeUndefined();
+    expect(manualDiscountEntryError({ 'manualDiscounts.0.kind': 'required' }, 0)).toBe('required');
+  });
+});
+
+describe('createTotalsTiles', () => {
+  it('reads the quote: products, shipping, discounts and the total', () => {
+    expect(
+      createTotalsTiles(
+        {
+          itemsOriginal: 7000,
+          productDiscount: 500,
+          subtotal: 6500,
+          orderDiscount: 1800,
+          shippingOriginal: 600,
+          shippingDiscount: 100,
+          shippingTotal: 500,
+          total: 5200,
+          totalDiscount: 2400,
+        },
+        null
+      )
+    ).toEqual([
+      { key: 'products', amount: 7000 },
+      { key: 'shipping', amount: 600 },
+      { key: 'discounts', amount: -2400 },
+      { key: 'total', amount: 5200 },
+    ]);
+  });
+
+  it('without shipping or a quote: the shipping is unknown and the preview is used', () => {
+    expect(
+      createTotalsTiles(null, { subtotal: 3000, shipping: 0, total: 3000 }, false).map((t) => t.amount)
+    ).toEqual([3000, null, 0, 3000]);
   });
 });

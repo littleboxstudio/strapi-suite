@@ -6,6 +6,7 @@ import {
   type Address,
   type CreateOrderInput,
   type FieldError,
+  type ManualDiscountInput,
   type OrderQuote,
   type OrderQuoteInput,
   type PickupSelection,
@@ -33,12 +34,19 @@ export type OrderLineDraft = {
   option: string | null;
   sku: string;
   unitPrice: number;
-  stock: number;
+  /** Null when unknown (a line copied from another order). */
+  stock: number | null;
   imageUrl: string | null;
   quantity: number;
   /** The manual discount percent as typed (spec 4.1); absent or '' = none. */
   discount?: string;
 };
+
+/** An order-level manual discount of the new order: FIXED `value` in cents, PERCENT a percentage. */
+export type DraftManualDiscount = ManualDiscountInput & { key: string };
+
+/** Server cap of manual discounts sent with a new order. */
+export const MAX_CREATE_MANUAL_DISCOUNTS = 10;
 
 export type OrderForm = {
   customer: { firstName: string; lastName: string; email: string; phone: string };
@@ -54,6 +62,8 @@ export type OrderForm = {
   notes: string;
   /** Promotion codes typed by the admin (shown as tags). */
   promotionCodes: string[];
+  /** Order-level manual discounts, applied in this order (base: the subtotal). */
+  manualDiscounts?: DraftManualDiscount[];
 };
 
 /** First error code per path (`customer.email`, `lines.0.quantity`, `shipping`, …). */
@@ -97,6 +107,7 @@ export function emptyOrderForm(locale: string): OrderForm {
     pickup: null,
     notes: '',
     promotionCodes: [],
+    manualDiscounts: [],
   };
 }
 
@@ -138,6 +149,49 @@ function lineInput(l: OrderLineDraft): { variantId: number; quantity: number; di
     quantity: l.quantity,
     ...(parsed.ok && parsed.value !== null ? { discountPercent: parsed.value } : {}),
   };
+}
+
+/** The draft discounts as the server input (quote and create). */
+export function manualDiscountsInput(list: DraftManualDiscount[]): ManualDiscountInput[] {
+  return list.map(({ kind, value, reason }) => ({ kind, value, reason }));
+}
+
+/** `manualDiscounts` for a request body: absent when there are none. */
+const manualDiscountsField = (form: OrderForm): { manualDiscounts?: ManualDiscountInput[] } =>
+  form.manualDiscounts?.length ? { manualDiscounts: manualDiscountsInput(form.manualDiscounts) } : {};
+
+/** The first server error of manual discount `index` (`manualDiscounts.N.value|kind|reason`). */
+export function manualDiscountEntryError(errors: OrderErrorMap, index: number): string | undefined {
+  const prefix = `manualDiscounts.${index}.`;
+  return ['value', 'kind', 'reason'].map((f) => errors[`${prefix}${f}`]).find((c) => c !== undefined);
+}
+
+export type CreateTotalsTile = { key: 'products' | 'shipping' | 'discounts' | 'total'; amount: number | null };
+
+/**
+ * The totals of the new order as tiles: from the quote when there is one, else the local preview
+ * (`previewShipping`: a shipping method is chosen). A null amount is shown as a dash.
+ */
+export function createTotalsTiles(
+  totals: OrderQuote['totals'] | null,
+  preview: { subtotal: number; shipping: number; total: number } | null,
+  previewShipping = true
+): CreateTotalsTile[] {
+  if (totals) {
+    return [
+      { key: 'products', amount: totals.itemsOriginal },
+      { key: 'shipping', amount: totals.shippingOriginal },
+      { key: 'discounts', amount: totals.totalDiscount ? -totals.totalDiscount : 0 },
+      { key: 'total', amount: totals.total },
+    ];
+  }
+  const p = preview ?? { subtotal: 0, shipping: 0, total: 0 };
+  return [
+    { key: 'products', amount: p.subtotal },
+    { key: 'shipping', amount: previewShipping ? p.shipping : null },
+    { key: 'discounts', amount: 0 },
+    { key: 'total', amount: p.total },
+  ];
 }
 
 /** Local preview only: the server recomputes every amount when the order is created. */
@@ -251,6 +305,7 @@ export function buildCreateOrderInput(
     idempotencyKey,
     ...(codes.length ? { promotionCodes: codes } : {}),
     ...(quote ? { expectedTotal: quote.expectedTotal, giftChoices: { ...quote.giftChoices } } : {}),
+    ...manualDiscountsField(form),
   };
 }
 
@@ -329,6 +384,7 @@ export function buildQuoteInput(form: OrderForm, giftChoices: Record<number, num
             serviceId: form.shipping.serviceId,
           }
         : null,
+    ...manualDiscountsField(form),
   };
 }
 
