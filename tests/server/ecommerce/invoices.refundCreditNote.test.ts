@@ -295,6 +295,63 @@ describe('EcommerceInvoiceService.issueRefundCreditNote', () => {
     expect(provider.issue).toHaveBeenCalledTimes(3);
   });
 
+  it('a key already used for the credit note of another refund is IDEMPOTENCY_KEY_CONFLICT', async () => {
+    const { c, inv, id, a } = await twoInvoices();
+    const r1 = await refund(c, id, 2000);
+    const r2 = await refund(c, id, 500);
+    const cn = await inv.issueRefundCreditNote(
+      r1.id,
+      { items: [{ invoiceId: a.id, index: 0, quantity: 1 }], idempotencyKey: 'cn-shared' },
+      actor
+    );
+    expect(cn.status).toBe('ISSUED');
+    expect(
+      await codesOf(
+        inv.issueRefundCreditNote(
+          r2.id,
+          { items: [{ invoiceId: a.id, index: 0, quantity: 1 }], idempotencyKey: 'cn-shared' },
+          actor
+        )
+      )
+    ).toEqual(['IDEMPOTENCY_KEY_CONFLICT']);
+    expect(refundRow(c, r2.id).metadata?.creditNoteId).toBeUndefined();
+    // The same refund with the same key still replays its own credit note.
+    const again = await inv.issueRefundCreditNote(
+      r1.id,
+      { items: [{ invoiceId: a.id, index: 0, quantity: 1 }], idempotencyKey: 'cn-shared' },
+      actor
+    );
+    expect(again.id).toBe(cn.id);
+  });
+
+  it('the locked replay also refuses a key that another refund claimed meanwhile', async () => {
+    const { c, inv, id, a } = await twoInvoices();
+    const r1 = await refund(c, id, 2000);
+    const r2 = await refund(c, id, 500);
+    const cn = await inv.issueRefundCreditNote(
+      r1.id,
+      { items: [{ invoiceId: a.id, index: 0, quantity: 1 }], idempotencyKey: 'cn-first' },
+      actor
+    );
+    // Between the unlocked lookup and the locked one, r1's credit note takes the key.
+    const settings = c.services.EcommerceSettingsService;
+    const base = settings.getActiveProviders;
+    settings.getActiveProviders = async (category: string) => {
+      invoiceRow(c, cn.id).idempotencyKey = 'cn-race';
+      return base(category);
+    };
+    expect(
+      await codesOf(
+        inv.issueRefundCreditNote(
+          r2.id,
+          { items: [{ invoiceId: a.id, index: 0, quantity: 1 }], idempotencyKey: 'cn-race' },
+          actor
+        )
+      )
+    ).toEqual(['IDEMPOTENCY_KEY_CONFLICT']);
+    expect(refundRow(c, r2.id).metadata?.creditNoteId).toBeUndefined();
+  });
+
   it('refuses a total that differs from the refund amount; nothing is written', async () => {
     const { c, inv, id, a } = await twoInvoices();
     const r = await refund(c, id, 2500);

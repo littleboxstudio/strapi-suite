@@ -422,10 +422,18 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
       })
     );
 
-  /** The document created with `key`, refusing a key used on another order or kind. */
-  const findByKey = async (orderId: number, key: string, kind: InvoiceKind) => {
+  /**
+   * The document created with `key`, refusing a key used on another order or kind, or (when
+   * `belongs` is given) for another request of the same kind, e.g. another refund's credit note.
+   */
+  const findByKey = async (
+    orderId: number,
+    key: string,
+    kind: InvoiceKind,
+    belongs?: (row: any) => boolean
+  ) => {
     const row = await findRow({ idempotencyKey: key });
-    if (row && (idOf(row.order) !== orderId || row.kind !== kind)) {
+    if (row && (idOf(row.order) !== orderId || row.kind !== kind || (belongs && !belongs(row)))) {
       throw invalid('idempotencyKey', 'IDEMPOTENCY_KEY_CONFLICT');
     }
     return row;
@@ -892,20 +900,21 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     runtime: ProviderRuntime,
     prepare: () => Promise<{ row: any; draft: InvoiceDraft }>,
     actor: string,
-    onConflict: () => Error
+    onConflict: () => Error,
+    belongs?: (row: any) => boolean
   ): Promise<InvoiceView> => {
     let prepared: { row: any; draft: InvoiceDraft } | { replay: any };
     try {
       prepared = await strapi.db.transaction(async () => {
         await orders().lockOrder(orderId);
         // A request with the same key that held the lock first already answered.
-        const winner = await findByKey(orderId, key, kind);
+        const winner = await findByKey(orderId, key, kind, belongs);
         if (winner) return { replay: winner };
         return prepare();
       });
     } catch (err) {
       if (isUniqueViolation(err)) {
-        const winner = await findByKey(orderId, key, kind);
+        const winner = await findByKey(orderId, key, kind, belongs);
         if (winner) return viewOf(winner.id);
         // The allocation index: another invoice claimed one of the payments first.
         throw onConflict();
@@ -1455,8 +1464,10 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     const key = keyOf(input);
     const refundId = Number(rawRefundId);
     const { orderId } = await loadRefund(refundId);
+    // A key replays only this refund's own credit note, never another document's.
+    const ofThisRefund = (row: any) => Number(row?.metadata?.refundId) === refundId;
 
-    const existing = await findByKey(orderId, key, 'CREDIT_NOTE');
+    const existing = await findByKey(orderId, key, 'CREDIT_NOTE', ofThisRefund);
     if (existing) return viewOf(existing.id);
 
     const { provider, runtime } = await activeProvider();
@@ -1580,7 +1591,8 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
         return { row, draft };
       },
       actor,
-      () => invalid('idempotencyKey', 'IDEMPOTENCY_KEY_CONFLICT')
+      () => invalid('idempotencyKey', 'IDEMPOTENCY_KEY_CONFLICT'),
+      ofThisRefund
     );
   };
 
