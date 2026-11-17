@@ -565,6 +565,7 @@ describe('preview and list', () => {
       inFlight: 0,
       excess: 1000,
       invoicedRefundable: 0,
+      invoicedElements: { invoices: [] },
       refundable: 1000,
       moneyRefundable: 1000,
       stripeRefundable: 1000,

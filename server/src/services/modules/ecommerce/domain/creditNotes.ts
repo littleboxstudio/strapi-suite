@@ -432,6 +432,24 @@ export type RefundCreditLineOption = {
   valueLeft: number;
 };
 
+/**
+ * `q` units of an ITEM line credited exactly `value` cents (a value fixed earlier by
+ * `unitsCredit`): a whole-item line keeps the discount share that value implies.
+ */
+const fixedUnitsCredit = (line: InvoiceLine, q: number, value: number): InvoiceLine => {
+  if (!isSharedLine(line)) return { ...withTotal(line, value), quantity: q, partial: false };
+  const netUnit = Math.round((num(line.total) + line.discountShare!) / line.quantity);
+  const grossUnit = line.grossTotal == null ? null : line.grossTotal / line.quantity;
+  return {
+    ...line,
+    quantity: q,
+    total: value,
+    partial: false,
+    discountShare: Math.max(0, netUnit * q - value),
+    ...(grossUnit != null && Number.isInteger(grossUnit) ? { grossTotal: grossUnit * q } : {}),
+  };
+};
+
 /** `q` of the `u` units left of an ITEM line, valued the RETURN way (`sharedUnitsCredit`). */
 const unitsCredit = (line: InvoiceLine, valueLeft: number, u: number, q: number): InvoiceLine => {
   const shared = sharedUnitsCredit(line, valueLeft, u, q);
@@ -485,4 +503,28 @@ export function refundCreditLine(
   }
   const line = unitsCredit(original, option.valueLeft, option.quantityLeft, quantity);
   return { line, value: num(line.total), quantity };
+}
+
+/**
+ * The credit-note line of an element an INVOICED refund stored (plan 15), at its stored value: no
+ * re-valuation, so the credit note equals the refund to the cent. Null when the element is no
+ * longer creditable as stored: the line is gone, fewer units are left, less value is left, or a
+ * shipping line is no longer whole.
+ */
+export function refundStoredCreditLine(
+  invoice: InvoiceDoc,
+  options: CreditOptions,
+  item: { index: number; quantity: number; value: number }
+): { line: InvoiceLine; value: number; quantity: number } | null {
+  const option = refundCreditOptions(invoice, options).find((o) => o.index === item.index);
+  if (!option || item.quantity > option.quantityLeft || !(item.value > 0) || item.value > option.valueLeft) {
+    return null;
+  }
+  const original = invoice.lines[option.index];
+  if (option.kind === 'SHIPPING') {
+    if (item.quantity !== 1 || item.value !== option.valueLeft) return null;
+    const line = creditLine(original, item.value);
+    return { line, value: item.value, quantity: line.quantity };
+  }
+  return { line: fixedUnitsCredit(original, item.quantity, item.value), value: item.value, quantity: item.quantity };
 }

@@ -6,12 +6,31 @@ import {
   MAX_LONG,
   asObject,
   cents,
+  fail,
   optionalString,
   positiveInt,
   requiredString,
 } from './validation';
 
 const MSG = 'Invalid refund';
+const MAX_ITEMS = 200;
+
+/** INVOICED (plan 15): the chosen elements, `{ invoiceId, index, quantity }` each. */
+const refundItems = (v: unknown) => {
+  if (v === undefined || v === null) return undefined;
+  if (!Array.isArray(v)) return fail(MSG, 'items', 'invalid');
+  if (v.length > MAX_ITEMS) return fail(MSG, 'items', 'too_long');
+  return v.map((raw, i) => {
+    const item = asObject(raw);
+    const index = item.index;
+    if (typeof index !== 'number' || !Number.isInteger(index) || index < 0) fail(MSG, `items.${i}.index`, 'invalid');
+    return {
+      invoiceId: positiveInt(MSG, `items.${i}.invoiceId`, item.invoiceId),
+      index: index as number,
+      quantity: positiveInt(MSG, `items.${i}.quantity`, item.quantity),
+    };
+  });
+};
 
 const EcommerceRefundController = ({ strapi }: { strapi: Core.Strapi }) => {
   const refunds = (): any => strapi.plugin(PLUGIN_ID).service('EcommerceRefundService');
@@ -42,13 +61,18 @@ const EcommerceRefundController = ({ strapi }: { strapi: Core.Strapi }) => {
         ctx,
         (id) => {
           const b = asObject(ctx.request?.body);
+          const scope =
+            b.scope === undefined || b.scope === null ? undefined : requiredString(MSG, 'scope', b.scope, 40);
+          const invoiced = scope === 'INVOICED';
           const input = {
             method: requiredString(MSG, 'method', b.method, 40),
-            scope:
-              b.scope === undefined || b.scope === null
+            scope,
+            // INVOICED: the amount is the sum of the items (optional; the service checks it).
+            amount:
+              invoiced && (b.amount === undefined || b.amount === null)
                 ? undefined
-                : requiredString(MSG, 'scope', b.scope, 40),
-            amount: cents(MSG, 'amount', b.amount),
+                : cents(MSG, 'amount', b.amount),
+            ...(invoiced ? { items: refundItems(b.items) } : {}),
             reason: requiredString(MSG, 'reason', b.reason),
             description: optionalString(MSG, 'description', b.description, MAX_LONG),
             reference: optionalString(MSG, 'reference', b.reference),

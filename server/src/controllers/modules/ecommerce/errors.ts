@@ -54,6 +54,10 @@ export const CONFLICT_CODES = [
   'REFUND_NOT_REMOVABLE',
   'STORE_CREDIT_USED',
   'UNITS_REFUND_CREDITED',
+  // INVOICED refunds built from invoiced elements (plan 15, Task 7)
+  'REFUND_AMOUNT_DIFFERS',
+  'REFUND_ITEMS_INVALID',
+  'REFUND_ELEMENTS_UNAVAILABLE',
 ];
 
 /**

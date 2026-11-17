@@ -1,5 +1,5 @@
 import { MAX_MONEY_CENTS, type FinancialSummary, type PaymentRecordStatus } from './orders';
-import { creditOptions } from './creditNotes';
+import { creditOptions, refundCreditOptions } from './creditNotes';
 import type { InvoiceDoc, InvoicingPosition, PositionOrder } from './invoiceSelection';
 
 export const refundableAmount = (summary: FinancialSummary, inFlightRefunds: number): number =>
@@ -115,42 +115,121 @@ export const validateRefundRequest = (
   return issues;
 };
 
-const LIVE_DOC: InvoiceDoc['status'][] = ['ISSUED', 'PENDING', 'UNCERTAIN'];
+/**
+ * One element an INVOICED refund gave back (plan 15, owner decision): `quantity` whole units of an
+ * ITEM line, or a whole SHIPPING line (quantity 1), of invoice `invoiceId`, valued `value` cents
+ * when the refund was created (the refund credit note's rule). The refund amount is their sum.
+ */
+export type RefundItem = { invoiceId: number; index: number; quantity: number; value: number };
+
+type RefundLike = { id?: unknown; scope?: string | null; status: string; amount: unknown; metadata?: unknown };
+
+const metaOf = (r: { metadata?: unknown }): Record<string, any> =>
+  r.metadata && typeof r.metadata === 'object' ? (r.metadata as Record<string, any>) : {};
+
+const isInt = (v: unknown, min: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= min;
+
+/** The refund's stored `metadata.items`, or null for a legacy refund (none, or not well formed). */
+export const refundItemsOf = (refund: { metadata?: unknown }): RefundItem[] | null => {
+  const raw = metaOf(refund).items;
+  if (!Array.isArray(raw) || !raw.length) return null;
+  const items: RefundItem[] = [];
+  for (const i of raw) {
+    if (!i || typeof i !== 'object') return null;
+    const { invoiceId, index, quantity, value } = i as Record<string, unknown>;
+    if (!isInt(invoiceId, 1) || !isInt(index, 0) || !isInt(quantity, 1) || !isInt(value, 0)) return null;
+    items.push({ invoiceId, index, quantity, value });
+  }
+  return items;
+};
 
 /**
- * Invoiced value an INVOICED refund may still give back (plan 15):
- * - Σ over the counted, non-annulled invoices of what each can still credit (`creditOptions`:
- *   its lines less what live credit notes took, never above what the invoice holds);
+ * Whether the refund's credit note counts: `metadata.creditNoteId` names a credit note of `docs`
+ * that did not fail. Each refund counts its elements once: through that credit note, or else
+ * through its own items.
+ */
+const hasLiveCreditNote = (refund: RefundLike, docs: InvoiceDoc[]): boolean => {
+  const id = Number(metaOf(refund).creditNoteId);
+  if (!Number.isInteger(id) || id <= 0) return false;
+  return docs.some((d) => d.id === id && d.kind === 'CREDIT_NOTE' && d.status !== 'FAILED');
+};
+
+/** Active INVOICED refunds (PENDING, PROCESSING, COMPLETED) without a credit note that counts. */
+const reservingRefunds = <R extends RefundLike>(refunds: R[], docs: InvoiceDoc[]): R[] =>
+  refunds.filter(
+    (r) => r.scope === 'INVOICED' && ADJUSTING.includes(r.status) && !hasLiveCreditNote(r, docs)
+  );
+
+/**
+ * The elements reserved by active INVOICED refunds without a credit note, as REFUND credit notes
+ * that exist only in memory (negative ids, never stored): passed to `creditOptions` with the order's
+ * documents, other refunds cannot pick them, and passed to `refundCreditedUnits` their units are
+ * never returnable. `exceptRefundId` leaves that refund's own reservation out (its credit note
+ * options). Legacy refunds (no items) reserve by amount instead (`legacyReservedAmount`).
+ */
+export const refundReservationDocs = (
+  refunds: RefundLike[],
+  docs: InvoiceDoc[],
+  exceptRefundId: number | null = null
+): InvoiceDoc[] =>
+  reservingRefunds(refunds, docs).flatMap((r): InvoiceDoc[] => {
+    const id = Number(r.id);
+    if (exceptRefundId !== null && id === exceptRefundId) return [];
+    const items = refundItemsOf(r);
+    if (!items) return [];
+    return [
+      {
+        id: -(Number.isInteger(id) && id > 0 ? id : 0),
+        kind: 'CREDIT_NOTE',
+        status: 'ISSUED',
+        creditType: 'REFUND',
+        creditedInvoiceId: items[0].invoiceId,
+        lines: [],
+        paymentIds: [],
+        creditedLines: items.map((i) => ({
+          invoiceId: i.invoiceId,
+          index: i.index,
+          value: i.value,
+          quantity: i.quantity,
+        })),
+      },
+    ];
+  });
+
+/** Σ of the active legacy INVOICED refunds (no items) without a credit note: they reserve by amount. */
+export const legacyReservedAmount = (refunds: RefundLike[], docs: InvoiceDoc[]): number =>
+  reservingRefunds(refunds, docs)
+    .filter((r) => !refundItemsOf(r))
+    .reduce((s, r) => s + (Number(r.amount) || 0), 0);
+
+/**
+ * Invoiced value an INVOICED refund may still give back (plan 15): the Σ of the available values of
+ * the elements an INVOICED refund may pick (`refundCreditOptions`, on the ISSUED invoices not
+ * annulled, with live credit notes and other refunds' reserved elements counted), never above what
+ * each invoice holds;
  * - less the value invoiced above what the order now charges (`position.overInvoiced`: e.g. a
  *   return or a discount not credited yet; that value already came back as an excess);
- * - less the active INVOICED refunds without a credit note (they hold their value until their
- *   credit note credits it);
+ * - less the active legacy INVOICED refunds (no items) without a credit note (they reserve by
+ *   amount until their credit note credits it);
  * - never above what the order still holds of the money received (`held`).
  */
 export const invoicedRefundableAmount = (p: {
   docs: InvoiceDoc[];
   order: PositionOrder;
   position: InvoicingPosition;
-  refunds: { scope?: string | null; status: string; amount: unknown; metadata?: unknown }[];
+  refunds: RefundLike[];
   held: number;
 }): number => {
   const annulled = new Set(p.position.annulledInvoiceIds);
+  const withReservations = [...p.docs, ...refundReservationDocs(p.refunds, p.docs)];
   let creditable = 0;
   for (const invoice of p.docs) {
-    if (invoice.kind !== 'INVOICE' || !LIVE_DOC.includes(invoice.status) || annulled.has(invoice.id))
-      continue;
-    const options = creditOptions(invoice, p.docs, p.order);
-    const lines = options.creditable
-      .filter((_, i) => invoice.lines[i]?.kind !== 'DISCOUNT')
-      .reduce((s, v) => s + v, 0);
+    if (invoice.kind !== 'INVOICE' || invoice.status !== 'ISSUED' || annulled.has(invoice.id)) continue;
+    const options = creditOptions(invoice, withReservations, p.order);
+    const lines = refundCreditOptions(invoice, options).reduce((s, o) => s + o.valueLeft, 0);
     creditable += Math.min(lines, options.held);
   }
   const overInvoiced = p.position.overInvoiced.products + p.position.overInvoiced.shipping;
-  const pending = p.refunds
-    .filter((r) => {
-      const meta = r.metadata && typeof r.metadata === 'object' ? (r.metadata as any) : {};
-      return r.scope === 'INVOICED' && ADJUSTING.includes(r.status) && meta.creditNoteId == null;
-    })
-    .reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  const pending = legacyReservedAmount(p.refunds, p.docs);
   return Math.max(0, Math.min(creditable - overInvoiced - pending, p.held));
 };

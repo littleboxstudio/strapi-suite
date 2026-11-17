@@ -36,11 +36,13 @@ import {
   exceedsCreditable,
   refundCreditLine,
   refundCreditOptions,
+  refundStoredCreditLine,
   settledDiscountIds,
   settledShippingLineIds,
   type CreditOptions,
   type RefundCreditLineOption,
 } from './domain/creditNotes';
+import { refundItemsOf, refundReservationDocs, type RefundItem } from './domain/refunds';
 import type { ShippingLineOrigin } from './domain/shippingLines';
 import type { ProviderRuntime } from './providers/registry';
 import type { OrderHistoryEntry } from './orderHistory';
@@ -158,8 +160,16 @@ export type RefundCreditNoteOptions = {
     | 'ACTION_NOT_AVAILABLE'
     | 'BILLING_NOT_CONFIGURED'
     | null;
-  invoices: { invoiceId: number; number: string | null; lines: RefundCreditLineOption[] }[];
+  invoices: RefundElementInvoice[];
+  /**
+   * The refund's own elements (`metadata.items`, plan 15): the modal starts from them, and issuing
+   * exactly them uses their stored values. Empty for a legacy refund or when not creditable.
+   */
+  selected: RefundItem[];
 };
+
+/** The elements of one ISSUED invoice an INVOICED refund (or its credit note) may pick. */
+export type RefundElementInvoice = { invoiceId: number; number: string | null; lines: RefundCreditLineOption[] };
 
 export type RefundCreditNoteInput = {
   /** Units of ITEM lines, or a whole SHIPPING line (quantity 1), of each invoice. */
@@ -1402,22 +1412,47 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   /**
-   * The order's ISSUED invoices of `providerId`, not annulled, each with what a REFUND credit
-   * note may still credit of it (live credit notes counted).
+   * The order's ISSUED invoices (of `providerId` when given), not annulled, each with what an
+   * INVOICED refund or its credit note may still pick of it: live credit notes counted, and the
+   * elements reserved by active INVOICED refunds without a credit note (plan 15), except
+   * `exceptRefundId`'s own.
    */
-  const refundableInvoices = async (orderId: number, state: OrderState, providerId: string) => {
+  const refundableInvoices = async (
+    orderId: number,
+    state: OrderState,
+    providerId: string | null,
+    exceptRefundId: number | null = null
+  ) => {
     const rows: any[] = await strapi.db.query(uids().invoice).findMany({
       where: { order: { id: orderId }, kind: 'INVOICE', status: 'ISSUED' },
       populate: { order: { select: ['id'] }, creditedInvoice: { select: ['id'] } },
       orderBy: { id: 'asc' },
     });
     const annulled = new Set(state.invoicing.position.annulledInvoiceIds);
+    const { docs, positionOrder } = state.invoicing;
+    const withReservations = [...docs, ...refundReservationDocs(state.refunds, docs, exceptRefundId)];
     return rows
-      .filter((r) => String(r.provider ?? '') === providerId && !annulled.has(r.id))
+      .filter((r) => (providerId === null || String(r.provider ?? '') === providerId) && !annulled.has(r.id))
       .map((row) => {
-        const { invoice, options } = creditOptionsOf(row, state);
+        const invoice = readInvoiceDoc(row, []);
+        const options = creditOptions(invoice, withReservations, positionOrder);
         return { row, invoice, options, lines: refundCreditOptions(invoice, options) };
       });
+  };
+
+  /**
+   * The elements a new INVOICED refund may pick (plan 15), per ISSUED invoice of the order (any
+   * provider), with their available values: what live credit notes and other active refunds left.
+   * `targets` keeps each invoice and its options for the valuation (`refundCreditLine`).
+   */
+  const refundElements = async (orderId: number, state: OrderState) => {
+    const targets = await refundableInvoices(orderId, state, null);
+    return {
+      targets,
+      invoices: targets
+        .filter((t) => t.lines.length > 0)
+        .map((t): RefundElementInvoice => ({ invoiceId: t.row.id, number: t.row.number ?? null, lines: t.lines })),
+    };
   };
 
   const refundCreditNoteOptions = async (
@@ -1427,6 +1462,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     const billing = await billingStatus();
     const state = await orders().computeOrderState(orderId);
     const base = { refund: { id: refund.id, amount: num(refund.amount) } };
+    const none = { invoices: [], selected: [] };
     const reason: RefundCreditNoteOptions['reason'] = !refundStillCounts(refund)
       ? 'REFUND_NOT_CREDITABLE'
       : (await hasCreditNote(refund))
@@ -1436,8 +1472,9 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
           : !billing.providerId
             ? 'BILLING_NOT_CONFIGURED'
             : null;
-    if (reason) return { ...base, creditable: false, reason, invoices: [] };
-    const invoices = await refundableInvoices(orderId, state, billing.providerId!);
+    if (reason) return { ...base, creditable: false, reason, ...none };
+    // Its own elements are offered; other refunds' reserved elements are not.
+    const invoices = await refundableInvoices(orderId, state, billing.providerId!, refund.id);
     return {
       ...base,
       creditable: true,
@@ -1445,17 +1482,30 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
       invoices: invoices
         .filter((i) => i.lines.length > 0)
         .map((i) => ({ invoiceId: i.row.id, number: i.row.number ?? null, lines: i.lines })),
+      selected: refundItemsOf(refund) ?? [],
     };
   };
 
   /**
-   * Issues ONE credit note for an INVOICED refund (plan 15), across the order's invoices: the
-   * selected elements (whole units, valued the RETURN way, and whole shipping lines) must add up
-   * to the refund amount exactly. The refund is COMPLETED, has no credit note yet, the order is
+   * Issues ONE credit note for an INVOICED refund (plan 15), across the order's invoices.
+   * - Exactly the refund's own elements (`metadata.items`): their stored values, no re-valuation,
+   *   so the total is the refund amount to the cent. Each must still be creditable (what live
+   *   credit notes and other refunds left), else `REFUND_ELEMENTS_UNAVAILABLE`.
+   * - Any other selection (or a legacy refund): the elements (whole units, valued the RETURN way,
+   *   and whole shipping lines) must add up to the refund amount exactly.
+   * The refund is COMPLETED, has no credit note yet, the order is
    * not archived and the billing provider is active. `creditedInvoice` is the first invoice; each
    * `creditedLines` entry names its own. The refund's `metadata.creditNoteId` is set with the
    * PENDING row (cleared again if the document fails or is refused).
    */
+  /** Whether a request names exactly the stored elements (same invoice, line and units). */
+  const sameElements = (stored: RefundItem[], items: unknown[]): boolean => {
+    const elementKey = (i: any) => `${Number(i?.invoiceId)}:${Number(i?.index)}:${Number(i?.quantity)}`;
+    const a = stored.map(elementKey).sort();
+    const b = items.map(elementKey).sort();
+    return a.length === b.length && a.every((k, i) => k === b[i]);
+  };
+
   const issueRefundCreditNote = async (
     rawRefundId: number | string,
     input: RefundCreditNoteInput,
@@ -1489,9 +1539,11 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
 
         const items = Array.isArray(input?.items) ? input.items : [];
         if (!items.length) throw invalid('items', 'required');
-        const invoices = await refundableInvoices(orderId, state, provider.id);
+        const invoices = await refundableInvoices(orderId, state, provider.id, refund.id);
         const byId = new Map(invoices.map((i) => [i.row.id, i]));
         const issues: { path: string; code: string }[] = [];
+        const stored = refundItemsOf(refund);
+        const exact = !!stored && sameElements(stored, items);
         const seen = new Set<string>();
         const picked: {
           invoiceId: number;
@@ -1500,7 +1552,17 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
           value: number;
           quantity: number;
         }[] = [];
-        items.forEach((raw, i) => {
+        if (exact) {
+          stored!.forEach((item, i) => {
+            const target = byId.get(item.invoiceId);
+            const built = target ? refundStoredCreditLine(target.invoice, target.options, item) : null;
+            if (!built) {
+              issues.push({ path: `items.${i}`, code: 'REFUND_ELEMENTS_UNAVAILABLE' });
+              return;
+            }
+            picked.push({ invoiceId: item.invoiceId, index: item.index, ...built });
+          });
+        } else items.forEach((raw, i) => {
           const item: Record<string, unknown> = raw && typeof raw === 'object' ? (raw as any) : {};
           const target = byId.get(Number(item.invoiceId));
           if (!target) {
@@ -1607,6 +1669,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     issueCreditNote,
     refundCreditNoteOptions,
     issueRefundCreditNote,
+    refundElements,
     listForOrder,
   };
 };

@@ -15,9 +15,14 @@ import {
   allocateStripeRefund,
   moneyCapacity,
   refundableAmount,
+  refundItemsOf,
   validateRefundRequest,
+  type RefundItem,
   type RefundSource,
 } from './domain/refunds';
+import { refundCreditLine, type CreditOptions } from './domain/creditNotes';
+import type { InvoiceDoc } from './domain/invoiceSelection';
+import type { RefundElementInvoice } from './invoices';
 import type { OrderHistoryEntry } from './orderHistory';
 import type { OrderState } from './orders';
 import type { ProviderRuntime } from './providers/registry';
@@ -42,8 +47,16 @@ export type CreateRefundInput = {
   method: RefundMethod;
   /** Defaults to EXCESS. */
   scope?: RefundScope | null;
-  /** Integer cents > 0, at most the refundable amount. */
-  amount: number;
+  /**
+   * Integer cents > 0, at most the refundable amount. INVOICED: optional, the sum of `items`; one
+   * that differs is refused (`REFUND_AMOUNT_DIFFERS`).
+   */
+  amount?: number;
+  /**
+   * INVOICED (required, plan 15): the invoiced elements given back, whole units of ITEM lines or a
+   * whole SHIPPING line (quantity 1) of the order's ISSUED invoices. Ignored for EXCESS.
+   */
+  items?: { invoiceId: number; index: number; quantity: number }[] | null;
   reason: string;
   description?: string | null;
   /** MANUAL_TRANSFER: the transfer reference. */
@@ -88,6 +101,8 @@ export type RefundView = {
   storeCredit: { id: number } | null;
   /** INVOICED refunds: the credit note documenting it, once one was issued or is being issued. */
   creditNoteId: number | null;
+  /** INVOICED refunds (plan 15): the elements it gave back, with their values; empty for legacy ones. */
+  items: RefundItem[];
   /**
    * Whether Remove is offered (plan 15), with the remove rules: INVOICED and COMPLETED, no credit
    * note, order not archived, not STRIPE, and for STORE_CREDIT its own credit unused. Set by
@@ -118,6 +133,12 @@ export type RefundPreview = {
   stripeRefundable: number;
   hasStripe: boolean;
   limits: Record<RefundScope, RefundLimits>;
+  /**
+   * The elements an INVOICED refund may pick (plan 15), per ISSUED invoice, with their available
+   * values: live credit notes and active refunds' elements are left out. Empty unless the order is
+   * OPEN.
+   */
+  invoicedElements: { invoices: RefundElementInvoice[] };
 };
 
 type Collector = { emit(e: any): void; flush(): Promise<void> };
@@ -161,6 +182,7 @@ export const toRefundView = (r: any): RefundView => {
     kind: r.kind,
     scope: r.scope === 'INVOICED' ? 'INVOICED' : 'EXCESS',
     creditNoteId: creditNoteIdOf(r),
+    items: r.scope === 'INVOICED' ? (refundItemsOf(r) ?? []) : [],
     status: r.status,
     amount: num(r.amount),
     currency: r.currency ?? 'EUR',
@@ -251,6 +273,15 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
   const history = (): { record(entry: OrderHistoryEntry): Promise<void> } =>
     service('EcommerceOrderHistoryService');
   const events = (): { collector(): Collector } => service('EcommerceEventBus');
+  const invoices = (): {
+    refundElements(
+      orderId: number,
+      state: OrderState
+    ): Promise<{
+      targets: { row: any; invoice: InvoiceDoc; options: CreditOptions }[];
+      invoices: RefundElementInvoice[];
+    }>;
+  } => service('EcommerceInvoiceService');
 
   /** The Stripe client when Stripe is active and has a secret key, otherwise null. */
   const stripeClient = async (): Promise<StripeClient | null> => {
@@ -294,6 +325,7 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
     storeCreditId: idOf(r.storeCredit),
     externalId: r.externalId ?? null,
     ...(r.scope === 'INVOICED' ? { scope: 'INVOICED' } : {}),
+    ...(r.scope === 'INVOICED' && refundItemsOf(r) ? { items: refundItemsOf(r) } : {}),
   });
 
   /** The limits of each scope: EXCESS from the excess, INVOICED from the invoiced value (plan 15). */
@@ -321,8 +353,11 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   const preview = async (rawOrderId: number | string): Promise<RefundPreview> => {
-    const state = await orders().computeOrderState(Number(rawOrderId));
+    const orderId = Number(rawOrderId);
+    const state = await orders().computeOrderState(orderId);
     const ctx = await refundContext(state);
+    const elements =
+      state.order.orderStatus === 'OPEN' ? (await invoices().refundElements(orderId, state)).invoices : [];
     return {
       orderTotal: state.summary.orderTotal,
       received: state.summary.paid,
@@ -335,7 +370,41 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
       stripeRefundable: ctx.stripeRefundable,
       hasStripe: ctx.hasStripe,
       limits: ctx.limits,
+      invoicedElements: { invoices: elements },
     };
+  };
+
+  const itemsInvalid = (path: string) =>
+    new EcommerceValidationError('Invalid refund', [{ path, code: 'REFUND_ITEMS_INVALID' }]);
+
+  /**
+   * The elements of an INVOICED refund (plan 15), each valued by the refund credit note's rule
+   * (`refundCreditLine`) against what is available: live credit notes and the elements of other
+   * active refunds are left out. Empty items, an unknown element, a DISCOUNT record, partial
+   * shipping, a repeated element or more units than available are `REFUND_ITEMS_INVALID`.
+   */
+  const invoicedItems = async (orderId: number, state: OrderState, raw: unknown): Promise<RefundItem[]> => {
+    if (!Array.isArray(raw) || !raw.length) throw itemsInvalid('items');
+    const { targets } = await invoices().refundElements(orderId, state);
+    const byId = new Map(targets.map((t) => [t.row.id, t]));
+    const seen = new Set<string>();
+    const items: RefundItem[] = [];
+    raw.forEach((entry, i) => {
+      const e: Record<string, unknown> = entry && typeof entry === 'object' ? (entry as any) : {};
+      const target = byId.get(Number(e.invoiceId));
+      const key = `${Number(e.invoiceId)}:${String(e.index)}`;
+      if (!target || seen.has(key)) throw itemsInvalid(`items.${i}`);
+      seen.add(key);
+      const built = refundCreditLine(target.invoice, target.options, e.index, e.quantity);
+      if ('issue' in built) throw itemsInvalid(`items.${i}`);
+      items.push({ invoiceId: target.row.id, index: Number(e.index), quantity: built.quantity, value: built.value });
+    });
+    // Never more of an invoice than it still holds.
+    for (const t of targets) {
+      const value = items.filter((x) => x.invoiceId === t.row.id).reduce((s, x) => s + x.value, 0);
+      if (value > t.options.held) throw itemsInvalid('items');
+    }
+    return items;
   };
 
   /** A removed INVOICED refund (CANCELLED, `metadata.removed`) is kept for the audit only. */
@@ -632,6 +701,8 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
     scope?: RefundScope;
     /** `null`: the refund's own `refund-restore:<refundId>`. */
     operationKey: string | null;
+    /** Stored on the refund (INVOICED: its `items`). */
+    metadata?: Record<string, unknown> | null;
     note: string;
     operationId: string;
     collector: { emit(e: any): void };
@@ -657,7 +728,7 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
         storeCredit: p.storeCreditId,
         actor,
         completedAt: new Date().toISOString(),
-        metadata: null,
+        metadata: p.metadata ?? null,
       },
     });
     const res = await storeCredits().restore(
@@ -736,7 +807,7 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
     if (!REFUND_METHODS.includes(method)) throw invalid('method', 'invalid_method');
     const scope: RefundScope = input?.scope == null ? 'EXCESS' : input.scope;
     if (!REFUND_SCOPES.includes(scope)) throw invalid('scope', 'invalid_scope');
-    const amount = input?.amount;
+    let amount = input?.amount as number;
     const reason = clean(input?.reason);
     const description = clean(input?.description) || null;
     const reference = clean(input?.reference) || null;
@@ -755,6 +826,19 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
         await orders().lockOrder(orderId);
         const state = await orders().computeOrderState(orderId);
         orders().assertAction(state, 'REFUND');
+        // INVOICED (plan 15): the amount is the sum of the chosen elements.
+        let items: RefundItem[] | null = null;
+        if (scope === 'INVOICED') {
+          items = await invoicedItems(orderId, state, input?.items);
+          const sum = items.reduce((s, i) => s + i.value, 0);
+          if (amount !== undefined && amount !== null && amount !== sum) {
+            throw new EcommerceValidationError('Invalid refund', [
+              { path: 'amount', code: 'REFUND_AMOUNT_DIFFERS', detail: String(sum) },
+            ]);
+          }
+          amount = sum;
+        }
+        const own = items ? { items } : null;
         const limits = (await refundContext(state)).limits[scope];
         const issues = validateRefundRequest(
           { amount: amount as number, method, reason },
@@ -787,6 +871,8 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
         if (method === 'STRIPE') {
           const { allocations, unallocated } = allocateStripeRefund(amount, stripeSources(state));
           if (unallocated > 0) throw invalid('method', 'stripe_unavailable');
+          // An INVOICED refund's elements belong to one refund row: never split across payments.
+          if (own && allocations.length > 1) throw invalid('method', 'stripe_unavailable');
           const rows: any[] = [];
           for (const a of allocations) {
             const row = await strapi.db.query(u.refund).create({
@@ -800,7 +886,7 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
                 idempotencyKey: `${key}:${a.paymentId}`,
                 storeCredit: null,
                 completedAt: null,
-                metadata: { paymentIntentId: a.paymentIntentId },
+                metadata: { paymentIntentId: a.paymentIntentId, ...(own ?? {}) },
               },
             });
             await history().record({
@@ -838,7 +924,7 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
               idempotencyKey: key,
               storeCredit: null,
               completedAt: now,
-              metadata: null,
+              metadata: own,
             },
           });
           await history().record({
@@ -872,6 +958,7 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
             idempotencyKey: key,
             scope,
             operationKey: null,
+            metadata: own,
             note: '',
             operationId,
             collector,
@@ -894,7 +981,7 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
             idempotencyKey: key,
             storeCredit: null,
             completedAt: now,
-            metadata: null,
+            metadata: own,
           },
         });
         const credit = await storeCredits().issue(
