@@ -158,6 +158,8 @@ export type ModificationCurrent = {
   orderDiscount: number;
   shippingOriginal: number;
   shippingDiscount: number;
+  /** What the order's INVOICED refunds take off its total (`invoicedRefundAdjustment`). */
+  creditAdjustment?: number;
   payments: PaymentLike[];
   refunds: RefundLike[];
   /** The promotions the order stored (absent = none). Never re-evaluated or re-priced. */
@@ -514,6 +516,7 @@ export const simulateModification = (
     orderDiscount: requestedDiscount,
     shippingOriginal: shipping.shippingOriginal,
     shippingDiscount: shipping.shippingDiscount,
+    creditAdjustment: current.creditAdjustment,
   });
 
   const before = withMoney(beforeTotals, current.payments, current.refunds);

@@ -54,8 +54,39 @@ describe('computeTotals', () => {
       subtotal: 8000,
       orderDiscount: 1300,
       shippingTotal: 0,
+      creditAdjustment: 0,
       total: 6700,
     });
+  });
+
+  it('subtracts the credit adjustment last (lines 5000, shipping 490, adjustment 490 → 5000)', () => {
+    const t = computeTotals([line({ unitPrice: 5000 })], {
+      orderDiscount: 0,
+      shippingOriginal: 490,
+      shippingDiscount: 0,
+      creditAdjustment: 490,
+    });
+    expect(t).toMatchObject({ subtotal: 5000, shippingTotal: 490, creditAdjustment: 490, total: 5000 });
+  });
+
+  it('without an adjustment the totals are unchanged', () => {
+    const t = computeTotals([line({ unitPrice: 5000 })], {
+      orderDiscount: 0,
+      shippingOriginal: 490,
+      shippingDiscount: 0,
+    });
+    expect(t).toMatchObject({ creditAdjustment: 0, total: 5490 });
+  });
+
+  it('the adjustment never takes the total below 0', () => {
+    const t = computeTotals([line({ unitPrice: 1000 })], {
+      orderDiscount: 0,
+      shippingOriginal: 0,
+      shippingDiscount: 0,
+      creditAdjustment: 1500,
+    });
+    expect(t.total).toBe(0);
+    expect(t.creditAdjustment).toBe(1000);
   });
 
   it('caps orderDiscount at the subtotal', () => {

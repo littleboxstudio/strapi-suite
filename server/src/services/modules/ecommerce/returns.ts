@@ -5,7 +5,7 @@ import { isUniqueViolation } from './dbErrors';
 import { computeTotals, type OrderActionKey } from './domain/orders';
 import { returnableQuantities, validateReturnRequest } from './domain/fulfillment';
 import { computeReturnShares } from './domain/returnShares';
-import { refundableAmount } from './domain/refunds';
+import { invoicedRefundAdjustment, refundableAmount } from './domain/refunds';
 import type { OrderState } from './orders';
 import type { OrderHistoryEntry } from './orderHistory';
 import type { StockMoveInput } from './stock';
@@ -297,6 +297,7 @@ const EcommerceReturnService = ({ strapi }: { strapi: Core.Strapi }) => {
             orderDiscount: orderDiscountBefore - computed.discountShare,
             shippingOriginal: num(order.shippingOriginal),
             shippingDiscount: num(order.shippingDiscount),
+            creditAdjustment: invoicedRefundAdjustment(state.refunds),
           }
         );
         const { count } = await strapi.db.query(u.order).updateMany({

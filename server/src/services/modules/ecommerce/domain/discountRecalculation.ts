@@ -62,6 +62,8 @@ export type DiscountContext = {
   /** Σ shipping lines. */
   shippingGross: number;
   shippingDiscount: number;
+  /** What the order's INVOICED refunds take off its total (`invoicedRefundAdjustment`). */
+  creditAdjustment?: number;
   email: string | null;
   codes: string[];
   candidates: PromotionCandidate[];
@@ -458,7 +460,7 @@ export function recalculateDiscounts(
     return { ...r, selected, amount: selected ? sumOf(amountsOf(id)) : wouldGive(id) };
   });
 
-  const stateFor = { shippingOriginal: ctx.shippingGross };
+  const stateFor = { shippingOriginal: ctx.shippingGross, creditAdjustment: ctx.creditAdjustment };
   const before = withMoney(
     computeTotals(ctx.lines, {
       ...stateFor,

@@ -46,6 +46,27 @@ const paid = (amount: number): PaymentLike[] => [{ status: 'COMPLETED', amount }
 const keep: ModificationInput['shipping'] = { mode: 'KEEP' };
 
 describe('simulateModification', () => {
+  it('the credit adjustment of INVOICED refunds lowers both totals (it never jumps back)', () => {
+    const current = {
+      lines: [existing({ id: 1, unitPrice: 5000, quantity: 1 })],
+      orderDiscount: 0,
+      shippingOriginal: 490,
+      shippingDiscount: 0,
+      creditAdjustment: 490,
+      payments: paid(5490),
+      refunds: [{ status: 'COMPLETED', amount: 490, kind: 'MONEY' as const }],
+    };
+    const r = simulateModification(
+      current,
+      { lines: [{ orderLineId: 1, variantId: 101, quantity: 1 }], shipping: keep },
+      catalogOf(),
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.before).toMatchObject({ total: 5000, creditAdjustment: 490, due: 0, excess: 0 });
+    expect(r.after).toMatchObject({ total: 5000, creditAdjustment: 490, due: 0, excess: 0 });
+    expect(r.outcome).toBe('NONE');
+  });
+
   it('adds a 2500 product and +400 shipping to a paid 10000 order → due 2900, DUE (req 16.7)', () => {
     const current = {
       lines: [existing({ id: 1, unitPrice: 9000, quantity: 1 })],

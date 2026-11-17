@@ -54,12 +54,23 @@ export type OrderTotals = {
   subtotal: number;
   orderDiscount: number;
   shippingTotal: number;
+  /**
+   * What the INVOICED refunds take off the total (plan 15), as applied: never more than the total
+   * before it, so the total is never below 0.
+   */
+  creditAdjustment: number;
   total: number;
 };
 
 export const computeTotals = (
   lines: LineAmounts[],
-  order: { orderDiscount: number; shippingOriginal: number; shippingDiscount: number }
+  order: {
+    orderDiscount: number;
+    shippingOriginal: number;
+    shippingDiscount: number;
+    /** Σ of the order's counted INVOICED refunds (`invoicedRefundAdjustment`); subtracted last. */
+    creditAdjustment?: number;
+  }
 ): OrderTotals => {
   let itemsOriginal = 0;
   let productDiscount = 0;
@@ -73,8 +84,21 @@ export const computeTotals = (
   // subtotal. Returns reduce the stored value by their share of it (see returnShares).
   const orderDiscount = Math.max(0, Math.min(order.orderDiscount, subtotal));
   const shippingTotal = order.shippingOriginal - order.shippingDiscount;
-  const total = subtotal - orderDiscount + shippingTotal;
-  return { itemsOriginal, productDiscount, subtotal, orderDiscount, shippingTotal, total };
+  const beforeAdjustment = subtotal - orderDiscount + shippingTotal;
+  const creditAdjustment = Math.max(
+    0,
+    Math.min(Math.max(0, beforeAdjustment), Math.round(Number(order.creditAdjustment) || 0))
+  );
+  const total = beforeAdjustment - creditAdjustment;
+  return {
+    itemsOriginal,
+    productDiscount,
+    subtotal,
+    orderDiscount,
+    shippingTotal,
+    creditAdjustment,
+    total,
+  };
 };
 
 // ---------------------------------------------------------------------------
