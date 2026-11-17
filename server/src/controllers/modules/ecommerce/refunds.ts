@@ -44,6 +44,10 @@ const EcommerceRefundController = ({ strapi }: { strapi: Core.Strapi }) => {
           const b = asObject(ctx.request?.body);
           const input = {
             method: requiredString(MSG, 'method', b.method, 40),
+            scope:
+              b.scope === undefined || b.scope === null
+                ? undefined
+                : requiredString(MSG, 'scope', b.scope, 40),
             amount: cents(MSG, 'amount', b.amount),
             reason: requiredString(MSG, 'reason', b.reason),
             description: optionalString(MSG, 'description', b.description, MAX_LONG),
@@ -64,6 +68,8 @@ const EcommerceRefundController = ({ strapi }: { strapi: Core.Strapi }) => {
     resume: (ctx: any) => run(ctx, (id) => refunds().resume(id, actorOf(ctx))),
 
     refresh: (ctx: any) => run(ctx, (id) => refunds().refresh(id, actorOf(ctx))),
+
+    remove: (ctx: any) => run(ctx, (id) => refunds().remove(id, actorOf(ctx))),
 
     markFailed: (ctx: any) =>
       run(ctx, (id) => {

@@ -31,8 +31,17 @@ import type {
 export const REFUND_METHODS = ['MANUAL_TRANSFER', 'STORE_CREDIT', 'STRIPE'] as const;
 export type RefundMethod = (typeof REFUND_METHODS)[number];
 
+/**
+ * EXCESS: gives back money paid above the total (the total does not change). INVOICED (plan 15):
+ * gives back invoiced value not yet credited and lowers the order total by its amount.
+ */
+export const REFUND_SCOPES = ['EXCESS', 'INVOICED'] as const;
+export type RefundScope = (typeof REFUND_SCOPES)[number];
+
 export type CreateRefundInput = {
   method: RefundMethod;
+  /** Defaults to EXCESS. */
+  scope?: RefundScope | null;
   /** Integer cents > 0, at most the refundable amount. */
   amount: number;
   reason: string;
@@ -56,6 +65,7 @@ export type RefundView = {
   id: number;
   method: RefundMethod;
   kind: 'MONEY' | 'STORE_CREDIT';
+  scope: RefundScope;
   status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
   amount: number;
   currency: string;
@@ -78,16 +88,28 @@ export type RefundView = {
   storeCredit: { id: number } | null;
 };
 
+export type RefundLimits = {
+  refundable: number;
+  /** At most `refundable`: what may go back as money (store-credit value never does). */
+  moneyRefundable: number;
+  stripeRefundable: number;
+};
+
 export type RefundPreview = {
   orderTotal: number;
   received: number;
   refunded: number;
   inFlight: number;
+  /** The excess left to refund (EXCESS scope), as `refundable`. */
+  excess: number;
+  /** Invoiced value an INVOICED refund may still give back (plan 15). */
+  invoicedRefundable: number;
+  /** EXCESS limits (kept at the top level for older readers). */
   refundable: number;
-  /** At most `refundable`: what may go back as money (store-credit value never does). */
   moneyRefundable: number;
   stripeRefundable: number;
   hasStripe: boolean;
+  limits: Record<RefundScope, RefundLimits>;
 };
 
 type Collector = { emit(e: any): void; flush(): Promise<void> };
@@ -122,6 +144,7 @@ export const toRefundView = (r: any): RefundView => {
     id: r.id,
     method: r.method,
     kind: r.kind,
+    scope: r.scope === 'INVOICED' ? 'INVOICED' : 'EXCESS',
     status: r.status,
     amount: num(r.amount),
     currency: r.currency ?? 'EUR',
@@ -204,6 +227,7 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
       input: RestoreStoreCreditInput,
       opts?: { collector?: { emit(e: any): void } }
     ): Promise<RestoreStoreCreditResult>;
+    void(id: number, actor: string): Promise<StoreCreditView>;
   } => service('EcommerceStoreCreditService');
   const settings = (): {
     getRuntime(id: string): Promise<(ProviderRuntime & { active: boolean }) | null>;
@@ -253,26 +277,31 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
     paymentId: idOf(r.payment),
     storeCreditId: idOf(r.storeCredit),
     externalId: r.externalId ?? null,
+    ...(r.scope === 'INVOICED' ? { scope: 'INVOICED' } : {}),
   });
 
+  /** The limits of each scope: EXCESS from the excess, INVOICED from the invoiced value (plan 15). */
   const refundContext = async (state: OrderState) => {
-    const refundable = refundableAmount(state.summary, state.inFlightRefunds);
-    const moneyRefundable = Math.min(
-      refundable,
-      moneyCapacity(
-        state.payments.map((p) => ({ method: p.method, status: p.status, amount: num(p.amount) })),
-        state.refunds.map((r) => ({ kind: r.kind, status: r.status, amount: num(r.amount) }))
-      )
+    const money = moneyCapacity(
+      state.payments.map((p) => ({ method: p.method, status: p.status, amount: num(p.amount) })),
+      state.refunds.map((r) => ({ kind: r.kind, status: r.status, amount: num(r.amount) }))
     );
     const capacity = stripeCapacity(state);
     const stripeActive = !!(await stripeClient());
     const hasStripe = stripeActive && capacity > 0;
-    return {
-      refundable,
-      moneyRefundable,
-      hasStripe,
-      stripeRefundable: hasStripe ? Math.min(moneyRefundable, capacity) : 0,
+    const limitsOf = (refundable: number): RefundLimits => {
+      const moneyRefundable = Math.min(refundable, money);
+      return {
+        refundable,
+        moneyRefundable,
+        stripeRefundable: hasStripe ? Math.min(moneyRefundable, capacity) : 0,
+      };
     };
+    const limits: Record<RefundScope, RefundLimits> = {
+      EXCESS: limitsOf(refundableAmount(state.summary, state.inFlightRefunds)),
+      INVOICED: limitsOf(state.invoicedRefundable ?? 0),
+    };
+    return { ...limits.EXCESS, hasStripe, limits };
   };
 
   const preview = async (rawOrderId: number | string): Promise<RefundPreview> => {
@@ -283,18 +312,24 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
       received: state.summary.paid,
       refunded: state.summary.refunded,
       inFlight: state.inFlightRefunds,
+      excess: ctx.limits.EXCESS.refundable,
+      invoicedRefundable: ctx.limits.INVOICED.refundable,
       refundable: ctx.refundable,
       moneyRefundable: ctx.moneyRefundable,
       stripeRefundable: ctx.stripeRefundable,
       hasStripe: ctx.hasStripe,
+      limits: ctx.limits,
     };
   };
+
+  /** A removed INVOICED refund (CANCELLED, `metadata.removed`) is kept for the audit only. */
+  const isRemoved = (r: any): boolean => r?.metadata?.removed === true;
 
   const list = async (rawOrderId: number | string): Promise<RefundView[]> => {
     const orderId = Number(rawOrderId);
     const order = await strapi.db.query(uids().order).findOne({ where: { id: orderId }, select: ['id'] });
     if (!order) throw new EcommerceNotFoundError('Order not found');
-    return (await refundRows({ order: { id: orderId } })).map(toRefundView);
+    return (await refundRows({ order: { id: orderId } })).filter((r) => !isRemoved(r)).map(toRefundView);
   };
 
   /**
@@ -392,6 +427,8 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
           actor,
           operationId,
         });
+        // An INVOICED refund that failed gives its credit adjustment back.
+        if (row.scope === 'INVOICED') await orders().recalculate(orderId, { actor, operationId });
         collector.emit({ type: 'REFUND_FAILED', orderId, payload: eventPayload(updated) });
       } else if (externalId && !row.externalId) {
         // Only when Stripe first gives the refund its id: a refresh or resume of a refund that
@@ -511,6 +548,7 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
     if (!first) throw new EcommerceNotFoundError('Refund not found');
     const orderId = idOf(first.order);
     if (orderId === null) throw new EcommerceNotFoundError('Order not found');
+    const operationId = randomUUID();
     await strapi.db.transaction(async () => {
       await orders().lockOrder(orderId);
       const row = await rowById(id);
@@ -539,8 +577,9 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
         previousValue: { refundId: id, status: 'PROCESSING' },
         newValue: { ...historyValue({ ...row, status: 'FAILED' }), note: note || null },
         actor,
-        operationId: randomUUID(),
+        operationId,
       });
+      if (row.scope === 'INVOICED') await orders().recalculate(orderId, { actor, operationId });
     });
     const collector = events().collector();
     collector.emit({
@@ -565,6 +604,8 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
     amount: number;
     data: { reason: string; description: string | null; actor: string };
     idempotencyKey: string;
+    /** Absent: EXCESS (the schema default). */
+    scope?: RefundScope;
     /** `null`: the refund's own `refund-restore:<refundId>`. */
     operationKey: string | null;
     note: string;
@@ -580,6 +621,7 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
         payment: p.payment.id,
         method: 'STORE_CREDIT',
         kind: 'STORE_CREDIT',
+        ...(p.scope ? { scope: p.scope } : {}),
         status: 'COMPLETED',
         amount,
         currency: 'EUR',
@@ -668,6 +710,8 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
 
     const method = input?.method;
     if (!REFUND_METHODS.includes(method)) throw invalid('method', 'invalid_method');
+    const scope: RefundScope = input?.scope == null ? 'EXCESS' : input.scope;
+    if (!REFUND_SCOPES.includes(scope)) throw invalid('scope', 'invalid_scope');
     const amount = input?.amount;
     const reason = clean(input?.reason);
     const description = clean(input?.description) || null;
@@ -687,13 +731,13 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
         await orders().lockOrder(orderId);
         const state = await orders().computeOrderState(orderId);
         orders().assertAction(state, 'REFUND');
-        const ctx = await refundContext(state);
+        const limits = (await refundContext(state)).limits[scope];
         const issues = validateRefundRequest(
           { amount: amount as number, method, reason },
           {
-            refundable: ctx.refundable,
-            stripeAvailable: ctx.stripeRefundable,
-            moneyRefundable: ctx.moneyRefundable,
+            refundable: limits.refundable,
+            stripeAvailable: limits.stripeRefundable,
+            moneyRefundable: limits.moneyRefundable,
           }
         );
         if (issues.length) throw new EcommerceValidationError('Invalid refund', issues);
@@ -707,6 +751,7 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
         const base = {
           order: orderId,
           method,
+          scope,
           amount,
           currency: 'EUR',
           reason,
@@ -745,6 +790,8 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
             });
             rows.push(row);
           }
+          // An INVOICED refund lowers the total at once (it counts while PROCESSING).
+          if (scope === 'INVOICED') await orders().recalculate(orderId, { actor, operationId });
           return rows;
         }
 
@@ -799,6 +846,7 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
             amount,
             data: { reason, description, actor },
             idempotencyKey: key,
+            scope,
             operationKey: null,
             note: '',
             operationId,
@@ -938,7 +986,94 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
     return released.map(toRefundView);
   };
 
-  return { preview, list, create, resume, refresh, markFailed, releaseStoreCreditOnCancel };
+  // -------------------------------------------------------------------------
+  // Remove (plan 15)
+  // -------------------------------------------------------------------------
+
+  const notRemovable = (code: string) =>
+    new EcommerceValidationError('Refund cannot be removed', [{ path: 'refund', code }]);
+
+  /**
+   * Voids the store credit a STORE_CREDIT refund issued, only while it is unused (its whole value
+   * still on it, or written off whole by an earlier void). A refund that gave value back onto an
+   * existing credit is not removable: voiding that credit would take more than the refund gave.
+   */
+  const voidUnusedCredit = async (row: any, actor: string): Promise<void> => {
+    const u = uids();
+    const creditId = idOf(row.storeCredit);
+    if (creditId === null) throw notRemovable('REFUND_NOT_REMOVABLE');
+    const credit = await strapi.db.query(u.storeCredit).findOne({
+      where: { id: creditId },
+      populate: { sourceRefund: { select: ['id'] } },
+    });
+    if (!credit || idOf(credit.sourceRefund) !== row.id) throw notRemovable('REFUND_NOT_REMOVABLE');
+    const amount = num(row.amount);
+    const voidedWhole = async () => {
+      const m = await strapi.db
+        .query(u.storeCreditMovement)
+        .findOne({ where: { operationKey: `void:${creditId}` } });
+      return !!m && num(m.amount) === -amount;
+    };
+    if (credit.status === 'VOID') {
+      if (!(await voidedWhole())) throw notRemovable('STORE_CREDIT_USED');
+      return;
+    }
+    if (num(credit.balance) !== amount || num(credit.initialAmount) !== amount) {
+      throw notRemovable('STORE_CREDIT_USED');
+    }
+    await storeCredits().void(creditId, actor);
+    // A concurrent use between the check and the void: the void wrote off less (rolled back).
+    if (!(await voidedWhole())) throw notRemovable('STORE_CREDIT_USED');
+  };
+
+  /**
+   * Removes an INVOICED refund (plan 15): only without a credit note, on an order not archived,
+   * never a STRIPE one (that money really left), and for STORE_CREDIT only while the credit is
+   * unused (it is voided). The refund stays as CANCELLED with `metadata.removed` (out of the
+   * lists) and its credit adjustment comes off: the total goes back up.
+   */
+  const remove = async (rawRefundId: number | string, actor: string): Promise<RefundView> => {
+    const id = Number(rawRefundId);
+    const first = await rowById(id);
+    if (!first) throw new EcommerceNotFoundError('Refund not found');
+    const orderId = idOf(first.order);
+    if (orderId === null) throw new EcommerceNotFoundError('Order not found');
+    const operationId = randomUUID();
+    await strapi.db.transaction(async () => {
+      await orders().lockOrder(orderId);
+      const row = await rowById(id);
+      if (!row || row.scope !== 'INVOICED' || row.status !== 'COMPLETED' || isRemoved(row)) {
+        throw notRemovable('REFUND_NOT_REMOVABLE');
+      }
+      const metadata = row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
+      if (metadata.creditNoteId != null) throw notRemovable('REFUND_HAS_CREDIT_NOTE');
+      if (row.method === 'STRIPE') throw notRemovable('REFUND_NOT_REMOVABLE');
+      const order = await strapi.db
+        .query(uids().order)
+        .findOne({ where: { id: orderId }, select: ['id', 'orderStatus'] });
+      if (!order || order.orderStatus === 'ARCHIVED') throw notRemovable('REFUND_NOT_REMOVABLE');
+      if (row.method === 'STORE_CREDIT') await voidUnusedCredit(row, actor);
+      const removedAt = new Date().toISOString();
+      const { count } = await strapi.db.query(uids().refund).updateMany({
+        where: { id, status: 'COMPLETED' },
+        data: { status: 'CANCELLED', metadata: { ...metadata, removed: true, removedAt, removedBy: actor } },
+      });
+      if (!count) throw notRemovable('REFUND_NOT_REMOVABLE');
+      await history().record({
+        orderId,
+        type: 'REFUND_REMOVED',
+        description: `Refund of ${num(row.amount)} cents removed: the order total goes back up`,
+        previousValue: { refundId: id, status: 'COMPLETED' },
+        newValue: { ...historyValue(row), status: 'CANCELLED', removed: true },
+        actor,
+        operationId,
+      });
+      await orders().recalculate(orderId, { actor, operationId });
+    });
+    return toRefundView(await rowById(id));
+  };
+
+  return { preview, list, create, resume, refresh, markFailed, remove, releaseStoreCreditOnCancel };
 };
 
 export default EcommerceRefundService;

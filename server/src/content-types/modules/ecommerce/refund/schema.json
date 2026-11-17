@@ -52,6 +52,14 @@
       "type": "integer",
       "required": true
     },
+    "scope": {
+      "type": "enumeration",
+      "enum": [
+        "EXCESS",
+        "INVOICED"
+      ],
+      "default": "EXCESS"
+    },
     "currency": {
       "type": "string"
     },

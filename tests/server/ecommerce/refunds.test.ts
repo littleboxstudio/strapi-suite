@@ -563,10 +563,16 @@ describe('preview and list', () => {
       received: 5500,
       refunded: 0,
       inFlight: 0,
+      excess: 1000,
+      invoicedRefundable: 0,
       refundable: 1000,
       moneyRefundable: 1000,
       stripeRefundable: 1000,
       hasStripe: true,
+      limits: {
+        EXCESS: { refundable: 1000, moneyRefundable: 1000, stripeRefundable: 1000 },
+        INVOICED: { refundable: 0, moneyRefundable: 0, stripeRefundable: 0 },
+      },
     });
   });
 

@@ -98,6 +98,24 @@ describe('EcommerceRefundController', () => {
     expect(b.body.error.details.code).toBe('IDEMPOTENCY_KEY_CONFLICT');
   });
 
+  it('create passes the scope; remove uses the actor and maps its codes to 400', async () => {
+    const create = vi.fn().mockResolvedValue([{ id: 1 }]);
+    const remove = vi
+      .fn()
+      .mockRejectedValue(new EcommerceValidationError('x', [{ path: 'refund', code: 'REFUND_HAS_CREDIT_NOTE' }]));
+    const c = createRefunds({ strapi: strapiWith({ EcommerceRefundService: { create, remove } }) });
+    await c.create(body({ ...valid, scope: 'INVOICED' }));
+    expect(create).toHaveBeenCalledWith(5, expect.objectContaining({ scope: 'INVOICED' }), 'user:7');
+    const bad = body({ ...valid, scope: 7 });
+    await c.create(bad);
+    expect(bad.badRequest).toHaveBeenCalled();
+    expect(create).toHaveBeenCalledTimes(1);
+    const r = mkCtx();
+    await c.remove(r);
+    expect(remove).toHaveBeenCalledWith(5, 'user:7');
+    expect(r.badRequest).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ code: 'REFUND_HAS_CREDIT_NOTE' }));
+  });
+
   it('resume and markFailed use the actor; not found maps to 404; bad id is 400', async () => {
     const resume = vi.fn().mockRejectedValue(new EcommerceNotFoundError('x'));
     const markFailed = vi.fn().mockResolvedValue({ id: 5 });

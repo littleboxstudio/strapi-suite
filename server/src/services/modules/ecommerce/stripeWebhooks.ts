@@ -275,8 +275,9 @@ const EcommerceStripeWebhookService = ({ strapi }: { strapi: Core.Strapi }) => {
       actor: ACTOR,
       operationId,
     });
-    // A completion or a reversal changes the refunded amount.
-    if (target === 'COMPLETED' || reversed) {
+    // A completion or a reversal changes the refunded amount; any change of an INVOICED refund
+    // changes the order total (its credit adjustment counts only while it holds).
+    if (target === 'COMPLETED' || reversed || current.scope === 'INVOICED') {
       await orders().recalculate(orderId, { actor: ACTOR, operationId });
     }
     if (promoted) {

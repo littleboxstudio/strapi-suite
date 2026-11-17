@@ -271,6 +271,11 @@ export type AvailableActionsInput = {
   hasPendingRefunds: boolean;
   /** Something is left to invoice and a payment is available for it (plan 11 ruling 15). */
   canIssueInvoice: boolean;
+  /**
+   * Invoiced value an INVOICED refund may still give back (plan 15): with it, an OPEN order
+   * offers REFUND even without an excess.
+   */
+  invoicedRefundable?: number;
 };
 
 /** Returns actions in a stable order: SHIP, CANCEL, REFUND, ADD_PAYMENT,
@@ -284,7 +289,7 @@ export const availableActions = (input: AvailableActionsInput): OrderActionKey[]
   const settled = due === 0 && (input.summary.paid > 0 || input.summary.orderTotal === 0);
   if (open && (settled ? input.hasUnshippedQuantity : !!input.hasPaidUnshippedQuantity)) actions.push('SHIP');
   if (open) actions.push('CANCEL');
-  if (excess > 0) actions.push('REFUND');
+  if (excess > 0 || (open && (input.invoicedRefundable ?? 0) > 0)) actions.push('REFUND');
   if (open && due > 0) actions.push('ADD_PAYMENT', 'SEND_PAYMENT_INSTRUCTIONS');
   if (
     open &&
