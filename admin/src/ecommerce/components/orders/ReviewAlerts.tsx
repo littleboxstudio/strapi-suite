@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { Children, useState, type ReactNode } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import { Button, Flex } from '@strapi/design-system';
@@ -29,7 +29,10 @@ const ReviewAlerts = ({ order, canManage, onResult, children }: Props) => {
     formatMessage({ id: getTranslation(id) }, values);
   const [dismissing, setDismissing] = useState<string | null>(null);
   const alerts = reviewAlerts(order);
-  if (alerts.length === 0 && !children) return null;
+  // Conditional notices arrive as `false` entries: with none to show, nothing is rendered (an
+  // empty wrapper would add the page's gap twice).
+  const notices = Children.toArray(children);
+  if (alerts.length === 0 && notices.length === 0) return null;
 
   const dismiss = async (code: (typeof alerts)[number]['code']) => {
     if (dismissing) return;
@@ -105,7 +108,7 @@ const ReviewAlerts = ({ order, canManage, onResult, children }: Props) => {
           />
         );
       })}
-      {children}
+      {notices}
     </Flex>
   );
 };
