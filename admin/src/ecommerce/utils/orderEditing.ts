@@ -76,6 +76,28 @@ export function reviewAlerts(order: Order): ReviewAlert[] {
     });
 }
 
+export type DeliveryAlert = {
+  /** ACTIVE shipments not yet delivered. */
+  count: number;
+  /** Translation id (without the plugin prefix). */
+  messageKey: string;
+  sectionId: 'order-section-shipments';
+};
+
+/**
+ * An OPEN order with ACTIVE shipments not yet delivered cannot be archived: the alert points to the
+ * shipments, whose actions menu confirms the delivery. Shipments still PENDING at the carrier do
+ * not count.
+ */
+export function deliveryAlert(order: Order): DeliveryAlert | null {
+  if (order.orderStatus !== 'OPEN') return null;
+  const count = (order.shipments ?? []).filter(
+    (s) => s.status === 'ACTIVE' && s.deliveryStatus !== 'DELIVERED'
+  ).length;
+  if (!count) return null;
+  return { count, messageKey: 'ecommerce.orders.deliveryPending.text', sectionId: 'order-section-shipments' };
+}
+
 /** The flag's raise date as an ISO string, or null when it is empty or not a date. */
 export function reviewAlertDate(raisedAt: string | null | undefined): string | null {
   if (!raisedAt) return null;

@@ -3,6 +3,7 @@ import {
   buildReturnInput,
   defaultReturnLines,
   estimatedReturnValue,
+  isReturnQuantityExceeded,
   validateReturnForm,
   type ReturnForm,
 } from '../../../admin/src/ecommerce/utils/returnForm';
@@ -115,5 +116,26 @@ describe('units a REFUND credit note credited (plan 15)', () => {
     expect(
       validateReturnForm(form({ lines: [{ orderLineId: 1, quantity: '1', restock: true }] }), credited)
     ).toEqual({});
+  });
+});
+
+describe('isReturnQuantityExceeded', () => {
+  it('the local and server over-quantity codes show the short "at most N"', () => {
+    expect(isReturnQuantityExceeded('QUANTITY_EXCEEDS_RETURNABLE')).toBe(true);
+    expect(isReturnQuantityExceeded('UNITS_REFUND_CREDITED')).toBe(true);
+  });
+
+  it('other codes keep their own message', () => {
+    expect(isReturnQuantityExceeded('invalid_quantity')).toBe(false);
+    expect(isReturnQuantityExceeded('required')).toBe(false);
+    expect(isReturnQuantityExceeded(undefined)).toBe(false);
+  });
+
+  it('every over-quantity error validateReturnForm gives is one of them', () => {
+    const credited = [{ id: 1, returnable: 1, refundCredited: 2, shipped: 3, returnedQuantity: 0, unitPrice: 1, unitDiscount: 0 }];
+    for (const quantity of ['2', '4']) {
+      const errors = validateReturnForm(form({ lines: [{ orderLineId: 1, quantity, restock: true }] }), credited);
+      expect(isReturnQuantityExceeded(errors['lines.1'])).toBe(true);
+    }
   });
 });
