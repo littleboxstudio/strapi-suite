@@ -405,7 +405,7 @@ const ShipOrderModal = ({ order, defaultLocale = null, onClose, onShipped }: Pro
                     // Over the units left: a short "at most N" that fits under the field.
                     const error =
                       errors[`lines.${line.id}`] === 'QUANTITY_EXCEEDS_PENDING'
-                        ? t('ecommerce.orders.ship.maxUnits', { max: shippableOf(line) })
+                        ? t('ecommerce.orders.maxUnits', { max: shippableOf(line) })
                         : fieldError(`lines.${line.id}`);
                     return (
                       <Tr key={line.id}>

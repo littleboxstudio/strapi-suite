@@ -35,6 +35,7 @@ import {
   buildReturnInput,
   defaultReturnLines,
   estimatedReturnValue,
+  isReturnQuantityExceeded,
   validateReturnForm,
   type ReturnForm,
 } from '../../utils/returnForm';
@@ -370,6 +371,10 @@ const RegisterReturnModal = ({ order, canRefund, onClose, onRefundNow }: Props) 
                   {form.lines.map((draft) => {
                     const line = lineById.get(draft.orderLineId);
                     if (!line) return null;
+                    // Over the returnable units: a short "at most N" that fits under the field.
+                    const error = isReturnQuantityExceeded(errors[`lines.${line.id}`])
+                      ? t('ecommerce.orders.maxUnits', { max: line.returnable })
+                      : fieldError(`lines.${line.id}`);
                     return (
                       <Tr key={line.id}>
                         {/* A long product name wraps (no ellipsis) instead of running over the columns. */}
@@ -404,8 +409,8 @@ const RegisterReturnModal = ({ order, canRefund, onClose, onRefundNow }: Props) 
                             )}
                           </Flex>
                         </Td>
-                        <InputTd style={{ width: 120 }}>
-                          <Field.Root name={`quantity-${line.id}`} error={fieldError(`lines.${line.id}`)}>
+                        <InputTd style={{ width: 140, minWidth: 140, maxWidth: 140, whiteSpace: 'normal' }}>
+                          <Field.Root name={`quantity-${line.id}`} error={error}>
                             <VisuallyHidden>
                               <Field.Label>{t('ecommerce.orders.returns.columns.quantity')}</Field.Label>
                             </VisuallyHidden>

@@ -46,6 +46,14 @@ const exceededCode = (line: FormLine | undefined, q: number): string => {
   return q <= shippedLeft ? 'UNITS_REFUND_CREDITED' : 'QUANTITY_EXCEEDS_RETURNABLE';
 };
 
+/** The codes (local and server) of a quantity above what a line can return. */
+const OVER_QUANTITY_CODES = new Set(['QUANTITY_EXCEEDS_RETURNABLE', 'UNITS_REFUND_CREDITED']);
+
+/** The error is a quantity above the line's returnable units: shown as a short "at most N". */
+export function isReturnQuantityExceeded(code: string | undefined): boolean {
+  return code !== undefined && OVER_QUANTITY_CODES.has(code);
+}
+
 /** 0 ≤ quantity ≤ returnable, at least one unit, a reason (≤ 200) and notes ≤ 2000. */
 export function validateReturnForm(form: ReturnForm, lines: FormLine[]): FormErrors {
   const errors: FormErrors = {};

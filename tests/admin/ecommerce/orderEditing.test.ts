@@ -30,6 +30,7 @@ import {
   canAddManualDiscount,
   orderDiscountTotal,
   manualDiscountDraftToInput,
+  deliveryAlert,
   reviewAlertDate,
   reviewAlerts,
   shippingLineRows,
@@ -208,6 +209,51 @@ describe('reviewAlerts', () => {
       'ecommerce.orders.review.SHIPPING_REVIEW',
       'ecommerce.orders.review.DISCOUNTS_REVIEW',
     ]);
+  });
+});
+
+describe('deliveryAlert', () => {
+  const shipment = (status: string, deliveryStatus: string | null) => ({ id: 1, status, deliveryStatus });
+
+  it('counts the ACTIVE shipments not yet delivered, linked to the shipments section', () => {
+    const o = order({
+      shipments: [
+        shipment('ACTIVE', 'IN_TRANSIT'),
+        shipment('ACTIVE', null),
+        shipment('ACTIVE', 'EXCEPTION'),
+        shipment('ACTIVE', 'DELIVERED'),
+      ],
+    });
+    expect(deliveryAlert(o)).toEqual({
+      count: 3,
+      messageKey: 'ecommerce.orders.deliveryPending.text',
+      sectionId: 'order-section-shipments',
+    });
+  });
+
+  it('PENDING, FAILED and CANCELLED shipments do not count', () => {
+    const o = order({
+      shipments: [shipment('PENDING', null), shipment('FAILED', null), shipment('CANCELLED', null)],
+    });
+    expect(deliveryAlert(o)).toBeNull();
+  });
+
+  it('none when every ACTIVE shipment is delivered, or there are no shipments', () => {
+    expect(deliveryAlert(order({ shipments: [shipment('ACTIVE', 'DELIVERED')] }))).toBeNull();
+    expect(deliveryAlert(order({ shipments: [] }))).toBeNull();
+    expect(deliveryAlert(order())).toBeNull();
+  });
+
+  it('only on OPEN orders', () => {
+    for (const orderStatus of ['CANCELLED', 'ARCHIVED']) {
+      expect(deliveryAlert(order({ orderStatus, shipments: [shipment('ACTIVE', 'IN_TRANSIT')] }))).toBeNull();
+    }
+  });
+
+  it('the message exists in en and pt with a plural count', () => {
+    const id = 'littlebox-strapi-suite.ecommerce.orders.deliveryPending.text';
+    expect(en[id]).toContain('{count, plural,');
+    expect(pt[id]).toContain('{count, plural,');
   });
 });
 

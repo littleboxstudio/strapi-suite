@@ -4,7 +4,7 @@ import { useNotification } from '@strapi/strapi/admin';
 import { Button, Flex } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import DismissReviewFlag from '../../usecases/orders/dismissReviewFlag';
-import { reviewAlertDate, reviewAlerts } from '../../utils/orderEditing';
+import { deliveryAlert, reviewAlertDate, reviewAlerts } from '../../utils/orderEditing';
 import { apiErrorMessageId } from '../../utils/orderDetail';
 import { mintUuid } from '../../utils/variantDraft';
 import type { EditResult, Order } from '../../orderTypes';
@@ -21,7 +21,10 @@ type Props = {
   children?: ReactNode;
 };
 
-/** One red alert per open review flag, at the top of the order page. */
+/**
+ * One red alert per open review flag, at the top of the order page, then the shipments awaiting
+ * delivery confirmation (the order cannot be archived until they are delivered).
+ */
 const ReviewAlerts = ({ order, canManage, onResult, children }: Props) => {
   const { formatMessage, formatDate } = useIntl();
   const { toggleNotification } = useNotification();
@@ -29,10 +32,11 @@ const ReviewAlerts = ({ order, canManage, onResult, children }: Props) => {
     formatMessage({ id: getTranslation(id) }, values);
   const [dismissing, setDismissing] = useState<string | null>(null);
   const alerts = reviewAlerts(order);
+  const delivery = deliveryAlert(order);
   // Conditional notices arrive as `false` entries: with none to show, nothing is rendered (an
   // empty wrapper would add the page's gap twice).
   const notices = Children.toArray(children);
-  if (alerts.length === 0 && notices.length === 0) return null;
+  if (alerts.length === 0 && !delivery && notices.length === 0) return null;
 
   const dismiss = async (code: (typeof alerts)[number]['code']) => {
     if (dismissing) return;
@@ -108,6 +112,18 @@ const ReviewAlerts = ({ order, canManage, onResult, children }: Props) => {
           />
         );
       })}
+      {delivery && (
+        // Two sentences: wrapped so the instruction is never cut off.
+        <NoticeBar
+          wrap
+          text={t(delivery.messageKey, { count: delivery.count })}
+          actions={
+            <Button variant="secondary" size="S" onClick={goTo(delivery.sectionId)}>
+              {t('ecommerce.orders.review.goTo')}
+            </Button>
+          }
+        />
+      )}
       {notices}
     </Flex>
   );

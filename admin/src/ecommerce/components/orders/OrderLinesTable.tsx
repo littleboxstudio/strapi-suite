@@ -25,7 +25,7 @@ import { PRODUCT_CELL } from './lineCells';
 import { ToneBadge } from './StatusBadges';
 
 const THUMBNAIL_SIZE = 40;
-const COLUMNS = ['product', 'sku', 'unitPrice', 'quantity', 'shipped', 'total'] as const;
+const COLUMNS = ['product', 'sku', 'unitPrice', 'quantity', 'shipped', 'returns', 'refunds', 'total'] as const;
 
 type Props = {
   lines: OrderLine[];
@@ -37,13 +37,18 @@ type Props = {
 /**
  * The order's lines with the prices recorded on the order (requirements 4.1–4.3, promotions 3.3
  * and 3.4): original price struck through, discount per unit, final price, the promotions of the
- * line, "ordered / shipped", units left to ship, units being shipped and returned.
+ * line, "ordered / shipped", units left to ship and being shipped, units returned and units held by
+ * INVOICED refunds (why nothing more can ship).
  */
 const OrderLinesTable = ({ lines, promotions = [], locales = { locale: '' } }: Props) => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
   const money = (cents: number) => formatCents(cents, uiLocale);
+  /** A unit count; 0 in the muted style. */
+  const unitsCell = (count: number) => (
+    <Typography textColor={count > 0 ? 'neutral800' : 'neutral500'}>{count}</Typography>
+  );
 
   if (!lines.length) {
     return (
@@ -175,13 +180,11 @@ const OrderLinesTable = ({ lines, promotions = [], locales = { locale: '' } }: P
                       {t('ecommerce.orders.detail.lines.inProgress', { count: line.reserved - line.shipped })}
                     </Typography>
                   )}
-                  {line.returnedQuantity > 0 && (
-                    <Typography variant="pi" textColor="neutral600">
-                      {t('ecommerce.orders.detail.lines.returned', { count: line.returnedQuantity })}
-                    </Typography>
-                  )}
                 </Flex>
               </Td>
+              <Td>{unitsCell(line.returnedQuantity)}</Td>
+              {/* Units held by INVOICED refunds: they never ship. */}
+              <Td>{unitsCell(line.refundCredited ?? 0)}</Td>
               <Td>
                 <Typography textColor="neutral800" fontWeight="semiBold" style={{ display: 'block', textAlign: 'right' }}>
                   {money(finalPrice * line.quantity)}
