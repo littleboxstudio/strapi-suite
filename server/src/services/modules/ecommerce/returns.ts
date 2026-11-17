@@ -163,6 +163,45 @@ const EcommerceReturnService = ({ strapi }: { strapi: Core.Strapi }) => {
     return refundableAmount(state.summary, state.inFlightRefunds);
   };
 
+  /** The shares of a return of `lines` on the order as it is now (the same rule `register` uses). */
+  const sharesFor = (state: any, lines: ReturnInput['lines']) =>
+    computeReturnShares({
+      lines: state.lines.map((l: any) => ({
+        id: l.id,
+        unitPrice: l.unitPrice,
+        unitDiscount: l.unitDiscount,
+        quantity: l.quantity,
+        returnedQuantity: l.returnedQuantity,
+      })),
+      request: lines,
+      docs: state.invoicing.docs,
+      annulledInvoiceIds: state.invoicing.position.annulledInvoiceIds,
+      orderDiscount: num(state.order.orderDiscount),
+      discounts: state.invoicing.items.discounts,
+      previous: state.invoicing.returnShares,
+    });
+
+  /**
+   * What registering a return of `lines` would give back, without writing anything: the value per
+   * line and in total (what the customer effectively paid for those units) and the discount share.
+   */
+  const preview = async (
+    rawOrderId: number | string,
+    lines: ReturnInput['lines']
+  ): Promise<{ refundableValue: number; discountShare: number; items: { orderLineId: number; quantity: number; value: number }[] }> => {
+    const state = await orders().computeOrderState(Number(rawOrderId));
+    orders().assertAction(state, 'REGISTER_RETURN');
+    const shipped = new Map(state.lines.map((l: any) => [l.id, l.shipped]));
+    const issues = validateReturnRequest(returnableQuantities(state.lines, shipped), lines);
+    if (issues.length) throw new EcommerceValidationError('Invalid return', issues);
+    const computed = sharesFor(state, lines);
+    return {
+      refundableValue: computed.refundableValue,
+      discountShare: computed.discountShare,
+      items: computed.items.map((i: any) => ({ orderLineId: i.orderLineId, quantity: i.quantity, value: i.value })),
+    };
+  };
+
   const register = async (
     rawOrderId: number | string,
     input: ReturnInput,
@@ -197,21 +236,7 @@ const EcommerceReturnService = ({ strapi }: { strapi: Core.Strapi }) => {
 
         const order = state.order;
         const orderDiscountBefore = num(order.orderDiscount);
-        const computed = computeReturnShares({
-          lines: state.lines.map((l) => ({
-            id: l.id,
-            unitPrice: l.unitPrice,
-            unitDiscount: l.unitDiscount,
-            quantity: l.quantity,
-            returnedQuantity: l.returnedQuantity,
-          })),
-          request: n.lines,
-          docs: state.invoicing.docs,
-          annulledInvoiceIds: state.invoicing.position.annulledInvoiceIds,
-          orderDiscount: orderDiscountBefore,
-          discounts: state.invoicing.items.discounts,
-          previous: state.invoicing.returnShares,
-        });
+        const computed = sharesFor(state, n.lines);
         // A cancelled order already put every held unit back: restocking again would count
         // the unit twice.
         const cancelled = order.orderStatus === 'CANCELLED';
@@ -342,7 +367,7 @@ const EcommerceReturnService = ({ strapi }: { strapi: Core.Strapi }) => {
     return answer(row);
   };
 
-  return { register, listForOrder };
+  return { register, preview, listForOrder };
 };
 
 export default EcommerceReturnService;

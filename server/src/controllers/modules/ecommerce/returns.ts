@@ -9,6 +9,21 @@ const EcommerceReturnController = ({ strapi }: { strapi: Core.Strapi }) => {
   const returns = (): any => strapi.plugin(PLUGIN_ID).service('EcommerceReturnService');
 
   return {
+    /** What a return of `lines` would give back, nothing written. */
+    preview: async (ctx: any) => {
+      const id = toInt(ctx.params?.id);
+      if (!Number.isInteger(id) || id < 1) return ctx.badRequest('Invalid id');
+      try {
+        const b = asObject(ctx.request?.body);
+        ctx.body = await returns().preview(id, lineQuantities(MSG, b.lines, true));
+      } catch (err) {
+        return handleSharedDomainError(ctx, err, {
+          invalid: MSG,
+          notFound: 'Order not found',
+          withCode: true,
+        });
+      }
+    },
     register: async (ctx: any) => {
       const id = toInt(ctx.params?.id);
       if (!Number.isInteger(id) || id < 1) return ctx.badRequest('Invalid id');

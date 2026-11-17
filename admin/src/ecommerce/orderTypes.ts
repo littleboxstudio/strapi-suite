@@ -1164,6 +1164,14 @@ export type ReturnView = {
   createdAt: string | null;
 };
 
+/** What registering a return would give back (server preview, nothing written). */
+export type ReturnPreview = {
+  /** What the customer effectively paid for the units (their share of the order discount off). */
+  refundableValue: number;
+  discountShare: number;
+  items: { orderLineId: number; quantity: number; value: number }[];
+};
+
 export type RegisterReturnInput = {
   lines: { orderLineId: number; quantity: number; restock: boolean }[];
   /** 1–200 characters. */

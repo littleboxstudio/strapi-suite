@@ -222,6 +222,30 @@ describe('EcommerceReturnService.register', () => {
     expect(res.refundable).toBe(1800);
   });
 
+  it('preview gives the value register will record, and writes nothing', async () => {
+    const { c, returns } = setup();
+    const { id, lineId } = await paidOrder(c, { orderDiscount: 600 });
+    await ship(c, id, lineId, 3);
+    const before = JSON.stringify(orderRow(c, id));
+    const preview = await returns.preview(id, [{ orderLineId: lineId, quantity: 1, restock: true }]);
+    expect(preview).toEqual({
+      refundableValue: 1800,
+      discountShare: 200,
+      // Per line, the units' value before the order discount share (taken off the total).
+      items: [{ orderLineId: lineId, quantity: 1, value: 2000 }],
+    });
+    expect(JSON.stringify(orderRow(c, id))).toBe(before);
+    const res = await returns.register(id, ret(lineId, 1, true), 'user:1');
+    expect(res.return.refundableValue).toBe(preview.refundableValue);
+  });
+
+  it('preview refuses more units than can be returned', async () => {
+    const { c, returns } = setup();
+    const { id, lineId } = await paidOrder(c);
+    await ship(c, id, lineId, 1);
+    expect(await codesOf(returns.preview(id, [{ orderLineId: lineId, quantity: 2, restock: true }]))).not.toEqual([]);
+  });
+
   it('on a cancelled order records RETURN_NO_RESTOCK even when restock is asked', async () => {
     const { c, returns } = setup();
     const { id, lineId } = await paidOrder(c);
