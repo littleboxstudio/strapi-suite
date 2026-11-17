@@ -31,6 +31,7 @@ import StoreSelect from './StoreSelect';
 import { extractFieldErrors } from '../../utils/productForm';
 import { mintUuid } from '../../utils/variantDraft';
 import {
+  emptyOptionalShipFields,
   MAX_PARCELS,
   buildShipmentInput,
   defaultShipMethodKey,
@@ -176,6 +177,8 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
   };
 
   const originalMethod = methods?.find((m) => m.original) ?? null;
+  /** Optional fields of the chosen method left empty, named in the confirmation. */
+  const missing = emptyOptionalShipFields(form, method);
   /** The chosen method is not the one the order was placed with. */
   const otherMethod = !!method && !!originalMethod && shipMethodKey(method) !== shipMethodKey(originalMethod);
 
@@ -235,89 +238,6 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
                 </Typography>
               </Box>
             )}
-            {form.lines.length === 0 ? (
-              <Typography textColor="neutral600">{t('ecommerce.orders.ship.nothing')}</Typography>
-            ) : (
-              <Table colCount={COLUMNS.length + 1} rowCount={form.lines.length + 1}>
-                <Thead>
-                  <Tr>
-                    <Th>
-                      <VisuallyHidden>{t('ecommerce.orders.detail.lines.photo')}</VisuallyHidden>
-                    </Th>
-                    {COLUMNS.map((c) => (
-                      <Th key={c}>
-                        <Typography variant="sigma">{t(`ecommerce.orders.ship.columns.${c}`)}</Typography>
-                      </Th>
-                    ))}
-                  </Tr>
-                </Thead>
-                <Tbody>
-                  {form.lines.map((draft) => {
-                    const line = lineById.get(draft.orderLineId);
-                    if (!line) return null;
-                    const error = fieldError(`lines.${line.id}`);
-                    return (
-                      <Tr key={line.id}>
-                        <Td>
-                          {line.imageUrl ? (
-                            <img
-                              src={line.imageUrl}
-                              alt=""
-                              width={THUMBNAIL_SIZE}
-                              height={THUMBNAIL_SIZE}
-                              style={{ objectFit: 'cover', borderRadius: '4px', display: 'block' }}
-                            />
-                          ) : (
-                            <Box background="neutral150" hasRadius style={{ width: THUMBNAIL_SIZE, height: THUMBNAIL_SIZE }} />
-                          )}
-                        </Td>
-                        <Td style={{ maxWidth: 240, ...WRAP }}>
-                          <Flex direction="column" alignItems="flex-start">
-                            <Typography textColor="neutral800" style={WRAP}>
-                              {line.name}
-                            </Typography>
-                            {line.option && (
-                              <Typography variant="pi" textColor="neutral600" style={WRAP}>
-                                {line.option}
-                              </Typography>
-                            )}
-                          </Flex>
-                        </Td>
-                        <Td>
-                          <Typography textColor="neutral800">{line.sku}</Typography>
-                        </Td>
-                        <Td>
-                          <Typography textColor="neutral800">{line.quantity}</Typography>
-                        </Td>
-                        <Td>
-                          <Typography textColor="neutral800">{line.shipped}</Typography>
-                        </Td>
-                        <Td>
-                          {/* Only the units that can ship now (paid ones while money is owed). */}
-                          <Typography textColor="neutral800">{shippableOf(line)}</Typography>
-                        </Td>
-                        <InputTd style={{ width: 120 }}>
-                          <Field.Root name={`quantity-${line.id}`} error={error}>
-                            <VisuallyHidden>
-                              <Field.Label>{t('ecommerce.orders.ship.columns.quantity')}</Field.Label>
-                            </VisuallyHidden>
-                            <TextInput
-                              value={draft.quantity}
-                              inputMode="numeric"
-                              disabled={saving}
-                              onChange={(e: any) => setQuantity(line.id, e.target.value)}
-                            />
-                            <Field.Error />
-                          </Field.Root>
-                        </InputTd>
-                      </Tr>
-                    );
-                  })}
-                </Tbody>
-              </Table>
-            )}
-            {errors.lines && <Typography textColor="danger600">{codeText(errors.lines)}</Typography>}
-
             {methodsError ? (
               <Box padding={3} background="danger100" hasRadius>
                 <Typography textColor="danger700">{t('ecommerce.orders.ship.methodsError')}</Typography>
@@ -446,6 +366,90 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
               </MethodsPanel>
             )}
 
+            {/* The units to ship, below the delivery method. */}
+            {form.lines.length === 0 ? (
+              <Typography textColor="neutral600">{t('ecommerce.orders.ship.nothing')}</Typography>
+            ) : (
+              <Table colCount={COLUMNS.length + 1} rowCount={form.lines.length + 1}>
+                <Thead>
+                  <Tr>
+                    <Th>
+                      <VisuallyHidden>{t('ecommerce.orders.detail.lines.photo')}</VisuallyHidden>
+                    </Th>
+                    {COLUMNS.map((c) => (
+                      <Th key={c}>
+                        <Typography variant="sigma">{t(`ecommerce.orders.ship.columns.${c}`)}</Typography>
+                      </Th>
+                    ))}
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {form.lines.map((draft) => {
+                    const line = lineById.get(draft.orderLineId);
+                    if (!line) return null;
+                    const error = fieldError(`lines.${line.id}`);
+                    return (
+                      <Tr key={line.id}>
+                        <Td>
+                          {line.imageUrl ? (
+                            <img
+                              src={line.imageUrl}
+                              alt=""
+                              width={THUMBNAIL_SIZE}
+                              height={THUMBNAIL_SIZE}
+                              style={{ objectFit: 'cover', borderRadius: '4px', display: 'block' }}
+                            />
+                          ) : (
+                            <Box background="neutral150" hasRadius style={{ width: THUMBNAIL_SIZE, height: THUMBNAIL_SIZE }} />
+                          )}
+                        </Td>
+                        <Td style={{ maxWidth: 240, ...WRAP }}>
+                          <Flex direction="column" alignItems="flex-start">
+                            <Typography textColor="neutral800" style={WRAP}>
+                              {line.name}
+                            </Typography>
+                            {line.option && (
+                              <Typography variant="pi" textColor="neutral600" style={WRAP}>
+                                {line.option}
+                              </Typography>
+                            )}
+                          </Flex>
+                        </Td>
+                        <Td>
+                          <Typography textColor="neutral800">{line.sku}</Typography>
+                        </Td>
+                        <Td>
+                          <Typography textColor="neutral800">{line.quantity}</Typography>
+                        </Td>
+                        <Td>
+                          <Typography textColor="neutral800">{line.shipped}</Typography>
+                        </Td>
+                        <Td>
+                          {/* Only the units that can ship now (paid ones while money is owed). */}
+                          <Typography textColor="neutral800">{shippableOf(line)}</Typography>
+                        </Td>
+                        <InputTd style={{ width: 120 }}>
+                          <Field.Root name={`quantity-${line.id}`} error={error}>
+                            <VisuallyHidden>
+                              <Field.Label>{t('ecommerce.orders.ship.columns.quantity')}</Field.Label>
+                            </VisuallyHidden>
+                            <TextInput
+                              value={draft.quantity}
+                              inputMode="numeric"
+                              disabled={saving}
+                              onChange={(e: any) => setQuantity(line.id, e.target.value)}
+                            />
+                            <Field.Error />
+                          </Field.Root>
+                        </InputTd>
+                      </Tr>
+                    );
+                  })}
+                </Tbody>
+              </Table>
+            )}
+            {errors.lines && <Typography textColor="danger600">{codeText(errors.lines)}</Typography>}
+
             {formError && (
               <Box padding={3} background="danger100" hasRadius>
                 <Typography textColor="danger700">{formError}</Typography>
@@ -475,6 +479,14 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
             {otherMethod && originalMethod && (
               <Typography textColor="warning600">
                 {t('ecommerce.orders.ship.confirm.otherMethod', { original: originalMethod.name })}
+              </Typography>
+            )}
+            {missing.length > 0 && (
+              // Optional fields left empty: shipping goes ahead only once the admin confirms it.
+              <Typography textColor="warning600">
+                {t('ecommerce.orders.ship.confirm.missing', {
+                  fields: missing.map((f) => t(`ecommerce.orders.shipments.${f}`)).join(', '),
+                })}
               </Typography>
             )}
           </Flex>

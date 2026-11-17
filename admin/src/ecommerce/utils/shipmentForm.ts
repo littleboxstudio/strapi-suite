@@ -158,6 +158,21 @@ export function validateShipForm(
  * carries its name as the carrier and the typed tracking; a carrier one only its ids (the
  * carrier returns the tracking and the label); Store pickup its store. The customer is always notified.
  */
+/**
+ * The optional fields of the chosen method left empty (a manual delivery's tracking code and
+ * link): the admin confirms shipping without them. Required fields are not listed (they block).
+ */
+export function emptyOptionalShipFields(
+  form: Pick<ShipForm, 'trackingCode' | 'trackingUrl'>,
+  method: Pick<ShipMethodOption, 'kind'> | null
+): ('trackingCode' | 'trackingUrl')[] {
+  if (method?.kind !== 'MANUAL') return [];
+  const empty: ('trackingCode' | 'trackingUrl')[] = [];
+  if (!form.trackingCode.trim()) empty.push('trackingCode');
+  if (!form.trackingUrl.trim()) empty.push('trackingUrl');
+  return empty;
+}
+
 export function buildShipmentInput(
   form: ShipForm,
   idempotencyKey: string,

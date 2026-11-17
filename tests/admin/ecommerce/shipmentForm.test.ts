@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  emptyOptionalShipFields,
   buildShipmentInput,
   cancelWarningId,
   isRetryUnsafeShipment,
@@ -498,5 +499,19 @@ describe('paid units while money is owed', () => {
     const form = (q: string) => ({ ...emptyShipForm({ lines: [] } as any, [manual]), methodKey: shipMethodKey(manual), trackingCode: 'RR1', lines: [{ orderLineId: 1, quantity: q }] });
     expect(validateShipForm(form('2'), mixed, manual)).toEqual({ 'lines.1': 'QUANTITY_EXCEEDS_PENDING' });
     expect(validateShipForm(form('1'), mixed, manual)).toEqual({});
+  });
+});
+
+describe('emptyOptionalShipFields', () => {
+  it('names the empty tracking code and link of a manual delivery', () => {
+    expect(emptyOptionalShipFields({ trackingCode: '', trackingUrl: ' ' }, { kind: 'MANUAL' })).toEqual(['trackingCode', 'trackingUrl']);
+    expect(emptyOptionalShipFields({ trackingCode: 'AB123', trackingUrl: '' }, { kind: 'MANUAL' })).toEqual(['trackingUrl']);
+    expect(emptyOptionalShipFields({ trackingCode: 'AB123', trackingUrl: 'https://x.pt/t' }, { kind: 'MANUAL' })).toEqual([]);
+  });
+
+  it('names nothing for carrier and store pickup methods, or no method', () => {
+    expect(emptyOptionalShipFields({ trackingCode: '', trackingUrl: '' }, { kind: 'CARRIER' })).toEqual([]);
+    expect(emptyOptionalShipFields({ trackingCode: '', trackingUrl: '' }, { kind: 'STORE_PICKUP' })).toEqual([]);
+    expect(emptyOptionalShipFields({ trackingCode: '', trackingUrl: '' }, null)).toEqual([]);
   });
 });
