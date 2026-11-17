@@ -400,6 +400,7 @@ const OrderDetailPage = () => {
         actions={sectionButtons(returnSectionActions(allowedActions))}
       />
       <OrderSection
+        id="order-section-refunds"
         title={t('ecommerce.orders.detail.sections.refunds')}
         actions={sectionButtons(refundActions)}
       >

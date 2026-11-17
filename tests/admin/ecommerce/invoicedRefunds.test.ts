@@ -417,6 +417,12 @@ describe('paymentsOverview with refunds of invoiced value', () => {
 // ---------------------------------------------------------------------------
 
 describe('invoiced refunds translations', () => {
+  it('the reversed-with-credit-note flag reads as the store owner asked (pt)', () => {
+    expect(pt[P + 'ecommerce.orders.review.REFUND_REVIEW']).toBe(
+      'Um reembolso com nota de crédito foi revertido pelo Stripe: a nota de crédito já não corresponde a dinheiro devolvido.'
+    );
+  });
+
   it('maps the new refusal codes to messages', () => {
     for (const code of [
       'REFUND_NOT_REMOVABLE',
@@ -425,6 +431,7 @@ describe('invoiced refunds translations', () => {
       'STORE_CREDIT_USED',
       'CREDIT_TOTAL_DIFFERS',
       'REFUND_CREDITED_INVOICE',
+      'UNITS_REFUND_CREDITED',
     ]) {
       expect(API_ERROR_CODES, code).toContain(code);
     }
@@ -441,6 +448,11 @@ describe('invoiced refunds translations', () => {
     'ecommerce.orders.refunds.creditNote.invoice',
     'ecommerce.orders.refunds.remove.title',
     'ecommerce.orders.invoices.creditNote.correctionRefused',
+    'ecommerce.orders.history.type.REFUND_REVERSED_WITH_CREDIT_NOTE',
+    'ecommerce.orders.review.REFUND_REVIEW',
+    'ecommerce.orders.review.reason.REFUND_REVERSED_WITH_CREDIT_NOTE',
+    'ecommerce.orders.review.reasonNoDate.REFUND_REVERSED_WITH_CREDIT_NOTE',
+    'ecommerce.orders.errors.UNITS_REFUND_CREDITED',
   ])('%s has en and pt', (key) => {
     expect(en[P + key], key).toBeTruthy();
     expect(pt[P + key], key).toBeTruthy();

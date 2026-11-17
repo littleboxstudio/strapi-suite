@@ -36,32 +36,40 @@ export type ReviewAlert = {
   /** Translation id (without the plugin prefix) of the reason. */
   reasonKey: string;
   raisedAt: string;
-  sectionId: 'order-section-shipping-charges' | 'order-section-promotions';
+  sectionId: 'order-section-shipping-charges' | 'order-section-promotions' | 'order-section-refunds';
   /** The merchant can still act on the section (recalculate). */
   actionable: boolean;
-  /** Editing is closed (cancelled, archived, pending shipment): the flag can only be dismissed. */
+  /** The flag can be dismissed: editing is closed, or it is REFUND_REVIEW (nothing to recalculate). */
   dismissable: boolean;
+  /** Editing is closed (cancelled, archived, pending shipment), so it can no longer be recalculated. */
+  locked: boolean;
 };
 
 const ALERT_SECTION: Record<ReviewFlagCode, ReviewAlert['sectionId']> = {
   SHIPPING_REVIEW: 'order-section-shipping-charges',
   DISCOUNTS_REVIEW: 'order-section-promotions',
+  REFUND_REVIEW: 'order-section-refunds',
 };
-const ALERT_ORDER: ReviewFlagCode[] = ['SHIPPING_REVIEW', 'DISCOUNTS_REVIEW'];
+const ALERT_ORDER: ReviewFlagCode[] = ['SHIPPING_REVIEW', 'DISCOUNTS_REVIEW', 'REFUND_REVIEW'];
 
 /** The open review flags, shipments first. */
 export function reviewAlerts(order: Order): ReviewAlert[] {
   const editable = order.editing.editable;
   return [...order.reviewFlags]
     .sort((a, b) => ALERT_ORDER.indexOf(a.code) - ALERT_ORDER.indexOf(b.code))
-    .map((f) => ({
-      code: f.code,
-      reasonKey: `ecommerce.orders.review.reason.${f.reason}`,
-      raisedAt: f.raisedAt,
-      sectionId: ALERT_SECTION[f.code],
-      actionable: editable,
-      dismissable: !editable,
-    }));
+    .map((f) => {
+      // A Stripe reversal of a credited refund (plan 15): nothing to recalculate, only to see.
+      const refund = f.code === 'REFUND_REVIEW';
+      return {
+        code: f.code,
+        reasonKey: `ecommerce.orders.review.reason.${f.reason}`,
+        raisedAt: f.raisedAt,
+        sectionId: ALERT_SECTION[f.code],
+        actionable: editable && !refund,
+        dismissable: !editable || refund,
+        locked: !editable && !refund,
+      };
+    });
 }
 
 /** The flag's raise date as an ISO string, or null when it is empty or not a date. */

@@ -808,12 +808,13 @@ export type ManualDiscount = {
 /** FIXED: `value` is cents. PERCENT: `value` is a percentage in (0, 100], at most 2 decimals. */
 export type ManualDiscountInput = { kind: 'FIXED' | 'PERCENT'; value: number; reason: string };
 
-export type ReviewFlagCode = 'SHIPPING_REVIEW' | 'DISCOUNTS_REVIEW';
+export type ReviewFlagCode = 'SHIPPING_REVIEW' | 'DISCOUNTS_REVIEW' | 'REFUND_REVIEW';
 export type ReviewReason =
   | 'PRODUCTS_CHANGED'
   | 'ADDRESS_CHANGED'
   | 'SHIPPING_CHANGED'
-  | 'SHIPPING_QUOTE_FAILED';
+  | 'SHIPPING_QUOTE_FAILED'
+  | 'REFUND_REVERSED_WITH_CREDIT_NOTE';
 
 export type ReviewFlag = { code: ReviewFlagCode; reason: ReviewReason; raisedAt: string; actor: string };
 

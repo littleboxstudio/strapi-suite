@@ -1052,6 +1052,23 @@ describe('dismissReviewFlag (ruling 23)', () => {
     expect(flagsOf(ctx, id).map((f: any) => f.code)).toEqual(['DISCOUNTS_REVIEW']);
   });
 
+  it('REFUND_REVIEW (plan 15) can be dismissed on an editable order', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    orderRow(ctx, id).reviewFlags = {
+      flags: [
+        {
+          code: 'REFUND_REVIEW',
+          reason: 'REFUND_REVERSED_WITH_CREDIT_NOTE',
+          raisedAt: '2026-01-01T00:00:00.000Z',
+          actor: 'webhook:stripe',
+        },
+      ],
+    };
+    await ctx.editing.dismissReviewFlag(id, 'REFUND_REVIEW', 'user:1', 'op-dismiss-refund');
+    expect(flagsOf(ctx, id)).toEqual([]);
+  });
+
   it('on a cancelled order: the flag is removed and REVIEW_FLAG_DISMISSED recorded', async () => {
     const ctx = setup();
     const id = await createOrder(ctx);

@@ -50,11 +50,11 @@ const ReviewAlerts = ({ order, canManage, onResult, children }: Props) => {
   };
 
   /** Title, reason and (when it can no longer be fixed) why, as sentences on one line. */
-  const alertText = (alert: { code: string; dismissable: boolean }, reason: string) =>
+  const alertText = (alert: { code: string; locked: boolean }, reason: string) =>
     [
       t(`ecommerce.orders.review.${alert.code}`),
       reason,
-      alert.dismissable ? t('ecommerce.orders.review.locked') : null,
+      alert.locked ? t('ecommerce.orders.review.locked') : null,
     ]
       .filter(Boolean)
       .join(' ');
