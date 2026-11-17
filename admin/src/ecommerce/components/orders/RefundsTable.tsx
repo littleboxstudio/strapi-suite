@@ -23,12 +23,17 @@ import FetchRefunds from '../../usecases/orders/fetchRefunds';
 import ResumeRefund from '../../usecases/orders/resumeRefund';
 import RefreshRefund from '../../usecases/orders/refreshRefund';
 import MarkRefundFailed from '../../usecases/orders/markRefundFailed';
+import RemoveRefund from '../../usecases/orders/removeRefund';
+import { openInvoicePdf } from '../../utils/openInvoicePdf';
+import { refundRowActions } from '../../utils/refundCreditNote';
 import { formatCents } from '../../utils/money';
 import { actorLabel, apiErrorMessageId } from '../../utils/orderDetail';
 import { MAX_LONG_TEXT, isRefreshableStripeRefund, isStuckStripeRefund } from '../../utils/refundForm';
-import type { OrderRefund, RefundView } from '../../orderTypes';
+import type { InvoiceView, OrderRefund, RefundView } from '../../orderTypes';
 import ColumnLabel from '../ColumnLabel';
+import { ActionConfirmModal } from '../ActionConfirmModal';
 import { ToneBadge } from './StatusBadges';
+import RefundCreditNoteModal from './RefundCreditNoteModal';
 
 type Props = {
   orderId: number;
@@ -36,8 +41,16 @@ type Props = {
   summaries: OrderRefund[];
   /** Changes whenever the order was reloaded: the list is fetched again. */
   refreshKey: number;
-  /** `refunds.manage`: resume / mark as failed / refresh status. */
+  /** `refunds.manage`: resume / mark as failed / refresh status / remove. */
   canRefund: boolean;
+  /** `invoicing.manage`: the credit note of an INVOICED refund. */
+  canInvoice: boolean;
+  /** A billing provider is active: INVOICED refunds offer their credit note. */
+  billingActive: boolean;
+  /** The order is archived: no credit note, no remove. */
+  archived: boolean;
+  /** The order's documents: a refund's credit note (status, number, PDF). */
+  invoices: InvoiceView[];
   /** After resume / mark as failed (the order changed). */
   onChanged: () => void;
 };
@@ -53,7 +66,17 @@ const STATUS_VARIANT: Record<string, 'warning' | 'success' | 'neutral' | 'danger
 };
 
 /** The order's refunds (requirement 15.11), with resume / mark-as-failed for stuck Stripe refunds. */
-const RefundsTable = ({ orderId, summaries, refreshKey, canRefund, onChanged }: Props) => {
+const RefundsTable = ({
+  orderId,
+  summaries,
+  refreshKey,
+  canRefund,
+  canInvoice,
+  billingActive,
+  archived,
+  invoices,
+  onChanged,
+}: Props) => {
   const { formatMessage, formatDate, locale: uiLocale } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>, defaultMessage?: string) =>
@@ -67,6 +90,8 @@ const RefundsTable = ({ orderId, summaries, refreshKey, canRefund, onChanged }: 
   const [viewing, setViewing] = useState<RefundView | null>(null);
   const [resuming, setResuming] = useState<RefundView | null>(null);
   const [marking, setMarking] = useState<RefundView | null>(null);
+  const [removing, setRemoving] = useState<RefundView | null>(null);
+  const [crediting, setCrediting] = useState<RefundView | null>(null);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const request = useRef(0);
@@ -103,6 +128,7 @@ const RefundsTable = ({ orderId, summaries, refreshKey, canRefund, onChanged }: 
       setBusy(false);
       setResuming(null);
       setMarking(null);
+      setRemoving(null);
       onChanged();
     }
   };
@@ -128,6 +154,35 @@ const RefundsTable = ({ orderId, summaries, refreshKey, canRefund, onChanged }: 
       'ecommerce.orders.refunds.stuck.markError'
     );
 
+  const remove = (r: RefundView) =>
+    run(
+      () => new RemoveRefund().execute(r.id),
+      'ecommerce.orders.refunds.remove.success',
+      'ecommerce.orders.refunds.remove.error'
+    );
+
+  const creditNoteOf = (r: RefundView): InvoiceView | null =>
+    r.creditNoteId == null ? null : (invoices.find((i) => i.id === r.creditNoteId) ?? null);
+
+  const actionsOf = (r: RefundView) =>
+    refundRowActions(r, { billingActive, archived, canRefund, canInvoice, creditNote: creditNoteOf(r) });
+
+  const openPdf = async (r: RefundView) => {
+    const doc = creditNoteOf(r);
+    if (busy || !doc) return;
+    setBusy(true);
+    try {
+      await openInvoicePdf(doc);
+    } catch (err) {
+      toggleNotification({
+        type: 'danger',
+        message: t(apiErrorMessageId(err, 'ecommerce.orders.invoices.pdf.error')),
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (error && !refunds) {
     return <Typography textColor="danger600">{t('ecommerce.orders.refunds.loadError')}</Typography>;
   }
@@ -152,6 +207,7 @@ const RefundsTable = ({ orderId, summaries, refreshKey, canRefund, onChanged }: 
     const rows: [string, string][] = [
       [t('ecommerce.orders.refunds.columns.method'), t(`ecommerce.orders.refund.methods.${r.method}`, undefined, r.method)],
       [t('ecommerce.orders.refunds.columns.amount'), money(r.amount)],
+      [t('ecommerce.orders.refunds.details.scope'), t(`ecommerce.orders.refund.scopes.${r.scope ?? 'EXCESS'}`)],
       [
         t('ecommerce.orders.refunds.columns.status'),
         t(`ecommerce.orders.refunds.statuses.${r.status}`, undefined, r.status),
@@ -175,6 +231,15 @@ const RefundsTable = ({ orderId, summaries, refreshKey, canRefund, onChanged }: 
       rows.push([
         t('ecommerce.orders.refunds.details.storeCredit'),
         t('ecommerce.orders.refunds.details.storeCreditValue', { id: r.storeCredit.id }),
+      ]);
+    }
+    const creditNote = creditNoteOf(r);
+    if (r.creditNoteId != null) {
+      rows.push([
+        t('ecommerce.orders.refunds.details.creditNote'),
+        creditNote?.status === 'ISSUED'
+          ? creditNote.number || `#${creditNote.id}`
+          : t('ecommerce.orders.refunds.creditNotePending'),
       ]);
     }
     if (r.reference) rows.push([t('ecommerce.orders.refunds.details.reference'), r.reference]);
@@ -208,6 +273,9 @@ const RefundsTable = ({ orderId, summaries, refreshKey, canRefund, onChanged }: 
             const stuck = isStuckStripeRefund(r);
             const refreshable = isRefreshableStripeRefund(r);
             const failure = r.status === 'FAILED' ? failureOf(r.id) : null;
+            const actions = actionsOf(r);
+            const creditNote = creditNoteOf(r);
+            const creditNotePending = r.creditNoteId != null && creditNote?.status !== 'ISSUED';
             return (
               <Tr key={r.id}>
                 <Td>
@@ -221,7 +289,14 @@ const RefundsTable = ({ orderId, summaries, refreshKey, canRefund, onChanged }: 
                   </Typography>
                 </Td>
                 <Td>
-                  <Typography textColor="neutral800">{money(r.amount)}</Typography>
+                  <Flex direction="column" alignItems="flex-start" gap={1}>
+                    <Typography textColor="neutral800">{money(r.amount)}</Typography>
+                    {r.scope === 'INVOICED' && (
+                      <Typography variant="pi" textColor="neutral600">
+                        {t('ecommerce.orders.refund.scopes.INVOICED')}
+                      </Typography>
+                    )}
+                  </Flex>
                 </Td>
                 <Td>
                   <Typography textColor="neutral800">{date(r.completedAt ?? r.createdAt)}</Typography>
@@ -239,6 +314,11 @@ const RefundsTable = ({ orderId, summaries, refreshKey, canRefund, onChanged }: 
                     {stuck && (
                       <Typography variant="pi" textColor="warning600">
                         {t('ecommerce.orders.refunds.stuck.hint')}
+                      </Typography>
+                    )}
+                    {creditNotePending && (
+                      <Typography variant="pi" textColor="warning600">
+                        {t('ecommerce.orders.refunds.creditNotePending')}
                       </Typography>
                     )}
                   </Flex>
@@ -271,6 +351,21 @@ const RefundsTable = ({ orderId, summaries, refreshKey, canRefund, onChanged }: 
                     {refreshable && canRefund && (
                       <Button size="S" variant="secondary" disabled={busy} onClick={() => refreshStatus(r)}>
                         {t('ecommerce.orders.refunds.refresh')}
+                      </Button>
+                    )}
+                    {actions.creditNote && (
+                      <Button size="S" variant="secondary" disabled={busy} onClick={() => setCrediting(r)}>
+                        {t('ecommerce.orders.refunds.creditNoteButton')}
+                      </Button>
+                    )}
+                    {actions.pdf && (
+                      <Button size="S" variant="secondary" disabled={busy} onClick={() => openPdf(r)}>
+                        {t('ecommerce.orders.refunds.pdf')}
+                      </Button>
+                    )}
+                    {actions.remove && (
+                      <Button size="S" variant="danger-light" disabled={busy} onClick={() => setRemoving(r)}>
+                        {t('ecommerce.orders.refunds.remove.button')}
                       </Button>
                     )}
                     <Button size="S" variant="tertiary" onClick={() => setViewing(r)}>
@@ -336,6 +431,33 @@ const RefundsTable = ({ orderId, summaries, refreshKey, canRefund, onChanged }: 
         }}
         cancel={{ button: t('ecommerce.orders.refunds.stuck.cancel'), action: () => setResuming(null) }}
       />
+
+      <ActionConfirmModal
+        open={canRefund && !!removing}
+        title={t('ecommerce.orders.refunds.remove.title')}
+        text={removing ? t('ecommerce.orders.refunds.remove.text', { id: removing.id, amount: money(removing.amount) }) : ''}
+        confirmLabel={t('ecommerce.orders.refunds.remove.confirm')}
+        cancelLabel={t('ecommerce.orders.refunds.remove.cancel')}
+        onConfirm={() => {
+          const target = removing;
+          setRemoving(null);
+          if (target) remove(target);
+        }}
+        onCancel={() => setRemoving(null)}
+      />
+
+      {crediting && (
+        <RefundCreditNoteModal
+          key={`credit-${crediting.id}`}
+          refund={crediting}
+          invoices={invoices}
+          onClose={() => setCrediting(null)}
+          onIssued={() => {
+            setCrediting(null);
+            onChanged();
+          }}
+        />
+      )}
 
       {canRefund && marking && (
         <Modal.Root open onOpenChange={(next: boolean) => !next && !busy && setMarking(null)}>

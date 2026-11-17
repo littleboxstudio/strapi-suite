@@ -330,6 +330,8 @@ export type CreditNoteOptions = {
   shipping: { index: number; value: number }[];
   /** Another credit note on this invoice is pending or uncertain: Correction waits for it. */
   correctionBlocked: boolean;
+  /** A refund's credit note credited this invoice: it cannot be annulled by a Correction (plan 15). */
+  correctionRefused?: 'REFUND_CREDITED_INVOICE' | null;
   /** The SHIPPING credit note: the shipping invoiced above what the order now charges. */
   shippingAdjustment?: { lines: InvoiceLine[]; total: number };
 };
@@ -376,6 +378,8 @@ export type OrderTotals = {
   shippingOriginal: number;
   shippingDiscount: number;
   shippingTotal: number;
+  /** What the INVOICED refunds take off the total (plan 15), as applied (absent on older servers). */
+  creditAdjustment?: number;
   total: number;
 };
 
@@ -896,10 +900,16 @@ export type OrderRefund = {
   completedAt: string | null;
 };
 
+/** EXCESS: money paid above the total. INVOICED: invoiced value, lowering the order total (plan 15). */
+export type RefundScope = 'EXCESS' | 'INVOICED';
+
 export type RefundView = {
   id: number;
   method: RefundMethod;
   kind: 'MONEY' | 'STORE_CREDIT';
+  scope: RefundScope;
+  /** INVOICED refunds: the credit note documenting it, once one was issued or is being issued. */
+  creditNoteId: number | null;
   status: RefundStatus;
   amount: number;
   currency: string;
@@ -933,6 +943,44 @@ export type RefundPreview = {
   moneyRefundable: number;
   stripeRefundable: number;
   hasStripe: boolean;
+  /** The excess left to refund (EXCESS scope; absent on older servers). */
+  excess?: number;
+  /** Invoiced value an INVOICED refund may still give back (absent on older servers). */
+  invoicedRefundable?: number;
+  /** The limits of each scope (the top-level ones are EXCESS). */
+  limits?: Record<RefundScope, RefundLimits>;
+};
+
+export type RefundLimits = {
+  refundable: number;
+  /** At most `refundable`: what may go back as money. */
+  moneyRefundable: number;
+  stripeRefundable: number;
+};
+
+/** An element an INVOICED refund's credit note may credit: whole units of an ITEM, or a whole SHIPPING line. */
+export type RefundCreditLineOption = {
+  /** The line's index on its invoice. */
+  index: number;
+  kind: 'ITEM' | 'SHIPPING';
+  name: string;
+  quantityLeft: number;
+  /** The first unit's value. */
+  unitValue: number;
+  valueLeft: number;
+};
+
+export type RefundCreditNoteOptions = {
+  refund: { id: number; amount: number };
+  /** False: `invoices` is empty and `reason` is the code issuing would refuse with. */
+  creditable: boolean;
+  reason: string | null;
+  invoices: { invoiceId: number; number: string | null; lines: RefundCreditLineOption[] }[];
+};
+
+export type RefundCreditNoteInput = {
+  items: { invoiceId: number; index: number; quantity: number }[];
+  idempotencyKey: string;
 };
 
 export type CreateRefundInput = {
@@ -947,6 +995,8 @@ export type CreateRefundInput = {
   expiresAt?: string;
   /** STORE_CREDIT. */
   conditions?: string;
+  /** INVOICED lowers the order total; absent = EXCESS. */
+  scope?: RefundScope;
   /** One per opening of the refund modal. */
   idempotencyKey: string;
 };

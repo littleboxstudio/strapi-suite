@@ -408,6 +408,10 @@ const OrderDetailPage = () => {
           summaries={order.refunds}
           refreshKey={version}
           canRefund={canRefund}
+          canInvoice={canInvoice}
+          billingActive={order.billing.active}
+          archived={order.orderStatus === 'ARCHIVED'}
+          invoices={order.invoices}
           onChanged={load}
         />
       </OrderSection>

@@ -20,7 +20,7 @@ import {
 import config from '../../../core/config';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import EmptyNote from './EmptyNote';
-import FetchInvoicePdf from '../../usecases/orders/fetchInvoicePdf';
+import { openInvoicePdf } from '../../utils/openInvoicePdf';
 import ReconcileInvoice from '../../usecases/orders/reconcileInvoice';
 import { formatCents } from '../../utils/money';
 import { apiErrorMessageId } from '../../utils/orderDetail';
@@ -112,24 +112,10 @@ const InvoicesSection = ({ title, order, canInvoice, canManage, onEdited, onIssu
 
   const openPdf = async (invoice: InvoiceView) => {
     if (busy !== null) return;
-    // Opened before the request so the browser does not treat it as an unsolicited popup.
-    const win = window.open('', '_blank');
-    if (win) win.opener = null;
     setBusy(invoice.id);
     try {
-      const blob = await new FetchInvoicePdf().execute(invoice.id);
-      const url = URL.createObjectURL(blob);
-      if (win) {
-        win.location.href = url;
-      } else {
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${(invoice.number || `invoice-${invoice.id}`).replace(/[^A-Za-z0-9._-]/g, '_')}.pdf`;
-        a.click();
-      }
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      await openInvoicePdf(invoice);
     } catch (err) {
-      win?.close();
       toggleNotification({
         type: 'danger',
         message: t(apiErrorMessageId(err, 'ecommerce.orders.invoices.pdf.error')),

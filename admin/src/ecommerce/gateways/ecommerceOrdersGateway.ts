@@ -45,6 +45,8 @@ import type {
   PaymentView,
   PickupPoint,
   PickupPointInput,
+  RefundCreditNoteInput,
+  RefundCreditNoteOptions,
   RefundPreview,
   RefundView,
   RegisterReturnInput,
@@ -136,6 +138,11 @@ export default interface EcommerceOrdersGateway {
   resumeRefund(refundId: number): Promise<RefundView>;
   refreshRefund(refundId: number): Promise<RefundView>;
   markRefundFailed(refundId: number, note?: string): Promise<RefundView>;
+  /** Removes an INVOICED refund without a credit note (plan 15). */
+  removeRefund(refundId: number): Promise<RefundView>;
+  /** What a credit note for an INVOICED refund may credit, per invoice (plan 15). */
+  fetchRefundCreditNoteOptions(refundId: number): Promise<RefundCreditNoteOptions>;
+  issueRefundCreditNote(refundId: number, input: RefundCreditNoteInput): Promise<InvoiceView>;
 
   // Notifications (read: orders.read; resend: orders.manage)
   fetchOrderNotifications(orderId: number): Promise<NotificationView[]>;
@@ -370,6 +377,18 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
 
   async markRefundFailed(refundId: number, note?: string): Promise<RefundView> {
     return this.httpClient.post(`${this.base}/refunds/${refundId}/mark-failed`, note ? { note } : {});
+  }
+
+  async removeRefund(refundId: number): Promise<RefundView> {
+    return this.httpClient.post(`${this.base}/refunds/${refundId}/remove`, {});
+  }
+
+  async fetchRefundCreditNoteOptions(refundId: number): Promise<RefundCreditNoteOptions> {
+    return this.httpClient.get(`${this.base}/refunds/${refundId}/credit-note/options`);
+  }
+
+  async issueRefundCreditNote(refundId: number, input: RefundCreditNoteInput): Promise<InvoiceView> {
+    return this.httpClient.post(`${this.base}/refunds/${refundId}/credit-note`, input);
   }
 
   async fetchOrderNotifications(orderId: number): Promise<NotificationView[]> {

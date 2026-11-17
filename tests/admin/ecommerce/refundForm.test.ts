@@ -65,6 +65,7 @@ describe('addMonthsDate / dateInputToIso', () => {
 describe('emptyRefundForm', () => {
   it('defaults to the maximum refundable, a manual transfer and a 12-month validity', () => {
     expect(emptyRefundForm(preview(), 'pt-PT', NOW)).toEqual({
+      scope: 'EXCESS',
       amount: '15,00',
       reason: '',
       description: '',
