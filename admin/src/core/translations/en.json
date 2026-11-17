@@ -1290,6 +1290,7 @@
   "littlebox-strapi-suite.ecommerce.orders.ship.columns.shipped": "Shipped",
   "littlebox-strapi-suite.ecommerce.orders.ship.columns.pending": "Pending",
   "littlebox-strapi-suite.ecommerce.orders.ship.columns.quantity": "Quantity to ship",
+  "littlebox-strapi-suite.ecommerce.orders.ship.maxUnits": "At most {max}.",
   "littlebox-strapi-suite.ecommerce.orders.ship.method": "Delivery method",
   "littlebox-strapi-suite.ecommerce.orders.ship.originalMethod": "Original",
   "littlebox-strapi-suite.ecommerce.orders.ship.confirm.title": "Ship order?",

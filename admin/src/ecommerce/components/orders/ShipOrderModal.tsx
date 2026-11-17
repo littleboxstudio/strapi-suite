@@ -402,7 +402,11 @@ const ShipOrderModal = ({ order, defaultLocale = null, onClose, onShipped }: Pro
                   {form.lines.map((draft) => {
                     const line = lineById.get(draft.orderLineId);
                     if (!line) return null;
-                    const error = fieldError(`lines.${line.id}`);
+                    // Over the units left: a short "at most N" that fits under the field.
+                    const error =
+                      errors[`lines.${line.id}`] === 'QUANTITY_EXCEEDS_PENDING'
+                        ? t('ecommerce.orders.ship.maxUnits', { max: shippableOf(line) })
+                        : fieldError(`lines.${line.id}`);
                     return (
                       <Tr key={line.id}>
                         <Td>
@@ -418,7 +422,7 @@ const ShipOrderModal = ({ order, defaultLocale = null, onClose, onShipped }: Pro
                             <Box background="neutral150" hasRadius style={{ width: THUMBNAIL_SIZE, height: THUMBNAIL_SIZE }} />
                           )}
                         </Td>
-                        <Td style={{ maxWidth: 240, ...WRAP }}>
+                        <Td style={{ minWidth: 200, maxWidth: 280, ...WRAP }}>
                           <Flex direction="column" alignItems="flex-start">
                             <Typography textColor="neutral800" style={WRAP}>
                               {line.name}
@@ -451,7 +455,7 @@ const ShipOrderModal = ({ order, defaultLocale = null, onClose, onShipped }: Pro
                           {/* Only the units that can ship now (paid ones while money is owed). */}
                           <Typography textColor="neutral800">{shippableOf(line)}</Typography>
                         </Td>
-                        <InputTd style={{ width: 120 }}>
+                        <InputTd style={{ width: 140, minWidth: 140, maxWidth: 140, whiteSpace: 'normal' }}>
                           <Field.Root name={`quantity-${line.id}`} error={error}>
                             <VisuallyHidden>
                               <Field.Label>{t('ecommerce.orders.ship.columns.quantity')}</Field.Label>

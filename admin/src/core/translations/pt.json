@@ -1074,6 +1074,7 @@
   "littlebox-strapi-suite.ecommerce.orders.ship.columns.shipped": "Enviado",
   "littlebox-strapi-suite.ecommerce.orders.ship.columns.pending": "Pendente",
   "littlebox-strapi-suite.ecommerce.orders.ship.columns.quantity": "Quantidade a expedir",
+  "littlebox-strapi-suite.ecommerce.orders.ship.maxUnits": "No máximo {max}.",
   "littlebox-strapi-suite.ecommerce.orders.ship.method": "Método de entrega",
   "littlebox-strapi-suite.ecommerce.orders.ship.originalMethod": "Original",
   "littlebox-strapi-suite.ecommerce.orders.ship.confirm.title": "Expedir encomenda?",
