@@ -38,7 +38,6 @@ import type { DiscountRecalculation, DiscountRow, EditResult, Order } from '../.
 import BalanceOutcome from './BalanceOutcome';
 import EmptyNote from './EmptyNote';
 import NoticeBar from './NoticeBar';
-import { Tile, Tiles } from './SummaryTiles';
 
 type Props = {
   order: Order;
@@ -321,35 +320,50 @@ const RecalculateDiscountsModal = ({
             {t(loadError)}
           </Typography>
         )}
-        {/* The totals: the current ones in four tiles, the ones after the recalculation below. */}
-        {(['current', 'after'] as const).map((side) => (
-          <Flex key={side} direction="column" alignItems="stretch" gap={2} style={{ opacity: pricing ? 0.5 : 1 }}>
-            <Typography variant="sigma" textColor="neutral600">
-              {t(`ecommerce.orders.discounts.${side}`)}
-            </Typography>
-            <Tiles>
+        {/* The totals before and after the recalculation, in a table like the discounts. */}
+        <Box style={{ opacity: pricing ? 0.5 : 1 }}>
+          <Table colCount={3} rowCount={totals.length + 1}>
+            <Thead>
+              <Tr>
+                <Th>
+                  <Typography variant="sigma">{t('ecommerce.orders.discounts.columns.totals')}</Typography>
+                </Th>
+                <Th style={{ width: 150 }}>
+                  <Typography variant="sigma" style={{ display: 'block', width: '100%', textAlign: 'right' }}>
+                    {t('ecommerce.orders.discounts.current')}
+                  </Typography>
+                </Th>
+                <Th style={{ width: 120 }}>
+                  <Typography variant="sigma" style={{ display: 'block', width: '100%', textAlign: 'right' }}>
+                    {t('ecommerce.orders.discounts.after')}
+                  </Typography>
+                </Th>
+              </Tr>
+            </Thead>
+            <Tbody>
               {totals.map((row) => {
-                const amount = side === 'current' ? row.before : row.after;
-                const owed = row.key === 'due' && amount > 0;
+                const owedAfter = row.key === 'due' && row.after > 0;
                 return (
-                  <Tile key={row.key} $tone={owed ? 'warning' : undefined}>
-                    <Typography variant="sigma" textColor="neutral600">
-                      {t(`ecommerce.orders.discounts.totals.${row.key}`)}
-                    </Typography>
-                    <Typography
-                      variant="beta"
-                      tag="p"
-                      textColor={owed ? 'warning600' : 'neutral800'}
-                      style={{ whiteSpace: 'nowrap' }}
-                    >
-                      {money(amount)}
-                    </Typography>
-                  </Tile>
+                  <Tr key={row.key}>
+                    <Td>
+                      <Typography textColor="neutral800" fontWeight={row.key === 'total' ? 'bold' : undefined}>
+                        {t(`ecommerce.orders.discounts.totals.${row.key}`)}
+                      </Typography>
+                    </Td>
+                    <Td style={amountCell}>
+                      <Typography textColor="neutral600">{money(row.before)}</Typography>
+                    </Td>
+                    <Td style={amountCell}>
+                      <Typography textColor={owedAfter ? 'warning600' : 'neutral800'} fontWeight="semiBold">
+                        {money(row.after)}
+                      </Typography>
+                    </Td>
+                  </Tr>
                 );
               })}
-            </Tiles>
-          </Flex>
-        ))}
+            </Tbody>
+          </Table>
+        </Box>
       </Flex>
     );
   };
