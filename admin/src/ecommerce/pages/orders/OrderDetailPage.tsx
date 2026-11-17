@@ -413,6 +413,7 @@ const OrderDetailPage = () => {
           billingActive={order.billing.active}
           archived={order.orderStatus === 'ARCHIVED'}
           invoices={order.invoices}
+          orderLines={order.lines}
           onChanged={load}
         />
       </OrderSection>
@@ -448,6 +449,7 @@ const OrderDetailPage = () => {
           orderId={order.id}
           reference={order.reference}
           invoices={order.invoices}
+          orderLines={order.lines}
           initial={refundInitial}
           onClose={closeModal('REFUND')}
           onSubmitting={(submitting) => dispatchModal({ type: 'SUBMITTING', from: 'REFUND', submitting })}

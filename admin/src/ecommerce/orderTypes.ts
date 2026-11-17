@@ -984,6 +984,8 @@ export type RefundCreditLineOption = {
   /** The line's index on its invoice. */
   index: number;
   kind: 'ITEM' | 'SHIPPING';
+  /** ITEM: the order line it invoiced (its gift flag shows the badge); SHIPPING: null. Older servers: absent. */
+  orderLineId?: number | null;
   name: string;
   quantityLeft: number;
   /** The first unit's value. */

@@ -34,6 +34,8 @@ type Props = {
   refund: RefundView;
   /** The order's documents: the invoice lines value the chosen units as the server does. */
   invoices: InvoiceView[];
+  /** The order's gift lines (`giftOrderLineIds`): their elements show the gift badge. */
+  giftLineIds?: Set<number>;
   onClose: () => void;
   /** After a credit note was recorded (issued or uncertain): the order is fetched again. */
   onIssued: () => void;
@@ -51,7 +53,7 @@ type Mode = ReturnType<typeof refundCreditMode>;
  * exactly to the refund amount. One credit note is issued, even across invoices. Mount it only
  * while open: each opening mints one idempotency key.
  */
-const RefundCreditNoteModal = ({ refund, invoices, onClose, onIssued }: Props) => {
+const RefundCreditNoteModal = ({ refund, invoices, giftLineIds, onClose, onIssued }: Props) => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) => formatMessage({ id: getTranslation(id) }, values);
@@ -233,6 +235,7 @@ const RefundCreditNoteModal = ({ refund, invoices, onClose, onIssued }: Props) =
       disabled={locked}
       readOnly={stored}
       selectedOnly={stored}
+      giftLineIds={giftLineIds}
       onChoose={choose}
     />
   );

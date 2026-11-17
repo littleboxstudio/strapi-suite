@@ -28,6 +28,7 @@ import {
   REFUND_METHODS,
   REFUND_REASONS,
   emptyRefundForm,
+  isUnitsOnlyRefund,
   previewForScope,
   refundScopes,
   refundServerErrors,
@@ -38,7 +39,12 @@ import {
   type RefundForm,
   type RefundInitial,
 } from '../../utils/refundForm';
-import { refundElementsTotal, refundOptionValue, selectionKey } from '../../utils/refundCreditNote';
+import {
+  giftOrderLineIds,
+  refundElementsTotal,
+  refundOptionValue,
+  selectionKey,
+} from '../../utils/refundCreditNote';
 import type { FieldError, InvoiceView, RefundMethod, RefundPreview, RefundScope } from '../../orderTypes';
 import { Tile, Tiles } from './SummaryTiles';
 import NoticeBar from './NoticeBar';
@@ -49,6 +55,8 @@ type Props = {
   reference: number;
   /** The order's documents: the invoice lines value the chosen units as the server does. */
   invoices: InvoiceView[];
+  /** The order's lines: gift lines show the gift badge on their elements. */
+  orderLines?: { id: number; isGift?: boolean | null }[];
   /** Prefill (e.g. reason RETURN and the return's value after a return); capped by the preview. */
   initial?: RefundInitial;
   onClose: () => void;
@@ -78,7 +86,17 @@ const FORM_FIELDS: FormField[] = [
  * invoiced elements the admin picks, one table per invoice: its amount is their sum (read-only).
  * Mount it only while open: each opening mints a new idempotency key.
  */
-const RefundModal = ({ orderId, reference, invoices, initial, onClose, onSubmitting, onRefunded }: Props) => {
+const RefundModal = ({
+  orderId,
+  reference,
+  invoices,
+  orderLines = [],
+  initial,
+  onClose,
+  onSubmitting,
+  onRefunded,
+}: Props) => {
+  const giftLineIds = giftOrderLineIds(orderLines);
   const { formatMessage, locale: uiLocale } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) =>
@@ -251,6 +269,8 @@ const RefundModal = ({ orderId, reference, invoices, initial, onClose, onSubmitt
     const invoiced = form.scope === 'INVOICED';
     const elements = preview.invoicedElements?.invoices ?? [];
     const selected = refundElementsTotal(elements, form.selection, lineOf);
+    // Gift units only (total 0): no money moves, so no method or money fields.
+    const unitsOnly = isUnitsOnlyRefund(form, preview, lineOf);
     // The figures as tiles on one row, like the payments overview; the refundable one is highlighted
     // (INVOICED: the amount to refund, the sum of the chosen elements, instead).
     const figures = invoiced
@@ -348,6 +368,7 @@ const RefundModal = ({ orderId, reference, invoices, initial, onClose, onSubmitt
                       refundOptionValue(option, quantity, lineOf(invoice.invoiceId, option.index))
                     }
                     disabled={saving}
+                    giftLineIds={giftLineIds}
                     onChoose={choose}
                   />
                 ))}
@@ -355,6 +376,7 @@ const RefundModal = ({ orderId, reference, invoices, initial, onClose, onSubmitt
             ) : (
               <NoticeBar wrap text={t('ecommerce.orders.refund.elements.none')} />
             )}
+            {unitsOnly && <NoticeBar wrap text={t('ecommerce.orders.refund.unitsOnly.notice')} />}
             {(errors.items || errors.amount) && (
               <Typography variant="omega" textColor="danger600">
                 {errors.items ?? errors.amount}
@@ -396,70 +418,74 @@ const RefundModal = ({ orderId, reference, invoices, initial, onClose, onSubmitt
           <Textarea value={form.description} onChange={(e: any) => update('description', e.target.value)} />
           <Field.Error />
         </Field.Root>
-        {/* The description goes into the refund e-mails the customer receives (same look as the top notices). */}
-        <NoticeBar text={t('ecommerce.orders.refund.descriptionNotice')} />
-
-        <Field.Root name="method" error={errors.method}>
-          <Field.Label>{t('ecommerce.orders.refund.method')}</Field.Label>
-          <Radio.Group
-            value={form.method}
-            aria-label={t('ecommerce.orders.refund.method')}
-            onValueChange={(value: string) => update('method', value as RefundMethod)}
-          >
-            {REFUND_METHODS.map((method) => (
-              <Radio.Item
-                key={method}
-                value={method}
-                disabled={
-                  (method === 'STRIPE' && (!scoped.hasStripe || scoped.stripeRefundable <= 0)) ||
-                  (method !== 'STORE_CREDIT' && scoped.moneyRefundable <= 0)
-                }
-              >
-                {t(`ecommerce.orders.refund.methods.${method}`)}
-                {method === 'STRIPE' && (
-                  // Why Stripe is (un)available, right after the option, in italics.
-                  <Typography variant="pi" textColor="neutral600" style={{ fontStyle: 'italic', marginLeft: 8 }}>
-                    {scoped.hasStripe
-                      ? t('ecommerce.orders.refund.stripeRefundable', { amount: money(scoped.stripeRefundable) })
-                      : t('ecommerce.orders.refund.stripeUnavailable')}
-                  </Typography>
-                )}
-              </Radio.Item>
-            ))}
-          </Radio.Group>
-          <Field.Error />
-        </Field.Root>
-
-        {scoped.moneyRefundable <= 0 && (
-          <Typography variant="pi" textColor="neutral600">
-            {t('ecommerce.orders.refund.moneyOnlyCredit')}
-          </Typography>
-        )}
-
-        {form.method === 'MANUAL_TRANSFER' && (
-          <Field.Root name="reference" error={errors.reference}>
-            <Field.Label>{t('ecommerce.orders.refund.reference')}</Field.Label>
-            <TextInput value={form.reference} onChange={(e: any) => update('reference', e.target.value)} />
-            <Field.Error />
-          </Field.Root>
-        )}
-
-        {form.method === 'STORE_CREDIT' && (
+        {!unitsOnly && (
           <>
-            <Field.Root name="expiresAt" required error={errors.expiresAt}>
-              <Field.Label>{t('ecommerce.orders.refund.expiresAt')}</Field.Label>
-              <DateInput
-                type="date"
-                value={form.expiresAt}
-                onChange={(e: any) => update('expiresAt', e.target.value)}
-              />
+            {/* The description goes into the refund e-mails the customer receives (same look as the top notices). */}
+            <NoticeBar text={t('ecommerce.orders.refund.descriptionNotice')} />
+
+            <Field.Root name="method" error={errors.method}>
+              <Field.Label>{t('ecommerce.orders.refund.method')}</Field.Label>
+              <Radio.Group
+                value={form.method}
+                aria-label={t('ecommerce.orders.refund.method')}
+                onValueChange={(value: string) => update('method', value as RefundMethod)}
+              >
+                {REFUND_METHODS.map((method) => (
+                  <Radio.Item
+                    key={method}
+                    value={method}
+                    disabled={
+                      (method === 'STRIPE' && (!scoped.hasStripe || scoped.stripeRefundable <= 0)) ||
+                      (method !== 'STORE_CREDIT' && scoped.moneyRefundable <= 0)
+                    }
+                  >
+                    {t(`ecommerce.orders.refund.methods.${method}`)}
+                    {method === 'STRIPE' && (
+                      // Why Stripe is (un)available, right after the option, in italics.
+                      <Typography variant="pi" textColor="neutral600" style={{ fontStyle: 'italic', marginLeft: 8 }}>
+                        {scoped.hasStripe
+                          ? t('ecommerce.orders.refund.stripeRefundable', { amount: money(scoped.stripeRefundable) })
+                          : t('ecommerce.orders.refund.stripeUnavailable')}
+                      </Typography>
+                    )}
+                  </Radio.Item>
+                ))}
+              </Radio.Group>
               <Field.Error />
             </Field.Root>
-            <Field.Root name="conditions" error={errors.conditions}>
-              <Field.Label>{t('ecommerce.orders.refund.conditions')}</Field.Label>
-              <Textarea value={form.conditions} onChange={(e: any) => update('conditions', e.target.value)} />
-              <Field.Error />
-            </Field.Root>
+
+            {scoped.moneyRefundable <= 0 && (
+              <Typography variant="pi" textColor="neutral600">
+                {t('ecommerce.orders.refund.moneyOnlyCredit')}
+              </Typography>
+            )}
+
+            {form.method === 'MANUAL_TRANSFER' && (
+              <Field.Root name="reference" error={errors.reference}>
+                <Field.Label>{t('ecommerce.orders.refund.reference')}</Field.Label>
+                <TextInput value={form.reference} onChange={(e: any) => update('reference', e.target.value)} />
+                <Field.Error />
+              </Field.Root>
+            )}
+
+            {form.method === 'STORE_CREDIT' && (
+              <>
+                <Field.Root name="expiresAt" required error={errors.expiresAt}>
+                  <Field.Label>{t('ecommerce.orders.refund.expiresAt')}</Field.Label>
+                  <DateInput
+                    type="date"
+                    value={form.expiresAt}
+                    onChange={(e: any) => update('expiresAt', e.target.value)}
+                  />
+                  <Field.Error />
+                </Field.Root>
+                <Field.Root name="conditions" error={errors.conditions}>
+                  <Field.Label>{t('ecommerce.orders.refund.conditions')}</Field.Label>
+                  <Textarea value={form.conditions} onChange={(e: any) => update('conditions', e.target.value)} />
+                  <Field.Error />
+                </Field.Root>
+          </>
+        )}
           </>
         )}
 
@@ -505,16 +531,25 @@ const RefundModal = ({ orderId, reference, invoices, initial, onClose, onSubmitt
             <Dialog.Header>{t('ecommerce.orders.refund.confirmTitle')}</Dialog.Header>
             <Dialog.Body>
               <Flex direction="column" alignItems="center" gap={2}>
-                <Typography variant="omega" fontWeight="semiBold" textColor="neutral800" style={{ textAlign: 'center' }}>
-                  {t('ecommerce.orders.refund.confirmText', {
-                    amount: money(draft.amount),
-                    method: t(`ecommerce.orders.refund.methods.${draft.method}`),
-                  })}
-                </Typography>
-                <Typography variant="omega" textColor="neutral700" style={{ textAlign: 'center' }}>
-                  {t(`ecommerce.orders.refund.reviewNote.${draft.method}`)}
-                </Typography>
-                {draft.scope === 'INVOICED' && (
+                {draft.scope === 'INVOICED' && draft.amount === 0 ? (
+                  // Units-only (gifts): no money, no method, no e-mail.
+                  <Typography variant="omega" fontWeight="semiBold" textColor="neutral800" style={{ textAlign: 'center' }}>
+                    {t('ecommerce.orders.refund.unitsOnly.confirm')}
+                  </Typography>
+                ) : (
+                  <>
+                    <Typography variant="omega" fontWeight="semiBold" textColor="neutral800" style={{ textAlign: 'center' }}>
+                      {t('ecommerce.orders.refund.confirmText', {
+                        amount: money(draft.amount),
+                        method: t(`ecommerce.orders.refund.methods.${draft.method}`),
+                      })}
+                    </Typography>
+                    <Typography variant="omega" textColor="neutral700" style={{ textAlign: 'center' }}>
+                      {t(`ecommerce.orders.refund.reviewNote.${draft.method}`)}
+                    </Typography>
+                  </>
+                )}
+                {draft.scope === 'INVOICED' && draft.amount > 0 && (
                   <Typography variant="omega" textColor="neutral700" style={{ textAlign: 'center' }}>
                     {t('ecommerce.orders.refund.reviewNote.INVOICED', { amount: money(draft.amount) })}
                   </Typography>

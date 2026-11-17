@@ -2284,6 +2284,8 @@
   "littlebox-strapi-suite.ecommerce.orders.refund.scopes.INVOICED": "Invoiced value",
   "littlebox-strapi-suite.ecommerce.orders.refund.scopes.INVOICED.hint": "Invoiced value not yet credited, up to {amount}. The order total goes down by the amount refunded.",
   "littlebox-strapi-suite.ecommerce.orders.refund.reviewNote.INVOICED": "The order total goes down by {amount}, so the order stays paid. With invoicing active, issue its credit note in Refunds and credits.",
+  "littlebox-strapi-suite.ecommerce.orders.refund.unitsOnly.notice": "Only gifts were chosen (value €0): their units stop being shipped and there is no money to give back.",
+  "littlebox-strapi-suite.ecommerce.orders.refund.unitsOnly.confirm": "Register the gift units as refunded? They stop being shipped; no money is given back and the customer gets no e-mail.",
   "littlebox-strapi-suite.ecommerce.orders.detail.summary.creditAdjustment": "Refunds of invoiced value",
   "littlebox-strapi-suite.ecommerce.orders.refunds.details.scope": "Type",
   "littlebox-strapi-suite.ecommerce.orders.refunds.details.creditNote": "Credit note",
