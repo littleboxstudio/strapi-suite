@@ -211,7 +211,7 @@ const RegisterReturnModal = ({ order, canRefund, onClose, onRefundNow }: Props) 
                   <Tbody>
                     {r.items.map((i) => (
                       <Tr key={i.orderLineId}>
-                        <Td style={PRODUCT_CELL}>
+                        <Td style={{ ...PRODUCT_CELL, paddingRight: 24 }}>
                           <Typography textColor="neutral800">{i.name}</Typography>
                           {i.option && (
                             <Typography variant="pi" textColor="neutral600" tag="p">
@@ -295,7 +295,7 @@ const RegisterReturnModal = ({ order, canRefund, onClose, onRefundNow }: Props) 
 
   return (
     <Modal.Root open onOpenChange={(next: boolean) => !next && !saving && onClose(false)}>
-      <Modal.Content style={{ maxWidth: 1040, width: '100%' }}>
+      <Modal.Content style={{ maxWidth: 1100, width: '100%' }}>
         <Modal.Header>
           <Modal.Title>{t('ecommerce.orders.returns.title', { reference: order.reference })}</Modal.Title>
         </Modal.Header>
@@ -352,7 +352,7 @@ const RegisterReturnModal = ({ order, canRefund, onClose, onRefundNow }: Props) 
                     return (
                       <Tr key={line.id}>
                         {/* A long product name wraps (no ellipsis) instead of running over the columns. */}
-                        <Td style={PRODUCT_CELL}>
+                        <Td style={{ ...PRODUCT_CELL, paddingRight: 24 }}>
                           <Flex direction="column" alignItems="flex-start">
                             <Typography textColor="neutral800">
                               {line.name}
