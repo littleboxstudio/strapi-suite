@@ -322,7 +322,11 @@ const RecalculateDiscountsModal = ({
           </Typography>
         )}
         {/* The totals before and after the recalculation: one row each, a column per total. */}
-        <Box style={{ opacity: pricing ? 0.5 : 1 }}>
+        <Flex direction="column" alignItems="stretch" gap={2} style={{ opacity: pricing ? 0.5 : 1 }}>
+          {/* A title like the discount groups' ("Manual discounts"). */}
+          <Typography variant="sigma" textColor="neutral600">
+            {t('ecommerce.orders.discounts.columns.totals')}
+          </Typography>
           <Table colCount={totals.length + 1} rowCount={3}>
             <Thead>
               <Tr>
@@ -364,7 +368,7 @@ const RecalculateDiscountsModal = ({
               ))}
             </Tbody>
           </Table>
-        </Box>
+        </Flex>
       </Flex>
     );
   };
