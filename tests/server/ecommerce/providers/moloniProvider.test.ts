@@ -182,7 +182,7 @@ describe('moloniProvider.issue (FR, default)', () => {
     expect(products).toHaveLength(1);
     expect(products[0]).toMatchObject({
       discount: 19,
-      summary: 'Desconto da linha 10% + desconto da encomenda 9,00 €',
+      summary: 'Desconto da linha 10% + Desconto da encomenda 9,00 €',
     });
   });
 

@@ -104,11 +104,11 @@ describe('combined discounts', () => {
 describe('moloniLineNote', () => {
   it('own discount and order discount', () => {
     expect(moloniLineNote({ grossTotal: 10000, total: 8100, discountShare: 900 })).toBe(
-      'Desconto da linha 10% + desconto da encomenda 9,00 €'
+      'Desconto da linha 10% + Desconto da encomenda 9,00 €'
     );
   });
   it('only one part, or none', () => {
-    expect(moloniLineNote({ grossTotal: 10000, total: 9100, discountShare: 900 })).toBe('desconto da encomenda 9,00 €');
+    expect(moloniLineNote({ grossTotal: 10000, total: 9100, discountShare: 900 })).toBe('Desconto da encomenda 9,00 €');
     expect(moloniLineNote({ grossTotal: 10000, total: 8750 })).toBe('Desconto da linha 12,5%');
     expect(moloniLineNote({ grossTotal: 1000, total: 1000 })).toBeNull();
     expect(moloniLineNote({ total: 1000 })).toBeNull();
@@ -116,10 +116,10 @@ describe('moloniLineNote', () => {
 
   it('on a SHIPPING line the share is the shipping discount', () => {
     expect(moloniLineNote({ kind: 'SHIPPING', grossTotal: 500, total: 300, discountShare: 200 })).toBe(
-      'desconto dos portes 2,00 €'
+      'Desconto dos portes 2,00 €'
     );
     expect(moloniLineNote({ kind: 'ITEM', grossTotal: 500, total: 300, discountShare: 200 })).toBe(
-      'desconto da encomenda 2,00 €'
+      'Desconto da encomenda 2,00 €'
     );
   });
 });

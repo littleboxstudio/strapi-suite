@@ -83,7 +83,7 @@ export function moloniLineNote(
   const parts: string[] = [];
   if (own > 0) parts.push(`Desconto da linha ${fmtPercent((own / gross) * 100)}%`);
   if (share > 0) {
-    parts.push(`${line.kind === 'SHIPPING' ? 'desconto dos portes' : 'desconto da encomenda'} ${fmtEuros(share)}`);
+    parts.push(`${line.kind === 'SHIPPING' ? 'Desconto dos portes' : 'Desconto da encomenda'} ${fmtEuros(share)}`);
   }
   return parts.length ? parts.join(' + ') : null;
 }
