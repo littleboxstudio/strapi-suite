@@ -37,6 +37,7 @@ import {
   invoicedRefundableAmount,
   invoicedRefundAdjustment,
   refundableAmount,
+  refundReservationDocs,
 } from './domain/refunds';
 import {
   creditedInvoiceIds,
@@ -1445,7 +1446,12 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
           })
         : 0;
     const invoicedUnits = netInvoicedUnits(invoicing.position);
-    const refundCredited = refundCreditedUnits(invoicing.docs);
+    // Units of REFUND credit notes and of the elements active INVOICED refunds without one hold
+    // (each refund counted once).
+    const refundCredited = refundCreditedUnits([
+      ...invoicing.docs,
+      ...refundReservationDocs(refunds, invoicing.docs),
+    ]);
     for (const l of lines) {
       l.invoiced = invoicedUnits.get(l.id) ?? 0;
       l.refundCredited = refundCredited.get(l.id) ?? 0;

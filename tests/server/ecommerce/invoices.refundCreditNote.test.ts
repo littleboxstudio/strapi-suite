@@ -139,6 +139,19 @@ const twoInvoices = async () => {
   return { ...s, id, a, b };
 };
 
+/**
+ * The elements of `twoInvoices` that make `amount` (plan 15: an INVOICED refund is the sum of
+ * chosen elements): 2000 one unit of invoice A, 500 the shipping of invoice B, 2500 both.
+ */
+const elementsOf = (c: Commerce, id: number, amount: number) => {
+  const [a, b] = c.tables[UIDS.invoice]
+    .filter((r) => r.order === id && r.kind === 'INVOICE')
+    .sort((x, y) => x.id - y.id);
+  const unit = { invoiceId: a.id, index: 0, quantity: 1 };
+  const shipping = { invoiceId: b.id, index: 0, quantity: 1 };
+  return ({ 2000: [unit], 500: [shipping], 2500: [unit, shipping] } as Record<number, any[]>)[amount];
+};
+
 const refund = async (c: Commerce, id: number, amount: number, scope: 'INVOICED' | 'EXCESS' = 'INVOICED') => {
   const [r] = await c.refunds.create(
     id,
@@ -146,6 +159,7 @@ const refund = async (c: Commerce, id: number, amount: number, scope: 'INVOICED'
       method: 'MANUAL_TRANSFER',
       scope,
       amount,
+      items: elementsOf(c, id, amount),
       reason: 'GOODWILL',
       description: 'Lost in transit',
       idempotencyKey: `ref-${amount}-${scope}`,
@@ -171,6 +185,10 @@ describe('EcommerceInvoiceService.refundCreditNoteOptions', () => {
       refund: { id: r.id, amount: 2500 },
       creditable: true,
       reason: null,
+      selected: [
+        { invoiceId: a.id, index: 0, quantity: 1, value: 2000 },
+        { invoiceId: b.id, index: 0, quantity: 1, value: 500 },
+      ],
       invoices: [
         {
           invoiceId: a.id,
@@ -216,6 +234,7 @@ describe('refundCreditNoteOptions for a refund that cannot get a credit note', (
       creditable: false,
       reason: 'REFUND_HAS_CREDIT_NOTE',
       invoices: [],
+      selected: [],
     });
     refundRow(c, r.id).metadata = { removed: true };
     expect(await options()).toMatchObject({ creditable: false, reason: 'REFUND_NOT_CREDITABLE', invoices: [] });

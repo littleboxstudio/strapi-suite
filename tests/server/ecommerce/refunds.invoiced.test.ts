@@ -77,9 +77,24 @@ const invoicedOrder = async (c: Commerce = setupCommerce()) => {
   return { c, id };
 };
 
+/**
+ * The elements of invoice 900 that make `amount` (plan 15: an INVOICED refund is the sum of chosen
+ * elements): 500 the shipping line, 2000 one unit, 2500 both, 4000 both units.
+ */
+const ELEMENTS: Record<number, { invoiceId: number; index: number; quantity: number }[]> = {
+  500: [{ invoiceId: 900, index: 1, quantity: 1 }],
+  2000: [{ invoiceId: 900, index: 0, quantity: 1 }],
+  2500: [
+    { invoiceId: 900, index: 0, quantity: 1 },
+    { invoiceId: 900, index: 1, quantity: 1 },
+  ],
+  4000: [{ invoiceId: 900, index: 0, quantity: 2 }],
+};
+
 const invoiced = (amount: number, extra: Record<string, unknown> = {}) => ({
   method: 'MANUAL_TRANSFER' as const,
   amount,
+  items: ELEMENTS[amount],
   reason: 'GOODWILL',
   scope: 'INVOICED' as const,
   idempotencyKey: `inv-${amount}`,
@@ -128,9 +143,8 @@ describe('INVOICED refunds: preview and the REFUND action', () => {
       metadata: { creditType: 'RETURN', creditedLines: [{ index: 0, value: 2000, quantity: 1 }] },
     });
     expect((await c.refunds.preview(id)).invoicedRefundable).toBe(2500);
-    expect(
-      await codesOf(c.refunds.create(id, invoiced(2501), actor))
-    ).toEqual(['exceeds_refundable']);
+    // Its unit is no longer an element: both units are more than is left.
+    expect(await codesOf(c.refunds.create(id, invoiced(4000), actor))).toEqual(['REFUND_ITEMS_INVALID']);
   });
 
   it('the limit leaves out value invoiced above what the order now charges (a return not credited yet)', async () => {
@@ -479,9 +493,9 @@ describe('INVOICED refunds with their REFUND credit note (plan 15, task 3)', () 
     expect(order(c, id).orderDiscount).toBeGreaterThan(0);
     await c.payments.addManualPayment(id, { amount: before, idempotencyKey: 'pay-1' }, actor);
     seedInvoice(c, id);
-    await c.refunds.create(id, invoiced(300), actor);
-    expect(order(c, id).total).toBe(before - 300);
+    await c.refunds.create(id, invoiced(500), actor);
+    expect(order(c, id).total).toBe(before - 500);
     expect(order(c, id).paymentStatus).toBe('PAID');
-    expect((await c.orders.get(id)).totals).toMatchObject({ creditAdjustment: 300, total: before - 300 });
+    expect((await c.orders.get(id)).totals).toMatchObject({ creditAdjustment: 500, total: before - 500 });
   });
 });

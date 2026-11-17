@@ -463,13 +463,14 @@ describe('units a REFUND credit note credited (plan 15)', () => {
       {
         method: 'MANUAL_TRANSFER',
         scope: 'INVOICED',
-        amount: 2000,
+        items: [{ invoiceId: 900, index: 0, quantity: 1 }],
         reason: 'GOODWILL',
         description: 'Lost in transit',
         idempotencyKey: 'ref-1',
-      },
+      } as any,
       'user:1'
     );
+    if (noteStatus === 'NONE') return { c, returns, id, lineId, refund };
     c.tables[UIDS.invoice].push({
       id: 950,
       order: id,
@@ -506,8 +507,24 @@ describe('units a REFUND credit note credited (plan 15)', () => {
     expect(c.tables[UIDS.orderReturn]).toEqual([]);
   });
 
-  it('a FAILED REFUND credit note credits no units: the unit can be returned', async () => {
+  it('a refund without a credit note reserves its units: they cannot be returned either', async () => {
+    const { c, returns, id, lineId } = await creditedUnit('NONE');
+    const view = await c.orders.get(id);
+    expect(view.lines.find((l: any) => l.id === lineId)).toMatchObject({ refundCredited: 1, returnable: 0 });
+    expect(await codesOf(returns.preview(id, ret(lineId, 1, true).lines))).toEqual(['UNITS_REFUND_CREDITED']);
+    expect(await codesOf(returns.register(id, ret(lineId, 1, true), 'user:1'))).toEqual(['UNITS_REFUND_CREDITED']);
+    expect(c.tables[UIDS.orderReturn]).toEqual([]);
+  });
+
+  it('a refund with its credit note counts its units once', async () => {
+    const { c, id, lineId } = await creditedUnit();
+    const view = await c.orders.get(id);
+    expect(view.lines.find((l: any) => l.id === lineId)).toMatchObject({ refundCredited: 1 });
+  });
+
+  it('a FAILED REFUND credit note credits no units: a legacy refund (no items) lets the unit be returned', async () => {
     const { c, returns, id, lineId } = await creditedUnit('FAILED');
+    for (const r of c.tables[UIDS.refund]) r.metadata = { ...r.metadata, items: undefined };
     const view = await c.orders.get(id);
     expect(view.lines.find((l: any) => l.id === lineId)).toMatchObject({ refundCredited: 0, returnable: 1 });
     await returns.register(id, ret(lineId, 1, true), 'user:1');

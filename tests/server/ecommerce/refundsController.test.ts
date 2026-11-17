@@ -99,6 +99,34 @@ describe('EcommerceRefundController', () => {
     expect(b.body.error.details.code).toBe('IDEMPOTENCY_KEY_CONFLICT');
   });
 
+  it('create INVOICED: amount optional, items parsed; bad items never reach the service', async () => {
+    const create = vi.fn().mockResolvedValue([{ id: 1 }]);
+    const c = createRefunds({ strapi: strapiWith({ EcommerceRefundService: { create } }) });
+    const { amount: _a, ...noAmount } = valid;
+    await c.create(body({ ...noAmount, scope: 'INVOICED', items: [{ invoiceId: 3, index: 0, quantity: 2 }] }));
+    expect(create).toHaveBeenCalledWith(
+      5,
+      expect.objectContaining({ scope: 'INVOICED', amount: undefined, items: [{ invoiceId: 3, index: 0, quantity: 2 }] }),
+      'user:7'
+    );
+    for (const items of ['x', [{ invoiceId: 0, index: 0, quantity: 1 }], [{ invoiceId: 3, index: -1, quantity: 1 }], [{ invoiceId: 3, index: 0, quantity: 0 }]]) {
+      const bad = body({ ...noAmount, scope: 'INVOICED', items });
+      await c.create(bad);
+      expect(bad.badRequest).toHaveBeenCalled();
+    }
+    // EXCESS still requires the amount.
+    const excess = body({ ...noAmount });
+    await c.create(excess);
+    expect(excess.badRequest).toHaveBeenCalled();
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it('REFUND_AMOUNT_DIFFERS, REFUND_ITEMS_INVALID and REFUND_ELEMENTS_UNAVAILABLE are 409 Conflict', () => {
+    expect(CONFLICT_CODES).toEqual(
+      expect.arrayContaining(['REFUND_AMOUNT_DIFFERS', 'REFUND_ITEMS_INVALID', 'REFUND_ELEMENTS_UNAVAILABLE'])
+    );
+  });
+
   it('create passes the scope; remove uses the actor and maps its codes to 409', async () => {
     const create = vi.fn().mockResolvedValue([{ id: 1 }]);
     const remove = vi

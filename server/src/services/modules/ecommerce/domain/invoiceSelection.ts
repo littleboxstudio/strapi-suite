@@ -386,7 +386,8 @@ export function invoicingPosition(order: PositionOrder, docs: InvoiceDoc[]): Inv
 /**
  * Units of each order line credited by live REFUND credit notes (plan 15), each entry on its own
  * invoice line. These units stay in the order (never invoiceable again) but their value was
- * already credited: they can never be returned, or the same value would be credited twice.
+ * already credited: they can never be returned, or the same value would be credited twice. Pass
+ * `refundReservationDocs` too and the elements of INVOICED refunds without a credit note count.
  */
 export function refundCreditedUnits(docs: InvoiceDoc[]): Map<number, number> {
   const out = new Map<number, number>();
