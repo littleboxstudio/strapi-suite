@@ -357,6 +357,29 @@ describe('fulfillment', () => {
   it('UNFULFILLED without lines', () => {
     expect(deriveFulfillmentStatus([], new Map())).toBe('UNFULFILLED');
   });
+
+  it('refunded units never ship: a line counts quantity − refundCredited', () => {
+    // 2 ordered, 1 refunded unshipped, 1 shipped: fulfilled.
+    expect(deriveFulfillmentStatus([{ id: 1, quantity: 2, refundCredited: 1 }], new Map([[1, 1]]))).toBe('FULFILLED');
+    // A fully refunded unshipped line no longer blocks FULFILLED.
+    expect(
+      deriveFulfillmentStatus(
+        [
+          { id: 1, quantity: 2 },
+          { id: 2, quantity: 1, refundCredited: 1 },
+        ],
+        new Map([[1, 2]]),
+      ),
+    ).toBe('FULFILLED');
+    // Nothing left to ship and nothing shipped: unfulfilled.
+    expect(deriveFulfillmentStatus([{ id: 1, quantity: 1, refundCredited: 1 }], new Map())).toBe('UNFULFILLED');
+    // Refunded after shipping (Q=1, shipped 1, refunded 1): still fulfilled.
+    expect(deriveFulfillmentStatus([{ id: 1, quantity: 1, refundCredited: 1 }], new Map([[1, 1]]))).toBe('FULFILLED');
+    // 3 ordered, 1 refunded, 1 shipped: partial.
+    expect(deriveFulfillmentStatus([{ id: 1, quantity: 3, refundCredited: 1 }], new Map([[1, 1]]))).toBe(
+      'PARTIALLY_FULFILLED',
+    );
+  });
 });
 
 describe('canTransition', () => {

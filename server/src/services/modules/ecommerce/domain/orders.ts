@@ -224,19 +224,21 @@ export const shippedQuantities = (shipments: ShipmentLike[]): Map<number, number
   return shipped;
 };
 
+/**
+ * A line ships quantity − refundCredited units: units an INVOICED refund holds never ship (a fully
+ * refunded unshipped line no longer blocks FULFILLED). Lines with nothing to ship are not relevant;
+ * with none relevant, the order is FULFILLED once something shipped, else UNFULFILLED.
+ */
 export const deriveFulfillmentStatus = (
-  lines: { id: number; quantity: number }[],
+  lines: { id: number; quantity: number; refundCredited?: number }[],
   shipped: Map<number, number>
 ): FulfillmentStatus => {
-  const relevant = lines.filter((l) => l.quantity > 0);
-  if (relevant.length === 0) return 'UNFULFILLED';
-  let anyShipped = false;
-  let allShipped = true;
-  for (const l of relevant) {
-    const q = shipped.get(l.id) ?? 0;
-    if (q > 0) anyShipped = true;
-    if (q < l.quantity) allShipped = false;
-  }
+  const toShip = (l: { quantity: number; refundCredited?: number }) =>
+    Math.max(0, l.quantity - Math.max(0, l.refundCredited ?? 0));
+  const anyShipped = lines.some((l) => l.quantity > 0 && (shipped.get(l.id) ?? 0) > 0);
+  const relevant = lines.filter((l) => toShip(l) > 0);
+  if (relevant.length === 0) return anyShipped ? 'FULFILLED' : 'UNFULFILLED';
+  const allShipped = relevant.every((l) => (shipped.get(l.id) ?? 0) >= toShip(l));
   if (allShipped) return 'FULFILLED';
   return anyShipped ? 'PARTIALLY_FULFILLED' : 'UNFULFILLED';
 };

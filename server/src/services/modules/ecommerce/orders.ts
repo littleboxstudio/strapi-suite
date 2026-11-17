@@ -209,7 +209,7 @@ export type OrderLineView = {
   shipped: number;
   /** ACTIVE + PENDING shipments: units that cannot be shipped again. */
   reserved: number;
-  /** quantity − reserved */
+  /** quantity − reserved − refundCredited (refunded units never ship), at least 0. */
   pending: number;
   /**
    * The pending units that can ship now: all of them once the order owes nothing, else the ones
@@ -223,7 +223,10 @@ export type OrderLineView = {
   returnable: number;
   /** Units held by invoices (invoiced − credited by RETURN): never removed from the order. */
   invoiced: number;
-  /** Units credited by live REFUND credit notes (plan 15): they can never be returned. */
+  /**
+   * Units credited by live REFUND credit notes or reserved by active INVOICED refunds (plan 15):
+   * they can never be returned nor shipped.
+   */
   refundCredited: number;
 };
 
@@ -1231,6 +1234,47 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   /**
+   * The order's active invoice allocations, its live invoices and credit notes (rows), and these
+   * as documents (each with the payments its allocations name).
+   */
+  const loadInvoiceDocs = async (orderId: number) => {
+    const u = uids();
+    const [allocationRows, invoices] = await Promise.all([
+      strapi.db.query(u.invoiceAllocation).findMany({
+        where: { order: { id: orderId }, uniqueKey: { $null: false } },
+        populate: { invoice: { select: ['id'] }, payment: { select: ['id'] } },
+        orderBy: { id: 'asc' },
+      }) as Promise<any[]>,
+      strapi.db.query(u.invoice).findMany({
+        where: { order: { id: orderId }, status: { $in: ACTIVE_INVOICE } },
+        populate: { creditedInvoice: { select: ['id'] } },
+        orderBy: { id: 'asc' },
+      }) as Promise<any[]>,
+    ]);
+    const allocations = (allocationRows ?? [])
+      .map((a) => ({
+        id: a.id as number,
+        invoiceId: idOf(a.invoice),
+        paymentId: idOf(a.payment) as number,
+        amount: num(a.amount),
+        coverage: a.coverage,
+      }))
+      .filter((a) => a.paymentId !== null);
+    const paymentIdsOf = (invoiceId: number) =>
+      allocations.filter((a) => a.invoiceId === invoiceId).map((a) => a.paymentId);
+    const docs = (invoices ?? []).map((row) => readInvoiceDoc(row, paymentIdsOf(row.id)));
+    return { allocations, invoices: invoices ?? [], docs };
+  };
+
+  /**
+   * Units of each order line refunds hold (plan 15): through their REFUND credit note, or else the
+   * elements an active INVOICED refund reserved (each refund counted once). They are never returned
+   * and never shipped.
+   */
+  const refundCreditedOf = (docs: InvoiceDoc[], refunds: any[]): Map<number, number> =>
+    refundCreditedUnits([...docs, ...refundReservationDocs(refunds, docs)]);
+
+  /**
    * The invoicing position (plan 11): active allocations, live invoices and credit notes, what
    * each order line and shipping line has left to invoice, and the payments available to pay a
    * new invoice (net of held refunds).
@@ -1242,33 +1286,14 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     refunds: any[],
     blockingExcess: number
   ): Promise<OrderInvoicing> => {
-    const u = uids();
-    const [allocationRows, invoices, returnRows] = await Promise.all([
-      strapi.db.query(u.invoiceAllocation).findMany({
-        where: { order: { id: order.id }, uniqueKey: { $null: false } },
-        populate: { invoice: { select: ['id'] }, payment: { select: ['id'] } },
-        orderBy: { id: 'asc' },
-      }) as Promise<any[]>,
-      strapi.db.query(u.invoice).findMany({
-        where: { order: { id: order.id }, status: { $in: ACTIVE_INVOICE } },
-        populate: { creditedInvoice: { select: ['id'] } },
-        orderBy: { id: 'asc' },
-      }) as Promise<any[]>,
-      strapi.db.query(u.orderReturn).findMany({
+    const [{ allocations, invoices, docs }, returnRows] = await Promise.all([
+      loadInvoiceDocs(order.id),
+      strapi.db.query(uids().orderReturn).findMany({
         where: { order: { id: order.id } },
         orderBy: { id: 'asc' },
       }) as Promise<any[]>,
     ]);
     const returnShares = (returnRows ?? []).map((r) => readReturnShares(r?.items));
-    const allocations = allocationRows
-      .map((a) => ({
-        id: a.id as number,
-        invoiceId: idOf(a.invoice),
-        paymentId: idOf(a.payment) as number,
-        amount: num(a.amount),
-        coverage: a.coverage,
-      }))
-      .filter((a) => a.paymentId !== null);
     const time = (v: unknown) => {
       const t = v ? new Date(v as string).getTime() : NaN;
       return Number.isFinite(t) ? t : Number.MAX_SAFE_INTEGER;
@@ -1296,9 +1321,6 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       shippingTax: num(order.shippingTax),
       shippingLines: readShippingLines(order),
     };
-    const paymentIdsOf = (invoiceId: number) =>
-      allocations.filter((a) => a.invoiceId === invoiceId).map((a) => a.paymentId);
-    const docs = invoices.map((row) => readInvoiceDoc(row, paymentIdsOf(row.id)));
     const position = invoicingPosition(positionOrder, docs);
     const items = invoiceItems(
       {
@@ -1457,10 +1479,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     const invoicedUnits = netInvoicedUnits(invoicing.position);
     // Units of REFUND credit notes and of the elements active INVOICED refunds without one hold
     // (each refund counted once).
-    const refundCredited = refundCreditedUnits([
-      ...invoicing.docs,
-      ...refundReservationDocs(refunds, invoicing.docs),
-    ]);
+    const refundCredited = refundCreditedOf(invoicing.docs, refunds);
     for (const l of lines) {
       l.invoiced = invoicedUnits.get(l.id) ?? 0;
       l.refundCredited = refundCredited.get(l.id) ?? 0;
@@ -1468,6 +1487,9 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         0,
         Math.min(l.returnable, l.quantity - l.returnedQuantity - l.refundCredited)
       );
+      // Refunded units never ship: they come off the unshipped units first.
+      l.pending = Math.max(0, l.quantity - l.reserved - l.refundCredited);
+      l.shippable = Math.min(l.shippable, l.pending);
     }
     const hasActiveShipment = shipments.some((s) => s.status === 'ACTIVE');
     const editing = orderEditing({
@@ -1729,8 +1751,14 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         await cancelStripeOrphans(order.payments ?? []);
       }
       const shipped = shippedQuantities(await loadShipments(orderId));
+      // Units refunds hold never ship (the same units `computeOrderState` leaves out).
+      const refundCredited = refundCreditedOf((await loadInvoiceDocs(orderId)).docs, refundRows);
       const fulfillmentStatus = deriveFulfillmentStatus(
-        (order.lines ?? []).map((l: any) => ({ id: l.id, quantity: num(l.quantity) })),
+        (order.lines ?? []).map((l: any) => ({
+          id: l.id,
+          quantity: num(l.quantity),
+          refundCredited: refundCredited.get(l.id) ?? 0,
+        })),
         shipped
       );
 
