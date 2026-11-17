@@ -26,7 +26,12 @@ import { NOTICE_BACKGROUND, NOTICE_TEXT } from './NoticeBar';
 import { ActionConfirmModal } from '../ActionConfirmModal';
 import CreateShipment from '../../usecases/orders/createShipment';
 import FetchShipMethods from '../../usecases/orders/fetchShipMethods';
-import { apiErrorCode, apiErrorMessageId, shouldRenewIdempotencyKey } from '../../utils/orderDetail';
+import {
+  apiErrorCode,
+  apiErrorMessageId,
+  linePromotionNames,
+  shouldRenewIdempotencyKey,
+} from '../../utils/orderDetail';
 import StoreSelect from './StoreSelect';
 import { extractFieldErrors } from '../../utils/productForm';
 import { mintUuid } from '../../utils/variantDraft';
@@ -54,6 +59,8 @@ import { ToneBadge } from './StatusBadges';
 
 type Props = {
   order: Order;
+  /** The store's default locale, for the promotion names (as in the Products section). */
+  defaultLocale?: string | null;
   onClose: () => void;
   /** After a shipment was created (or left pending at the carrier). */
   onShipped: () => void;
@@ -90,10 +97,18 @@ const WRAP = { whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'any
  * nor parcels). The customer is always notified.
  * Mount it only while open: each opening mints a new idempotency key.
  */
-const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
+const ShipOrderModal = ({ order, defaultLocale = null, onClose, onShipped }: Props) => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) => formatMessage({ id: getTranslation(id) }, values);
+  /** The promotions that discounted a line, named as in the Products section (null when none). */
+  const promotionNamesOf = (line: Order['lines'][number]): string | null => {
+    const names = linePromotionNames(line.promotionIds ?? [], order.promotions ?? [], {
+      locale: order.locale,
+      defaultLocale,
+    });
+    return names.length ? names.join(', ') : null;
+  };
   const codeText = (code: string) =>
     formatMessage({
       id: getTranslation(`ecommerce.orders.errors.${code}`),
@@ -411,6 +426,14 @@ const ShipOrderModal = ({ order, onClose, onShipped }: Props) => {
                             {line.option && (
                               <Typography variant="pi" textColor="neutral600" style={WRAP}>
                                 {line.option}
+                              </Typography>
+                            )}
+                            {line.isGift && (
+                              <ToneBadge variant="success">{t('ecommerce.orders.detail.lines.gift')}</ToneBadge>
+                            )}
+                            {promotionNamesOf(line) && (
+                              <Typography variant="pi" textColor="success600" style={WRAP}>
+                                {promotionNamesOf(line)}
                               </Typography>
                             )}
                           </Flex>
