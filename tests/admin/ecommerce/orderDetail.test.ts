@@ -984,7 +984,7 @@ describe('payment section actions', () => {
     const available: any[] = ['SHIP', 'CANCEL', 'ADD_PAYMENT', 'SEND_PAYMENT_INSTRUCTIONS', 'REFUND'];
     const all = allowedToolbarActions(available, { canManage: true, canPay: true, canRefund: true });
     // Refund also sits in the Payments section (and in Refunds and credits), no longer in the header.
-    expect(paymentSectionActions(all)).toEqual(['ADD_PAYMENT', 'SEND_PAYMENT_INSTRUCTIONS', 'REFUND']);
+    expect(paymentSectionActions(all)).toEqual(['SEND_PAYMENT_INSTRUCTIONS', 'ADD_PAYMENT', 'REFUND']);
     // Ship sits in the Shipments and deliveries section.
     expect(headerActions(all)).toEqual(['CANCEL']);
     expect(shipmentSectionActions(all)).toEqual(['SHIP']);

@@ -456,7 +456,7 @@ export function allowedToolbarActions(
 }
 
 /** Actions shown in the Payments section instead of the top bar (same availability rules). */
-export const PAYMENT_SECTION_ACTIONS: ToolbarAction[] = ['ADD_PAYMENT', 'SEND_PAYMENT_INSTRUCTIONS', 'REFUND'];
+export const PAYMENT_SECTION_ACTIONS: ToolbarAction[] = ['SEND_PAYMENT_INSTRUCTIONS', 'ADD_PAYMENT', 'REFUND'];
 
 /** Actions shown in the Refunds and credits section (also in Payments; same rules). */
 export const REFUND_SECTION_ACTIONS: ToolbarAction[] = ['REFUND'];
@@ -466,9 +466,9 @@ export function refundSectionActions(allowed: ToolbarAction[]): ToolbarAction[] 
   return allowed.filter((a) => REFUND_SECTION_ACTIONS.includes(a));
 }
 
-/** The allowed actions that belong to the Payments section, in toolbar order. */
+/** The allowed actions that belong to the Payments section, in PAYMENT_SECTION_ACTIONS order. */
 export function paymentSectionActions(allowed: ToolbarAction[]): ToolbarAction[] {
-  return allowed.filter((a) => PAYMENT_SECTION_ACTIONS.includes(a));
+  return PAYMENT_SECTION_ACTIONS.filter((a) => allowed.includes(a));
 }
 
 /** Actions shown in the Shipments and deliveries section. */
