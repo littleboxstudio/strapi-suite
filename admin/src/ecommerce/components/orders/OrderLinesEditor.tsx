@@ -16,7 +16,8 @@ import {
 import { Trash } from '@strapi/icons';
 import QuantityInput from './QuantityInput';
 import DiscountPercentInput from './DiscountPercentInput';
-import { FIT_CELL, PRODUCT_CELL } from './lineCells';
+import { LineThumbnail } from './OrderLinesTable';
+import { FIT_CELL, LINE_CELL, PRODUCT_CELL } from './lineCells';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { formatCents } from '../../utils/money';
 import { lineSubtotal, lineUnitNet, type OrderLineDraft } from '../../utils/orderForm';
@@ -34,6 +35,9 @@ type Props = {
   disabled?: boolean;
 };
 
+const COLUMNS = ['product', 'sku', 'unitPrice', 'quantity', 'discount', 'subtotal'] as const;
+
+/** Create order's products, in the order screen's Products table look, with editable cells. */
 const OrderLinesEditor = ({
   lines,
   onQuantityChange,
@@ -46,6 +50,7 @@ const OrderLinesEditor = ({
   const { formatMessage, locale: uiLocale } = useIntl();
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
+  const money = (cents: number) => formatCents(cents, uiLocale);
 
   if (!lines.length) {
     return (
@@ -58,12 +63,24 @@ const OrderLinesEditor = ({
   }
 
   return (
-    <Table colCount={6} rowCount={lines.length}>
+    <Table colCount={COLUMNS.length + 2} rowCount={lines.length + 1}>
       <Thead>
         <Tr>
-          {(['product', 'unitPrice', 'quantity', 'discount', 'subtotal'] as const).map((column) => (
+          <Th>
+            <VisuallyHidden>{t('ecommerce.orders.detail.lines.photo')}</VisuallyHidden>
+          </Th>
+          {COLUMNS.map((column) => (
             <Th key={column}>
-              <Typography variant="sigma">{t(`ecommerce.orders.lines.${column}`)}</Typography>
+              {column === 'subtotal' ? (
+                // The total sits on the right, as in the order's Products table.
+                <Flex justifyContent="flex-end" style={{ width: '100%' }}>
+                  <Typography variant="sigma">{t(`ecommerce.orders.lines.${column}`)}</Typography>
+                </Flex>
+              ) : (
+                <Typography variant="sigma">
+                  {t(column === 'sku' ? 'ecommerce.orders.detail.lines.sku' : `ecommerce.orders.lines.${column}`)}
+                </Typography>
+              )}
             </Th>
           ))}
           <Th>
@@ -75,20 +92,46 @@ const OrderLinesEditor = ({
         {lines.map((line, index) => {
           const error = errorFor(index);
           const discountError = discountErrorFor(index);
+          const net = lineUnitNet(line);
           return (
             <Tr key={line.variantId}>
-              <Td style={PRODUCT_CELL}>
-                <Flex direction="column" alignItems="flex-start">
+              <Td style={LINE_CELL}>
+                <LineThumbnail imageUrl={line.imageUrl} />
+              </Td>
+              <Td style={{ ...PRODUCT_CELL, maxWidth: 320 }}>
+                <Flex direction="column" alignItems="flex-start" gap={1}>
                   <Typography textColor="neutral800" fontWeight="semiBold">
-                    {line.option ? `${line.name} — ${line.option}` : line.name}
+                    {line.name}
                   </Typography>
-                  <Typography variant="pi" textColor="neutral600">
-                    {line.sku} · {t('ecommerce.orders.picker.stock', { count: line.stock })}
-                  </Typography>
+                  {line.option && (
+                    <Typography variant="pi" textColor="neutral600">
+                      {line.option}
+                    </Typography>
+                  )}
+                  {line.stock !== null && (
+                    <Typography variant="pi" textColor="neutral600">
+                      {t('ecommerce.orders.picker.stock', { count: line.stock })}
+                    </Typography>
+                  )}
                 </Flex>
               </Td>
+              <Td style={LINE_CELL}>
+                <Typography textColor="neutral800">{line.sku}</Typography>
+              </Td>
               <Td style={FIT_CELL}>
-                <Typography textColor="neutral800">{formatCents(lineUnitNet(line), uiLocale)}</Typography>
+                <Flex direction="column" alignItems="flex-start">
+                  {net !== line.unitPrice && (
+                    <Typography
+                      variant="pi"
+                      textColor="neutral500"
+                      style={{ textDecoration: 'line-through' }}
+                      aria-label={`${t('ecommerce.orders.detail.lines.originalPrice')}: ${money(line.unitPrice)}`}
+                    >
+                      {money(line.unitPrice)}
+                    </Typography>
+                  )}
+                  <Typography textColor="neutral800">{money(net)}</Typography>
+                </Flex>
               </Td>
               <Td style={FIT_CELL}>
                 <Box style={{ width: 120 }}>
@@ -97,10 +140,10 @@ const OrderLinesEditor = ({
                       <Field.Label>{t('ecommerce.orders.lines.quantity')}</Field.Label>
                     </VisuallyHidden>
                     <QuantityInput
-                        value={line.quantity}
-                        disabled={disabled}
-                        onChange={(quantity) => onQuantityChange(index, quantity)}
-                      />
+                      value={line.quantity}
+                      disabled={disabled}
+                      onChange={(quantity) => onQuantityChange(index, quantity)}
+                    />
                     <Field.Error />
                   </Field.Root>
                 </Box>
@@ -121,8 +164,12 @@ const OrderLinesEditor = ({
                 </Box>
               </Td>
               <Td style={FIT_CELL}>
-                <Typography textColor="neutral800">
-                  {formatCents(lineSubtotal(line), uiLocale)}
+                <Typography
+                  textColor="neutral800"
+                  fontWeight="semiBold"
+                  style={{ display: 'block', textAlign: 'right' }}
+                >
+                  {money(lineSubtotal(line))}
                 </Typography>
               </Td>
               <Td style={FIT_CELL}>

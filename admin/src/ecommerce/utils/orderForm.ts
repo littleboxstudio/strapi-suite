@@ -194,6 +194,23 @@ export function createTotalsTiles(
   ];
 }
 
+/**
+ * The lines with the current price, names and photo of the quote (a copied order's lines carry its
+ * old ones); the same array when nothing changes.
+ */
+export function refreshLinesFromQuote(lines: OrderLineDraft[], quote: OrderQuote): OrderLineDraft[] {
+  let changed = false;
+  const next = lines.map((l, i) => {
+    const q = quote.lines.find((ql) => !ql.isGift && ql.sourceIndex === i && ql.variantId === l.variantId);
+    if (!q) return l;
+    const fresh = { unitPrice: q.unitPrice, name: q.name, option: q.option, sku: q.sku, imageUrl: q.imageUrl };
+    if ((Object.keys(fresh) as (keyof typeof fresh)[]).every((k) => l[k] === fresh[k])) return l;
+    changed = true;
+    return { ...l, ...fresh };
+  });
+  return changed ? next : lines;
+}
+
 /** Local preview only: the server recomputes every amount when the order is created. */
 export function sumPreviewTotals(
   lines: OrderLineDraft[],

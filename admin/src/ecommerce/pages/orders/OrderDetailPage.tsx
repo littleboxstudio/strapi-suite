@@ -253,6 +253,7 @@ const OrderDetailPage = () => {
         permissions={permissions}
         busy={busy}
         onAction={(action) => dispatchModal({ type: 'OPEN', action })}
+        onDuplicate={() => navigate(`${basePath}/new?duplicate=${order.id}`)}
       />
 
       {/* Every notice of the order in one stack, 12px apart. */}
