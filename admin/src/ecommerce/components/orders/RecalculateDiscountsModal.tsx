@@ -15,6 +15,7 @@ import {
   Thead,
   Tr,
   Typography,
+  VisuallyHidden,
 } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import PreviewDiscounts from '../../usecases/orders/previewDiscounts';
@@ -51,8 +52,8 @@ type Props = {
 /** Wait after the last toggle before pricing the selection again. */
 const PREVIEW_DELAY_MS = 300;
 
-// The design-system cells keep their own padding; amounts sit on the right.
-const cell = { verticalAlign: 'top' } as const;
+// The design-system cells keep their own padding; the checkbox and texts sit on the row's middle.
+const cell = { verticalAlign: 'middle' } as const;
 const amountCell = { ...cell, textAlign: 'right', whiteSpace: 'nowrap' } as const;
 
 /**
@@ -320,47 +321,47 @@ const RecalculateDiscountsModal = ({
             {t(loadError)}
           </Typography>
         )}
-        {/* The totals before and after the recalculation, in a table like the discounts. */}
+        {/* The totals before and after the recalculation: one row each, a column per total. */}
         <Box style={{ opacity: pricing ? 0.5 : 1 }}>
-          <Table colCount={3} rowCount={totals.length + 1}>
+          <Table colCount={totals.length + 1} rowCount={3}>
             <Thead>
               <Tr>
                 <Th>
-                  <Typography variant="sigma">{t('ecommerce.orders.discounts.columns.totals')}</Typography>
+                  <VisuallyHidden>{t('ecommerce.orders.discounts.columns.totals')}</VisuallyHidden>
                 </Th>
-                <Th style={{ width: 150 }}>
-                  <Typography variant="sigma" style={{ display: 'block', width: '100%', textAlign: 'right' }}>
-                    {t('ecommerce.orders.discounts.current')}
-                  </Typography>
-                </Th>
-                <Th style={{ width: 120 }}>
-                  <Typography variant="sigma" style={{ display: 'block', width: '100%', textAlign: 'right' }}>
-                    {t('ecommerce.orders.discounts.after')}
-                  </Typography>
-                </Th>
+                {totals.map((col) => (
+                  <Th key={col.key}>
+                    <Typography variant="sigma" style={{ display: 'block', width: '100%', textAlign: 'right' }}>
+                      {t(`ecommerce.orders.discounts.totals.${col.key}`)}
+                    </Typography>
+                  </Th>
+                ))}
               </Tr>
             </Thead>
             <Tbody>
-              {totals.map((row) => {
-                const owedAfter = row.key === 'due' && row.after > 0;
-                return (
-                  <Tr key={row.key}>
-                    <Td>
-                      <Typography textColor="neutral800" fontWeight={row.key === 'total' ? 'bold' : undefined}>
-                        {t(`ecommerce.orders.discounts.totals.${row.key}`)}
-                      </Typography>
-                    </Td>
-                    <Td style={amountCell}>
-                      <Typography textColor="neutral600">{money(row.before)}</Typography>
-                    </Td>
-                    <Td style={amountCell}>
-                      <Typography textColor={owedAfter ? 'warning600' : 'neutral800'} fontWeight="semiBold">
-                        {money(row.after)}
-                      </Typography>
-                    </Td>
-                  </Tr>
-                );
-              })}
+              {(['current', 'after'] as const).map((side) => (
+                <Tr key={side}>
+                  <Td>
+                    <Typography textColor="neutral800" fontWeight="semiBold">
+                      {t(`ecommerce.orders.discounts.${side}`)}
+                    </Typography>
+                  </Td>
+                  {totals.map((col) => {
+                    const amount = side === 'current' ? col.before : col.after;
+                    const owed = side === 'after' && col.key === 'due' && amount > 0;
+                    return (
+                      <Td key={col.key} style={amountCell}>
+                        <Typography
+                          textColor={owed ? 'warning600' : side === 'current' ? 'neutral600' : 'neutral800'}
+                          fontWeight={side === 'after' || col.key === 'total' ? 'semiBold' : undefined}
+                        >
+                          {money(amount)}
+                        </Typography>
+                      </Td>
+                    );
+                  })}
+                </Tr>
+              ))}
             </Tbody>
           </Table>
         </Box>
