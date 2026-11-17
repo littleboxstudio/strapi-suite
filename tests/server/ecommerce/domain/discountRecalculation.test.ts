@@ -173,6 +173,14 @@ describe('recalculateDiscounts — applied and still valid', () => {
     expect(r.after).toMatchObject({ total: 5600, paid: 5600, due: 0, excess: 0 });
   });
 
+  it('the credit adjustment of INVOICED refunds lowers before and after', () => {
+    const plain = recalculateDiscounts(base);
+    const r = recalculateDiscounts({ ...base, creditAdjustment: 300 });
+    expect(r.before.total).toBe(plain.before.total - 300);
+    expect(r.after.total).toBe(plain.after.total - 300);
+    expect(r.after.creditAdjustment).toBe(300);
+  });
+
   it('ignores unknown keys in the selection', () => {
     const r = recalculateDiscounts(base, ['x:9', 'p:99', 'p:1']);
     expect(r.selection).toEqual(['p:1']);

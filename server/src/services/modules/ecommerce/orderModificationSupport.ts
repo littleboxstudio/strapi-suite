@@ -7,6 +7,7 @@ import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID, LtbConfigs } from '../../../config';
 import { EcommerceValidationError } from './errors';
 import type { PaymentLike, RefundLike } from './domain/orders';
+import { invoicedRefundAdjustment } from './domain/refunds';
 import type {
   CatalogVariant as ModificationCatalogVariant,
   ExistingLine,
@@ -85,6 +86,7 @@ export function createOrderModificationSupport(strapi: Core.Strapi) {
     orderDiscount: num(state.order.orderDiscount),
     shippingOriginal: num(state.order.shippingOriginal),
     shippingDiscount: num(state.order.shippingDiscount),
+    creditAdjustment: invoicedRefundAdjustment(state.refunds),
     payments: state.payments.map(toPaymentLike),
     refunds: state.refunds.map(toRefundLike),
     promotions: appliedOf(state.order),

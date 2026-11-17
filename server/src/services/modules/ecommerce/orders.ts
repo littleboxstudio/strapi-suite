@@ -31,7 +31,7 @@ import {
   toPaymentLike,
   toRefundLike,
 } from './orderModificationSupport';
-import { refundableAmount } from './domain/refunds';
+import { invoicedRefundAdjustment, refundableAmount } from './domain/refunds';
 import {
   invoicedManualDiscountIds,
   invoicingPosition,
@@ -257,6 +257,8 @@ export type OrderView = {
     shippingOriginal: number;
     shippingDiscount: number;
     shippingTotal: number;
+    /** What the INVOICED refunds take off the total (plan 15); `total` already reflects it. */
+    creditAdjustment: number;
     total: number;
   };
   lines: OrderLineView[];
@@ -1512,6 +1514,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         shippingOriginal: num(order.shippingOriginal),
         shippingDiscount: num(order.shippingDiscount),
         shippingTotal: num(order.shippingTotal),
+        creditAdjustment: invoicedRefundAdjustment(refundRows),
         total: num(order.total),
       },
       lines,

@@ -5,6 +5,21 @@ export const refundableAmount = (summary: FinancialSummary, inFlightRefunds: num
 
 const MONEY_HOLDING = ['PENDING', 'PROCESSING', 'COMPLETED'];
 
+/** Refund statuses that count for an INVOICED refund's credit adjustment (plan 15). */
+const ADJUSTING = ['PENDING', 'PROCESSING', 'COMPLETED'];
+
+/**
+ * What the order's INVOICED refunds take off its total (plan 15): Σ of those PENDING, PROCESSING
+ * or COMPLETED. Derived from the refunds, never stored: a FAILED or CANCELLED (removed) refund
+ * gives its amount back at once. Pass it as `creditAdjustment` to `computeTotals`.
+ */
+export const invoicedRefundAdjustment = (
+  refunds: { scope?: string | null; status: string; amount: unknown }[]
+): number =>
+  refunds
+    .filter((r) => r.scope === 'INVOICED' && ADJUSTING.includes(r.status))
+    .reduce((s, r) => s + (Number(r.amount) || 0), 0);
+
 /**
  * Design 4.7: value paid by store credit is never given back as money. Money refunds
  * (MANUAL_TRANSFER, STRIPE) are capped by the completed payments other than STORE_CREDIT minus

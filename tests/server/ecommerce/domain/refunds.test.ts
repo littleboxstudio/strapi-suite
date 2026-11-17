@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   refundableAmount,
+  invoicedRefundAdjustment,
   allocateStripeRefund,
   validateRefundRequest,
   type RefundSource,
@@ -117,5 +118,25 @@ describe('validateRefundRequest', () => {
     expect(validateRefundRequest(ok, { refundable: 5000, stripeAvailable: 0 })).toEqual([
       { path: 'method', code: 'stripe_unavailable' },
     ]);
+  });
+});
+
+describe('invoicedRefundAdjustment', () => {
+  it('sums the INVOICED refunds that count (PENDING, PROCESSING, COMPLETED)', () => {
+    expect(
+      invoicedRefundAdjustment([
+        { scope: 'INVOICED', status: 'COMPLETED', amount: 490 },
+        { scope: 'INVOICED', status: 'PROCESSING', amount: 100 },
+        { scope: 'INVOICED', status: 'PENDING', amount: 10 },
+        { scope: 'INVOICED', status: 'FAILED', amount: 1000 },
+        { scope: 'INVOICED', status: 'CANCELLED', amount: 2000 },
+        { scope: 'EXCESS', status: 'COMPLETED', amount: 3000 },
+        { status: 'COMPLETED', amount: 4000 },
+      ])
+    ).toBe(600);
+  });
+
+  it('is 0 without refunds', () => {
+    expect(invoicedRefundAdjustment([])).toBe(0);
   });
 });

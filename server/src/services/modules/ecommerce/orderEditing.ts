@@ -63,6 +63,7 @@ import {
   type DiscountRecalculation,
 } from './domain/discountRecalculation';
 import { computeTotals, financialSummary, MAX_MONEY_CENTS, type Address } from './domain/orders';
+import { invoicedRefundAdjustment } from './domain/refunds';
 import { normalizeEmail } from './domain/email';
 import { marketCountry, marketOf } from './domain/markets';
 import { STORE_PICKUP_ID } from './domain/storePickup';
@@ -489,6 +490,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         orderDiscount: num(order.orderDiscount),
         shippingGross: chargedShipping(readShippingLines(order)),
         shippingDiscount: num(order.shippingDiscount),
+        creditAdjustment: invoicedRefundAdjustment(state.refunds),
         email,
         codes,
         candidates,
@@ -1187,6 +1189,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         orderDiscount: orderDiscount ?? num(order.orderDiscount),
         shippingOriginal: gross,
         shippingDiscount: Math.max(0, Math.min(num(order.shippingDiscount), gross)),
+        creditAdjustment: invoicedRefundAdjustment(state.refunds),
       }
     );
     const s = financialSummary(

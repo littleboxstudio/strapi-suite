@@ -7,6 +7,7 @@ import { PLUGIN_ID, LtbConfigs } from '../../../config';
 import { EcommerceValidationError, type ValidationIssue } from './errors';
 import { isUniqueViolation } from './dbErrors';
 import { computeTotals, type Address, type FinancialSummary, type OrderTotals } from './domain/orders';
+import { invoicedRefundAdjustment } from './domain/refunds';
 import {
   clearFlag,
   raiseFlag,
@@ -316,6 +317,7 @@ export function createEditRunner(
         orderDiscount: data.orderDiscount ?? num(order.orderDiscount),
         shippingOriginal,
         shippingDiscount,
+        creditAdjustment: invoicedRefundAdjustment(state.refunds),
       }
     );
     if (data.promotions) changes.promotions = data.promotions;
