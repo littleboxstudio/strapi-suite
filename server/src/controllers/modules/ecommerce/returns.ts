@@ -32,7 +32,7 @@ const EcommerceReturnController = ({ strapi }: { strapi: Core.Strapi }) => {
         const input = {
           lines: lineQuantities(MSG, b.lines, true),
           reason: requiredString(MSG, 'reason', b.reason, 200),
-          notes: optionalString(MSG, 'notes', b.notes, 2000),
+          notes: optionalString(MSG, 'notes', b.notes, 500),
           idempotencyKey: requiredString(MSG, 'idempotencyKey', b.idempotencyKey, MAX_KEY),
         };
         const result = await returns().register(id, input, `user:${ctx.state?.user?.id}`);

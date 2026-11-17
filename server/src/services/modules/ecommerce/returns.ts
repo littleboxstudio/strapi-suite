@@ -11,7 +11,7 @@ import type { OrderHistoryEntry } from './orderHistory';
 import type { StockMoveInput } from './stock';
 
 const MAX_REASON = 200;
-const MAX_NOTES = 2000;
+const MAX_NOTES = 500;
 const MAX_KEY = 255;
 
 export type ReturnInput = {

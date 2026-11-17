@@ -62,8 +62,8 @@ describe('validateReturnForm', () => {
   it('requires the reason and limits reason and notes', () => {
     expect(validateReturnForm(form({ reason: ' ' }), lines)).toEqual({ reason: 'required' });
     expect(validateReturnForm(form({ reason: 'x'.repeat(201) }), lines)).toEqual({ reason: 'too_long' });
-    expect(validateReturnForm(form({ notes: 'x'.repeat(2001) }), lines)).toEqual({ notes: 'too_long' });
-    expect(validateReturnForm(form({ notes: 'x'.repeat(2000) }), lines)).toEqual({});
+    expect(validateReturnForm(form({ notes: 'x'.repeat(501) }), lines)).toEqual({ notes: 'too_long' });
+    expect(validateReturnForm(form({ notes: 'x'.repeat(500) }), lines)).toEqual({});
   });
 });
 
