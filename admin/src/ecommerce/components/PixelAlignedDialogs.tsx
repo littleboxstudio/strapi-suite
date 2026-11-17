@@ -6,11 +6,13 @@ import { createGlobalStyle } from 'styled-components';
  * field border inside sits between device pixels: on a Retina screen some of them stop being
  * drawn once a field loses focus. Rounding the position to whole pixels keeps them drawn; a
  * browser without CSS `round()` ignores these rules and keeps the default placement. Mounted by
- * the e-commerce layout only, so it applies while the e-commerce pages are open.
+ * the e-commerce layout only, so it applies while the e-commerce pages are open. Popovers
+ * (dropdowns, search results) are dialogs too but are placed by their popper (they carry
+ * `data-side`): they are left alone.
  */
 const PixelAlignedDialogs = createGlobalStyle`
-  [role='dialog'][data-state='open'],
-  [role='alertdialog'][data-state='open'] {
+  [role='dialog'][data-state='open']:not([data-side]),
+  [role='alertdialog'][data-state='open']:not([data-side]) {
     top: round(nearest, 50%, 1px);
     left: round(nearest, 50%, 1px);
     transform: translate(round(nearest, -50%, 1px), round(nearest, -50%, 1px));
