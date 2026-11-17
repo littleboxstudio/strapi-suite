@@ -21,6 +21,7 @@ import EmptyProducts from './illustrations/EmptyProducts';
 import { HeaderActionsProvider } from './components/HeaderActions';
 import { usePromotionPermissions } from './hooks/usePromotionPermissions';
 import { PROMOTIONS_READ_ACTION, filterMenu } from './utils/rbac';
+import PixelAlignedDialogs from './components/PixelAlignedDialogs';
 
 /** Text-only side menu. */
 const MENU = [
@@ -171,6 +172,7 @@ const EcommerceLayout = ({ children }: { children: ReactNode }) => {
 
   return (
     <Shell>
+      <PixelAlignedDialogs />
       <TopBar>
         <LogoSlot>
           <Logo />
