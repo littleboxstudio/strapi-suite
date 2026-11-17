@@ -52,10 +52,11 @@ const ReturnsSection = ({
                     </Typography>
                   </Flex>
                 </Td>
-                <Td style={{ maxWidth: 280 }}>
-                  <Flex direction="column" alignItems="flex-start">
+                {/* A long product name wraps inside the cell instead of running over the next one. */}
+                <Td style={{ maxWidth: 280, whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                  <Flex direction="column" alignItems="flex-start" gap={1}>
                     {r.items.map((i) => (
-                      <Typography key={i.orderLineId} variant="pi" textColor="neutral800" ellipsis>
+                      <Typography key={i.orderLineId} variant="pi" textColor="neutral800">
                         {i.quantity} × {i.name}
                         {i.option ? ` (${i.option})` : ''} ·{' '}
                         {t(i.restock ? 'ecommerce.orders.returns.restocked' : 'ecommerce.orders.returns.notRestocked')}
@@ -63,7 +64,7 @@ const ReturnsSection = ({
                     ))}
                   </Flex>
                 </Td>
-                <Td style={{ maxWidth: 260 }}>
+                <Td style={{ maxWidth: 260, whiteSpace: 'normal', wordBreak: 'break-word' }}>
                   <Flex direction="column" alignItems="flex-start">
                     <Typography textColor="neutral800">{r.reason || '—'}</Typography>
                     {r.notes && (
