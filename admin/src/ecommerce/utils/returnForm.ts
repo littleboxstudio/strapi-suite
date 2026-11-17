@@ -10,29 +10,53 @@ export type ReturnForm = { lines: ReturnLineDraft[]; reason: string; notes: stri
 
 type ReturnableLine = { id: number; returnable: number; unitPrice: number; unitDiscount: number };
 
+/** A line as the return form reads it: `returnable` comes from the server view. */
+type FormLine = {
+  id: number;
+  returnable: number;
+  /** Units a REFUND credit note credited (plan 15): never returnable. */
+  refundCredited?: number;
+  shipped?: number;
+  returnedQuantity?: number;
+};
+
 /**
- * Lines with shipped units not yet returned, quantity 0. Restock is on by default, except on a
+ * Lines with shipped units not yet returned, quantity 0 (a line whose units were all credited by a
+ * refund credit note is listed too, with nothing returnable). Restock is on by default, except on a
  * cancelled order: the cancellation already put every held unit back.
  */
-export function defaultReturnLines(
-  lines: { id: number; returnable: number }[],
-  orderStatus: OrderStatus
-): ReturnLineDraft[] {
+export function defaultReturnLines(lines: FormLine[], orderStatus: OrderStatus): ReturnLineDraft[] {
   return lines
-    .filter((l) => l.returnable > 0)
+    .filter((l) => l.returnable > 0 || (l.refundCredited ?? 0) > 0)
     .map((l) => ({ orderLineId: l.id, quantity: '0', restock: orderStatus !== 'CANCELLED' }));
 }
 
+/**
+ * Why `q` units of `line` exceed what is returnable: units a refund credit note credited
+ * (UNITS_REFUND_CREDITED) while they are within the shipped units not yet returned, else
+ * QUANTITY_EXCEEDS_RETURNABLE.
+ */
+const exceededCode = (line: FormLine | undefined, q: number): string => {
+  const credited = line?.refundCredited ?? 0;
+  if (!line || credited <= 0) return 'QUANTITY_EXCEEDS_RETURNABLE';
+  const shippedLeft =
+    line.shipped !== undefined && line.returnedQuantity !== undefined
+      ? line.shipped - line.returnedQuantity
+      : line.returnable + credited;
+  return q <= shippedLeft ? 'UNITS_REFUND_CREDITED' : 'QUANTITY_EXCEEDS_RETURNABLE';
+};
+
 /** 0 ≤ quantity ≤ returnable, at least one unit, a reason (≤ 200) and notes ≤ 2000. */
-export function validateReturnForm(form: ReturnForm, lines: { id: number; returnable: number }[]): FormErrors {
+export function validateReturnForm(form: ReturnForm, lines: FormLine[]): FormErrors {
   const errors: FormErrors = {};
-  const returnableOf = new Map(lines.map((l) => [l.id, l.returnable]));
+  const byId = new Map(lines.map((l) => [l.id, l]));
   let units = 0;
   for (const line of form.lines) {
     const q = parseQuantity(line.quantity);
+    const view = byId.get(line.orderLineId);
     if (q === null) errors[`lines.${line.orderLineId}`] = 'invalid_quantity';
-    else if (q > (returnableOf.get(line.orderLineId) ?? 0)) {
-      errors[`lines.${line.orderLineId}`] = 'QUANTITY_EXCEEDS_RETURNABLE';
+    else if (q > (view?.returnable ?? 0)) {
+      errors[`lines.${line.orderLineId}`] = exceededCode(view, q);
     } else units += q;
   }
   if (!units && !Object.keys(errors).length) errors.lines = 'required';

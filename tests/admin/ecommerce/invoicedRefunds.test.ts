@@ -453,6 +453,7 @@ describe('invoiced refunds translations', () => {
     'ecommerce.orders.review.reason.REFUND_REVERSED_WITH_CREDIT_NOTE',
     'ecommerce.orders.review.reasonNoDate.REFUND_REVERSED_WITH_CREDIT_NOTE',
     'ecommerce.orders.errors.UNITS_REFUND_CREDITED',
+    'ecommerce.orders.returns.refundCredited',
   ])('%s has en and pt', (key) => {
     expect(en[P + key], key).toBeTruthy();
     expect(pt[P + key], key).toBeTruthy();

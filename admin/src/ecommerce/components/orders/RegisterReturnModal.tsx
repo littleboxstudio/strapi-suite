@@ -394,7 +394,15 @@ const RegisterReturnModal = ({ order, canRefund, onClose, onRefundNow }: Props) 
                           <Typography textColor="neutral800">{line.returnedQuantity}</Typography>
                         </Td>
                         <Td style={FIT_CELL}>
-                          <Typography textColor="neutral800">{line.returnable}</Typography>
+                          <Flex direction="column" alignItems="flex-start">
+                            <Typography textColor="neutral800">{line.returnable}</Typography>
+                            {/* Units a refund credit note credited are never returnable (plan 15). */}
+                            {(line.refundCredited ?? 0) > 0 && (
+                              <Typography variant="pi" textColor="neutral600">
+                                {t('ecommerce.orders.returns.refundCredited', { count: line.refundCredited })}
+                              </Typography>
+                            )}
+                          </Flex>
                         </Td>
                         <InputTd style={{ width: 120 }}>
                           <Field.Root name={`quantity-${line.id}`} error={fieldError(`lines.${line.id}`)}>

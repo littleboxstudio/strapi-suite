@@ -44,6 +44,7 @@ import {
   invoicedManualDiscountIds,
   invoicingPosition,
   netInvoicedUnits,
+  refundCreditedUnits,
   paymentNets,
   readInvoiceDoc,
   type InvoiceDoc,
@@ -213,10 +214,15 @@ export type OrderLineView = {
    * its payments cover (paid units not yet shipped).
    */
   shippable: number;
-  /** shipped − returnedQuantity */
+  /**
+   * shipped − returnedQuantity, and at most quantity − returnedQuantity − refundCredited: units a
+   * REFUND credit note credited are never returnable (plan 15).
+   */
   returnable: number;
   /** Units held by invoices (invoiced − credited by RETURN): never removed from the order. */
   invoiced: number;
+  /** Units credited by live REFUND credit notes (plan 15): they can never be returned. */
+  refundCredited: number;
 };
 
 /** A refund as the order shows it (newest first). No Stripe ids or store credit codes. */
@@ -1218,6 +1224,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       shippable: Math.max(0, quantity - r),
       returnable: Math.max(0, s - num(l.returnedQuantity)),
       invoiced: 0,
+      refundCredited: 0,
     };
   };
 
@@ -1438,7 +1445,15 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
           })
         : 0;
     const invoicedUnits = netInvoicedUnits(invoicing.position);
-    for (const l of lines) l.invoiced = invoicedUnits.get(l.id) ?? 0;
+    const refundCredited = refundCreditedUnits(invoicing.docs);
+    for (const l of lines) {
+      l.invoiced = invoicedUnits.get(l.id) ?? 0;
+      l.refundCredited = refundCredited.get(l.id) ?? 0;
+      l.returnable = Math.max(
+        0,
+        Math.min(l.returnable, l.quantity - l.returnedQuantity - l.refundCredited)
+      );
+    }
     const hasActiveShipment = shipments.some((s) => s.status === 'ACTIVE');
     const editing = orderEditing({
       orderStatus: order.orderStatus,

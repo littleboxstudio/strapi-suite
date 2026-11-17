@@ -3,7 +3,11 @@ import { PLUGIN_ID, LtbConfigs } from '../../../config';
 import { EcommerceValidationError, type ValidationIssue } from './errors';
 import { isUniqueViolation } from './dbErrors';
 import { computeTotals, type OrderActionKey } from './domain/orders';
-import { returnableQuantities, validateReturnRequest } from './domain/fulfillment';
+import {
+  returnableQuantities,
+  validateRefundCreditedReturn,
+  validateReturnRequest,
+} from './domain/fulfillment';
 import { computeReturnShares } from './domain/returnShares';
 import { invoicedRefundAdjustment, refundableAmount } from './domain/refunds';
 import type { OrderState } from './orders';
@@ -193,6 +197,7 @@ const EcommerceReturnService = ({ strapi }: { strapi: Core.Strapi }) => {
     orders().assertAction(state, 'REGISTER_RETURN');
     const shipped = new Map(state.lines.map((l: any) => [l.id, l.shipped]));
     const issues = validateReturnRequest(returnableQuantities(state.lines, shipped), lines);
+    if (!issues.length) issues.push(...validateRefundCreditedReturn(state.lines, lines));
     if (issues.length) throw new EcommerceValidationError('Invalid return', issues);
     const computed = sharesFor(state, lines);
     return {
@@ -232,6 +237,8 @@ const EcommerceReturnService = ({ strapi }: { strapi: Core.Strapi }) => {
         orders().assertAction(state, 'REGISTER_RETURN');
         const shipped = new Map(state.lines.map((l) => [l.id, l.shipped]));
         const issues = validateReturnRequest(returnableQuantities(state.lines, shipped), n.lines);
+        // Units a REFUND credit note credited never come back (plan 15).
+        if (!issues.length) issues.push(...validateRefundCreditedReturn(state.lines, n.lines));
         if (issues.length) throw new EcommerceValidationError('Invalid return', issues);
 
         const order = state.order;

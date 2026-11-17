@@ -141,3 +141,22 @@ export const validateReturnRequest = (
   }
   return issues;
 };
+
+/**
+ * Units a REFUND credit note credited can never be returned (plan 15): per requested line, at most
+ * quantity − returned − refund-credited units. Run after `validateReturnRequest` passed.
+ */
+export const validateRefundCreditedReturn = (
+  lines: { id: number; quantity: number; returnedQuantity: number; refundCredited: number }[],
+  request: { orderLineId: number; quantity: number }[],
+): ValidationIssue[] => {
+  const byId = new Map(lines.map((l) => [l.id, l]));
+  const issues: ValidationIssue[] = [];
+  request.forEach((r, i) => {
+    const l = byId.get(r.orderLineId);
+    if (!l || !(l.refundCredited > 0)) return;
+    const left = Math.max(0, l.quantity - l.returnedQuantity - l.refundCredited);
+    if (r.quantity > left) issues.push({ path: `lines.${i}.quantity`, code: 'UNITS_REFUND_CREDITED' });
+  });
+  return issues;
+};

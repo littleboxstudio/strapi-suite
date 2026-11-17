@@ -91,3 +91,29 @@ describe('buildReturnInput', () => {
     expect(buildReturnInput(form(), 'k2')).not.toHaveProperty('notes');
   });
 });
+
+describe('units a REFUND credit note credited (plan 15)', () => {
+  const credited = [
+    { id: 1, returnable: 1, refundCredited: 1, unitPrice: 1000, unitDiscount: 0 },
+    { id: 4, returnable: 0, refundCredited: 1, unitPrice: 2000, unitDiscount: 0 },
+  ];
+
+  it('a line whose shipped units were all refund-credited is listed, not returnable', () => {
+    expect(defaultReturnLines(credited, 'OPEN')).toEqual([
+      { orderLineId: 1, quantity: '0', restock: true },
+      { orderLineId: 4, quantity: '0', restock: true },
+    ]);
+  });
+
+  it('asking for credited units is UNITS_REFUND_CREDITED; within the returnable ones it passes', () => {
+    expect(
+      validateReturnForm(form({ lines: [{ orderLineId: 4, quantity: '1', restock: true }] }), credited)
+    ).toEqual({ 'lines.4': 'UNITS_REFUND_CREDITED' });
+    expect(
+      validateReturnForm(form({ lines: [{ orderLineId: 1, quantity: '2', restock: true }] }), credited)
+    ).toEqual({ 'lines.1': 'UNITS_REFUND_CREDITED' });
+    expect(
+      validateReturnForm(form({ lines: [{ orderLineId: 1, quantity: '1', restock: true }] }), credited)
+    ).toEqual({});
+  });
+});
