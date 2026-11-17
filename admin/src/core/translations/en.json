@@ -1178,6 +1178,7 @@
   "littlebox-strapi-suite.ecommerce.orders.notifications.statuses.SENT": "Sent",
   "littlebox-strapi-suite.ecommerce.orders.notifications.statuses.FAILED": "Failed",
   "littlebox-strapi-suite.ecommerce.orders.notifications.statuses.SKIPPED": "Skipped",
+  "littlebox-strapi-suite.ecommerce.orders.notifications.statuses.SENDING": "Sending",
   "littlebox-strapi-suite.ecommerce.orders.notifications.errors.EMAIL_NOT_CONFIGURED": "e-mail service inactive",
   "littlebox-strapi-suite.ecommerce.orders.notifications.errors.NO_RECIPIENT": "no customer e-mail",
   "littlebox-strapi-suite.ecommerce.orders.notifications.errors.IN_PROGRESS": "sending, or interrupted (resend it if it stays like this)",

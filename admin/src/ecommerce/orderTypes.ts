@@ -955,7 +955,8 @@ export type CreateRefundInput = {
 // Notifications
 // ---------------------------------------------------------------------------
 
-export type NotificationStatus = 'SENT' | 'FAILED' | 'SKIPPED';
+/** `SENDING`: the e-mail is being sent right now (shown until it is SENT or FAILED). */
+export type NotificationStatus = 'SENT' | 'FAILED' | 'SKIPPED' | 'SENDING';
 
 export type NotificationView = {
   id: number;

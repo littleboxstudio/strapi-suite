@@ -389,6 +389,18 @@ describe('EcommerceNotificationService.resend / listForOrder', () => {
     expect(list[0]).toMatchObject({ status: 'SENT', recipient: 'Ana@Example.pt', attempts: 1 });
     expect(await c.notifications.listForOrder(other)).toHaveLength(1);
   });
+
+  it('a row being sent reads as SENDING (no error); a stale claim reads as FAILED', async () => {
+    const c = setup();
+    const orderId = await createOrder(c);
+    const [row] = notifs(c);
+    // A sender's claim: stored as FAILED / IN_PROGRESS.
+    Object.assign(row, { status: 'FAILED', error: 'IN_PROGRESS', updatedAt: new Date().toISOString() });
+    expect((await c.notifications.listForOrder(orderId))[0]).toMatchObject({ status: 'SENDING', error: null });
+    // Left by a crash long ago: resendable, shown as a failure.
+    row.updatedAt = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    expect((await c.notifications.listForOrder(orderId))[0]).toMatchObject({ status: 'FAILED', error: 'IN_PROGRESS' });
+  });
 });
 
 describe('subscribeNotifications', () => {
