@@ -139,6 +139,13 @@ const invalid = (path: string, code: string) =>
 /** Keys the service generates itself: a client key in this namespace is refused. */
 const RESERVED_KEY = /^cancel-credit:/;
 
+/** `metadata.creditNoteId` as a positive integer id, else null. */
+const creditNoteIdOf = (r: any): number | null => {
+  const raw = r?.metadata?.creditNoteId;
+  const n = typeof raw === 'number' || typeof raw === 'string' ? Number(raw) : NaN;
+  return Number.isInteger(n) && n > 0 ? n : null;
+};
+
 export const toRefundView = (r: any): RefundView => {
   const p = r.payment && typeof r.payment === 'object' ? r.payment : null;
   const sc = r.storeCredit && typeof r.storeCredit === 'object' ? r.storeCredit : null;
@@ -147,9 +154,7 @@ export const toRefundView = (r: any): RefundView => {
     method: r.method,
     kind: r.kind,
     scope: r.scope === 'INVOICED' ? 'INVOICED' : 'EXCESS',
-    creditNoteId: Number.isInteger(Number(r.metadata?.creditNoteId)) && r.metadata?.creditNoteId != null
-      ? Number(r.metadata.creditNoteId)
-      : null,
+    creditNoteId: creditNoteIdOf(r),
     status: r.status,
     amount: num(r.amount),
     currency: r.currency ?? 'EUR',

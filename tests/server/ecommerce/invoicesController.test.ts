@@ -292,11 +292,12 @@ describe('EcommerceInvoiceController', () => {
     expect(issueRefundCreditNote).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['REFUND_CREDITED_INVOICE'])('%s is a 409', async (code) => {
-    const issueRefundCreditNote = vi.fn().mockRejectedValue(new EcommerceValidationError('x', [{ path: 'p', code }]));
-    const c = createInvoices({ strapi: strapiWith({ issueRefundCreditNote }) });
-    const ctx = body({ items: [{ invoiceId: 3, index: 0, quantity: 1 }], idempotencyKey: 'k' });
-    await c.issueRefundCreditNote(ctx);
+  it('a CORRECTION refused on a REFUND-credited invoice (REFUND_CREDITED_INVOICE) is a 409', async () => {
+    const code = 'REFUND_CREDITED_INVOICE';
+    const issueCreditNote = vi.fn().mockRejectedValue(new EcommerceValidationError('x', [{ path: 'creditType', code }]));
+    const c = createInvoices({ strapi: strapiWith({ issueCreditNote }) });
+    const ctx = body({ creditType: 'CORRECTION', reason: 'Wrong data', idempotencyKey: 'k' });
+    await c.issueCreditNote(ctx);
     expect(ctx.status).toBe(409);
     expect(ctx.body.error.details.code).toBe(code);
   });
