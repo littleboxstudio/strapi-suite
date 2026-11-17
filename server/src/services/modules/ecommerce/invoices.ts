@@ -735,10 +735,12 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
 
   /**
    * Whether a late credit note credits what is no longer there: its invoice was annulled
-   * meanwhile, or another credit note took the value, units or returned units it credits. The row
-   * is FAILED, so `docs` count it out.
+   * meanwhile, or another credit note took the value, units or returned units it credits, or an
+   * active INVOICED refund without a credit note reserved them (plan 15; a REFUND credit note's own
+   * refund left out). The row is FAILED, so `docs` count it out.
    */
-  const lateCreditNoteDuplicates = async (row: any, invoicing: OrderState['invoicing']) => {
+  const lateCreditNoteDuplicates = async (row: any, state: OrderState) => {
+    const { invoicing } = state;
     const creditNote = readInvoiceDoc(row, []);
     const invoiceIds = creditedInvoiceIds(creditNote);
     if (!invoiceIds.length) return true;
@@ -751,11 +753,13 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
       if (other != null && Number(other) !== row.id) return true;
     }
     // Each invoice it credits (one credit note may credit several, plan 15), on its own entries.
+    const ownRefundId = creditNote.creditType === 'REFUND' ? Number(row.metadata?.refundId) || null : null;
+    const docs = [...invoicing.docs, ...refundReservationDocs(state.refunds, invoicing.docs, ownRefundId)];
     for (const invoiceId of invoiceIds) {
       const original = await findRow({ id: invoiceId });
       if (!original || invoicing.position.annulledInvoiceIds.includes(original.id)) return true;
       const invoice = readInvoiceDoc(original, []);
-      const options = creditOptions(invoice, invoicing.docs, invoicing.positionOrder);
+      const options = creditOptions(invoice, docs, invoicing.positionOrder);
       if (exceedsCreditable(creditNote, invoice, options)) return true;
     }
     return false;
@@ -786,10 +790,11 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     ctx: { actor: string; collector: Collector }
   ) => {
     // The row is FAILED, so the position is computed without it (ruling 14).
-    const { invoicing } = await orders().computeOrderState(orderId);
+    const state = await orders().computeOrderState(orderId);
+    const { invoicing } = state;
     const creditNote = row.kind === 'CREDIT_NOTE';
     let duplicate = creditNote
-      ? await lateCreditNoteDuplicates(row, invoicing)
+      ? await lateCreditNoteDuplicates(row, state)
       : !fitsPosition(invoicing.position, readInvoiceDoc(row, []), invoicing.positionOrder) ||
         discountsTakenMeanwhile(row, invoicing.items.discounts);
     const q = strapi.db.query(uids().invoiceAllocation);
