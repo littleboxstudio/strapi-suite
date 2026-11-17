@@ -329,3 +329,26 @@ describe('EcommerceOrderController promotions', () => {
     expect(ctx.body.totals).toBeDefined();
   });
 });
+
+describe('EcommerceOrderController payment method suggestions', () => {
+  it('lists the suggestions', async () => {
+    const list = vi.fn().mockResolvedValue({ names: ['Cash'] });
+    const c = orders({ EcommercePaymentMethodSuggestionService: { list } });
+    const ctx = mkCtx();
+    await c.paymentMethodSuggestions(ctx);
+    expect(ctx.body).toEqual({ names: ['Cash'] });
+  });
+
+  it('removes (hides) a suggestion by its URL-decoded key; a blank key is a 400', async () => {
+    const remove = vi.fn().mockResolvedValue({ key: 'mbway', hidden: true });
+    const c = orders({ EcommercePaymentMethodSuggestionService: { remove } });
+    const ctx = mkCtx({ params: { key: 'MB Way' } });
+    await c.removePaymentMethodSuggestion(ctx);
+    expect(remove).toHaveBeenCalledWith('MB Way');
+    expect(ctx.body).toEqual({ key: 'mbway', hidden: true });
+
+    const blank = mkCtx({ params: { key: '  ' } });
+    await c.removePaymentMethodSuggestion(blank);
+    expect(blank.badRequest).toHaveBeenCalled();
+  });
+});

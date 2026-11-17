@@ -27,6 +27,8 @@ const orders: [string, string, string, string][] = [
   ['POST', `${O}/:id/store-credit-payment`, 'addStoreCreditPayment', P.ordersManage],
   ['POST', `${O}/:id/cancel`, 'cancel', P.ordersManage],
   ['POST', `${O}/:id/archive`, 'archive', P.ordersManage],
+  ['GET', '/admin/ecommerce/payment-methods/suggestions', 'paymentMethodSuggestions', P.ordersManage],
+  ['DELETE', '/admin/ecommerce/payment-methods/suggestions/:key', 'removePaymentMethodSuggestion', P.ordersManage],
 ];
 const editing: [string, string, string, string][] = [
   ['GET', `${O}/:id/shipping-address/countries`, 'shippingAddressCountries', P.ordersManage],

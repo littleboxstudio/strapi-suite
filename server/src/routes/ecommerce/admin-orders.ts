@@ -21,6 +21,11 @@ const build = (controller: string) => (
 });
 
 const route = build('EcommerceOrderController');
+/** Order routes outside `/admin/ecommerce/orders`. */
+const routeAt = (method: string, path: string, handler: string, action: string) => ({
+  ...route(method, '', handler, action),
+  path: `/admin/ecommerce${path}`,
+});
 const edit = build('EcommerceOrderEditingController');
 
 const { ordersRead: read, ordersManage: manage, paymentsManage: pay } = ECOMMERCE_PERMISSIONS;
@@ -42,6 +47,9 @@ export default [
   route('POST', '/:id/store-credit-payment', 'addStoreCreditPayment', manage),
   route('POST', '/:id/cancel', 'cancel', manage),
   route('POST', '/:id/archive', 'archive', manage),
+  // Add payment's method field: suggestions of manual method texts (no customer data).
+  routeAt('GET', '/payment-methods/suggestions', 'paymentMethodSuggestions', manage),
+  routeAt('DELETE', '/payment-methods/suggestions/:key', 'removePaymentMethodSuggestion', manage),
   // Order editing by section: every route needs orders.manage, including the quoting GETs.
   edit('GET', '/:id/shipping-address/countries', 'shippingAddressCountries', manage),
   edit('PUT', '/:id/shipping-address', 'updateShippingAddress', manage),
