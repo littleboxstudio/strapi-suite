@@ -334,7 +334,9 @@ export type OrderState = {
 export const shippingLineContext = (
   invoicing: Pick<OrderInvoicing, 'position' | 'coveredShipping' | 'completedPayments'>,
   hasActiveShipment: boolean,
-  shippingDiscount: unknown
+  shippingDiscount: unknown,
+  /** What the order still owes (summary.due): at 0 after a payment, every charge is paid. */
+  due: number = Number.POSITIVE_INFINITY
 ): Parameters<typeof shippingLineViews>[1] => {
   const covered = invoicing.coveredShipping;
   const paid =
@@ -345,6 +347,7 @@ export const shippingLineContext = (
   return {
     coveredShipping: covered + (paid ? Math.max(0, Number(shippingDiscount) || 0) : 0),
     lastPaymentAt: times.length ? Math.max(...times) : null,
+    settled: due <= 0 && invoicing.completedPayments.some((p) => (Number(p?.amount) || 0) > 0),
     invoicedLineIds: invoicing.position.shipping
       .filter((s) => s.invoiced)
       .map((s) => s.shippingLineId),
@@ -1402,7 +1405,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     });
     const shippingLines = shippingLineViews(
       readShippingLines(order),
-      shippingLineContext(invoicing, hasActiveShipment, order.shippingDiscount)
+      shippingLineContext(invoicing, hasActiveShipment, order.shippingDiscount, summary.due)
     );
     const actions = availableActions({
       orderStatus: order.orderStatus,

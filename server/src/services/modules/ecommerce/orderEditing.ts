@@ -1341,16 +1341,19 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
 
   const lineNotFound = () => invalidShipping('lineId', 'SHIPPING_LINE_NOT_FOUND');
   /** A paid shipping line is never edited (a new line can still be added). */
+  /** An invoiced or paid charge is never edited (an invoiced one reads as paid too). */
   const assertLineNotPaid = (lines: ShippingLineView[], lineId: number) => {
-    if (lines.some((l) => l.id === lineId && l.paid)) throw invalidShipping('lineId', 'SHIPPING_LINE_PAID');
+    const line = lines.find((l) => l.id === lineId);
+    if (line?.invoiced) throw invalidShipping('lineId', 'SHIPPING_LINE_INVOICED');
+    if (line?.paid) throw invalidShipping('lineId', 'SHIPPING_LINE_PAID');
   };
   /** A correction line (`editOf`) is edited through its target, never by itself. */
   const editableLine = (lines: ShippingLine[], lineId: number): boolean =>
     lines.some((l) => l.id === lineId && l.editOf == null);
 
   /**
-   * Edit a shipping line (ruling 7): replaced in place while not spent nor invoiced, else an
-   * EDIT line with the difference. Only before any shipment.
+   * Edit a shipping line (ruling 7): replaced in place while neither paid nor invoiced; a paid or
+   * invoiced charge is never edited.
    */
   const editShippingLine = async (
     rawOrderId: number | string,
