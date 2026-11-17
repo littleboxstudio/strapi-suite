@@ -89,7 +89,7 @@ import {
   type PromotionCandidate,
   type PromotionEvaluation,
 } from './domain/promotions';
-import { createOrderPricing } from './orderPricing';
+import { applyManualDiscounts, createOrderPricing, type OrderManualDiscountInput } from './orderPricing';
 import {
   checkoutLine,
   readShippingLines,
@@ -104,7 +104,12 @@ import {
   type OrderEditing,
   type ReviewFlag,
 } from './domain/orderEditing';
-import { readManualDiscounts, type ManualDiscount } from './domain/manualDiscounts';
+import {
+  manualDiscountListShapeErrors,
+  readManualDiscounts,
+  reconcileManualDiscounts,
+  type ManualDiscount,
+} from './domain/manualDiscounts';
 import { MAX_STORE_CREDIT_CODE_LENGTH } from './domain/storefront/limits';
 import { storedDiscountPercent } from './domain/lineDiscounts';
 import {
@@ -124,7 +129,14 @@ const MAX_CREATE_ATTEMPTS = 3;
 const retryPause = () => new Promise((r) => setTimeout(r, 10 + Math.floor(Math.random() * 41)));
 const FIRST_REFERENCE = 1001;
 export { MAX_PROMOTION_CODES };
-export type { OrderQuote, OrderQuoteInput, OrderQuoteLine, QuoteGiftOption } from './orderPricing';
+export type {
+  OrderManualDiscountInput,
+  OrderQuote,
+  OrderQuoteInput,
+  OrderQuoteLine,
+  QuoteGiftOption,
+  QuoteManualDiscount,
+} from './orderPricing';
 
 export type OrderSource = 'admin' | 'storefront';
 
@@ -158,6 +170,11 @@ export type CreateOrderInput = {
    */
   pickupPointId?: string | null;
   pickupPostalCode?: string | null;
+  /**
+   * Order-level manual discounts (admin only, at most 10; ignored for the storefront), stored as
+   * the order's `addManualDiscount` would add them: on top of the promotions, in input order.
+   */
+  manualDiscounts?: OrderManualDiscountInput[];
 };
 
 /** An applied promotion as the order stored it, with the state of its redemption. */
@@ -739,6 +756,9 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     const promotionFields = normalizePromotionFields(input, errors);
     const expectedTotal = normalizeExpectedTotal(input?.expectedTotal, errors);
     const storeCreditCode = normalizeStoreCreditCodeInput(input?.storeCreditCode, errors);
+    // The storefront never gives an order-level manual discount: the field is ignored.
+    const manualDiscounts = source === 'admin' ? input?.manualDiscounts : undefined;
+    errors.push(...manualDiscountListShapeErrors(manualDiscounts));
 
     if (errors.length) throw new EcommerceValidationError('Invalid order', errors);
 
@@ -764,6 +784,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       expectedTotal,
       emailVerified,
       storeCreditCode,
+      manualDiscounts,
     };
   };
 
@@ -913,15 +934,21 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     await assertPricedStock(v.lines, evaluation.lines);
 
     const shippingOriginal = num(option.price);
+    // Order-level manual discounts, on top of the promotions (none: the evaluation's totals).
+    const manual = applyManualDiscounts(evaluation, shippingOriginal, v.manualDiscounts, {
+      at: new Date().toISOString(),
+      actor: ctx.actor,
+      message: 'Invalid order',
+    });
     const totals = {
       itemsOriginal: evaluation.itemsOriginal,
       productDiscount: evaluation.productDiscount,
       subtotal: evaluation.subtotal,
-      orderDiscount: evaluation.orderDiscount,
+      orderDiscount: manual.orderDiscount,
       shippingOriginal,
       shippingDiscount: evaluation.shippingDiscount,
       shippingTotal: shippingOriginal - evaluation.shippingDiscount,
-      total: evaluation.total,
+      total: manual.total,
     };
     if (v.expectedTotal !== null && v.expectedTotal !== totals.total) {
       throw new EcommerceValidationError('Order total changed', [
@@ -996,7 +1023,13 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
                 }),
               ],
             },
-            manualDiscounts: { items: [] },
+            // As the order editing persists them: never above the order-level discount.
+            manualDiscounts: {
+              items: reconcileManualDiscounts(manual.items, {
+                orderDiscount: totals.orderDiscount,
+                promotions: storedPromotions,
+              }),
+            },
             reviewFlags: { flags: [] },
             source: ctx.source,
             notes: v.notes,
@@ -1089,6 +1122,24 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
                 promotionCode: a.code,
                 amount: a.amount,
               })),
+            },
+            actor: ctx.actor,
+            operationId,
+          });
+        }
+        // The entries `addManualDiscount` writes, one per discount.
+        for (const discount of manual.items) {
+          await history().record({
+            orderId,
+            type: 'MANUAL_DISCOUNT_ADDED',
+            description: `Manual discount added: ${discount.amount} cents`,
+            previousValue: null,
+            newValue: {
+              id: discount.id,
+              kind: discount.kind,
+              percent: discount.percent,
+              amount: discount.amount,
+              reason: discount.reason,
             },
             actor: ctx.actor,
             operationId,

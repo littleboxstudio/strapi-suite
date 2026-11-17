@@ -7,6 +7,13 @@ import { EcommerceValidationError, type ValidationIssue } from './errors';
 import { isValidEmailFormat } from './domain/email';
 import { marketCountry } from './domain/markets';
 import { manualUnitDiscount } from './domain/lineDiscounts';
+import { computeTotals } from './domain/orders';
+import {
+  buildManualDiscountList,
+  manualDiscountListShapeErrors,
+  manualDiscountTotal,
+  type ManualDiscount,
+} from './domain/manualDiscounts';
 import type { ShippingOption, ShippingQuoteRequest } from './shipping';
 import {
   normalizePromotionCode,
@@ -36,12 +43,28 @@ export type OrderQuoteInput = {
   shipping?: { country: string; postalCode?: string; providerId: string; serviceId: string } | null;
   /** Absent = trusted (admin); `false` = storefront without a verified e-mail. */
   emailVerified?: boolean;
+  /** Order-level manual discounts (admin only: read with `QuoteOptions.manualDiscounts`). */
+  manualDiscounts?: OrderManualDiscountInput[];
+};
+
+/** A manual discount given at creation: FIXED in cents, PERCENT with at most two decimals. */
+export type OrderManualDiscountInput = { kind: 'FIXED' | 'PERCENT'; value: number; reason: string };
+
+/** A manual discount as the quote applied it. */
+export type QuoteManualDiscount = {
+  kind: 'FIXED' | 'PERCENT';
+  percent: number | null;
+  amount: number;
+  reason: string;
 };
 
 /** A priced line; `manualDiscountPercent` is set on a line with an admin manual discount. */
 export type ManualPricedLine = PricedLine & { manualDiscountPercent?: number };
 
-/** Admin-only pricing options (the storefront never passes them). */
+/**
+ * Admin-only pricing options (the storefront never passes them). `manualDiscounts`: the lines'
+ * `discountPercent` (spec 4.1) and the order-level `manualDiscounts` are read.
+ */
 export type QuoteOptions = { manualDiscounts?: boolean };
 
 export type OrderQuoteLine = PricedLine & {
@@ -92,7 +115,48 @@ export type OrderQuote = {
   shippingOption: ShippingOption | null;
   exhaustive: boolean;
   giftOptions: QuoteGiftOption[];
+  /** The order-level manual discounts applied, in input order (empty when none). */
+  manualDiscounts: QuoteManualDiscount[];
 };
+
+/**
+ * Applies the order-level manual discounts given at creation to a priced cart, as the order's
+ * `addManualDiscount` would, one by one, on the new order (shared by `quote` and `create`): on top
+ * of the promotions, a PERCENT of the subtotal, each never above the subtotal less the order
+ * discounts before it. With none, the evaluation's totals are returned unchanged; otherwise the
+ * totals come from `computeTotals`, as the order recomputes them. Throws the indexed errors.
+ */
+export function applyManualDiscounts(
+  e: Pick<PromotionEvaluation, 'subtotal' | 'orderDiscount' | 'shippingDiscount' | 'total'> & {
+    lines: Pick<PricedLine, 'unitPrice' | 'unitDiscount' | 'quantity'>[];
+  },
+  shippingOriginal: number | null,
+  raw: unknown,
+  ctx: { at: string; actor: string; message: string }
+): { items: ManualDiscount[]; orderDiscount: number; total: number } {
+  const { items, errors } = buildManualDiscountList(raw, {
+    base: e.subtotal,
+    pending: e.orderDiscount,
+    at: ctx.at,
+    actor: ctx.actor,
+  });
+  if (errors.length) throw new EcommerceValidationError(ctx.message, errors);
+  if (!items.length) return { items, orderDiscount: e.orderDiscount, total: e.total };
+  const totals = computeTotals(
+    e.lines.map((l) => ({
+      unitPrice: l.unitPrice,
+      unitDiscount: l.unitDiscount,
+      quantity: l.quantity,
+      returnedQuantity: 0,
+    })),
+    {
+      orderDiscount: e.orderDiscount + manualDiscountTotal(items),
+      shippingOriginal: shippingOriginal ?? 0,
+      shippingDiscount: e.shippingDiscount,
+    }
+  );
+  return { items, orderDiscount: totals.orderDiscount, total: totals.total };
+}
 
 export type PricingDestination = {
   country: string;
@@ -418,6 +482,9 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
     const email = clean(input?.email) || null;
     const emailVerified = typeof input?.emailVerified === 'boolean' ? input.emailVerified : undefined;
     if (email && !isValidEmailFormat(email)) errors.push({ path: 'email', code: 'invalid_email' });
+    // The storefront never gives an order-level manual discount: the field is ignored.
+    const manualInput = options.manualDiscounts === true ? input?.manualDiscounts : undefined;
+    errors.push(...manualDiscountListShapeErrors(manualInput));
 
     let destination: PricingDestination | null = null;
     if (input?.shipping) {
@@ -456,6 +523,12 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
     });
     const e = priced.evaluation;
     await assertPricedStock(lines, e.lines);
+    const manual = applyManualDiscounts(e, e.shippingOriginal, manualInput, {
+      at: new Date().toISOString(),
+      actor: '',
+      message: 'Invalid quote',
+    });
+    const manualAmount = manualDiscountTotal(manual.items);
 
     return {
       lines: e.lines.map((l) => {
@@ -477,16 +550,22 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
         itemsOriginal: e.itemsOriginal,
         productDiscount: e.productDiscount,
         subtotal: e.subtotal,
-        orderDiscount: e.orderDiscount,
+        orderDiscount: manual.orderDiscount,
         shippingOriginal: e.shippingOriginal,
         shippingDiscount: e.shippingDiscount,
         shippingTotal: e.shippingOriginal === null ? null : e.shippingOriginal - e.shippingDiscount,
-        total: e.total,
-        totalDiscount: e.totalDiscount,
+        total: manual.total,
+        totalDiscount: e.totalDiscount + manualAmount,
       },
       shippingOption: priced.option,
       exhaustive: e.exhaustive,
       giftOptions: giftOptionsOf(priced),
+      manualDiscounts: manual.items.map((m) => ({
+        kind: m.kind as QuoteManualDiscount['kind'],
+        percent: m.percent,
+        amount: m.amount,
+        reason: m.reason,
+      })),
     };
   };
 
