@@ -526,6 +526,23 @@ describe('credit notes across several invoices (plan 15)', () => {
     expect(a.returnable).toEqual([{ index: 0, units: 1, unitsLeft: 1, valueLeft: 500 }]);
   });
 
+  it('a later RETURN never credits a unit a REFUND credit note took: capped by unitsLeft', () => {
+    const docs = [inv1(), inv2(), refundNote()];
+    // Two units returned, both on invoice 1; the REFUND credit note took one of its two units.
+    const a = creditOptions(inv1(), docs, order({ returnedQuantity: 2 }));
+    expect(a.unitsLeft).toEqual([1]);
+    expect(a.returnable).toEqual([{ index: 0, units: 1, unitsLeft: 1, valueLeft: 500 }]);
+    expect(buildCreditLines(inv1(), a, { creditType: 'RETURN', lines: [{ index: 0, quantity: 2 }], shippingIndexes: [] }).issues).toEqual([
+      { path: 'lines.0.quantity', code: 'QUANTITY_EXCEEDS_CREDITABLE' },
+    ]);
+    // Both units taken by REFUND credit notes: nothing left to return on invoice 1.
+    const all: InvoiceDoc = {
+      ...credit(52, 'REFUND', [{ index: 0, value: 1000, quantity: 2, invoiceId: 1 }]),
+      creditedInvoiceId: 1,
+    };
+    expect(creditOptions(inv1(), [inv1(), inv2(), all], order({ returnedQuantity: 2 })).returnable).toEqual([]);
+  });
+
   it('exceedsCreditable only weighs the entries of the given invoice', () => {
     const docs = [inv1(), inv2()];
     const late: InvoiceDoc = {

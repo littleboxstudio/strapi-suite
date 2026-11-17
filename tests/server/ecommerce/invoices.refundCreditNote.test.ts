@@ -169,6 +169,8 @@ describe('EcommerceInvoiceService.refundCreditNoteOptions', () => {
     const options = await inv.refundCreditNoteOptions(r.id);
     expect(options).toEqual({
       refund: { id: r.id, amount: 2500 },
+      creditable: true,
+      reason: null,
       invoices: [
         {
           invoiceId: a.id,
@@ -194,6 +196,42 @@ describe('EcommerceInvoiceService.refundCreditNoteOptions', () => {
       [a.id, [[0, 1, 2000]]],
       [b.id, [[0, 1, 500]]],
     ]);
+  });
+});
+
+describe('refundCreditNoteOptions for a refund that cannot get a credit note', () => {
+  it('returns no invoices and the reason issuing would give', async () => {
+    const { c, inv, active, id, a } = await twoInvoices();
+    const r = await refund(c, id, 2000);
+    const options = () => inv.refundCreditNoteOptions(r.id);
+    active.length = 0;
+    expect(await options()).toMatchObject({ creditable: false, reason: 'BILLING_NOT_CONFIGURED', invoices: [] });
+    active.push('fakebill');
+    orderRow(c, id).orderStatus = 'ARCHIVED';
+    expect(await options()).toMatchObject({ creditable: false, reason: 'ACTION_NOT_AVAILABLE', invoices: [] });
+    orderRow(c, id).orderStatus = 'OPEN';
+    await inv.issueRefundCreditNote(r.id, { items: [{ invoiceId: a.id, index: 0, quantity: 1 }], idempotencyKey: 'cn-1' }, actor);
+    expect(await options()).toEqual({
+      refund: { id: r.id, amount: 2000 },
+      creditable: false,
+      reason: 'REFUND_HAS_CREDIT_NOTE',
+      invoices: [],
+    });
+    refundRow(c, r.id).metadata = { removed: true };
+    expect(await options()).toMatchObject({ creditable: false, reason: 'REFUND_NOT_CREDITABLE', invoices: [] });
+    refundRow(c, r.id).metadata = null;
+    refundRow(c, r.id).scope = 'EXCESS';
+    expect(await options()).toMatchObject({ creditable: false, reason: 'REFUND_NOT_CREDITABLE', invoices: [] });
+    refundRow(c, r.id).scope = 'INVOICED';
+    refundRow(c, r.id).status = 'PROCESSING';
+    expect(await options()).toMatchObject({ creditable: false, reason: 'REFUND_NOT_CREDITABLE', invoices: [] });
+  });
+
+  it('the refund view never reads an empty creditNoteId as an id', async () => {
+    const { c, id } = await twoInvoices();
+    const r = await refund(c, id, 2000);
+    refundRow(c, r.id).metadata = { creditNoteId: '' };
+    expect((await c.refunds.list(id)).find((v: any) => v.id === r.id).creditNoteId).toBeNull();
   });
 });
 
@@ -342,6 +380,35 @@ describe('EcommerceInvoiceService.issueRefundCreditNote', () => {
     await inv.reconcile(cn.id, { markFailed: true }, actor);
     expect(refundRow(c, r.id).metadata?.creditNoteId ?? null).toBeNull();
     expect((await inv.issueRefundCreditNote(r.id, { items, idempotencyKey: 'k3' }, actor)).status).toBe('ISSUED');
+  });
+});
+
+describe('a late REFUND credit note after its refund was removed', () => {
+  it('is recorded ISSUED but flagged DUPLICATE_CREDIT_NOTE and never re-attached to the removed refund', async () => {
+    const { c, inv, provider, id, a, b } = await twoInvoices();
+    const r = await refund(c, id, 2500);
+    const items = [
+      { invoiceId: a.id, index: 0, quantity: 1 },
+      { invoiceId: b.id, index: 0, quantity: 1 },
+    ];
+    const issuedLate = provider.issue.getMockImplementation()!;
+    provider.issue.mockImplementationOnce(async (draft: InvoiceDraft) => {
+      // While the provider is still working, the admin marks the credit note failed (stale) and
+      // removes the refund: its adjustment comes off, the total goes back up.
+      const row = c.tables[UIDS.invoice].find((x) => x.kind === 'CREDIT_NOTE');
+      row.createdAt = new Date(Date.now() - 6 * 60 * 1000).toISOString();
+      expect(((await inv.reconcile(row.id, { markFailed: true }, actor)) as any).status).toBe('FAILED');
+      expect(refundRow(c, r.id).metadata?.creditNoteId ?? null).toBeNull();
+      await c.refunds.remove(r.id, actor);
+      expect(refundRow(c, r.id)).toMatchObject({ status: 'CANCELLED', metadata: { removed: true } });
+      expect(orderRow(c, id).total).toBe(4500);
+      return issuedLate(draft);
+    });
+    const late = await inv.issueRefundCreditNote(r.id, { items, idempotencyKey: 'k1' }, actor);
+    expect(late.status).toBe('ISSUED');
+    expect(late.warnings).toEqual(['ISSUED_AFTER_FAILED', 'DUPLICATE_CREDIT_NOTE']);
+    expect(refundRow(c, r.id).metadata.creditNoteId).toBeUndefined();
+    expect(c.events.filter((e: any) => e.type === 'INVOICE_ISSUED' && e.payload.invoiceId === late.id)).toHaveLength(0);
   });
 });
 

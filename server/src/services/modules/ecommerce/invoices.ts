@@ -147,6 +147,17 @@ export type CreditNoteOptions = {
 /** What an INVOICED refund's credit note may credit, per ISSUED invoice of the order (plan 15). */
 export type RefundCreditNoteOptions = {
   refund: { id: number; amount: number };
+  /**
+   * Whether a credit note can be issued for this refund now; when false, `invoices` is empty and
+   * `reason` is the code issuing would refuse with.
+   */
+  creditable: boolean;
+  reason:
+    | 'REFUND_NOT_CREDITABLE'
+    | 'REFUND_HAS_CREDIT_NOTE'
+    | 'ACTION_NOT_AVAILABLE'
+    | 'BILLING_NOT_CONFIGURED'
+    | null;
   invoices: { invoiceId: number; number: string | null; lines: RefundCreditLineOption[] }[];
 };
 
@@ -551,10 +562,23 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
   const refundMetadata = (refund: any): Record<string, unknown> =>
     refund?.metadata && typeof refund.metadata === 'object' ? refund.metadata : {};
 
-  /** An issued REFUND credit note becomes its refund's credit note, unless it already has one. */
+  /**
+   * Whether `refund` may be documented by a credit note: INVOICED, COMPLETED and not removed (a
+   * removed or failed refund no longer lowers the total).
+   */
+  const refundStillCounts = (refund: any): boolean =>
+    !!refund &&
+    refund.scope === 'INVOICED' &&
+    refund.status === 'COMPLETED' &&
+    refundMetadata(refund).removed !== true;
+
+  /**
+   * An issued REFUND credit note becomes its refund's credit note, unless the refund already has
+   * one or no longer counts (a late success is then flagged DUPLICATE_CREDIT_NOTE instead).
+   */
   const claimRefundCreditNote = async (row: any) => {
     const refund = await refundOfCreditNote(row);
-    if (!refund || refundMetadata(refund).creditNoteId != null) return;
+    if (!refundStillCounts(refund) || refundMetadata(refund).creditNoteId != null) return;
     await strapi.db.query(uids().refund).update({
       where: { id: refund.id },
       data: { metadata: { ...refundMetadata(refund), creditNoteId: row.id } },
@@ -695,10 +719,14 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     const creditNote = readInvoiceDoc(row, []);
     const invoiceIds = creditedInvoiceIds(creditNote);
     if (!invoiceIds.length) return true;
-    // A REFUND credit note whose refund got another credit note meanwhile.
-    const refund = await refundOfCreditNote(row);
-    const other = refund ? refundMetadata(refund).creditNoteId : null;
-    if (other != null && Number(other) !== row.id) return true;
+    // A REFUND credit note whose refund is gone, removed, no longer counts, or got another credit
+    // note meanwhile.
+    if (creditNote.creditType === 'REFUND') {
+      const refund = await refundOfCreditNote(row);
+      if (!refundStillCounts(refund)) return true;
+      const other = refundMetadata(refund).creditNoteId;
+      if (other != null && Number(other) !== row.id) return true;
+    }
     // Each invoice it credits (one credit note may credit several, plan 15), on its own entries.
     for (const invoiceId of invoiceIds) {
       const original = await findRow({ id: invoiceId });
@@ -1389,11 +1417,22 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     const { refund, orderId } = await loadRefund(Number(rawRefundId));
     const billing = await billingStatus();
     const state = await orders().computeOrderState(orderId);
-    const invoices = billing.providerId
-      ? await refundableInvoices(orderId, state, billing.providerId)
-      : [];
+    const base = { refund: { id: refund.id, amount: num(refund.amount) } };
+    const reason: RefundCreditNoteOptions['reason'] = !refundStillCounts(refund)
+      ? 'REFUND_NOT_CREDITABLE'
+      : (await hasCreditNote(refund))
+        ? 'REFUND_HAS_CREDIT_NOTE'
+        : state.order.orderStatus === 'ARCHIVED'
+          ? 'ACTION_NOT_AVAILABLE'
+          : !billing.providerId
+            ? 'BILLING_NOT_CONFIGURED'
+            : null;
+    if (reason) return { ...base, creditable: false, reason, invoices: [] };
+    const invoices = await refundableInvoices(orderId, state, billing.providerId!);
     return {
-      refund: { id: refund.id, amount: num(refund.amount) },
+      ...base,
+      creditable: true,
+      reason: null,
       invoices: invoices
         .filter((i) => i.lines.length > 0)
         .map((i) => ({ invoiceId: i.row.id, number: i.row.number ?? null, lines: i.lines })),
@@ -1432,10 +1471,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
       runtime,
       async () => {
         const { refund } = await loadRefund(refundId);
-        const removed = refundMetadata(refund).removed === true;
-        if (refund.scope !== 'INVOICED' || refund.status !== 'COMPLETED' || removed) {
-          throw invalid('refund', 'REFUND_NOT_CREDITABLE');
-        }
+        if (!refundStillCounts(refund)) throw invalid('refund', 'REFUND_NOT_CREDITABLE');
         if (await hasCreditNote(refund)) throw invalid('refund', 'REFUND_HAS_CREDIT_NOTE');
         const state = await orders().computeOrderState(orderId);
         if (state.order.orderStatus === 'ARCHIVED') throw notAvailable();
