@@ -26,7 +26,7 @@ const COLUMNS = ['name', 'quantityLeft', 'unitValue', 'quantity', 'value'] as co
 type Props = {
   invoice: RefundElementInvoice;
   selection: RefundCreditSelection;
-  /** Per element key: the (translated) server error to show on its row. */
+  /** Per element key: the server's error code for it, shown translated on its row. */
   errors?: Record<string, string>;
   /** Heading of the Quantity column (to refund / to credit). */
   quantityLabel: string;
@@ -59,6 +59,11 @@ const RefundElementsTable = ({
   const t = (id: string, values?: Record<string, any>) => formatMessage({ id: getTranslation(id) }, values);
   const p = 'ecommerce.orders.refunds.creditNote';
   const money = (cents: number) => formatCents(cents, locale);
+  const codeText = (code: string) =>
+    formatMessage({
+      id: getTranslation(`ecommerce.orders.errors.${code}`),
+      defaultMessage: t('ecommerce.orders.errors.invalid'),
+    });
   const lines = selectedOnly
     ? invoice.lines.filter((o) => (selection[selectionKey(invoice.invoiceId, o.index)] ?? 0) > 0)
     : invoice.lines;
@@ -86,7 +91,9 @@ const RefundElementsTable = ({
             const tooMany = quantity > option.quantityLeft;
             const error = tooMany
               ? t('ecommerce.orders.invoices.issue.atMost', { max: option.quantityLeft })
-              : errors[key];
+              : errors[key]
+                ? codeText(errors[key])
+                : undefined;
             const name =
               option.kind === 'SHIPPING'
                 ? t('ecommerce.orders.invoices.lines.shipping', { name: option.name })

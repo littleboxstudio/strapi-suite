@@ -7,6 +7,7 @@ import {
 } from '../../../admin/src/ecommerce/utils/refundForm';
 import {
   refundCreditMode,
+  refundCreditModeAfterError,
   refundElementsTotal,
   refundItemRows,
   selectionFromItems,
@@ -231,6 +232,24 @@ describe('refundCreditMode', () => {
   });
 });
 
+describe('refundCreditModeAfterError', () => {
+  const unavailable = [{ path: 'items.1', code: 'REFUND_ELEMENTS_UNAVAILABLE' }];
+
+  it('STORED switches to UNAVAILABLE when the server says a stored element is unavailable', () => {
+    expect(refundCreditModeAfterError('STORED', unavailable)).toBe('UNAVAILABLE');
+    expect(
+      refundCreditModeAfterError('STORED', [{ path: 'items.0.quantity', code: 'invalid_quantity' }, ...unavailable])
+    ).toBe('UNAVAILABLE');
+  });
+
+  it('other answers keep the mode', () => {
+    expect(refundCreditModeAfterError('STORED', [{ path: 'items.0', code: 'invalid_quantity' }])).toBe('STORED');
+    expect(refundCreditModeAfterError('STORED', [])).toBe('STORED');
+    expect(refundCreditModeAfterError('FREE', unavailable)).toBe('FREE');
+    expect(refundCreditModeAfterError('UNAVAILABLE', unavailable)).toBe('UNAVAILABLE');
+  });
+});
+
 describe('stored elements', () => {
   it('selectionFromItems keys each element with its units', () => {
     expect(selectionFromItems(options().selected)).toEqual({ [selectionKey(6, 1)]: 1, [selectionKey(7, 0)]: 2 });
@@ -298,9 +317,11 @@ describe('translations of invoiced refund elements', () => {
     }
   });
 
-  it('the new server codes have a message', () => {
+  it('the new server codes are known error codes with an en and a pt message', () => {
     for (const code of ['REFUND_AMOUNT_DIFFERS', 'REFUND_ITEMS_INVALID', 'REFUND_ELEMENTS_UNAVAILABLE', 'stripe_split_unavailable']) {
       expect(API_ERROR_CODES as readonly string[]).toContain(code);
+      expect(en[`${P}ecommerce.orders.errors.${code}`], code).toBeTruthy();
+      expect(pt[`${P}ecommerce.orders.errors.${code}`], code).toBeTruthy();
     }
   });
 });

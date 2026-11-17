@@ -342,9 +342,7 @@ const RefundModal = ({ orderId, reference, invoices, initial, onClose, onSubmitt
                     key={invoice.invoiceId}
                     invoice={invoice}
                     selection={form.selection}
-                    errors={Object.fromEntries(
-                      Object.entries(rowErrors).map(([key, code]) => [key, errorText(code)])
-                    )}
+                    errors={rowErrors}
                     quantityLabel={t('ecommerce.orders.refund.elements.quantity')}
                     valueOf={(option, quantity) =>
                       refundOptionValue(option, quantity, lineOf(invoice.invoiceId, option.index))
