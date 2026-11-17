@@ -793,6 +793,56 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
   // Create
   // -------------------------------------------------------------------------
 
+  /**
+   * A units-only INVOICED refund: elements valued 0 only (promotional gifts' units). No money moves:
+   * no Stripe call, no store credit, no customer e-mail. Stored as a COMPLETED MANUAL_TRANSFER of 0
+   * without reference; its units stop shipping and returning, it is removable as usual and gets no
+   * credit note (nothing to credit).
+   */
+  const createUnitsOnly = async (p: {
+    orderId: number;
+    items: RefundItem[];
+    reason: string;
+    description: string | null;
+    key: string;
+    actor: string;
+    operationId: string;
+  }) => {
+    const row = await strapi.db.query(uids().refund).create({
+      data: {
+        order: p.orderId,
+        method: 'MANUAL_TRANSFER',
+        scope: 'INVOICED',
+        amount: 0,
+        currency: 'EUR',
+        reason: p.reason,
+        description: p.description,
+        reference: null,
+        actor: p.actor,
+        payment: null,
+        kind: 'MONEY',
+        status: 'COMPLETED',
+        externalId: null,
+        idempotencyKey: p.key,
+        storeCredit: null,
+        completedAt: new Date().toISOString(),
+        metadata: { items: p.items, unitsOnly: true },
+      },
+    });
+    await history().record({
+      orderId: p.orderId,
+      type: 'REFUND_CREATED',
+      description: 'Units-only refund registered (gifts, no money to give back)',
+      previousValue: null,
+      newValue: historyValue(row),
+      actor: p.actor,
+      operationId: p.operationId,
+    });
+    // The units stop shipping: the fulfillment status may change.
+    await orders().recalculate(p.orderId, { actor: p.actor, operationId: p.operationId });
+    return row;
+  };
+
   const create = async (
     rawOrderId: number | string,
     input: CreateRefundInput,
@@ -852,6 +902,11 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
           throw new EcommerceValidationError('Invalid refund', [
             { path: 'items', code: 'REFUND_ITEMS_INVALID', detail: String(limits.refundable) },
           ]);
+        }
+        // Gift units only (all chosen elements valued 0): no money moves (units-only refund).
+        if (items && amount === 0) {
+          if (!reason) throw invalid('reason', 'required');
+          return [await createUnitsOnly({ orderId, items, reason, description, key, actor, operationId })];
         }
         const issues = validateRefundRequest(
           { amount: amount as number, method, reason },

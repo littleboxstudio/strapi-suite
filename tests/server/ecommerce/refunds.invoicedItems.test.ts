@@ -278,12 +278,12 @@ describe('INVOICED refund preview', () => {
         {
           invoiceId: a.id,
           number: a.number,
-          lines: [{ index: 0, kind: 'ITEM', name: 'Shirt', quantityLeft: 1, unitValue: 2000, valueLeft: 2000 }],
+          lines: [{ index: 0, kind: 'ITEM', orderLineId: lineIdOf(c, id), name: 'Shirt', quantityLeft: 1, unitValue: 2000, valueLeft: 2000 }],
         },
         {
           invoiceId: b.id,
           number: b.number,
-          lines: [{ index: 0, kind: 'SHIPPING', name: expect.any(String), quantityLeft: 1, unitValue: 500, valueLeft: 500 }],
+          lines: [{ index: 0, kind: 'SHIPPING', orderLineId: null, name: expect.any(String), quantityLeft: 1, unitValue: 500, valueLeft: 500 }],
         },
       ],
     });
@@ -301,7 +301,7 @@ describe('the credit note of a refund built from items', () => {
       {
         invoiceId: a.id,
         number: a.number,
-        lines: [{ index: 0, kind: 'ITEM', name: 'Shirt', quantityLeft: 2, unitValue: 2000, valueLeft: 4000 }],
+        lines: [{ index: 0, kind: 'ITEM', orderLineId: lineIdOf(c, id), name: 'Shirt', quantityLeft: 2, unitValue: 2000, valueLeft: 4000 }],
       },
     ]);
   });

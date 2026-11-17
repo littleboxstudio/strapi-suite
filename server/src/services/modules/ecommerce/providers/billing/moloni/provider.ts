@@ -228,7 +228,8 @@ function isMoloniUrl(url: string): boolean {
 }
 
 /** A line of the original document that can still be credited (`documents/getUnrelatedProducts`). */
-type OpenLine = { lineId: number; productId: number; reference: string; qty: number };
+/** `fullDiscount`: the line was sent with a 100% discount (a gift); null when Moloni does not say. */
+type OpenLine = { lineId: number; productId: number; reference: string; qty: number; fullDiscount: boolean | null };
 
 /** The documents a credit note credits, with the cents it credits of each and each line's one. */
 type Originals = { documents: { id: number; value: number }[]; lineOriginal: number[] };
@@ -264,7 +265,9 @@ function creditedOriginals(draft: InvoiceDraft, sent: number[]): Originals {
  * credits (`related_id` = that line's `document_product_id`). The open lines of each original come
  * from `documents/getUnrelatedProducts`; each credit line takes the first one of its own original
  * with the same product (by id, else by reference) that still has the quantity, which is then used
- * up. Checked before any write: a line that cannot be matched refuses the credit note.
+ * up. A gift line (100% discount) prefers an original line sent with a 100% discount, any other
+ * line one without, so the same product paid and given relates each to its own line. Checked
+ * before any write: a line that cannot be matched refuses the credit note.
  */
 async function relateToOriginal(
   ctx: Ctx,
@@ -283,6 +286,10 @@ async function relateToOriginal(
           productId: Number(p?.product_id),
           reference: typeof p?.reference === 'string' ? p.reference : '',
           qty: Number(p?.qty),
+          fullDiscount:
+            p?.discount === undefined || p?.discount === null || !Number.isFinite(Number(p.discount))
+              ? null
+              : Number(p.discount) >= 100,
         }))
         .filter((p) => Number.isInteger(p.lineId) && p.lineId > 0 && p.qty > 0)
     );
@@ -292,9 +299,16 @@ async function relateToOriginal(
     const open = openLines[originals.lineOriginal[i]] ?? [];
     const qty = Number(product.qty);
     const fits = (l: OpenLine) => l.qty + EPSILON >= qty;
+    const gift = Number(product.discount) >= 100;
+    // Lines of the same kind (gift or not) first; a line whose discount is unknown fits either.
+    const ordered = [
+      ...open.filter((l) => l.fullDiscount === gift),
+      ...open.filter((l) => l.fullDiscount === null),
+      ...open.filter((l) => l.fullDiscount === !gift),
+    ];
     const match =
-      open.find((l) => l.productId === product.product_id && fits(l)) ??
-      open.find((l) => !!l.reference && l.reference === lines[i]?.sku && fits(l));
+      ordered.find((l) => l.productId === product.product_id && fits(l)) ??
+      ordered.find((l) => !!l.reference && l.reference === lines[i]?.sku && fits(l));
     if (!match) {
       throw requestFailed(
         `Line ${i + 1} is not on the original Moloni document, or that quantity was already credited.`

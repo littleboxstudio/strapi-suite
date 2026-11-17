@@ -733,6 +733,53 @@ describe('moloniProvider.issue (CREDIT_NOTE) — related lines', () => {
   });
 });
 
+describe('moloniProvider.issue (CREDIT_NOTE) — promotional gift lines', () => {
+  const shirt = { orderLineId: 1, kind: 'ITEM' as const, sku: 'SKU-1', name: 'Shirt', quantity: 1, total: 2460, grossTotal: 2460, tax: 23, partial: false, discountShare: 0 };
+  const giftOf = (sku: string) => ({
+    orderLineId: 2, kind: 'ITEM' as const, sku, name: 'Gift', quantity: 1, total: 0, grossTotal: 3100, tax: 23, partial: false, discountShare: 0,
+  });
+  const credit = (lines: any[]) =>
+    draft({ kind: 'CREDIT_NOTE', lines, total: 2460, payments: [], original: { externalId: '777', total: 2460 }, reason: 'Refund' });
+
+  it('a gift line goes as on the invoice: its price with a 100% discount, related to its original line', async () => {
+    const m = moloniFake(
+      happyRoutes({
+        'products/getByReference': (b: any) => [{ product_id: b.reference === 'GIFT-1' ? 202 : 200 }],
+        'documents/getUnrelatedProducts': () => [
+          { document_product_id: 9001, product_id: 200, reference: 'SKU-1', qty: 1 },
+          { document_product_id: 9003, product_id: 202, reference: 'GIFT-1', qty: 1, discount: 100 },
+        ],
+      })
+    );
+    await moloniProvider.issue(credit([shirt, giftOf('GIFT-1')]), rt());
+    const products = m.of('creditNotes/insert')[0].body.products;
+    expect(products[1]).toEqual({
+      product_id: 202,
+      name: 'Gift',
+      qty: 1,
+      price: 25.2033,
+      discount: 100,
+      summary: 'Desconto da linha 100%',
+      taxes: [{ tax_id: 11 }],
+      related_id: 9003,
+    });
+    expect(products[0].related_id).toBe(9001);
+  });
+
+  it('the same product paid and given: the gift relates to the 100% discount line, the paid unit to the other', async () => {
+    const m = moloniFake(
+      happyRoutes({
+        'documents/getUnrelatedProducts': () => [
+          { document_product_id: 9003, product_id: 200, reference: 'SKU-1', qty: 1, discount: '100' },
+          { document_product_id: 9001, product_id: 200, reference: 'SKU-1', qty: 1, discount: 0 },
+        ],
+      })
+    );
+    await moloniProvider.issue(credit([shirt, giftOf('SKU-1')]), rt());
+    expect(m.of('creditNotes/insert')[0].body.products.map((p: any) => p.related_id)).toEqual([9001, 9003]);
+  });
+});
+
 describe('moloniProvider.issue (CREDIT_NOTE) — several originals', () => {
   const mug = (quantity: number, total: number) => ({
     orderLineId: 1, kind: 'ITEM' as const, sku: 'SKU-1', name: 'Mug', quantity, total, tax: 23, partial: false,

@@ -1496,7 +1496,8 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     const state = await orders().computeOrderState(orderId);
     const base = { refund: { id: refund.id, amount: num(refund.amount) } };
     const none = { invoices: [], selected: [] };
-    const reason: RefundCreditNoteOptions['reason'] = !refundStillCounts(refund)
+    // A units-only refund (gift units, amount 0) has nothing to credit.
+    const reason: RefundCreditNoteOptions['reason'] = !refundStillCounts(refund) || !(num(refund.amount) > 0)
       ? 'REFUND_NOT_CREDITABLE'
       : (await hasCreditNote(refund))
         ? 'REFUND_HAS_CREDIT_NOTE'
@@ -1565,7 +1566,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
       runtime,
       async () => {
         const { refund } = await loadRefund(refundId);
-        if (!refundStillCounts(refund)) throw invalid('refund', 'REFUND_NOT_CREDITABLE');
+        if (!refundStillCounts(refund) || !(num(refund.amount) > 0)) throw invalid('refund', 'REFUND_NOT_CREDITABLE');
         if (await hasCreditNote(refund)) throw invalid('refund', 'REFUND_HAS_CREDIT_NOTE');
         const state = await orders().computeOrderState(orderId);
         if (state.order.orderStatus === 'ARCHIVED') throw notAvailable();
