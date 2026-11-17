@@ -488,6 +488,52 @@ describe('a late REFUND credit note after its refund was removed', () => {
   });
 });
 
+describe('a late credit note over elements an INVOICED refund reserved meanwhile', () => {
+  /** While the provider works, the admin marks the credit note failed (stale) and `meanwhile` runs. */
+  const lateWith = (c: Commerce, inv: any, provider: any, meanwhile: () => Promise<void>) => {
+    const issuedLate = provider.issue.getMockImplementation()!;
+    provider.issue.mockImplementationOnce(async (draft: InvoiceDraft) => {
+      const row = c.tables[UIDS.invoice].filter((x) => x.kind === 'CREDIT_NOTE').at(-1);
+      row.createdAt = new Date(Date.now() - 6 * 60 * 1000).toISOString();
+      expect(((await inv.reconcile(row.id, { markFailed: true }, actor)) as any).status).toBe('FAILED');
+      await meanwhile();
+      return issuedLate(draft);
+    });
+  };
+
+  it('a RETURN credit note of a shipping line a refund reserved meanwhile is DUPLICATE_CREDIT_NOTE', async () => {
+    const { c, inv, provider, id, b } = await twoInvoices();
+    lateWith(c, inv, provider, async () => {
+      const r = await refund(c, id, 500);
+      expect(r.metadata?.items ?? refundRow(c, r.id).metadata.items).toEqual([
+        { invoiceId: b.id, index: 0, quantity: 1, value: 500 },
+      ]);
+    });
+    const late = await inv.issueCreditNote(
+      b.id,
+      { creditType: 'RETURN', lines: [], shippingIndexes: [0], reason: 'Returned', idempotencyKey: 'cn-ret' } as any,
+      actor
+    );
+    expect(late.status).toBe('ISSUED');
+    expect(late.warnings).toEqual(['ISSUED_AFTER_FAILED', 'DUPLICATE_CREDIT_NOTE']);
+  });
+
+  it("a late REFUND credit note is never a duplicate of its own refund's reservation", async () => {
+    const { c, inv, provider, id, b } = await twoInvoices();
+    const r = await refund(c, id, 500);
+    lateWith(c, inv, provider, async () => {
+      expect(refundRow(c, r.id).metadata?.creditNoteId ?? null).toBeNull();
+    });
+    const late = await inv.issueRefundCreditNote(
+      r.id,
+      { items: [{ invoiceId: b.id, index: 0, quantity: 1 }], idempotencyKey: 'cn-own' },
+      actor
+    );
+    expect(late.status).toBe('ISSUED');
+    expect(late.warnings).toEqual(['ISSUED_AFTER_FAILED']);
+  });
+});
+
 describe('a CORRECTION on an invoice a REFUND credit note credited', () => {
   it('is refused in the preview and on issue (REFUND_CREDITED_INVOICE)', async () => {
     const { c, inv, id, a, b } = await twoInvoices();
