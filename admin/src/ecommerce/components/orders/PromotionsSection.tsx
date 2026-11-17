@@ -28,7 +28,6 @@ import {
 import { mintUuid } from '../../utils/variantDraft';
 import { describeBenefit } from '../../utils/promotionForm';
 import type { EditResult, ManualDiscount, Order, OrderPromotion, OrderPromotionCode } from '../../orderTypes';
-import BalanceOutcome from './BalanceOutcome';
 import ManualDiscountModal from './ManualDiscountModal';
 import RecalculateDiscountsModal from './RecalculateDiscountsModal';
 import OrderSection from './OrderSection';
@@ -334,10 +333,8 @@ const PromotionsSection = ({
           order={order}
           discount={modal.discount}
           reason={manualReason(modal.discount)}
-          permissions={permissions}
           onClose={closeModal}
           onSaved={onEdited}
-          onAction={balanceAction}
         />
       )}
     </OrderSection>
@@ -345,45 +342,37 @@ const PromotionsSection = ({
 };
 
 /**
- * Confirm removing a manual discount, then the balance when money is due or refundable. Mounted
- * only while open: each opening mints one operationId.
+ * Confirm removing a manual discount; once removed it closes (what is owed shows in the order's
+ * notice). Mounted only while open: each opening mints one operationId.
  */
 const RemoveDiscountModal = ({
   order,
   discount,
   reason,
-  permissions,
   onClose,
   onSaved,
-  onAction,
 }: {
   order: Order;
   discount: ManualDiscount;
   reason: string;
-  permissions: OrderActionPermissions;
   onClose: () => void;
   onSaved: (result: EditResult) => void;
-  onAction: (action: ToolbarAction) => void;
 }) => {
   const { formatMessage, locale } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) => formatMessage({ id: getTranslation(id) }, values);
   const [operationId] = useState(() => mintUuid());
-  const [saved, setSaved] = useState<EditResult | null>(null);
   const [busy, setBusy] = useState(false);
 
+  /** Removes the discount and closes: what is then owed shows in the order's notice. */
   const remove = async () => {
     if (busy) return;
     setBusy(true);
     try {
       const result = await new RemoveManualDiscount().execute(order.id, discount.id, { operationId });
       onSaved(result);
-      if (result.outcome === 'NONE') {
-        toggleNotification({ type: 'success', message: t('ecommerce.orders.discounts.saved') });
-        onClose();
-      } else {
-        setSaved(result);
-      }
+      toggleNotification({ type: 'success', message: t('ecommerce.orders.discounts.saved') });
+      onClose();
     } catch (err) {
       toggleNotification({
         type: 'danger',
@@ -401,31 +390,20 @@ const RemoveDiscountModal = ({
           <Modal.Title>{t('ecommerce.orders.discounts.removeTitle')}</Modal.Title>
         </Modal.Header>
         <Modal.Body>
-          {saved ? (
-            <BalanceOutcome
-              order={saved.order}
-              outcome={saved.outcome as 'DUE' | 'REFUNDABLE'}
-              permissions={permissions}
-              onAction={onAction}
-            />
-          ) : (
-            <Typography style={WRAP}>
-              {t('ecommerce.orders.discounts.removeConfirm', {
-                reason,
-                amount: formatCents(discount.amount, locale),
-              })}
-            </Typography>
-          )}
+          <Typography style={WRAP}>
+            {t('ecommerce.orders.discounts.removeConfirm', {
+              reason,
+              amount: formatCents(discount.amount, locale),
+            })}
+          </Typography>
         </Modal.Body>
         <Modal.Footer>
           <Button variant="tertiary" onClick={onClose} disabled={busy}>
             {t('ecommerce.orders.discounts.close')}
           </Button>
-          {!saved && (
-            <Button variant="danger-light" onClick={remove} loading={busy}>
-              {t('ecommerce.orders.discounts.remove')}
-            </Button>
-          )}
+          <Button variant="danger-light" onClick={remove} loading={busy}>
+            {t('ecommerce.orders.discounts.remove')}
+          </Button>
         </Modal.Footer>
       </Modal.Content>
     </Modal.Root>
