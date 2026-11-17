@@ -118,6 +118,7 @@ describe('reviewAlerts', () => {
     expect(alerts).toEqual([
       {
         code: 'SHIPPING_REVIEW',
+        messageKey: 'ecommerce.orders.review.SHIPPING_REVIEW',
         reasonKey: 'ecommerce.orders.review.reason.PRODUCTS_CHANGED',
         raisedAt: 'a',
         sectionId: 'order-section-shipping-charges',
@@ -127,6 +128,7 @@ describe('reviewAlerts', () => {
       },
       {
         code: 'DISCOUNTS_REVIEW',
+        messageKey: 'ecommerce.orders.review.DISCOUNTS_REVIEW',
         reasonKey: 'ecommerce.orders.review.reason.SHIPPING_CHANGED',
         raisedAt: 'b',
         sectionId: 'order-section-promotions',
@@ -166,6 +168,7 @@ describe('reviewAlerts', () => {
     expect(alerts.map((a) => a.code)).toEqual(['SHIPPING_REVIEW', 'DISCOUNTS_REVIEW', 'REFUND_REVIEW']);
     expect(alerts[2]).toEqual({
       code: 'REFUND_REVIEW',
+      messageKey: 'ecommerce.orders.review.REFUND_REVIEW',
       reasonKey: 'ecommerce.orders.review.reason.REFUND_REVERSED_WITH_CREDIT_NOTE',
       raisedAt: 'c',
       sectionId: 'order-section-refunds',
@@ -182,6 +185,29 @@ describe('reviewAlerts', () => {
       })
     );
     expect(closed[0]).toMatchObject({ dismissable: true, locked: false });
+  });
+
+  it('REFUND_REVIEW for elements a late Stripe success finds used: its own message and reason', () => {
+    const [alert] = reviewAlerts(
+      order({
+        reviewFlags: [
+          { code: 'REFUND_REVIEW', reason: 'REFUND_ELEMENTS_CONFLICT', raisedAt: 'c', actor: 'webhook:stripe' },
+        ] as any,
+      })
+    );
+    expect(alert).toMatchObject({
+      code: 'REFUND_REVIEW',
+      messageKey: 'ecommerce.orders.review.REFUND_ELEMENTS_CONFLICT',
+      reasonKey: 'ecommerce.orders.review.reason.REFUND_ELEMENTS_CONFLICT',
+      sectionId: 'order-section-refunds',
+      dismissable: true,
+      locked: false,
+    });
+    // The edit flags keep the message of their code.
+    expect(reviewAlerts(order({ reviewFlags: flags as any })).map((a) => a.messageKey)).toEqual([
+      'ecommerce.orders.review.SHIPPING_REVIEW',
+      'ecommerce.orders.review.DISCOUNTS_REVIEW',
+    ]);
   });
 });
 

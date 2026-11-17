@@ -1,6 +1,11 @@
 import { MAX_MONEY_CENTS, type FinancialSummary, type PaymentRecordStatus } from './orders';
-import { creditOptions, refundCreditOptions } from './creditNotes';
-import type { InvoiceDoc, InvoicingPosition, PositionOrder } from './invoiceSelection';
+import { creditOptions, refundCreditOptions, refundStoredCreditLine } from './creditNotes';
+import {
+  refundCreditedUnits,
+  type InvoiceDoc,
+  type InvoicingPosition,
+  type PositionOrder,
+} from './invoiceSelection';
 
 export const refundableAmount = (summary: FinancialSummary, inFlightRefunds: number): number =>
   Math.max(0, summary.excess - inFlightRefunds);
@@ -195,6 +200,41 @@ export const refundReservationDocs = (
       },
     ];
   });
+
+/**
+ * Whether an INVOICED refund that reserves its stored elements again (e.g. Stripe completed it after
+ * we held it as failed) finds them taken meanwhile (plan 15): an element is no longer creditable at
+ * its stored value once live credit notes and the other refunds' reservations are counted (its
+ * invoice gone, annulled, credited, or picked by another refund), or an order line has more units
+ * refunded than it keeps after its returns. `refunds` holds the order's refunds as stored now, this
+ * one included. A legacy refund (no items) or one with a credit note that counts never conflicts.
+ */
+export const refundElementsConflict = (p: {
+  refund: RefundLike;
+  refunds: RefundLike[];
+  docs: InvoiceDoc[];
+  order: PositionOrder;
+  annulledInvoiceIds: number[];
+}): boolean => {
+  const items = refundItemsOf(p.refund);
+  if (!items || hasLiveCreditNote(p.refund, p.docs)) return false;
+  const id = Number(p.refund.id);
+  const others = refundReservationDocs(p.refunds, p.docs, id);
+  const withOthers = [...p.docs, ...others];
+  const annulled = new Set(p.annulledInvoiceIds);
+  const taken = items.some((item) => {
+    const invoice = p.docs.find(
+      (d) => d.id === item.invoiceId && d.kind === 'INVOICE' && d.status === 'ISSUED' && !annulled.has(d.id)
+    );
+    if (!invoice) return true;
+    return refundStoredCreditLine(invoice, creditOptions(invoice, withOthers, p.order), item) === null;
+  });
+  if (taken) return true;
+  // Units refunds hold are never returned: a return registered meanwhile may have taken them.
+  const own = refundReservationDocs([{ ...p.refund, status: 'COMPLETED' }], p.docs);
+  const refunded = refundCreditedUnits([...withOthers, ...own]);
+  return p.order.lines.some((l) => (refunded.get(l.id) ?? 0) > l.quantity - l.returnedQuantity);
+};
 
 /** Σ of the active legacy INVOICED refunds (no items) without a credit note: they reserve by amount. */
 export const legacyReservedAmount = (refunds: RefundLike[], docs: InvoiceDoc[]): number =>

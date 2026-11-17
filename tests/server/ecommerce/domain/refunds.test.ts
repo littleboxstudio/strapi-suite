@@ -4,8 +4,10 @@ import {
   invoicedRefundAdjustment,
   allocateStripeRefund,
   validateRefundRequest,
+  refundElementsConflict,
   type RefundSource,
 } from '../../../../server/src/services/modules/ecommerce/domain/refunds';
+import type { InvoiceDoc, PositionOrder } from '../../../../server/src/services/modules/ecommerce/domain/invoiceSelection';
 
 const summary = (excess: number) =>
   ({ orderTotal: 0, total: 0, paid: 0, pendingPayments: 0, refunded: 0, net: 0, due: 0, excess }) as any;
@@ -138,5 +140,68 @@ describe('invoicedRefundAdjustment', () => {
 
   it('is 0 without refunds', () => {
     expect(invoicedRefundAdjustment([])).toBe(0);
+  });
+});
+
+describe('refundElementsConflict (plan 15 final fixes 2)', () => {
+  const line = { sku: 'S', name: 'Shirt', tax: 23, partial: false };
+  const invoice: InvoiceDoc = {
+    id: 1,
+    kind: 'INVOICE',
+    status: 'ISSUED',
+    creditedInvoiceId: null,
+    creditType: null,
+    paymentIds: [],
+    creditedLines: [],
+    lines: [
+      { ...line, orderLineId: 5, kind: 'ITEM', quantity: 2, total: 4000, discountShare: 0 },
+      { ...line, orderLineId: null, kind: 'SHIPPING', quantity: 1, total: 500 },
+    ],
+  };
+  const order = (returnedQuantity = 0): PositionOrder =>
+    ({
+      lines: [{ id: 5, unitPrice: 2000, unitDiscount: 0, quantity: 2, returnedQuantity, tax: 23 }],
+      orderDiscount: 0,
+      shippingTotal: 500,
+      shippingTax: 23,
+      shippingLines: [],
+      manualDiscounts: [],
+      applied: [],
+      returnShares: [],
+    }) as any;
+  const refund = (id: number, items: { index: number; quantity: number; value: number }[], status = 'COMPLETED') => ({
+    id,
+    scope: 'INVOICED',
+    status,
+    amount: items.reduce((s, i) => s + i.value, 0),
+    metadata: { items: items.map((i) => ({ invoiceId: 1, ...i })) },
+  });
+  const check = (r: any, refunds: any[], docs: InvoiceDoc[] = [invoice], returned = 0, annulled: number[] = []) =>
+    refundElementsConflict({ refund: r, refunds, docs, order: order(returned), annulledInvoiceIds: annulled });
+
+  it('no conflict when its elements are still free (its own reservation left out)', () => {
+    const r = refund(1, [{ index: 0, quantity: 1, value: 2000 }]);
+    expect(check(r, [r, refund(2, [{ index: 0, quantity: 1, value: 2000 }])])).toBe(false);
+  });
+
+  it('another refund took the units or the shipping line', () => {
+    const r = refund(1, [{ index: 0, quantity: 2, value: 4000 }]);
+    expect(check(r, [r, refund(2, [{ index: 0, quantity: 1, value: 2000 }])])).toBe(true);
+    const s = refund(1, [{ index: 1, quantity: 1, value: 500 }]);
+    expect(check(s, [s, refund(2, [{ index: 1, quantity: 1, value: 500 }])])).toBe(true);
+    // A FAILED other refund holds nothing.
+    expect(check(s, [s, refund(2, [{ index: 1, quantity: 1, value: 500 }], 'FAILED')])).toBe(false);
+  });
+
+  it('a return took the units, or the invoice was annulled', () => {
+    const r = refund(1, [{ index: 0, quantity: 1, value: 2000 }]);
+    expect(check(r, [r], [invoice], 1)).toBe(false);
+    expect(check(r, [r], [invoice], 2)).toBe(true);
+    expect(check(r, [r], [invoice], 0, [1])).toBe(true);
+  });
+
+  it('a legacy refund (no items) never conflicts', () => {
+    const legacy = { id: 1, scope: 'INVOICED', status: 'COMPLETED', amount: 500, metadata: null };
+    expect(check(legacy, [legacy, refund(2, [{ index: 1, quantity: 1, value: 500 }])])).toBe(false);
   });
 });
