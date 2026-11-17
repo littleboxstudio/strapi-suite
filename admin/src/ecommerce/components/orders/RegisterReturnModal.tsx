@@ -24,7 +24,7 @@ import { getTranslation } from '../../../core/utils/getTranslation';
 import { InputTd } from '../InputTd';
 import RegisterReturn from '../../usecases/orders/registerReturn';
 import { formatCents } from '../../utils/money';
-import { apiErrorMessageId } from '../../utils/orderDetail';
+import { apiErrorMessageId, lineDiscountLabel } from '../../utils/orderDetail';
 import { extractFieldErrors } from '../../utils/productForm';
 import { mintUuid } from '../../utils/variantDraft';
 import {
@@ -80,6 +80,16 @@ const RegisterReturnModal = ({ order, canRefund, onClose, onRefundNow }: Props) 
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<ReturnRegistered | null>(null);
   const lineById = new Map(order.lines.map((l) => [l.id, l]));
+
+  /** "€27.90 per unit · discount −€3.10 (Manual discount 10 %)", or just the price per unit. */
+  const chargedText = (line: Order['lines'][number]): string => {
+    const charged = t('ecommerce.orders.returns.unitPrice', { price: money(line.unitPrice - line.unitDiscount) });
+    if (line.unitDiscount <= 0) return charged;
+    const label = lineDiscountLabel(line, order.promotions ?? [], uiLocale, (percent) =>
+      t('ecommerce.orders.detail.lines.manualDiscount', { percent })
+    );
+    return `${charged} · ${t('ecommerce.orders.returns.unitDiscount', { amount: money(line.unitDiscount) })}${label ? ` (${label})` : ''}`;
+  };
 
   const clear = (keys: string[]) =>
     setErrors((map) => {
@@ -220,6 +230,10 @@ const RegisterReturnModal = ({ order, canRefund, onClose, onRefundNow }: Props) 
                             </Typography>
                             <Typography variant="pi" textColor="neutral600">
                               {[line.option, line.sku].filter(Boolean).join(' · ')}
+                            </Typography>
+                            {/* What each unit was charged, and its discount (no extra columns). */}
+                            <Typography variant="pi" textColor="neutral600">
+                              {chargedText(line)}
                             </Typography>
                           </Flex>
                         </Td>

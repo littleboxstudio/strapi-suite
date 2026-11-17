@@ -1168,6 +1168,8 @@
   "littlebox-strapi-suite.ecommerce.orders.shipments.cancel.success": "Expedição cancelada.",
   "littlebox-strapi-suite.ecommerce.orders.shipments.cancel.error": "Não foi possível cancelar a expedição.",
   "littlebox-strapi-suite.ecommerce.orders.returns.title": "Registar devolução da encomenda #{reference}",
+  "littlebox-strapi-suite.ecommerce.orders.returns.unitPrice": "{price} por unidade",
+  "littlebox-strapi-suite.ecommerce.orders.returns.unitDiscount": "desconto −{amount}",
   "littlebox-strapi-suite.ecommerce.orders.returns.nothing": "Não há unidades enviadas por devolver.",
   "littlebox-strapi-suite.ecommerce.orders.returns.columns.product": "Produto",
   "littlebox-strapi-suite.ecommerce.orders.returns.columns.shipped": "Enviado",
