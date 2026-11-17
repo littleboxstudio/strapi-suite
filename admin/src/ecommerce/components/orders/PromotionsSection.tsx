@@ -35,6 +35,9 @@ import OrderSection from './OrderSection';
 import ColumnLabel from '../ColumnLabel';
 import { ToneBadge } from './StatusBadges';
 
+/** Long texts (a product name in a benefit) wrap inside their cell instead of running over the next. */
+const WRAP = { whiteSpace: 'normal', overflowWrap: 'anywhere' } as const;
+
 const COLUMNS = ['promotion', 'method', 'type', 'benefit', 'amount', 'actions'] as const;
 
 type Props = {
@@ -162,7 +165,7 @@ const PromotionsSection = ({
               <Tbody>
                 {rows.map((row) => (
                   <Tr key={row.key}>
-                    <Td style={{ maxWidth: 260 }}>
+                    <Td style={{ maxWidth: 260, ...WRAP }}>
                       <Flex direction="column" alignItems="flex-start" gap={1}>
                         <Typography textColor="neutral800" fontWeight="semiBold" ellipsis>
                           {row.displayName ?? t('ecommerce.orders.promotions.fallbackName')}
@@ -194,8 +197,8 @@ const PromotionsSection = ({
                         {t(`ecommerce.orders.promotions.classes.${row.discountClass}`)}
                       </Typography>
                     </Td>
-                    <Td style={{ maxWidth: 320 }}>
-                      <Typography textColor="neutral800">{describeBenefit(row.benefit, money, t)}</Typography>
+                    <Td style={{ maxWidth: 320, ...WRAP }}>
+                      <Typography textColor="neutral800" style={WRAP}>{describeBenefit(row.benefit, money, t)}</Typography>
                     </Td>
                     <Td>
                       <Typography textColor="neutral800" style={{ whiteSpace: 'nowrap', display: 'block', ...amountCell }}>
@@ -209,7 +212,7 @@ const PromotionsSection = ({
                   const percent = manualDiscountPercent(m, uiLocale);
                   return (
                     <Tr key={`m-${m.id}`}>
-                      <Td style={{ maxWidth: 260 }}>
+                      <Td style={{ maxWidth: 260, ...WRAP }}>
                         <Typography textColor="neutral800" fontWeight="semiBold">
                           {t('ecommerce.orders.discounts.manualName')}
                         </Typography>
@@ -222,9 +225,9 @@ const PromotionsSection = ({
                           {t('ecommerce.orders.promotions.classes.ORDER_DISCOUNT')}
                         </Typography>
                       </Td>
-                      <Td style={{ maxWidth: 320 }}>
+                      <Td style={{ maxWidth: 320, ...WRAP }}>
                         <Flex direction="column" alignItems="flex-start" gap={1}>
-                          <Typography textColor="neutral800" style={{ overflowWrap: 'anywhere' }}>
+                          <Typography textColor="neutral800" style={WRAP}>
                             {manualReason(m)}
                           </Typography>
                           {percent && (
@@ -255,7 +258,7 @@ const PromotionsSection = ({
                 })}
                 {lineRows.map((r) => (
                   <Tr key={r.key}>
-                    <Td style={{ maxWidth: 260 }}>
+                    <Td style={{ maxWidth: 260, ...WRAP }}>
                       <Typography textColor="neutral800" fontWeight="semiBold">
                         {t('ecommerce.orders.discounts.manualLineName')}
                       </Typography>
@@ -268,8 +271,8 @@ const PromotionsSection = ({
                         {t('ecommerce.orders.promotions.classes.PRODUCT_DISCOUNT')}
                       </Typography>
                     </Td>
-                    <Td style={{ maxWidth: 320 }}>
-                      <Typography textColor="neutral800" style={{ overflowWrap: 'anywhere' }}>
+                    <Td style={{ maxWidth: 320, ...WRAP }}>
+                      <Typography textColor="neutral800" style={WRAP}>
                         {r.label}
                       </Typography>
                     </Td>
@@ -406,7 +409,7 @@ const RemoveDiscountModal = ({
               onAction={onAction}
             />
           ) : (
-            <Typography style={{ overflowWrap: 'anywhere' }}>
+            <Typography style={WRAP}>
               {t('ecommerce.orders.discounts.removeConfirm', {
                 reason,
                 amount: formatCents(discount.amount, locale),
