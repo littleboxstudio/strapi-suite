@@ -1384,6 +1384,8 @@
   "littlebox-strapi-suite.ecommerce.orders.shipments.cancel.success": "Shipment cancelled.",
   "littlebox-strapi-suite.ecommerce.orders.shipments.cancel.error": "Could not cancel the shipment.",
   "littlebox-strapi-suite.ecommerce.orders.returns.title": "Register a return for order #{reference}",
+  "littlebox-strapi-suite.ecommerce.orders.returns.unitPrice": "{price} per unit",
+  "littlebox-strapi-suite.ecommerce.orders.returns.unitDiscount": "discount −{amount}",
   "littlebox-strapi-suite.ecommerce.orders.returns.nothing": "No shipped units left to return.",
   "littlebox-strapi-suite.ecommerce.orders.returns.columns.product": "Product",
   "littlebox-strapi-suite.ecommerce.orders.returns.columns.shipped": "Shipped",
