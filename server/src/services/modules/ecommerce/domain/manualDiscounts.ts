@@ -169,3 +169,51 @@ export function buildManualDiscount(
     errors,
   };
 }
+
+/** At most this many manual discounts are given when an order is created. */
+export const MAX_CREATE_MANUAL_DISCOUNTS = 10;
+
+/**
+ * The manual discounts given when an order is created (`manualDiscounts`), each built in turn by
+ * `buildManualDiscount` as `addManualDiscount` would add it to the new order: `base` is the order's
+ * products value (its subtotal) and `pending` its order discount from the promotions, plus the
+ * entries before it. Ids are 1, 2, … in input order. Errors are indexed:
+ * `manualDiscounts.N.value`, `manualDiscounts.N.reason`, `manualDiscounts.N.kind`. Absent = none.
+ */
+export function buildManualDiscountList(
+  raw: unknown,
+  ctx: { base: number; pending: number; at: string; actor: string }
+): { items: ManualDiscount[]; errors: DiscountError[] } {
+  if (raw === undefined || raw === null) return { items: [], errors: [] };
+  if (!Array.isArray(raw)) return { items: [], errors: [{ path: 'manualDiscounts', code: 'invalid' }] };
+  if (raw.length > MAX_CREATE_MANUAL_DISCOUNTS) {
+    return { items: [], errors: [{ path: 'manualDiscounts', code: 'too_many' }] };
+  }
+  const items: ManualDiscount[] = [];
+  const errors: DiscountError[] = [];
+  raw.forEach((entry, i) => {
+    const built = buildManualDiscount(entry, {
+      base: ctx.base,
+      pending: ctx.pending + manualDiscountTotal(items),
+      nextId: i + 1,
+      at: ctx.at,
+      actor: ctx.actor,
+    });
+    for (const e of built.errors) errors.push({ path: `manualDiscounts.${i}.${e.path}`, code: e.code });
+    if (built.discount) items.push(built.discount);
+  });
+  return errors.length ? { items: [], errors } : { items, errors };
+}
+
+/**
+ * The shape checks of `buildManualDiscountList` alone (kind, value format, reason), before the
+ * cart is priced: the amount limits need the subtotal and are checked once it is known.
+ */
+export function manualDiscountListShapeErrors(raw: unknown): DiscountError[] {
+  return buildManualDiscountList(raw, {
+    base: MAX_MONEY_CENTS,
+    pending: 0,
+    at: '',
+    actor: '',
+  }).errors.filter((e) => e.code !== 'DISCOUNT_EXCEEDS_PRODUCTS');
+}

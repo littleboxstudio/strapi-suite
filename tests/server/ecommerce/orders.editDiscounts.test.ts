@@ -1103,3 +1103,232 @@ describe('dismissReviewFlag (ruling 23)', () => {
     ).toEqual([{ path: 'code', code: 'invalid' }]);
   });
 });
+
+describe('create order with manual discounts (duplicate order spec)', () => {
+  const baseInput = (extra: Record<string, unknown> = {}) => ({
+    customer: { firstName: 'Ana', lastName: 'Silva', email: 'ana@example.pt' },
+    shippingAddress: address,
+    billingAddress: address,
+    locale: 'en',
+    lines: [
+      { variantId: 10, quantity: 2 },
+      { variantId: 11, quantity: 1 },
+    ],
+    shipping: { providerId: 'manual', serviceId: '1' },
+    ...extra,
+  });
+  const quoteInput = (extra: Record<string, unknown> = {}) => ({
+    locale: 'en',
+    email: 'ana@example.pt',
+    lines: [
+      { variantId: 10, quantity: 2 },
+      { variantId: 11, quantity: 1 },
+    ],
+    shipping: { country: 'PT', postalCode: '1000-001', providerId: 'manual', serviceId: '1' },
+    ...extra,
+  });
+  const admin = { actor: 'user:1', source: 'admin' as const };
+  /** Subtotal 6500, promotion ORDER_PERCENT 10 → 650, shipping 500: total 6350. */
+  const TWO = [
+    { kind: 'FIXED', value: 500, reason: 'Gesture' },
+    { kind: 'PERCENT', value: 10, reason: 'Loyal customer' },
+  ];
+
+  it('rejects malformed entries with indexed paths and creates nothing', async () => {
+    const ctx = setup();
+    const errs = await issues(
+      ctx.orders.create(
+        baseInput({
+          manualDiscounts: [
+            { kind: 'FIXED', value: 1.5, reason: 'Cents only' },
+            { kind: 'PERCENT', value: 10.123, reason: '  ' },
+            { kind: 'PERCENT', value: 5, reason: 'x'.repeat(201) },
+            { kind: 'OTHER', value: 5, reason: 'Kind' },
+          ],
+        }) as any,
+        admin
+      )
+    );
+    expect(errs).toEqual(
+      expect.arrayContaining([
+        { path: 'manualDiscounts.0.value', code: 'INVALID_AMOUNT' },
+        { path: 'manualDiscounts.1.value', code: 'INVALID_AMOUNT' },
+        { path: 'manualDiscounts.1.reason', code: 'required' },
+        { path: 'manualDiscounts.2.reason', code: 'required' },
+        { path: 'manualDiscounts.3.kind', code: 'required' },
+      ])
+    );
+    expect(errs).toHaveLength(5);
+    expect(ctx.tables[UIDS.order]).toEqual([]);
+  });
+
+  it('rejects a non-list and more than ten entries', async () => {
+    const ctx = setup();
+    expect(
+      await issues(ctx.orders.create(baseInput({ manualDiscounts: 'x' }) as any, admin))
+    ).toEqual([{ path: 'manualDiscounts', code: 'invalid' }]);
+    const eleven = Array.from({ length: 11 }, () => ({ kind: 'FIXED', value: 1, reason: 'R' }));
+    expect(
+      await issues(ctx.orders.create(baseInput({ manualDiscounts: eleven }) as any, admin))
+    ).toEqual([{ path: 'manualDiscounts', code: 'too_many' }]);
+    expect(
+      await issues(ctx.orders.quote(quoteInput({ manualDiscounts: eleven }) as any, { manualDiscounts: true }))
+    ).toEqual([{ path: 'manualDiscounts', code: 'too_many' }]);
+    expect(ctx.tables[UIDS.order]).toEqual([]);
+  });
+
+  it('a discount above the subtotal after promotions → DISCOUNT_EXCEEDS_PRODUCTS (quote and create)', async () => {
+    const ctx = setup();
+    addPromotion(ctx);
+    const over = [{ kind: 'FIXED', value: 5851, reason: 'Too much' }];
+    expect(
+      await issues(ctx.orders.create(baseInput({ manualDiscounts: over }) as any, admin))
+    ).toEqual([{ path: 'manualDiscounts.0.value', code: 'DISCOUNT_EXCEEDS_PRODUCTS' }]);
+    expect(
+      await issues(ctx.orders.quote(quoteInput({ manualDiscounts: over }) as any, { manualDiscounts: true }))
+    ).toEqual([{ path: 'manualDiscounts.0.value', code: 'DISCOUNT_EXCEEDS_PRODUCTS' }]);
+    // The second entry's base already has the first one taken off.
+    const pair = [
+      { kind: 'FIXED', value: 5000, reason: 'A' },
+      { kind: 'FIXED', value: 851, reason: 'B' },
+    ];
+    expect(
+      await issues(ctx.orders.create(baseInput({ manualDiscounts: pair }) as any, admin))
+    ).toEqual([{ path: 'manualDiscounts.1.value', code: 'DISCOUNT_EXCEEDS_PRODUCTS' }]);
+    expect(ctx.tables[UIDS.order]).toEqual([]);
+    const exact = await ctx.orders.create(
+      baseInput({ manualDiscounts: [{ kind: 'FIXED', value: 5850, reason: 'All' }] }) as any,
+      admin
+    );
+    expect(exact.total).toBe(500);
+  });
+
+  it('the quote applies them on top of the promotions and reports each amount', async () => {
+    const ctx = setup();
+    addPromotion(ctx);
+    const plain = await ctx.orders.quote(quoteInput() as any, { manualDiscounts: true });
+    expect(plain.totals).toMatchObject({ subtotal: 6500, orderDiscount: 650, total: 6350 });
+    expect(plain.manualDiscounts).toEqual([]);
+    const q = await ctx.orders.quote(quoteInput({ manualDiscounts: TWO }) as any, {
+      manualDiscounts: true,
+    });
+    expect(q.manualDiscounts).toEqual([
+      { kind: 'FIXED', percent: null, amount: 500, reason: 'Gesture' },
+      { kind: 'PERCENT', percent: 10, amount: 650, reason: 'Loyal customer' },
+    ]);
+    expect(q.totals).toMatchObject({
+      subtotal: 6500,
+      orderDiscount: 1800,
+      shippingTotal: 500,
+      total: 5200,
+      totalDiscount: plain.totals.totalDiscount + 1150,
+    });
+  });
+
+  it('the storefront quote and order ignore them', async () => {
+    const ctx = setup();
+    const q = await ctx.orders.quote(quoteInput({ manualDiscounts: TWO }) as any);
+    expect(q.totals.total).toBe(7000);
+    expect(q.manualDiscounts).toEqual([]);
+  });
+
+  it('create stores them as addManualDiscount would; totals reconcile with the view and the quote', async () => {
+    const ctx = setup();
+    addPromotion(ctx);
+    const q = await ctx.orders.quote(quoteInput({ manualDiscounts: TWO }) as any, {
+      manualDiscounts: true,
+    });
+    const created = await ctx.orders.create(
+      baseInput({ manualDiscounts: TWO, expectedTotal: q.totals.total, idempotencyKey: 'dup-1' }) as any,
+      admin
+    );
+    expect(created.total).toBe(5200);
+    const row = orderRow(ctx, created.id);
+    expect(row).toMatchObject({ subtotal: 6500, orderDiscount: 1800, shippingTotal: 500, total: 5200 });
+    expect(row.manualDiscounts.items).toEqual([
+      expect.objectContaining({ id: 1, kind: 'FIXED', percent: null, amount: 500, reason: 'Gesture', actor: 'user:1' }),
+      expect.objectContaining({ id: 2, kind: 'PERCENT', percent: 10, amount: 650, reason: 'Loyal customer', actor: 'user:1' }),
+    ]);
+    const added = historyOf(ctx, created.id, 'MANUAL_DISCOUNT_ADDED');
+    expect(added.map((h) => h.newValue)).toEqual([
+      { id: 1, kind: 'FIXED', percent: null, amount: 500, reason: 'Gesture' },
+      { id: 2, kind: 'PERCENT', percent: 10, amount: 650, reason: 'Loyal customer' },
+    ]);
+    expect(added.map((h) => h.description)).toEqual([
+      'Manual discount added: 500 cents',
+      'Manual discount added: 650 cents',
+    ]);
+
+    // The view and the order's own recomputation agree with what was stored.
+    const view = await ctx.orders.get(created.id);
+    expect(view.totals).toMatchObject({ orderDiscount: 1800, total: 5200 });
+    expect(view.summary.due).toBe(5200);
+    expect(view.manualDiscounts.map((m: any) => [m.id, m.amount, m.invoiced])).toEqual([
+      [1, 500, false],
+      [2, 650, false],
+    ]);
+    const preview = await ctx.editing.previewDiscounts(created.id, {});
+    expect(preview.orderDiscount).toBe(1800);
+    // Removing then re-adding through the order editing lands on the same totals.
+    await ctx.editing.removeManualDiscount(created.id, 2, 'user:1', 'op-dup-rm-2');
+    expect(orderRow(ctx, created.id)).toMatchObject({ orderDiscount: 1150, total: 5850 });
+    await ctx.editing.addManualDiscount(
+      created.id,
+      { kind: 'PERCENT', value: 10, reason: 'Loyal customer' },
+      'user:1',
+      'op-dup-add-2'
+    );
+    expect(orderRow(ctx, created.id)).toMatchObject({ orderDiscount: 1800, total: 5200 });
+
+    // An idempotent replay returns the stored order.
+    const replay = await ctx.orders.create(
+      baseInput({ manualDiscounts: TWO, idempotencyKey: 'dup-1' }) as any,
+      admin
+    );
+    expect(replay).toMatchObject({ id: created.id, replayed: true });
+  });
+
+  it('TOTAL_CHANGED when the shown total left the manual discounts out', async () => {
+    const ctx = setup();
+    addPromotion(ctx);
+    const plain = await ctx.orders.quote(quoteInput() as any, { manualDiscounts: true });
+    const err: any = await ctx.orders
+      .create(baseInput({ manualDiscounts: TWO, expectedTotal: plain.totals.total }) as any, admin)
+      .catch((e) => e);
+    expect(err.errors).toEqual([
+      { path: 'expectedTotal', code: 'TOTAL_CHANGED', detail: '5200' },
+    ]);
+    expect(ctx.tables[UIDS.order]).toEqual([]);
+  });
+
+  it('an order without manual discounts is stored as before', async () => {
+    const ctx = setup();
+    addPromotion(ctx);
+    ctx.tables[UIDS.variant].find((v) => v.id === 11).stock = 10;
+    const a = await ctx.orders.create(baseInput() as any, admin);
+    const b = await ctx.orders.create(baseInput({ manualDiscounts: [] }) as any, admin);
+    const strip = (r: any) => {
+      const { id, reference, publicId, createdAt, updatedAt, promotions, shippingLines, ...rest } = r;
+      return {
+        ...rest,
+        promotions: { ...promotions, evaluatedAt: null },
+        shippingLines: shippingLines.lines.map(({ createdAt: _c, ...l }: any) => l),
+      };
+    };
+    expect(strip(orderRow(ctx, b.id))).toEqual(strip(orderRow(ctx, a.id)));
+    expect(orderRow(ctx, a.id)).toMatchObject({ orderDiscount: 650, total: 6350, manualDiscounts: { items: [] } });
+    for (const id of [a.id, b.id]) {
+      expect(historyOf(ctx, id).map((h) => h.type)).toEqual(['ORDER_CREATED', 'PROMOTIONS_APPLIED']);
+    }
+  });
+
+  it('a storefront order ignores them', async () => {
+    const ctx = setup();
+    const created = await ctx.orders.create(baseInput({ manualDiscounts: TWO }) as any, {
+      actor: 'storefront',
+      source: 'storefront',
+    });
+    expect(created.total).toBe(7000);
+    expect(orderRow(ctx, created.id).manualDiscounts).toEqual({ items: [] });
+  });
+});
