@@ -35,6 +35,7 @@ import {
 } from './orderModificationSupport';
 import {
   invoicedRefundableAmount,
+  invoicedUnitsOnlyAvailable,
   invoicedRefundAdjustment,
   offersRefundElements,
   refundableAmount,
@@ -1463,19 +1464,21 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       order.orderStatus === 'OPEN'
         ? ((await service('EcommerceInvoiceService').billingStatus())?.providerId ?? null)
         : null;
+    const offered = {
+      docs: invoicing.docs,
+      order: invoicing.positionOrder,
+      position: invoicing.position,
+      refunds,
+      invoiceIds: invoicing.invoices
+        .filter((r) => offersRefundElements(r, billingProviderId))
+        .map((r) => r.id as number),
+    };
     const invoicedRefundable =
       order.orderStatus === 'OPEN'
-        ? invoicedRefundableAmount({
-            docs: invoicing.docs,
-            order: invoicing.positionOrder,
-            position: invoicing.position,
-            refunds,
-            held: Math.max(0, summary.net - inFlightRefunds),
-            invoiceIds: invoicing.invoices
-              .filter((r) => offersRefundElements(r, billingProviderId))
-              .map((r) => r.id as number),
-          })
+        ? invoicedRefundableAmount({ ...offered, held: Math.max(0, summary.net - inFlightRefunds) })
         : 0;
+    // Gift units (elements valued 0) left: a units-only INVOICED refund is possible.
+    const unitsOnlyRefundable = order.orderStatus === 'OPEN' && invoicedUnitsOnlyAvailable(offered);
     const invoicedUnits = netInvoicedUnits(invoicing.position);
     // Units of REFUND credit notes and of the elements active INVOICED refunds without one hold
     // (each refund counted once).
@@ -1520,7 +1523,8 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       hasPendingRefunds,
       canIssueInvoice: invoicing.canIssue,
       invoicedRefundable,
-    }).filter((a) => a !== 'REFUND' || blockingExcess > 0 || invoicedRefundable > 0);
+      unitsOnlyRefundable,
+    }).filter((a) => a !== 'REFUND' || blockingExcess > 0 || invoicedRefundable > 0 || unitsOnlyRefundable);
     return {
       order,
       lines,

@@ -283,6 +283,8 @@ export type AvailableActionsInput = {
    * offers REFUND even without an excess.
    */
   invoicedRefundable?: number;
+  /** Gift units (invoiced elements valued 0) are left: a units-only INVOICED refund is possible. */
+  unitsOnlyRefundable?: boolean;
 };
 
 /** Returns actions in a stable order: SHIP, CANCEL, REFUND, ADD_PAYMENT,
@@ -296,7 +298,9 @@ export const availableActions = (input: AvailableActionsInput): OrderActionKey[]
   const settled = due === 0 && (input.summary.paid > 0 || input.summary.orderTotal === 0);
   if (open && (settled ? input.hasUnshippedQuantity : !!input.hasPaidUnshippedQuantity)) actions.push('SHIP');
   if (open) actions.push('CANCEL');
-  if (excess > 0 || (open && (input.invoicedRefundable ?? 0) > 0)) actions.push('REFUND');
+  if (excess > 0 || (open && ((input.invoicedRefundable ?? 0) > 0 || !!input.unitsOnlyRefundable))) {
+    actions.push('REFUND');
+  }
   if (open && due > 0) actions.push('ADD_PAYMENT', 'SEND_PAYMENT_INSTRUCTIONS');
   if (
     open &&

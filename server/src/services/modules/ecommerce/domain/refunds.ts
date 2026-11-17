@@ -266,25 +266,51 @@ export const offersRefundElements = (
  *   amount until their credit note credits it);
  * - never above what the order still holds of the money received (`held`).
  */
-export const invoicedRefundableAmount = (p: {
+type OfferedElementsInput = {
   docs: InvoiceDoc[];
   order: PositionOrder;
   position: InvoicingPosition;
   refunds: RefundLike[];
-  held: number;
   /** The invoices that offer elements (`offersRefundElements`); all ISSUED ones when absent. */
   invoiceIds?: number[] | null;
-}): number => {
+};
+
+/**
+ * The elements an INVOICED refund may pick, per ISSUED invoice not annulled (`invoiceIds` only when
+ * given), with live credit notes and the refunds' reserved elements counted.
+ */
+const offeredElements = (p: OfferedElementsInput) => {
   const offered = p.invoiceIds ? new Set(p.invoiceIds) : null;
   const annulled = new Set(p.position.annulledInvoiceIds);
   const withReservations = [...p.docs, ...refundReservationDocs(p.refunds, p.docs)];
+  return p.docs
+    .filter(
+      (invoice) =>
+        invoice.kind === 'INVOICE' &&
+        invoice.status === 'ISSUED' &&
+        !annulled.has(invoice.id) &&
+        (!offered || offered.has(invoice.id))
+    )
+    .map((invoice) => {
+      const options = creditOptions(invoice, withReservations, p.order);
+      return { options, lines: refundCreditOptions(invoice, options) };
+    });
+};
+
+/**
+ * Whether a units-only INVOICED refund is possible: some zero-value element (a promotional gift's
+ * units) is still available. Such a refund moves no money, so the value limits do not apply.
+ */
+export const invoicedUnitsOnlyAvailable = (p: OfferedElementsInput): boolean =>
+  offeredElements(p).some(({ lines }) => lines.some((o) => o.kind === 'ITEM' && o.valueLeft === 0));
+
+export const invoicedRefundableAmount = (p: OfferedElementsInput & { held: number }): number => {
   let creditable = 0;
-  for (const invoice of p.docs) {
-    if (invoice.kind !== 'INVOICE' || invoice.status !== 'ISSUED' || annulled.has(invoice.id)) continue;
-    if (offered && !offered.has(invoice.id)) continue;
-    const options = creditOptions(invoice, withReservations, p.order);
-    const lines = refundCreditOptions(invoice, options).reduce((s, o) => s + o.valueLeft, 0);
-    creditable += Math.min(lines, options.held);
+  for (const { options, lines } of offeredElements(p)) {
+    creditable += Math.min(
+      lines.reduce((s, o) => s + o.valueLeft, 0),
+      options.held
+    );
   }
   const overInvoiced = p.position.overInvoiced.products + p.position.overInvoiced.shipping;
   const pending = legacyReservedAmount(p.refunds, p.docs);

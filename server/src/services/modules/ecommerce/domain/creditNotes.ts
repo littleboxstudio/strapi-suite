@@ -67,6 +67,13 @@ const isWholeItem = (l: InvoiceLine): boolean =>
   l.kind === 'ITEM' && l.orderLineId !== null && !l.partial;
 
 /**
+ * A whole ITEM line invoiced at 0 (a promotional gift): its units are still elements an INVOICED
+ * refund may pick (valued 0), so they stop shipping, but a RETURN or CORRECTION never credits it.
+ */
+export const isZeroValueItem = (l: InvoiceLine): boolean =>
+  isWholeItem(l) && num(l.total) === 0 && num(l.quantity) > 0;
+
+/**
  * The discount share `q` of the `u` units left of an invoice line take, of the `shareLeft` cents
  * of its `discountShare` not taken yet: the floor share, the last units taking all that is left.
  * One rule for the RETURN credit note (`sharedUnitsCredit`) and the return's refund
@@ -215,8 +222,9 @@ export function creditOptions(
     sum(invoice.lines.filter((l) => l.kind !== 'DISCOUNT').map((l) => num(l.total))) -
       sum(entries.map((e) => e.value))
   );
+  // Zero-value lines (gifts) keep their units: REFUND credit notes credit them at 0.
   const unitsLeft = invoice.lines.map((l, i) => {
-    if (!isWholeItem(l) || creditable[i] <= 0) return 0;
+    if (!isWholeItem(l) || (creditable[i] <= 0 && !isZeroValueItem(l))) return 0;
     const credited = sum(entries.filter((e) => e.index === i).map((e) => e.quantity));
     return Math.max(0, Math.floor(num(l.quantity)) - credited);
   });
@@ -233,7 +241,8 @@ export function creditOptions(
 
   const returnable: CreditOptions['returnable'] = [];
   invoice.lines.forEach((l, index) => {
-    if (unitsLeft[index] <= 0) return;
+    // A RETURN credits value: zero-value lines (gifts) are never returnable elements.
+    if (unitsLeft[index] <= 0 || creditable[index] <= 0) return;
     const orderLine = order.lines.find((o) => o.id === l.orderLineId);
     const entry = position.lines.find((p) => p.orderLineId === l.orderLineId);
     if (!orderLine || !entry) return;
@@ -425,6 +434,8 @@ export function buildCreditLines(
 export type RefundCreditLineOption = {
   index: number;
   kind: 'ITEM' | 'SHIPPING';
+  /** ITEM: the order line it invoiced (the admin reads its gift flag); SHIPPING: null. */
+  orderLineId: number | null;
   name: string;
   quantityLeft: number;
   /** The value of one unit (the first one credited), by the RETURN share rule. */
@@ -437,6 +448,7 @@ export type RefundCreditLineOption = {
  * `unitsCredit`): a whole-item line keeps the discount share that value implies.
  */
 const fixedUnitsCredit = (line: InvoiceLine, q: number, value: number): InvoiceLine => {
+  if (isZeroValueItem(line)) return zeroUnitsCredit(line, q);
   if (!isSharedLine(line)) return { ...withTotal(line, value), quantity: q, partial: false };
   const netUnit = Math.round((num(line.total) + line.discountShare!) / line.quantity);
   const grossUnit = line.grossTotal == null ? null : line.grossTotal / line.quantity;
@@ -450,8 +462,27 @@ const fixedUnitsCredit = (line: InvoiceLine, q: number, value: number): InvoiceL
   };
 };
 
+/**
+ * `q` units of a zero-value ITEM line (a gift), credited at 0 as it was invoiced: the price before
+ * discounts (`grossTotal`, per unit) is kept, so the provider sends the same price with a 100%
+ * discount.
+ */
+const zeroUnitsCredit = (line: InvoiceLine, q: number): InvoiceLine => {
+  const { grossTotal, discountShare, ...rest } = line;
+  const scale = (v: number) => Math.round((v * q) / line.quantity);
+  return {
+    ...rest,
+    quantity: q,
+    total: 0,
+    partial: false,
+    ...(grossTotal != null ? { grossTotal: scale(grossTotal) } : {}),
+    ...(discountShare != null ? { discountShare: scale(discountShare) } : {}),
+  };
+};
+
 /** `q` of the `u` units left of an ITEM line, valued the RETURN way (`sharedUnitsCredit`). */
 const unitsCredit = (line: InvoiceLine, valueLeft: number, u: number, q: number): InvoiceLine => {
+  if (isZeroValueItem(line)) return zeroUnitsCredit(line, q);
   const shared = sharedUnitsCredit(line, valueLeft, u, q);
   if (shared) return shared;
   return { ...withTotal(line, selectedValue(valueLeft, u, q)), quantity: q, partial: false };
@@ -460,21 +491,26 @@ const unitsCredit = (line: InvoiceLine, valueLeft: number, u: number, q: number)
 /**
  * The elements of `invoice` an INVOICED refund's credit note may credit (plan 15): ITEM lines with
  * whole units left (valued by the RETURN share rule) and whole SHIPPING lines, as `options` (live
- * credit notes counted) leaves them. DISCOUNT records are never listed.
+ * credit notes counted) leaves them. Zero-value ITEM lines (gifts) are listed with value 0, in
+ * whole units. DISCOUNT records are never listed.
  */
 export function refundCreditOptions(invoice: InvoiceDoc, options: CreditOptions): RefundCreditLineOption[] {
   return invoice.lines.flatMap((l, index): RefundCreditLineOption[] => {
     if (l.kind === 'ITEM') {
       const units = options.unitsLeft[index] ?? 0;
       const valueLeft = options.creditable[index] ?? 0;
-      if (units <= 0 || valueLeft <= 0) return [];
+      if (units <= 0 || (valueLeft <= 0 && !isZeroValueItem(l))) return [];
       const unitValue = num(unitsCredit(l, valueLeft, units, 1).total);
-      return [{ index, kind: 'ITEM', name: l.name, quantityLeft: units, unitValue, valueLeft }];
+      return [
+        { index, kind: 'ITEM', orderLineId: l.orderLineId, name: l.name, quantityLeft: units, unitValue, valueLeft },
+      ];
     }
     if (l.kind === 'SHIPPING') {
       const s = options.shipping.find((o) => o.index === index);
       if (!s) return [];
-      return [{ index, kind: 'SHIPPING', name: l.name, quantityLeft: 1, unitValue: s.value, valueLeft: s.value }];
+      return [
+        { index, kind: 'SHIPPING', orderLineId: null, name: l.name, quantityLeft: 1, unitValue: s.value, valueLeft: s.value },
+      ];
     }
     return [];
   });
@@ -509,7 +545,7 @@ export function refundCreditLine(
  * The credit-note line of an element an INVOICED refund stored (plan 15), at its stored value: no
  * re-valuation, so the credit note equals the refund to the cent. Null when the element is no
  * longer creditable as stored: the line is gone, fewer units are left, less value is left, or a
- * shipping line is no longer whole.
+ * shipping line is no longer whole. A zero-value line (a gift) is stored, and credited, at 0.
  */
 export function refundStoredCreditLine(
   invoice: InvoiceDoc,
@@ -517,10 +553,10 @@ export function refundStoredCreditLine(
   item: { index: number; quantity: number; value: number }
 ): { line: InvoiceLine; value: number; quantity: number } | null {
   const option = refundCreditOptions(invoice, options).find((o) => o.index === item.index);
-  if (!option || item.quantity > option.quantityLeft || !(item.value > 0) || item.value > option.valueLeft) {
-    return null;
-  }
+  if (!option || item.quantity > option.quantityLeft) return null;
   const original = invoice.lines[option.index];
+  const zero = option.kind === 'ITEM' && isZeroValueItem(original);
+  if (zero ? item.value !== 0 : !(item.value > 0) || item.value > option.valueLeft) return null;
   if (option.kind === 'SHIPPING') {
     if (item.quantity !== 1 || item.value !== option.valueLeft) return null;
     const line = creditLine(original, item.value);
