@@ -18,8 +18,9 @@ there is no way to refund, and no credit note documents it.
 - **Two scopes:**
   - `EXCESS` (today's refund): up to the excess. It does not change the order total.
   - `INVOICED` (new): up to the **invoiced value not yet credited**. It **lowers the order total**
-    by its amount, so the order stays paid. It is stored on a new order field `creditAdjustment`
-    (cents ≥ 0, subtracted from the total after discounts, never below 0).
+    by its amount, so the order stays paid. No new order field: the amount taken off the total is
+    derived from the refunds themselves (Σ of the order's INVOICED refunds that count — COMPLETED,
+    PROCESSING, PENDING), subtracted after discounts, never below 0.
   - When both are possible, the admin chooses. When there is no excess, the scope is `INVOICED`.
 - **Credit note (Moloni active only):** an `INVOICED` refund without a credit note offers
   **Credit note**.
@@ -38,14 +39,14 @@ there is no way to refund, and no credit note documents it.
   - the method is not STRIPE (that money really left);
   - for STORE_CREDIT, the credit is unused (removing it voids the credit).
 
-  Removing it gives the `creditAdjustment` back, and writes a history entry. A removed refund
+  Removing it (status CANCELLED) gives the amount back to the total, and writes a history entry. A removed refund
   leaves the list; it is kept as CANCELLED with `metadata.removed`.
 - **Moloni not active:** only Remove is shown.
 
 ## Data
 
-- **`order.creditAdjustment`** (integer, default 0) is the sum of the active `INVOICED` refunds.
-  `computeTotals` takes it.
+- **No order field:** `computeTotals` takes `creditAdjustment`, derived from the order's refunds
+  (scope INVOICED, counting statuses). Removing a refund (CANCELLED) gives it back by itself.
 - **Refund:**
   - `scope` (`EXCESS` | `INVOICED`, default `EXCESS`);
   - `metadata.creditNoteId` once its credit note exists.
