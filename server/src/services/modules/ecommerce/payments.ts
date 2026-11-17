@@ -111,6 +111,21 @@ const EcommercePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
   const events = (): { collector(): { emit(e: any): void; flush(): Promise<void> } } =>
     service('EcommerceEventBus');
 
+  /** Best effort, after the commit: a failed suggestion save never fails the payment. */
+  const rememberMethod = async (methodLabel: string | null): Promise<void> => {
+    if (!methodLabel) return;
+    try {
+      const suggestions: { remember(text: string): Promise<void> } = service(
+        'EcommercePaymentMethodSuggestionService'
+      );
+      await suggestions.remember(methodLabel);
+    } catch (err) {
+      strapi.log?.warn?.(
+        `[ecommerce] payment method suggestion not saved: ${(err as Error)?.message ?? err}`
+      );
+    }
+  };
+
   const findByKey = async (orderId: number, key: string): Promise<PaymentView | null> => {
     const row = await strapi.db.query(uids().payment).findOne({
       where: { idempotencyKey: key },
@@ -223,6 +238,7 @@ const EcommercePaymentService = ({ strapi }: { strapi: Core.Strapi }) => {
         return payment;
       });
       await collector.flush();
+      await rememberMethod(methodLabel);
       return toPaymentView(created);
     } catch (err) {
       // A concurrent request with the same key committed first: that payment is the answer.

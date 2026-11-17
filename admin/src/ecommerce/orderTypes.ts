@@ -690,6 +690,9 @@ export type ManualPaymentInput = {
   idempotencyKey: string;
 };
 
+/** Add payment's method field: manual method texts written before (sorted, plain text). */
+export type PaymentMethodSuggestions = { names: string[] };
+
 export type PaymentView = {
   id: number;
   method: string;

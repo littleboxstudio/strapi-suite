@@ -1,0 +1,51 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_payment_method_suggestions",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-payment-method-suggestion",
+    "pluralName": "ltb-st-module-ecommerce-payment-method-suggestions",
+    "displayName": "Littlebox Strapi Suite - E-commerce Payment Method Suggestion",
+    "description": "Manual payment method texts already written, suggested in Add payment"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "name": {
+      "type": "string",
+      "required": true,
+      "maxLength": 255
+    },
+    "key": {
+      "type": "string",
+      "required": true,
+      "unique": true,
+      "maxLength": 255
+    },
+    "hidden": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_payment_method_suggestion_key_unique",
+      "columns": [
+        "key"
+      ],
+      "type": "unique"
+    }
+  ]
+}

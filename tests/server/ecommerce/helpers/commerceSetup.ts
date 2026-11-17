@@ -14,6 +14,7 @@ import EcommerceNotificationService from '../../../../server/src/services/module
 import EcommerceShipmentService from '../../../../server/src/services/modules/ecommerce/shipments';
 import EcommerceReturnService from '../../../../server/src/services/modules/ecommerce/returns';
 import EcommerceInvoiceService from '../../../../server/src/services/modules/ecommerce/invoices';
+import EcommercePaymentMethodSuggestionService from '../../../../server/src/services/modules/ecommerce/paymentMethodSuggestions';
 import EcommerceAuditService from '../../../../server/src/services/modules/ecommerce/audit';
 import EcommercePromotionService from '../../../../server/src/services/modules/ecommerce/promotions';
 import EcommerceStorefrontSessionService from '../../../../server/src/services/modules/ecommerce/storefrontSessions';
@@ -51,6 +52,7 @@ export const UIDS = {
   promotionCustomerUsage: `${P}promotion-customer-usage`,
   checkoutSession: `${P}checkout-session`,
   auditLog: `${P}audit-log`,
+  paymentMethodSuggestion: `${P}payment-method-suggestion`,
 };
 
 const RELATIONS: FakeRelations = {
@@ -140,6 +142,7 @@ export function setupCommerce(
       UIDS.promotionRedemption,
       UIDS.promotionCustomerUsage,
       UIDS.checkoutSession,
+      UIDS.paymentMethodSuggestion,
     ],
   });
   const services: Record<string, any> = {};
@@ -214,6 +217,9 @@ export function setupCommerce(
   services.EcommerceOrderService = EcommerceOrderService({ strapi });
   services.EcommerceOrderEditingService = EcommerceOrderEditingService({ strapi });
   services.EcommercePaymentService = EcommercePaymentService({ strapi });
+  services.EcommercePaymentMethodSuggestionService = EcommercePaymentMethodSuggestionService({
+    strapi,
+  });
   services.EcommerceStripePaymentService = EcommerceStripePaymentService({ strapi });
   services.EcommerceStripeWebhookService = EcommerceStripeWebhookService({ strapi });
   services.EcommerceStoreCreditService = EcommerceStoreCreditService({ strapi });

@@ -42,6 +42,7 @@ import type {
   Paginated,
   PaymentInstructionsInput,
   PaymentInstructionsResult,
+  PaymentMethodSuggestions,
   PaymentView,
   PickupPoint,
   PickupPointInput,
@@ -89,6 +90,10 @@ export default interface EcommerceOrdersGateway {
   /** DPD pickup points near a postal code (orders.manage); a failed search is a 400 with its code. */
   searchPickupPoints(postalCode: string): Promise<{ points: PickupPoint[] }>;
   addPayment(orderId: number, input: ManualPaymentInput): Promise<PaymentView>;
+  /** Manual method texts written before (orders.manage); never a relation, only text. */
+  fetchPaymentMethodSuggestions(): Promise<PaymentMethodSuggestions>;
+  /** Hides a suggestion (by its name; the server compares keys). Idempotent. */
+  removePaymentMethodSuggestion(name: string): Promise<{ key: string; hidden: true }>;
   cancelOrder(id: number): Promise<Order>;
   archiveOrder(id: number): Promise<Order>;
 
@@ -249,6 +254,16 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
 
   async addPayment(orderId: number, input: ManualPaymentInput): Promise<PaymentView> {
     return this.httpClient.post(`${this.orders}/${orderId}/payments`, input);
+  }
+
+  async fetchPaymentMethodSuggestions(): Promise<PaymentMethodSuggestions> {
+    return this.httpClient.get(`${this.base}/payment-methods/suggestions`);
+  }
+
+  async removePaymentMethodSuggestion(name: string): Promise<{ key: string; hidden: true }> {
+    return this.httpClient.delete(
+      `${this.base}/payment-methods/suggestions/${encodeURIComponent(name)}`
+    );
   }
 
   async cancelOrder(id: number): Promise<Order> {

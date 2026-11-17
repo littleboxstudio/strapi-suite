@@ -7,6 +7,8 @@ const EcommerceOrderController = ({ strapi }: { strapi: Core.Strapi }) => {
   const orders = (): any => strapi.plugin(PLUGIN_ID).service('EcommerceOrderService');
   const payments = (): any => strapi.plugin(PLUGIN_ID).service('EcommercePaymentService');
   const pickup = (): any => strapi.plugin(PLUGIN_ID).service('EcommercePickupPointService');
+  const methodSuggestions = (): any =>
+    strapi.plugin(PLUGIN_ID).service('EcommercePaymentMethodSuggestionService');
   const actorOf = (ctx: any): string => `user:${ctx.state?.user?.id}`;
   const body = (ctx: any) => ctx.request?.body ?? {};
   const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
@@ -173,6 +175,16 @@ const EcommerceOrderController = ({ strapi }: { strapi: Core.Strapi }) => {
         201,
         true
       ),
+
+    /** GET /payment-methods/suggestions → `{ names }`: manual method texts for Add payment. */
+    paymentMethodSuggestions: (ctx: any) => respond(ctx, () => methodSuggestions().list()),
+
+    /** DELETE /payment-methods/suggestions/:key: hides that method (idempotent). */
+    removePaymentMethodSuggestion: (ctx: any) => {
+      const key = str(ctx.params?.key);
+      if (!key || !key.trim()) return ctx.badRequest('Invalid key');
+      return respond(ctx, () => methodSuggestions().remove(key));
+    },
 
     cancel: (ctx: any) => withId(ctx, (id) => orders().cancel(id, actorOf(ctx))),
     archive: (ctx: any) => withId(ctx, (id) => orders().archive(id, actorOf(ctx))),

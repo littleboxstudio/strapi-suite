@@ -20,6 +20,7 @@ import EcommerceOrderHistoryService from './modules/ecommerce/orderHistory';
 import EcommerceOrderService from './modules/ecommerce/orders';
 import EcommerceOrderEditingService from './modules/ecommerce/orderEditing';
 import EcommercePaymentService from './modules/ecommerce/payments';
+import EcommercePaymentMethodSuggestionService from './modules/ecommerce/paymentMethodSuggestions';
 import EcommerceStripePaymentService from './modules/ecommerce/stripePayments';
 import EcommerceStripeWebhookService from './modules/ecommerce/stripeWebhooks';
 import EcommerceStoreCreditService from './modules/ecommerce/storeCredits';
@@ -56,6 +57,7 @@ export default {
   EcommerceOrderService,
   EcommerceOrderEditingService,
   EcommercePaymentService,
+  EcommercePaymentMethodSuggestionService,
   EcommerceStripePaymentService,
   EcommerceStripeWebhookService,
   EcommerceStoreCreditService,

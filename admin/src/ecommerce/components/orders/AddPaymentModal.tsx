@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import { Box, Button, Field, Flex, Modal, TextInput, Typography } from '@strapi/design-system';
@@ -6,6 +6,13 @@ import { MethodItem, MethodList, MethodListRest, MethodsPanel } from './MethodsP
 import { getTranslation } from '../../../core/utils/getTranslation';
 import AddOrderPayment from '../../usecases/orders/addOrderPayment';
 import AddStoreCreditPayment from '../../usecases/orders/addStoreCreditPayment';
+import FetchPaymentMethodSuggestions from '../../usecases/orders/fetchPaymentMethodSuggestions';
+import RemovePaymentMethodSuggestion from '../../usecases/orders/removePaymentMethodSuggestion';
+import {
+  restorePaymentMethodSuggestion,
+  withoutPaymentMethodSuggestion,
+} from '../../utils/paymentMethodSuggestions';
+import PaymentMethodField from './PaymentMethodField';
 import { extractFieldErrors } from '../../utils/productForm';
 import { mintUuid } from '../../utils/variantDraft';
 import {
@@ -49,6 +56,37 @@ const AddPaymentModal = ({ orderId, due, onClose, onAdded }: Props) => {
   const [methodLabel, setMethodLabel] = useState('');
   const [errors, setErrors] = useState<ErrorMap>({});
   const [saving, setSaving] = useState(false);
+  // Methods written before: loaded on opening; a failed load leaves a plain text field.
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    new FetchPaymentMethodSuggestions()
+      .execute()
+      .then((res) => {
+        if (alive && Array.isArray(res?.names)) {
+          setSuggestions(res.names.filter((n): n is string => typeof n === 'string'));
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Optimistic: gone from the list at once, back (with a notice) if the server refuses.
+  const removeSuggestion = async (name: string) => {
+    setSuggestions((list) => withoutPaymentMethodSuggestion(list, name));
+    try {
+      await new RemovePaymentMethodSuggestion().execute(name);
+    } catch {
+      setSuggestions((list) => restorePaymentMethodSuggestion(list, name));
+      toggleNotification({
+        type: 'danger',
+        message: t('ecommerce.orders.detail.addPayment.removeSuggestionError'),
+      });
+    }
+  };
 
   const codeText = (code: string) =>
     formatMessage({
@@ -216,11 +254,15 @@ const AddPaymentModal = ({ orderId, due, onClose, onAdded }: Props) => {
                   </Field.Root>
                   <Field.Root name="methodLabel" required error={errors.methodLabel}>
                     <Field.Label>{t('ecommerce.orders.detail.addPayment.method')}</Field.Label>
-                    <TextInput
+                    <PaymentMethodField
                       value={methodLabel}
                       placeholder={t('ecommerce.orders.detail.addPayment.methodPlaceholder')}
-                      onChange={(e: any) => {
-                        setMethodLabel(e.target.value);
+                      suggestions={suggestions}
+                      onRemove={removeSuggestion}
+                      listLabel={t('ecommerce.orders.detail.addPayment.methodSuggestions')}
+                      removeLabel={t('ecommerce.orders.detail.addPayment.removeSuggestion')}
+                      onChange={(next) => {
+                        setMethodLabel(next);
                         clear('methodLabel');
                       }}
                     />
