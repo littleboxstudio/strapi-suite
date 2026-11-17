@@ -133,12 +133,31 @@ const RegisterReturnModal = ({ order, canRefund, onClose, onRefundNow }: Props) 
     clear([`lines.${orderLineId}`, 'lines', 'form']);
   };
 
+  const reasonRef = useRef<HTMLInputElement>(null);
+  const notesRef = useRef<HTMLTextAreaElement>(null);
+  const linesErrorRef = useRef<HTMLDivElement>(null);
+
+  /** Brings the first field in error into view inside the modal (and focuses it). */
+  const revealFirstError = (local: FormErrors) => {
+    const target = local.reason
+      ? reasonRef.current
+      : local.notes
+        ? notesRef.current
+        : linesErrorRef.current;
+    // After the errors render, so the message below the table exists.
+    requestAnimationFrame(() => {
+      target?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) target.focus({ preventScroll: true });
+    });
+  };
+
   /** Validates locally, then asks for confirmation before registering. */
   const askRegister = () => {
     if (saving) return;
     const local = validateReturnForm(form, order.lines);
     if (Object.keys(local).length) {
       setErrors(local);
+      revealFirstError(local);
       return;
     }
     setConfirming(true);
@@ -305,6 +324,7 @@ const RegisterReturnModal = ({ order, canRefund, onClose, onRefundNow }: Props) 
             <Field.Root name="reason" required error={fieldError('reason')}>
               <Field.Label>{t('ecommerce.orders.returns.reason')}</Field.Label>
               <TextInput
+                ref={reasonRef}
                 value={form.reason}
                 disabled={saving}
                 onChange={(e: any) => {
@@ -321,6 +341,7 @@ const RegisterReturnModal = ({ order, canRefund, onClose, onRefundNow }: Props) 
             >
               <Field.Label>{t('ecommerce.orders.returns.notes')}</Field.Label>
               <Textarea
+                ref={notesRef}
                 value={form.notes}
                 maxLength={MAX_RETURN_NOTES}
                 disabled={saving}
@@ -405,6 +426,7 @@ const RegisterReturnModal = ({ order, canRefund, onClose, onRefundNow }: Props) 
                 </Tbody>
               </Table>
             )}
+            <div ref={linesErrorRef} />
             {errors.lines && (
               // Nothing chosen to return: said in words, below the table (not a generic message).
               <Typography variant="pi" textColor="danger600">
