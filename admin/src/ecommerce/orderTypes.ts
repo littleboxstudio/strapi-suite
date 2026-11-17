@@ -632,8 +632,11 @@ export type OrderLocales = {
 export type ShippingQuoteInput = {
   country: string;
   postalCode?: string;
-  lines: { variantId: number; quantity: number }[];
+  /** `gift`: a gift unit of the order quote (it weighs, it adds nothing to the subtotal). */
+  lines: { variantId: number; quantity: number; gift?: boolean }[];
   locale?: string;
+  /** The order quote's products after promotions (cents): the options are priced on it. */
+  subtotal?: number;
 };
 
 export type ShippingOption = {

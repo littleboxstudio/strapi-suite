@@ -11,6 +11,8 @@ import {
   type OrderQuoteInput,
   type PickupSelection,
   type QuoteGiftOption,
+  type ShippingOption,
+  type ShippingQuoteInput,
   type VariantSearchResult,
 } from '../orderTypes';
 
@@ -185,7 +187,9 @@ export function createTotalsTiles(
       { key: 'total', amount: totals.total },
     ];
   }
-  const p = preview ?? { subtotal: 0, shipping: 0, total: 0 };
+  // Neither: the prices are being updated (or the last quote failed), nothing is known.
+  if (!preview) return (['products', 'shipping', 'discounts', 'total'] as const).map((key) => ({ key, amount: null }));
+  const p = preview;
   return [
     { key: 'products', amount: p.subtotal },
     { key: 'shipping', amount: previewShipping ? p.shipping : null },
@@ -209,6 +213,44 @@ export function refreshLinesFromQuote(lines: OrderLineDraft[], quote: OrderQuote
     return { ...l, ...fresh };
   });
   return changed ? next : lines;
+}
+
+/**
+ * Body of the Create order shipping options. With the order's `quote`, its lines (gifts flagged)
+ * and its products subtotal after promotions, which is what the order quote prices the shipping
+ * on: the listed prices are then the ones the order is charged. Without one, the cart lines.
+ */
+export function shippingOptionsInput(form: OrderForm, quote: OrderQuote | null): ShippingQuoteInput {
+  const postalCode = form.shippingAddress.postalCode.trim();
+  const base = {
+    country: form.shippingAddress.country,
+    ...(postalCode ? { postalCode } : {}),
+    locale: form.locale || undefined,
+  };
+  if (!quote) {
+    return { ...base, lines: form.lines.map((l) => ({ variantId: l.variantId, quantity: l.quantity })) };
+  }
+  const manual = (quote.manualDiscounts ?? []).reduce((sum, m) => sum + m.amount, 0);
+  return {
+    ...base,
+    lines: quote.lines.map((l) => ({ variantId: l.variantId, quantity: l.quantity, ...(l.isGift ? { gift: true } : {}) })),
+    // The manual discounts come after the shipping is priced (task 1): only the promotions count.
+    subtotal: quote.totals.subtotal - (quote.totals.orderDiscount - manual),
+  };
+}
+
+/** An option's price as listed: the order quote's for the method it priced, else the option's. */
+export function listedShippingPrice(option: ShippingOption, quote: OrderQuote | null): number {
+  const priced = quote?.shippingOption;
+  if (
+    priced &&
+    priced.providerId === option.providerId &&
+    priced.serviceId === option.serviceId &&
+    typeof quote?.totals.shippingOriginal === 'number'
+  ) {
+    return quote.totals.shippingOriginal;
+  }
+  return option.price;
 }
 
 /** Local preview only: the server recomputes every amount when the order is created. */
