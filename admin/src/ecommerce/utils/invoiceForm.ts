@@ -78,7 +78,8 @@ export function validateCreditNoteForm(
  * units taking all that is left. Null for a legacy line (no share).
  */
 const sharedUnitsValue = (line: InvoiceLine | undefined, valueLeft: number, u: number, q: number): number | null => {
-  if (!line || line.discountShare == null || line.kind !== 'ITEM' || line.orderLineId === null || line.partial)
+  // The server's `isSharedLine`: it reads a missing order line as null (never a whole-item line).
+  if (!line || line.discountShare == null || line.kind !== 'ITEM' || line.orderLineId == null || line.partial)
     return null;
   if (!(line.quantity > 0) || u <= 0) return null;
   if (q === u) return valueLeft;

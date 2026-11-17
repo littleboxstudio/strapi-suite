@@ -180,6 +180,25 @@ describe('creditNoteTotal', () => {
     const opts = options({ lines: [shared], returnable: [row], shipping: [] });
     expect(creditNoteTotal(form({ quantities: { 0: 1 } }), opts)).toBe(967);
   });
+
+  it('a line without an order line (null or missing, as the server reads it) is never a whole-item line', () => {
+    const shared = {
+      orderLineId: 7,
+      kind: 'ITEM' as const,
+      sku: 'S',
+      name: 'N',
+      quantity: 3,
+      total: 2900,
+      tax: 23,
+      partial: false,
+      discountShare: 100,
+    };
+    const row = { index: 0, units: 3, unitsLeft: 3, valueLeft: 2900 };
+    const { orderLineId: _drop, ...missing } = shared;
+    expect(returnValue(row, 1, { ...shared, orderLineId: null })).toBe(966);
+    expect(returnValue(row, 1, missing as any)).toBe(966);
+    expect(returnValue(row, 1, { ...shared, orderLineId: undefined } as any)).toBe(966);
+  });
 });
 
 describe('buildCreditNoteInput', () => {
