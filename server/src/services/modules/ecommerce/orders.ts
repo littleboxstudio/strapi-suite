@@ -38,6 +38,8 @@ import {
   refundableAmount,
 } from './domain/refunds';
 import {
+  creditedInvoiceIds,
+  entryInvoiceId,
   invoicedManualDiscountIds,
   invoicingPosition,
   netInvoicedUnits,
@@ -436,6 +438,19 @@ const clean = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
 const num = (v: unknown): number => {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
+};
+/**
+ * The INVOICED refunds' adjustment as `computeTotals` applied it to the stored totals: never
+ * above the total before it (plan 15).
+ */
+const appliedCreditAdjustment = (
+  order: { subtotal?: unknown; orderDiscount?: unknown; shippingTotal?: unknown },
+  refunds: { scope?: string | null; status: string; amount: unknown }[]
+): number => {
+  const subtotal = num(order.subtotal);
+  const orderDiscount = Math.max(0, Math.min(num(order.orderDiscount), subtotal));
+  const before = subtotal - orderDiscount + num(order.shippingTotal);
+  return Math.max(0, Math.min(invoicedRefundAdjustment(refunds), Math.max(0, before)));
 };
 const toPage = (page: unknown): number => {
   const n = Math.floor(Number(page));
@@ -1287,14 +1302,23 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     );
     const allocated = new Set(allocations.map((a) => a.paymentId));
     // What an invoice's payments still back: its allocations, less what its live partial credit
-    // notes (RETURN, SHIPPING) took off, latest allocation first. A refund of that value then comes
-    // off those payments, not off payments invoiced later (CORRECTION releases them whole).
+    // notes (RETURN, SHIPPING, REFUND) took off, latest allocation first. A refund of that value
+    // then comes off those payments, not off payments invoiced later (CORRECTION releases them
+    // whole). A credit note of several invoices (plan 15) takes each entry off its own invoice.
     const creditedOf = new Map<number, number>();
+    const credit = (invoiceId: number, value: number) =>
+      creditedOf.set(invoiceId, (creditedOf.get(invoiceId) ?? 0) + value);
     for (const d of docs) {
       if (d.kind !== 'CREDIT_NOTE' || d.status !== 'ISSUED' || d.creditType === 'CORRECTION') continue;
-      if (d.creditedInvoiceId === null) continue;
-      const total = d.lines.reduce((s, l) => s + num(l.total), 0);
-      creditedOf.set(d.creditedInvoiceId, (creditedOf.get(d.creditedInvoiceId) ?? 0) + total);
+      const invoiceIds = creditedInvoiceIds(d);
+      if (invoiceIds.length === 1) {
+        credit(invoiceIds[0], d.lines.reduce((s, l) => s + num(l.total), 0));
+      } else {
+        for (const e of d.creditedLines) {
+          const invoiceId = entryInvoiceId(d, e);
+          if (invoiceId !== null) credit(invoiceId, e.value);
+        }
+      }
     }
     const allocatedAmounts = new Map<number, number>();
     const byInvoice = new Map<number, typeof allocations>();
@@ -1535,7 +1559,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         shippingOriginal: num(order.shippingOriginal),
         shippingDiscount: num(order.shippingDiscount),
         shippingTotal: num(order.shippingTotal),
-        creditAdjustment: invoicedRefundAdjustment(refundRows),
+        creditAdjustment: appliedCreditAdjustment(order, refundRows),
         total: num(order.total),
       },
       lines,

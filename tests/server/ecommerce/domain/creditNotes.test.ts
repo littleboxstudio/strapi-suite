@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   creditOptions,
+  exceedsCreditable,
   buildCreditLines,
   settledShippingLineIds,
   settledDiscountIds,
@@ -479,5 +480,65 @@ describe('legacy invoices with a negative shipping line: a credit never exceeds 
     expect(buildCreditLines(inv, forged, request({ shippingIndexes: [1] })).issues).toEqual([
       { path: 'lines', code: 'CREDIT_EXCEEDS_INVOICE' },
     ]);
+  });
+});
+
+describe('credit notes across several invoices (plan 15)', () => {
+  /** Two invoices of the same order: #1 holds 2 units, #2 holds 1 unit and the shipping line. */
+  const inv1 = (): InvoiceDoc => ({ ...invoice([item(2, 1000)]), id: 1 });
+  const inv2 = (): InvoiceDoc => ({ ...invoice([item(1, 500), ship]), id: 2 });
+  const refundNote = (status: InvoiceDoc['status'] = 'ISSUED'): InvoiceDoc => ({
+    ...credit(50, 'REFUND', [
+      { index: 0, value: 500, quantity: 1, invoiceId: 1 },
+      { index: 1, value: 200, quantity: 0, invoiceId: 2 },
+    ], status),
+    creditedInvoiceId: 1,
+  });
+
+  it('a REFUND credit note with entries on invoices A and B lowers both creditable values', () => {
+    const docs = [inv1(), inv2(), refundNote()];
+    const a = creditOptions(inv1(), docs, order());
+    const b = creditOptions(inv2(), docs, order());
+    expect(a.creditable).toEqual([500]);
+    expect(a.unitsLeft).toEqual([1]);
+    expect(a.held).toBe(500);
+    expect(b.creditable).toEqual([500, 300]);
+    expect(b.unitsLeft).toEqual([1, 0]);
+    expect(b.held).toBe(800);
+  });
+
+  it('a PENDING REFUND credit note counts too; a FAILED one does not', () => {
+    expect(creditOptions(inv2(), [inv1(), inv2(), refundNote('PENDING')], order()).creditable).toEqual([500, 300]);
+    expect(creditOptions(inv2(), [inv1(), inv2(), refundNote('FAILED')], order()).creditable).toEqual([500, 500]);
+  });
+
+  it('entries without invoiceId stay on the credited invoice (old credit notes)', () => {
+    const old = credit(51, 'RETURN', [{ index: 0, value: 500, quantity: 1 }]);
+    const docs = [inv1(), inv2(), old];
+    expect(creditOptions(inv1(), docs, order(returned)).creditable).toEqual([500]);
+    expect(creditOptions(inv2(), docs, order(returned)).creditable).toEqual([500, 500]);
+  });
+
+  it('REFUND units never free a return: a returned unit stays returnable on its invoice', () => {
+    const docs = [inv1(), inv2(), refundNote()];
+    // One unit returned: invoice 1 still has 1 unit left to credit, and it is returnable.
+    const a = creditOptions(inv1(), docs, order(returned));
+    expect(a.returnable).toEqual([{ index: 0, units: 1, unitsLeft: 1, valueLeft: 500 }]);
+  });
+
+  it('exceedsCreditable only weighs the entries of the given invoice', () => {
+    const docs = [inv1(), inv2()];
+    const late: InvoiceDoc = {
+      ...credit(60, 'REFUND', [
+        { index: 0, value: 1000, quantity: 2, invoiceId: 1 },
+        { index: 1, value: 500, quantity: 0, invoiceId: 2 },
+      ]),
+      creditedInvoiceId: 1,
+    };
+    expect(exceedsCreditable(late, inv1(), creditOptions(inv1(), docs, order()))).toBe(false);
+    expect(exceedsCreditable(late, inv2(), creditOptions(inv2(), docs, order()))).toBe(false);
+    const taken = [...docs, refundNote()];
+    expect(exceedsCreditable(late, inv1(), creditOptions(inv1(), taken, order()))).toBe(true);
+    expect(exceedsCreditable(late, inv2(), creditOptions(inv2(), taken, order()))).toBe(true);
   });
 });

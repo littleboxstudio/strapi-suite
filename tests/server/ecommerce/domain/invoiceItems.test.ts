@@ -324,3 +324,33 @@ describe('discountBase', () => {
     expect(discountBase(items)).toEqual({ products: 0, pendingDiscounts: 0 });
   });
 });
+
+describe('REFUND credit notes across several invoices (plan 15)', () => {
+  it('lines and shipping a REFUND credit note credits stay invoiced', () => {
+    const docs = [
+      doc(1, [line({ orderLineId: 3, quantity: 2, total: 6200 }), line({ kind: 'SHIPPING', total: 500, shippingLineId: 1 })]),
+      doc(2, [line({ orderLineId: 3, quantity: 1, total: 3100 })]),
+      doc(
+        3,
+        [
+          line({ orderLineId: 3, quantity: 1, total: 3100 }),
+          line({ orderLineId: 3, quantity: 1, total: 3100 }),
+          line({ kind: 'SHIPPING', total: 500, shippingLineId: 1 }),
+        ],
+        {
+          kind: 'CREDIT_NOTE',
+          creditedInvoiceId: 1,
+          creditType: 'REFUND',
+          creditedLines: [
+            { index: 0, value: 3100, quantity: 1, invoiceId: 1 },
+            { index: 0, value: 3100, quantity: 1, invoiceId: 2 },
+            { index: 1, value: 500, quantity: 1, invoiceId: 1 },
+          ],
+        }
+      ),
+    ];
+    const items = invoiceItems(order(), docs);
+    expect(items.lines).toEqual([{ orderLineId: 3, units: 0, value: 0, invoiced: true }]);
+    expect(items.shipping).toEqual([{ shippingLineId: 1, value: 500, invoiced: true }]);
+  });
+});

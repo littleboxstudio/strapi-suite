@@ -2,7 +2,12 @@
  * Invoiceable whole items (plan 14; no Strapi imports). Money is integer cents, VAT included.
  * An invoice is built from whole items: order-line units, shipping lines and discounts.
  */
-import { invoicingPosition, type InvoiceDoc, type PositionOrder } from './invoiceSelection';
+import {
+  creditedInvoiceIds,
+  invoicingPosition,
+  type InvoiceDoc,
+  type PositionOrder,
+} from './invoiceSelection';
 import { allocateProportionally } from './orders';
 import type { ValidationIssue } from '../errors';
 import { chargedShipping, correctionsOf } from './shippingLines';
@@ -80,7 +85,10 @@ export function discountItemsOf(order: {
   return items;
 }
 
-/** What can still be invoiced, as whole items, given the invoice documents. */
+/**
+ * What can still be invoiced, as whole items, given the invoice documents. Lines a REFUND credit
+ * note credits stay invoiced: its units stay in the order (the position leaves it out).
+ */
 export function invoiceItems(
   order: PositionOrder & {
     shippingDiscount: number;
@@ -111,7 +119,7 @@ export function invoiceItems(
   const settledDiscounts = new Set<string>();
   for (const d of docs) {
     if (d.kind !== 'CREDIT_NOTE' || d.status === 'FAILED' || d.creditType !== 'SHIPPING') continue;
-    if (d.creditedInvoiceId !== null && annulled.has(d.creditedInvoiceId)) continue;
+    if (creditedInvoiceIds(d).some((id) => annulled.has(id))) continue;
     for (const id of d.settledShippingLineIds ?? []) settled.add(id);
     for (const id of d.settledDiscountIds ?? []) settledDiscounts.add(id);
   }
