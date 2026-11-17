@@ -36,6 +36,7 @@ import {
 import {
   invoicedRefundableAmount,
   invoicedRefundAdjustment,
+  offersRefundElements,
   refundableAmount,
   refundReservationDocs,
 } from './domain/refunds';
@@ -1435,6 +1436,11 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     // In-flight refunds already claim part of the excess.
     const blockingExcess = refundableAmount(summary, inFlightRefunds);
     const invoicing = await loadInvoicing(order, lines, payments, refunds, blockingExcess);
+    // The same invoices the refund's elements come from (`refundElements`).
+    const billingProviderId =
+      order.orderStatus === 'OPEN'
+        ? ((await service('EcommerceInvoiceService').billingStatus())?.providerId ?? null)
+        : null;
     const invoicedRefundable =
       order.orderStatus === 'OPEN'
         ? invoicedRefundableAmount({
@@ -1443,6 +1449,9 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
             position: invoicing.position,
             refunds,
             held: Math.max(0, summary.net - inFlightRefunds),
+            invoiceIds: invoicing.invoices
+              .filter((r) => offersRefundElements(r, billingProviderId))
+              .map((r) => r.id as number),
           })
         : 0;
     const invoicedUnits = netInvoicedUnits(invoicing.position);

@@ -203,10 +203,23 @@ export const legacyReservedAmount = (refunds: RefundLike[], docs: InvoiceDoc[]):
     .reduce((s, r) => s + (Number(r.amount) || 0), 0);
 
 /**
+ * Whether an invoice row offers elements to an INVOICED refund (plan 15): ISSUED, of the active
+ * billing provider (`providerId`), or of any provider while billing is not active (`null`: the
+ * refund can then only be removed, never get a credit note).
+ */
+export const offersRefundElements = (
+  row: { kind?: unknown; status?: unknown; provider?: unknown },
+  providerId: string | null
+): boolean =>
+  row.kind === 'INVOICE' &&
+  row.status === 'ISSUED' &&
+  (providerId === null || String(row.provider ?? '') === providerId);
+
+/**
  * Invoiced value an INVOICED refund may still give back (plan 15): the Σ of the available values of
  * the elements an INVOICED refund may pick (`refundCreditOptions`, on the ISSUED invoices not
- * annulled, with live credit notes and other refunds' reserved elements counted), never above what
- * each invoice holds;
+ * annulled, `invoiceIds` only when given (`offersRefundElements`), with live credit notes and other
+ * refunds' reserved elements counted), never above what each invoice holds;
  * - less the value invoiced above what the order now charges (`position.overInvoiced`: e.g. a
  *   return or a discount not credited yet; that value already came back as an excess);
  * - less the active legacy INVOICED refunds (no items) without a credit note (they reserve by
@@ -219,12 +232,16 @@ export const invoicedRefundableAmount = (p: {
   position: InvoicingPosition;
   refunds: RefundLike[];
   held: number;
+  /** The invoices that offer elements (`offersRefundElements`); all ISSUED ones when absent. */
+  invoiceIds?: number[] | null;
 }): number => {
+  const offered = p.invoiceIds ? new Set(p.invoiceIds) : null;
   const annulled = new Set(p.position.annulledInvoiceIds);
   const withReservations = [...p.docs, ...refundReservationDocs(p.refunds, p.docs)];
   let creditable = 0;
   for (const invoice of p.docs) {
     if (invoice.kind !== 'INVOICE' || invoice.status !== 'ISSUED' || annulled.has(invoice.id)) continue;
+    if (offered && !offered.has(invoice.id)) continue;
     const options = creditOptions(invoice, withReservations, p.order);
     const lines = refundCreditOptions(invoice, options).reduce((s, o) => s + o.valueLeft, 0);
     creditable += Math.min(lines, options.held);
