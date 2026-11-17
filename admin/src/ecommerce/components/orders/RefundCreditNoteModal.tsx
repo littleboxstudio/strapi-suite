@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import { Box, Button, Flex, Loader, Modal, Typography } from '@strapi/design-system';
@@ -15,6 +15,7 @@ import {
   refundCreditItems,
   refundCreditSummary,
   refundCreditMode,
+  refundCreditModeAfterError,
   refundOptionValue,
   selectionFromItems,
   selectionKey,
@@ -67,6 +68,14 @@ const RefundCreditNoteModal = ({ refund, invoices, onClose, onIssued }: Props) =
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selection, setSelection] = useState<RefundCreditSelection>({});
   const [mode, setMode] = useState<Mode>('FREE');
+  /** False once unmounted: a late answer must not set state. */
+  const mounted = useRef(true);
+  useEffect(
+    () => () => {
+      mounted.current = false;
+    },
+    []
+  );
   /** Per element key: the server's code for it. */
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -164,15 +173,20 @@ const RefundCreditNoteModal = ({ refund, invoices, onClose, onIssued }: Props) =
       // Only a 4xx allows a new key: on a 5xx or without an answer a retry must replay this request.
       if (shouldRenewIdempotencyKey(err)) setIdempotencyKey(mintUuid());
       const fieldErrors = extractFieldErrors(err) ?? [];
-      if (fieldErrors.some((e) => (e.code as string) === 'REFUND_ELEMENTS_UNAVAILABLE')) {
+      const next = refundCreditModeAfterError(mode, fieldErrors);
+      if (next !== mode) {
         // An element of the refund is no longer creditable: free selection, from fresh options.
-        setMode('UNAVAILABLE');
+        setMode(next);
         setErrors({});
         setFormError(null);
         new FetchRefundCreditNoteOptions()
           .execute(refund.id)
-          .then(setOptions)
-          .catch(() => undefined);
+          .then((o) => {
+            if (mounted.current) setOptions(o);
+          })
+          .catch((reloadErr) => {
+            if (mounted.current) setLoadError(t(apiErrorMessageId(reloadErr, `${p}.loadError`)));
+          });
       } else if (fieldErrors.length) {
         showServerErrors(err, items);
       } else {
@@ -208,14 +222,12 @@ const RefundCreditNoteModal = ({ refund, invoices, onClose, onIssued }: Props) =
   const canIssue =
     !!options && !locked && (stored ? options.creditable : canIssueRefundCredit(options, selection, lineOf));
 
-  const rowErrors = Object.fromEntries(Object.entries(errors).map(([key, code]) => [key, codeText(code)]));
-
   const invoiceTable = (invoice: RefundCreditNoteOptions['invoices'][number]) => (
     <RefundElementsTable
       key={invoice.invoiceId}
       invoice={invoice}
       selection={selection}
-      errors={rowErrors}
+      errors={errors}
       quantityLabel={t(`${p}.columns.quantity`)}
       valueOf={valueOf(invoice.invoiceId)}
       disabled={locked}

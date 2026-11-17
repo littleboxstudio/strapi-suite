@@ -131,6 +131,18 @@ export function refundCreditMode(options: RefundCreditNoteOptions): 'STORED' | '
   return offered ? 'STORED' : 'UNAVAILABLE';
 }
 
+/**
+ * The mode after a refused Issue: STORED becomes UNAVAILABLE when the server answers that one of
+ * the refund's elements is no longer creditable (`REFUND_ELEMENTS_UNAVAILABLE`); any other answer
+ * (or mode) keeps it.
+ */
+export function refundCreditModeAfterError(
+  mode: ReturnType<typeof refundCreditMode>,
+  errors: { path?: string; code: string }[]
+): ReturnType<typeof refundCreditMode> {
+  return mode === 'STORED' && errors.some((e) => e.code === 'REFUND_ELEMENTS_UNAVAILABLE') ? 'UNAVAILABLE' : mode;
+}
+
 /** The request items of the STORED mode: exactly the refund's own elements. */
 export function storedCreditItems(options: RefundCreditNoteOptions): RefundCreditNoteInput['items'] {
   return (options.selected ?? []).map(({ invoiceId, index, quantity }) => ({ invoiceId, index, quantity }));
