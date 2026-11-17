@@ -1,4 +1,6 @@
 import { MAX_MONEY_CENTS, type FinancialSummary, type PaymentRecordStatus } from './orders';
+import { creditOptions } from './creditNotes';
+import type { InvoiceDoc, InvoicingPosition, PositionOrder } from './invoiceSelection';
 
 export const refundableAmount = (summary: FinancialSummary, inFlightRefunds: number): number =>
   Math.max(0, summary.excess - inFlightRefunds);
@@ -111,4 +113,44 @@ export const validateRefundRequest = (
     issues.push({ path: 'method', code: 'stripe_unavailable' });
   }
   return issues;
+};
+
+const LIVE_DOC: InvoiceDoc['status'][] = ['ISSUED', 'PENDING', 'UNCERTAIN'];
+
+/**
+ * Invoiced value an INVOICED refund may still give back (plan 15):
+ * - Σ over the counted, non-annulled invoices of what each can still credit (`creditOptions`:
+ *   its lines less what live credit notes took, never above what the invoice holds);
+ * - less the value invoiced above what the order now charges (`position.overInvoiced`: e.g. a
+ *   return or a discount not credited yet; that value already came back as an excess);
+ * - less the active INVOICED refunds without a credit note (they hold their value until their
+ *   credit note credits it);
+ * - never above what the order still holds of the money received (`held`).
+ */
+export const invoicedRefundableAmount = (p: {
+  docs: InvoiceDoc[];
+  order: PositionOrder;
+  position: InvoicingPosition;
+  refunds: { scope?: string | null; status: string; amount: unknown; metadata?: unknown }[];
+  held: number;
+}): number => {
+  const annulled = new Set(p.position.annulledInvoiceIds);
+  let creditable = 0;
+  for (const invoice of p.docs) {
+    if (invoice.kind !== 'INVOICE' || !LIVE_DOC.includes(invoice.status) || annulled.has(invoice.id))
+      continue;
+    const options = creditOptions(invoice, p.docs, p.order);
+    const lines = options.creditable
+      .filter((_, i) => invoice.lines[i]?.kind !== 'DISCOUNT')
+      .reduce((s, v) => s + v, 0);
+    creditable += Math.min(lines, options.held);
+  }
+  const overInvoiced = p.position.overInvoiced.products + p.position.overInvoiced.shipping;
+  const pending = p.refunds
+    .filter((r) => {
+      const meta = r.metadata && typeof r.metadata === 'object' ? (r.metadata as any) : {};
+      return r.scope === 'INVOICED' && ADJUSTING.includes(r.status) && meta.creditNoteId == null;
+    })
+    .reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  return Math.max(0, Math.min(creditable - overInvoiced - pending, p.held));
 };

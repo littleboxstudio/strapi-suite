@@ -11,6 +11,7 @@ import {
   FULFILLMENT_STATUSES,
   availableActions,
   canTransition,
+  computeTotals,
   deriveFulfillmentStatus,
   derivePaymentStatus,
   financialSummary,
@@ -31,7 +32,11 @@ import {
   toPaymentLike,
   toRefundLike,
 } from './orderModificationSupport';
-import { invoicedRefundAdjustment, refundableAmount } from './domain/refunds';
+import {
+  invoicedRefundableAmount,
+  invoicedRefundAdjustment,
+  refundableAmount,
+} from './domain/refunds';
 import {
   invoicedManualDiscountIds,
   invoicingPosition,
@@ -314,6 +319,10 @@ export type OrderState = {
   /** Sum of the PENDING / PROCESSING refunds. */
   inFlightRefunds: number;
   hasPendingRefunds: boolean;
+  /**
+   * Invoiced value an INVOICED refund may still give back (plan 15; 0 unless the order is OPEN).
+   */
+  invoicedRefundable: number;
   summary: FinancialSummary;
   actions: OrderActionKey[];
   invoicing: OrderInvoicing;
@@ -1393,6 +1402,16 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     // In-flight refunds already claim part of the excess.
     const blockingExcess = refundableAmount(summary, inFlightRefunds);
     const invoicing = await loadInvoicing(order, lines, payments, refunds, blockingExcess);
+    const invoicedRefundable =
+      order.orderStatus === 'OPEN'
+        ? invoicedRefundableAmount({
+            docs: invoicing.docs,
+            order: invoicing.positionOrder,
+            position: invoicing.position,
+            refunds,
+            held: Math.max(0, summary.net - inFlightRefunds),
+          })
+        : 0;
     const invoicedUnits = netInvoicedUnits(invoicing.position);
     for (const l of lines) l.invoiced = invoicedUnits.get(l.id) ?? 0;
     const hasActiveShipment = shipments.some((s) => s.status === 'ACTIVE');
@@ -1423,7 +1442,8 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       hasPendingPayments: payments.some((p) => p.status === 'PENDING'),
       hasPendingRefunds,
       canIssueInvoice: invoicing.canIssue,
-    }).filter((a) => a !== 'REFUND' || blockingExcess > 0);
+      invoicedRefundable,
+    }).filter((a) => a !== 'REFUND' || blockingExcess > 0 || invoicedRefundable > 0);
     return {
       order,
       lines,
@@ -1433,6 +1453,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       shipmentRows,
       inFlightRefunds,
       hasPendingRefunds,
+      invoicedRefundable,
       summary,
       actions,
       invoicing,
@@ -1533,7 +1554,9 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         actor: p.actor ?? null,
         createdAt: p.createdAt,
       })),
-      refunds: [...refundRows]
+      // A removed INVOICED refund (CANCELLED, `metadata.removed`) leaves the list.
+      refunds: refundRows
+        .filter((r) => r.metadata?.removed !== true)
         .sort((a, b) => b.id - a.id)
         .map((r) => ({
           id: r.id,
@@ -1613,6 +1636,8 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
   /**
    * Internal: re-derives paymentStatus and fulfillmentStatus from the stored data and records a
    * `*_STATUS_CHANGED` history entry for each one that changed. Joins the caller's transaction.
+   * An order with INVOICED refunds (plan 15) first gets its stored total re-derived with their
+   * credit adjustment, so creating, completing, failing or removing one moves the total at once.
    */
   const recalculate = async (
     orderId: number,
@@ -1621,7 +1646,28 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     strapi.db.transaction(async () => {
       const order = await loadOrder(orderId);
       const payments: PaymentLike[] = (order.payments ?? []).map(toPaymentLike);
-      const refunds: RefundLike[] = (await loadRefunds(orderId)).map(toRefundLike);
+      const refundRows = await loadRefunds(orderId);
+      if (refundRows.some((r) => r.scope === 'INVOICED')) {
+        const { total } = computeTotals(
+          (order.lines ?? []).map((l: any) => ({
+            unitPrice: num(l.unitPrice),
+            unitDiscount: num(l.unitDiscount),
+            quantity: num(l.quantity),
+            returnedQuantity: num(l.returnedQuantity),
+          })),
+          {
+            orderDiscount: num(order.orderDiscount),
+            shippingOriginal: num(order.shippingOriginal),
+            shippingDiscount: num(order.shippingDiscount),
+            creditAdjustment: invoicedRefundAdjustment(refundRows),
+          }
+        );
+        if (total !== num(order.total)) {
+          await strapi.db.query(uids().order).update({ where: { id: orderId }, data: { total } });
+          order.total = total;
+        }
+      }
+      const refunds: RefundLike[] = refundRows.map(toRefundLike);
       const summary = summaryOf(order, payments, refunds);
       const paymentStatus = derivePaymentStatus(summary);
       if (order.orderStatus === 'CANCELLED' || summary.due <= 0) {

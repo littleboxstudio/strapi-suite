@@ -15,6 +15,7 @@ const expected: [string, string, string, string][] = [
   ['POST', `${A}/refunds/:id/resume`, `${R}.resume`, P.refundsManage],
   ['POST', `${A}/refunds/:id/mark-failed`, `${R}.markFailed`, P.refundsManage],
   ['POST', `${A}/refunds/:id/refresh`, `${R}.refresh`, P.refundsManage],
+  ['POST', `${A}/refunds/:id/remove`, `${R}.remove`, P.refundsManage],
   ['GET', `${A}/orders/:id/notifications`, `${N}.listForOrder`, P.ordersRead],
   ['POST', `${A}/notifications/:id/resend`, `${N}.resend`, P.ordersManage],
   ['GET', `${A}/store-credits`, `${S}.list`, P.customersRead],

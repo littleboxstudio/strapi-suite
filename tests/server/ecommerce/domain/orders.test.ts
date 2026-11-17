@@ -398,6 +398,16 @@ describe('availableActions', () => {
     expect(actions).toEqual(['SHIP', 'CANCEL']);
   });
 
+  it('REFUND with no excess when there is invoiced value to refund (open orders only)', () => {
+    const summary = financialSummary(10000, [{ status: 'COMPLETED', amount: 10000 }], []);
+    const paidBase = { ...base, paymentStatus: 'PAID' as const, summary };
+    expect(availableActions({ ...paidBase, invoicedRefundable: 10000 })).toEqual(['SHIP', 'CANCEL', 'REFUND']);
+    expect(availableActions({ ...paidBase, invoicedRefundable: 0 })).not.toContain('REFUND');
+    expect(
+      availableActions({ ...paidBase, orderStatus: 'ARCHIVED', invoicedRefundable: 10000 })
+    ).not.toContain('REFUND');
+  });
+
   it('paid with something to invoice offers ISSUE_INVOICE', () => {
     const summary = financialSummary(10000, [{ status: 'COMPLETED', amount: 10000 }], []);
     const actions = availableActions({
