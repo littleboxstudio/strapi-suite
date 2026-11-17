@@ -873,6 +873,28 @@ describe('credit notes across several invoices; REFUND credit notes (plan 15)', 
     expect(lineOf(p, B)).toMatchObject({ invoicedUnits: 1, returnCreditedUnits: 1 });
   });
 
+  it('a credit note across two invoices takes off only the values of entries on counted invoices', () => {
+    // RETURN across 100 (A, 880) and 101 (B, 440); 101 is then annulled by a CORRECTION.
+    const ret = creditNote(203, 100, 'RETURN', [item(A, 1, 880), item(B, 1, 440)], {
+      creditedLines: [
+        { index: 0, value: 880, quantity: 1, invoiceId: 100 },
+        { index: 1, value: 440, quantity: 1, invoiceId: 101 },
+      ],
+    });
+    const correction = creditNote(204, 101, 'CORRECTION', [item(A, 1, 880), item(B, 1, 440)]);
+    const p = computePosition(baseOrder(), [...both(), ret, correction]);
+    expect(p.annulledInvoiceIds).toEqual([101]);
+    // Invoice 100 alone: 880 − 880 credited; nothing of annulled 101 is taken off.
+    expect(p.products.invoiced).toBe(0);
+    expect(p.shippingPool.invoiced).toBe(500);
+    expect(lineOf(p, A)).toMatchObject({ invoicedUnits: 1, returnCreditedUnits: 1 });
+    expect(lineOf(p, B)).toMatchObject({ invoicedUnits: 0, returnCreditedUnits: 0 });
+    // Both invoices counted: each entry is taken off its own pool.
+    const q = computePosition(baseOrder(), [...both(), ret]);
+    expect(q.products.invoiced).toBe(880 + 880 + 440 - 880 - 440);
+    expect(q.shippingPool.invoiced).toBe(500);
+  });
+
   it('a CORRECTION of one invoice annuls only it; a REFUND note never annuls', () => {
     const refund = creditNote(200, 100, 'REFUND', [item(A, 1, 300), item(B, 1, 440)], {
       creditedLines: [
