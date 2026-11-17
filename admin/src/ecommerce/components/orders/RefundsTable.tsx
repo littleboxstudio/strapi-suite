@@ -291,19 +291,26 @@ const RefundsTable = ({ orderId, summaries, refreshKey, canRefund, onChanged }: 
               <Modal.Title>{t('ecommerce.orders.refunds.details.title', { id: viewing.id })}</Modal.Title>
             </Modal.Header>
             <Modal.Body>
-              <Flex direction="column" alignItems="stretch" gap={3}>
-                {detailRows(viewing).map(([label, value]) => (
-                  <Flex key={label} justifyContent="space-between" alignItems="flex-start" gap={4}>
-                    <Typography textColor="neutral600">{label}</Typography>
-                    <Typography
-                      textColor="neutral800"
-                      style={{ textAlign: 'right', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
-                    >
-                      {value}
-                    </Typography>
-                  </Flex>
-                ))}
-              </Flex>
+              {/* The refund's details as a two-column table: label, value. */}
+              <Table colCount={2} rowCount={detailRows(viewing).length}>
+                <Tbody>
+                  {detailRows(viewing).map(([label, value]) => (
+                    <Tr key={label}>
+                      <Td style={{ width: '40%', verticalAlign: 'top', height: 'auto', paddingTop: 12, paddingBottom: 12 }}>
+                        <Typography textColor="neutral600">{label}</Typography>
+                      </Td>
+                      <Td style={{ verticalAlign: 'top', height: 'auto', paddingTop: 12, paddingBottom: 12, whiteSpace: 'normal' }}>
+                        <Typography
+                          textColor="neutral800"
+                          style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
+                        >
+                          {value}
+                        </Typography>
+                      </Td>
+                    </Tr>
+                  ))}
+                </Tbody>
+              </Table>
             </Modal.Body>
             <Modal.Footer>
               <span />
