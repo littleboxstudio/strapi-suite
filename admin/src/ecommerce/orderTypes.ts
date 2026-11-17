@@ -530,6 +530,8 @@ export type OrderQuoteInput = {
   /** Per promotion id, the chosen gift variant. */
   giftChoices?: Record<number, number>;
   shipping?: { country: string; postalCode?: string; providerId: string; serviceId: string } | null;
+  /** Order-level manual discounts (base: the subtotal), applied in this order. */
+  manualDiscounts?: ManualDiscountInput[];
 };
 
 export type OrderQuoteLine = {
@@ -591,6 +593,8 @@ export type OrderQuote = {
   exhaustive: boolean;
   /** One entry per GIFT benefit of the applied promotions. */
   giftOptions: QuoteGiftOption[];
+  /** The manual discounts sent, in order, with their amounts (included in the totals). */
+  manualDiscounts?: { kind: 'FIXED' | 'PERCENT'; percent: number | null; amount: number; reason: string }[];
 };
 
 export type CreateOrderInput = {
@@ -613,6 +617,8 @@ export type CreateOrderInput = {
   expectedTotal?: number;
   /** Per promotion id, the chosen gift variant. */
   giftChoices?: Record<number, number>;
+  /** Order-level manual discounts; `expectedTotal` must be the quote's total with them. */
+  manualDiscounts?: ManualDiscountInput[];
 };
 
 export type CreatedOrder = { id: number; reference: number; publicId: string };
