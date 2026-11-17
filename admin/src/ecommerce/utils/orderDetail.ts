@@ -258,7 +258,7 @@ export type OverviewNoteKey =
 export type OverviewNote = { key: OverviewNoteKey; amount?: number; tone?: 'success' | 'warning' | 'danger' };
 
 export type OverviewTile = {
-  key: 'total' | 'shipping' | 'discounts' | 'paid';
+  key: 'total' | 'shipping' | 'discounts' | 'creditAdjustment' | 'paid';
   amount: number;
   /** Paid: something still owed, or settled. */
   tone?: 'warning' | 'success';
@@ -269,7 +269,8 @@ export type OverviewTile = {
  * The four figures at the top of the payments section: the order total, the shipping, the
  * discounts (products, order and shipping) and what was paid, with the amount still pending
  * below it (or "paid in full"), plus payments awaiting confirmation, refunds, an excess or an
- * over-refund when there are any.
+ * over-refund when there are any. Refunds of invoiced value (plan 15) lower the total: their own
+ * tile, before Paid, only when there are any.
  */
 export function paymentsOverview(totals: OrderTotals, summary: FinancialSummary): OverviewTile[] {
   const discounts = totalDiscount(totals);
@@ -288,6 +289,9 @@ export function paymentsOverview(totals: OrderTotals, summary: FinancialSummary)
     { key: 'total', amount: totals.itemsOriginal, notes: [] },
     { key: 'shipping', amount: totals.shippingOriginal, notes: [] },
     { key: 'discounts', amount: discounts ? -discounts : 0, notes: [] },
+    ...((totals.creditAdjustment ?? 0) > 0
+      ? [{ key: 'creditAdjustment' as const, amount: -(totals.creditAdjustment as number), notes: [] }]
+      : []),
     { key: 'paid', amount: summary.paid, tone: summary.due > 0 ? 'warning' : 'success', notes: paidNotes },
   ];
 }
@@ -631,6 +635,13 @@ export const API_ERROR_CODES = [
   'CARRIER_RETRY_UNSAFE',
   'PICKUP_ADDRESS_LOCKED',
   'NOTHING_TO_CREDIT',
+  // Refunds of invoiced value (plan 15)
+  'REFUND_NOT_REMOVABLE',
+  'REFUND_HAS_CREDIT_NOTE',
+  'REFUND_NOT_CREDITABLE',
+  'STORE_CREDIT_USED',
+  'CREDIT_TOTAL_DIFFERS',
+  'REFUND_CREDITED_INVOICE',
 ] as const;
 
 /**

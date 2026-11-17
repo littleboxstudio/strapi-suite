@@ -3,8 +3,10 @@ import type {
   CreateRefundInput,
   FieldError,
   NotificationView,
+  RefundLimits,
   RefundMethod,
   RefundPreview,
+  RefundScope,
   StoreCredit,
 } from '../orderTypes';
 
@@ -60,6 +62,8 @@ const tooLong = (value: string, max: number) => value.trim().length > max;
 // ---------------------------------------------------------------------------
 
 export type RefundForm = {
+  /** EXCESS (money paid above the total) or INVOICED (invoiced value, lowers the total). */
+  scope: RefundScope;
   /** Decimal text in the admin's locale. */
   amount: string;
   reason: RefundReason | '';
@@ -78,8 +82,69 @@ export type RefundDraft = Omit<CreateRefundInput, 'idempotencyKey'>;
 /** Prefill of a refund opened from another action (e.g. "Refund now" after a return). */
 export type RefundInitial = { reason: RefundReason; amount?: number };
 
+export const REFUND_SCOPES: RefundScope[] = ['EXCESS', 'INVOICED'];
+
+const NO_LIMITS: RefundLimits = { refundable: 0, moneyRefundable: 0, stripeRefundable: 0 };
+
+/** The limits of `scope` (plan 15); an older server without `limits` only knows EXCESS (top level). */
+export function scopeLimits(preview: RefundPreview, scope: RefundScope): RefundLimits {
+  const limits = preview.limits?.[scope];
+  if (limits) return limits;
+  if (scope === 'INVOICED') return NO_LIMITS;
+  return {
+    refundable: preview.refundable,
+    moneyRefundable: preview.moneyRefundable,
+    stripeRefundable: preview.stripeRefundable,
+  };
+}
+
+/** The preview as seen by one scope: its limits in place of the top-level (EXCESS) ones. */
+export function previewForScope(preview: RefundPreview, scope: RefundScope): RefundPreview {
+  return { ...preview, ...scopeLimits(preview, scope) };
+}
+
+/** The scopes with something to refund, EXCESS first. */
+export function refundScopes(preview: RefundPreview): RefundScope[] {
+  return REFUND_SCOPES.filter((scope) => scopeLimits(preview, scope).refundable > 0);
+}
+
+/** EXCESS when there is an excess, else INVOICED when there is invoiced value (else EXCESS). */
+export function defaultRefundScope(preview: RefundPreview): RefundScope {
+  return refundScopes(preview)[0] ?? 'EXCESS';
+}
+
+/** The default amount of a scope: its maximum, or the hand-off amount capped by it. */
+function defaultAmount(p: RefundPreview, initial?: RefundInitial): number {
+  if (initial?.amount === undefined) return p.refundable;
+  const cap = p.moneyRefundable > 0 ? Math.min(p.moneyRefundable, p.refundable) : p.refundable;
+  return Math.max(0, Math.min(initial.amount, cap));
+}
+
 /**
- * Defaults: the maximum refundable, a manual transfer (store credit when nothing can go back as
+ * Another scope chosen: its maximum (or the hand-off amount capped by it); the method stays while
+ * the new scope allows it, else the default one.
+ */
+export function switchRefundScope(
+  form: RefundForm,
+  preview: RefundPreview,
+  scope: RefundScope,
+  locale: string,
+  initial?: RefundInitial
+): RefundForm {
+  const p = previewForScope(preview, scope);
+  const allowed =
+    form.method === 'STORE_CREDIT' ||
+    (form.method === 'STRIPE' ? p.hasStripe && p.stripeRefundable > 0 : p.moneyRefundable > 0);
+  return {
+    ...form,
+    scope,
+    amount: formatAmountInput(defaultAmount(p, initial), locale),
+    method: allowed ? form.method : p.moneyRefundable > 0 ? 'MANUAL_TRANSFER' : 'STORE_CREDIT',
+  };
+}
+
+/**
+ * Defaults: the scope (EXCESS when there is an excess, else INVOICED) and its maximum refundable, a manual transfer (store credit when nothing can go back as
  * money), a store credit valid for 12 months. `initial` sets the reason and an amount, capped by
  * the preview: by the money refundable when the default method returns money (store-credit-paid
  * orders), else by the refundable.
@@ -90,17 +155,14 @@ export function emptyRefundForm(
   now = new Date(),
   initial?: RefundInitial
 ): RefundForm {
-  const money = preview.moneyRefundable > 0;
-  let amount = preview.refundable;
-  if (initial?.amount !== undefined) {
-    const cap = money ? Math.min(preview.moneyRefundable, preview.refundable) : preview.refundable;
-    amount = Math.max(0, Math.min(initial.amount, cap));
-  }
+  const scope = defaultRefundScope(preview);
+  const p = previewForScope(preview, scope);
   return {
-    amount: formatAmountInput(amount, locale),
+    scope,
+    amount: formatAmountInput(defaultAmount(p, initial), locale),
     reason: initial?.reason ?? '',
     description: '',
-    method: money ? 'MANUAL_TRANSFER' : 'STORE_CREDIT',
+    method: p.moneyRefundable > 0 ? 'MANUAL_TRANSFER' : 'STORE_CREDIT',
     reference: '',
     expiresAt: addMonthsDate(now),
     conditions: '',
@@ -113,10 +175,11 @@ export function emptyRefundForm(
  */
 export function validateRefundForm(
   form: RefundForm,
-  preview: RefundPreview,
+  fullPreview: RefundPreview,
   now = new Date()
 ): { errors: FieldError[]; input: RefundDraft | null } {
   const errors: FieldError[] = [];
+  const preview = previewForScope(fullPreview, form.scope ?? 'EXCESS');
   const cents = parseMoneyToCents(form.amount);
   const stripe = form.method === 'STRIPE';
   // Store-credit value never goes back as money (design 4.7).
@@ -150,6 +213,8 @@ export function validateRefundForm(
   if (errors.length) return { errors, input: null };
 
   const input: RefundDraft = { method: form.method, amount: cents as number, reason: form.reason };
+  // EXCESS is the server's default: only INVOICED is sent.
+  if (form.scope === 'INVOICED') input.scope = 'INVOICED';
   const description = form.description.trim();
   if (description) input.description = description;
   if (form.method === 'MANUAL_TRANSFER') {

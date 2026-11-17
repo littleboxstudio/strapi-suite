@@ -2,10 +2,10 @@ import styled from 'styled-components';
 
 export type TileTone = 'warning' | 'success';
 
-/** Figures side by side: four per row, two on narrow screens. */
-export const Tiles = styled.div`
+/** Figures side by side: four per row (or `$columns`), two on narrow screens. */
+export const Tiles = styled.div<{ $columns?: number }>`
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(${({ $columns }) => $columns ?? 4}, minmax(0, 1fr));
   gap: 12px;
 
   @media (max-width: 1100px) {

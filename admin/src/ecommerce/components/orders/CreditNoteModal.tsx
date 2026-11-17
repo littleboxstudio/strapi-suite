@@ -136,7 +136,9 @@ const CreditNoteModal = ({ invoice, onClose, onIssued }: Props) => {
    */
   const nothingToCorrect =
     (form?.creditType === 'CORRECTION' &&
-      (options?.correction.lines.length === 0 || options?.correctionBlocked === true)) ||
+      (options?.correction.lines.length === 0 ||
+        options?.correctionBlocked === true ||
+        !!options?.correctionRefused)) ||
     (form?.creditType === 'SHIPPING' && !(options?.shippingAdjustment?.total ?? 0));
 
   const clear = (keys: string[]) => {
@@ -422,7 +424,9 @@ const CreditNoteModal = ({ invoice, onClose, onIssued }: Props) => {
                   ? !(o.shippingAdjustment?.total ?? 0) && `${p}.nothingShipping`
                   : type === 'RETURN'
                     ? !returnable && `${p}.nothingReturnable`
-                    : o.correctionBlocked && `${p}.correctionBlocked`;
+                    : o.correctionRefused
+                      ? `${p}.correctionRefused`
+                      : o.correctionBlocked && `${p}.correctionBlocked`;
               const disabled = locked || !!unavailable;
               return (
                 <Radio.Item key={type} value={type} disabled={disabled}>

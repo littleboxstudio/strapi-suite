@@ -14,9 +14,10 @@ const PaymentsOverview = ({ totals, summary }: { totals: OrderTotals; summary: F
   const t = (id: string) => formatMessage({ id: getTranslation(id) });
   const money = (cents: number) => formatCents(cents, uiLocale);
 
+  const tiles = paymentsOverview(totals, summary);
   return (
-    <Tiles>
-      {paymentsOverview(totals, summary).map((tile) => (
+    <Tiles $columns={tiles.length}>
+      {tiles.map((tile) => (
         <Tile key={tile.key} $tone={tile.tone}>
           <Typography variant="sigma" textColor="neutral600">
             {t(`ecommerce.orders.detail.summary.${tile.key}`)}
