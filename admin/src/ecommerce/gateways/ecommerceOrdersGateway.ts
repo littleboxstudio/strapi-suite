@@ -48,6 +48,7 @@ import type {
   RefundPreview,
   RefundView,
   RegisterReturnInput,
+  ReturnPreview,
   ReturnRegistered,
   ReviewFlagCode,
   ShipmentView,
@@ -160,6 +161,7 @@ export default interface EcommerceOrdersGateway {
   /** The carrier label PDF; an error carries the API body (`response.data`) like the JSON calls. */
   fetchShipmentLabel(shipmentId: number): Promise<Blob>;
   registerReturn(orderId: number, input: RegisterReturnInput): Promise<ReturnRegistered>;
+  previewReturn(orderId: number, lines: RegisterReturnInput['lines']): Promise<ReturnPreview>;
 
   // Invoices and credit notes (read: orders.read; write: invoicing.manage)
   fetchInvoiceSelection(orderId: number): Promise<InvoiceSelectionView>;
@@ -456,6 +458,10 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
 
   async registerReturn(orderId: number, input: RegisterReturnInput): Promise<ReturnRegistered> {
     return this.httpClient.post(`${this.orders}/${orderId}/returns`, input);
+  }
+
+  async previewReturn(orderId: number, lines: RegisterReturnInput['lines']): Promise<ReturnPreview> {
+    return this.httpClient.post(`${this.orders}/${orderId}/returns/preview`, { lines });
   }
 
   async fetchInvoiceSelection(orderId: number): Promise<InvoiceSelectionView> {

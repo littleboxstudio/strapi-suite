@@ -19,6 +19,7 @@ const expectedFulfillment: [string, string, string, string][] = [
   ['POST', `${A}/shipments/:id/mark-failed`, `${S}.markFailed`, P.ordersManage],
   ['POST', `${A}/shipments/:id/cancel`, `${S}.cancel`, P.ordersManage],
   ['GET', `${A}/shipments/:id/label`, `${S}.label`, P.ordersRead],
+  ['POST', `${A}/orders/:id/returns/preview`, `${R}.preview`, P.ordersManage],
   ['POST', `${A}/orders/:id/returns`, `${R}.register`, P.ordersManage],
 ];
 const expectedInvoices: [string, string, string, string][] = [

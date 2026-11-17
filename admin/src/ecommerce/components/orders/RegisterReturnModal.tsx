@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import {
@@ -23,6 +23,7 @@ import { FIT_CELL, PRODUCT_CELL } from './lineCells';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { InputTd } from '../InputTd';
 import RegisterReturn from '../../usecases/orders/registerReturn';
+import PreviewReturn from '../../usecases/orders/previewReturn';
 import { formatCents } from '../../utils/money';
 import { apiErrorMessageId, lineDiscountLabel } from '../../utils/orderDetail';
 import { extractFieldErrors } from '../../utils/productForm';
@@ -37,7 +38,7 @@ import {
 } from '../../utils/returnForm';
 import { mapServerFieldErrors, type FormErrors } from '../../utils/shipmentForm';
 import type { RefundInitial } from '../../utils/refundForm';
-import type { Order, ReturnRegistered } from '../../orderTypes';
+import type { ReturnPreview, Order, ReturnRegistered } from '../../orderTypes';
 
 type Props = {
   order: Order;
@@ -78,6 +79,28 @@ const RegisterReturnModal = ({ order, canRefund, onClose, onRefundNow }: Props) 
   }));
   const [errors, setErrors] = useState<FormErrors>({});
   const [saving, setSaving] = useState(false);
+  /** The server's value for the quantities typed (`key` = those quantities). */
+  const [preview, setPreview] = useState<{ key: string; result: ReturnPreview } | null>(null);
+  const previewRequest = useRef(0);
+  const previewLines = buildReturnInput(form, idempotencyKey).lines;
+  const previewKey = JSON.stringify(previewLines.map((l) => [l.orderLineId, l.quantity]));
+  useEffect(() => {
+    if (!previewLines.length) return;
+    const request = ++previewRequest.current;
+    const timer = setTimeout(() => {
+      new PreviewReturn()
+        .execute(order.id, previewLines)
+        .then((result) => {
+          if (request === previewRequest.current) setPreview({ key: previewKey, result });
+        })
+        .catch(() => {
+          // An invalid quantity is said by the form on save; the estimate stays shown.
+        });
+    }, 300);
+    return () => clearTimeout(timer);
+    // Asked again only when the quantities change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewKey, order.id]);
   const [result, setResult] = useState<ReturnRegistered | null>(null);
   const lineById = new Map(order.lines.map((l) => [l.id, l]));
 
@@ -194,6 +217,10 @@ const RegisterReturnModal = ({ order, canRefund, onClose, onRefundNow }: Props) 
   }
 
   const estimate = estimatedReturnValue(form, order.lines);
+  // The exact value comes from the server (the same rule the return is registered with); the
+  // local estimate shows meanwhile, or if the preview cannot be had.
+  const value = preview && preview.key === previewKey ? preview.result.refundableValue : estimate;
+  const share = preview && preview.key === previewKey ? preview.result.discountShare : 0;
 
   return (
     <Modal.Root open onOpenChange={(next: boolean) => !next && !saving && onClose(false)}>
@@ -321,10 +348,12 @@ const RegisterReturnModal = ({ order, canRefund, onClose, onRefundNow }: Props) 
 
             <Box padding={3} background="neutral100" hasRadius>
               <Flex direction="column" alignItems="stretch" gap={1}>
-                {row(t('ecommerce.orders.returns.estimate'), money(estimate), true)}
-                <Typography variant="pi" textColor="neutral600">
-                  {t('ecommerce.orders.returns.estimateHint')}
-                </Typography>
+                {row(t('ecommerce.orders.returns.estimate'), money(value), true)}
+                {share > 0 && (
+                  <Typography variant="pi" textColor="neutral600">
+                    {t('ecommerce.orders.returns.estimateHint', { amount: money(share) })}
+                  </Typography>
+                )}
               </Flex>
             </Box>
             {errors.form && <Typography textColor="danger600">{codeText(errors.form)}</Typography>}
