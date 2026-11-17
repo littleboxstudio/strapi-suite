@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
-import { Button, Flex, Modal, Table, Tbody, Td, Th, Thead, Tr, Typography } from '@strapi/design-system';
+import { Button, Flex, Modal, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import EmptyNote from './EmptyNote';
 import RemoveManualDiscount from '../../usecases/orders/removeManualDiscount';
@@ -26,18 +26,15 @@ import {
   orderDiscountTotal,
 } from '../../utils/orderEditing';
 import { mintUuid } from '../../utils/variantDraft';
-import { describeBenefit } from '../../utils/promotionForm';
 import type { EditResult, ManualDiscount, Order, OrderPromotion, OrderPromotionCode } from '../../orderTypes';
 import ManualDiscountModal from './ManualDiscountModal';
 import RecalculateDiscountsModal from './RecalculateDiscountsModal';
 import OrderSection from './OrderSection';
-import ColumnLabel from '../ColumnLabel';
+import DiscountsTable from './DiscountsTable';
 import { ToneBadge } from './StatusBadges';
 
 /** Long texts (a product name in a benefit) wrap inside their cell instead of running over the next. */
 const WRAP = { whiteSpace: 'normal', overflowWrap: 'anywhere' } as const;
-
-const COLUMNS = ['promotion', 'method', 'type', 'benefit', 'amount', 'actions'] as const;
 
 type Props = {
   id?: string;
@@ -79,7 +76,6 @@ const PromotionsSection = ({
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
   const money = (cents: number) => formatCents(cents, uiLocale);
-  const discount = (cents: number) => money(cents ? -cents : 0);
   const rows = promotionRows(promotions, locales);
   const unapplied = unappliedPromotionCodes(promotionCodes);
   const { canManage } = permissions;
@@ -87,9 +83,6 @@ const PromotionsSection = ({
   // Spec 4.1: each line with a manual percent is listed too, so the total matches the order.
   const lineRows = manualLineDiscountRows(order.lines ?? [], uiLocale);
   const showActions = hasRowActions(manualRows);
-  const columns = showActions ? COLUMNS : COLUMNS.filter((c) => c !== 'actions');
-  // Without the Actions column, Amount is the last one: its values (and the total) sit on the right.
-  const amountCell = showActions ? undefined : ({ textAlign: 'right' } as const);
 
   const [modal, setModal] = useState<DiscountModal | null>(null);
   const closeModal = () => setModal(null);
@@ -145,165 +138,26 @@ const PromotionsSection = ({
       ) : (
         <Flex direction="column" alignItems="stretch" gap={4}>
           {hasRows && (
-            <Table colCount={columns.length} rowCount={rows.length + manualRows.length + lineRows.length + 2}>
-              <Thead>
-                <Tr>
-                  {columns.map((c) => (
-                    <Th key={c}>
-                      {c === 'amount' && amountCell ? (
-                        <Flex justifyContent="flex-end" style={{ width: '100%' }}>
-                          <ColumnLabel column={c}>{t(`ecommerce.orders.promotions.columns.${c}`)}</ColumnLabel>
-                        </Flex>
-                      ) : (
-                        <ColumnLabel column={c}>{t(`ecommerce.orders.promotions.columns.${c}`)}</ColumnLabel>
-                      )}
-                    </Th>
-                  ))}
-                </Tr>
-              </Thead>
-              <Tbody>
-                {rows.map((row) => (
-                  <Tr key={row.key}>
-                    <Td style={{ maxWidth: 260, ...WRAP }}>
-                      <Flex direction="column" alignItems="flex-start" gap={1}>
-                        <Typography textColor="neutral800" fontWeight="semiBold" ellipsis>
-                          {row.displayName ?? t('ecommerce.orders.promotions.fallbackName')}
-                        </Typography>
-                        <Typography variant="pi" textColor="neutral500" ellipsis>
-                          {t('ecommerce.orders.promotions.internalName', { name: row.name })}
-                        </Typography>
-                        {row.released && (
-                          <ToneBadge title={t('ecommerce.orders.promotions.releasedHint')}>
-                            {t('ecommerce.orders.promotions.released')}
-                          </ToneBadge>
-                        )}
-                      </Flex>
-                    </Td>
-                    <Td>
-                      <Flex direction="column" alignItems="flex-start">
-                        <Typography textColor="neutral800">
-                          {t(`ecommerce.promotions.methods.${row.method}`)}
-                        </Typography>
-                        {row.code && (
-                          <Typography variant="pi" textColor="neutral600" fontWeight="semiBold">
-                            {row.code}
-                          </Typography>
-                        )}
-                      </Flex>
-                    </Td>
-                    <Td>
-                      <Typography textColor="neutral800">
-                        {t(`ecommerce.orders.promotions.classes.${row.discountClass}`)}
-                      </Typography>
-                    </Td>
-                    <Td style={{ maxWidth: 320, ...WRAP }}>
-                      <Typography textColor="neutral800" style={WRAP}>{describeBenefit(row.benefit, money, t)}</Typography>
-                    </Td>
-                    <Td>
-                      <Typography textColor="neutral800" style={{ whiteSpace: 'nowrap', display: 'block', ...amountCell }}>
-                        {discount(row.amount)}
-                      </Typography>
-                    </Td>
-                    {showActions && <Td />}
-                  </Tr>
-                ))}
-                {manualRows.map(({ discount: m, actions }) => {
-                  const percent = manualDiscountPercent(m, uiLocale);
-                  return (
-                    <Tr key={`m-${m.id}`}>
-                      <Td style={{ maxWidth: 260, ...WRAP }}>
-                        <Typography textColor="neutral800" fontWeight="semiBold">
-                          {t('ecommerce.orders.discounts.manualName')}
-                        </Typography>
-                      </Td>
-                      <Td>
-                        <Typography textColor="neutral800">{t('ecommerce.orders.discounts.manual')}</Typography>
-                      </Td>
-                      <Td>
-                        <Typography textColor="neutral800">
-                          {t('ecommerce.orders.promotions.classes.ORDER_DISCOUNT')}
-                        </Typography>
-                      </Td>
-                      <Td style={{ maxWidth: 320, ...WRAP }}>
-                        <Flex direction="column" alignItems="flex-start" gap={1}>
-                          <Typography textColor="neutral800" style={WRAP}>
-                            {manualReason(m)}
-                          </Typography>
-                          {percent && (
-                            <Typography variant="pi" textColor="neutral600">
-                              {`${percent} (${money(m.amount)})`}
-                            </Typography>
-                          )}
-                        </Flex>
-                      </Td>
-                      <Td>
-                        <Typography textColor="neutral800" style={{ whiteSpace: 'nowrap', display: 'block', ...amountCell }}>
-                          {discount(m.amount)}
-                        </Typography>
-                      </Td>
-                      {showActions && (
-                        <Td>
-                          <Flex justifyContent="flex-end">
-                            {actions.includes('REMOVE') && (
-                              <Button size="S" variant="danger-light" onClick={() => setModal({ kind: 'REMOVE', discount: m })}>
-                                {t('ecommerce.orders.discounts.remove')}
-                              </Button>
-                            )}
-                          </Flex>
-                        </Td>
-                      )}
-                    </Tr>
-                  );
-                })}
-                {lineRows.map((r) => (
-                  <Tr key={r.key}>
-                    <Td style={{ maxWidth: 260, ...WRAP }}>
-                      <Typography textColor="neutral800" fontWeight="semiBold">
-                        {t('ecommerce.orders.discounts.manualLineName')}
-                      </Typography>
-                    </Td>
-                    <Td>
-                      <Typography textColor="neutral800">{t('ecommerce.orders.discounts.manual')}</Typography>
-                    </Td>
-                    <Td>
-                      <Typography textColor="neutral800">
-                        {t('ecommerce.orders.promotions.classes.PRODUCT_DISCOUNT')}
-                      </Typography>
-                    </Td>
-                    <Td style={{ maxWidth: 320, ...WRAP }}>
-                      <Typography textColor="neutral800" style={WRAP}>
-                        {r.label}
-                      </Typography>
-                    </Td>
-                    <Td>
-                      <Typography textColor="neutral800" style={{ whiteSpace: 'nowrap', display: 'block', ...amountCell }}>
-                        {discount(r.amount)}
-                      </Typography>
-                    </Td>
-                    {showActions && <Td />}
-                  </Tr>
-                ))}
-                {/* The total: label and amount in one cell, on the right (under Amount). */}
-                <Tr>
-                  <Td colSpan={columns.length - (showActions ? 1 : 0)}>
-                    {/* The rows' own height (52px): 16px above and below the 20px line. The spanning
-                        cell has 4px on the right, the others 16px: 12px more aligns the amount. */}
-                    <Flex justifyContent="flex-end" gap={2} paddingTop={4} paddingBottom={4} paddingRight={3}>
-                      <Typography fontWeight="bold" textColor="neutral800">
-                        {t('ecommerce.orders.promotions.total')}
-                      </Typography>
-                      <Typography fontWeight="bold" textColor="neutral800" style={{ whiteSpace: 'nowrap' }}>
-                        {discount(
-                          orderDiscountTotal(promotions, order.manualDiscounts ?? []) +
-                            manualLineDiscountTotal(lineRows)
-                        )}
-                      </Typography>
-                    </Flex>
-                  </Td>
-                  {showActions && <Td />}
-                </Tr>
-              </Tbody>
-            </Table>
+            <DiscountsTable
+              rows={rows}
+              manualRows={manualRows.map(({ discount: m, actions }) => {
+                const percent = manualDiscountPercent(m, uiLocale);
+                return {
+                  key: `m-${m.id}`,
+                  reason: manualReason(m),
+                  detail: percent ? `${percent} (${money(m.amount)})` : null,
+                  amount: m.amount,
+                  action: actions.includes('REMOVE') ? (
+                    <Button size="S" variant="danger-light" onClick={() => setModal({ kind: 'REMOVE', discount: m })}>
+                      {t('ecommerce.orders.discounts.remove')}
+                    </Button>
+                  ) : undefined,
+                };
+              })}
+              lineRows={lineRows}
+              total={orderDiscountTotal(promotions, order.manualDiscounts ?? []) + manualLineDiscountTotal(lineRows)}
+              showActions={showActions}
+            />
           )}
           {enteredCodes}
         </Flex>

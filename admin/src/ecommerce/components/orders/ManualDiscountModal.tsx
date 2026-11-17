@@ -33,10 +33,10 @@ type Props = {
   onAction: (action: ToolbarAction) => void;
 };
 
-type Kind = 'FIXED' | 'PERCENT';
-type ErrorKey = 'value' | 'reason' | 'form';
+export type Kind = 'FIXED' | 'PERCENT';
+export type ErrorKey = 'value' | 'reason' | 'form';
 
-const errorMap = (errors: FieldError[]): Partial<Record<ErrorKey, string>> => {
+export const errorMap = (errors: FieldError[]): Partial<Record<ErrorKey, string>> => {
   const map: Partial<Record<ErrorKey, string>> = {};
   errors.forEach(({ path, code }) => {
     const key: ErrorKey = path === 'value' || path === 'reason' ? path : 'form';
@@ -46,13 +46,33 @@ const errorMap = (errors: FieldError[]): Partial<Record<ErrorKey, string>> => {
 };
 
 /**
- * Add a manual discount (spec 7.2): a fixed amount or a percentage of the products total, with a
- * required reason; then the balance when money is due or refundable. Mount it only while open:
- * each opening mints one operationId.
+ * The fields of a manual discount: kind, value (euros or a percent of `percentBase`) and the
+ * required reason. Shared by the order's Add discount and Create order.
  */
-const ManualDiscountModal = ({ order, permissions, onClose, onSaved, onAction }: Props) => {
+export const ManualDiscountFields = ({
+  kind,
+  value,
+  reason,
+  errors,
+  busy,
+  percentBase,
+  onKind,
+  onValue,
+  onReason,
+}: {
+  kind: Kind;
+  value: string;
+  reason: string;
+  /** Error codes by field (`form`: one of the whole discount). */
+  errors: Partial<Record<ErrorKey, string>>;
+  busy?: boolean;
+  /** What a percentage applies to (cents), shown as a hint; null hides it. */
+  percentBase: number | null;
+  onKind: (kind: Kind) => void;
+  onValue: (value: string) => void;
+  onReason: (reason: string) => void;
+}) => {
   const { formatMessage, locale } = useIntl();
-  const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
   const codeText = (code: string) =>
@@ -60,6 +80,80 @@ const ManualDiscountModal = ({ order, permissions, onClose, onSaved, onAction }:
       id: getTranslation(`ecommerce.orders.errors.${code}`),
       defaultMessage: t('ecommerce.orders.errors.invalid'),
     });
+  return (
+    <Flex direction="column" alignItems="stretch" gap={4}>
+      <Field.Root name="kind">
+        <Field.Label>{t('ecommerce.orders.discounts.kindLabel')}</Field.Label>
+        <Radio.Group
+          value={kind}
+          disabled={busy}
+          aria-label={t('ecommerce.orders.discounts.kindLabel')}
+          onValueChange={(next: string) => onKind(next as Kind)}
+        >
+          <Radio.Item value="FIXED">{t('ecommerce.orders.discounts.kind.FIXED')}</Radio.Item>
+          <Radio.Item value="PERCENT">{t('ecommerce.orders.discounts.kind.PERCENT')}</Radio.Item>
+        </Radio.Group>
+      </Field.Root>
+      <Field.Root
+        name="value"
+        required
+        error={errors.value ? codeText(errors.value) : undefined}
+        hint={
+          kind === 'PERCENT' && percentBase !== null
+            ? t('ecommerce.orders.discounts.percentHint', {
+                amount: formatCents(percentBase, locale),
+              })
+            : undefined
+        }
+      >
+        <Field.Label>{t('ecommerce.orders.discounts.value')}</Field.Label>
+        <TextInput
+          value={value}
+          disabled={busy}
+          inputMode="decimal"
+          endAction={
+            <Typography textColor="neutral600">{kind === 'PERCENT' ? '%' : '€'}</Typography>
+          }
+          onChange={(e: any) => onValue(e.target.value)}
+        />
+        <Field.Hint />
+        <Field.Error />
+      </Field.Root>
+      <Field.Root
+        name="reason"
+        required
+        error={errors.reason ? codeText(errors.reason) : undefined}
+        hint={`${reason.trim().length}/${MAX_DISCOUNT_REASON}`}
+      >
+        <Field.Label>{t('ecommerce.orders.discounts.reasonLabel')}</Field.Label>
+        <Textarea
+          value={reason}
+          disabled={busy}
+          maxLength={MAX_DISCOUNT_REASON}
+          onChange={(e: any) => onReason(e.target.value)}
+        />
+        <Field.Hint />
+        <Field.Error />
+      </Field.Root>
+      {errors.form && (
+        <Typography variant="omega" textColor="danger600">
+          {codeText(errors.form)}
+        </Typography>
+      )}
+    </Flex>
+  );
+};
+
+/**
+ * Add a manual discount (spec 7.2): a fixed amount or a percentage of the products total, with a
+ * required reason; then the balance when money is due or refundable. Mount it only while open:
+ * each opening mints one operationId.
+ */
+const ManualDiscountModal = ({ order, permissions, onClose, onSaved, onAction }: Props) => {
+  const { formatMessage } = useIntl();
+  const { toggleNotification } = useNotification();
+  const t = (id: string, values?: Record<string, any>) =>
+    formatMessage({ id: getTranslation(id) }, values);
 
   const [operationId] = useState(() => mintUuid());
   const [kind, setKind] = useState<Kind>('FIXED');
@@ -116,75 +210,26 @@ const ManualDiscountModal = ({ order, permissions, onClose, onSaved, onAction }:
       );
     }
     return (
-      <Flex direction="column" alignItems="stretch" gap={4}>
-        <Field.Root name="kind">
-          <Field.Label>{t('ecommerce.orders.discounts.kindLabel')}</Field.Label>
-          <Radio.Group
-            value={kind}
-            disabled={busy}
-            aria-label={t('ecommerce.orders.discounts.kindLabel')}
-            onValueChange={(next: string) => {
-              setKind(next as Kind);
-              setErrors({});
-            }}
-          >
-            <Radio.Item value="FIXED">{t('ecommerce.orders.discounts.kind.FIXED')}</Radio.Item>
-            <Radio.Item value="PERCENT">{t('ecommerce.orders.discounts.kind.PERCENT')}</Radio.Item>
-          </Radio.Group>
-        </Field.Root>
-        <Field.Root
-          name="value"
-          required
-          error={errors.value ? codeText(errors.value) : undefined}
-          hint={
-            kind === 'PERCENT'
-              ? t('ecommerce.orders.discounts.percentHint', {
-                  amount: formatCents(manualDiscountBase(order).products, locale),
-                })
-              : undefined
-          }
-        >
-          <Field.Label>{t('ecommerce.orders.discounts.value')}</Field.Label>
-          <TextInput
-            value={value}
-            disabled={busy}
-            inputMode="decimal"
-            endAction={
-              <Typography textColor="neutral600">{kind === 'PERCENT' ? '%' : '€'}</Typography>
-            }
-            onChange={(e: any) => {
-              setValue(e.target.value);
-              setErrors(({ value: _v, form: _f, ...rest }) => rest);
-            }}
-          />
-          <Field.Hint />
-          <Field.Error />
-        </Field.Root>
-        <Field.Root
-          name="reason"
-          required
-          error={errors.reason ? codeText(errors.reason) : undefined}
-          hint={`${reason.trim().length}/${MAX_DISCOUNT_REASON}`}
-        >
-          <Field.Label>{t('ecommerce.orders.discounts.reasonLabel')}</Field.Label>
-          <Textarea
-            value={reason}
-            disabled={busy}
-            maxLength={MAX_DISCOUNT_REASON}
-            onChange={(e: any) => {
-              setReason(e.target.value);
-              setErrors(({ reason: _r, form: _f, ...rest }) => rest);
-            }}
-          />
-          <Field.Hint />
-          <Field.Error />
-        </Field.Root>
-        {errors.form && (
-          <Typography variant="omega" textColor="danger600">
-            {codeText(errors.form)}
-          </Typography>
-        )}
-      </Flex>
+      <ManualDiscountFields
+        kind={kind}
+        value={value}
+        reason={reason}
+        errors={errors}
+        busy={busy}
+        percentBase={manualDiscountBase(order).products}
+        onKind={(next) => {
+          setKind(next);
+          setErrors({});
+        }}
+        onValue={(next) => {
+          setValue(next);
+          setErrors(({ value: _v, form: _f, ...rest }) => rest);
+        }}
+        onReason={(next) => {
+          setReason(next);
+          setErrors(({ reason: _r, form: _f, ...rest }) => rest);
+        }}
+      />
     );
   };
 
