@@ -27,6 +27,20 @@ import { ToneBadge } from './StatusBadges';
 const THUMBNAIL_SIZE = 40;
 const COLUMNS = ['product', 'sku', 'unitPrice', 'quantity', 'shipped', 'returns', 'refunds', 'total'] as const;
 
+/** A line's photo (or a grey square without one), as in the order's Products table. */
+export const LineThumbnail = ({ imageUrl }: { imageUrl: string | null }) =>
+  imageUrl ? (
+    <img
+      src={imageUrl}
+      alt=""
+      width={THUMBNAIL_SIZE}
+      height={THUMBNAIL_SIZE}
+      style={{ objectFit: 'cover', borderRadius: '4px', display: 'block' }}
+    />
+  ) : (
+    <Box background="neutral150" hasRadius style={{ width: THUMBNAIL_SIZE, height: THUMBNAIL_SIZE }} />
+  );
+
 type Props = {
   lines: OrderLine[];
   /** The order's applied promotions: names of the promotions that discounted each line. */
@@ -95,21 +109,7 @@ const OrderLinesTable = ({ lines, promotions = [], locales = { locale: '' } }: P
           return (
             <Tr key={line.id}>
               <Td>
-                {line.imageUrl ? (
-                  <img
-                    src={line.imageUrl}
-                    alt=""
-                    width={THUMBNAIL_SIZE}
-                    height={THUMBNAIL_SIZE}
-                    style={{ objectFit: 'cover', borderRadius: '4px', display: 'block' }}
-                  />
-                ) : (
-                  <Box
-                    background="neutral150"
-                    hasRadius
-                    style={{ width: THUMBNAIL_SIZE, height: THUMBNAIL_SIZE }}
-                  />
-                )}
+                <LineThumbnail imageUrl={line.imageUrl} />
               </Td>
               <Td style={{ ...PRODUCT_CELL, maxWidth: 320 }}>
                 <Flex direction="column" alignItems="flex-start" gap={1}>

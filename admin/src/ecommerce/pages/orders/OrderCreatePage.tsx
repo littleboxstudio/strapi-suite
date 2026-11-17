@@ -1,9 +1,8 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useNotification } from '@strapi/strapi/admin';
 import {
-  Box,
   Button,
   Checkbox,
   Field,
@@ -24,18 +23,34 @@ import FetchCustomerLastAddresses from '../../usecases/orders/fetchCustomerLastA
 import QuoteOrderShipping from '../../usecases/orders/quoteOrderShipping';
 import CreateOrder from '../../usecases/orders/createOrder';
 import QuoteOrder from '../../usecases/orders/quoteOrder';
+import FetchOrder from '../../usecases/orders/fetchOrder';
+import SearchPickupPoints from '../../usecases/orders/searchPickupPoints';
 import AddressFields, { type AddressField } from '../../components/orders/AddressFields';
 import VariantPicker from '../../components/orders/VariantPicker';
 import OrderLinesEditor from '../../components/orders/OrderLinesEditor';
-import TotalsPreview from '../../components/orders/TotalsPreview';
-import OrderQuotePanel from '../../components/orders/OrderQuotePanel';
-import PickupPointPicker from '../../components/orders/PickupPointPicker';
+import OrderSection from '../../components/orders/OrderSection';
+import NoticeBar from '../../components/orders/NoticeBar';
+import EmptyNote from '../../components/orders/EmptyNote';
+import DiscountsTable from '../../components/orders/DiscountsTable';
+import PromotionCodesField from '../../components/orders/PromotionCodesField';
+import QuoteGifts from '../../components/orders/QuoteGifts';
+import CreateManualDiscountModal from '../../components/orders/CreateManualDiscountModal';
+import CreateShippingPanel, { shippingOptionKey } from '../../components/orders/CreateShippingPanel';
+import { Tile, Tiles } from '../../components/orders/SummaryTiles';
 import { extractFieldErrors } from '../../utils/productForm';
 import { mintUuid } from '../../utils/variantDraft';
 import { formatCents } from '../../utils/money';
 import { keptPickup, pickupErrorId, storeChoices } from '../../utils/pickupPoints';
 import { useOrderPermissions } from '../../hooks/useOrderPermissions';
-import { apiErrorCode, apiErrorMessageId } from '../../utils/orderDetail';
+import { apiErrorCode, apiErrorMessageId, promotionDisplayName, promotionRows } from '../../utils/orderDetail';
+import { manualLineDiscountRows } from '../../utils/orderEditing';
+import {
+  dropUnavailableLines,
+  duplicateDraft,
+  duplicateQuoteNotices,
+  restoreDuplicateShipping,
+  type ShippingRef,
+} from '../../utils/duplicateOrder';
 import {
   addLine,
   addPromotionCode,
@@ -43,9 +58,14 @@ import {
   buildCreateOrderInput,
   buildQuoteInput,
   createOrderConflict,
+  createTotalsTiles,
   emptyOrderForm,
   giftChoicesFromQuote,
+  manualDiscountEntryError,
+  MAX_CREATE_MANUAL_DISCOUNTS,
   pruneGiftChoices,
+  refreshLinesFromQuote,
+  sumPreviewTotals,
   toOrderErrorMap,
   validateOrderForm,
   type OrderErrorMap,
@@ -53,8 +73,11 @@ import {
 } from '../../utils/orderForm';
 import type {
   FieldError,
+  ManualDiscountInput,
   OrderLocales,
   OrderQuote,
+  PickupSelection,
+  ShippingOption,
   ShippingQuote,
   VariantSearchResult,
 } from '../../orderTypes';
@@ -71,21 +94,34 @@ const CUSTOMER_FIELDS = [
 
 type CustomerField = (typeof CUSTOMER_FIELDS)[number]['field'];
 
-const optionKey = (o: { providerId: string; serviceId: string }) => `${o.providerId}::${o.serviceId}`;
+/**
+ * A duplicated order being settled: `LINES` until the first quote (unavailable products are
+ * dropped), `SHIPPING` while its method is restored, then `DONE`.
+ */
+type Duplicate = {
+  reference: number;
+  codes: string[];
+  giftChoices: Record<number, number>;
+  giftNames: Record<number, string>;
+  shipping: ShippingRef | null;
+  pickup: PickupSelection | null;
+  phase: 'LINES' | 'SHIPPING' | 'DONE';
+};
 
-const Section = ({ title, actions, children }: { title: string; actions?: ReactNode; children: ReactNode }) => (
-  <Box background="neutral0" shadow="tableShadow" hasRadius padding={6}>
-    <Flex direction="column" alignItems="stretch" gap={5}>
-      <Flex justifyContent="space-between" alignItems="center" gap={4}>
-        <Typography variant="delta" tag="h2">
-          {title}
-        </Typography>
-        {actions}
-      </Flex>
-      {children}
-    </Flex>
-  </Box>
-);
+/** What a duplicate could not keep, shown as notices. */
+type DuplicateNotices = {
+  droppedLines: string[];
+  refusedCodes: string[];
+  missingGifts: string[];
+  shipping: 'METHOD_GONE' | 'PICKUP_GONE' | null;
+};
+
+const NO_NOTICES: DuplicateNotices = { droppedLines: [], refusedCodes: [], missingGifts: [], shipping: null };
+
+const positiveId = (raw: string | null) => {
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : null;
+};
 
 const OrderCreatePage = () => {
   const { formatMessage, locale: uiLocale } = useIntl();
@@ -96,8 +132,9 @@ const OrderCreatePage = () => {
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
 
-  const rawCustomerId = Number(searchParams.get('customerId'));
-  const customerId = Number.isInteger(rawCustomerId) && rawCustomerId > 0 ? rawCustomerId : null;
+  const customerId = positiveId(searchParams.get('customerId'));
+  // Duplicate (order detail): the order whose customer, addresses, products and choices are copied.
+  const duplicateId = positiveId(searchParams.get('duplicate'));
 
   const { isLoading: permissionsLoading, canManage } = useOrderPermissions();
 
@@ -116,6 +153,15 @@ const OrderCreatePage = () => {
   const [priced, setPriced] = useState<{ signature: string; quote: OrderQuote } | null>(null);
   const [pricing, setPricing] = useState(0);
   const [pricingError, setPricingError] = useState<string | null>(null);
+  const [duplicate, setDuplicate] = useState<Duplicate | null>(null);
+  const [loadingDuplicate, setLoadingDuplicate] = useState(!!duplicateId);
+  const [notices, setNotices] = useState<DuplicateNotices>(NO_NOTICES);
+  const [addingDiscount, setAddingDiscount] = useState(false);
+  // Latest form and duplicate, read by the async quote handlers.
+  const formRef = useRef(form);
+  formRef.current = form;
+  const duplicateRef = useRef(duplicate);
+  duplicateRef.current = duplicate;
 
   useEffect(() => {
     let cancelled = false;
@@ -162,6 +208,44 @@ const OrderCreatePage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerId]);
 
+  useEffect(() => {
+    if (!duplicateId) return undefined;
+    let cancelled = false;
+    setLoadingDuplicate(true);
+    new FetchOrder()
+      .execute(duplicateId)
+      .then((order) => {
+        if (cancelled) return;
+        const draft = duplicateDraft(order, { legacyReason: t('ecommerce.orders.discounts.legacyReason') });
+        setForm((f) => ({ ...draft.form, locale: draft.form.locale || f.locale }));
+        setGiftChoices(draft.giftChoices);
+        setErrors({});
+        setNotices(NO_NOTICES);
+        setDuplicate({
+          reference: order.reference,
+          codes: draft.form.promotionCodes,
+          giftChoices: draft.giftChoices,
+          giftNames: draft.giftNames,
+          shipping: draft.shipping,
+          pickup: draft.pickup,
+          phase: draft.form.lines.length ? 'LINES' : 'SHIPPING',
+        });
+      })
+      .catch(() => {
+        if (!cancelled) toggleNotification({ type: 'danger', message: t('ecommerce.orders.new.duplicate.error') });
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingDuplicate(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [duplicateId]);
+
+  const setDuplicatePhase = (phase: Duplicate['phase']) =>
+    setDuplicate((d) => (d && d.phase !== phase ? { ...d, phase } : d));
+
   // The quote depends on the destination country and the lines: any change invalidates it.
   const quoteSignature = useMemo(
     () =>
@@ -200,6 +284,23 @@ const OrderCreatePage = () => {
       setPricingError(null);
       // Choices of promotions that no longer offer a gift choice are dropped.
       setGiftChoices((choices) => pruneGiftChoices(choices, result));
+      // Current prices and names (a duplicated order's lines carry the old ones).
+      setForm((f) => {
+        const lines = refreshLinesFromQuote(f.lines, result);
+        return lines === f.lines ? f : { ...f, lines };
+      });
+      clearErrors((p) => p.startsWith('manualDiscounts.'));
+      const dup = duplicateRef.current;
+      if (dup?.phase === 'LINES') {
+        // The first quote of a duplicate: what it no longer gives, then its shipping.
+        const found = duplicateQuoteNotices(dup, result);
+        setNotices((n) => ({
+          ...n,
+          refusedCodes: found.refusedCodes,
+          missingGifts: found.missingGifts.map((v) => dup.giftNames[v] ?? `#${v}`),
+        }));
+        setDuplicatePhase('SHIPPING');
+      }
       return { quote: result, error: null };
     } catch (err) {
       const code = apiErrorCode(err);
@@ -209,11 +310,38 @@ const OrderCreatePage = () => {
             defaultMessage: t('ecommerce.orders.quote.error'),
           })
         : t('ecommerce.orders.quote.error');
-      if (signature === priceSignatureRef.current) setPricingError(message);
+      if (signature === priceSignatureRef.current) {
+        setPricingError(message);
+        const fieldErrors = extractFieldErrors(err) ?? [];
+        // A manual discount's error is shown on its row.
+        const discountErrors = fieldErrors.filter((e) => e.path.startsWith('manualDiscounts.'));
+        if (discountErrors.length) {
+          setErrors((map) => {
+            const kept = Object.fromEntries(Object.entries(map).filter(([k]) => !k.startsWith('manualDiscounts.')));
+            return { ...kept, ...toOrderErrorMap(discountErrors, true) };
+          });
+        }
+        if (duplicateRef.current?.phase === 'LINES') settleDuplicateLines(fieldErrors);
+      }
       return { quote: null, error: message, cause: err };
     } finally {
       setPricing((n) => n - 1);
     }
+  };
+
+  /** A duplicate's first quote failed: drop the products no longer sold, or move on to shipping. */
+  const settleDuplicateLines = (fieldErrors: FieldError[]) => {
+    const { lines, dropped } = dropUnavailableLines(formRef.current.lines, fieldErrors);
+    if (!dropped.length) {
+      setDuplicatePhase('SHIPPING');
+      return;
+    }
+    const names = dropped.map((l) => (l.option ? `${l.name} — ${l.option}` : l.name));
+    setNotices((n) => ({ ...n, droppedLines: [...n.droppedLines, ...names] }));
+    setForm((f) => ({ ...f, lines }));
+    clearErrors((p) => p === 'lines' || p.startsWith('lines.'));
+    // The remaining lines are quoted again (still LINES); with none left there is nothing to ship.
+    if (!lines.length) setDuplicatePhase('DONE');
   };
 
   useEffect(() => {
@@ -323,10 +451,11 @@ const OrderCreatePage = () => {
     }
   };
 
-  const getShippingOptions = async () => {
+  /** Quotes the shipping options of the cart; the quote, or null when it failed or is outdated. */
+  const getShippingOptions = async (): Promise<ShippingQuote | null> => {
     if (!form.shippingAddress.country || !form.lines.length) {
       toggleNotification({ type: 'warning', message: t('ecommerce.orders.shipping.needInput') });
-      return;
+      return null;
     }
     const signature = quoteSignature;
     setQuoting(true);
@@ -338,22 +467,82 @@ const OrderCreatePage = () => {
         locale: form.locale || undefined,
       });
       // Ignore a quote for lines or a country that changed meanwhile.
-      if (signature !== quoteSignatureRef.current) return;
+      if (signature !== quoteSignatureRef.current) return null;
       setQuote(result);
       clearErrors((p) => p === 'shipping');
+      return result;
     } catch (err) {
       const fieldErrors = extractFieldErrors(err);
       if (fieldErrors) setErrors((map) => ({ ...toOrderErrorMap(fieldErrors, form.billingSameAsShipping), ...map }));
       toggleNotification({ type: 'danger', message: t('ecommerce.orders.shipping.error') });
+      return null;
     } finally {
       setQuoting(false);
     }
   };
 
-  const selectedKey = form.shipping ? optionKey(form.shipping) : null;
-  const selectedOption = quote?.options.find((o) => optionKey(o) === selectedKey) ?? null;
+  /** A duplicate's DPD point is kept only when a search of its postal code still finds it. */
+  const checkDuplicatePoint = async (pickup: PickupSelection) => {
+    try {
+      const found = (await new SearchPickupPoints().execute(pickup.postalCode)).find((p) => p.id === pickup.point.id);
+      setForm((f) =>
+        f.pickup?.point.id !== pickup.point.id
+          ? f
+          : { ...f, pickup: found ? { point: found, postalCode: pickup.postalCode } : null }
+      );
+      if (!found) setNotices((n) => ({ ...n, shipping: 'PICKUP_GONE' }));
+    } catch {
+      // The search failed: the point stays, and creating the order confirms it.
+    }
+  };
+
+  // A duplicate's shipping: quote the options once its products are settled, then restore its method.
+  useEffect(() => {
+    const dup = duplicate;
+    if (dup?.phase !== 'SHIPPING') return;
+    setDuplicatePhase('DONE');
+    if (!form.shippingAddress.country || !form.lines.length) return;
+    getShippingOptions().then((result) => {
+      if (!result) return;
+      const restored = restoreDuplicateShipping(dup.shipping, dup.pickup, result.options);
+      if (restored.shipping) {
+        setForm((f) => (f.shipping ? f : { ...f, shipping: restored.shipping, pickup: restored.pickup }));
+      }
+      if (restored.notice) setNotices((n) => ({ ...n, shipping: restored.notice }));
+      if (restored.checkPoint && restored.pickup) checkDuplicatePoint(restored.pickup);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [duplicate?.phase]);
+
+  const selectedKey = form.shipping ? shippingOptionKey(form.shipping) : null;
+  const selectedOption = quote?.options.find((o) => shippingOptionKey(o) === selectedKey) ?? null;
   // Store pickup: the stores of the quote instead of the DPD search.
   const stores = storeChoices(selectedOption);
+
+  const selectShipping = (option: ShippingOption) => {
+    setForm((f) => ({
+      ...f,
+      shipping: {
+        providerId: option.providerId,
+        serviceId: option.serviceId,
+        ...(option.requiresPickupPoint ? { requiresPickupPoint: true } : {}),
+      },
+      // DPD Pickup / Store pickup: the point is chosen beside it; another option drops it.
+      pickup: keptPickup(f.shipping, option, f.pickup),
+    }));
+    clearErrors((p) => p === 'shipping' || p === 'pickupPointId' || p === 'pickupPostalCode');
+  };
+
+  // Manual discounts are indexed by the server: any change clears their errors.
+  const addDiscount = (input: ManualDiscountInput) => {
+    setForm((f) => ({ ...f, manualDiscounts: [...(f.manualDiscounts ?? []), { ...input, key: mintUuid() }] }));
+    clearErrors((p) => p.startsWith('manualDiscounts'));
+  };
+
+  const removeDiscount = (key: string) => {
+    setForm((f) => ({ ...f, manualDiscounts: (f.manualDiscounts ?? []).filter((m) => m.key !== key) }));
+    clearErrors((p) => p.startsWith('manualDiscounts'));
+  };
 
   const showErrors = (list: FieldError[]) => {
     setErrors(toOrderErrorMap(list, form.billingSameAsShipping));
@@ -433,26 +622,118 @@ const OrderCreatePage = () => {
     );
   }
 
-  const disabled = submitting;
+  const disabled = submitting || loadingDuplicate;
   const lineError = (index: number) =>
     translateCode(errors[`lines.${index}.quantity`] ?? errors[`lines.${index}.variantId`]);
   const discountError = (index: number) => translateCode(errors[`lines.${index}.discountPercent`]);
+
+  // Promotions and discounts: the quote's promotions, the draft's manual discounts (their amounts
+  // come from a quote of the current cart only) and the manual line discounts.
+  const manualDiscounts = form.manualDiscounts ?? [];
+  const quotedDiscounts = freshQuote?.manualDiscounts ?? null;
+  const promotionLocales = { locale: form.locale, defaultLocale };
+  const appliedRows = shownQuote
+    ? promotionRows(
+        shownQuote.promotions.map((p) => ({ ...p, redemptionStatus: null })),
+        promotionLocales
+      )
+    : [];
+  const lineDiscountRows = shownQuote ? manualLineDiscountRows(shownQuote.lines, uiLocale) : [];
+  const percentText = (value: number) =>
+    `${new Intl.NumberFormat(uiLocale, { maximumFractionDigits: 2 }).format(value)} %`;
+  const manualRows = manualDiscounts.map((m, index) => {
+    const quoted = quotedDiscounts?.[index];
+    const amount = quoted ? quoted.amount : m.kind === 'FIXED' ? m.value : null;
+    return {
+      key: m.key,
+      reason: m.reason,
+      detail:
+        m.kind === 'PERCENT'
+          ? amount !== null
+            ? `${percentText(m.value)} (${formatCents(amount, uiLocale)})`
+            : percentText(m.value)
+          : null,
+      amount,
+      error: translateCode(manualDiscountEntryError(errors, index)),
+      action: (
+        <Button size="S" variant="danger-light" disabled={disabled} onClick={() => removeDiscount(m.key)}>
+          {t('ecommerce.orders.discounts.remove')}
+        </Button>
+      ),
+    };
+  });
+  const hasDiscountRows = appliedRows.length + manualRows.length + lineDiscountRows.length > 0;
+  const promotionName = (p: OrderQuote['promotions'][number]) =>
+    promotionDisplayName(p, form.locale, defaultLocale) ?? t('ecommerce.orders.promotions.fallbackName');
+
+  const tiles = createTotalsTiles(
+    shownQuote?.totals ?? null,
+    sumPreviewTotals(form.lines, selectedOption?.price ?? null),
+    !!selectedOption
+  );
+  const tileLabel: Record<(typeof tiles)[number]['key'], string> = {
+    products: 'ecommerce.orders.new.products',
+    shipping: 'ecommerce.orders.detail.summary.shipping',
+    discounts: 'ecommerce.orders.detail.summary.discounts',
+    total: 'ecommerce.orders.totals.total',
+  };
+  const totalsNote = !canPrice
+    ? null
+    : pricing > 0
+      ? { text: t('ecommerce.orders.quote.loading'), color: 'neutral500' }
+      : pricingError
+        ? { text: pricingError, color: 'danger600' }
+        : !shownQuote
+          ? { text: t('ecommerce.orders.totals.hint'), color: 'neutral500' }
+          : shownQuote.totals.shippingTotal === null
+            ? { text: t('ecommerce.orders.quote.awaitingShipping'), color: 'neutral500' }
+            : null;
+
+  const noticeTexts = [
+    notices.droppedLines.length > 0 &&
+      t('ecommerce.orders.new.duplicate.droppedLines', { names: notices.droppedLines.join(', ') }),
+    notices.shipping && t(`ecommerce.orders.new.duplicate.${notices.shipping}`),
+    notices.refusedCodes.length > 0 &&
+      t('ecommerce.orders.new.duplicate.refusedCodes', { codes: notices.refusedCodes.join(', ') }),
+    notices.missingGifts.length > 0 &&
+      t('ecommerce.orders.new.duplicate.missingGifts', { names: notices.missingGifts.join(', ') }),
+  ].filter((text): text is string => !!text);
 
   return (
     <Flex direction="column" alignItems="stretch" gap={6}>
       <Flex justifyContent="space-between" alignItems="center" gap={4}>
         <Flex gap={3} alignItems="center">
           {backButton}
-          <Typography variant="beta" tag="h1">
-            {t('ecommerce.orders.new.title')}
-          </Typography>
+          <Flex direction="column" alignItems="flex-start" gap={1}>
+            <Typography variant="beta" tag="h1">
+              {t('ecommerce.orders.new.title')}
+            </Typography>
+            {duplicate && (
+              <Typography variant="pi" textColor="neutral600">
+                {t('ecommerce.orders.new.duplicate.subtitle', { reference: duplicate.reference })}
+              </Typography>
+            )}
+          </Flex>
         </Flex>
-        <Button variant="secondary" onClick={submit} loading={submitting} disabled={permissionsLoading}>
+        <Button
+          variant="secondary"
+          onClick={submit}
+          loading={submitting}
+          disabled={permissionsLoading || loadingDuplicate}
+        >
           {t('ecommerce.orders.create')}
         </Button>
       </Flex>
 
-      <Section title={t('ecommerce.orders.new.customer')}>
+      {noticeTexts.length > 0 && (
+        <Flex direction="column" alignItems="stretch" gap={3}>
+          {noticeTexts.map((text) => (
+            <NoticeBar key={text} text={text} wrap />
+          ))}
+        </Flex>
+      )}
+
+      <OrderSection title={t('ecommerce.orders.new.customer')}>
         <Grid.Root gap={5}>
           {CUSTOMER_FIELDS.map(({ field, required, type }) => (
             <Grid.Item key={field} col={6} s={12} direction="column" alignItems="stretch">
@@ -494,9 +775,9 @@ const OrderCreatePage = () => {
             </Field.Root>
           </Grid.Item>
         </Grid.Root>
-      </Section>
+      </OrderSection>
 
-      <Section
+      <OrderSection
         title={t('ecommerce.orders.new.shippingAddress')}
         actions={
           customerId ? (
@@ -519,9 +800,9 @@ const OrderCreatePage = () => {
           onChange={(field, value) => updateAddress('shippingAddress', field, value)}
           errorFor={(field) => translateCode(errors[`shippingAddress.${field}`])}
         />
-      </Section>
+      </OrderSection>
 
-      <Section title={t('ecommerce.orders.new.billingAddress')}>
+      <OrderSection title={t('ecommerce.orders.new.billingAddress')}>
         <Checkbox
           checked={form.billingSameAsShipping}
           disabled={disabled}
@@ -542,9 +823,9 @@ const OrderCreatePage = () => {
             errorFor={(field) => translateCode(errors[`billingAddress.${field}`])}
           />
         )}
-      </Section>
+      </OrderSection>
 
-      <Section title={t('ecommerce.orders.new.products')}>
+      <OrderSection title={t('ecommerce.orders.new.products')}>
         <VariantPicker locale={form.locale || undefined} onAdd={addVariant} disabled={disabled} />
         {errors.lines && (
           <Typography textColor="danger600" variant="pi">
@@ -564,110 +845,104 @@ const OrderCreatePage = () => {
           }
           onRemove={(index) => updateLines((lines) => lines.filter((_, i) => i !== index))}
         />
-      </Section>
+      </OrderSection>
 
-      <Grid.Root gap={6}>
-        <Grid.Item col={7} s={12} direction="column" alignItems="stretch">
-          <Section title={t('ecommerce.orders.shipping.title')}>
-            <Flex direction="column" alignItems="stretch" gap={4}>
-              <Box>
-                <Button
-                  variant="secondary"
-                  loading={quoting}
-                  disabled={disabled}
-                  onClick={getShippingOptions}
-                >
-                  {t('ecommerce.orders.shipping.get')}
-                </Button>
-              </Box>
-              {quote && quote.failures.length > 0 && (
-                <Box padding={3} background="warning100" borderColor="warning200" hasRadius>
-                  <Typography textColor="warning700" variant="pi">
-                    {t('ecommerce.orders.shipping.failures', {
-                      providers: quote.failures.map((f) => f.providerId).join(', '),
-                    })}
-                  </Typography>
-                </Box>
-              )}
-              {quote && quote.options.length === 0 && (
-                <Typography textColor="neutral600">{t('ecommerce.orders.shipping.none')}</Typography>
-              )}
-              {(!!quote?.options.length || !!errors.shipping) && (
-                <Field.Root name="shipping" required error={translateCode(errors.shipping)}>
-                  <Field.Label>{t('ecommerce.orders.shipping.option')}</Field.Label>
-                  <SingleSelect
-                    value={selectedOption ? selectedKey : null}
-                    disabled={disabled || !quote?.options.length}
-                    hasError={!!errors.shipping}
-                    placeholder={t('ecommerce.orders.shipping.placeholder')}
-                    onChange={(value: string | number) => {
-                      const option = quote?.options.find((o) => optionKey(o) === String(value));
-                      if (!option) return;
-                      setForm((f) => ({
-                        ...f,
-                        shipping: {
-                          providerId: option.providerId,
-                          serviceId: option.serviceId,
-                          ...(option.requiresPickupPoint ? { requiresPickupPoint: true } : {}),
-                        },
-                        // DPD Pickup / Store pickup: the point is chosen below; another option drops it.
-                        pickup: keptPickup(f.shipping, option, f.pickup),
-                      }));
-                      clearErrors((p) => p === 'shipping' || p === 'pickupPointId' || p === 'pickupPostalCode');
-                    }}
-                  >
-                    {(quote?.options ?? []).map((o) => (
-                      <SingleSelectOption key={optionKey(o)} value={optionKey(o)}>
-                        {`${o.name} — ${formatCents(o.price, uiLocale)}`}
-                      </SingleSelectOption>
-                    ))}
-                  </SingleSelect>
-                  <Field.Error />
-                </Field.Root>
-              )}
-              {selectedOption?.requiresPickupPoint && (
-                <Flex direction="column" alignItems="stretch" gap={2}>
-                  <Typography variant="sigma" textColor="neutral600">
-                    {t(stores ? 'ecommerce.orders.pickup.store.title' : 'ecommerce.orders.pickup.title')}
-                  </Typography>
-                  <Typography variant="pi" textColor="neutral600">
-                    {t(stores ? 'ecommerce.orders.pickup.store.required' : 'ecommerce.orders.pickup.required')}
-                  </Typography>
-                  <PickupPointPicker
-                    stores={stores}
-                    initialPostalCode={form.shippingAddress.postalCode}
-                    value={form.pickup ?? null}
-                    onChange={(pickup) => {
-                      setForm((f) => ({ ...f, pickup }));
-                      clearErrors((p) => p === 'pickupPointId' || p === 'pickupPostalCode');
-                    }}
-                    disabled={disabled}
-                    error={pickupError(errors.pickupPointId ?? errors.pickupPostalCode, !!stores)}
-                  />
-                </Flex>
-              )}
-            </Flex>
-          </Section>
-        </Grid.Item>
-        <Grid.Item col={5} s={12} direction="column" alignItems="stretch">
-          <OrderQuotePanel
-            codes={form.promotionCodes}
-            onAddCode={addCode}
-            onRemoveCode={removeCode}
+      <OrderSection
+        title={t('ecommerce.orders.shipping.title')}
+        actions={
+          <Button size="S" variant="secondary" loading={quoting} disabled={disabled} onClick={getShippingOptions}>
+            {t('ecommerce.orders.shipping.get')}
+          </Button>
+        }
+      >
+        <CreateShippingPanel
+          quote={quote}
+          selected={selectedOption}
+          onSelect={selectShipping}
+          error={translateCode(errors.shipping)}
+          stores={stores}
+          pickup={form.pickup ?? null}
+          onPickup={(pickup) => {
+            setForm((f) => ({ ...f, pickup }));
+            clearErrors((p) => p === 'pickupPointId' || p === 'pickupPostalCode');
+          }}
+          postalCode={form.shippingAddress.postalCode}
+          pickupError={pickupError(errors.pickupPointId ?? errors.pickupPostalCode, !!stores)}
+          disabled={disabled}
+        />
+      </OrderSection>
+
+      <OrderSection
+        title={t('ecommerce.orders.detail.sections.promotions')}
+        actions={
+          <Button
+            size="S"
+            variant="secondary"
+            disabled={disabled || manualDiscounts.length >= MAX_CREATE_MANUAL_DISCOUNTS}
+            onClick={() => setAddingDiscount(true)}
+          >
+            {t('ecommerce.orders.discounts.add')}
+          </Button>
+        }
+      >
+        <PromotionCodesField
+          codes={form.promotionCodes}
+          onAddCode={addCode}
+          onRemoveCode={removeCode}
+          quote={shownQuote}
+          disabled={disabled}
+        />
+        {hasDiscountRows ? (
+          <DiscountsTable
+            rows={appliedRows}
+            manualRows={manualRows}
+            lineRows={lineDiscountRows}
+            total={shownQuote ? shownQuote.totals.totalDiscount : null}
+            showActions={manualRows.length > 0}
+          />
+        ) : (
+          <EmptyNote>{t('ecommerce.orders.new.promotionsEmpty')}</EmptyNote>
+        )}
+        {shownQuote && (
+          <QuoteGifts
             quote={shownQuote}
-            loading={pricing > 0}
-            error={canPrice ? pricingError : null}
-            locale={form.locale}
-            defaultLocale={defaultLocale}
+            promotionName={promotionName}
             variantLabel={variantLabel}
             onGiftChoice={(promotionId, variantId) =>
               setGiftChoices((choices) => ({ ...choices, [promotionId]: variantId }))
             }
             disabled={disabled}
-            fallbackTotals={<TotalsPreview lines={form.lines} shippingPrice={selectedOption?.price ?? null} />}
           />
-        </Grid.Item>
-      </Grid.Root>
+        )}
+      </OrderSection>
+
+      <OrderSection title={t('ecommerce.orders.totals.title')}>
+        <Tiles $columns={tiles.length}>
+          {tiles.map((tile) => (
+            <Tile key={tile.key}>
+              <Typography variant="sigma" textColor="neutral600">
+                {t(tileLabel[tile.key])}
+              </Typography>
+              <Typography variant="beta" tag="p" textColor="neutral800" style={{ whiteSpace: 'nowrap' }}>
+                {tile.amount === null ? '—' : formatCents(tile.amount, uiLocale)}
+              </Typography>
+            </Tile>
+          ))}
+        </Tiles>
+        {totalsNote && (
+          <Typography variant="pi" textColor={totalsNote.color}>
+            {totalsNote.text}
+          </Typography>
+        )}
+      </OrderSection>
+
+      {addingDiscount && (
+        <CreateManualDiscountModal
+          percentBase={shownQuote?.totals.subtotal ?? null}
+          onClose={() => setAddingDiscount(false)}
+          onAdd={addDiscount}
+        />
+      )}
     </Flex>
   );
 };

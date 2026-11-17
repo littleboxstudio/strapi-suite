@@ -21,6 +21,7 @@ import {
   manualDiscountsInput,
   manualDiscountEntryError,
   createTotalsTiles,
+  refreshLinesFromQuote,
   MAX_CREATE_MANUAL_DISCOUNTS,
   type OrderForm,
   type OrderLineDraft,
@@ -693,5 +694,27 @@ describe('createTotalsTiles', () => {
     expect(
       createTotalsTiles(null, { subtotal: 3000, shipping: 0, total: 3000 }, false).map((t) => t.amount)
     ).toEqual([3000, null, 0, 3000]);
+  });
+});
+
+describe('refreshLinesFromQuote', () => {
+  const quoted = (over: Record<string, unknown>) =>
+    ({ lines: [{ sourceIndex: 0, variantId: 1, unitPrice: 1300, name: 'Mug 2', option: 'Big', sku: 'MUG2', imageUrl: 'x.png', isGift: false, ...over }] }) as unknown as OrderQuote;
+
+  it('takes the current price and texts of each line from the quote', () => {
+    expect(refreshLinesFromQuote([line()], quoted({}))[0]).toMatchObject({
+      unitPrice: 1300,
+      name: 'Mug 2',
+      option: 'Big',
+      sku: 'MUG2',
+      imageUrl: 'x.png',
+    });
+  });
+
+  it('keeps the same array when nothing changes or the variant differs', () => {
+    const lines = [line({ unitPrice: 1300, name: 'Mug 2', option: 'Big', sku: 'MUG2', imageUrl: 'x.png' })];
+    expect(refreshLinesFromQuote(lines, quoted({}))).toBe(lines);
+    const other = [line()];
+    expect(refreshLinesFromQuote(other, quoted({ variantId: 2 }))).toBe(other);
   });
 });

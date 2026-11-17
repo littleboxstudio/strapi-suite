@@ -22,6 +22,8 @@ type Props = {
   permissions: OrderActionPermissions;
   busy?: boolean;
   onAction: (action: ToolbarAction) => void;
+  /** Duplicate (any status, orders.manage): opens Create order pre-filled with this order. */
+  onDuplicate?: () => void;
 };
 
 const VARIANTS: Record<ToolbarAction, 'secondary' | 'danger-light' | 'tertiary'> = {
@@ -35,7 +37,7 @@ const VARIANTS: Record<ToolbarAction, 'secondary' | 'danger-light' | 'tertiary'>
 };
 
 /** Reference, the three independent statuses, creation date and the available actions. */
-const OrderHeader = ({ order, back, permissions, busy, onAction }: Props) => {
+const OrderHeader = ({ order, back, permissions, busy, onAction, onDuplicate }: Props) => {
   const { formatMessage, formatDate } = useIntl();
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
@@ -43,6 +45,7 @@ const OrderHeader = ({ order, back, permissions, busy, onAction }: Props) => {
   const actions = headerActions(allowedToolbarActions(order.availableActions, permissions));
   // Editing is closed while a carrier shipment is pending: say why to whoever could edit.
   const editBlocked = permissions.canManage && editBlockedByShipment(order);
+  const canDuplicate = permissions.canManage && !!onDuplicate;
 
   return (
     <Flex justifyContent="space-between" alignItems="flex-start" gap={4} wrap="wrap">
@@ -73,8 +76,13 @@ const OrderHeader = ({ order, back, permissions, busy, onAction }: Props) => {
         )}
       </Flex>
       {/* The actions sit in the fixed top bar, visible while the page scrolls. */}
-      {actions.length > 0 && (
+      {(actions.length > 0 || canDuplicate) && (
         <HeaderActions>
+          {canDuplicate && (
+            <Button variant="secondary" disabled={busy} onClick={onDuplicate}>
+              {t('ecommerce.orders.detail.actions.DUPLICATE')}
+            </Button>
+          )}
           {actions.map((action) => (
             <Button key={action} variant={VARIANTS[action]} disabled={busy} onClick={() => onAction(action)}>
               {t(`ecommerce.orders.detail.actions.${action}`)}
