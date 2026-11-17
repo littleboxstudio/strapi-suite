@@ -2314,5 +2314,21 @@
   "littlebox-strapi-suite.ecommerce.orders.refunds.creditNote.loadError": "Could not load what can be credited.",
   "littlebox-strapi-suite.ecommerce.orders.refunds.creditNote.success": "Credit note issued",
   "littlebox-strapi-suite.ecommerce.orders.refunds.creditNote.error": "Could not issue the credit note.",
-  "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.correctionRefused": "A refund's credit note credited this invoice: it cannot be annulled. Use a Return or Shipping adjustment credit note."
+  "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.correctionRefused": "A refund's credit note credited this invoice: it cannot be annulled. Use a Return or Shipping adjustment credit note.",
+  "littlebox-strapi-suite.ecommerce.orders.errors.REFUND_AMOUNT_DIFFERS": "The amount no longer matches the chosen elements. Review the selection and try again.",
+  "littlebox-strapi-suite.ecommerce.orders.errors.REFUND_ITEMS_INVALID": "This element can no longer be refunded as chosen. Review the selection.",
+  "littlebox-strapi-suite.ecommerce.orders.errors.REFUND_ELEMENTS_UNAVAILABLE": "One of this refund's elements can no longer be credited.",
+  "littlebox-strapi-suite.ecommerce.orders.errors.stripe_split_unavailable": "This refund would have to be split across several Stripe payments. Choose another method or fewer elements.",
+  "littlebox-strapi-suite.ecommerce.orders.refund.elements.intro": "Choose the invoiced elements to refund: whole units of products and whole shipping lines. The amount to refund is their sum.",
+  "littlebox-strapi-suite.ecommerce.orders.refund.elements.none": "No invoiced element is available to refund: they were credited or are held by other refunds.",
+  "littlebox-strapi-suite.ecommerce.orders.refund.elements.required": "Choose at least one unit or shipping line to refund.",
+  "littlebox-strapi-suite.ecommerce.orders.refund.elements.quantity": "Quantity to refund",
+  "littlebox-strapi-suite.ecommerce.orders.refund.summary.selected": "Amount to refund",
+  "littlebox-strapi-suite.ecommerce.orders.refunds.creditNote.storedNote": "These are the refund's elements. The credit note credits exactly them, at the values stored with the refund.",
+  "littlebox-strapi-suite.ecommerce.orders.refunds.creditNote.unavailableNotice": "Some of this refund's elements can no longer be credited (for example, another credit note took them). Choose other elements whose total is exactly the refund amount.",
+  "littlebox-strapi-suite.ecommerce.orders.refunds.details.elements": "Refunded elements",
+  "littlebox-strapi-suite.ecommerce.orders.refunds.details.elementColumns.invoice": "Invoice",
+  "littlebox-strapi-suite.ecommerce.orders.refunds.details.elementColumns.name": "Product / Shipping",
+  "littlebox-strapi-suite.ecommerce.orders.refunds.details.elementColumns.quantity": "Qty",
+  "littlebox-strapi-suite.ecommerce.orders.refunds.details.elementColumns.value": "Value"
 }

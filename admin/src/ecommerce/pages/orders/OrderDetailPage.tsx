@@ -447,6 +447,7 @@ const OrderDetailPage = () => {
           key={`refund-${modalKey}`}
           orderId={order.id}
           reference={order.reference}
+          invoices={order.invoices}
           initial={refundInitial}
           onClose={closeModal('REFUND')}
           onSubmitting={(submitting) => dispatchModal({ type: 'SUBMITTING', from: 'REFUND', submitting })}

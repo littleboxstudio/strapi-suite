@@ -1,23 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
-import {
-  Box,
-  Button,
-  Checkbox,
-  Field,
-  Flex,
-  Loader,
-  Modal,
-  Table,
-  Tbody,
-  Td,
-  Th,
-  Thead,
-  Tr,
-  Typography,
-  VisuallyHidden,
-} from '@strapi/design-system';
+import { Box, Button, Flex, Loader, Modal, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchRefundCreditNoteOptions from '../../usecases/orders/fetchRefundCreditNoteOptions';
 import IssueRefundCreditNote from '../../usecases/orders/issueRefundCreditNote';
@@ -30,17 +14,19 @@ import {
   canIssueRefundCredit,
   refundCreditItems,
   refundCreditSummary,
+  refundCreditMode,
   refundOptionValue,
+  selectionFromItems,
   selectionKey,
+  storedCreditItems,
   type RefundCreditSelection,
 } from '../../utils/refundCreditNote';
-import type { InvoiceView, RefundCreditNoteOptions, RefundView } from '../../orderTypes';
+import type { InvoiceView, RefundCreditLineOption, RefundCreditNoteOptions, RefundView } from '../../orderTypes';
 import { ActionConfirmModal } from '../ActionConfirmModal';
-import ColumnLabel from '../ColumnLabel';
 import InvoiceErrorModal from './InvoiceErrorModal';
 import EmptyNote from './EmptyNote';
-import QuantityInput from './QuantityInput';
-import { FIT_CELL, PRODUCT_CELL } from './lineCells';
+import NoticeBar from './NoticeBar';
+import RefundElementsTable from './RefundElementsTable';
 import { Tile, Tiles } from './SummaryTiles';
 
 type Props = {
@@ -52,13 +38,17 @@ type Props = {
   onIssued: () => void;
 };
 
-const COLUMNS = ['name', 'quantityLeft', 'unitValue', 'quantity', 'value'] as const;
+/** STORED: the refund's own elements, fixed. FREE / UNAVAILABLE: any elements adding up to the refund. */
+type Mode = ReturnType<typeof refundCreditMode>;
 
 /**
- * The credit note of an INVOICED refund (plan 15): per invoice, its invoiced elements not yet
- * credited (whole units of products, whole shipping lines); the chosen ones must add up exactly
- * to the refund amount. One credit note is issued, even across invoices. Mount it only while
- * open: each opening mints one idempotency key.
+ * The credit note of an INVOICED refund (plan 15). It starts from the refund's own elements: they
+ * are fixed, and Issue sends exactly them (the server uses their stored values). When one of them
+ * is no longer creditable (absent from the options, or the server answers
+ * `REFUND_ELEMENTS_UNAVAILABLE`), or for a legacy refund without elements, the admin picks any
+ * invoiced elements not yet credited (whole units of products, whole shipping lines) adding up
+ * exactly to the refund amount. One credit note is issued, even across invoices. Mount it only
+ * while open: each opening mints one idempotency key.
  */
 const RefundCreditNoteModal = ({ refund, invoices, onClose, onIssued }: Props) => {
   const { formatMessage, locale: uiLocale } = useIntl();
@@ -76,6 +66,7 @@ const RefundCreditNoteModal = ({ refund, invoices, onClose, onIssued }: Props) =
   const [options, setOptions] = useState<RefundCreditNoteOptions | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selection, setSelection] = useState<RefundCreditSelection>({});
+  const [mode, setMode] = useState<Mode>('FREE');
   /** Per element key: the server's code for it. */
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -90,7 +81,12 @@ const RefundCreditNoteModal = ({ refund, invoices, onClose, onIssued }: Props) =
     let alive = true;
     new FetchRefundCreditNoteOptions()
       .execute(refund.id)
-      .then((o) => alive && setOptions(o))
+      .then((o) => {
+        if (!alive) return;
+        setOptions(o);
+        setMode(refundCreditMode(o));
+        setSelection(selectionFromItems(o.selected));
+      })
       .catch((err) => alive && setLoadError(t(apiErrorMessageId(err, `${p}.loadError`))));
     return () => {
       alive = false;
@@ -100,6 +96,12 @@ const RefundCreditNoteModal = ({ refund, invoices, onClose, onIssued }: Props) =
 
   const lineOf = (invoiceId: number, index: number) => invoices.find((i) => i.id === invoiceId)?.lines[index];
   const locked = saving || uncertain;
+  const stored = mode === 'STORED';
+  /** STORED: the value kept with the refund; otherwise the server's rule. */
+  const storedValue = (invoiceId: number, index: number): number =>
+    options?.selected?.find((i) => i.invoiceId === invoiceId && i.index === index)?.value ?? 0;
+  const valueOf = (invoiceId: number) => (option: RefundCreditLineOption, quantity: number) =>
+    stored ? storedValue(invoiceId, option.index) : refundOptionValue(option, quantity, lineOf(invoiceId, option.index));
 
   const choose = (invoiceId: number, index: number, quantity: number) => {
     const key = selectionKey(invoiceId, index);
@@ -118,7 +120,7 @@ const RefundCreditNoteModal = ({ refund, invoices, onClose, onIssued }: Props) =
     const map: Record<string, string> = {};
     let other: string | null = null;
     for (const e of extractFieldErrors(err) ?? []) {
-      const item = /^items\.(\d+)\./.exec(e.path);
+      const item = /^items\.(\d+)(\.|$)/.exec(e.path);
       const target = item ? sent[Number(item[1])] : undefined;
       if (target) map[selectionKey(target.invoiceId, target.index)] = e.code;
       else other = other ?? e.code;
@@ -129,8 +131,10 @@ const RefundCreditNoteModal = ({ refund, invoices, onClose, onIssued }: Props) =
 
   const submit = async () => {
     setConfirming(false);
-    if (!options || saving || uncertain || !canIssueRefundCredit(options, selection, lineOf)) return;
-    const items = refundCreditItems(options, selection);
+    if (!options || saving || uncertain) return;
+    if (!stored && !canIssueRefundCredit(options, selection, lineOf)) return;
+    // STORED: exactly the refund's elements (their stored values); otherwise the selection.
+    const items = stored ? storedCreditItems(options) : refundCreditItems(options, selection);
     setSaving(true);
     setFormError(null);
     try {
@@ -159,7 +163,17 @@ const RefundCreditNoteModal = ({ refund, invoices, onClose, onIssued }: Props) =
     } catch (err) {
       // Only a 4xx allows a new key: on a 5xx or without an answer a retry must replay this request.
       if (shouldRenewIdempotencyKey(err)) setIdempotencyKey(mintUuid());
-      if (extractFieldErrors(err)?.length) {
+      const fieldErrors = extractFieldErrors(err) ?? [];
+      if (fieldErrors.some((e) => (e.code as string) === 'REFUND_ELEMENTS_UNAVAILABLE')) {
+        // An element of the refund is no longer creditable: free selection, from fresh options.
+        setMode('UNAVAILABLE');
+        setErrors({});
+        setFormError(null);
+        new FetchRefundCreditNoteOptions()
+          .execute(refund.id)
+          .then(setOptions)
+          .catch(() => undefined);
+      } else if (fieldErrors.length) {
         showServerErrors(err, items);
       } else {
         setFailure({
@@ -185,94 +199,30 @@ const RefundCreditNoteModal = ({ refund, invoices, onClose, onIssued }: Props) =
     );
   }
 
-  const summary = options ? refundCreditSummary(options, selection, lineOf) : null;
-  const canIssue = !!options && !locked && canIssueRefundCredit(options, selection, lineOf);
+  const storedTotal = (options?.selected ?? []).reduce((sum, i) => sum + i.value, 0);
+  const summary = !options
+    ? null
+    : stored
+      ? { selected: storedTotal, refund: options.refund.amount, difference: options.refund.amount - storedTotal }
+      : refundCreditSummary(options, selection, lineOf);
+  const canIssue =
+    !!options && !locked && (stored ? options.creditable : canIssueRefundCredit(options, selection, lineOf));
+
+  const rowErrors = Object.fromEntries(Object.entries(errors).map(([key, code]) => [key, codeText(code)]));
 
   const invoiceTable = (invoice: RefundCreditNoteOptions['invoices'][number]) => (
-    <Flex key={invoice.invoiceId} direction="column" alignItems="stretch" gap={2}>
-      <Typography variant="sigma" textColor="neutral600">
-        {t(`${p}.invoice`, { number: invoice.number ?? `#${invoice.invoiceId}` })}
-      </Typography>
-      <Table colCount={COLUMNS.length} rowCount={invoice.lines.length + 1}>
-        <Thead>
-          <Tr>
-            {COLUMNS.map((c) => (
-              <Th key={c}>
-                <ColumnLabel column={c}>{t(`${p}.columns.${c}`)}</ColumnLabel>
-              </Th>
-            ))}
-          </Tr>
-        </Thead>
-        <Tbody>
-          {invoice.lines.map((option) => {
-            const key = selectionKey(invoice.invoiceId, option.index);
-            const quantity = selection[key] ?? 0;
-            const code = errors[key];
-            const tooMany = quantity > option.quantityLeft;
-            const error = tooMany
-              ? t('ecommerce.orders.invoices.issue.atMost', { max: option.quantityLeft })
-              : code
-                ? codeText(code)
-                : undefined;
-            const name =
-              option.kind === 'SHIPPING'
-                ? t('ecommerce.orders.invoices.lines.shipping', { name: option.name })
-                : option.name;
-            return (
-              <Tr key={key}>
-                <Td style={PRODUCT_CELL}>
-                  <Typography textColor="neutral800">{name}</Typography>
-                </Td>
-                <Td style={FIT_CELL}>
-                  <Typography textColor="neutral800">{option.quantityLeft}</Typography>
-                </Td>
-                <Td style={FIT_CELL}>
-                  <Typography textColor="neutral800">{money(option.unitValue)}</Typography>
-                </Td>
-                <Td style={FIT_CELL}>
-                  {option.kind === 'SHIPPING' ? (
-                    <Flex direction="column" alignItems="flex-start" gap={1}>
-                      <Checkbox
-                        aria-label={name}
-                        disabled={locked}
-                        checked={quantity > 0}
-                        onCheckedChange={(checked: boolean | 'indeterminate') =>
-                          choose(invoice.invoiceId, option.index, checked === true ? 1 : 0)
-                        }
-                      />
-                      {error && (
-                        <Typography variant="pi" textColor="danger600">
-                          {error}
-                        </Typography>
-                      )}
-                    </Flex>
-                  ) : (
-                    <Box style={{ width: 120 }}>
-                      <Field.Root name={key} error={error}>
-                        <VisuallyHidden>
-                          <Field.Label>{t(`${p}.columns.quantity`)}</Field.Label>
-                        </VisuallyHidden>
-                        <QuantityInput
-                          value={quantity}
-                          disabled={locked}
-                          onChange={(q) => choose(invoice.invoiceId, option.index, q)}
-                        />
-                        <Field.Error />
-                      </Field.Root>
-                    </Box>
-                  )}
-                </Td>
-                <Td style={FIT_CELL}>
-                  <Typography textColor="neutral800">
-                    {money(refundOptionValue(option, quantity, lineOf(invoice.invoiceId, option.index)))}
-                  </Typography>
-                </Td>
-              </Tr>
-            );
-          })}
-        </Tbody>
-      </Table>
-    </Flex>
+    <RefundElementsTable
+      key={invoice.invoiceId}
+      invoice={invoice}
+      selection={selection}
+      errors={rowErrors}
+      quantityLabel={t(`${p}.columns.quantity`)}
+      valueOf={valueOf(invoice.invoiceId)}
+      disabled={locked}
+      readOnly={stored}
+      selectedOnly={stored}
+      onChoose={choose}
+    />
   );
 
   const body = (o: RefundCreditNoteOptions) => {
@@ -289,8 +239,9 @@ const RefundCreditNoteModal = ({ refund, invoices, onClose, onIssued }: Props) =
       : [];
     return (
       <>
+        {mode === 'UNAVAILABLE' && <NoticeBar wrap text={t(`${p}.unavailableNotice`)} />}
         <Typography variant="omega" textColor="neutral700">
-          {t(`${p}.intro`)}
+          {t(stored ? `${p}.storedNote` : `${p}.intro`)}
         </Typography>
         {o.invoices.map(invoiceTable)}
         <Tiles $columns={figures.length}>

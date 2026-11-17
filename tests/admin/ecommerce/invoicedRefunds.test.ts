@@ -129,18 +129,13 @@ describe('refund scopes', () => {
     expect(switchRefundScope(form, p, 'INVOICED', 'pt-PT').method).toBe('MANUAL_TRANSFER');
   });
 
-  it('validates against the scope limits and sends scope INVOICED', () => {
+  it('an INVOICED refund is its elements, never a free amount', () => {
+    // The amount text is ignored: nothing chosen (no elements offered) is refused.
     const form = { ...emptyRefundForm(noExcess(), 'pt-PT', NOW), reason: 'OTHER' as const, amount: '25' };
     expect(validateRefundForm(form, noExcess(), NOW)).toEqual({
-      errors: [],
-      input: { method: 'MANUAL_TRANSFER', amount: 2500, reason: 'OTHER', scope: 'INVOICED' },
+      errors: [{ path: 'items', code: 'required' }],
+      input: null,
     });
-    expect(validateRefundForm({ ...form, amount: '40,01' }, noExcess(), NOW).errors).toEqual([
-      { path: 'amount', code: 'exceeds_refundable' },
-    ]);
-    expect(
-      validateRefundForm({ ...form, method: 'STRIPE', amount: '30' }, noExcess(), NOW).errors
-    ).toEqual([{ path: 'amount', code: 'exceeds_stripe_refundable' }]);
   });
 
   it('an EXCESS refund is sent as before (no scope field)', () => {

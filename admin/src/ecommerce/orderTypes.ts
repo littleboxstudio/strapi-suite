@@ -941,7 +941,15 @@ export type RefundView = {
     externalId: string | null;
   } | null;
   storeCredit: { id: number } | null;
+  /** INVOICED refunds (plan 15): the invoiced elements it gives back, with their stored values. */
+  items?: RefundItem[];
 };
+
+/** An element of an INVOICED refund: whole units of an invoice line, valued when it was created. */
+export type RefundItem = { invoiceId: number; index: number; quantity: number; value: number };
+
+/** The elements of one ISSUED invoice an INVOICED refund (or its credit note) may pick. */
+export type RefundElementInvoice = { invoiceId: number; number: string | null; lines: RefundCreditLineOption[] };
 
 export type RefundPreview = {
   orderTotal: number;
@@ -959,6 +967,8 @@ export type RefundPreview = {
   invoicedRefundable?: number;
   /** The limits of each scope (the top-level ones are EXCESS). */
   limits?: Record<RefundScope, RefundLimits>;
+  /** The elements an INVOICED refund may pick, with their available values (absent on older servers). */
+  invoicedElements?: { invoices: RefundElementInvoice[] };
 };
 
 export type RefundLimits = {
@@ -985,7 +995,13 @@ export type RefundCreditNoteOptions = {
   /** False: `invoices` is empty and `reason` is the code issuing would refuse with. */
   creditable: boolean;
   reason: string | null;
-  invoices: { invoiceId: number; number: string | null; lines: RefundCreditLineOption[] }[];
+  invoices: RefundElementInvoice[];
+  /**
+   * The refund's own elements: the modal starts from them, and issuing exactly them uses their
+   * stored values. Empty for a legacy refund; absent on older servers. A selected element may be
+   * missing from `invoices` once it is no longer creditable.
+   */
+  selected?: RefundItem[];
 };
 
 export type RefundCreditNoteInput = {
@@ -1007,6 +1023,8 @@ export type CreateRefundInput = {
   conditions?: string;
   /** INVOICED lowers the order total; absent = EXCESS. */
   scope?: RefundScope;
+  /** INVOICED: the chosen elements; `amount` is their sum. */
+  items?: { invoiceId: number; index: number; quantity: number }[];
   /** One per opening of the refund modal. */
   idempotencyKey: string;
 };
