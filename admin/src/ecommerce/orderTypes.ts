@@ -915,6 +915,11 @@ export type RefundView = {
   scope: RefundScope;
   /** INVOICED refunds: the credit note documenting it, once one was issued or is being issued. */
   creditNoteId: number | null;
+  /**
+   * Whether Remove is offered (plan 15): the server's remove rules, a used store credit included.
+   * Sent by the refunds list; absent on older servers.
+   */
+  removable?: boolean;
   status: RefundStatus;
   amount: number;
   currency: string;

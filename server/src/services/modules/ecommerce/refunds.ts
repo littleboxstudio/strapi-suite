@@ -88,6 +88,12 @@ export type RefundView = {
   storeCredit: { id: number } | null;
   /** INVOICED refunds: the credit note documenting it, once one was issued or is being issued. */
   creditNoteId: number | null;
+  /**
+   * Whether Remove is offered (plan 15), with the remove rules: INVOICED and COMPLETED, no credit
+   * note, order not archived, not STRIPE, and for STORE_CREDIT its own credit unused. Set by
+   * `list`; absent elsewhere.
+   */
+  removable?: boolean;
 };
 
 export type RefundLimits = {
@@ -337,9 +343,17 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
 
   const list = async (rawOrderId: number | string): Promise<RefundView[]> => {
     const orderId = Number(rawOrderId);
-    const order = await strapi.db.query(uids().order).findOne({ where: { id: orderId }, select: ['id'] });
+    const order = await strapi.db
+      .query(uids().order)
+      .findOne({ where: { id: orderId }, select: ['id', 'orderStatus'] });
     if (!order) throw new EcommerceNotFoundError('Order not found');
-    return (await refundRows({ order: { id: orderId } })).filter((r) => !isRemoved(r)).map(toRefundView);
+    const rows = (await refundRows({ order: { id: orderId } })).filter((r) => !isRemoved(r));
+    const views: RefundView[] = [];
+    for (const row of rows) {
+      const refusal = await removalRefusal(row, order.orderStatus);
+      views.push({ ...toRefundView(row), removable: refusal === null });
+    }
+    return views;
   };
 
   /**
@@ -1004,36 +1018,67 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
     new EcommerceValidationError('Refund cannot be removed', [{ path: 'refund', code }]);
 
   /**
-   * Voids the store credit a STORE_CREDIT refund issued, only while it is unused (its whole value
-   * still on it, or written off whole by an earlier void). A refund that gave value back onto an
-   * existing credit is not removable: voiding that credit would take more than the refund gave.
+   * Why the store credit a STORE_CREDIT refund issued cannot be voided by removing the refund, or
+   * null while it is unused (its whole value still on it, or written off whole by an earlier void).
+   * A refund that gave value back onto an existing credit is not removable: voiding that credit
+   * would take more than the refund gave. Reads only.
    */
-  const voidUnusedCredit = async (row: any, actor: string): Promise<void> => {
+  const unusedCreditRefusal = async (
+    row: any
+  ): Promise<{ code: string } | { creditId: number; voided: boolean }> => {
     const u = uids();
     const creditId = idOf(row.storeCredit);
-    if (creditId === null) throw notRemovable('REFUND_NOT_REMOVABLE');
+    if (creditId === null) return { code: 'REFUND_NOT_REMOVABLE' };
     const credit = await strapi.db.query(u.storeCredit).findOne({
       where: { id: creditId },
       populate: { sourceRefund: { select: ['id'] } },
     });
-    if (!credit || idOf(credit.sourceRefund) !== row.id) throw notRemovable('REFUND_NOT_REMOVABLE');
+    if (!credit || idOf(credit.sourceRefund) !== row.id) return { code: 'REFUND_NOT_REMOVABLE' };
     const amount = num(row.amount);
-    const voidedWhole = async () => {
-      const m = await strapi.db
-        .query(u.storeCreditMovement)
-        .findOne({ where: { operationKey: `void:${creditId}` } });
-      return !!m && num(m.amount) === -amount;
-    };
     if (credit.status === 'VOID') {
-      if (!(await voidedWhole())) throw notRemovable('STORE_CREDIT_USED');
-      return;
+      return (await voidedWhole(creditId, amount)) ? { creditId, voided: true } : { code: 'STORE_CREDIT_USED' };
     }
     if (num(credit.balance) !== amount || num(credit.initialAmount) !== amount) {
-      throw notRemovable('STORE_CREDIT_USED');
+      return { code: 'STORE_CREDIT_USED' };
     }
-    await storeCredits().void(creditId, actor);
+    return { creditId, voided: false };
+  };
+
+  /** Whether the credit's void wrote off exactly `amount`. */
+  const voidedWhole = async (creditId: number, amount: number) => {
+    const m = await strapi.db
+      .query(uids().storeCreditMovement)
+      .findOne({ where: { operationKey: `void:${creditId}` } });
+    return !!m && num(m.amount) === -amount;
+  };
+
+  /** Voids the store credit a STORE_CREDIT refund issued, only while it is unused. */
+  const voidUnusedCredit = async (row: any, actor: string): Promise<void> => {
+    const check = await unusedCreditRefusal(row);
+    if ('code' in check) throw notRemovable(check.code);
+    if (check.voided) return;
+    await storeCredits().void(check.creditId, actor);
     // A concurrent use between the check and the void: the void wrote off less (rolled back).
-    if (!(await voidedWhole())) throw notRemovable('STORE_CREDIT_USED');
+    if (!(await voidedWhole(check.creditId, num(row.amount)))) throw notRemovable('STORE_CREDIT_USED');
+  };
+
+  /**
+   * Why `row` cannot be removed (the remove rules, in their order), or null when it can. Reads
+   * only: a STORE_CREDIT refund's credit is checked, never voided.
+   */
+  const removalRefusal = async (row: any, orderStatus: unknown): Promise<string | null> => {
+    if (!row || row.scope !== 'INVOICED' || row.status !== 'COMPLETED' || isRemoved(row)) {
+      return 'REFUND_NOT_REMOVABLE';
+    }
+    const metadata = row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
+    if (metadata.creditNoteId != null) return 'REFUND_HAS_CREDIT_NOTE';
+    if (row.method === 'STRIPE') return 'REFUND_NOT_REMOVABLE';
+    if (!orderStatus || orderStatus === 'ARCHIVED') return 'REFUND_NOT_REMOVABLE';
+    if (row.method === 'STORE_CREDIT') {
+      const check = await unusedCreditRefusal(row);
+      if ('code' in check) return check.code;
+    }
+    return null;
   };
 
   /**
@@ -1052,16 +1097,12 @@ const EcommerceRefundService = ({ strapi }: { strapi: Core.Strapi }) => {
     await strapi.db.transaction(async () => {
       await orders().lockOrder(orderId);
       const row = await rowById(id);
-      if (!row || row.scope !== 'INVOICED' || row.status !== 'COMPLETED' || isRemoved(row)) {
-        throw notRemovable('REFUND_NOT_REMOVABLE');
-      }
-      const metadata = row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
-      if (metadata.creditNoteId != null) throw notRemovable('REFUND_HAS_CREDIT_NOTE');
-      if (row.method === 'STRIPE') throw notRemovable('REFUND_NOT_REMOVABLE');
       const order = await strapi.db
         .query(uids().order)
         .findOne({ where: { id: orderId }, select: ['id', 'orderStatus'] });
-      if (!order || order.orderStatus === 'ARCHIVED') throw notRemovable('REFUND_NOT_REMOVABLE');
+      const refusal = await removalRefusal(row, order?.orderStatus);
+      if (refusal) throw notRemovable(refusal);
+      const metadata = row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
       if (row.method === 'STORE_CREDIT') await voidUnusedCredit(row, actor);
       const removedAt = new Date().toISOString();
       const { count } = await strapi.db.query(uids().refund).updateMany({
