@@ -19,6 +19,7 @@ import {
   Typography,
   VisuallyHidden,
 } from '@strapi/design-system';
+import { FIT_CELL, PRODUCT_CELL } from './lineCells';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { InputTd } from '../InputTd';
 import RegisterReturn from '../../usecases/orders/registerReturn';
@@ -186,7 +187,7 @@ const RegisterReturnModal = ({ order, canRefund, onClose, onRefundNow }: Props) 
 
   return (
     <Modal.Root open onOpenChange={(next: boolean) => !next && !saving && onClose(false)}>
-      <Modal.Content style={{ maxWidth: 960, width: '100%' }}>
+      <Modal.Content style={{ maxWidth: 1040, width: '100%' }}>
         <Modal.Header>
           <Modal.Title>{t('ecommerce.orders.returns.title', { reference: order.reference })}</Modal.Title>
         </Modal.Header>
@@ -211,23 +212,24 @@ const RegisterReturnModal = ({ order, canRefund, onClose, onRefundNow }: Props) 
                     if (!line) return null;
                     return (
                       <Tr key={line.id}>
-                        <Td style={{ maxWidth: 260 }}>
+                        {/* A long product name wraps (no ellipsis) instead of running over the columns. */}
+                        <Td style={PRODUCT_CELL}>
                           <Flex direction="column" alignItems="flex-start">
-                            <Typography textColor="neutral800" ellipsis>
+                            <Typography textColor="neutral800">
                               {line.name}
                             </Typography>
-                            <Typography variant="pi" textColor="neutral600" ellipsis>
+                            <Typography variant="pi" textColor="neutral600">
                               {[line.option, line.sku].filter(Boolean).join(' · ')}
                             </Typography>
                           </Flex>
                         </Td>
-                        <Td>
+                        <Td style={FIT_CELL}>
                           <Typography textColor="neutral800">{line.shipped}</Typography>
                         </Td>
-                        <Td>
+                        <Td style={FIT_CELL}>
                           <Typography textColor="neutral800">{line.returnedQuantity}</Typography>
                         </Td>
-                        <Td>
+                        <Td style={FIT_CELL}>
                           <Typography textColor="neutral800">{line.returnable}</Typography>
                         </Td>
                         <InputTd style={{ width: 120 }}>
@@ -244,7 +246,7 @@ const RegisterReturnModal = ({ order, canRefund, onClose, onRefundNow }: Props) 
                             <Field.Error />
                           </Field.Root>
                         </InputTd>
-                        <Td>
+                        <Td style={FIT_CELL}>
                           <Checkbox
                             checked={draft.restock}
                             disabled={saving || cancelled}
