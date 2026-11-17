@@ -6,7 +6,8 @@
 credit note (Moloni) built from invoiced elements across several invoices, plus Remove and PDF.
 
 **Architecture:**
-- A new order field `creditAdjustment` lowers the total.
+- The total is lowered by a derived `creditAdjustment`: Σ of the order's INVOICED refunds that
+  count (COMPLETED, PROCESSING, PENDING). No order field stores it.
 - Refunds gain a `scope` (EXCESS | INVOICED).
 - Credit notes record per-line `invoiceId`, so one note can credit several invoices.
 - A REFUND credit-note type credits value and never frees units for invoicing.
@@ -45,22 +46,27 @@ Money is integer cents with VAT included.
 
 ---
 
-### Task 1: `creditAdjustment` on the order and in the totals
+### Task 1: a derived `creditAdjustment` in the totals
 
 **Files:**
-- Order content-type schema: `server/src/content-types/modules/ecommerce/order/schema.json` (add
-  the integer `creditAdjustment`, default 0).
+- No order field: the order content-type is unchanged.
+- `domain/refunds.ts`: `invoicedRefundAdjustment(refunds)` = Σ amount of the refunds with scope
+  INVOICED and status COMPLETED, PROCESSING or PENDING. A FAILED or CANCELLED (removed) refund
+  gives its amount back by itself.
 - `domain/orders.ts` `computeTotals`: an optional `creditAdjustment` on the order arg, subtracted
-  last; the total is never below 0.
-- Every caller that persists totals passes `order.creditAdjustment` (find them with grep).
+  last (after discounts); the total is never below 0.
+- Every caller that persists totals passes `invoicedRefundAdjustment(state.refunds)` (find them
+  with grep).
 - Order view `totals` exposes `creditAdjustment`.
-- Tests: `tests/server/ecommerce/domain/orders.test.ts` plus an integration test.
+- Tests: `tests/server/ecommerce/domain/orders.test.ts`, `domain/refunds.test.ts` plus an
+  integration test.
 
 **Interfaces:**
 - `computeTotals(lines, { orderDiscount, shippingOriginal, shippingDiscount, creditAdjustment? })`
   returns `OrderTotals` with `creditAdjustment`.
 - **Test:** lines 5000, shipping 490, adjustment 490 → total 5000.
 - **Test:** no adjustment → unchanged.
+- **Test:** only INVOICED refunds in a counting status add to the adjustment.
 
 - [ ] Write the failing tests, implement them, run the suite, commit
   `feat(ecommerce): order creditAdjustment lowers the total`.
@@ -84,8 +90,8 @@ Money is integer cents with VAT included.
 - **Create with `scope: 'INVOICED'`:**
   - amount ≤ `invoiceRefundable`;
   - otherwise the same methods and emails as today;
-  - in the same transaction, `order.creditAdjustment += amount` and the totals and payment status
-    are recomputed;
+  - in the same transaction, the totals and payment status are recomputed: the new refund counts
+    in the derived `creditAdjustment` (nothing is stored on the order);
   - history entry `REFUND_CREATED` as today.
   - `scope` defaults to EXCESS when absent.
 - **Remove:** allowed when all of these hold:
@@ -97,7 +103,7 @@ Money is integer cents with VAT included.
 
   Then:
   - status CANCELLED and `metadata.removed`;
-  - `creditAdjustment -= amount`, totals recomputed;
+  - totals recomputed: a CANCELLED refund no longer counts in the derived `creditAdjustment`;
   - history `REFUND_REMOVED`.
 
   The refund list excludes removed refunds. Error codes:
