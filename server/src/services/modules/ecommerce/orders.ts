@@ -2053,19 +2053,29 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
   /**
    * Shipping options for a draft order. The caller sends only variant ids and quantities;
    * weight and dimensions come from the catalog.
+   *
+   * With `admin` (Create order), the lines may be the order quote's: a `gift` line weighs but
+   * adds nothing to the subtotal, and `subtotal` (cents, the quote's products after promotions)
+   * replaces the catalog one, so each option is priced as the order quote prices it.
    */
-  const quoteForLines = async (input: {
-    country: string;
-    postalCode?: string;
-    lines: { variantId: number; quantity: number }[];
-    locale: string;
-  }) => {
+  const quoteForLines = async (
+    input: {
+      country: string;
+      postalCode?: string;
+      lines: { variantId: number; quantity: number; gift?: boolean }[];
+      locale: string;
+      subtotal?: number;
+    },
+    options: { admin?: boolean } = {}
+  ) => {
     const errors: ValidationIssue[] = [];
     const rawLines: any[] = Array.isArray(input?.lines) ? input.lines : [];
     if (!rawLines.length) errors.push({ path: 'lines', code: 'required' });
     const country = clean(input?.country);
     if (!country) errors.push({ path: 'country', code: 'required' });
     const merged = new Map<number, number>();
+    /** Units of each variant that count in the subtotal (gifts do not). */
+    const paid = new Map<number, number>();
     /** First line index of each variant, for error paths. */
     const firstIndex = new Map<number, number>();
     rawLines.forEach((l, i) => {
@@ -2077,9 +2087,19 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         errors.push({ path: `lines.${i}.quantity`, code: 'invalid' });
       } else {
         merged.set(variantId, (merged.get(variantId) ?? 0) + quantity);
+        const gift = options.admin && l?.gift === true;
+        paid.set(variantId, (paid.get(variantId) ?? 0) + (gift ? 0 : quantity));
         if (!firstIndex.has(variantId)) firstIndex.set(variantId, i);
       }
     });
+    const subtotalOverride = options.admin ? input?.subtotal : undefined;
+    if (
+      subtotalOverride !== undefined &&
+      subtotalOverride !== null &&
+      !(typeof subtotalOverride === 'number' && Number.isSafeInteger(subtotalOverride) && subtotalOverride >= 0)
+    ) {
+      errors.push({ path: 'subtotal', code: 'invalid' });
+    }
     if (errors.length) throw new EcommerceValidationError('Invalid shipping quote', errors);
 
     const locale = clean(input?.locale) || (await getDefaultLocale());
@@ -2104,7 +2124,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         height: c.height,
         depth: c.depth,
       });
-      subtotal += c.price * quantity;
+      subtotal += c.price * (paid.get(variantId) ?? 0);
     }
     if (unavailable.length) {
       throw new EcommerceValidationError('Invalid shipping quote', unavailable);
@@ -2113,7 +2133,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       country,
       ...(clean(input?.postalCode) ? { postalCode: clean(input.postalCode) } : {}),
       items,
-      subtotal,
+      subtotal: typeof subtotalOverride === 'number' ? subtotalOverride : subtotal,
       locale,
     };
     return service('EcommerceShippingService').quote(request);
