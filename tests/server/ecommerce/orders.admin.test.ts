@@ -47,27 +47,27 @@ describe('EcommerceOrderService.quoteForLines', () => {
     });
   });
 
-  it('admin: a gift line weighs but adds nothing, and the subtotal sent replaces the catalog one', async () => {
+  it('fromQuote: a gift line weighs but adds nothing, and the subtotal sent replaces the catalog one', async () => {
     const { service, quote } = setup();
     await service.quoteForLines(
       { country: 'PT', lines: [{ variantId: 10, quantity: 1 }, { variantId: 10, quantity: 2, gift: true }], locale: 'en' },
-      { admin: true }
+      { fromQuote: true }
     );
     expect(quote.mock.calls[0][0]).toMatchObject({ items: [{ variantId: 10, quantity: 3 }], subtotal: 2000 });
     await service.quoteForLines(
       { country: 'PT', lines: [{ variantId: 10, quantity: 1 }], locale: 'en', subtotal: 1500 },
-      { admin: true }
+      { fromQuote: true }
     );
     expect(quote.mock.calls[1][0].subtotal).toBe(1500);
     await expect(
       service.quoteForLines(
         { country: 'PT', lines: [{ variantId: 10, quantity: 1 }], locale: 'en', subtotal: -1 },
-        { admin: true }
+        { fromQuote: true }
       )
     ).rejects.toBeInstanceOf(EcommerceValidationError);
   });
 
-  it('without admin, gift and subtotal are ignored (storefront)', async () => {
+  it('without fromQuote, gift and subtotal are ignored', async () => {
     const { service, quote } = setup();
     await service.quoteForLines({
       country: 'PT',

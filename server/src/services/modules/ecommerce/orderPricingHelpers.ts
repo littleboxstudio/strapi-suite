@@ -46,6 +46,28 @@ export const quantitiesByVariant = (lines: { variantId: number; quantity: number
   return out;
 };
 
+/**
+ * The `quoteForLines` input (with `fromQuote`) that prices the shipping options as an order
+ * quote, and `create`, price the shipping: the quote's lines with the promotion's gifts flagged
+ * (they weigh, they add nothing) and its products subtotal after the promotions' order discount.
+ * The manual order discounts come after the shipping is priced, so they are left out.
+ */
+export const shippingInputOfQuote = (quote: {
+  lines: { variantId: number; quantity: number; isGift?: boolean }[];
+  totals: { subtotal: number; orderDiscount: number };
+  manualDiscounts?: { amount: number }[];
+}): { lines: { variantId: number; quantity: number; gift?: true }[]; subtotal: number } => {
+  const manual = (quote.manualDiscounts ?? []).reduce((sum, m) => sum + m.amount, 0);
+  return {
+    lines: quote.lines.map((l) => ({
+      variantId: l.variantId,
+      quantity: l.quantity,
+      ...(l.isGift ? { gift: true as const } : {}),
+    })),
+    subtotal: quote.totals.subtotal - (quote.totals.orderDiscount - manual),
+  };
+};
+
 /** The gift units of an evaluation per variant, as a comparable string. */
 export const giftSignature = (e: PromotionEvaluation): string =>
   JSON.stringify(
