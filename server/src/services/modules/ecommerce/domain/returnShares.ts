@@ -7,7 +7,9 @@
  * - A line held by a whole-item invoice (an ITEM line with `discountShare`): the share is the
  *   invoice line's, by `unitsShare` (the rule of the RETURN credit note), so the refund and the
  *   credit note are the same to the cent. It is recorded against the invoice's ORDER DISCOUNT
- *   records it came from.
+ *   records it came from. Units and share that earlier returns took, and those INVOICED refunds
+ *   took (live REFUND credit notes, and the reservations of refunds without one: plan 15), are
+ *   taken already.
  * - Any other line (not invoiced, or on a legacy invoice): the pro-rata rule of the order
  *   discount (round half-up of discount × returned net / subtotal, capped), over the ORDER discount items not invoiced and the
  *   lines no whole-item invoice holds. It is recorded against those discount items.
@@ -18,7 +20,7 @@
 import { allocateProportionally } from './orders';
 import { isSharedLine, unitsShare } from './creditNotes';
 import { isObject, num } from './invoicing';
-import type { InvoiceDoc } from './invoiceSelection';
+import { entryInvoiceId, type InvoiceDoc } from './invoiceSelection';
 
 /** One discount item's part of a return's share; `invoiceId` when it came from that invoice. */
 export type ReturnAllocation = { id: string; amount: number; invoiceId: number | null };
@@ -86,7 +88,10 @@ export type ReturnSharesInput = {
   /** The order lines before this return. */
   lines: ReturnLine[];
   request: { orderLineId: number; quantity: number }[];
-  /** The order's documents and the annulled invoices (the invoicing position). */
+  /**
+   * The order's documents and the annulled invoices (the invoicing position). Add
+   * `refundReservationDocs` so the elements of INVOICED refunds without a credit note count.
+   */
   docs: InvoiceDoc[];
   annulledInvoiceIds: number[];
   /** The stored order discount before this return (caps the shares taken from the pool). */
@@ -123,10 +128,35 @@ export function computeReturnShares(input: ReturnSharesInput): ReturnShares {
   };
   const previousShares = input.previous.flatMap((r) => r.invoiceShares);
   const previousAllocations = input.previous.flatMap((r) => r.discounts);
-  const taken = (invoiceId: number, index: number) => {
-    const entries = previousShares.filter((e) => e.invoiceId === invoiceId && e.index === index);
-    return { units: sum(entries.map((e) => e.quantity)), share: sum(entries.map((e) => e.share)) };
+  // What INVOICED refunds took of whole-item lines (plan 15): live REFUND credit notes and the
+  // reservations of refunds without one (`refundReservationDocs`, passed in `docs`). Each entry's
+  // share is what its stored value left of its units' net value.
+  const refundShares = input.docs
+    .filter((d) => d.kind === 'CREDIT_NOTE' && d.creditType === 'REFUND' && COUNTED.includes(d.status))
+    .flatMap((cn) =>
+      cn.creditedLines.flatMap((e): ReturnInvoiceShare[] => {
+        const invoiceId = entryInvoiceId(cn, e);
+        const doc = invoices.find((d) => d.id === invoiceId);
+        const line = doc?.lines[e.index];
+        if (!doc || !line || !isSharedLine(line) || !(e.quantity > 0)) return [];
+        const netUnit = Math.round((num(line.total) + line.discountShare!) / line.quantity);
+        return [
+          { invoiceId: doc.id, index: e.index, quantity: e.quantity, share: Math.max(0, netUnit * e.quantity - e.value) },
+        ];
+      })
+    );
+  const sumOf = (entries: ReturnInvoiceShare[], invoiceId: number, index: number) => {
+    const on = entries.filter((e) => e.invoiceId === invoiceId && e.index === index);
+    return { units: sum(on.map((e) => e.quantity)), share: sum(on.map((e) => e.share)) };
   };
+  /** Units and share of an invoice line taken before this return: by returns and by refunds. */
+  const taken = (invoiceId: number, index: number) => {
+    const returned = sumOf(previousShares, invoiceId, index);
+    const refunded = sumOf(refundShares, invoiceId, index);
+    return { units: returned.units + refunded.units, share: returned.share + refunded.share };
+  };
+  /** Units of an invoice line refunds took: they stay in the order (never returned). */
+  const refundedUnits = (invoiceId: number, index: number) => sumOf(refundShares, invoiceId, index).units;
 
   const byId = new Map(input.lines.map((l) => [l.id, l]));
   const net = (l: ReturnLine) => l.unitPrice - l.unitDiscount;
@@ -150,7 +180,8 @@ export function computeReturnShares(input: ReturnSharesInput): ReturnShares {
         0,
         held.line.quantity - before.units - sum(thisReturn.map((e) => e.quantity))
       );
-      unitsOnInvoice.set(l.id, uLeft);
+      // Units a refund took are still in the order and on the invoice (the pro-rata subtotal).
+      unitsOnInvoice.set(l.id, uLeft + refundedUnits(held.doc.id, held.index));
       fromInvoice = Math.min(r.quantity, uLeft);
       if (fromInvoice > 0) {
         const shareLeft = Math.max(
@@ -193,7 +224,7 @@ export function computeReturnShares(input: ReturnSharesInput): ReturnShares {
       const held = heldBy(l.id);
       const onInvoice = held
         ? (unitsOnInvoice.get(l.id) ??
-          Math.max(0, held.line.quantity - taken(held.doc.id, held.index).units))
+          Math.max(0, held.line.quantity - sumOf(previousShares, held.doc.id, held.index).units))
         : 0;
       subtotal += net(l) * Math.max(0, l.quantity - l.returnedQuantity - onInvoice);
     }

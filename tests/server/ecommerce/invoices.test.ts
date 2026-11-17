@@ -1891,6 +1891,135 @@ describe('returns of invoiced products (C1): the refund is the RETURN credit not
   });
 });
 
+describe('elements reserved by an INVOICED refund without a credit note (plan 15 final fixes 2)', () => {
+  it('odd share: refund 501, return 500, RETURN credit note 500, refund credit note 501; all reconciles', async () => {
+    const { c, inv } = setup();
+    // 2 × 600 with a manual discount of 199 invoiced with the line: the line is 1001 (share 199).
+    const id = await create(c, [{ variantId: 10, quantity: 2 }]);
+    const line = c.tables[UIDS.orderLine].find((x) => x.order === id);
+    line.unitPrice = 600;
+    line.unitDiscount = 0;
+    const row = orderRow(c, id);
+    Object.assign(row, { itemsOriginal: 1200, subtotal: 1200, orderDiscount: 199, total: 1501 });
+    row.manualDiscounts = {
+      items: [{ id: 1, kind: 'FIXED', percent: null, amount: 199, reason: 'Gesture', createdAt: '2025-03-01T10:00:00.000Z', actor: 'user:1' }],
+    };
+    await pay(c, id, 1001, 'pa');
+    await pay(c, id, 500, 'pb');
+    const [pa, pb] = paymentRows(c, id);
+    const lineId = lineIdOf(c, id);
+    const inv1 = await inv.issue(
+      id,
+      { orderLineIds: [lineId], shippingLineIds: [], discountIds: ['m:1'], paymentIds: [pa.id], expectedTotal: 1001, idempotencyKey: 'k1' },
+      'user:1'
+    );
+    const inv2 = await inv.issue(
+      id,
+      { orderLineIds: [], shippingLineIds: [1], discountIds: [], paymentIds: [pb.id], expectedTotal: 500, idempotencyKey: 'k2' },
+      'user:1'
+    );
+    expect(invoiceRows(c).find((r) => r.id === inv1.id).lines.lines[0]).toMatchObject({ quantity: 2, total: 1001, discountShare: 199 });
+
+    // The INVOICED refund reserves one unit: 600 − floor(199 / 2) = 501.
+    const [refund] = await c.refunds.create(
+      id,
+      {
+        method: 'MANUAL_TRANSFER',
+        scope: 'INVOICED',
+        amount: 501,
+        items: [{ invoiceId: inv1.id, index: 0, quantity: 1 }],
+        reason: 'GOODWILL',
+        idempotencyKey: 'rf1',
+      },
+      'user:1'
+    );
+    expect(refund.metadata?.items ?? c.tables[UIDS.refund].find((r) => r.id === refund.id).metadata.items).toEqual([
+      { invoiceId: inv1.id, index: 0, quantity: 1, value: 501 },
+    ]);
+
+    // The other unit comes back: what is left of the line is 500 (share 100), the RETURN credit
+    // note credits the same 500.
+    await c.services.EcommerceShipmentService.create(
+      id,
+      { lines: [{ orderLineId: lineId, quantity: 2 }], method: { mode: 'MANUAL', carrierName: 'CTT' }, notifyCustomer: false, idempotencyKey: 's1' },
+      'user:1'
+    );
+    const preview = await inv.creditNotePreview(inv1.id);
+    expect(preview.creditable[0]).toBe(500);
+    const registered = await c.services.EcommerceReturnService.register(
+      id,
+      { lines: [{ orderLineId: lineId, quantity: 1, restock: false }], reason: 'Damaged', idempotencyKey: 'r1' },
+      'user:1'
+    );
+    expect(registered.return).toMatchObject({ grossValue: 600, discountShare: 100, refundableValue: 500 });
+    const returnNote = await inv.issueCreditNote(
+      inv1.id,
+      { creditType: 'RETURN', lines: [{ index: 0, quantity: 1 }], shippingIndexes: [], reason: 'Returned', idempotencyKey: 'cn1' } as any,
+      'user:1'
+    );
+    expect(returnNote).toMatchObject({ status: 'ISSUED', total: 500 });
+
+    // The refund's credit note still issues its stored element at 501.
+    const refundNote = await inv.issueRefundCreditNote(
+      refund.id,
+      { items: [{ invoiceId: inv1.id, index: 0, quantity: 1 }], idempotencyKey: 'cn2' },
+      'user:1'
+    );
+    expect(refundNote).toMatchObject({ status: 'ISSUED', total: 501 });
+
+    // Invoices − credit notes = the order total, to the cent.
+    const docs = invoiceRows(c).filter((r) => r.order === id && r.status === 'ISSUED');
+    const invoiced = docs.filter((d) => d.kind === 'INVOICE').reduce((s, d) => s + Number(d.total), 0);
+    const credited = docs.filter((d) => d.kind === 'CREDIT_NOTE').reduce((s, d) => s + Number(d.total), 0);
+    expect([inv1.total, inv2.total]).toEqual([1001, 500]);
+    expect(invoiced - credited).toBe(500);
+    expect(orderRow(c, id).total).toBe(500);
+  });
+
+  it('a SHIPPING credit note cannot take a shipping line an INVOICED refund reserved', async () => {
+    const { c, inv } = setup();
+    const id = await order(c); // 2 × 2000 + 500, paid 4500
+    await testIssueAll(c, id, 'k1');
+    const invoice = invoiceRows(c).find((r) => r.kind === 'INVOICE');
+    const shippingIndex = invoice.lines.lines.findIndex((l: any) => l.kind === 'SHIPPING');
+    await c.refunds.create(
+      id,
+      {
+        method: 'MANUAL_TRANSFER',
+        scope: 'INVOICED',
+        amount: 500,
+        items: [{ invoiceId: invoice.id, index: shippingIndex, quantity: 1 }],
+        reason: 'GOODWILL',
+        idempotencyKey: 'rf1',
+      },
+      'user:1'
+    );
+    // A shipping discount granted afterwards over-invoices 200 of shipping.
+    const row = orderRow(c, id);
+    row.shippingDiscount = 200;
+    row.shippingTotal = 300;
+    row.total = Number(row.total) - 200;
+
+    const preview = await inv.creditNotePreview(invoice.id);
+    expect(preview.shipping).toEqual([]);
+    expect(preview.shippingAdjustment.total).toBe(0);
+    expect(
+      await codesOf(
+        inv.issueCreditNote(invoice.id, { creditType: 'SHIPPING', reason: 'Shipping discount', idempotencyKey: 'cn-ship' } as any, 'user:1')
+      )
+    ).toEqual(['NOTHING_TO_CREDIT']);
+    expect(
+      await codesOf(
+        inv.issueCreditNote(
+          invoice.id,
+          { creditType: 'RETURN', lines: [], shippingIndexes: [shippingIndex], reason: 'Returned', idempotencyKey: 'cn-ret' } as any,
+          'user:1'
+        )
+      )
+    ).toEqual(['SHIPPING_NOT_CREDITABLE']);
+  });
+});
+
 describe('billingErrorDetail', () => {
   it('is null when the message only repeats the code', () => {
     expect(billingErrorDetail(new EcommerceBillingError('BILLING_UNREACHABLE', 'BILLING_UNREACHABLE', true))).toBeNull();

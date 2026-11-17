@@ -253,6 +253,56 @@ describe('computeReturnShares (C1): refund equals the RETURN credit note', () =>
     expect(r.discountShare).toBe(1200);
   });
 
+  describe('units an INVOICED refund took (plan 15 final fixes 2)', () => {
+    const refundDoc = (id: number, status: InvoiceDoc['status'], value: number): InvoiceDoc => ({
+      id,
+      kind: 'CREDIT_NOTE',
+      status,
+      creditType: 'REFUND',
+      creditedInvoiceId: 1,
+      lines: [],
+      paymentIds: [],
+      creditedLines: [{ invoiceId: 1, index: 0, quantity: 1, value }],
+    });
+    const run = (docs: InvoiceDoc[]) =>
+      computeReturnShares({
+        lines: [{ id: 1, unitPrice: 600, unitDiscount: 0, quantity: 2, returnedQuantity: 0 }],
+        request: [{ orderLineId: 1, quantity: 1 }],
+        docs,
+        annulledInvoiceIds: [],
+        orderDiscount: 199,
+        discounts: [{ id: 'm:1', kind: 'ORDER', amount: 199, invoiced: true }],
+        previous: [],
+      });
+    const inv = invoice(1, [itemLine(1, 2, 1001, 199), discountLine('m:1', 199)]);
+
+    it('a reserved unit (501) counts as taken: the other unit gives back 500, as its RETURN credit note', () => {
+      const docs = [inv, refundDoc(-7, 'ISSUED', 501)];
+      const r = run(docs);
+      expect(r).toMatchObject({ grossValue: 600, discountShare: 100, refundableValue: 500 });
+      expect(r.record.invoiceShares).toEqual([{ invoiceId: 1, index: 0, quantity: 1, share: 100 }]);
+      const order: PositionOrder = orderOf(
+        [{ id: 1, unitPrice: 600, unitDiscount: 0, quantity: 2, returnedQuantity: 1 }],
+        99,
+        [manual(1, 199)],
+        [r.record]
+      );
+      const built = buildCreditLines(inv, creditOptions(inv, docs, order), {
+        creditType: 'RETURN',
+        lines: [{ index: 0, quantity: 1 }],
+        shippingIndexes: [],
+      });
+      expect(built.total).toBe(500);
+      // Invoiced 1001 = refund 501 + return 500.
+      expect(501 + built.total).toBe(1001);
+    });
+
+    it('a live REFUND credit note counts as taken; a FAILED one does not', () => {
+      expect(run([inv, refundDoc(9, 'PENDING', 501)]).refundableValue).toBe(500);
+      expect(run([inv, refundDoc(9, 'FAILED', 501)]).refundableValue).toBe(501);
+    });
+  });
+
   it('readReturnShares reads what a return row stores and drops malformed entries', () => {
     expect(
       readReturnShares({

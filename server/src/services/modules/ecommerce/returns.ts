@@ -9,7 +9,7 @@ import {
   validateReturnRequest,
 } from './domain/fulfillment';
 import { computeReturnShares } from './domain/returnShares';
-import { invoicedRefundAdjustment, refundableAmount } from './domain/refunds';
+import { invoicedRefundAdjustment, refundableAmount, refundReservationDocs } from './domain/refunds';
 import type { OrderState } from './orders';
 import type { OrderHistoryEntry } from './orderHistory';
 import type { StockMoveInput } from './stock';
@@ -178,7 +178,8 @@ const EcommerceReturnService = ({ strapi }: { strapi: Core.Strapi }) => {
         returnedQuantity: l.returnedQuantity,
       })),
       request: lines,
-      docs: state.invoicing.docs,
+      // The elements of INVOICED refunds without a credit note are taken too (plan 15).
+      docs: [...state.invoicing.docs, ...refundReservationDocs(state.refunds, state.invoicing.docs)],
       annulledInvoiceIds: state.invoicing.position.annulledInvoiceIds,
       orderDiscount: num(state.order.orderDiscount),
       discounts: state.invoicing.items.discounts,
