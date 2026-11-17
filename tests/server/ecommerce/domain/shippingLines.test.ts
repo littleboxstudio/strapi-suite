@@ -137,6 +137,26 @@ describe('currentMethod', () => {
 });
 
 describe('shippingLineViews', () => {
+  it('an invoiced line is paid, whatever the coverage split says', () => {
+    // As order #1016 after X/15: line 19 (299) invoiced, its payment's shipping share smaller.
+    const views = shippingLineViews(
+      [line({ amount: 500 }), line({ id: 19, amount: 299, createdAt: '2026-11-17T00:36:58.404Z' })],
+      ctx({ coveredShipping: 600, invoicedLineIds: [1, 19], lastPaymentAt: Date.parse('2026-11-16T00:00:00Z') })
+    );
+    expect(views.map((v) => [v.id, v.paid])).toEqual([
+      [1, true],
+      [19, true],
+    ]);
+  });
+
+  it('a settled order has every charge paid', () => {
+    const views = shippingLineViews(
+      [line({ amount: 500 }), line({ id: 2, amount: 300 })],
+      ctx({ coveredShipping: 100, settled: true })
+    );
+    expect(views.map((v) => v.paid)).toEqual([true, true]);
+  });
+
   it('consumes covered shipping oldest-first on positive lines', () => {
     const views = shippingLineViews(
       [line({ amount: 500 }), line({ id: 2, amount: 300 })],
@@ -257,40 +277,17 @@ describe('planLineChange', () => {
     ]);
   });
 
-  it('appends the difference when the line is invoiced', () => {
-    const r = planLineChange([view({ invoiced: true })], 1, { method: B, amount: 700 }, META);
-    expect(r.mode).toBe('APPENDED');
-    expect(r.lines).toEqual([
-      line(),
-      { id: 2, origin: 'EDIT', amount: 200, ...B, createdAt: META.at, actor: META.actor, editOf: 1 },
-    ]);
-  });
-
-  it('a second edit of a locked line appends only the rest: 500 → 700 → 800 charges 800', () => {
-    const META2 = { at: '2026-11-06T10:00:00.000Z', actor: 'admin:1' };
-    const first = planLineChange([view({ invoiced: true })], 1, { method: A, amount: 700 }, META);
-    const views = first.lines.map((l) => view({ ...l, invoiced: l.id === 1 }));
-    const second = planLineChange(views, 1, { method: A, amount: 800 }, META2);
-    expect(second.mode).toBe('APPENDED');
-    expect(second.lines.map((l) => [l.id, l.amount, l.editOf])).toEqual([
-      [1, 500, undefined],
-      [2, 200, 1],
-      [3, 100, 1],
-    ]);
-    expect(chargedShipping(second.lines)).toBe(800);
-    const again = planLineChange(
-      second.lines.map((l) => view({ ...l, invoiced: l.id === 1 })),
-      1,
-      { method: A, amount: 800 },
-      META2
-    );
-    expect(again.mode).toBe('UNCHANGED');
-  });
-
-  it('a locked line changing only its method appends a zero correction under the new method', () => {
-    const r = planLineChange([view({ invoiced: true })], 1, { method: B, amount: 500 }, META);
-    expect(r.mode).toBe('APPENDED');
-    expect(r.lines[1]).toMatchObject({ amount: 0, ...B, editOf: 1 });
+  it('an invoiced line is never changed (raise, lower or method only): UNCHANGED + SHIPPING_LINE_LOCKED', () => {
+    for (const change of [
+      { method: B, amount: 700 },
+      { method: A, amount: 300 },
+      { method: B, amount: 500 },
+    ]) {
+      const r = planLineChange([view({ invoiced: true })], 1, change, META);
+      expect(r.mode).toBe('UNCHANGED');
+      expect(r.issue).toBe('SHIPPING_LINE_LOCKED');
+      expect(r.lines).toEqual([line()]);
+    }
   });
 
   it('a replaceable line with corrections is set to the rest: 500 + 200, edit to 800 → 600', () => {
@@ -306,24 +303,25 @@ describe('planLineChange', () => {
     expect(planLineChange(lines, 1, { method: A, amount: 700 }, META).mode).toBe('UNCHANGED');
   });
 
-  it('a line with a locked correction is locked: the edit appends', () => {
+  it('a line with a locked correction is locked: the edit is refused, lines unchanged', () => {
     const lines = [view(), view({ id: 2, origin: 'EDIT', amount: 200, editOf: 1, invoiced: true })];
     const r = planLineChange(lines, 1, { method: A, amount: 800 }, META);
-    expect(r.mode).toBe('APPENDED');
+    expect(r.mode).toBe('UNCHANGED');
+    expect(r.issue).toBe('SHIPPING_LINE_LOCKED');
     expect(r.lines.map((l) => [l.id, l.amount, l.editOf])).toEqual([
       [1, 500, undefined],
       [2, 200, 1],
-      [3, 100, 1],
     ]);
   });
 
   it('legacy EDIT lines without editOf are not counted as corrections', () => {
-    const lines = [
-      view({ invoiced: true }),
-      view({ id: 2, origin: 'EDIT', amount: 200, invoiced: true }),
-    ];
+    const lines = [view(), view({ id: 2, origin: 'EDIT', amount: 200 })];
     const r = planLineChange(lines, 1, { method: A, amount: 700 }, META);
-    expect(r.lines[2]).toMatchObject({ id: 3, amount: 200, editOf: 1 });
+    expect(r.mode).toBe('REPLACED');
+    expect(r.lines.map((l) => [l.id, l.amount])).toEqual([
+      [1, 700],
+      [2, 200],
+    ]);
   });
 
   it('a locked line (invoiced or paid) is never lowered: SHIPPING_LINE_LOCKED, nothing appended', () => {
@@ -340,11 +338,11 @@ describe('planLineChange', () => {
     expect(planLineChange(lines, 1, { method: A, amount: 600 }, META).issue).toBe('SHIPPING_LINE_LOCKED');
   });
 
-  it('a locked line raised gets a positive correction', () => {
+  it('a locked line raised is refused: SHIPPING_LINE_LOCKED, nothing appended', () => {
     const r = planLineChange([view({ paid: true })], 1, { method: A, amount: 650 }, META);
-    expect(r.issue).toBeUndefined();
-    expect(r.mode).toBe('APPENDED');
-    expect(r.lines[1]).toMatchObject({ id: 2, amount: 150, editOf: 1 });
+    expect(r.issue).toBe('SHIPPING_LINE_LOCKED');
+    expect(r.mode).toBe('UNCHANGED');
+    expect(r.lines).toEqual([line()]);
   });
 
   it('a replaceable line can be set to any non-negative amount, never stored negative', () => {

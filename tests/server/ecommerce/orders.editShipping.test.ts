@@ -392,76 +392,64 @@ describe('EcommerceOrderEditingService.editShippingLine', () => {
     expect(entry.previousValue.lines).toMatchObject([{ origin: 'CHECKOUT', amount: 500 }]);
   });
 
-  it('after an invoice that includes shipping: appends an EDIT line with the difference', async () => {
-    const ctx = setup();
-    const id = await createOrder(ctx);
-    issueInvoice(ctx, id);
-    await ctx.editing.editShippingLine(
-      id,
-      1,
-      { ...standard, amount: 700 },
-      'user:1',
-      'op-line-0002'
-    );
-    expect(storedLines(ctx, id)).toMatchObject([
-      { id: 1, origin: 'CHECKOUT', amount: 500 },
-      { id: 2, origin: 'EDIT', amount: 200, serviceId: '1', name: 'Standard', tax: 23 },
-    ]);
-    expect(orderRow(ctx, id).shippingOriginal).toBe(700);
-  });
-
-  it('editing a locked line twice charges the last amount: 500 → 700 → 800', async () => {
-    const ctx = setup();
-    const id = await createOrder(ctx);
-    issueInvoice(ctx, id);
-    await ctx.editing.editShippingLine(id, 1, { ...standard, amount: 700 }, 'user:1', 'op-line-0010');
-    const res = await ctx.editing.editShippingLine(
-      id,
-      1,
-      { ...standard, amount: 800 },
-      'user:1',
-      'op-line-0011'
-    );
-    expect(storedLines(ctx, id).map((l: any) => [l.id, l.origin, l.amount, l.editOf])).toEqual([
-      [1, 'CHECKOUT', 500, undefined],
-      [2, 'EDIT', 200, 1],
-      [3, 'EDIT', 100, 1],
-    ]);
-    expect(orderRow(ctx, id)).toMatchObject({ shippingOriginal: 800, total: 7300 });
-    expect(res.order.shippingLines.find((l: any) => l.id === 1)).toMatchObject({
-      effectiveAmount: 800,
-    });
-  });
-
-  it('an invoiced line is never lowered: SHIPPING_LINE_LOCKED and nothing is written', async () => {
+  it('after an invoice that includes shipping: the line cannot be edited, SHIPPING_LINE_INVOICED and nothing is written', async () => {
     const ctx = setup();
     const id = await createOrder(ctx);
     issueInvoice(ctx, id);
     const before = JSON.stringify(orderRow(ctx, id));
     expect(
-      await issues(ctx.editing.editShippingLine(id, 1, { ...standard, amount: 300 }, 'user:1', 'op-line-0020'))
-    ).toEqual([{ path: 'amount', code: 'SHIPPING_LINE_LOCKED' }]);
+      await issues(
+        ctx.editing.editShippingLine(id, 1, { ...standard, amount: 700 }, 'user:1', 'op-line-0002')
+      )
+    ).toEqual([{ path: 'lineId', code: 'SHIPPING_LINE_INVOICED' }]);
     expect(JSON.stringify(orderRow(ctx, id))).toBe(before);
-    // Raised after a raise, then lowered back below the charge: refused too.
-    await ctx.editing.editShippingLine(id, 1, { ...standard, amount: 700 }, 'user:1', 'op-line-0021');
-    expect(
-      await issues(ctx.editing.editShippingLine(id, 1, { ...standard, amount: 600 }, 'user:1', 'op-line-0022'))
-    ).toEqual([{ path: 'amount', code: 'SHIPPING_LINE_LOCKED' }]);
-    expect(storedLines(ctx, id).every((l: any) => l.amount >= 0)).toBe(true);
-    expect(orderRow(ctx, id).shippingOriginal).toBe(700);
+    expect(storedLines(ctx, id)).toMatchObject([{ id: 1, origin: 'CHECKOUT', amount: 500 }]);
   });
 
-  it('a correction line (editOf) cannot be edited: SHIPPING_LINE_NOT_FOUND', async () => {
+  it('an invoiced line cannot be edited (raise, lower or method only): SHIPPING_LINE_INVOICED', async () => {
     const ctx = setup();
     const id = await createOrder(ctx);
     issueInvoice(ctx, id);
-    await ctx.editing.editShippingLine(id, 1, { ...standard, amount: 700 }, 'user:1', 'op-line-0013');
+    const before = JSON.stringify(orderRow(ctx, id));
+    for (const [n, change] of [
+      [0, { ...standard, amount: 300 }],
+      [1, { ...standard, amount: 800 }],
+      [2, { ...express, amount: 500 }],
+    ] as const) {
+      expect(
+        await issues(ctx.editing.editShippingLine(id, 1, change, 'user:1', `op-line-002${n}`))
+      ).toEqual([{ path: 'lineId', code: 'SHIPPING_LINE_INVOICED' }]);
+    }
+    expect(JSON.stringify(orderRow(ctx, id))).toBe(before);
+  });
+
+  it('a legacy correction line (editOf) cannot be edited: SHIPPING_LINE_NOT_FOUND', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    const row = orderRow(ctx, id);
+    row.shippingLines = {
+      ...row.shippingLines,
+      lines: [
+        ...row.shippingLines.lines,
+        {
+          id: 2,
+          origin: 'EDIT',
+          amount: 200,
+          providerId: 'manual',
+          serviceId: '1',
+          name: 'Standard',
+          tax: 23,
+          createdAt: '2026-11-05T10:00:00.000Z',
+          actor: 'user:1',
+          editOf: 1,
+        },
+      ],
+    };
     expect(
       await issues(
         ctx.editing.editShippingLine(id, 2, { ...standard, amount: 900 }, 'user:1', 'op-line-0014')
       )
     ).toEqual([{ path: 'lineId', code: 'SHIPPING_LINE_NOT_FOUND' }]);
-    expect(orderRow(ctx, id).shippingOriginal).toBe(700);
   });
 
   it('a carrier that failed to quote the requested method is SHIPPING_QUOTE_FAILED', async () => {
@@ -645,6 +633,7 @@ describe('EcommerceOrderEditingService.removeShippingLine', () => {
     await ctx.editing.addShippingLine(id, { ...express, amount: 300 }, 'user:1', 'op-add-rm02');
     issueInvoice(ctx, id);
     expect(await issues(ctx.editing.removeShippingLine(id, 1, 'user:1', 'op-rm-0004'))).toEqual([
+      // An invoiced line also reads as paid: the removal names the invoice first.
       { path: 'lineId', code: 'SHIPPING_LINE_INVOICED' },
     ]);
     await ctx.payments.addManualPayment(id, { amount: 7300, idempotencyKey: 'pay-rm' }, 'user:1');

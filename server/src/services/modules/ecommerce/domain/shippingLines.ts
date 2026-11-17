@@ -14,7 +14,7 @@ export type ShippingLine = ShippingMethodRef & {
   amount: number;
   createdAt: string;
   actor: string;
-  /** An EDIT line appended as a correction of the locked line with this id. */
+  /** Legacy: an EDIT line once appended as a correction of the line with this id (read only). */
   editOf?: number;
   /**
    * A pickup method charged once the order has shipments: the point (DPD point or store) the next
@@ -173,6 +173,11 @@ export function shippingLineViews(
      * (it never takes coverage left over by earlier payments). Absent: no such limit.
      */
     lastPaymentAt?: number | null;
+    /**
+     * The order owes nothing and was paid: every charge is paid, whatever share of each payment
+     * was attributed to shipping. Absent: false.
+     */
+    settled?: boolean;
   }
 ): ShippingLineView[] {
   const invoiced = new Set(ctx.invoicedLineIds);
@@ -201,7 +206,12 @@ export function shippingLineViews(
   return sorted.map((l) => {
     let paid = false;
     const due = owed.get(l.id) ?? l.amount;
-    if (l.amount > 0 && after(l)) {
+    if (l.amount > 0 && (invoiced.has(l.id) || ctx.settled === true)) {
+      // An invoice is only issued against payments that cover it exactly, and a settled order
+      // owes nothing: either way the charge is paid (the coverage split is not consulted).
+      paid = true;
+      remaining = Math.max(0, remaining - due);
+    } else if (l.amount > 0 && after(l)) {
       // Added after the last payment: nothing paid it yet.
     } else if (l.amount > 0 && remaining >= due) {
       paid = true;
@@ -254,8 +264,9 @@ export function lineRemovalIssue(
   const target = lines.find((l) => l.id === id && l.editOf == null);
   if (!target) return 'NOT_FOUND';
   const group = [target, ...correctionsOf(lines, id)];
-  if (group.some((l) => l.paid)) return 'PAID';
+  // An invoiced charge also reads as paid: say why it is locked by its invoice first.
   if (group.some((l) => l.invoiced)) return 'INVOICED';
+  if (group.some((l) => l.paid)) return 'PAID';
   if (!lines.some((l) => l.editOf == null && l.id !== id)) return 'LAST';
   return null;
 }
@@ -267,9 +278,8 @@ export function withoutLine(lines: ShippingLine[], id: number): ShippingLine[] {
 
 /**
  * Edit a line. A replaceable line (and its corrections) is set to the new non-negative amount. A
- * locked line (paid or invoiced, or with a locked correction) is only raised, by a positive EDIT
- * correction (`editOf`); lowering it below what it charges is refused (`SHIPPING_LINE_LOCKED`):
- * the admin registers a refund and a credit note instead. No negative line is ever planned.
+ * locked line (paid or invoiced, or with a locked correction) is never changed
+ * (`SHIPPING_LINE_LOCKED`): money back is a refund and a credit note, more is a new charge.
  */
 export function planLineChange(
   lines: ShippingLineView[],
@@ -317,18 +327,9 @@ export function planLineChange(
       mode: 'REPLACED',
     };
   }
-  if (delta < 0) return { lines: base, mode: 'UNCHANGED', issue: 'SHIPPING_LINE_LOCKED' };
-  return {
-    lines: appendLine(base, {
-      origin: 'EDIT',
-      amount: delta,
-      ...next.method,
-      createdAt: meta.at,
-      actor: meta.actor,
-      editOf: target.id,
-    }),
-    mode: 'APPENDED',
-  };
+  // A paid or invoiced charge (or one with such a correction) is never changed: taking money back
+  // is a refund and a credit note; charging more is a new shipping charge.
+  return { lines: base, mode: 'UNCHANGED', issue: 'SHIPPING_LINE_LOCKED' };
 }
 
 /** The method of the most recent invoiced line: a recalculation charges the same company. */
