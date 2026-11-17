@@ -1078,6 +1078,7 @@
   "littlebox-strapi-suite.ecommerce.orders.ship.confirm.title": "Expedir encomenda?",
   "littlebox-strapi-suite.ecommerce.orders.ship.confirm.text": "As unidades selecionadas são expedidas com {method} e o cliente é notificado.",
   "littlebox-strapi-suite.ecommerce.orders.ship.confirm.otherMethod": "Este não é o método de entrega da encomenda: a encomenda foi feita com {original}.",
+  "littlebox-strapi-suite.ecommerce.orders.ship.confirm.missing": "Não preenchido: {fields}. O envio vai ser registado sem esta informação.",
   "littlebox-strapi-suite.ecommerce.orders.ship.originalMethodHint": "O método de entrega escolhido nesta encomenda",
   "littlebox-strapi-suite.ecommerce.orders.ship.methodsError": "Não foi possível carregar os métodos de entrega. Feche e volte a abrir esta janela.",
   "littlebox-strapi-suite.ecommerce.orders.ship.noMethods": "Nenhum método de entrega disponível. Verifique Definições → Envios.",
