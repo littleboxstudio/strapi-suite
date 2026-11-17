@@ -62,7 +62,7 @@ const order = (over: Record<string, unknown> = {}): Order =>
       { code: 'OLD', status: 'EXPIRED', promotionId: null },
     ],
     manualDiscounts: [
-      { id: 1, kind: 'LEGACY', percent: null, amount: 300, reason: '', createdAt: '', actor: '' },
+      { id: 1, kind: 'LEGACY', percent: null, amount: 300, reason: 'Legacy discount', createdAt: '', actor: '' },
       { id: 2, kind: 'FIXED', percent: null, amount: 500, reason: 'Gesture', createdAt: '', actor: '' },
       { id: 3, kind: 'PERCENT', percent: 10, amount: 650, reason: 'Loyal', createdAt: '', actor: '' },
     ],
@@ -101,12 +101,28 @@ describe('duplicateDraft', () => {
     expect(draft.form.lines[1]).toMatchObject({ name: 'Tee', option: 'M', sku: 'TEE', unitPrice: 1000, stock: null });
   });
 
-  it('merges two lines of the same variant', () => {
+  it('merges two lines of the same variant with the same percent', () => {
     const d = duplicateDraft(
       order({ lines: [orderLine(), orderLine({ id: 14, quantity: 1 })] }),
       { legacyReason: 'x' }
     );
     expect(d.form.lines.map((l) => [l.variantId, l.quantity])).toEqual([[1, 3]]);
+    expect(d.discountConflicts).toEqual([]);
+  });
+
+  it('keeps only the units of the first percent when a variant repeats with another one', () => {
+    const d = duplicateDraft(
+      order({
+        lines: [
+          orderLine({ manualDiscountPercent: 10 }),
+          orderLine({ id: 14, quantity: 1, manualDiscountPercent: 20 }),
+          orderLine({ id: 15, quantity: 4, manualDiscountPercent: 10 }),
+        ],
+      }),
+      { legacyReason: 'x' }
+    );
+    expect(d.form.lines.map((l) => [l.variantId, l.quantity, l.discount])).toEqual([[1, 6, '10']]);
+    expect(d.discountConflicts).toEqual(['Mug']);
   });
 
   it('copies the applied codes only', () => {
@@ -123,7 +139,22 @@ describe('duplicateDraft', () => {
     expect(draft.giftNames).toEqual({ 9: 'Sticker — Blue' });
   });
 
-  it('copies the manual discounts, a LEGACY one as FIXED with its amount', () => {
+  it('skips the manual discounts cut to 0', () => {
+    const d = duplicateDraft(
+      order({
+        manualDiscounts: [
+          { id: 1, kind: 'FIXED', percent: null, amount: 0, reason: 'Gone', createdAt: '', actor: '' },
+          { id: 2, kind: 'PERCENT', percent: 10, amount: 0, reason: 'Gone too', createdAt: '', actor: '' },
+          { id: 3, kind: 'LEGACY', percent: null, amount: 0, reason: 'Legacy', createdAt: '', actor: '' },
+          { id: 4, kind: 'FIXED', percent: null, amount: 200, reason: 'Kept', createdAt: '', actor: '' },
+        ],
+      }),
+      { legacyReason: 'x' }
+    );
+    expect(d.form.manualDiscounts!.map((m) => m.reason)).toEqual(['Kept']);
+  });
+
+  it('copies the manual discounts, a LEGACY one as FIXED with its amount and the translated reason', () => {
     expect(draft.form.manualDiscounts!.map(({ kind, value, reason }) => ({ kind, value, reason }))).toEqual([
       { kind: 'FIXED', value: 300, reason: 'Previous discount' },
       { kind: 'FIXED', value: 500, reason: 'Gesture' },

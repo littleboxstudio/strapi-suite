@@ -14,6 +14,8 @@ export const shippingOptionKey = (o: { providerId: string; serviceId: string }) 
 type Props = {
   /** The quoted options; null before Get shipping options. */
   quote: ShippingQuote | null;
+  /** The price listed for an option (the order quote's for the method it priced). */
+  priceOf?: (option: ShippingOption) => number;
   selected: ShippingOption | null;
   onSelect: (option: ShippingOption) => void;
   /** A translated error of the shipping choice (required, unavailable). */
@@ -35,6 +37,7 @@ type Props = {
  */
 const CreateShippingPanel = ({
   quote,
+  priceOf = (o) => o.price,
   selected,
   onSelect,
   error,
@@ -88,7 +91,7 @@ const CreateShippingPanel = ({
                 >
                   <span style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                     <span>{o.name}</span>
-                    <span style={{ whiteSpace: 'nowrap' }}>{money(o.price)}</span>
+                    <span style={{ whiteSpace: 'nowrap' }}>{money(priceOf(o))}</span>
                   </span>
                 </MethodItem>
               );
@@ -107,7 +110,7 @@ const CreateShippingPanel = ({
                     {selected.name}
                   </Typography>
                   <Typography fontWeight="semiBold" textColor="neutral800" style={{ whiteSpace: 'nowrap' }}>
-                    {money(selected.price)}
+                    {money(priceOf(selected))}
                   </Typography>
                 </Flex>
                 {selected.requiresPickupPoint && (

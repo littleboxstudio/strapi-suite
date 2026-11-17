@@ -22,6 +22,8 @@ import {
   manualDiscountEntryError,
   createTotalsTiles,
   refreshLinesFromQuote,
+  shippingOptionsInput,
+  listedShippingPrice,
   MAX_CREATE_MANUAL_DISCOUNTS,
   type OrderForm,
   type OrderLineDraft,
@@ -716,5 +718,60 @@ describe('refreshLinesFromQuote', () => {
     expect(refreshLinesFromQuote(lines, quoted({}))).toBe(lines);
     const other = [line()];
     expect(refreshLinesFromQuote(other, quoted({ variantId: 2 }))).toBe(other);
+  });
+});
+
+describe('shipping options priced as the order quote', () => {
+  const form = (): OrderForm => ({
+    ...validForm(),
+    shippingAddress: { ...address, postalCode: ' 1000-001 ' },
+    lines: [line({ variantId: 1, quantity: 2 })],
+  });
+  const quote = {
+    lines: [
+      { variantId: 1, quantity: 2, isGift: false },
+      { variantId: 9, quantity: 2, isGift: true },
+    ],
+    totals: { subtotal: 5000, orderDiscount: 1500 },
+    manualDiscounts: [{ kind: 'FIXED', percent: null, amount: 500, reason: 'x' }],
+  } as unknown as OrderQuote;
+
+  it('without a quote: the cart lines', () => {
+    expect(shippingOptionsInput(form(), null)).toEqual({
+      country: 'PT',
+      postalCode: '1000-001',
+      lines: [{ variantId: 1, quantity: 2 }],
+      locale: 'pt',
+    });
+  });
+
+  it("with the quote: its lines, gifts flagged, and the subtotal after promotions (manual discounts don't count)", () => {
+    expect(shippingOptionsInput(form(), quote)).toEqual({
+      country: 'PT',
+      postalCode: '1000-001',
+      lines: [
+        { variantId: 1, quantity: 2 },
+        { variantId: 9, quantity: 2, gift: true },
+      ],
+      locale: 'pt',
+      subtotal: 4000,
+    });
+  });
+
+  it('listedShippingPrice: the order quote price for its method, else the option price', () => {
+    const option = { providerId: 'ctt', serviceId: 'manual', name: 'CTT', price: 2000, tax: 23 };
+    const priced = {
+      shippingOption: { providerId: 'ctt', serviceId: 'manual' },
+      totals: { shippingOriginal: 3000 },
+    } as unknown as OrderQuote;
+    expect(listedShippingPrice(option, priced)).toBe(3000);
+    expect(listedShippingPrice({ ...option, serviceId: 'other' }, priced)).toBe(2000);
+    expect(listedShippingPrice(option, null)).toBe(2000);
+  });
+});
+
+describe('createTotalsTiles while the prices are outdated', () => {
+  it('shows every amount as unknown', () => {
+    expect(createTotalsTiles(null, null).map((t) => t.amount)).toEqual([null, null, null, null]);
   });
 });

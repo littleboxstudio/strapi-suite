@@ -754,6 +754,7 @@
   "littlebox-strapi-suite.ecommerce.orders.new.duplicate.PICKUP_GONE": "O ponto de recolha ou a loja da encomenda original já não está disponível: escolha outro.",
   "littlebox-strapi-suite.ecommerce.orders.new.duplicate.refusedCodes": "Estes códigos promocionais já não se aplicam: {codes}.",
   "littlebox-strapi-suite.ecommerce.orders.new.duplicate.missingGifts": "Estas ofertas já não estão disponíveis: {names}.",
+  "littlebox-strapi-suite.ecommerce.orders.new.duplicate.discountConflicts": "Havia linhas do mesmo produto com percentagens de desconto diferentes, e uma nova encomenda só aceita uma por produto: só foram copiadas as unidades com a primeira percentagem ({names}).",
   "littlebox-strapi-suite.ecommerce.orders.address.firstName": "Nome",
   "littlebox-strapi-suite.ecommerce.orders.address.lastName": "Apelido",
   "littlebox-strapi-suite.ecommerce.orders.address.company": "Empresa",

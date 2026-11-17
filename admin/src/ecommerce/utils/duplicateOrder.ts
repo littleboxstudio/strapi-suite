@@ -21,6 +21,11 @@ export type DuplicateDraft = {
   shipping: ShippingRef | null;
   /** The order's pickup point or store. */
   pickup: PickupSelection | null;
+  /**
+   * Products whose lines had different percents: a new order takes one percent per variant, so
+   * only the units of the first one are copied.
+   */
+  discountConflicts: string[];
 };
 
 const text = (v: unknown): string => (typeof v === 'string' ? v : '');
@@ -51,13 +56,17 @@ export function duplicateDraft(order: Order, opts: { legacyReason: string }): Du
   const billingAddress = order.billingAddress ? addressFormFromAddress(order.billingAddress) : { ...shippingAddress };
 
   const lines: OrderLineDraft[] = [];
+  const discountConflicts: string[] = [];
+  const percentText = (p: number | null | undefined) => (typeof p === 'number' ? String(p) : '');
   (order.lines ?? []).forEach((l) => {
     if (l.isGift) return;
     const quantity = l.quantity - (l.returnedQuantity ?? 0);
     if (quantity <= 0) return;
     const same = lines.find((d) => d.variantId === l.variantId);
     if (same) {
-      same.quantity += quantity;
+      // The server takes one percent per variant: units with another percent are left out.
+      if ((same.discount ?? '') === percentText(l.manualDiscountPercent)) same.quantity += quantity;
+      else if (!discountConflicts.includes(label(l))) discountConflicts.push(label(l));
       return;
     }
     lines.push({
@@ -86,15 +95,19 @@ export function duplicateDraft(order: Order, opts: { legacyReason: string }): Du
     if (typeof promotionId === 'number' && !(promotionId in giftChoices)) giftChoices[promotionId] = l.variantId;
   });
 
-  const manualDiscounts: DraftManualDiscount[] = (order.manualDiscounts ?? []).map((m, i) => {
-    const key = `dup-${i}`;
-    if (m.kind === 'PERCENT' && typeof m.percent === 'number') {
-      return { key, kind: 'PERCENT', value: m.percent, reason: m.reason };
-    }
-    // LEGACY (and a percent without its value): the amount it took off.
-    const reason = m.kind === 'LEGACY' && !m.reason?.trim() ? opts.legacyReason : m.reason;
-    return { key, kind: 'FIXED', value: m.amount, reason };
-  });
+  // A discount cut to 0 (stored at 0) is left out: the server refuses a value of 0.
+  const manualDiscounts: DraftManualDiscount[] = (order.manualDiscounts ?? [])
+    .filter((m) => m.amount > 0)
+    .map((m, i) => {
+      const key = `dup-${i}`;
+      if (m.kind === 'PERCENT' && typeof m.percent === 'number') {
+        return { key, kind: 'PERCENT', value: m.percent, reason: m.reason };
+      }
+      // LEGACY (and a percent without its value): the amount it took off. A LEGACY reason is the
+      // server's English placeholder: the translated one is used.
+      const reason = m.kind === 'LEGACY' ? opts.legacyReason : m.reason;
+      return { key, kind: 'FIXED', value: m.amount, reason };
+    });
 
   const shipping = shippingOf(order);
   const pickup: PickupSelection | null = point
@@ -135,6 +148,7 @@ export function duplicateDraft(order: Order, opts: { legacyReason: string }): Du
     giftNames,
     shipping,
     pickup,
+    discountConflicts,
   };
 }
 

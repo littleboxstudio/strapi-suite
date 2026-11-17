@@ -64,7 +64,9 @@ import {
   manualDiscountEntryError,
   MAX_CREATE_MANUAL_DISCOUNTS,
   pruneGiftChoices,
+  listedShippingPrice,
   refreshLinesFromQuote,
+  shippingOptionsInput,
   sumPreviewTotals,
   toOrderErrorMap,
   validateOrderForm,
@@ -114,9 +116,17 @@ type DuplicateNotices = {
   refusedCodes: string[];
   missingGifts: string[];
   shipping: 'METHOD_GONE' | 'PICKUP_GONE' | null;
+  /** Products whose lines had different percents (only the first percent's units were copied). */
+  discountConflicts: string[];
 };
 
-const NO_NOTICES: DuplicateNotices = { droppedLines: [], refusedCodes: [], missingGifts: [], shipping: null };
+const NO_NOTICES: DuplicateNotices = {
+  droppedLines: [],
+  refusedCodes: [],
+  missingGifts: [],
+  shipping: null,
+  discountConflicts: [],
+};
 
 const positiveId = (raw: string | null) => {
   const n = Number(raw);
@@ -220,7 +230,7 @@ const OrderCreatePage = () => {
         setForm((f) => ({ ...draft.form, locale: draft.form.locale || f.locale }));
         setGiftChoices(draft.giftChoices);
         setErrors({});
-        setNotices(NO_NOTICES);
+        setNotices({ ...NO_NOTICES, discountConflicts: draft.discountConflicts });
         setDuplicate({
           reference: order.reference,
           codes: draft.form.promotionCodes,
@@ -289,7 +299,7 @@ const OrderCreatePage = () => {
         const lines = refreshLinesFromQuote(f.lines, result);
         return lines === f.lines ? f : { ...f, lines };
       });
-      clearErrors((p) => p.startsWith('manualDiscounts.'));
+      clearErrors((p) => p.startsWith('manualDiscounts'));
       const dup = duplicateRef.current;
       if (dup?.phase === 'LINES') {
         // The first quote of a duplicate: what it no longer gives, then its shipping.
@@ -314,10 +324,10 @@ const OrderCreatePage = () => {
         setPricingError(message);
         const fieldErrors = extractFieldErrors(err) ?? [];
         // A manual discount's error is shown on its row.
-        const discountErrors = fieldErrors.filter((e) => e.path.startsWith('manualDiscounts.'));
+        const discountErrors = fieldErrors.filter((e) => e.path.startsWith('manualDiscounts'));
         if (discountErrors.length) {
           setErrors((map) => {
-            const kept = Object.fromEntries(Object.entries(map).filter(([k]) => !k.startsWith('manualDiscounts.')));
+            const kept = Object.fromEntries(Object.entries(map).filter(([k]) => !k.startsWith('manualDiscounts')));
             return { ...kept, ...toOrderErrorMap(discountErrors, true) };
           });
         }
@@ -460,20 +470,22 @@ const OrderCreatePage = () => {
     const signature = quoteSignature;
     setQuoting(true);
     try {
-      const result = await new QuoteOrderShipping().execute({
-        country: form.shippingAddress.country,
-        postalCode: form.shippingAddress.postalCode.trim() || undefined,
-        lines: form.lines.map((l) => ({ variantId: l.variantId, quantity: l.quantity })),
-        locale: form.locale || undefined,
-      });
+      // The order quote's lines (gifts included) and subtotal: each option is priced as the order.
+      const result = await new QuoteOrderShipping().execute(shippingOptionsInput(form, freshQuote));
       // Ignore a quote for lines or a country that changed meanwhile.
       if (signature !== quoteSignatureRef.current) return null;
       setQuote(result);
       clearErrors((p) => p === 'shipping');
       return result;
     } catch (err) {
-      const fieldErrors = extractFieldErrors(err);
-      if (fieldErrors) setErrors((map) => ({ ...toOrderErrorMap(fieldErrors, form.billingSameAsShipping), ...map }));
+      // Quoted with the order quote's lines, a line error's index is not the cart's: the order
+      // quote reports those.
+      const fieldErrors = (extractFieldErrors(err) ?? []).filter(
+        (e) => !freshQuote || !e.path.startsWith('lines.')
+      );
+      if (fieldErrors.length) {
+        setErrors((map) => ({ ...toOrderErrorMap(fieldErrors, form.billingSameAsShipping), ...map }));
+      }
       toggleNotification({ type: 'danger', message: t('ecommerce.orders.shipping.error') });
       return null;
     } finally {
@@ -666,9 +678,12 @@ const OrderCreatePage = () => {
   const promotionName = (p: OrderQuote['promotions'][number]) =>
     promotionDisplayName(p, form.locale, defaultLocale) ?? t('ecommerce.orders.promotions.fallbackName');
 
+  // Outdated (being priced again, or the last quote failed): the amounts are unknown until a quote
+  // of the current cart, so the tiles and the discounts total never disagree with each other.
+  const stale = !!shownQuote && !freshQuote;
   const tiles = createTotalsTiles(
-    shownQuote?.totals ?? null,
-    sumPreviewTotals(form.lines, selectedOption?.price ?? null),
+    freshQuote?.totals ?? null,
+    stale ? null : sumPreviewTotals(form.lines, selectedOption?.price ?? null),
     !!selectedOption
   );
   const tileLabel: Record<(typeof tiles)[number]['key'], string> = {
@@ -683,7 +698,9 @@ const OrderCreatePage = () => {
       ? { text: t('ecommerce.orders.quote.loading'), color: 'neutral500' }
       : pricingError
         ? { text: pricingError, color: 'danger600' }
-        : !shownQuote
+        : stale
+          ? { text: t('ecommerce.orders.quote.loading'), color: 'neutral500' }
+          : !shownQuote
           ? { text: t('ecommerce.orders.totals.hint'), color: 'neutral500' }
           : shownQuote.totals.shippingTotal === null
             ? { text: t('ecommerce.orders.quote.awaitingShipping'), color: 'neutral500' }
@@ -697,6 +714,8 @@ const OrderCreatePage = () => {
       t('ecommerce.orders.new.duplicate.refusedCodes', { codes: notices.refusedCodes.join(', ') }),
     notices.missingGifts.length > 0 &&
       t('ecommerce.orders.new.duplicate.missingGifts', { names: notices.missingGifts.join(', ') }),
+    notices.discountConflicts.length > 0 &&
+      t('ecommerce.orders.new.duplicate.discountConflicts', { names: notices.discountConflicts.join(', ') }),
   ].filter((text): text is string => !!text);
 
   return (
@@ -857,6 +876,7 @@ const OrderCreatePage = () => {
       >
         <CreateShippingPanel
           quote={quote}
+          priceOf={(o) => listedShippingPrice(o, freshQuote)}
           selected={selectedOption}
           onSelect={selectShipping}
           error={translateCode(errors.shipping)}
@@ -892,12 +912,23 @@ const OrderCreatePage = () => {
           quote={shownQuote}
           disabled={disabled}
         />
+        {errors.manualDiscounts && (
+          <Typography variant="omega" textColor="danger600" role="alert">
+            {translateCode(errors.manualDiscounts)}
+          </Typography>
+        )}
+        {hasDiscountRows && stale && (
+          // The rows are the last quote's: its amounts may change, and the total waits for the new one.
+          <Typography variant="pi" textColor={pricingError ? 'danger600' : 'neutral500'}>
+            {pricingError ?? t('ecommerce.orders.quote.loading')}
+          </Typography>
+        )}
         {hasDiscountRows ? (
           <DiscountsTable
             rows={appliedRows}
             manualRows={manualRows}
             lineRows={lineDiscountRows}
-            total={shownQuote ? shownQuote.totals.totalDiscount : null}
+            total={freshQuote ? freshQuote.totals.totalDiscount : null}
             showActions={manualRows.length > 0}
           />
         ) : (
