@@ -31,7 +31,7 @@ const VARIANTS: Record<ToolbarAction, 'secondary' | 'danger-light' | 'tertiary'>
   REFUND: 'secondary',
   REGISTER_RETURN: 'secondary',
   CANCEL: 'danger-light',
-  ARCHIVE: 'tertiary',
+  ARCHIVE: 'secondary',
 };
 
 /** Reference, the three independent statuses, creation date and the available actions. */

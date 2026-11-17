@@ -203,6 +203,36 @@ const RegisterReturnModal = ({ order, canRefund, onClose, onRefundNow }: Props) 
         </Modal.Header>
         <Modal.Body>
           <Flex direction="column" alignItems="stretch" gap={5}>
+            {/* Reason and notes first, then the units to return. */}
+            <Field.Root name="reason" required error={fieldError('reason')}>
+              <Field.Label>{t('ecommerce.orders.returns.reason')}</Field.Label>
+              <TextInput
+                value={form.reason}
+                disabled={saving}
+                onChange={(e: any) => {
+                  setForm((f) => ({ ...f, reason: e.target.value }));
+                  clear(['reason', 'form']);
+                }}
+              />
+              <Field.Error />
+            </Field.Root>
+            <Field.Root
+              name="notes"
+              error={fieldError('notes')}
+              hint={t('ecommerce.orders.returns.notesHint', { max: MAX_RETURN_NOTES })}
+            >
+              <Field.Label>{t('ecommerce.orders.returns.notes')}</Field.Label>
+              <Textarea
+                value={form.notes}
+                disabled={saving}
+                onChange={(e: any) => {
+                  setForm((f) => ({ ...f, notes: e.target.value }));
+                  clear(['notes', 'form']);
+                }}
+              />
+              <Field.Hint />
+              <Field.Error />
+            </Field.Root>
             {form.lines.length === 0 ? (
               <Typography textColor="neutral600">{t('ecommerce.orders.returns.nothing')}</Typography>
             ) : (
@@ -276,42 +306,18 @@ const RegisterReturnModal = ({ order, canRefund, onClose, onRefundNow }: Props) 
                 </Tbody>
               </Table>
             )}
-            {errors.lines && <Typography textColor="danger600">{codeText(errors.lines)}</Typography>}
+            {errors.lines && (
+              // Nothing chosen to return: said in words, below the table (not a generic message).
+              <Typography variant="pi" textColor="danger600">
+                {errors.lines === 'required' ? t('ecommerce.orders.returns.linesRequired') : codeText(errors.lines)}
+              </Typography>
+            )}
             {cancelled && (
               <Typography variant="pi" textColor="neutral600">
                 {t('ecommerce.orders.returns.cancelledNoRestock')}
               </Typography>
             )}
 
-            <Field.Root name="reason" required error={fieldError('reason')}>
-              <Field.Label>{t('ecommerce.orders.returns.reason')}</Field.Label>
-              <TextInput
-                value={form.reason}
-                disabled={saving}
-                onChange={(e: any) => {
-                  setForm((f) => ({ ...f, reason: e.target.value }));
-                  clear(['reason', 'form']);
-                }}
-              />
-              <Field.Error />
-            </Field.Root>
-            <Field.Root
-              name="notes"
-              error={fieldError('notes')}
-              hint={t('ecommerce.orders.returns.notesHint', { max: MAX_RETURN_NOTES })}
-            >
-              <Field.Label>{t('ecommerce.orders.returns.notes')}</Field.Label>
-              <Textarea
-                value={form.notes}
-                disabled={saving}
-                onChange={(e: any) => {
-                  setForm((f) => ({ ...f, notes: e.target.value }));
-                  clear(['notes', 'form']);
-                }}
-              />
-              <Field.Hint />
-              <Field.Error />
-            </Field.Root>
 
             <Box padding={3} background="neutral100" hasRadius>
               <Flex direction="column" alignItems="stretch" gap={1}>
