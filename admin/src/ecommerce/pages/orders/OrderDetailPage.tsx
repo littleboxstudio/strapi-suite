@@ -455,7 +455,12 @@ const OrderDetailPage = () => {
         />
       )}
       {canManage && modal === 'SHIP' && (
-        <ShipOrderModal order={order} onClose={closeModal('SHIP')} onShipped={afterChange('SHIP')} />
+        <ShipOrderModal
+          order={order}
+          defaultLocale={defaultLocale}
+          onClose={closeModal('SHIP')}
+          onShipped={afterChange('SHIP')}
+        />
       )}
       {canManage && modal === 'REGISTER_RETURN' && (
         <RegisterReturnModal
