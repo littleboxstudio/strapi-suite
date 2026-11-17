@@ -1,7 +1,21 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
-import { Box, Button, Checkbox, Flex, Loader, Modal, Typography } from '@strapi/design-system';
+import {
+  Box,
+  Button,
+  Checkbox,
+  Flex,
+  Loader,
+  Modal,
+  Table,
+  Tbody,
+  Td,
+  Th,
+  Thead,
+  Tr,
+  Typography,
+} from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import PreviewDiscounts from '../../usecases/orders/previewDiscounts';
 import ApplyDiscounts from '../../usecases/orders/applyDiscounts';
@@ -23,6 +37,8 @@ import { mintUuid } from '../../utils/variantDraft';
 import type { DiscountRecalculation, DiscountRow, EditResult, Order } from '../../orderTypes';
 import BalanceOutcome from './BalanceOutcome';
 import EmptyNote from './EmptyNote';
+import NoticeBar from './NoticeBar';
+import { Tile, Tiles } from './SummaryTiles';
 
 type Props = {
   order: Order;
@@ -36,7 +52,8 @@ type Props = {
 /** Wait after the last toggle before pricing the selection again. */
 const PREVIEW_DELAY_MS = 300;
 
-const cell = { padding: '8px 8px', verticalAlign: 'top' } as const;
+// The design-system cells keep their own padding; amounts sit on the right.
+const cell = { verticalAlign: 'top' } as const;
 const amountCell = { ...cell, textAlign: 'right', whiteSpace: 'nowrap' } as const;
 
 /**
@@ -148,16 +165,16 @@ const RecalculateDiscountsModal = ({
     const checked = selection.includes(row.key);
     const name = nameOf(row);
     return (
-      <tr key={row.key}>
-        <td style={cell}>
+      <Tr key={row.key}>
+        <Td style={cell}>
           <Checkbox
             checked={checked}
             disabled={busy || row.locked !== null}
             aria-label={name}
             onCheckedChange={() => toggle(row)}
           />
-        </td>
-        <td style={cell}>
+        </Td>
+        <Td style={cell}>
           <Flex direction="column" alignItems="flex-start" gap={1}>
             <Typography textColor="neutral800" fontWeight="semiBold">
               {name}
@@ -190,21 +207,21 @@ const RecalculateDiscountsModal = ({
               </Typography>
             )}
           </Flex>
-        </td>
-        <td style={amountCell}>
+        </Td>
+        <Td style={amountCell}>
           <Typography textColor="neutral600">
             {row.currentAmount === null ? '—' : discount(row.currentAmount)}
           </Typography>
-        </td>
-        <td style={amountCell}>
+        </Td>
+        <Td style={amountCell}>
           <Typography
             textColor={checked ? 'neutral800' : 'neutral500'}
             fontWeight={checked ? 'semiBold' : undefined}
           >
             {discount(row.amount)}
           </Typography>
-        </td>
-      </tr>
+        </Td>
+      </Tr>
     );
   };
 
@@ -247,53 +264,43 @@ const RecalculateDiscountsModal = ({
     return (
       <Flex direction="column" alignItems="stretch" gap={4}>
         {groups.some((g) => g.kind !== 'NEW') && (
-          <Typography variant="pi" textColor="neutral600">
-            {t('ecommerce.orders.discounts.keptNote')}
-          </Typography>
+          <NoticeBar wrap text={t('ecommerce.orders.discounts.keptNote')} />
         )}
         {groups.length === 0 ? (
           <EmptyNote>{t('ecommerce.orders.discounts.nothing')}</EmptyNote>
         ) : (
-          <Box tag="table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th style={{ ...cell, width: 56, textAlign: 'left' }}>
-                  <Typography variant="sigma">
-                    {t('ecommerce.orders.discounts.columns.select')}
-                  </Typography>
-                </th>
-                <th style={{ ...cell, textAlign: 'left' }}>
-                  <Typography variant="sigma">
-                    {t('ecommerce.orders.discounts.columns.promotion')}
-                  </Typography>
-                </th>
-                <th style={{ ...cell, textAlign: 'right' }}>
-                  <Typography variant="sigma">
-                    {t('ecommerce.orders.discounts.columns.current')}
-                  </Typography>
-                </th>
-                <th style={{ ...cell, textAlign: 'right' }}>
-                  <Typography variant="sigma">
-                    {t('ecommerce.orders.discounts.columns.amount')}
-                  </Typography>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {groups.map((g) => (
-                <Fragment key={g.kind}>
-                  <tr>
-                    <td colSpan={4} style={{ ...cell, paddingTop: 16 }}>
-                      <Typography variant="sigma" textColor="neutral600">
-                        {t(`ecommerce.orders.discounts.group.${g.kind}`)}
+          // One table per group (applied and valid, applied but invalid, new, manual).
+          groups.map((g) => (
+            <Flex key={g.kind} direction="column" alignItems="stretch" gap={2}>
+              <Typography variant="sigma" textColor="neutral600">
+                {t(`ecommerce.orders.discounts.group.${g.kind}`)}
+              </Typography>
+              <Table colCount={4} rowCount={g.rows.length + 1}>
+                <Thead>
+                  <Tr>
+                    <Th style={{ width: 56 }}>
+                      <Typography variant="sigma">{t('ecommerce.orders.discounts.columns.select')}</Typography>
+                    </Th>
+                    <Th>
+                      <Typography variant="sigma">{t('ecommerce.orders.discounts.columns.promotion')}</Typography>
+                    </Th>
+                    {/* Fixed widths: the amount columns line up from one group's table to the next. */}
+                    <Th style={{ width: 150 }}>
+                      <Typography variant="sigma" style={{ display: 'block', width: '100%', textAlign: 'right' }}>
+                        {t('ecommerce.orders.discounts.columns.current')}
                       </Typography>
-                    </td>
-                  </tr>
-                  {g.rows.map(rowView)}
-                </Fragment>
-              ))}
-            </tbody>
-          </Box>
+                    </Th>
+                    <Th style={{ width: 120 }}>
+                      <Typography variant="sigma" style={{ display: 'block', width: '100%', textAlign: 'right' }}>
+                        {t('ecommerce.orders.discounts.columns.amount')}
+                      </Typography>
+                    </Th>
+                  </Tr>
+                </Thead>
+                <Tbody>{g.rows.map(rowView)}</Tbody>
+              </Table>
+            </Flex>
+          ))
         )}
         {!preview.exhaustive && (
           <Typography variant="pi" textColor="neutral600">
@@ -314,37 +321,35 @@ const RecalculateDiscountsModal = ({
             {t(loadError)}
           </Typography>
         )}
-        <Box
-          tag="table"
-          style={{ width: '100%', borderCollapse: 'collapse', opacity: pricing ? 0.5 : 1 }}
-        >
-          <thead>
-            <tr>
-              <th />
-              <th style={{ textAlign: 'right' }}>
-                <Typography variant="sigma">{t('ecommerce.orders.discounts.current')}</Typography>
-              </th>
-              <th style={{ textAlign: 'right' }}>
-                <Typography variant="sigma">{t('ecommerce.orders.discounts.after')}</Typography>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {totals.map((row) => (
-              <tr key={row.key}>
-                <td style={{ padding: '4px 0' }}>
-                  <Typography>{t(`ecommerce.orders.discounts.totals.${row.key}`)}</Typography>
-                </td>
-                <td style={{ textAlign: 'right' }}>
-                  <Typography textColor="neutral600">{money(row.before)}</Typography>
-                </td>
-                <td style={{ textAlign: 'right' }}>
-                  <Typography fontWeight="semiBold">{money(row.after)}</Typography>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </Box>
+        {/* The totals: the current ones in four tiles, the ones after the recalculation below. */}
+        {(['current', 'after'] as const).map((side) => (
+          <Flex key={side} direction="column" alignItems="stretch" gap={2} style={{ opacity: pricing ? 0.5 : 1 }}>
+            <Typography variant="sigma" textColor="neutral600">
+              {t(`ecommerce.orders.discounts.${side}`)}
+            </Typography>
+            <Tiles>
+              {totals.map((row) => {
+                const amount = side === 'current' ? row.before : row.after;
+                const owed = row.key === 'due' && amount > 0;
+                return (
+                  <Tile key={row.key} $tone={owed ? 'warning' : undefined}>
+                    <Typography variant="sigma" textColor="neutral600">
+                      {t(`ecommerce.orders.discounts.totals.${row.key}`)}
+                    </Typography>
+                    <Typography
+                      variant="beta"
+                      tag="p"
+                      textColor={owed ? 'warning600' : 'neutral800'}
+                      style={{ whiteSpace: 'nowrap' }}
+                    >
+                      {money(amount)}
+                    </Typography>
+                  </Tile>
+                );
+              })}
+            </Tiles>
+          </Flex>
+        ))}
       </Flex>
     );
   };

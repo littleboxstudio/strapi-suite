@@ -10,10 +10,12 @@ type Props = {
   text: string;
   /** Buttons on the right. */
   actions?: ReactNode;
+  /** Wraps a long text over several lines instead of ending it in an ellipsis. */
+  wrap?: boolean;
 };
 
 /** A one-line notice at the top of the order page, with its buttons on the right. */
-const NoticeBar = ({ text, actions }: Props) => (
+const NoticeBar = ({ text, actions, wrap = false }: Props) => (
   <Box
     role="alert"
     hasRadius
@@ -26,8 +28,8 @@ const NoticeBar = ({ text, actions }: Props) => (
     <Flex gap={3} alignItems="center" justifyContent="space-between">
       <Typography
         variant="omega"
-        ellipsis
-        title={text}
+        ellipsis={!wrap}
+        title={wrap ? undefined : text}
         style={{ color: NOTICE_TEXT, fontWeight: 'normal', minWidth: 0, flex: 1 }}
       >
         {text}
