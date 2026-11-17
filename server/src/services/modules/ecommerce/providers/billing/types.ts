@@ -18,8 +18,15 @@ export type InvoiceDraft = {
   total: number;
   /** `name`: the billing payment method name (`paymentMethodName`); '' uses the configured method. */
   payments: { method: 'STRIPE' | 'MANUAL' | 'STORE_CREDIT'; name: string; amount: number; date: string }[];
-  /** Credit notes: the document being credited. */
+  /** Credit notes: the document being credited (the first one, when there are `originals`). */
   original?: { externalId: string; total: number };
+  /**
+   * Credit notes on several documents (plan 15): each document credited, with the cents it
+   * credits of it (Σ values = `total`). Absent: `original` alone, for the whole total.
+   */
+  originals?: { externalId: string; value: number }[];
+  /** With `originals`: per entry of `lines`, the index in `originals` of the document it credits. */
+  lineOriginals?: number[];
   reason?: string;
 };
 

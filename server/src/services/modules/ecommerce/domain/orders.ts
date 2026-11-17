@@ -62,6 +62,14 @@ export type OrderTotals = {
   total: number;
 };
 
+/**
+ * The INVOICED refunds' adjustment as applied to a total of `beforeAdjustment` (plan 15): the
+ * requested cents, rounded, never below 0 nor above the total before it. One rule for
+ * `computeTotals` and for reading it back from the stored totals.
+ */
+export const appliedCreditAdjustment = (beforeAdjustment: number, requested: unknown): number =>
+  Math.max(0, Math.min(Math.max(0, beforeAdjustment), Math.round(Number(requested) || 0)));
+
 export const computeTotals = (
   lines: LineAmounts[],
   order: {
@@ -85,10 +93,7 @@ export const computeTotals = (
   const orderDiscount = Math.max(0, Math.min(order.orderDiscount, subtotal));
   const shippingTotal = order.shippingOriginal - order.shippingDiscount;
   const beforeAdjustment = subtotal - orderDiscount + shippingTotal;
-  const creditAdjustment = Math.max(
-    0,
-    Math.min(Math.max(0, beforeAdjustment), Math.round(Number(order.creditAdjustment) || 0))
-  );
+  const creditAdjustment = appliedCreditAdjustment(beforeAdjustment, order.creditAdjustment);
   const total = beforeAdjustment - creditAdjustment;
   return {
     itemsOriginal,

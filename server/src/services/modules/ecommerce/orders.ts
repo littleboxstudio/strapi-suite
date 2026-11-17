@@ -11,6 +11,7 @@ import {
   FULFILLMENT_STATUSES,
   availableActions,
   canTransition,
+  appliedCreditAdjustment,
   computeTotals,
   deriveFulfillmentStatus,
   derivePaymentStatus,
@@ -443,14 +444,14 @@ const num = (v: unknown): number => {
  * The INVOICED refunds' adjustment as `computeTotals` applied it to the stored totals: never
  * above the total before it (plan 15).
  */
-const appliedCreditAdjustment = (
+const storedCreditAdjustment = (
   order: { subtotal?: unknown; orderDiscount?: unknown; shippingTotal?: unknown },
   refunds: { scope?: string | null; status: string; amount: unknown }[]
 ): number => {
   const subtotal = num(order.subtotal);
   const orderDiscount = Math.max(0, Math.min(num(order.orderDiscount), subtotal));
   const before = subtotal - orderDiscount + num(order.shippingTotal);
-  return Math.max(0, Math.min(invoicedRefundAdjustment(refunds), Math.max(0, before)));
+  return appliedCreditAdjustment(before, invoicedRefundAdjustment(refunds));
 };
 const toPage = (page: unknown): number => {
   const n = Math.floor(Number(page));
@@ -1559,7 +1560,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         shippingOriginal: num(order.shippingOriginal),
         shippingDiscount: num(order.shippingDiscount),
         shippingTotal: num(order.shippingTotal),
-        creditAdjustment: appliedCreditAdjustment(order, refundRows),
+        creditAdjustment: storedCreditAdjustment(order, refundRows),
         total: num(order.total),
       },
       lines,

@@ -31,3 +31,12 @@ export function moloniFake(routes: Record<string, Handler>) {
   const of = (path: string) => calls.filter((c) => c.path === path);
   return { calls, f, paths, of };
 }
+
+/**
+ * A `documents/getUnrelatedProducts` handler answering per original document (`document_id`):
+ * a credit note on several invoices reads each one's open lines.
+ */
+export const unrelatedProducts =
+  (byDocument: Record<number, unknown[]>): Handler =>
+  (body) =>
+    byDocument[Number(body?.document_id)] ?? [];

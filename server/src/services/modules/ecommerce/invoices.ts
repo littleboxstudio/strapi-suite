@@ -34,9 +34,12 @@ import {
   buildCreditLines,
   creditOptions,
   exceedsCreditable,
+  refundCreditLine,
+  refundCreditOptions,
   settledDiscountIds,
   settledShippingLineIds,
   type CreditOptions,
+  type RefundCreditLineOption,
 } from './domain/creditNotes';
 import type { ShippingLineOrigin } from './domain/shippingLines';
 import type { ProviderRuntime } from './providers/registry';
@@ -134,6 +137,23 @@ export type CreditNoteOptions = {
   correctionBlocked: boolean;
   /** The SHIPPING credit note: the shipping invoiced above what the order now charges. */
   shippingAdjustment: { lines: InvoiceLine[]; total: number };
+  /**
+   * Why a CORRECTION is refused on this invoice (`correction` is then empty): a REFUND credit note
+   * credited it (plan 15).
+   */
+  correctionRefused: 'REFUND_CREDITED_INVOICE' | null;
+};
+
+/** What an INVOICED refund's credit note may credit, per ISSUED invoice of the order (plan 15). */
+export type RefundCreditNoteOptions = {
+  refund: { id: number; amount: number };
+  invoices: { invoiceId: number; number: string | null; lines: RefundCreditLineOption[] }[];
+};
+
+export type RefundCreditNoteInput = {
+  /** Units of ITEM lines, or a whole SHIPPING line (quantity 1), of each invoice. */
+  items: { invoiceId: number; index: number; quantity: number }[];
+  idempotencyKey: string;
 };
 
 export type CreditNoteInput = {
@@ -520,6 +540,35 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
 
   const describe = (row: any) => (row.kind === 'CREDIT_NOTE' ? 'Credit note' : 'Invoice');
 
+  /** The refund a REFUND credit note documents (plan 15), or null. */
+  const refundOfCreditNote = async (row: any) => {
+    if (row?.kind !== 'CREDIT_NOTE' || row.metadata?.creditType !== 'REFUND') return null;
+    const refundId = Number(row.metadata?.refundId);
+    if (!Number.isInteger(refundId)) return null;
+    return strapi.db.query(uids().refund).findOne({ where: { id: refundId } });
+  };
+
+  const refundMetadata = (refund: any): Record<string, unknown> =>
+    refund?.metadata && typeof refund.metadata === 'object' ? refund.metadata : {};
+
+  /** An issued REFUND credit note becomes its refund's credit note, unless it already has one. */
+  const claimRefundCreditNote = async (row: any) => {
+    const refund = await refundOfCreditNote(row);
+    if (!refund || refundMetadata(refund).creditNoteId != null) return;
+    await strapi.db.query(uids().refund).update({
+      where: { id: refund.id },
+      data: { metadata: { ...refundMetadata(refund), creditNoteId: row.id } },
+    });
+  };
+
+  /** A REFUND credit note that failed (or was refused) frees its refund for a new one. */
+  const releaseRefundCreditNote = async (row: any) => {
+    const refund = await refundOfCreditNote(row);
+    if (!refund || Number(refundMetadata(refund).creditNoteId) !== row.id) return;
+    const { creditNoteId: _drop, ...rest } = refundMetadata(refund);
+    await strapi.db.query(uids().refund).update({ where: { id: refund.id }, data: { metadata: rest } });
+  };
+
   const recordIssued = async (
     row: any,
     orderId: number,
@@ -553,6 +602,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     // An issued CORRECTION annuls the invoice: its payments can be invoiced again (ruling 13).
     const annulled = creditType === 'CORRECTION' ? idOf(row.creditedInvoice) : null;
     if (annulled !== null) await releaseAllocations(annulled);
+    if (creditType === 'REFUND') await claimRefundCreditNote(row);
     await history().record({
       orderId,
       type: creditNote ? 'CREDIT_NOTE_ISSUED' : 'INVOICE_ISSUED',
@@ -572,6 +622,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
         total: num(row.total),
         provider: row.provider,
         ...(creditNote ? { creditedInvoiceId: idOf(row.creditedInvoice), creditType } : {}),
+        ...(creditType === 'REFUND' ? { refundId: row.metadata?.refundId ?? null } : {}),
         ...(row.metadata?.selection ? { selection: row.metadata.selection } : {}),
         warnings,
       },
@@ -596,6 +647,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     const u = uids();
     await strapi.db.query(u.invoiceAllocation).deleteMany({ where: { invoice: { id: row.id } } });
     await strapi.db.query(u.invoice).delete({ where: { id: row.id } });
+    await releaseRefundCreditNote(row);
     await history().record({
       orderId,
       type: 'INVOICE_FAILED',
@@ -623,6 +675,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
       },
     });
     await releaseAllocations(row.id);
+    await releaseRefundCreditNote(row);
     await history().record({
       orderId,
       type: 'INVOICE_FAILED',
@@ -642,6 +695,10 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     const creditNote = readInvoiceDoc(row, []);
     const invoiceIds = creditedInvoiceIds(creditNote);
     if (!invoiceIds.length) return true;
+    // A REFUND credit note whose refund got another credit note meanwhile.
+    const refund = await refundOfCreditNote(row);
+    const other = refund ? refundMetadata(refund).creditNoteId : null;
+    if (other != null && Number(other) !== row.id) return true;
     // Each invoice it credits (one credit note may credit several, plan 15), on its own entries.
     for (const invoiceId of invoiceIds) {
       const original = await findRow({ id: invoiceId });
@@ -1135,15 +1192,31 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
         (d.status === 'PENDING' || d.status === 'UNCERTAIN')
     );
 
+  /**
+   * A live REFUND credit note credits `invoiceId` (plan 15): a CORRECTION is refused on it, since
+   * annulling the invoice would make its units invoiceable again while the refund keeps them out.
+   */
+  const refundCredited = (invoiceId: number, state: OrderState): boolean =>
+    state.invoicing.docs.some(
+      (d) =>
+        d.kind === 'CREDIT_NOTE' &&
+        d.creditType === 'REFUND' &&
+        d.status !== 'FAILED' &&
+        creditsInvoice(d, invoiceId)
+    );
+
   const creditNotePreview = async (invoiceId: number | string): Promise<CreditNoteOptions> => {
     const row = await loadIssuedInvoice(Number(invoiceId));
     const state = await orders().computeOrderState(idOf(row.order) as number);
     const { invoice, options } = creditOptionsOf(row, state);
-    const correction = buildCreditLines(invoice, options, {
-      creditType: 'CORRECTION',
-      lines: [],
-      shippingIndexes: [],
-    });
+    const correctionRefused = refundCredited(row.id, state) ? 'REFUND_CREDITED_INVOICE' : null;
+    const correction = correctionRefused
+      ? { lines: [], total: 0 }
+      : buildCreditLines(invoice, options, {
+          creditType: 'CORRECTION',
+          lines: [],
+          shippingIndexes: [],
+        });
     const adjustment = buildCreditLines(invoice, options, {
       creditType: 'SHIPPING',
       lines: [],
@@ -1157,6 +1230,7 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
       returnable: options.returnable,
       shipping: options.shipping,
       correctionBlocked: creditNoteInProgress(row.id, state),
+      correctionRefused,
     };
   };
 
@@ -1202,6 +1276,9 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
         // A CORRECTION credits everything left: it waits until no other credit note is unknown.
         if (creditType === 'CORRECTION' && creditNoteInProgress(original.id, state)) {
           throw invalid('creditType', 'CREDIT_NOTE_IN_PROGRESS');
+        }
+        if (creditType === 'CORRECTION' && refundCredited(original.id, state)) {
+          throw invalid('creditType', 'REFUND_CREDITED_INVOICE');
         }
         const built = buildCreditLines(invoice, options, {
           creditType,
@@ -1264,6 +1341,213 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     );
   };
 
+  // ---------------------------------------------------------------------------
+  // Credit note of an INVOICED refund (plan 15)
+  // ---------------------------------------------------------------------------
+
+  const loadRefund = async (refundId: number) => {
+    const refund = await strapi.db.query(uids().refund).findOne({
+      where: { id: refundId },
+      populate: { order: { select: ['id'] } },
+    });
+    if (!refund) throw new EcommerceNotFoundError('Refund not found');
+    const orderId = idOf(refund.order);
+    if (orderId === null) throw new EcommerceNotFoundError('Order not found');
+    return { refund, orderId };
+  };
+
+  /** The refund's credit note, unless it FAILED or was discarded (then a new one may be issued). */
+  const hasCreditNote = async (refund: any): Promise<boolean> => {
+    const id = refundMetadata(refund).creditNoteId;
+    if (id == null) return false;
+    const row = await findRow({ id: Number(id) });
+    return !!row && row.status !== 'FAILED';
+  };
+
+  /**
+   * The order's ISSUED invoices of `providerId`, not annulled, each with what a REFUND credit
+   * note may still credit of it (live credit notes counted).
+   */
+  const refundableInvoices = async (orderId: number, state: OrderState, providerId: string) => {
+    const rows: any[] = await strapi.db.query(uids().invoice).findMany({
+      where: { order: { id: orderId }, kind: 'INVOICE', status: 'ISSUED' },
+      populate: { order: { select: ['id'] }, creditedInvoice: { select: ['id'] } },
+      orderBy: { id: 'asc' },
+    });
+    const annulled = new Set(state.invoicing.position.annulledInvoiceIds);
+    return rows
+      .filter((r) => String(r.provider ?? '') === providerId && !annulled.has(r.id))
+      .map((row) => {
+        const { invoice, options } = creditOptionsOf(row, state);
+        return { row, invoice, options, lines: refundCreditOptions(invoice, options) };
+      });
+  };
+
+  const refundCreditNoteOptions = async (
+    rawRefundId: number | string
+  ): Promise<RefundCreditNoteOptions> => {
+    const { refund, orderId } = await loadRefund(Number(rawRefundId));
+    const billing = await billingStatus();
+    const state = await orders().computeOrderState(orderId);
+    const invoices = billing.providerId
+      ? await refundableInvoices(orderId, state, billing.providerId)
+      : [];
+    return {
+      refund: { id: refund.id, amount: num(refund.amount) },
+      invoices: invoices
+        .filter((i) => i.lines.length > 0)
+        .map((i) => ({ invoiceId: i.row.id, number: i.row.number ?? null, lines: i.lines })),
+    };
+  };
+
+  /**
+   * Issues ONE credit note for an INVOICED refund (plan 15), across the order's invoices: the
+   * selected elements (whole units, valued the RETURN way, and whole shipping lines) must add up
+   * to the refund amount exactly. The refund is COMPLETED, has no credit note yet, the order is
+   * not archived and the billing provider is active. `creditedInvoice` is the first invoice; each
+   * `creditedLines` entry names its own. The refund's `metadata.creditNoteId` is set with the
+   * PENDING row (cleared again if the document fails or is refused).
+   */
+  const issueRefundCreditNote = async (
+    rawRefundId: number | string,
+    input: RefundCreditNoteInput,
+    actor: string
+  ): Promise<InvoiceView> => {
+    const key = keyOf(input);
+    const refundId = Number(rawRefundId);
+    const { orderId } = await loadRefund(refundId);
+
+    const existing = await findByKey(orderId, key, 'CREDIT_NOTE');
+    if (existing) return viewOf(existing.id);
+
+    const { provider, runtime } = await activeProvider();
+    if (!provider.capabilities.creditNotes) throw new EcommerceBillingError('NOT_SUPPORTED');
+    const tz = await storeTimeZone();
+
+    return twoPhase(
+      orderId,
+      key,
+      'CREDIT_NOTE',
+      provider,
+      runtime,
+      async () => {
+        const { refund } = await loadRefund(refundId);
+        const removed = refundMetadata(refund).removed === true;
+        if (refund.scope !== 'INVOICED' || refund.status !== 'COMPLETED' || removed) {
+          throw invalid('refund', 'REFUND_NOT_CREDITABLE');
+        }
+        if (await hasCreditNote(refund)) throw invalid('refund', 'REFUND_HAS_CREDIT_NOTE');
+        const state = await orders().computeOrderState(orderId);
+        if (state.order.orderStatus === 'ARCHIVED') throw notAvailable();
+
+        const items = Array.isArray(input?.items) ? input.items : [];
+        if (!items.length) throw invalid('items', 'required');
+        const invoices = await refundableInvoices(orderId, state, provider.id);
+        const byId = new Map(invoices.map((i) => [i.row.id, i]));
+        const issues: { path: string; code: string }[] = [];
+        const seen = new Set<string>();
+        const picked: {
+          invoiceId: number;
+          index: number;
+          line: InvoiceLine;
+          value: number;
+          quantity: number;
+        }[] = [];
+        items.forEach((raw, i) => {
+          const item: Record<string, unknown> = raw && typeof raw === 'object' ? (raw as any) : {};
+          const target = byId.get(Number(item.invoiceId));
+          if (!target) {
+            issues.push({ path: `items.${i}.invoiceId`, code: 'invalid' });
+            return;
+          }
+          const id = `${target.row.id}:${String(item.index)}`;
+          if (seen.has(id)) {
+            issues.push({ path: `items.${i}.index`, code: 'duplicate' });
+            return;
+          }
+          seen.add(id);
+          const built = refundCreditLine(target.invoice, target.options, item.index, item.quantity);
+          if ('issue' in built) {
+            issues.push({ path: `items.${i}.${built.issue}`, code: built.code });
+            return;
+          }
+          picked.push({ invoiceId: target.row.id, index: Number(item.index), ...built });
+        });
+        if (issues.length) throw new EcommerceValidationError('Invalid credit note', issues);
+        // In invoice order, then line order: one credit note, each line on its own invoice.
+        const order = invoices.map((i) => i.row.id).filter((id) => picked.some((p) => p.invoiceId === id));
+        picked.sort(
+          (a, b) => order.indexOf(a.invoiceId) - order.indexOf(b.invoiceId) || a.index - b.index
+        );
+        const valueOf = (invoiceId: number) =>
+          picked.filter((p) => p.invoiceId === invoiceId).reduce((s, p) => s + p.value, 0);
+        if (order.some((id) => valueOf(id) > byId.get(id)!.options.held)) {
+          throw invalid('items', 'CREDIT_EXCEEDS_INVOICE');
+        }
+        const total = picked.reduce((s, p) => s + p.value, 0);
+        if (total !== num(refund.amount)) {
+          throw new EcommerceValidationError('Invalid credit note', [
+            { path: 'items', code: 'CREDIT_TOTAL_DIFFERS', detail: String(total) },
+          ]);
+        }
+
+        const first = byId.get(order[0])!.row;
+        const locale = clean(first.metadata?.locale) || state.order.locale;
+        const customer = (first.customerData ?? customerOf(state.order)) as InvoiceCustomer;
+        const reason = (clean(refund.description) || clean(refund.reason) || 'Refund').slice(0, MAX_REASON);
+        const lines = picked.map((p) => p.line);
+        const row = await createPending({
+          order: orderId,
+          provider: provider.id,
+          kind: 'CREDIT_NOTE',
+          creditedInvoice: first.id,
+          total,
+          lines: { lines },
+          customerData: customer,
+          idempotencyKey: key,
+          actor,
+          metadata: {
+            locale,
+            reason,
+            creditType: 'REFUND',
+            refundId: refund.id,
+            creditedLines: picked.map((p) => ({
+              invoiceId: p.invoiceId,
+              index: p.index,
+              value: p.value,
+              quantity: p.quantity,
+            })),
+          },
+        });
+        await strapi.db.query(uids().refund).update({
+          where: { id: refund.id },
+          data: { metadata: { ...refundMetadata(refund), creditNoteId: row.id } },
+        });
+        const draft: InvoiceDraft = {
+          kind: 'CREDIT_NOTE',
+          ourReference: row.ourReference,
+          orderReference: `#${state.order.reference}`,
+          date: dateIn(new Date(), tz),
+          locale,
+          customer,
+          lines,
+          total,
+          payments: [],
+          original: { externalId: String(first.externalId), total: num(first.total) },
+          originals: order.map((id) => ({
+            externalId: String(byId.get(id)!.row.externalId),
+            value: valueOf(id),
+          })),
+          lineOriginals: picked.map((p) => order.indexOf(p.invoiceId)),
+          reason,
+        };
+        return { row, draft };
+      },
+      actor,
+      () => invalid('idempotencyKey', 'IDEMPOTENCY_KEY_CONFLICT')
+    );
+  };
+
   return {
     activeProvider,
     billingStatus,
@@ -1273,6 +1557,8 @@ const EcommerceInvoiceService = ({ strapi }: { strapi: Core.Strapi }) => {
     getPdf,
     creditNotePreview,
     issueCreditNote,
+    refundCreditNoteOptions,
+    issueRefundCreditNote,
     listForOrder,
   };
 };

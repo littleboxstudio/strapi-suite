@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   allocateProportionally,
+  appliedCreditAdjustment,
   computeTotals,
   financialSummary,
   derivePaymentStatus,
@@ -38,6 +39,17 @@ describe('status constants', () => {
     ]);
     expect(FULFILLMENT_STATUSES).toEqual(['UNFULFILLED', 'PARTIALLY_FULFILLED', 'FULFILLED']);
     expect(PAYMENT_RECORD_STATUSES).toEqual(['PENDING', 'COMPLETED', 'CANCELLED', 'FAILED']);
+  });
+});
+
+describe('appliedCreditAdjustment', () => {
+  it('takes the requested adjustment, never above the total before it nor below 0', () => {
+    expect(appliedCreditAdjustment(4500, 500)).toBe(500);
+    expect(appliedCreditAdjustment(400, 500)).toBe(400);
+    expect(appliedCreditAdjustment(-10, 500)).toBe(0);
+    expect(appliedCreditAdjustment(4500, -5)).toBe(0);
+    expect(appliedCreditAdjustment(4500, 12.6)).toBe(13);
+    expect(appliedCreditAdjustment(4500, Number.NaN)).toBe(0);
   });
 });
 

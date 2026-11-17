@@ -26,4 +26,6 @@ export default [
   route('GET', '/invoices/:id/pdf', `${I}.pdf`, oRead),
   route('GET', '/invoices/:id/credit-note/preview', `${I}.creditNotePreview`, oRead),
   route('POST', '/invoices/:id/credit-note', `${I}.issueCreditNote`, inv),
+  route('GET', '/refunds/:id/credit-note/options', `${I}.refundCreditNoteOptions`, oRead),
+  route('POST', '/refunds/:id/credit-note', `${I}.issueRefundCreditNote`, inv),
 ];

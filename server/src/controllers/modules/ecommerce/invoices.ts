@@ -136,6 +136,31 @@ const EcommerceInvoiceController = ({ strapi }: { strapi: Core.Strapi }) => {
         },
         { status: 201 }
       ),
+
+    refundCreditNoteOptions: (ctx: any) =>
+      run(ctx, (id) => invoices().refundCreditNoteOptions(id), { notFound: 'Refund not found' }),
+
+    issueRefundCreditNote: (ctx: any) =>
+      run(
+        ctx,
+        (id) => {
+          const b = asObject(ctx.request?.body);
+          if (!Array.isArray(b.items)) fail(MSG, 'items', 'invalid');
+          const input = {
+            items: list('items', b.items).map((raw, i) => {
+              const item = asObject(raw);
+              return {
+                invoiceId: positiveInt(MSG, `items.${i}.invoiceId`, item.invoiceId),
+                index: nonNegativeInt(`items.${i}.index`, item.index),
+                quantity: positiveInt(MSG, `items.${i}.quantity`, item.quantity),
+              };
+            }),
+            idempotencyKey: requiredString(MSG, 'idempotencyKey', b.idempotencyKey, MAX_KEY),
+          };
+          return invoices().issueRefundCreditNote(id, input, actorOf(ctx));
+        },
+        { status: 201, notFound: 'Refund not found' }
+      ),
   };
 };
 

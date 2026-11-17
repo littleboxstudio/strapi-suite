@@ -11,7 +11,7 @@ import {
 } from '../../../../server/src/services/modules/ecommerce/providers/billing';
 import type { InvoiceDraft } from '../../../../server/src/services/modules/ecommerce/providers/billing/types';
 import { EcommerceBillingError } from '../../../../server/src/services/modules/ecommerce/errors';
-import { json, moloniFake } from './moloniFake';
+import { json, moloniFake, unrelatedProducts } from './moloniFake';
 
 const rt = (config: Record<string, unknown> = {}) => ({
   config: { clientId: 'cid', username: 'u', companyId: 42, ...config },
@@ -730,6 +730,96 @@ describe('moloniProvider.issue (CREDIT_NOTE) — related lines', () => {
     expect(err.uncertain).toBe(false);
     expect(err.message).toBe('Line 1 is not on the original Moloni document, or that quantity was already credited.');
     expect(m.of('creditNotes/insert')).toHaveLength(0);
+  });
+});
+
+describe('moloniProvider.issue (CREDIT_NOTE) — several originals', () => {
+  const mug = (quantity: number, total: number) => ({
+    orderLineId: 1, kind: 'ITEM' as const, sku: 'SKU-1', name: 'Mug', quantity, total, tax: 23, partial: false,
+  });
+  const shipping = { orderLineId: null, kind: 'SHIPPING' as const, sku: 'PORTES', name: 'Shipping', quantity: 1, total: 615, tax: 23, partial: false };
+  const discount = { orderLineId: null, kind: 'DISCOUNT' as const, sku: 'DISCOUNT', name: 'Promo', quantity: 1, total: -100, tax: 0, partial: false };
+  const routes = () =>
+    happyRoutes({
+      'documents/getUnrelatedProducts': unrelatedProducts({
+        777: [{ document_product_id: 9001, product_id: 200, reference: 'SKU-1', qty: 2 }],
+        778: [
+          { document_product_id: 9101, product_id: 200, reference: 'SKU-1', qty: 1 },
+          { document_product_id: 9102, product_id: 201, reference: 'PORTES', qty: 1 },
+        ],
+      }),
+    });
+  const credit = (over: Partial<InvoiceDraft> = {}) =>
+    draft({
+      kind: 'CREDIT_NOTE',
+      lines: [mug(1, 1230), shipping],
+      total: 1845,
+      payments: [],
+      original: { externalId: '777', total: 2460 },
+      originals: [
+        { externalId: '777', value: 1230 },
+        { externalId: '778', value: 615 },
+      ],
+      lineOriginals: [0, 1],
+      reason: 'Refund',
+      ...over,
+    });
+
+  it('associates every invoice with its value; each line relates to its own original', async () => {
+    const m = moloniFake(routes());
+    await moloniProvider.issue(credit(), rt());
+    const b = m.of('creditNotes/insert')[0].body;
+    expect(b.associated_documents).toEqual([
+      { associated_id: 777, value: 12.3 },
+      { associated_id: 778, value: 6.15 },
+    ]);
+    expect(b.products.map((p: any) => p.related_id)).toEqual([9001, 9102]);
+    expect(m.of('documents/getUnrelatedProducts').map((c) => c.body.document_id)).toEqual([777, 778]);
+  });
+
+  it('the same product on two invoices takes the line of its own invoice', async () => {
+    const m = moloniFake(routes());
+    await moloniProvider.issue(
+      credit({
+        lines: [mug(1, 1230), mug(1, 1230)],
+        total: 2460,
+        originals: [
+          { externalId: '777', value: 1230 },
+          { externalId: '778', value: 1230 },
+        ],
+        lineOriginals: [1, 0],
+      }),
+      rt()
+    );
+    expect(m.of('creditNotes/insert')[0].body.products.map((p: any) => p.related_id)).toEqual([9101, 9001]);
+  });
+
+  it('DISCOUNT records stay out, their original index skipped with them', async () => {
+    const m = moloniFake(routes());
+    await moloniProvider.issue(credit({ lines: [mug(1, 1230), discount, shipping], lineOriginals: [0, 0, 1] }), rt());
+    expect(m.of('creditNotes/insert')[0].body.products.map((p: any) => p.related_id)).toEqual([9001, 9102]);
+  });
+
+  it('a line not on its own original refuses the credit note before any write', async () => {
+    const m = moloniFake(routes());
+    const err: any = await fail(moloniProvider.issue(credit({ lineOriginals: [0, 0] }), rt()));
+    expect(err.code).toBe('BILLING_REQUEST_FAILED');
+    expect(err.uncertain).toBe(false);
+    expect(m.of('creditNotes/insert')).toHaveLength(0);
+  });
+
+  it('originals that do not add up to the total, or lines without an original, are refused before any write', async () => {
+    const m = moloniFake(routes());
+    for (const bad of [
+      credit({ originals: [{ externalId: '777', value: 1230 }, { externalId: '778', value: 600 }] }),
+      credit({ lineOriginals: [0] }),
+      credit({ lineOriginals: [0, 2] }),
+    ]) {
+      const err: any = await fail(moloniProvider.issue(bad, rt()));
+      expect(err.code).toBe('BILLING_REQUEST_FAILED');
+      expect(err.uncertain).toBe(false);
+    }
+    expect(writes(m.paths())).toHaveLength(0);
   });
 });
 
