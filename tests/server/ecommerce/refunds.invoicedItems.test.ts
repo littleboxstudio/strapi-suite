@@ -429,20 +429,54 @@ describe('a legacy INVOICED refund (no metadata.items)', () => {
 });
 
 describe('fix round 1', () => {
-  it('the preview and create offer only invoices of the active billing provider', async () => {
-    const { c, id, a, b } = await twoInvoices();
+  /**
+   * 2 × 2000 + 500, paid in full: invoice 900 (the active provider) holds one unit and the
+   * shipping (2500), invoice 905 (another provider) the other unit (2000). Nothing over-invoiced.
+   */
+  const otherProvider = async () => {
+    const s = setup();
+    const { c } = s;
+    const id = await newOrder(c, 2);
+    await c.payments.addManualPayment(id, { amount: orderRow(c, id).total, idempotencyKey: 'p1' }, actor);
+    const lineId = lineIdOf(c, id);
     const shippingLineId = orderRow(c, id).shippingLines.lines[0].id;
+    seedInvoice(c, id, 900, [
+      { orderLineId: lineId, kind: 'ITEM', sku: 'SH-M', name: 'Shirt', quantity: 1, total: 2000, tax: 23, partial: false, discountShare: 0 },
+      { orderLineId: null, kind: 'SHIPPING', sku: '', name: 'Shipping', quantity: 1, total: 500, tax: 23, partial: false, shippingLineId },
+    ]);
     seedInvoice(c, id, 905, [
-      { orderLineId: null, kind: 'SHIPPING', sku: '', name: 'Shipping', quantity: 1, total: 100, tax: 23, partial: false, shippingLineId },
+      { orderLineId: lineId, kind: 'ITEM', sku: 'SH-M', name: 'Shirt', quantity: 1, total: 2000, tax: 23, partial: false, discountShare: 0 },
     ]);
     c.tables[UIDS.invoice].find((r) => r.id === 905).provider = 'otherbill';
+    return { ...s, id };
+  };
+
+  const offeredSum = (p: any) =>
+    p.invoicedElements.invoices.flatMap((i: any) => i.lines).reduce((s: number, l: any) => s + l.valueLeft, 0);
+
+  it('billing active: only invoices of the active provider; invoicedRefundable is their sum', async () => {
+    const { c, id } = await otherProvider();
     const p = await c.refunds.preview(id);
-    expect(p.invoicedElements.invoices.map((i: any) => i.invoiceId)).toEqual([a.id, b.id]);
+    expect(p.invoicedElements.invoices.map((i: any) => i.invoiceId)).toEqual([900]);
+    expect(offeredSum(p)).toBe(2500);
+    expect(p.invoicedRefundable).toBe(2500);
     expect(await codesOf(create(c, id, [{ invoiceId: 905, index: 0, quantity: 1 }]))).toEqual(['REFUND_ITEMS_INVALID']);
-    // Billing not active: nothing to pick.
+  });
+
+  it('billing not active (fix round 2): every ISSUED invoice of any provider; Remove only, no credit note', async () => {
+    const { c, inv, id } = await otherProvider();
     c.services.EcommerceSettingsService.getActiveProviders = async () => [];
-    expect((await c.refunds.preview(id)).invoicedElements).toEqual({ invoices: [] });
-    expect(await codesOf(create(c, id, [{ invoiceId: a.id, index: 0, quantity: 1 }]))).toEqual(['REFUND_ITEMS_INVALID']);
+    const p = await c.refunds.preview(id);
+    expect(p.invoicedElements.invoices.map((i: any) => i.invoiceId)).toEqual([900, 905]);
+    expect(offeredSum(p)).toBe(4500);
+    expect(p.invoicedRefundable).toBe(4500);
+    const [r] = await create(c, id, [{ invoiceId: 905, index: 0, quantity: 1 }]);
+    expect(r.amount).toBe(2000);
+    expect((await c.refunds.preview(id)).invoicedRefundable).toBe(2500);
+    expect(await inv.refundCreditNoteOptions(r.id)).toMatchObject({ creditable: false, reason: 'BILLING_NOT_CONFIGURED' });
+    expect((await c.refunds.list(id))[0].removable).toBe(true);
+    await c.refunds.remove(r.id, actor);
+    expect((await c.refunds.preview(id)).invoicedRefundable).toBe(4500);
   });
 
   it('an invoice holding elements of an uncredited INVOICED refund refuses a CORRECTION', async () => {
