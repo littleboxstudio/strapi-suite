@@ -6,6 +6,7 @@ import {
 } from '../../../server/src/services/modules/ecommerce/errors';
 import { STRIPE_WEBHOOK_EVENTS } from '../../../server/src/services/modules/ecommerce/stripeWebhooks';
 import createRefunds from '../../../server/src/controllers/modules/ecommerce/refunds';
+import { CONFLICT_CODES } from '../../../server/src/controllers/modules/ecommerce/errors';
 import createCredits from '../../../server/src/controllers/modules/ecommerce/storeCredits';
 import createNotifications from '../../../server/src/controllers/modules/ecommerce/notifications';
 import createOrders from '../../../server/src/controllers/modules/ecommerce/orders';
@@ -98,7 +99,7 @@ describe('EcommerceRefundController', () => {
     expect(b.body.error.details.code).toBe('IDEMPOTENCY_KEY_CONFLICT');
   });
 
-  it('create passes the scope; remove uses the actor and maps its codes to 400', async () => {
+  it('create passes the scope; remove uses the actor and maps its codes to 409', async () => {
     const create = vi.fn().mockResolvedValue([{ id: 1 }]);
     const remove = vi
       .fn()
@@ -113,7 +114,22 @@ describe('EcommerceRefundController', () => {
     const r = mkCtx();
     await c.remove(r);
     expect(remove).toHaveBeenCalledWith(5, 'user:7');
-    expect(r.badRequest).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ code: 'REFUND_HAS_CREDIT_NOTE' }));
+    expect(r.status).toBe(409);
+    expect(r.body.error.details.code).toBe('REFUND_HAS_CREDIT_NOTE');
+  });
+
+  it('plan 15 conflict codes answer 409', () => {
+    expect(CONFLICT_CODES).toEqual(
+      expect.arrayContaining([
+        'REFUND_HAS_CREDIT_NOTE',
+        'REFUND_NOT_CREDITABLE',
+        'CREDIT_TOTAL_DIFFERS',
+        'CREDIT_EXCEEDS_INVOICE',
+        'REFUND_NOT_REMOVABLE',
+        'STORE_CREDIT_USED',
+        'UNITS_REFUND_CREDITED',
+      ])
+    );
   });
 
   it('resume and markFailed use the actor; not found maps to 404; bad id is 400', async () => {
