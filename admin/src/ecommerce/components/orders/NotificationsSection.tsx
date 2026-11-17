@@ -41,7 +41,12 @@ const STATUS_VARIANT: Record<string, 'success' | 'danger' | 'neutral'> = {
   SENT: 'success',
   FAILED: 'danger',
   SKIPPED: 'neutral',
+  SENDING: 'neutral',
 };
+
+/** While an e-mail is being sent the list is read again, this often, at most this many times. */
+const SENDING_POLL_MS = 2000;
+const SENDING_POLL_MAX = 15;
 
 /** E-mails of the order: type, recipient, status, date, and "Resend" for FAILED / SKIPPED ones. */
 const NotificationsSection = ({ orderId, refreshKey, canResend }: Props) => {
@@ -73,9 +78,23 @@ const NotificationsSection = ({ orderId, refreshKey, canResend }: Props) => {
     }
   }, [orderId]);
 
+  /** Reads made since the last load asked for by the page (bounded polling). */
+  const polls = useRef(0);
   useEffect(() => {
+    polls.current = 0;
     load();
   }, [load, refreshKey]);
+
+  // An e-mail still being sent: read the list again shortly, until none is (bounded).
+  const sending = !!items?.some((n) => n.status === 'SENDING');
+  useEffect(() => {
+    if (!sending || polls.current >= SENDING_POLL_MAX) return;
+    const timer = setTimeout(() => {
+      polls.current += 1;
+      load();
+    }, SENDING_POLL_MS);
+    return () => clearTimeout(timer);
+  }, [sending, items, load]);
 
   const errorLabel = (code: string | null) =>
     t(`ecommerce.orders.notifications.errors.${code}`, undefined, t('ecommerce.orders.notifications.errors.unknown'));

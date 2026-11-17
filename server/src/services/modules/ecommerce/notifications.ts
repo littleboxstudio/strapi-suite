@@ -19,7 +19,8 @@ import type { OrderHistoryEntry } from './orderHistory';
 /** E-mails that carry the document's PDF (an invoice, or a credit note). */
 const PDF_TEMPLATES = ['INVOICE_AVAILABLE', 'CREDIT_NOTE_ISSUED'];
 
-export type NotificationStatus = 'SENT' | 'FAILED' | 'SKIPPED';
+/** `SENDING` is a view status only: a row a sender claimed and has not finished yet. */
+export type NotificationStatus = 'SENT' | 'FAILED' | 'SKIPPED' | 'SENDING';
 
 export type NotificationView = {
   id: number;
@@ -64,20 +65,40 @@ const num = (v: unknown): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
-const toView = (r: any): NotificationView => ({
-  id: r.id,
-  orderId: idOf(r.order),
-  type: r.type,
-  eventId: r.eventId ?? null,
-  recipient: r.recipient ?? null,
-  locale: r.locale ?? null,
-  status: r.status ?? null,
-  providerMessageId: r.providerMessageId ?? null,
-  error: r.error ?? null,
-  attempts: num(r.attempts),
-  sentAt: r.sentAt ?? null,
-  createdAt: r.createdAt ?? null,
-});
+/**
+ * A claim younger than this reads as SENDING; an older one was left by a crash and reads as
+ * FAILED (it can be resent).
+ */
+export const SENDING_WINDOW_MS = 2 * 60 * 1000;
+
+/** A row claimed by a sender still within the sending window (stored as FAILED / IN_PROGRESS). */
+const isSending = (r: any, now: number): boolean => {
+  if (r.status !== 'FAILED' || r.error !== IN_PROGRESS) return false;
+  const at = new Date(r.updatedAt ?? r.createdAt ?? 0).getTime();
+  return Number.isFinite(at) && now - at < SENDING_WINDOW_MS;
+};
+
+/**
+ * The claim is stored as FAILED / IN_PROGRESS so a crash stays resendable; while it is fresh it
+ * is shown as SENDING, never as a failure.
+ */
+const toView = (r: any, now: number = Date.now()): NotificationView => {
+  const sending = isSending(r, now);
+  return {
+    id: r.id,
+    orderId: idOf(r.order),
+    type: r.type,
+    eventId: r.eventId ?? null,
+    recipient: r.recipient ?? null,
+    locale: r.locale ?? null,
+    status: sending ? 'SENDING' : (r.status ?? null),
+    providerMessageId: r.providerMessageId ?? null,
+    error: sending ? null : (r.error ?? null),
+    attempts: num(r.attempts),
+    sentAt: r.sentAt ?? null,
+    createdAt: r.createdAt ?? null,
+  };
+};
 
 /**
  * Error text safe to store and show: our own error codes and messages (the e-mail provider's
@@ -494,7 +515,7 @@ const EcommerceNotificationService = ({ strapi }: { strapi: Core.Strapi }) => {
       where: { order: { id: Number(orderId) } },
       orderBy: [{ id: 'desc' }],
     });
-    return list.map(toView);
+    return list.map((r) => toView(r));
   };
 
   return { handle, resend, listForOrder };
