@@ -2139,6 +2139,7 @@
   "littlebox-strapi-suite.ecommerce.orders.discounts.columns.promotion": "Promotion",
   "littlebox-strapi-suite.ecommerce.orders.discounts.columns.current": "Current value",
   "littlebox-strapi-suite.ecommerce.orders.discounts.columns.amount": "Value",
+  "littlebox-strapi-suite.ecommerce.orders.discounts.columns.totals": "Totals",
   "littlebox-strapi-suite.ecommerce.orders.discounts.totals.subtotal": "Products",
   "littlebox-strapi-suite.ecommerce.orders.discounts.totals.shipping": "Shipping",
   "littlebox-strapi-suite.ecommerce.orders.discounts.totals.total": "Total",
