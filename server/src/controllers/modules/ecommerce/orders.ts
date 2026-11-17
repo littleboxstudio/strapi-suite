@@ -104,8 +104,11 @@ const EcommerceOrderController = ({ strapi }: { strapi: Core.Strapi }) => {
       ),
 
     shippingQuote: (ctx: any) => {
-      const { country, postalCode, lines, locale } = body(ctx);
-      return respond(ctx, () => orders().quoteForLines({ country, postalCode, lines, locale }));
+      const { country, postalCode, lines, locale, subtotal } = body(ctx);
+      // Admin only: gift lines and the order quote's subtotal (Create order).
+      return respond(ctx, () =>
+        orders().quoteForLines({ country, postalCode, lines, locale, subtotal }, { admin: true })
+      );
     },
 
     variantSearch: (ctx: any) => {

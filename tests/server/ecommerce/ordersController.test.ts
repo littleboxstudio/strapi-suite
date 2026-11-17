@@ -131,9 +131,13 @@ describe('EcommerceOrderController', () => {
     const searchVariants = vi.fn().mockResolvedValue([]);
     const c = orders({ EcommerceOrderService: { quoteForLines, searchVariants } });
     await c.shippingQuote(
-      mkCtx({ request: { body: { country: 'PT', postalCode: '1000', lines: [], locale: 'en', junk: 1 } } })
+      mkCtx({ request: { body: { country: 'PT', postalCode: '1000', lines: [], locale: 'en', subtotal: 900, junk: 1 } } })
     );
-    expect(quoteForLines).toHaveBeenCalledWith({ country: 'PT', postalCode: '1000', lines: [], locale: 'en' });
+    // Admin: gift lines and the order quote's subtotal are honoured.
+    expect(quoteForLines).toHaveBeenCalledWith(
+      { country: 'PT', postalCode: '1000', lines: [], locale: 'en', subtotal: 900 },
+      { admin: true }
+    );
     await c.variantSearch(mkCtx({ query: { q: 'abc', locale: 'pt' } }));
     expect(searchVariants).toHaveBeenCalledWith('abc', 'pt');
   });
