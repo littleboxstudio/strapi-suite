@@ -25,7 +25,7 @@ import RefreshRefund from '../../usecases/orders/refreshRefund';
 import MarkRefundFailed from '../../usecases/orders/markRefundFailed';
 import RemoveRefund from '../../usecases/orders/removeRefund';
 import { openInvoicePdf } from '../../utils/openInvoicePdf';
-import { refundRowActions } from '../../utils/refundCreditNote';
+import { refundItemRows, refundRowActions } from '../../utils/refundCreditNote';
 import { formatCents } from '../../utils/money';
 import { actorLabel, apiErrorMessageId } from '../../utils/orderDetail';
 import { MAX_LONG_TEXT, isRefreshableStripeRefund, isStuckStripeRefund } from '../../utils/refundForm';
@@ -33,6 +33,7 @@ import type { InvoiceView, OrderRefund, RefundView } from '../../orderTypes';
 import ColumnLabel from '../ColumnLabel';
 import { ActionConfirmModal } from '../ActionConfirmModal';
 import { ToneBadge } from './StatusBadges';
+import { FIT_CELL, PRODUCT_CELL } from './lineCells';
 import RefundCreditNoteModal from './RefundCreditNoteModal';
 
 type Props = {
@@ -56,6 +57,8 @@ type Props = {
 };
 
 const COLUMNS = ['reference', 'method', 'amount', 'date', 'status', 'externalId', 'actions'] as const;
+
+const ELEMENT_COLUMNS = ['invoice', 'name', 'quantity', 'value'] as const;
 
 const STATUS_VARIANT: Record<string, 'warning' | 'success' | 'neutral' | 'danger' | 'secondary'> = {
   PENDING: 'warning',
@@ -406,6 +409,49 @@ const RefundsTable = ({
                   ))}
                 </Tbody>
               </Table>
+              {!!viewing.items?.length && (
+                // An INVOICED refund's elements, with the values stored when it was created.
+                <Flex direction="column" alignItems="stretch" gap={2} paddingTop={5}>
+                  <Typography variant="sigma" textColor="neutral600">
+                    {t('ecommerce.orders.refunds.details.elements')}
+                  </Typography>
+                  <Table colCount={ELEMENT_COLUMNS.length} rowCount={viewing.items.length + 1}>
+                    <Thead>
+                      <Tr>
+                        {ELEMENT_COLUMNS.map((c) => (
+                          <Th key={c}>
+                            <ColumnLabel column={c}>{t(`ecommerce.orders.refunds.details.elementColumns.${c}`)}</ColumnLabel>
+                          </Th>
+                        ))}
+                      </Tr>
+                    </Thead>
+                    <Tbody>
+                      {refundItemRows(viewing.items, invoices).map((row) => (
+                        <Tr key={row.key}>
+                          <Td style={FIT_CELL}>
+                            <Typography textColor="neutral800">{row.invoice}</Typography>
+                          </Td>
+                          <Td style={PRODUCT_CELL}>
+                            <Typography textColor="neutral800">
+                              {row.name === null
+                                ? '—'
+                                : row.kind === 'SHIPPING'
+                                  ? t('ecommerce.orders.invoices.lines.shipping', { name: row.name })
+                                  : row.name}
+                            </Typography>
+                          </Td>
+                          <Td style={FIT_CELL}>
+                            <Typography textColor="neutral800">{row.quantity}</Typography>
+                          </Td>
+                          <Td style={FIT_CELL}>
+                            <Typography textColor="neutral800">{money(row.value)}</Typography>
+                          </Td>
+                        </Tr>
+                      ))}
+                    </Tbody>
+                  </Table>
+                </Flex>
+              )}
             </Modal.Body>
             <Modal.Footer>
               <span />

@@ -67,6 +67,7 @@ describe('emptyRefundForm', () => {
     expect(emptyRefundForm(preview(), 'pt-PT', NOW)).toEqual({
       scope: 'EXCESS',
       amount: '15,00',
+      selection: {},
       reason: '',
       description: '',
       method: 'MANUAL_TRANSFER',

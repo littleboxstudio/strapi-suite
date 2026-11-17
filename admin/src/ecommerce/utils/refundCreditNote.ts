@@ -5,6 +5,8 @@ import type {
   RefundCreditLineOption,
   RefundCreditNoteInput,
   RefundCreditNoteOptions,
+  RefundElementInvoice,
+  RefundItem,
   RefundView,
 } from '../orderTypes';
 
@@ -39,26 +41,46 @@ export function refundOptionValue(
 const quantityOf = (selection: RefundCreditSelection, invoiceId: number, index: number): number =>
   selection[selectionKey(invoiceId, index)] ?? 0;
 
+/** Σ of the chosen elements' values (the INVOICED refund amount), as the server values them. */
+export function refundElementsTotal(
+  invoices: RefundElementInvoice[],
+  selection: RefundCreditSelection,
+  lineOf?: InvoiceLineLookup
+): number {
+  let total = 0;
+  for (const invoice of invoices) {
+    for (const option of invoice.lines) {
+      const quantity = quantityOf(selection, invoice.invoiceId, option.index);
+      total += refundOptionValue(option, quantity, lineOf?.(invoice.invoiceId, option.index));
+    }
+  }
+  return total;
+}
+
+/** Every chosen quantity is a whole number of units, at most what is left of its element. */
+export function refundElementsFit(invoices: RefundElementInvoice[], selection: RefundCreditSelection): boolean {
+  return invoices.every((invoice) =>
+    invoice.lines.every((option) => {
+      const quantity = quantityOf(selection, invoice.invoiceId, option.index);
+      return Number.isInteger(quantity) && quantity >= 0 && quantity <= option.quantityLeft;
+    })
+  );
+}
+
 /** Selected (Σ of the chosen elements), Refund (its amount) and Difference (refund − selected). */
 export function refundCreditSummary(
   options: RefundCreditNoteOptions,
   selection: RefundCreditSelection,
   lineOf?: InvoiceLineLookup
 ): { selected: number; refund: number; difference: number } {
-  let selected = 0;
-  for (const invoice of options.invoices) {
-    for (const option of invoice.lines) {
-      const quantity = quantityOf(selection, invoice.invoiceId, option.index);
-      selected += refundOptionValue(option, quantity, lineOf?.(invoice.invoiceId, option.index));
-    }
-  }
+  const selected = refundElementsTotal(options.invoices, selection, lineOf);
   const refund = options.refund.amount;
   return { selected, refund, difference: refund - selected };
 }
 
 /** The request items: chosen elements only, in invoice and line order. */
 export function refundCreditItems(
-  options: RefundCreditNoteOptions,
+  options: Pick<RefundCreditNoteOptions, 'invoices'>,
   selection: RefundCreditSelection
 ): RefundCreditNoteInput['items'] {
   return options.invoices.flatMap((invoice) =>
@@ -81,13 +103,64 @@ export function canIssueRefundCredit(
   if (!options.creditable) return false;
   const items = refundCreditItems(options, selection);
   if (!items.length) return false;
-  const fits = options.invoices.every((invoice) =>
-    invoice.lines.every((option) => {
-      const quantity = quantityOf(selection, invoice.invoiceId, option.index);
-      return Number.isInteger(quantity) && quantity >= 0 && quantity <= option.quantityLeft;
-    })
-  );
-  return fits && refundCreditSummary(options, selection, lineOf).difference === 0;
+  return refundElementsFit(options.invoices, selection) && refundCreditSummary(options, selection, lineOf).difference === 0;
+}
+
+/** The selection of stored elements (`items`/`selected`), keyed by element. */
+export function selectionFromItems(items: Pick<RefundItem, 'invoiceId' | 'index' | 'quantity'>[] | undefined): RefundCreditSelection {
+  const selection: RefundCreditSelection = {};
+  for (const item of items ?? []) selection[selectionKey(item.invoiceId, item.index)] = item.quantity;
+  return selection;
+}
+
+/**
+ * How the refund credit note picks its elements:
+ * - STORED: the refund's own elements, all still offered with their units: fixed, stored values;
+ * - FREE: a legacy refund (none stored): any elements adding up to the refund;
+ * - UNAVAILABLE: a stored element is no longer creditable: any elements adding up to the refund.
+ */
+export function refundCreditMode(options: RefundCreditNoteOptions): 'STORED' | 'FREE' | 'UNAVAILABLE' {
+  const selected = options.selected ?? [];
+  if (!selected.length) return 'FREE';
+  const offered = selected.every((item) => {
+    const option = options.invoices
+      .find((i) => i.invoiceId === item.invoiceId)
+      ?.lines.find((l) => l.index === item.index);
+    return !!option && item.quantity <= option.quantityLeft;
+  });
+  return offered ? 'STORED' : 'UNAVAILABLE';
+}
+
+/** The request items of the STORED mode: exactly the refund's own elements. */
+export function storedCreditItems(options: RefundCreditNoteOptions): RefundCreditNoteInput['items'] {
+  return (options.selected ?? []).map(({ invoiceId, index, quantity }) => ({ invoiceId, index, quantity }));
+}
+
+export type RefundItemRow = {
+  key: string;
+  /** The invoice number, or `#id` while it has none (or is not listed). */
+  invoice: string;
+  kind: InvoiceLine['kind'];
+  /** The invoice line's name; null when the line is not listed. */
+  name: string | null;
+  quantity: number;
+  value: number;
+};
+
+/** A refund's elements for display, named from the order's invoices, in stored order. */
+export function refundItemRows(items: RefundItem[], invoices: InvoiceView[]): RefundItemRow[] {
+  return items.map((item) => {
+    const invoice = invoices.find((i) => i.id === item.invoiceId);
+    const line = invoice?.lines?.[item.index];
+    return {
+      key: selectionKey(item.invoiceId, item.index),
+      invoice: invoice?.number || `#${item.invoiceId}`,
+      kind: line?.kind ?? 'ITEM',
+      name: line?.name ?? null,
+      quantity: item.quantity,
+      value: item.value,
+    };
+  });
 }
 
 export type RefundRowContext = {

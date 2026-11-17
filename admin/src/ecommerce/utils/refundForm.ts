@@ -9,6 +9,14 @@ import type {
   RefundScope,
   StoreCredit,
 } from '../orderTypes';
+import {
+  refundCreditItems,
+  refundElementsFit,
+  refundElementsTotal,
+  selectionKey,
+  type InvoiceLineLookup,
+  type RefundCreditSelection,
+} from './refundCreditNote';
 
 /** Refund reasons offered by the refund modal (stored as the code; translated on display). */
 export const REFUND_REASONS = [
@@ -64,8 +72,10 @@ const tooLong = (value: string, max: number) => value.trim().length > max;
 export type RefundForm = {
   /** EXCESS (money paid above the total) or INVOICED (invoiced value, lowers the total). */
   scope: RefundScope;
-  /** Decimal text in the admin's locale. */
+  /** EXCESS: decimal text in the admin's locale (INVOICED: unused, the amount is Σ `selection`). */
   amount: string;
+  /** INVOICED: the units chosen per invoiced element (`selectionKey`); the amount is their value. */
+  selection: RefundCreditSelection;
   reason: RefundReason | '';
   description: string;
   method: RefundMethod;
@@ -160,6 +170,7 @@ export function emptyRefundForm(
   return {
     scope,
     amount: formatAmountInput(defaultAmount(p, initial), locale),
+    selection: {},
     reason: initial?.reason ?? '',
     description: '',
     method: p.moneyRefundable > 0 ? 'MANUAL_TRANSFER' : 'STORE_CREDIT',
@@ -176,17 +187,30 @@ export function emptyRefundForm(
 export function validateRefundForm(
   form: RefundForm,
   fullPreview: RefundPreview,
-  now = new Date()
+  now = new Date(),
+  lineOf?: InvoiceLineLookup
 ): { errors: FieldError[]; input: RefundDraft | null } {
   const errors: FieldError[] = [];
   const preview = previewForScope(fullPreview, form.scope ?? 'EXCESS');
-  const cents = parseMoneyToCents(form.amount);
+  // INVOICED: the amount is the value of the chosen elements (whole units, whole shipping lines).
+  const invoiced = form.scope === 'INVOICED';
+  const elements = fullPreview.invoicedElements?.invoices ?? [];
+  const selection = form.selection ?? {};
+  const items = invoiced ? refundCreditItems({ invoices: elements }, selection) : [];
+  let cents: number | null = parseMoneyToCents(form.amount);
+  if (invoiced) {
+    cents = refundElementsTotal(elements, selection, lineOf);
+    if (!refundElementsFit(elements, selection)) errors.push({ path: 'items', code: 'invalid_quantity' });
+    else if (!items.length) errors.push({ path: 'items', code: 'required' });
+  }
   const stripe = form.method === 'STRIPE';
   // Store-credit value never goes back as money (design 4.7).
   const money = stripe || form.method === 'MANUAL_TRANSFER';
 
   if (stripe && !preview.hasStripe) errors.push({ path: 'method', code: 'stripe_unavailable' });
-  if (cents === null || cents <= 0 || cents > MAX_MONEY_CENTS) {
+  if (invoiced && errors.some((e) => e.path === 'items')) {
+    // The selection is wrong: no amount to check.
+  } else if (cents === null || cents <= 0 || cents > MAX_MONEY_CENTS) {
     errors.push({ path: 'amount', code: 'invalid_amount' });
   } else if (cents > preview.refundable) {
     errors.push({ path: 'amount', code: 'exceeds_refundable' });
@@ -213,8 +237,11 @@ export function validateRefundForm(
   if (errors.length) return { errors, input: null };
 
   const input: RefundDraft = { method: form.method, amount: cents as number, reason: form.reason };
-  // EXCESS is the server's default: only INVOICED is sent.
-  if (form.scope === 'INVOICED') input.scope = 'INVOICED';
+  // EXCESS is the server's default: only INVOICED is sent, with its elements.
+  if (invoiced) {
+    input.scope = 'INVOICED';
+    input.items = items;
+  }
   const description = form.description.trim();
   if (description) input.description = description;
   if (form.method === 'MANUAL_TRANSFER') {
@@ -227,6 +254,33 @@ export function validateRefundForm(
     if (conditions) input.conditions = conditions;
   }
   return { errors: [], input };
+}
+
+/**
+ * The server's field errors of a refund request: `items.<j>` (any suffix) on the element sent at
+ * position j (`rows`, by `selectionKey`); everything else as a field error (`method` —
+ * `stripe_unavailable`, `stripe_split_unavailable` —, `amount`, `items`…), an `items.<j>` beyond
+ * what was sent as `items`.
+ */
+export function refundServerErrors(
+  list: FieldError[],
+  sent: { invoiceId: number; index: number }[]
+): { rows: Record<string, string>; fields: FieldError[] } {
+  const rows: Record<string, string> = {};
+  const fields: FieldError[] = [];
+  for (const e of list) {
+    const match = /^items\.(\d+)(\.|$)/.exec(e.path);
+    if (!match) {
+      fields.push({ path: e.path, code: e.code });
+      continue;
+    }
+    const target = sent[Number(match[1])];
+    if (target) {
+      const key = selectionKey(target.invoiceId, target.index);
+      if (!rows[key]) rows[key] = e.code;
+    } else fields.push({ path: 'items', code: e.code });
+  }
+  return { rows, fields };
 }
 
 /**

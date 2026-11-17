@@ -30,6 +30,7 @@ import {
   emptyRefundForm,
   previewForScope,
   refundScopes,
+  refundServerErrors,
   scopeLimits,
   switchRefundScope,
   validateRefundForm,
@@ -37,13 +38,17 @@ import {
   type RefundForm,
   type RefundInitial,
 } from '../../utils/refundForm';
-import type { FieldError, RefundMethod, RefundPreview, RefundScope } from '../../orderTypes';
+import { refundElementsTotal, refundOptionValue, selectionKey } from '../../utils/refundCreditNote';
+import type { FieldError, InvoiceView, RefundMethod, RefundPreview, RefundScope } from '../../orderTypes';
 import { Tile, Tiles } from './SummaryTiles';
 import NoticeBar from './NoticeBar';
+import RefundElementsTable from './RefundElementsTable';
 
 type Props = {
   orderId: number;
   reference: number;
+  /** The order's documents: the invoice lines value the chosen units as the server does. */
+  invoices: InvoiceView[];
   /** Prefill (e.g. reason RETURN and the return's value after a return); capped by the preview. */
   initial?: RefundInitial;
   onClose: () => void;
@@ -53,17 +58,27 @@ type Props = {
   onRefunded: () => void;
 };
 
-type FormField = keyof RefundForm;
+type FormField = Exclude<keyof RefundForm, 'selection'> | 'items';
 type ErrorMap = Partial<Record<FormField | 'form', string>>;
 
-const FORM_FIELDS: FormField[] = ['amount', 'reason', 'description', 'method', 'reference', 'expiresAt', 'conditions'];
+const FORM_FIELDS: FormField[] = [
+  'amount',
+  'items',
+  'reason',
+  'description',
+  'method',
+  'reference',
+  'expiresAt',
+  'conditions',
+];
 
 /**
  * Creates a refund (requirement 15.5): amounts from the server preview and the form; Review opens
- * a confirmation (amount, method and its note) before sending. Mount it only while open: each
- * opening mints a new idempotency key.
+ * a confirmation (amount, method and its note) before sending. An INVOICED refund (plan 15) is the
+ * invoiced elements the admin picks, one table per invoice: its amount is their sum (read-only).
+ * Mount it only while open: each opening mints a new idempotency key.
  */
-const RefundModal = ({ orderId, reference, initial, onClose, onSubmitting, onRefunded }: Props) => {
+const RefundModal = ({ orderId, reference, invoices, initial, onClose, onSubmitting, onRefunded }: Props) => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) =>
@@ -75,6 +90,8 @@ const RefundModal = ({ orderId, reference, initial, onClose, onSubmitting, onRef
   const [loadError, setLoadError] = useState(false);
   const [form, setForm] = useState<RefundForm | null>(null);
   const [errors, setErrors] = useState<ErrorMap>({});
+  /** Per invoiced element (`selectionKey`): the server's code for it. */
+  const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [draft, setDraft] = useState<RefundDraft | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -107,12 +124,33 @@ const RefundModal = ({ orderId, reference, initial, onClose, onSubmitting, onRef
     const map: ErrorMap = {};
     list.forEach((e) => {
       const key = (FORM_FIELDS as string[]).includes(e.path) ? (e.path as FormField) : 'form';
-      if (!map[key]) map[key] = errorText(e.code);
+      const text =
+        key === 'items' && e.code === 'required' ? t('ecommerce.orders.refund.elements.required') : errorText(e.code);
+      if (!map[key]) map[key] = text;
     });
     return map;
   };
 
-  const update = <K extends FormField>(field: K, value: RefundForm[K]) => {
+  const lineOf = (invoiceId: number, index: number) => invoices.find((i) => i.id === invoiceId)?.lines[index];
+
+  /** INVOICED: units of an element chosen; the amount follows. */
+  const choose = (invoiceId: number, index: number, quantity: number) => {
+    const key = selectionKey(invoiceId, index);
+    setForm((f) => (f ? { ...f, selection: { ...f.selection, [key]: quantity } } : f));
+    setRowErrors((map) => {
+      if (!map[key]) return map;
+      const next = { ...map };
+      delete next[key];
+      return next;
+    });
+    setErrors((map) => {
+      const next = { ...map };
+      (['items', 'amount', 'form'] as const).forEach((k) => delete next[k]);
+      return next;
+    });
+  };
+
+  const update = <K extends Exclude<FormField, 'items'>>(field: K, value: RefundForm[K]) => {
     setForm((f) => (f ? { ...f, [field]: value } : f));
     // A new method changes which amount is allowed: its amount error goes too.
     const cleared: (FormField | 'form')[] = field === 'method' ? ['method', 'amount', 'form'] : [field, 'form'];
@@ -130,19 +168,20 @@ const RefundModal = ({ orderId, reference, initial, onClose, onSubmitting, onRef
     setForm((f) => (f ? switchRefundScope(f, preview, scope, uiLocale, initial) : f));
     setErrors((map) => {
       const next = { ...map };
-      (['amount', 'method', 'form'] as const).forEach((k) => delete next[k]);
+      (['amount', 'items', 'method', 'form'] as const).forEach((k) => delete next[k]);
       return next;
     });
   };
 
   const review = () => {
     if (!form || !preview) return;
-    const result = validateRefundForm(form, preview);
+    const result = validateRefundForm(form, preview, new Date(), lineOf);
     if (!result.input) {
       setErrors(toErrorMap(result.errors));
       return;
     }
     setErrors({});
+    setRowErrors({});
     setDraft(result.input);
   };
 
@@ -159,12 +198,13 @@ const RefundModal = ({ orderId, reference, initial, onClose, onSubmitting, onRef
       });
       onRefunded();
     } catch (err) {
-      const fieldErrors = (extractFieldErrors(err) ?? []).filter((e) =>
-        (FORM_FIELDS as string[]).includes(e.path)
-      );
-      if (fieldErrors.length) {
+      // `items.<j>` on the element sent at j; the others on their field (e.g. `method`).
+      const { rows, fields } = refundServerErrors(extractFieldErrors(err) ?? [], draft.items ?? []);
+      const fieldErrors = fields.filter((e) => (FORM_FIELDS as string[]).includes(e.path));
+      if (fieldErrors.length || Object.keys(rows).length) {
         // Back to the form with the server's field errors (e.g. the refundable amount changed).
         setErrors(toErrorMap(fieldErrors));
+        setRowErrors(rows);
         setDraft(null);
         // The maximums may have changed (e.g. a concurrent refund): refresh them, keep the form.
         new FetchRefundPreview()
@@ -208,8 +248,17 @@ const RefundModal = ({ orderId, reference, initial, onClose, onSubmitting, onRef
     // The chosen scope's limits (EXCESS: the excess; INVOICED: the invoiced value not yet credited).
     const scoped = previewForScope(preview, form.scope);
     const scopes = refundScopes(preview);
-    // The figures as tiles on one row, like the payments overview; the refundable one is highlighted.
-    const figures = amountRows(scoped);
+    const invoiced = form.scope === 'INVOICED';
+    const elements = preview.invoicedElements?.invoices ?? [];
+    const selected = refundElementsTotal(elements, form.selection, lineOf);
+    // The figures as tiles on one row, like the payments overview; the refundable one is highlighted
+    // (INVOICED: the amount to refund, the sum of the chosen elements, instead).
+    const figures = invoiced
+      ? [
+          ...amountRows(scoped).map((row) => ({ ...row, strong: false })),
+          { key: 'selected', amount: selected, strong: true },
+        ]
+      : amountRows(scoped);
     const amounts = (
       <Tiles $columns={figures.length}>
         {figures.map((row) => (
@@ -280,16 +329,52 @@ const RefundModal = ({ orderId, reference, initial, onClose, onSubmitting, onRef
           )
         )}
 
-        <Field.Root name="amount" required error={errors.amount}>
-          <Field.Label>{t('ecommerce.orders.refund.amount')}</Field.Label>
-          <TextInput
-            value={form.amount}
-            inputMode="decimal"
-            endAction={<span>€</span>}
-            onChange={(e: any) => update('amount', e.target.value)}
-          />
-          <Field.Error />
-        </Field.Root>
+        {invoiced ? (
+          // The invoiced elements, one table per invoice; the amount is their sum (in the tiles).
+          <Flex direction="column" alignItems="stretch" gap={4}>
+            {elements.length ? (
+              <>
+                <Typography variant="omega" textColor="neutral700">
+                  {t('ecommerce.orders.refund.elements.intro')}
+                </Typography>
+                {elements.map((invoice) => (
+                  <RefundElementsTable
+                    key={invoice.invoiceId}
+                    invoice={invoice}
+                    selection={form.selection}
+                    errors={Object.fromEntries(
+                      Object.entries(rowErrors).map(([key, code]) => [key, errorText(code)])
+                    )}
+                    quantityLabel={t('ecommerce.orders.refund.elements.quantity')}
+                    valueOf={(option, quantity) =>
+                      refundOptionValue(option, quantity, lineOf(invoice.invoiceId, option.index))
+                    }
+                    disabled={saving}
+                    onChoose={choose}
+                  />
+                ))}
+              </>
+            ) : (
+              <NoticeBar wrap text={t('ecommerce.orders.refund.elements.none')} />
+            )}
+            {(errors.items || errors.amount) && (
+              <Typography variant="omega" textColor="danger600">
+                {errors.items ?? errors.amount}
+              </Typography>
+            )}
+          </Flex>
+        ) : (
+          <Field.Root name="amount" required error={errors.amount}>
+            <Field.Label>{t('ecommerce.orders.refund.amount')}</Field.Label>
+            <TextInput
+              value={form.amount}
+              inputMode="decimal"
+              endAction={<span>€</span>}
+              onChange={(e: any) => update('amount', e.target.value)}
+            />
+            <Field.Error />
+          </Field.Root>
+        )}
 
         <Field.Root name="reason" required error={errors.reason}>
           <Field.Label>{t('ecommerce.orders.refund.reason')}</Field.Label>
@@ -385,11 +470,18 @@ const RefundModal = ({ orderId, reference, initial, onClose, onSubmitting, onRef
     );
   };
 
-  const canReview = !!preview && !!form && refundScopes(preview).length > 0;
+  const canReview =
+    !!preview &&
+    !!form &&
+    refundScopes(preview).length > 0 &&
+    (form.scope !== 'INVOICED' || (preview.invoicedElements?.invoices ?? []).length > 0);
+  const wide = form?.scope === 'INVOICED';
 
   return (
     <Modal.Root open onOpenChange={(next: boolean) => !next && !saving && onClose()}>
       <Modal.Content
+        // The element tables of an INVOICED refund need the room.
+        style={wide ? { maxWidth: 1000, width: '100%' } : undefined}
         // While the confirmation is open (or saving), a stray click on the overlay must not dismiss it.
         onPointerDownOutside={(e: Event) => {
           if (draft || saving) e.preventDefault();

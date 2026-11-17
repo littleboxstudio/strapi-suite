@@ -2098,5 +2098,21 @@
   "littlebox-strapi-suite.ecommerce.orders.refunds.creditNote.loadError": "Não foi possível carregar o que pode ser creditado.",
   "littlebox-strapi-suite.ecommerce.orders.refunds.creditNote.success": "Nota de crédito emitida",
   "littlebox-strapi-suite.ecommerce.orders.refunds.creditNote.error": "Não foi possível emitir a nota de crédito.",
-  "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.correctionRefused": "Uma nota de crédito de reembolso creditou esta fatura: não pode ser anulada. Use uma nota de crédito de Devolução ou de Acerto de portes."
+  "littlebox-strapi-suite.ecommerce.orders.invoices.creditNote.correctionRefused": "Uma nota de crédito de reembolso creditou esta fatura: não pode ser anulada. Use uma nota de crédito de Devolução ou de Acerto de portes.",
+  "littlebox-strapi-suite.ecommerce.orders.errors.REFUND_AMOUNT_DIFFERS": "O valor já não corresponde aos elementos escolhidos. Reveja a seleção e tente de novo.",
+  "littlebox-strapi-suite.ecommerce.orders.errors.REFUND_ITEMS_INVALID": "Este elemento já não pode ser reembolsado como foi escolhido. Reveja a seleção.",
+  "littlebox-strapi-suite.ecommerce.orders.errors.REFUND_ELEMENTS_UNAVAILABLE": "Um dos elementos deste reembolso já não pode ser creditado.",
+  "littlebox-strapi-suite.ecommerce.orders.errors.stripe_split_unavailable": "Este reembolso teria de ser dividido por vários pagamentos Stripe. Escolha outro método ou menos elementos.",
+  "littlebox-strapi-suite.ecommerce.orders.refund.elements.intro": "Escolha os elementos faturados a reembolsar: unidades inteiras de produtos e linhas de portes inteiras. O valor a reembolsar é a soma deles.",
+  "littlebox-strapi-suite.ecommerce.orders.refund.elements.none": "Não há elementos faturados disponíveis para reembolsar: já foram creditados ou estão reservados por outros reembolsos.",
+  "littlebox-strapi-suite.ecommerce.orders.refund.elements.required": "Escolha pelo menos uma unidade ou linha de portes a reembolsar.",
+  "littlebox-strapi-suite.ecommerce.orders.refund.elements.quantity": "Quantidade a reembolsar",
+  "littlebox-strapi-suite.ecommerce.orders.refund.summary.selected": "Valor a reembolsar",
+  "littlebox-strapi-suite.ecommerce.orders.refunds.creditNote.storedNote": "Estes são os elementos do reembolso. A nota de crédito credita exatamente estes, pelos valores guardados com o reembolso.",
+  "littlebox-strapi-suite.ecommerce.orders.refunds.creditNote.unavailableNotice": "Alguns elementos deste reembolso já não podem ser creditados (por exemplo, outra nota de crédito incluiu-os). Escolha outros elementos cujo total seja exatamente o valor do reembolso.",
+  "littlebox-strapi-suite.ecommerce.orders.refunds.details.elements": "Elementos reembolsados",
+  "littlebox-strapi-suite.ecommerce.orders.refunds.details.elementColumns.invoice": "Fatura",
+  "littlebox-strapi-suite.ecommerce.orders.refunds.details.elementColumns.name": "Produto / Portes",
+  "littlebox-strapi-suite.ecommerce.orders.refunds.details.elementColumns.quantity": "Qtd.",
+  "littlebox-strapi-suite.ecommerce.orders.refunds.details.elementColumns.value": "Valor"
 }
