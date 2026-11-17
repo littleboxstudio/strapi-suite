@@ -75,21 +75,28 @@ export function billingAddressLock(input: {
   return input.hasInvoice ? 'INVOICED' : null;
 }
 
-export type ReviewFlagCode = 'SHIPPING_REVIEW' | 'DISCOUNTS_REVIEW';
+/**
+ * SHIPPING_REVIEW / DISCOUNTS_REVIEW come from edits. REFUND_REVIEW (plan 15) is raised when Stripe
+ * reverses an INVOICED refund that already has its credit note: nothing can fix it from the order,
+ * so it is dismissable at any time.
+ */
+export type ReviewFlagCode = 'SHIPPING_REVIEW' | 'DISCOUNTS_REVIEW' | 'REFUND_REVIEW';
 export type ReviewReason =
   | 'PRODUCTS_CHANGED'
   | 'ADDRESS_CHANGED'
   | 'SHIPPING_CHANGED'
-  | 'SHIPPING_QUOTE_FAILED';
+  | 'SHIPPING_QUOTE_FAILED'
+  | 'REFUND_REVERSED_WITH_CREDIT_NOTE';
 
 export type ReviewFlag = { code: ReviewFlagCode; reason: ReviewReason; raisedAt: string; actor: string };
 
-const CODES: ReviewFlagCode[] = ['SHIPPING_REVIEW', 'DISCOUNTS_REVIEW'];
+const CODES: ReviewFlagCode[] = ['SHIPPING_REVIEW', 'DISCOUNTS_REVIEW', 'REFUND_REVIEW'];
 const REASONS: ReviewReason[] = [
   'PRODUCTS_CHANGED',
   'ADDRESS_CHANGED',
   'SHIPPING_CHANGED',
   'SHIPPING_QUOTE_FAILED',
+  'REFUND_REVERSED_WITH_CREDIT_NOTE',
 ];
 
 export const isReviewFlagCode = (v: unknown): v is ReviewFlagCode =>

@@ -207,6 +207,9 @@ describe('INVOICED refunds: create', () => {
     expect(refundRow(c, r.id).status).toBe('FAILED');
     expect(order(c, id).total).toBe(4500);
     expect(order(c, id).paymentStatus).toBe('PAID');
+    // No credit note: nothing to review.
+    expect(historyTypes(c)).not.toContain('REFUND_REVERSED_WITH_CREDIT_NOTE');
+    expect(order(c, id).reviewFlags?.flags ?? []).toEqual([]);
   });
 
   it('Stripe: a completed refund keeps the total lowered and the order PAID', async () => {
@@ -329,6 +332,54 @@ describe('INVOICED refunds with their REFUND credit note (plan 15, task 3)', () 
     });
     refundRow(c, refundId).metadata = { ...(refundRow(c, refundId).metadata ?? {}), creditNoteId: noteId };
   };
+
+  it('Stripe reverses a credited refund: total back up, credit note kept, history and a review flag', async () => {
+    const c = setupCommerce();
+    const id = await createOrder(c);
+    c.tables[UIDS.payment].push({
+      id: 801, order: id, method: 'STRIPE', status: 'COMPLETED', amount: 4500, currency: 'EUR',
+      externalId: 'pi_1', idempotencyKey: 'stripe:801', coverage: null,
+      completedAt: '2026-11-01T10:00:00.000Z', actor: 'webhook:stripe', metadata: null,
+    });
+    await c.orders.recalculate(id, { actor });
+    seedInvoice(c, id);
+    stripe.createRefund.mockResolvedValueOnce({ id: 're_9', status: 'succeeded' });
+    const [r] = await c.refunds.create(id, invoiced(500, { method: 'STRIPE' }), actor);
+    expect(r.status).toBe('COMPLETED');
+    refundNote(c, id, 950, r.id, [{ index: 1, value: 500, quantity: 1 }]);
+
+    await deliver(c, 'evt_rev', 'refund.updated', { id: 're_9', object: 'refund', status: 'failed' });
+    expect(refundRow(c, r.id).status).toBe('FAILED');
+    expect(order(c, id).total).toBe(4500);
+    expect(c.tables[UIDS.invoice].find((i) => i.id === 950).status).toBe('ISSUED');
+    const entry = c.tables[UIDS.orderHistory].find((h) => h.type === 'REFUND_REVERSED_WITH_CREDIT_NOTE');
+    expect(entry).toMatchObject({ newValue: { refundId: r.id, creditNoteId: 950 }, actor: 'webhook:stripe' });
+    expect(historyTypes(c)).toContain('REVIEW_FLAG_RAISED');
+    const view = await c.orders.get(id);
+    expect(view.reviewFlags).toEqual([
+      expect.objectContaining({ code: 'REFUND_REVIEW', reason: 'REFUND_REVERSED_WITH_CREDIT_NOTE' }),
+    ]);
+  });
+
+  it('a reversal whose credit note FAILED raises no flag', async () => {
+    const c = setupCommerce();
+    const id = await createOrder(c);
+    c.tables[UIDS.payment].push({
+      id: 801, order: id, method: 'STRIPE', status: 'COMPLETED', amount: 4500, currency: 'EUR',
+      externalId: 'pi_1', idempotencyKey: 'stripe:801', coverage: null,
+      completedAt: '2026-11-01T10:00:00.000Z', actor: 'webhook:stripe', metadata: null,
+    });
+    await c.orders.recalculate(id, { actor });
+    seedInvoice(c, id);
+    stripe.createRefund.mockResolvedValueOnce({ id: 're_8', status: 'succeeded' });
+    const [r] = await c.refunds.create(id, invoiced(500, { method: 'STRIPE' }), actor);
+    refundNote(c, id, 951, r.id, [{ index: 1, value: 500, quantity: 1 }]);
+    c.tables[UIDS.invoice].find((i) => i.id === 951).status = 'FAILED';
+    await deliver(c, 'evt_rev2', 'refund.updated', { id: 're_8', object: 'refund', status: 'failed' });
+    expect(refundRow(c, r.id).status).toBe('FAILED');
+    expect(historyTypes(c)).not.toContain('REFUND_REVERSED_WITH_CREDIT_NOTE');
+    expect((await c.orders.get(id)).reviewFlags).toEqual([]);
+  });
 
   it('shipping refunded and credited: nothing to invoice, nothing over-invoiced or stranded', async () => {
     const { c, id } = await invoicedOrder();

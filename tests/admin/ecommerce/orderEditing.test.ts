@@ -123,6 +123,7 @@ describe('reviewAlerts', () => {
         sectionId: 'order-section-shipping-charges',
         actionable: true,
         dismissable: false,
+        locked: false,
       },
       {
         code: 'DISCOUNTS_REVIEW',
@@ -131,6 +132,7 @@ describe('reviewAlerts', () => {
         sectionId: 'order-section-promotions',
         actionable: true,
         dismissable: false,
+        locked: false,
       },
     ]);
   });
@@ -142,14 +144,44 @@ describe('reviewAlerts', () => {
         editing: editing({ editable: false, blockedBy: 'CANCELLED', actions: [] }),
       })
     );
-    expect(alerts.map((a) => [a.actionable, a.dismissable])).toEqual([
-      [false, true],
-      [false, true],
+    expect(alerts.map((a) => [a.actionable, a.dismissable, a.locked])).toEqual([
+      [false, true, true],
+      [false, true, true],
     ]);
   });
 
   it('has no alerts without flags', () => {
     expect(reviewAlerts(order())).toEqual([]);
+  });
+
+  it('REFUND_REVIEW (plan 15): last, on the refunds section, dismissable on an open order, never locked', () => {
+    const alerts = reviewAlerts(
+      order({
+        reviewFlags: [
+          { code: 'REFUND_REVIEW', reason: 'REFUND_REVERSED_WITH_CREDIT_NOTE', raisedAt: 'c', actor: 'webhook:stripe' },
+          ...flags,
+        ] as any,
+      })
+    );
+    expect(alerts.map((a) => a.code)).toEqual(['SHIPPING_REVIEW', 'DISCOUNTS_REVIEW', 'REFUND_REVIEW']);
+    expect(alerts[2]).toEqual({
+      code: 'REFUND_REVIEW',
+      reasonKey: 'ecommerce.orders.review.reason.REFUND_REVERSED_WITH_CREDIT_NOTE',
+      raisedAt: 'c',
+      sectionId: 'order-section-refunds',
+      actionable: false,
+      dismissable: true,
+      locked: false,
+    });
+    const closed = reviewAlerts(
+      order({
+        reviewFlags: [
+          { code: 'REFUND_REVIEW', reason: 'REFUND_REVERSED_WITH_CREDIT_NOTE', raisedAt: 'c', actor: 'x' },
+        ] as any,
+        editing: editing({ editable: false, blockedBy: 'ARCHIVED', actions: [] }),
+      })
+    );
+    expect(closed[0]).toMatchObject({ dismissable: true, locked: false });
   });
 });
 

@@ -10,6 +10,7 @@ import {
 } from './providers/payments/stripeClient';
 import type { ProviderRuntime } from './providers/registry';
 import type { OrderHistoryEntry } from './orderHistory';
+import { raiseFlag, readReviewFlags } from './domain/orderEditing';
 import type { OrderState } from './orders';
 
 /** The Stripe event types `dispatch` handles (shown in the admin so the webhook can be set up). */
@@ -280,6 +281,9 @@ const EcommerceStripeWebhookService = ({ strapi }: { strapi: Core.Strapi }) => {
     if (target === 'COMPLETED' || reversed || current.scope === 'INVOICED') {
       await orders().recalculate(orderId, { actor: ACTOR, operationId });
     }
+    if (reversed && current.scope === 'INVOICED') {
+      await flagReversedCreditNote(orderId, row.id, existingMeta, operationId);
+    }
     if (promoted) {
       // Its amount may have been refunded again meanwhile: the customer got it twice.
       const { summary } = await orders().computeOrderState(orderId);
@@ -312,6 +316,51 @@ const EcommerceStripeWebhookService = ({ strapi }: { strapi: Core.Strapi }) => {
       },
     });
     return true;
+  };
+
+  /**
+   * Stripe reversed an INVOICED refund that already has a live credit note (plan 15): the money
+   * did not leave, so the refund stays FAILED and the total goes back up, but the credit note is
+   * still issued and no longer matches money given back. Recorded and flagged for the admin.
+   */
+  const flagReversedCreditNote = async (
+    orderId: number,
+    refundId: number,
+    metadata: Record<string, any>,
+    operationId: string
+  ) => {
+    const creditNoteId = metadata.creditNoteId == null ? null : Number(metadata.creditNoteId);
+    if (creditNoteId === null || !Number.isSafeInteger(creditNoteId)) return;
+    const u = uids();
+    const note = await strapi.db.query(u.invoice).findOne({ where: { id: creditNoteId } });
+    if (!note || note.kind !== 'CREDIT_NOTE' || note.status === 'FAILED') return;
+    await history().record({
+      orderId,
+      type: 'REFUND_REVERSED_WITH_CREDIT_NOTE',
+      description: `Stripe reversed refund ${refundId}, which has credit note ${creditNoteId}: the credit note no longer matches money given back`,
+      previousValue: null,
+      newValue: { refundId, creditNoteId },
+      actor: ACTOR,
+      operationId,
+    });
+    const order = await strapi.db.query(u.order).findOne({ where: { id: orderId } });
+    const reason = 'REFUND_REVERSED_WITH_CREDIT_NOTE' as const;
+    const flags = raiseFlag(readReviewFlags(order?.reviewFlags), {
+      code: 'REFUND_REVIEW',
+      reason,
+      raisedAt: new Date().toISOString(),
+      actor: ACTOR,
+    });
+    await strapi.db.query(u.order).update({ where: { id: orderId }, data: { reviewFlags: { flags } } });
+    await history().record({
+      orderId,
+      type: 'REVIEW_FLAG_RAISED',
+      description: `Review flag raised: REFUND_REVIEW (${reason})`,
+      previousValue: null,
+      newValue: { code: 'REFUND_REVIEW', reason },
+      actor: ACTOR,
+      operationId,
+    });
   };
 
   /**
