@@ -291,6 +291,49 @@ describe('INVOICED refunds: remove', () => {
   });
 });
 
+describe('INVOICED refunds: the removable flag of the list', () => {
+  const removableOf = async (c: Commerce, id: number, refundId: number) =>
+    (await c.refunds.list(id)).find((v: any) => v.id === refundId).removable;
+
+  it('follows the remove rules without changing anything', async () => {
+    const { c, id } = await invoicedOrder();
+    const [r] = await c.refunds.create(id, invoiced(500), actor);
+    expect(await removableOf(c, id, r.id)).toBe(true);
+
+    refundRow(c, r.id).metadata = { creditNoteId: 77 };
+    expect(await removableOf(c, id, r.id)).toBe(false);
+    refundRow(c, r.id).metadata = null;
+
+    order(c, id).orderStatus = 'ARCHIVED';
+    expect(await removableOf(c, id, r.id)).toBe(false);
+    order(c, id).orderStatus = 'OPEN';
+
+    refundRow(c, r.id).method = 'STRIPE';
+    expect(await removableOf(c, id, r.id)).toBe(false);
+    refundRow(c, r.id).method = 'MANUAL_TRANSFER';
+
+    refundRow(c, r.id).scope = 'EXCESS';
+    expect(await removableOf(c, id, r.id)).toBe(false);
+    refundRow(c, r.id).scope = 'INVOICED';
+
+    refundRow(c, r.id).status = 'PROCESSING';
+    expect(await removableOf(c, id, r.id)).toBe(false);
+    refundRow(c, r.id).status = 'COMPLETED';
+    expect(await removableOf(c, id, r.id)).toBe(true);
+  });
+
+  it('a store credit refund: removable while its own credit is unused; reading never voids it', async () => {
+    const { c, id } = await invoicedOrder();
+    const [r] = await c.refunds.create(id, invoiced(500, { method: 'STORE_CREDIT' }), actor);
+    const credit = c.tables[UIDS.storeCredit].find((s) => s.id === r.storeCredit.id);
+    expect(await removableOf(c, id, r.id)).toBe(true);
+    expect(credit.status).not.toBe('VOID');
+    expect(credit.balance).toBe(500);
+    credit.balance = 200;
+    expect(await removableOf(c, id, r.id)).toBe(false);
+  });
+});
+
 describe('INVOICED refunds with their REFUND credit note (plan 15, task 3)', () => {
   /** The invoice 900's allocation of the 4500 payment, so nothing is left to invoice. */
   const allocate = (c: Commerce, id: number) => {

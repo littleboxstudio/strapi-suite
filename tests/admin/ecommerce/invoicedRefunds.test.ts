@@ -355,6 +355,17 @@ describe('refundRowActions', () => {
     });
   });
 
+  it("the server's removable flag decides Remove; the local rules only for an older server", () => {
+    // A used store credit: the server says no, though the local rules would offer it.
+    expect(refundRowActions(refund({ method: 'STORE_CREDIT', removable: false }), ctx).remove).toBe(false);
+    expect(refundRowActions(refund({ method: 'STORE_CREDIT', removable: true }), ctx).remove).toBe(true);
+    // Still behind the permission.
+    expect(refundRowActions(refund({ removable: true }), { ...ctx, canRefund: false }).remove).toBe(false);
+    // No flag (older server): the local rules.
+    expect(refundRowActions(refund({ removable: undefined }), ctx).remove).toBe(true);
+    expect(refundRowActions(refund({ removable: undefined, method: 'STRIPE' }), ctx).remove).toBe(false);
+  });
+
   it('permissions: Credit note needs invoicing, Remove needs refunds', () => {
     expect(refundRowActions(refund(), { ...ctx, canInvoice: false })).toMatchObject({
       creditNote: false,

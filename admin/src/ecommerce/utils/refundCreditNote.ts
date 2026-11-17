@@ -106,18 +106,20 @@ export type RefundRowContext = {
  * The actions of a refund (plan 15), only for INVOICED ones:
  * - Credit note: billing active, none yet, order not archived, refund COMPLETED;
  * - PDF: its credit note issued;
- * - Remove: no credit note, order not archived, refund COMPLETED, not STRIPE (a used store credit
- *   is refused by the server).
+ * - Remove: the server's `removable` (the remove rules, a used store credit included). An older
+ *   server sends none: then no credit note, order not archived, refund COMPLETED, not STRIPE.
  */
 export function refundRowActions(
-  refund: Pick<RefundView, 'scope' | 'creditNoteId' | 'status' | 'method'>,
+  refund: Pick<RefundView, 'scope' | 'creditNoteId' | 'status' | 'method' | 'removable'>,
   ctx: RefundRowContext
 ): { creditNote: boolean; pdf: boolean; remove: boolean } {
   const invoiced = refund.scope === 'INVOICED';
   const open = invoiced && refund.creditNoteId == null && !ctx.archived && refund.status === 'COMPLETED';
+  const removable =
+    typeof refund.removable === 'boolean' ? refund.removable : open && refund.method !== 'STRIPE';
   return {
     creditNote: open && ctx.billingActive && ctx.canInvoice,
     pdf: invoiced && refund.creditNoteId != null && ctx.creditNote?.status === 'ISSUED',
-    remove: open && refund.method !== 'STRIPE' && ctx.canRefund,
+    remove: removable && ctx.canRefund,
   };
 }
