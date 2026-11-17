@@ -230,31 +230,66 @@ function isMoloniUrl(url: string): boolean {
 /** A line of the original document that can still be credited (`documents/getUnrelatedProducts`). */
 type OpenLine = { lineId: number; productId: number; reference: string; qty: number };
 
+/** The documents a credit note credits, with the cents it credits of each and each line's one. */
+type Originals = { documents: { id: number; value: number }[]; lineOriginal: number[] };
+
+/**
+ * The documents a credit-note draft credits: its `originals` (several invoices, plan 15) or its
+ * single `original` for the whole total. Checked before any write: the values add up to the
+ * total and every line names one of them. `sent`: the indexes of the draft lines sent to Moloni.
+ */
+function creditedOriginals(draft: InvoiceDraft, sent: number[]): Originals {
+  if (!draft.originals?.length) {
+    if (!draft.original?.externalId) throw requestFailed('A credit note needs the original document.');
+    return {
+      documents: [{ id: documentId(draft.original.externalId), value: draft.total }],
+      lineOriginal: sent.map(() => 0),
+    };
+  }
+  const documents = draft.originals.map((o) => ({ id: documentId(o.externalId), value: Number(o.value) }));
+  if (documents.reduce((sum, d) => sum + d.value, 0) !== draft.total) {
+    throw requestFailed('The credited documents do not add up to the credit note total.');
+  }
+  const map = Array.isArray(draft.lineOriginals) ? draft.lineOriginals : [];
+  if (map.length !== draft.lines.length) throw requestFailed('Every credit-note line needs its original document.');
+  const lineOriginal = sent.map((i) => map[i]);
+  if (lineOriginal.some((o) => !Number.isInteger(o) || o < 0 || o >= documents.length)) {
+    throw requestFailed('Every credit-note line needs its original document.');
+  }
+  return { documents, lineOriginal };
+}
+
 /**
  * Moloni credits lines, not amounts: each credit-note line names the original document's line it
- * credits (`related_id` = that line's `document_product_id`). The open lines come from
- * `documents/getUnrelatedProducts`; each credit line takes the first one with the same product
- * (by id, else by reference) that still has the quantity, which is then used up. Checked before
- * any write: a line that cannot be matched refuses the credit note.
+ * credits (`related_id` = that line's `document_product_id`). The open lines of each original come
+ * from `documents/getUnrelatedProducts`; each credit line takes the first one of its own original
+ * with the same product (by id, else by reference) that still has the quantity, which is then used
+ * up. Checked before any write: a line that cannot be matched refuses the credit note.
  */
 async function relateToOriginal(
   ctx: Ctx,
-  originalId: number,
+  originals: Originals,
   products: Record<string, unknown>[],
   lines: { name: string; sku: string; kind: string }[]
 ) {
-  const answer = await ctx.client.call<any>('documents/getUnrelatedProducts', { document_id: originalId });
-  const raw: any[] = Array.isArray(answer) ? answer : Array.isArray(answer?.products) ? answer.products : [];
-  const open: OpenLine[] = raw
-    .map((p) => ({
-      lineId: Number(p?.document_product_id),
-      productId: Number(p?.product_id),
-      reference: typeof p?.reference === 'string' ? p.reference : '',
-      qty: Number(p?.qty),
-    }))
-    .filter((p) => Number.isInteger(p.lineId) && p.lineId > 0 && p.qty > 0);
+  const openLines: OpenLine[][] = [];
+  for (const document of originals.documents) {
+    const answer = await ctx.client.call<any>('documents/getUnrelatedProducts', { document_id: document.id });
+    const raw: any[] = Array.isArray(answer) ? answer : Array.isArray(answer?.products) ? answer.products : [];
+    openLines.push(
+      raw
+        .map((p) => ({
+          lineId: Number(p?.document_product_id),
+          productId: Number(p?.product_id),
+          reference: typeof p?.reference === 'string' ? p.reference : '',
+          qty: Number(p?.qty),
+        }))
+        .filter((p) => Number.isInteger(p.lineId) && p.lineId > 0 && p.qty > 0)
+    );
+  }
   const EPSILON = 1e-6;
   products.forEach((product, i) => {
+    const open = openLines[originals.lineOriginal[i]] ?? [];
     const qty = Number(product.qty);
     const fits = (l: OpenLine) => l.qty + EPSILON >= qty;
     const match =
@@ -333,7 +368,6 @@ export const moloniProvider: BillingProvider = {
   async issue(draft, rt) {
     const ctx = context(rt);
     const isCredit = draft.kind === 'CREDIT_NOTE';
-    if (isCredit && !draft.original?.externalId) throw requestFailed('A credit note needs the original document.');
     const documentType = isCredit ? 'NC' : str(rt, 'documentType') === 'FT' ? 'FT' : 'FR';
 
     // Everything that can be refused locally is checked before the first write.
@@ -344,7 +378,9 @@ export const moloniProvider: BillingProvider = {
     }
     const exemptionReason = str(rt, 'exemptionReason');
     // DISCOUNT lines are only a record (their value is inside the item totals): never sent.
-    const lines = draft.lines.filter((l) => l.kind !== 'DISCOUNT');
+    const sent = draft.lines.flatMap((l, i) => (l.kind === 'DISCOUNT' ? [] : [i]));
+    const lines = sent.map((i) => draft.lines[i]);
+    const originals = isCredit ? creditedOriginals(draft, sent) : null;
     if (lines.some((l) => l.tax === 0) && !exemptionReason) {
       throw new EcommerceBillingError('BILLING_EXEMPTION_REASON_MISSING', 'A 0% line needs an exemption reason.');
     }
@@ -401,7 +437,7 @@ export const moloniProvider: BillingProvider = {
         ...lineTaxes[i],
       });
     }
-    if (isCredit) await relateToOriginal(ctx, documentId(draft.original!.externalId), products, lines);
+    if (originals) await relateToOriginal(ctx, originals, products, lines);
 
     const document: Record<string, unknown> = {
       date: draft.date,
@@ -416,7 +452,7 @@ export const moloniProvider: BillingProvider = {
     let path: string;
     if (isCredit) {
       path = 'creditNotes/insert';
-      document.associated_documents = [{ associated_id: documentId(draft.original!.externalId), value: euros(draft.total) }];
+      document.associated_documents = originals!.documents.map((d) => ({ associated_id: d.id, value: euros(d.value) }));
     } else if (documentType === 'FR') {
       path = 'invoiceReceipts/insert';
       document.payments = payments;

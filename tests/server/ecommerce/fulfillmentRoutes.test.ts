@@ -29,6 +29,8 @@ const expectedInvoices: [string, string, string, string][] = [
   ['GET', `${A}/invoices/:id/pdf`, `${I}.pdf`, P.ordersRead],
   ['GET', `${A}/invoices/:id/credit-note/preview`, `${I}.creditNotePreview`, P.ordersRead],
   ['POST', `${A}/invoices/:id/credit-note`, `${I}.issueCreditNote`, P.invoicingManage],
+  ['GET', `${A}/refunds/:id/credit-note/options`, `${I}.refundCreditNoteOptions`, P.ordersRead],
+  ['POST', `${A}/refunds/:id/credit-note`, `${I}.issueRefundCreditNote`, P.invoicingManage],
 ];
 
 describe.each([

@@ -86,6 +86,8 @@ export type RefundView = {
   } | null;
   /** The id only: the code is read through the store credit endpoints (customers permission). */
   storeCredit: { id: number } | null;
+  /** INVOICED refunds: the credit note documenting it, once one was issued or is being issued. */
+  creditNoteId: number | null;
 };
 
 export type RefundLimits = {
@@ -145,6 +147,9 @@ export const toRefundView = (r: any): RefundView => {
     method: r.method,
     kind: r.kind,
     scope: r.scope === 'INVOICED' ? 'INVOICED' : 'EXCESS',
+    creditNoteId: Number.isInteger(Number(r.metadata?.creditNoteId)) && r.metadata?.creditNoteId != null
+      ? Number(r.metadata.creditNoteId)
+      : null,
     status: r.status,
     amount: num(r.amount),
     currency: r.currency ?? 'EUR',

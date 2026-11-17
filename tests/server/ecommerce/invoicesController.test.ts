@@ -261,6 +261,46 @@ describe('EcommerceInvoiceController', () => {
     expect(ctx.body.error.details.code).toBe(code);
   });
 
+  it('refund credit note: options pass the refund id; issue validates items (invoiceId > 0, index >= 0, quantity >= 1, at most 200) and idempotencyKey', async () => {
+    const refundCreditNoteOptions = vi.fn().mockResolvedValue({ refund: { id: 5, amount: 100 }, invoices: [] });
+    const issueRefundCreditNote = vi.fn().mockResolvedValue({ id: 2, kind: 'CREDIT_NOTE' });
+    const c = createInvoices({ strapi: strapiWith({ refundCreditNoteOptions, issueRefundCreditNote }) });
+    const o = mkCtx();
+    await c.refundCreditNoteOptions(o);
+    expect(refundCreditNoteOptions).toHaveBeenCalledWith(5);
+    expect(o.body).toEqual({ refund: { id: 5, amount: 100 }, invoices: [] });
+
+    const valid = { items: [{ invoiceId: 3, index: 0, quantity: 1 }], idempotencyKey: 'k' };
+    const ctx = body(valid);
+    await c.issueRefundCreditNote(ctx);
+    expect(ctx.status).toBe(201);
+    expect(issueRefundCreditNote).toHaveBeenCalledWith(5, valid, 'user:7');
+    const many = Array.from({ length: 201 }, (_, i) => ({ invoiceId: 3, index: i, quantity: 1 }));
+    for (const bad of [
+      { ...valid, items: 'x' },
+      { ...valid, items: [{ invoiceId: 0, index: 0, quantity: 1 }] },
+      { ...valid, items: [{ invoiceId: 3, index: -1, quantity: 1 }] },
+      { ...valid, items: [{ invoiceId: 3, index: 0, quantity: 0 }] },
+      { ...valid, items: [{ invoiceId: 3, index: 0, quantity: 1.5 }] },
+      { ...valid, items: many },
+      { ...valid, idempotencyKey: '' },
+    ]) {
+      const b = body(bad);
+      await c.issueRefundCreditNote(b);
+      expect(b.badRequest, JSON.stringify(bad).slice(0, 80)).toHaveBeenCalled();
+    }
+    expect(issueRefundCreditNote).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['REFUND_CREDITED_INVOICE'])('%s is a 409', async (code) => {
+    const issueRefundCreditNote = vi.fn().mockRejectedValue(new EcommerceValidationError('x', [{ path: 'p', code }]));
+    const c = createInvoices({ strapi: strapiWith({ issueRefundCreditNote }) });
+    const ctx = body({ items: [{ invoiceId: 3, index: 0, quantity: 1 }], idempotencyKey: 'k' });
+    await c.issueRefundCreditNote(ctx);
+    expect(ctx.status).toBe(409);
+    expect(ctx.body.error.details.code).toBe(code);
+  });
+
   it('maps not found to 404 on every endpoint', async () => {
     const nf = () => vi.fn().mockRejectedValue(new EcommerceNotFoundError('x'));
     const svc = { selection: nf(), issue: nf(), reconcile: nf(), getPdf: nf(), creditNotePreview: nf(), issueCreditNote: nf() };

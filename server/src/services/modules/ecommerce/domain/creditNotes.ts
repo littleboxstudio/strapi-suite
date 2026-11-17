@@ -416,3 +416,73 @@ export function buildCreditLines(
     issues: [],
   };
 }
+
+// ---------------------------------------------------------------------------
+// REFUND credit notes (plan 15)
+// ---------------------------------------------------------------------------
+
+/** What a REFUND credit note may credit of one invoice line: whole units, or a whole shipping line. */
+export type RefundCreditLineOption = {
+  index: number;
+  kind: 'ITEM' | 'SHIPPING';
+  name: string;
+  quantityLeft: number;
+  /** The value of one unit (the first one credited), by the RETURN share rule. */
+  unitValue: number;
+  valueLeft: number;
+};
+
+/** `q` of the `u` units left of an ITEM line, valued the RETURN way (`sharedUnitsCredit`). */
+const unitsCredit = (line: InvoiceLine, valueLeft: number, u: number, q: number): InvoiceLine => {
+  const shared = sharedUnitsCredit(line, valueLeft, u, q);
+  if (shared) return shared;
+  return { ...withTotal(line, selectedValue(valueLeft, u, q)), quantity: q, partial: false };
+};
+
+/**
+ * The elements of `invoice` an INVOICED refund's credit note may credit (plan 15): ITEM lines with
+ * whole units left (valued by the RETURN share rule) and whole SHIPPING lines, as `options` (live
+ * credit notes counted) leaves them. DISCOUNT records are never listed.
+ */
+export function refundCreditOptions(invoice: InvoiceDoc, options: CreditOptions): RefundCreditLineOption[] {
+  return invoice.lines.flatMap((l, index): RefundCreditLineOption[] => {
+    if (l.kind === 'ITEM') {
+      const units = options.unitsLeft[index] ?? 0;
+      const valueLeft = options.creditable[index] ?? 0;
+      if (units <= 0 || valueLeft <= 0) return [];
+      const unitValue = num(unitsCredit(l, valueLeft, units, 1).total);
+      return [{ index, kind: 'ITEM', name: l.name, quantityLeft: units, unitValue, valueLeft }];
+    }
+    if (l.kind === 'SHIPPING') {
+      const s = options.shipping.find((o) => o.index === index);
+      if (!s) return [];
+      return [{ index, kind: 'SHIPPING', name: l.name, quantityLeft: 1, unitValue: s.value, valueLeft: s.value }];
+    }
+    return [];
+  });
+}
+
+/**
+ * The credit-note line for `quantity` of option `index` of `invoice` (a whole shipping line takes
+ * quantity 1), or the issue that refuses it.
+ */
+export function refundCreditLine(
+  invoice: InvoiceDoc,
+  options: CreditOptions,
+  index: unknown,
+  quantity: unknown
+): { line: InvoiceLine; value: number; quantity: number } | { issue: 'index' | 'quantity'; code: string } {
+  const option = refundCreditOptions(invoice, options).find((o) => o.index === index);
+  if (!option) return { issue: 'index', code: 'invalid' };
+  if (typeof quantity !== 'number' || !Number.isInteger(quantity) || quantity < 1) {
+    return { issue: 'quantity', code: 'invalid' };
+  }
+  if (quantity > option.quantityLeft) return { issue: 'quantity', code: 'QUANTITY_EXCEEDS_CREDITABLE' };
+  const original = invoice.lines[option.index];
+  if (option.kind === 'SHIPPING') {
+    const line = creditLine(original, option.valueLeft);
+    return { line, value: option.valueLeft, quantity: line.quantity };
+  }
+  const line = unitsCredit(original, option.valueLeft, option.quantityLeft, quantity);
+  return { line, value: num(line.total), quantity };
+}
