@@ -3,7 +3,7 @@ import type { OrderStatus, RegisterReturnInput } from '../orderTypes';
 
 /** Mirror the server limits. */
 export const MAX_RETURN_REASON = 200;
-export const MAX_RETURN_NOTES = 2000;
+export const MAX_RETURN_NOTES = 500;
 
 export type ReturnLineDraft = { orderLineId: number; quantity: string; restock: boolean };
 export type ReturnForm = { lines: ReturnLineDraft[]; reason: string; notes: string };

@@ -20,6 +20,8 @@ import {
   VisuallyHidden,
 } from '@strapi/design-system';
 import { FIT_CELL, PRODUCT_CELL } from './lineCells';
+import NoticeBar from './NoticeBar';
+import { ActionConfirmModal } from '../ActionConfirmModal';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { InputTd } from '../InputTd';
 import RegisterReturn from '../../usecases/orders/registerReturn';
@@ -79,6 +81,7 @@ const RegisterReturnModal = ({ order, canRefund, onClose, onRefundNow }: Props) 
   }));
   const [errors, setErrors] = useState<FormErrors>({});
   const [saving, setSaving] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   /** The server's value for the quantities typed (`key` = those quantities). */
   const [preview, setPreview] = useState<{ key: string; result: ReturnPreview } | null>(null);
   const previewRequest = useRef(0);
@@ -130,13 +133,20 @@ const RegisterReturnModal = ({ order, canRefund, onClose, onRefundNow }: Props) 
     clear([`lines.${orderLineId}`, 'lines', 'form']);
   };
 
-  const submit = async () => {
+  /** Validates locally, then asks for confirmation before registering. */
+  const askRegister = () => {
     if (saving) return;
     const local = validateReturnForm(form, order.lines);
     if (Object.keys(local).length) {
       setErrors(local);
       return;
     }
+    setConfirming(true);
+  };
+
+  const submit = async () => {
+    setConfirming(false);
+    if (saving) return;
     const input = buildReturnInput(form, idempotencyKey);
     setSaving(true);
     try {
@@ -173,28 +183,89 @@ const RegisterReturnModal = ({ order, canRefund, onClose, onRefundNow }: Props) 
     const showRefund = canRefund && result.refundable > 0;
     return (
       <Modal.Root open onOpenChange={(next: boolean) => !next && onClose(true)}>
-        <Modal.Content>
+        <Modal.Content style={{ maxWidth: 760, width: '100%' }}>
           <Modal.Header>
             <Modal.Title>{t('ecommerce.orders.returns.doneTitle', { id: r.id })}</Modal.Title>
           </Modal.Header>
           <Modal.Body>
-            <Flex direction="column" alignItems="stretch" gap={3}>
-              {r.items.map((i) => (
-                <Typography key={i.orderLineId} variant="omega" textColor="neutral800">
-                  {i.quantity} × {i.name}
-                  {i.option ? ` (${i.option})` : ''} ·{' '}
-                  {t(i.restock ? 'ecommerce.orders.returns.restocked' : 'ecommerce.orders.returns.notRestocked')}
+            <Flex direction="column" alignItems="stretch" gap={5}>
+              {/* The units returned, then the operation's figures, each under its title. */}
+              <Flex direction="column" alignItems="stretch" gap={2}>
+                <Typography variant="sigma" textColor="neutral600">
+                  {t('ecommerce.orders.returns.selectedTitle')}
                 </Typography>
-              ))}
-              {row(t('ecommerce.orders.returns.gross'), money(r.grossValue))}
-              {r.discountShare > 0 && row(t('ecommerce.orders.returns.discountShare'), money(-r.discountShare))}
-              {row(t('ecommerce.orders.returns.refundableValue'), money(r.refundableValue), true)}
-              {row(t('ecommerce.orders.returns.refundableNow'), money(result.refundable))}
-              <Box padding={3} background="neutral100" hasRadius>
-                <Typography variant="omega" textColor="neutral700">
-                  {t(result.refundable > 0 ? 'ecommerce.orders.returns.refundHint' : 'ecommerce.orders.returns.nothingToRefund')}
+                <Table colCount={3} rowCount={r.items.length + 1}>
+                  <Thead>
+                    <Tr>
+                      <Th>
+                        <Typography variant="sigma">{t('ecommerce.orders.returns.columns.product')}</Typography>
+                      </Th>
+                      <Th style={FIT_CELL}>
+                        <Typography variant="sigma">{t('ecommerce.orders.returns.columns.qty')}</Typography>
+                      </Th>
+                      <Th style={FIT_CELL}>
+                        <Typography variant="sigma">{t('ecommerce.orders.returns.columns.restock')}</Typography>
+                      </Th>
+                    </Tr>
+                  </Thead>
+                  <Tbody>
+                    {r.items.map((i) => (
+                      <Tr key={i.orderLineId}>
+                        <Td style={PRODUCT_CELL}>
+                          <Typography textColor="neutral800">{i.name}</Typography>
+                          {i.option && (
+                            <Typography variant="pi" textColor="neutral600" tag="p">
+                              {i.option}
+                            </Typography>
+                          )}
+                        </Td>
+                        <Td style={FIT_CELL}>
+                          <Typography textColor="neutral800">{i.quantity}</Typography>
+                        </Td>
+                        <Td style={FIT_CELL}>
+                          <Typography textColor="neutral800">
+                            {t(i.restock ? 'ecommerce.orders.returns.restocked' : 'ecommerce.orders.returns.notRestocked')}
+                          </Typography>
+                        </Td>
+                      </Tr>
+                    ))}
+                  </Tbody>
+                </Table>
+              </Flex>
+              <Flex direction="column" alignItems="stretch" gap={2}>
+                <Typography variant="sigma" textColor="neutral600">
+                  {t('ecommerce.orders.returns.summaryTitle')}
                 </Typography>
-              </Box>
+                <Table colCount={2} rowCount={4}>
+                  <Tbody>
+                    {[
+                      { label: t('ecommerce.orders.returns.gross'), amount: r.grossValue, strong: false },
+                      ...(r.discountShare > 0
+                        ? [{ label: t('ecommerce.orders.returns.discountShare'), amount: -r.discountShare, strong: false }]
+                        : []),
+                      { label: t('ecommerce.orders.returns.refundableValue'), amount: r.refundableValue, strong: true },
+                      { label: t('ecommerce.orders.returns.refundableNow'), amount: result.refundable, strong: false },
+                    ].map((line) => (
+                      <Tr key={line.label}>
+                        <Td>
+                          <Typography textColor="neutral800" fontWeight={line.strong ? 'bold' : undefined}>
+                            {line.label}
+                          </Typography>
+                        </Td>
+                        <Td style={{ textAlign: 'right' }}>
+                          <Typography textColor="neutral800" fontWeight={line.strong ? 'bold' : undefined}>
+                            {money(line.amount)}
+                          </Typography>
+                        </Td>
+                      </Tr>
+                    ))}
+                  </Tbody>
+                </Table>
+              </Flex>
+              <NoticeBar
+                wrap
+                text={t(result.refundable > 0 ? 'ecommerce.orders.returns.refundHint' : 'ecommerce.orders.returns.nothingToRefund')}
+              />
             </Flex>
           </Modal.Body>
           <Modal.Footer>
@@ -246,11 +317,12 @@ const RegisterReturnModal = ({ order, canRefund, onClose, onRefundNow }: Props) 
             <Field.Root
               name="notes"
               error={fieldError('notes')}
-              hint={t('ecommerce.orders.returns.notesHint', { max: MAX_RETURN_NOTES })}
+              hint={`${form.notes.length}/${MAX_RETURN_NOTES}`}
             >
               <Field.Label>{t('ecommerce.orders.returns.notes')}</Field.Label>
               <Textarea
                 value={form.notes}
+                maxLength={MAX_RETURN_NOTES}
                 disabled={saving}
                 onChange={(e: any) => {
                   setForm((f) => ({ ...f, notes: e.target.value }));
@@ -363,11 +435,24 @@ const RegisterReturnModal = ({ order, canRefund, onClose, onRefundNow }: Props) 
           <Button variant="tertiary" onClick={() => onClose(false)} disabled={saving}>
             {t('ecommerce.orders.returns.cancel')}
           </Button>
-          <Button variant="secondary" onClick={submit} loading={saving} disabled={!form.lines.length}>
+          <Button variant="secondary" onClick={askRegister} loading={saving} disabled={!form.lines.length}>
             {t('ecommerce.orders.returns.submit')}
           </Button>
         </Modal.Footer>
       </Modal.Content>
+      <ActionConfirmModal
+        open={confirming}
+        title={t('ecommerce.orders.returns.confirm.title')}
+        text={t('ecommerce.orders.returns.confirm.text', {
+          units: previewLines.reduce((n, l) => n + l.quantity, 0),
+          amount: money(value),
+        })}
+        confirmLabel={t('ecommerce.orders.returns.submit')}
+        cancelLabel={t('ecommerce.orders.returns.cancel')}
+        confirmVariant="default"
+        onConfirm={submit}
+        onCancel={() => setConfirming(false)}
+      />
     </Modal.Root>
   );
 };
