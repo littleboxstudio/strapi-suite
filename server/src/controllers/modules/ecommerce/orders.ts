@@ -6,6 +6,7 @@ import { MAX_KEY, asObject, fail, optionalString, promotionFields, requiredStrin
 const EcommerceOrderController = ({ strapi }: { strapi: Core.Strapi }) => {
   const orders = (): any => strapi.plugin(PLUGIN_ID).service('EcommerceOrderService');
   const payments = (): any => strapi.plugin(PLUGIN_ID).service('EcommercePaymentService');
+  const promotions = (): any => strapi.plugin(PLUGIN_ID).service('EcommercePromotionService');
   const pickup = (): any => strapi.plugin(PLUGIN_ID).service('EcommercePickupPointService');
   const methodSuggestions = (): any =>
     strapi.plugin(PLUGIN_ID).service('EcommercePaymentMethodSuggestionService');
@@ -96,12 +97,34 @@ const EcommerceOrderController = ({ strapi }: { strapi: Core.Strapi }) => {
         () => {
           const input = body(ctx);
           const promo = promotionFields('Invalid order', asObject(input));
-          // Admin only: lines may carry a manual discount percent (spec 4.1).
-          return orders().quote({ ...input, ...promo }, { manualDiscounts: true });
+          // Admin only: manual discounts (spec 4.1), promotionIds and shippingLines (Create order).
+          return orders().quote({ ...input, ...promo }, { manualDiscounts: true, admin: true });
         },
         undefined,
         true
       ),
+
+    /**
+     * POST /orders/applicable-promotions: the automatic promotions a cart gets (Create order's
+     * Apply discount), with their amounts. Writes nothing.
+     */
+    applicablePromotions: (ctx: any) =>
+      respond(
+        ctx,
+        () => {
+          const input = body(ctx);
+          const promo = promotionFields('Invalid order', asObject(input));
+          return orders().applicablePromotions({ ...input, ...promo });
+        },
+        undefined,
+        true
+      ),
+
+    /** GET /promotion-codes/search?q=: running promotion codes matching `q` (no customer data). */
+    promotionCodeSearch: (ctx: any) => {
+      const { q } = ctx.query || {};
+      return respond(ctx, () => promotions().searchCodes(str(q) ?? ''));
+    },
 
     shippingQuote: (ctx: any) => {
       const { country, postalCode, lines, locale, subtotal } = body(ctx);

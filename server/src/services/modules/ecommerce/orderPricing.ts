@@ -7,7 +7,7 @@ import { EcommerceValidationError, type ValidationIssue } from './errors';
 import { isValidEmailFormat } from './domain/email';
 import { marketCountry } from './domain/markets';
 import { manualUnitDiscount } from './domain/lineDiscounts';
-import { computeTotals } from './domain/orders';
+import { computeTotals, MAX_MONEY_CENTS } from './domain/orders';
 import {
   buildManualDiscountList,
   manualDiscountListShapeErrors,
@@ -15,9 +15,12 @@ import {
   type ManualDiscount,
 } from './domain/manualDiscounts';
 import type { ShippingOption, ShippingQuoteRequest } from './shipping';
+import { recalculateDiscounts, type DiscountLine } from './domain/discountRecalculation';
 import {
   normalizePromotionCode,
   type AppliedPromotion,
+  type Benefit,
+  type DiscountClass,
   type EvaluationInput,
   type GiftOption,
   type PricedLine,
@@ -28,9 +31,13 @@ import {
   giftSignature,
   normalizeLines,
   normalizePromotionFields,
+  normalizePromotionIds,
+  normalizeShippingLines,
+  MAX_CREATE_SHIPPING_LINES,
   quantitiesByVariant,
   type CatalogVariant,
   type MergedLine,
+  type ShippingLineInput,
 } from './orderPricingHelpers';
 
 export type OrderQuoteInput = {
@@ -45,6 +52,18 @@ export type OrderQuoteInput = {
   emailVerified?: boolean;
   /** Order-level manual discounts (admin only: read with `QuoteOptions.manualDiscounts`). */
   manualDiscounts?: OrderManualDiscountInput[];
+  /**
+   * Admin only (`QuoteOptions.admin`): the only automatic promotions to evaluate (entered codes
+   * still apply); an empty list evaluates none. Absent: every running automatic promotion.
+   */
+  promotionIds?: number[];
+  /**
+   * Admin only (`QuoteOptions.admin`): several shipping charges at amounts the admin entered, the
+   * first one being the delivery method. Exclusive with `shipping`; needs `destination`.
+   */
+  shippingLines?: ShippingLineInput[];
+  /** Where `shippingLines` go (the methods are checked against a quote for it). */
+  destination?: { country: string; postalCode?: string } | null;
 };
 
 /** A manual discount given at creation: FIXED in cents, PERCENT with at most two decimals. */
@@ -65,7 +84,21 @@ export type ManualPricedLine = PricedLine & { manualDiscountPercent?: number };
  * Admin-only pricing options (the storefront never passes them). `manualDiscounts`: the lines'
  * `discountPercent` (spec 4.1) and the order-level `manualDiscounts` are read.
  */
-export type QuoteOptions = { manualDiscounts?: boolean };
+export type QuoteOptions = {
+  manualDiscounts?: boolean;
+  /** Admin Create order: `promotionIds`, `shippingLines`/`destination` are read. */
+  admin?: boolean;
+};
+
+/** A shipping charge as the quote priced it (what create stores as a shipping line). */
+export type QuoteShippingLine = {
+  providerId: string;
+  serviceId: string;
+  name: string;
+  tax: number;
+  /** Cents, VAT included. */
+  amount: number;
+};
 
 export type OrderQuoteLine = PricedLine & {
   /** The manual discount percent (spec 4.1); null = none. */
@@ -117,6 +150,11 @@ export type OrderQuote = {
   giftOptions: QuoteGiftOption[];
   /** The order-level manual discounts applied, in input order (empty when none). */
   manualDiscounts: QuoteManualDiscount[];
+  /**
+   * Admin quotes only: the shipping charges create would store, the first being the delivery
+   * method (the single `shipping`: one entry at the carrier's price; none without shipping).
+   */
+  shippingLines?: QuoteShippingLine[];
 };
 
 /**
@@ -175,6 +213,11 @@ export type PricedCart = {
   catalog: Map<number, CatalogVariant>;
   /** Gift variants on offer (stock already net of the cart's units). */
   gifts: Map<number, GiftOption>;
+  /**
+   * With `shippingLines`: each charge with its offered option (name, tax) and the entered amount.
+   * `option` is then the first one's with `price` = its amount.
+   */
+  shippingLines?: { option: ShippingOption; amount: number }[];
 };
 
 /** What pricing needs from the promotion service. */
@@ -185,6 +228,30 @@ export type PricingPromotions = {
     candidates: PromotionCandidate[],
     cartQuantities: Map<number, number>
   ): Promise<Map<number, GiftOption>>;
+  /** The configured search limit of the engine. */
+  searchLimit(): number;
+};
+
+/** The cart `applicablePromotions` lists the automatic promotions of (admin Create order). */
+export type ApplicablePromotionsInput = {
+  lines: { variantId: number; quantity: number; discountPercent?: number | null }[];
+  locale: string;
+  email?: string | null;
+  promotionCodes?: string[];
+  giftChoices?: Record<number, number>;
+  /** The order's shipping charges: only `amount` (cents) is read, their sum is the shipping. */
+  shippingLines?: { amount: number }[];
+};
+
+/** An automatic promotion the cart gets, with what it would take off (cents). */
+export type ApplicablePromotion = {
+  id: number;
+  name: string;
+  displayName: Record<string, string>;
+  classes: DiscountClass[];
+  /** The promotion's benefits as defined (no customer data). */
+  benefits: Benefit[];
+  amount: number;
 };
 
 /**
@@ -201,6 +268,9 @@ export type OrderPricingDeps = {
       providerId: string,
       serviceId: string
     ): Promise<ShippingOption | null>;
+    quote(
+      req: ShippingQuoteRequest
+    ): Promise<{ options: ShippingOption[]; failures: { providerId: string; code: string }[] }>;
   };
   stock(): { available(ids: number[]): Promise<Map<number, number>> };
   getStoreSettings(): Promise<{ markets?: string[] } | null | undefined>;
@@ -280,10 +350,19 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
     giftChoices: Record<number, number>;
     destination: PricingDestination | null;
     emailVerified?: boolean;
+    /** Admin: the only automatic promotions evaluated (codes still apply). Absent: all. */
+    promotionIds?: number[];
+    /** Admin: charges at entered amounts (non-empty, needs `destination`). */
+    shippingLines?: ShippingLineInput[];
   }): Promise<PricedCart> => {
     const promo = promotions();
     const verified = p.emailVerified === undefined ? {} : { emailVerified: p.emailVerified };
-    const candidates = await promo.loadCandidates({ codes: p.codes, email: p.email, ...verified });
+    const loaded = await promo.loadCandidates({ codes: p.codes, email: p.email, ...verified });
+    const selected = p.promotionIds === undefined ? null : new Set(p.promotionIds);
+    // Only the selected automatic promotions (and their gifts); CODE ones come from the codes.
+    const candidates = selected
+      ? loaded.filter((c) => c.method !== 'AUTOMATIC' || selected.has(c.id))
+      : loaded;
     const gifts = await promo.giftOptions(candidates, quantitiesByVariant(p.lines));
     const catalog = new Map(p.catalog);
     const missing = [...gifts.keys()].filter((id) => !catalog.has(id));
@@ -346,29 +425,59 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
         now,
       }));
 
-    const first = evaluate(null);
     const destination = p.destination;
+    /** The parcel of `e` (gifts included) at the destination, on its subtotal after promotions. */
+    const requestFor = (d: PricingDestination, e: PromotionEvaluation): ShippingQuoteRequest => ({
+      country: d.country,
+      postalCode: d.postalCode,
+      items: [...quantitiesByVariant(e.lines)].map(([variantId, quantity]) => {
+        const c = catalog.get(variantId);
+        return {
+          variantId,
+          quantity,
+          weight: c?.weight ?? 0,
+          width: c?.width ?? 0,
+          height: c?.height ?? 0,
+          depth: c?.depth ?? 0,
+        };
+      }),
+      subtotal: e.subtotal - e.orderDiscount,
+      locale: p.locale,
+    });
+
+    if (destination && p.shippingLines?.length) {
+      // Entered amounts: the evaluation does not depend on a carrier price, so one pass prices the
+      // cart with the whole shipping (shipping promotions apply to the total), and one quote of
+      // its parcel checks every method is offered there (name and VAT rate from the offer).
+      const evaluation = evaluate(p.shippingLines.reduce((s, l) => s + l.amount, 0));
+      const { options, failures } = await shipping().quote(requestFor(destination, evaluation));
+      const issues: ValidationIssue[] = [];
+      const charged: { option: ShippingOption; amount: number }[] = [];
+      p.shippingLines.forEach((l, i) => {
+        const o = options.find((x) => x.providerId === l.providerId && x.serviceId === l.serviceId);
+        if (o) {
+          charged.push({ option: o, amount: l.amount });
+          return;
+        }
+        const failed =
+          failures.some((f) => f.providerId === l.providerId) &&
+          !options.some((x) => x.providerId === l.providerId);
+        issues.push({
+          path: `shippingLines.${i}`,
+          code: failed ? 'SHIPPING_QUOTE_FAILED' : 'SHIPPING_METHOD_UNAVAILABLE',
+        });
+      });
+      if (issues.length) throw new EcommerceValidationError('Invalid order', issues);
+      const option = { ...charged[0].option, price: charged[0].amount };
+      return { evaluation, evaluatedAt: now, option, catalog, gifts, shippingLines: charged };
+    }
+
+    const first = evaluate(null);
     if (!destination) return { evaluation: first, evaluatedAt: now, option: null, catalog, gifts };
 
     const quoteFor = async (e: PromotionEvaluation): Promise<ShippingOption> => {
       const option = await shipping().findOption(
-        {
-          country: destination.country,
-          postalCode: destination.postalCode,
-          items: [...quantitiesByVariant(e.lines)].map(([variantId, quantity]) => {
-            const c = catalog.get(variantId);
-            return {
-              variantId,
-              quantity,
-              weight: c?.weight ?? 0,
-              width: c?.width ?? 0,
-              height: c?.height ?? 0,
-              depth: c?.depth ?? 0,
-            };
-          }),
-          subtotal: e.subtotal - e.orderDiscount,
-          locale: p.locale,
-        },
+        requestFor(destination, e),
         destination.providerId,
         destination.serviceId
       );
@@ -472,6 +581,116 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
     return out;
   };
 
+  /** The charges create stores for a priced cart (admin quote's `shippingLines`). */
+  const quoteShippingLines = (priced: PricedCart): QuoteShippingLine[] => {
+    const charged =
+      priced.shippingLines ??
+      (priced.option ? [{ option: priced.option, amount: num(priced.option.price) }] : []);
+    return charged.map(({ option, amount }) => ({
+      providerId: option.providerId,
+      serviceId: option.serviceId,
+      name: option.name,
+      tax: num(option.tax),
+      amount,
+    }));
+  };
+
+  /**
+   * The automatic promotions that are active and applicable to a cart (admin Create order's
+   * "Apply discount"), each with the amount it would give. The same evaluation as the order
+   * detail's Recalculate discounts preview (`recalculateDiscounts`, nothing selected), on the cart
+   * as a new order: its lines at catalog prices (a manual percent freezes the line), the entered
+   * codes, the gifts on offer and the shipping charges' sum. Writes nothing.
+   */
+  const applicablePromotions = async (
+    input: ApplicablePromotionsInput
+  ): Promise<{ promotions: ApplicablePromotion[]; exhaustive: boolean }> => {
+    const errors: ValidationIssue[] = [];
+    const locale = clean(input?.locale);
+    if (!locale) errors.push({ path: 'locale', code: 'required' });
+    const lines = normalizeLines(input?.lines, errors, { discounts: true });
+    const { promotionCodes, giftChoices } = normalizePromotionFields(input, errors);
+    const email = clean(input?.email) || null;
+    if (email && !isValidEmailFormat(email)) errors.push({ path: 'email', code: 'invalid_email' });
+    let shippingGross = 0;
+    const rawShipping = input?.shippingLines;
+    if (rawShipping !== undefined && rawShipping !== null) {
+      if (!Array.isArray(rawShipping) || rawShipping.length > MAX_CREATE_SHIPPING_LINES) {
+        errors.push({ path: 'shippingLines', code: 'invalid' });
+      } else {
+        rawShipping.forEach((l, i) => {
+          const amount = (l as { amount?: unknown })?.amount;
+          if (typeof amount !== 'number' || !Number.isInteger(amount) || amount < 0 || amount > MAX_MONEY_CENTS) {
+            errors.push({ path: `shippingLines.${i}.amount`, code: 'INVALID_AMOUNT' });
+          } else {
+            shippingGross += amount;
+          }
+        });
+      }
+    }
+    if (errors.length) throw new EcommerceValidationError('Invalid quote', errors);
+
+    const catalog = await loadCatalog(
+      lines.map((l) => l.variantId),
+      locale
+    );
+    await assertLinesAvailable(lines, catalog);
+    const promo = promotions();
+    const candidates = await promo.loadCandidates({ codes: promotionCodes, email });
+    const gifts = await promo.giftOptions(candidates, quantitiesByVariant(lines));
+    const discountLines: DiscountLine[] = lines.map((l, i) => {
+      const c = catalog.get(l.variantId)!;
+      const manual = l.discountPercent !== undefined;
+      return {
+        id: i + 1,
+        variantId: l.variantId,
+        productId: c.productId,
+        isGift: false,
+        shipped: 0,
+        unitPrice: c.price,
+        unitDiscount: manual ? manualUnitDiscount(c.price, l.discountPercent as number) : 0,
+        quantity: l.quantity,
+        returnedQuantity: 0,
+        refs: [],
+        manualDiscountPercent: manual ? (l.discountPercent as number) : null,
+      };
+    });
+    const r = recalculateDiscounts(
+      {
+        lines: discountLines,
+        applied: [],
+        manual: [],
+        orderDiscount: 0,
+        shippingGross,
+        shippingDiscount: 0,
+        email,
+        codes: promotionCodes,
+        candidates,
+        now: new Date(),
+        searchLimit: promo.searchLimit(),
+        payments: [],
+        refunds: [],
+        gifts,
+        giftChoices,
+      },
+      []
+    );
+    const byId = new Map(candidates.map((c) => [c.id, c]));
+    return {
+      promotions: r.rows
+        .filter((row) => row.method === 'AUTOMATIC' && row.promotionId !== null)
+        .map((row) => ({
+          id: row.promotionId as number,
+          name: row.name,
+          displayName: row.displayName,
+          classes: row.classes,
+          benefits: byId.get(row.promotionId as number)?.benefits ?? [],
+          amount: row.amount,
+        })),
+      exhaustive: r.exhaustive,
+    };
+  };
+
   /** A cart priced with its promotions, without writing anything (plan 7's entry point). */
   const quote = async (input: OrderQuoteInput, options: QuoteOptions = {}): Promise<OrderQuote> => {
     const errors: ValidationIssue[] = [];
@@ -485,23 +704,48 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
     // The storefront never gives an order-level manual discount: the field is ignored.
     const manualInput = options.manualDiscounts === true ? input?.manualDiscounts : undefined;
     errors.push(...manualDiscountListShapeErrors(manualInput));
+    // Admin Create order only; the storefront never sends them (ignored).
+    const admin = options.admin === true;
+    const promotionIds = admin ? normalizePromotionIds(input?.promotionIds, errors) : undefined;
+    let shippingLines: ShippingLineInput[] | undefined;
+    const hasLines = admin && input?.shippingLines !== undefined && input?.shippingLines !== null;
+    if (hasLines && input?.shipping) {
+      errors.push({ path: 'shippingLines', code: 'exclusive' });
+    } else if (hasLines) {
+      shippingLines = normalizeShippingLines(input.shippingLines, errors, MAX_MONEY_CENTS);
+    }
+    const validCountry = async (raw: unknown, path: string): Promise<string> => {
+      const country = clean(raw).toUpperCase();
+      if (!country) {
+        errors.push({ path, code: 'required' });
+        return country;
+      }
+      const store = await getStoreSettings();
+      const countries: string[] = (store?.markets ?? []).map(marketCountry);
+      if (!/^[A-Z]{2}$/.test(country) || !countries.includes(country)) {
+        errors.push({ path, code: 'invalid_country' });
+      }
+      return country;
+    };
 
     let destination: PricingDestination | null = null;
-    if (input?.shipping) {
+    if (shippingLines) {
+      const country = await validCountry(input?.destination?.country, 'destination.country');
+      const postalCode = clean(input?.destination?.postalCode);
+      const first = shippingLines[0];
+      destination = {
+        country,
+        ...(postalCode ? { postalCode } : {}),
+        providerId: first?.providerId ?? '',
+        serviceId: first?.serviceId ?? '',
+      };
+    } else if (input?.shipping) {
       const country = clean(input.shipping.country).toUpperCase();
       const providerId = clean(input.shipping.providerId);
       const serviceId = clean(input.shipping.serviceId);
       const postalCode = clean(input.shipping.postalCode);
       if (!providerId || !serviceId) errors.push({ path: 'shipping', code: 'required' });
-      if (!country) {
-        errors.push({ path: 'shipping.country', code: 'required' });
-      } else {
-        const store = await getStoreSettings();
-        const countries: string[] = (store?.markets ?? []).map(marketCountry);
-        if (!/^[A-Z]{2}$/.test(country) || !countries.includes(country)) {
-          errors.push({ path: 'shipping.country', code: 'invalid_country' });
-        }
-      }
+      await validCountry(input.shipping.country, 'shipping.country');
       destination = { country, ...(postalCode ? { postalCode } : {}), providerId, serviceId };
     }
     if (errors.length) throw new EcommerceValidationError('Invalid quote', errors);
@@ -520,6 +764,8 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
       giftChoices,
       destination,
       emailVerified,
+      ...(promotionIds !== undefined ? { promotionIds } : {}),
+      ...(shippingLines ? { shippingLines } : {}),
     });
     const e = priced.evaluation;
     await assertPricedStock(lines, e.lines);
@@ -566,8 +812,16 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
         amount: m.amount,
         reason: m.reason,
       })),
+      ...(admin ? { shippingLines: quoteShippingLines(priced) } : {}),
     };
   };
 
-  return { priceCart, quote, assertLinesAvailable, assertPricedStock, assertCodesUsable };
+  return {
+    priceCart,
+    quote,
+    applicablePromotions,
+    assertLinesAvailable,
+    assertPricedStock,
+    assertCodesUsable,
+  };
 };

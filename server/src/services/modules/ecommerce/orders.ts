@@ -6,6 +6,7 @@ import { EcommerceNotFoundError, EcommerceValidationError, type ValidationIssue 
 import { isTransientTxConflict, isUniqueViolation } from './dbErrors';
 import { isValidEmail } from './customers';
 import {
+  MAX_MONEY_CENTS,
   ORDER_STATUSES,
   PAYMENT_STATUSES,
   FULFILLMENT_STATUSES,
@@ -91,6 +92,7 @@ import {
 } from './domain/promotions';
 import { applyManualDiscounts, createOrderPricing, type OrderManualDiscountInput } from './orderPricing';
 import {
+  chargedShipping,
   checkoutLine,
   readShippingLines,
   shippingLineViews,
@@ -117,8 +119,11 @@ import {
   isRecord,
   normalizeLines,
   normalizePromotionFields,
+  normalizePromotionIds,
+  normalizeShippingLines,
   quantitiesByVariant,
   type CatalogVariant,
+  type ShippingLineInput,
 } from './orderPricingHelpers';
 
 export type { Address } from './domain/orders';
@@ -147,7 +152,16 @@ export type CreateOrderInput = {
   locale: string;
   /** `discountPercent`: manual line discount (spec 4.1), read only for `source: 'admin'`. */
   lines: { variantId: number; quantity: number; discountPercent?: number | null }[];
-  shipping: { providerId: string; serviceId: string };
+  /** The delivery method, priced by the carrier (storefront; admin unless `shippingLines`). */
+  shipping?: { providerId: string; serviceId: string } | null;
+  /**
+   * Admin only, exclusive with `shipping`: charges at amounts the admin entered (1 to 10). The
+   * first is the delivery method (`shippingMethod`, its pickup point checked as `shipping`'s);
+   * all are stored as shipping lines with origin CREATE.
+   */
+  shippingLines?: ShippingLineInput[];
+  /** Admin only: the only automatic promotions to evaluate (codes still apply). Absent: all. */
+  promotionIds?: number[];
   notes?: string;
   idempotencyKey?: string;
   /** Codes the customer entered (at most MAX_PROMOTION_CODES). */
@@ -585,6 +599,9 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       providerId: string,
       serviceId: string
     ): Promise<ShippingOption | null>;
+    quote(
+      req: ShippingQuoteRequest
+    ): Promise<{ options: ShippingOption[]; failures: { providerId: string; code: string }[] }>;
   } => service('EcommerceShippingService');
   const pickupPoints = (): {
     findPoint(postalCode: string, id: string): Promise<PickupPoint | null>;
@@ -612,6 +629,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       candidates: PromotionCandidate[],
       cartQuantities: Map<number, number>
     ): Promise<Map<number, GiftOption>>;
+    searchLimit(): number;
     reserve(
       applied: AppliedPromotion[],
       ctx: { orderId: number; customerId: number; email: string; actor: string; operationId?: string }
@@ -715,7 +733,8 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     clean,
     num,
   });
-  const { priceCart, quote, assertLinesAvailable, assertPricedStock, assertCodesUsable } = pricing;
+  const { priceCart, quote, applicablePromotions, assertLinesAvailable, assertPricedStock, assertCodesUsable } =
+    pricing;
 
   const validateInput = async (input: CreateOrderInput, source: OrderSource) => {
     const errors: ValidationIssue[] = [];
@@ -747,9 +766,25 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     const locale = clean(input?.locale);
     if (!locale) errors.push({ path: 'locale', code: 'required' });
 
-    const providerId = clean(input?.shipping?.providerId);
-    const serviceId = clean(input?.shipping?.serviceId);
-    if (!providerId || !serviceId) errors.push({ path: 'shipping', code: 'required' });
+    // Admin only: several charges at entered amounts, instead of the single carrier-priced one.
+    let shippingLines: ShippingLineInput[] | null = null;
+    let providerId = '';
+    let serviceId = '';
+    const hasLines =
+      source === 'admin' && input?.shippingLines !== undefined && input?.shippingLines !== null;
+    if (hasLines && input?.shipping !== undefined && input?.shipping !== null) {
+      errors.push({ path: 'shippingLines', code: 'exclusive' });
+    } else if (hasLines) {
+      shippingLines = normalizeShippingLines(input.shippingLines, errors, MAX_MONEY_CENTS);
+      providerId = shippingLines[0]?.providerId ?? '';
+      serviceId = shippingLines[0]?.serviceId ?? '';
+    } else {
+      providerId = clean(input?.shipping?.providerId);
+      serviceId = clean(input?.shipping?.serviceId);
+      if (!providerId || !serviceId) errors.push({ path: 'shipping', code: 'required' });
+    }
+    const promotionIds =
+      source === 'admin' ? normalizePromotionIds(input?.promotionIds, errors) : undefined;
 
     // The storefront never sets a manual line discount (spec 4.1): the field is ignored.
     const lines = normalizeLines(input?.lines, errors, { discounts: source === 'admin' });
@@ -785,6 +820,8 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       emailVerified,
       storeCreditCode,
       manualDiscounts,
+      shippingLines,
+      promotionIds,
     };
   };
 
@@ -900,7 +937,24 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     const validated = await validateInput(input, ctx.source);
     // With a pickup method the point's address is the delivery address: it is stored and it prices
     // the shipping (its market, e.g. PT-ISL), while the customer's stays on `pickupPoint`.
-    const pickup = await resolvePickup(input, validated);
+    // With several charges the first one is the delivery method and carries the point.
+    const firstLine = validated.shippingLines?.[0];
+    const pickup = firstLine
+      ? await resolvePickup(
+          { ...input, pickupPointId: firstLine.pickupPointId, pickupPostalCode: firstLine.pickupPostalCode },
+          validated
+        ).catch((err: unknown) => {
+          if (!(err instanceof EcommerceValidationError)) throw err;
+          throw new EcommerceValidationError(
+            err.message,
+            err.errors.map((e) =>
+              e.path === 'pickupPointId' || e.path === 'pickupPostalCode'
+                ? { ...e, path: `shippingLines.0.${e.path}` }
+                : e
+            )
+          );
+        })
+      : await resolvePickup(input, validated);
     const v = pickup ? { ...validated, shippingAddress: pickup.shippingAddress } : validated;
     const pickupPoint = pickup?.pickupPoint ?? null;
 
@@ -926,6 +980,8 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         serviceId: v.serviceId,
       },
       emailVerified: v.emailVerified,
+      ...(v.promotionIds !== undefined ? { promotionIds: v.promotionIds } : {}),
+      ...(v.shippingLines ? { shippingLines: v.shippingLines } : {}),
     });
     const evaluation = priced.evaluation;
     const option = priced.option as ShippingOption;
@@ -933,7 +989,34 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     assertCodesUsable(v.promotionCodes, evaluation);
     await assertPricedStock(v.lines, evaluation.lines);
 
-    const shippingOriginal = num(option.price);
+    const createdAt = new Date().toISOString();
+    // The stored charges: one CHECKOUT line at the carrier's price, or the admin's CREATE lines.
+    const storedShippingLines = priced.shippingLines
+      ? priced.shippingLines.map(({ option: o, amount }, i) => ({
+          id: i + 1,
+          origin: 'CREATE' as const,
+          amount,
+          tax: num(o.tax),
+          providerId: o.providerId,
+          serviceId: o.serviceId,
+          name: o.name,
+          createdAt,
+          actor: ctx.actor,
+        }))
+      : [
+          checkoutLine({
+            createdAt,
+            shippingOriginal: num(option.price),
+            shippingTax: num(option.tax),
+            shippingMethod: {
+              providerId: option.providerId,
+              serviceId: option.serviceId,
+              name: option.name,
+            },
+          }),
+        ];
+    // The sum of the charges (the order reads its shipping gross from its lines).
+    const shippingOriginal = chargedShipping(storedShippingLines);
     // Order-level manual discounts, on top of the promotions (none: the evaluation's totals).
     const manual = applyManualDiscounts(evaluation, shippingOriginal, v.manualDiscounts, {
       at: new Date().toISOString(),
@@ -1002,27 +1085,14 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
               providerId: option.providerId,
               serviceId: option.serviceId,
               name: option.name,
-              price: shippingOriginal,
+              price: num(option.price),
               tax: num(option.tax),
               ...(option.estimatedDays !== undefined
                 ? { estimatedDays: option.estimatedDays }
                 : {}),
             },
             promotions: storedPromotions,
-            shippingLines: {
-              lines: [
-                checkoutLine({
-                  createdAt: new Date().toISOString(),
-                  shippingOriginal,
-                  shippingTax: num(option.tax),
-                  shippingMethod: {
-                    providerId: option.providerId,
-                    serviceId: option.serviceId,
-                    name: option.name,
-                  },
-                }),
-              ],
-            },
+            shippingLines: { lines: storedShippingLines },
             // As the order editing persists them: never above the order-level discount.
             manualDiscounts: {
               items: reconcileManualDiscounts(manual.items, {
@@ -2190,6 +2260,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
   return {
     create,
     quote,
+    applicablePromotions,
     list,
     quoteForLines,
     searchVariants,

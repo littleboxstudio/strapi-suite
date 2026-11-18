@@ -39,6 +39,7 @@ export default [
   route('GET', '/locales', 'getLocales', read),
   route('POST', '/shipping-quote', 'shippingQuote', manage),
   route('POST', '/quote', 'quote', manage),
+  route('POST', '/applicable-promotions', 'applicablePromotions', manage),
   route('GET', '/variant-search', 'variantSearch', manage),
   route('GET', '/pickup-points', 'pickupPoints', manage),
   route('GET', '/:id', 'get', read),
@@ -50,6 +51,8 @@ export default [
   // Add payment's method field: suggestions of manual method texts (no customer data).
   routeAt('GET', '/payment-methods/suggestions', 'paymentMethodSuggestions', manage),
   routeAt('DELETE', '/payment-methods/suggestions/:key', 'removePaymentMethodSuggestion', manage),
+  // Create order's Add code: running promotion codes (code, promotion, benefits; no customer data).
+  routeAt('GET', '/promotion-codes/search', 'promotionCodeSearch', manage),
   // Order editing by section: every route needs orders.manage, including the quoting GETs.
   edit('GET', '/:id/shipping-address/countries', 'shippingAddressCountries', manage),
   edit('PUT', '/:id/shipping-address', 'updateShippingAddress', manage),
