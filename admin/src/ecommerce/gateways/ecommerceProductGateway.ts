@@ -12,6 +12,7 @@ import type {
   TranslateInput,
   TranslateOutput,
 } from '../types';
+import type { ImageOwner } from '../utils/imageUpload';
 
 export default interface EcommerceProductGateway {
   fetchLocales(): Promise<EcommerceLocales>;
@@ -24,6 +25,8 @@ export default interface EcommerceProductGateway {
   setVariantActive(id: number, active: boolean): Promise<{ active: boolean }>;
   uploadImage(form: FormData): Promise<ImageRecord>;
   deleteImage(id: number): Promise<void>;
+  reorderImages(owner: ImageOwner, ids: number[]): Promise<{ coverId: number | null }>;
+  setImageCover(id: number): Promise<void>;
   translate(input: TranslateInput): Promise<TranslateOutput>;
 }
 
@@ -74,6 +77,14 @@ export class EcommerceProductGatewayHttp implements EcommerceProductGateway {
 
   async deleteImage(id: number): Promise<void> {
     await this.httpClient.delete(`${this.base}/images/${id}`);
+  }
+
+  async reorderImages(owner: ImageOwner, ids: number[]): Promise<{ coverId: number | null }> {
+    return this.httpClient.put(`${this.base}/images/order`, { ...owner, ids });
+  }
+
+  async setImageCover(id: number): Promise<void> {
+    await this.httpClient.put(`${this.base}/images/${id}/cover`, {});
   }
 
   async translate(input: TranslateInput): Promise<TranslateOutput> {

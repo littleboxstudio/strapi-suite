@@ -14,6 +14,8 @@ const expected: [string, string, string][] = [
   ['PUT', '/admin/ecommerce/variants/:id/active', P.productsManage],
   ['POST', '/admin/ecommerce/images', P.productsManage],
   ['DELETE', '/admin/ecommerce/images/:id', P.productsManage],
+  ['PUT', '/admin/ecommerce/images/order', P.productsManage],
+  ['PUT', '/admin/ecommerce/images/:id/cover', P.productsManage],
   ['POST', '/admin/ecommerce/products/translate', P.productsManage],
 ];
 
@@ -24,6 +26,11 @@ describe('ecommerce product routes', () => {
     expect(r.config.middlewares).toEqual(['plugin::littlebox-strapi-suite.check-module-is-active']);
     expect(r.config.policies).toContainEqual({ name: 'admin::hasPermissions', config: { actions: [action] } });
     expect(r.config.policies).toContain('admin::isAuthenticatedAdmin');
+  });
+
+  it("'order' is registered before the ':id' image routes", () => {
+    const at = (path: string) => routes.findIndex((x: any) => x.path === path);
+    expect(at('/admin/ecommerce/images/order')).toBeLessThan(at('/admin/ecommerce/images/:id/cover'));
   });
 
   it('are included in the admin routes', () => {

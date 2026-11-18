@@ -1,10 +1,18 @@
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID, LtbConfigs } from '../../../config';
 import { sanitizeSearchTerm } from './domain/storefront/request';
+import { galleryCover, sortGallery } from './domain/galleryImages';
 import { EcommerceNotFoundError, EcommerceValidationError } from './errors';
 
 /** Image exactly as stored by the upload provider. `alt` is the product name (no `alt` column exists). */
-export type PublicImage = { url: string; width: number; height: number; alt: string };
+export type PublicImage = {
+  url: string;
+  width: number;
+  height: number;
+  alt: string;
+  /** The gallery's cover (one per gallery); see galleryCover. */
+  cover: boolean;
+};
 
 export type PublicProductListItem = {
   id: number;
@@ -93,10 +101,19 @@ const EcommerceStorefrontCatalogService = ({ strapi }: { strapi: Core.Strapi }) 
   const nameOf = (p: any, locale: string, defaultLocale: string): string =>
     pickText(p.translations, locale, defaultLocale, 'name');
 
-  const toImages = (rows: any[] | undefined, alt: string): PublicImage[] =>
-    [...(rows ?? [])]
-      .sort(byPosition)
-      .map((i) => ({ url: i.url, width: i.width, height: i.height, alt }));
+  /** The gallery in the admin's order, its cover flagged. */
+  const toImages = (rows: any[] | undefined, alt: string): PublicImage[] => {
+    const coverId = galleryCover(rows)?.id ?? null;
+    return sortGallery(rows).map((i) => ({
+      url: i.url,
+      width: i.width,
+      height: i.height,
+      alt,
+      cover: i.id === coverId,
+    }));
+  };
+  const coverOf = (images: PublicImage[]): PublicImage | undefined =>
+    images.find((i) => i.cover) ?? images[0];
 
   const activeVariants = (p: any): any[] =>
     [...(p.variants ?? [])].filter((v) => v.active).sort(byPosition);
@@ -194,9 +211,10 @@ const EcommerceStorefrontCatalogService = ({ strapi }: { strapi: Core.Strapi }) 
 
       const results: PublicProductListItem[] = slice.map((e) => {
         const full = imagesById.get(e.p.id);
-        const productImage = toImages(full?.images, e.name)[0];
+        // The list shows the product's cover, else the first active variant's.
+        const productImage = coverOf(toImages(full?.images, e.name));
         const variantImage = activeVariants(full ?? {})
-          .map((v) => toImages(v.images, e.name)[0])
+          .map((v) => coverOf(toImages(v.images, e.name)))
           .find(Boolean);
         return {
           id: e.p.id,

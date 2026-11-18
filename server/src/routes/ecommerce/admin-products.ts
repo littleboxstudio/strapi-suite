@@ -34,5 +34,8 @@ export default [
   route('PUT', '/admin/ecommerce/products/:id/active', 'setActive', manage),
   route('PUT', '/admin/ecommerce/variants/:id/active', 'setVariantActive', manage),
   route('POST', '/admin/ecommerce/images', 'uploadImage', manage),
+  // Registered before ':id' routes so 'order' is never read as an id.
+  route('PUT', '/admin/ecommerce/images/order', 'reorderImages', manage),
+  route('PUT', '/admin/ecommerce/images/:id/cover', 'setImageCover', manage),
   route('DELETE', '/admin/ecommerce/images/:id', 'removeImage', manage),
 ];

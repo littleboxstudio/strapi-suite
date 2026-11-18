@@ -4,25 +4,42 @@ import { Button, Flex, Modal, Typography } from '@strapi/design-system';
 import ConfirmModal from '../../components/ConfirmModal';
 import { getTranslation } from '../../core/utils/getTranslation';
 import DeleteProductImage from '../usecases/deleteProductImage';
+import SetProductImageCover from '../usecases/setProductImageCover';
 import { formatBytes } from '../utils/imageUpload';
 import type { ImageRecord } from '../types';
 
 type Props = {
   image: ImageRecord;
   onClose: () => void;
+  /** The image is now its gallery's cover. */
+  onCoverSet: (id: number) => void;
   onDeleted: (id: number) => void;
 };
 
 const PREVIEW_MAX_HEIGHT = 360;
 
-const ImageDetailModal = ({ image, onClose, onDeleted }: Props) => {
+const ImageDetailModal = ({ image, onClose, onCoverSet, onDeleted }: Props) => {
   const { formatMessage } = useIntl();
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
 
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [settingCover, setSettingCover] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const busy = deleting || settingCover;
+
+  const setCover = async () => {
+    setSettingCover(true);
+    setError(null);
+    try {
+      await new SetProductImageCover().execute(image.id);
+      onCoverSet(image.id);
+    } catch {
+      setError(t('ecommerce.image.detail.setCoverError'));
+      setSettingCover(false);
+    }
+  };
 
   const remove = async () => {
     setConfirming(false);
@@ -39,7 +56,7 @@ const ImageDetailModal = ({ image, onClose, onDeleted }: Props) => {
 
   return (
     <>
-      <Modal.Root open onOpenChange={(next: boolean) => !next && !deleting && onClose()}>
+      <Modal.Root open onOpenChange={(next: boolean) => !next && !busy && onClose()}>
         <Modal.Content>
           <Modal.Header>
             <Modal.Title>{t('ecommerce.image.detail.title')}</Modal.Title>
@@ -69,17 +86,25 @@ const ImageDetailModal = ({ image, onClose, onDeleted }: Props) => {
             </Flex>
           </Modal.Body>
           <Modal.Footer>
-            <Button variant="tertiary" onClick={onClose} disabled={deleting}>
+            <Button variant="tertiary" onClick={onClose} disabled={busy}>
               {t('ecommerce.image.detail.close')}
             </Button>
-            <Button
-              variant="danger-light"
-              onClick={() => setConfirming(true)}
-              loading={deleting}
-              disabled={deleting}
-            >
-              {t('ecommerce.image.detail.delete')}
-            </Button>
+            <Flex gap={2}>
+              {/* The cover already is one: no button. */}
+              {!image.cover && (
+                <Button variant="secondary" onClick={setCover} loading={settingCover} disabled={busy}>
+                  {t('ecommerce.image.detail.setCover')}
+                </Button>
+              )}
+              <Button
+                variant="danger-light"
+                onClick={() => setConfirming(true)}
+                loading={deleting}
+                disabled={busy}
+              >
+                {t('ecommerce.image.detail.delete')}
+              </Button>
+            </Flex>
           </Modal.Footer>
         </Modal.Content>
       </Modal.Root>

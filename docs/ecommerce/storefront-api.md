@@ -214,6 +214,14 @@ cloud provider it is absolute. With Strapi's local provider it is a relative `/u
 **the BFF serves it** (proxy or rewrite to Strapi's `/uploads`), since the browser never talks
 to Strapi.
 
+**Order and cover.** `images` (the product's, and each variant's) come in the order the admin
+set in the gallery (drag and drop). Each `PublicImage` has `cover: boolean`: exactly one image of
+a non-empty gallery is `true`. A gallery's first upload is its cover until the admin marks another
+one; deleting the cover makes the first image the cover; reordering never changes it. The cover is
+not moved to the front: show the gallery in the given order and use the cover for
+thumbnails. The product list's `image` is the product's cover (else the first active variant's),
+and cart and order lines (`imageUrl`) use the variant's cover, else the product's.
+
 **Store logo in e-mails.** The store logo (Settings → General) is a PNG kept by the same upload
 provider. E-mails never point at Strapi: with the local provider they use
 `<storefrontUrl>/uploads/...`, so the BFF must serve `/uploads` publicly (as for the product

@@ -232,16 +232,30 @@ describe('EcommerceStorefrontCatalogService', () => {
     addProduct({ name: 'Shirt', variants: [v('S1', 1000, { images: ['/uploads/sv.webp'] })] });
     const d = await service.getProduct('pants', 'pt');
     expect(d.images).toEqual([
-      { url: '/uploads/b.webp', width: 10, height: 20, alt: 'Calças' },
-      { url: '/uploads/a.webp', width: 10, height: 20, alt: 'Calças' },
+      { url: '/uploads/b.webp', width: 10, height: 20, alt: 'Calças', cover: true },
+      { url: '/uploads/a.webp', width: 10, height: 20, alt: 'Calças', cover: false },
     ]);
     expect(d.variants[0].images).toEqual(d.images);
-    expect(d.variants[1].images).toEqual([{ url: '/uploads/v.webp', width: 1, height: 2, alt: 'Calças' }]);
+    expect(d.variants[1].images).toEqual([{ url: '/uploads/v.webp', width: 1, height: 2, alt: 'Calças', cover: true }]);
     const list = await service.listProducts({ locale: 'pt', sort: 'name_asc' });
     expect(list.results[0].image).toEqual(d.images[0]);
     const shirt = list.results.find((r) => r.name === 'Shirt')!;
-    expect(shirt.image).toEqual({ url: '/uploads/sv.webp', width: 1, height: 2, alt: 'Shirt' });
-    expect(Object.keys(d.images[0]).sort()).toEqual(['alt', 'height', 'url', 'width']);
+    expect(shirt.image).toEqual({ url: '/uploads/sv.webp', width: 1, height: 2, alt: 'Shirt', cover: true });
+    expect(Object.keys(d.images[0]).sort()).toEqual(['alt', 'cover', 'height', 'url', 'width']);
+  });
+
+  it('images: the marked cover is flagged and shown in the list; the gallery keeps its order', async () => {
+    const { service, addProduct, tables } = setup();
+    addProduct({ name: 'Pants', images: ['/uploads/a.webp', '/uploads/b.webp', '/uploads/c.webp'], variants: [v('P1')] });
+    tables[UIDS.image].find((i: any) => i.url === '/uploads/b.webp').cover = true;
+    const d = await service.getProduct('pants', 'en');
+    expect(d.images.map((i) => [i.url, i.cover])).toEqual([
+      ['/uploads/a.webp', false],
+      ['/uploads/b.webp', true],
+      ['/uploads/c.webp', false],
+    ]);
+    const list = await service.listProducts({ locale: 'en' });
+    expect(list.results[0].image?.url).toBe('/uploads/b.webp');
   });
 
   it('empty pt name falls back to en', async () => {

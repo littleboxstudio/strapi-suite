@@ -1,6 +1,7 @@
 import { paymentReferenceOf, redactHistoryValue, redactVoucherCodes, storeCreditIdOf } from './paymentMask';
 import type { Core } from '@strapi/strapi';
 import { randomUUID } from 'crypto';
+import { galleryCover } from './domain/galleryImages';
 import { PLUGIN_ID, LtbConfigs } from '../../../config';
 import { EcommerceNotFoundError, EcommerceValidationError, type ValidationIssue } from './errors';
 import { isTransientTxConflict, isUniqueViolation } from './dbErrors';
@@ -710,11 +711,11 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
 
     const out = new Map<number, CatalogVariant>();
     for (const p of products) {
-      const productImage = [...(p.images ?? [])].sort(byPosition)[0];
+      const productImage = galleryCover<any>(p.images);
       for (const v of p.variants ?? []) {
         if (!variantIds.includes(v.id)) continue;
-        // The variant's own picture is the most precise; otherwise the product's first image.
-        const image = [...(v.images ?? [])].sort(byPosition)[0] ?? productImage;
+        // The variant's own cover is the most precise; otherwise the product's cover.
+        const image = galleryCover<any>(v.images) ?? productImage;
         out.set(v.id, {
           variantId: v.id,
           productId: p.id,

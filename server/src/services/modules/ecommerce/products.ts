@@ -12,6 +12,7 @@ import {
   validateProductInput,
 } from './domain/catalog';
 import type { ImageRecord, StoredImage } from './images';
+import { galleryCover, sortGallery } from './domain/galleryImages';
 import type { StockMoveInput } from './stock';
 import { EcommerceNotFoundError, EcommerceValidationError } from './errors';
 
@@ -42,7 +43,7 @@ export type ProductDetail = Omit<ProductInput, 'variants'> & {
   variants: (VariantInput & { id: number; images: ImageRecord[]; deletable: boolean })[];
 };
 
-const toImage = (r: any): ImageRecord => ({
+const toImage = (r: any, coverId: number | null): ImageRecord => ({
   id: r.id,
   name: r.name,
   width: r.width,
@@ -50,10 +51,14 @@ const toImage = (r: any): ImageRecord => ({
   sizeBytes: r.sizeBytes,
   url: r.url,
   position: r.position,
+  cover: r.id === coverId,
 });
 
-const sortImages = (images: any[] = []): ImageRecord[] =>
-  [...images].sort((a, b) => (a.position ?? 0) - (b.position ?? 0)).map(toImage);
+/** The gallery in order, with its cover (the marked image, else the first) flagged. */
+const sortImages = (images: any[] = []): ImageRecord[] => {
+  const coverId = galleryCover(images)?.id ?? null;
+  return sortGallery(images).map((r) => toImage(r, coverId));
+};
 
 const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
   const uids = () => {

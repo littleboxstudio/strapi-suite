@@ -51,6 +51,8 @@ export type ImageRecord = {
   sizeBytes: number;
   url: string;
   position: number;
+  /** The gallery's cover (one per gallery): reordering never changes it. */
+  cover: boolean;
 };
 
 export type ProductListItem = {
