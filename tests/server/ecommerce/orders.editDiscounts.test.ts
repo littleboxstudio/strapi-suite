@@ -1746,3 +1746,80 @@ describe('Recalculate discounts is a recommender: nothing new is preselected', (
     ).toEqual([{ path: 'selection', code: 'PROMOTIONS_NOT_COMBINABLE' }]);
   });
 });
+
+describe('Recalculate discounts lists every eligible promotion (recommender)', () => {
+  it('an exclusive candidate while a promotion is applied: listed but blocked, with the reason', async () => {
+    const ctx = setup();
+    const applied = tenPercent(ctx, { name: 'Ten' });
+    const id = await createOrder(ctx);
+    const vip = tenPercent(ctx, {
+      name: 'VIP',
+      stacking: { ...STACK_ALL, exclusive: true },
+      benefits: { items: [{ type: 'ORDER_PERCENT', percent: 30 }] },
+    });
+    const preview = await ctx.editing.previewDiscounts(id, {});
+    expect(preview.rows.find((r) => r.key === `p:${vip}`)).toMatchObject({
+      kind: 'NEW',
+      selected: false,
+      recommended: false,
+      blockedBy: { promotionId: applied, name: 'Ten', conflict: { rule: 'EXCLUSIVE_SELF' } },
+    });
+    expect(
+      await issues(
+        ctx.editing.applyDiscounts(id, { selection: [`p:${applied}`, `p:${vip}`] }, 'user:1', 'op-rec-blk')
+      )
+    ).toEqual([{ path: 'selection', code: 'PROMOTIONS_NOT_COMBINABLE' }]);
+  });
+
+  it('an exclusive and a stackable candidate: both listed, their conflict, the best recommended', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    const vip = tenPercent(ctx, {
+      name: 'VIP',
+      stacking: { ...STACK_ALL, exclusive: true },
+      benefits: { items: [{ type: 'ORDER_PERCENT', percent: 30 }] },
+    });
+    const ten = tenPercent(ctx, { name: 'Ten' });
+    const preview = await ctx.editing.previewDiscounts(id, {});
+    expect(preview.rows.map((r) => [r.key, r.selected, r.recommended, r.blockedBy])).toEqual([
+      [`p:${vip}`, false, true, null],
+      [`p:${ten}`, false, false, null],
+    ]);
+    expect(preview.rowConflicts).toEqual([
+      {
+        keys: [`p:${vip}`, `p:${ten}`],
+        reasons: [
+          { rule: 'EXCLUSIVE_SELF', discountClass: null },
+          { rule: 'EXCLUSIVE_OTHER', discountClass: null },
+        ],
+      },
+    ]);
+    // Both selected: refused, nothing written.
+    const snapshot = JSON.stringify(ctx.tables);
+    expect(
+      await issues(
+        ctx.editing.applyDiscounts(id, { selection: [`p:${vip}`, `p:${ten}`] }, 'user:1', 'op-rec-both')
+      )
+    ).toEqual([{ path: 'selection', code: 'PROMOTIONS_NOT_COMBINABLE' }]);
+    expect(JSON.stringify(ctx.tables)).toBe(snapshot);
+    // The stackable one, not recommended, is applied as chosen.
+    const total = orderRow(ctx, id).total;
+    await ctx.editing.applyDiscounts(id, { selection: [`p:${ten}`] }, 'user:1', 'op-rec-ten');
+    expect(orderRow(ctx, id).promotions.applied.map((a: any) => a.promotionId)).toEqual([ten]);
+    expect(orderRow(ctx, id)).toMatchObject({ orderDiscount: 650, total: total - 650 });
+  });
+
+  it('two compatible selections are priced together, in the preview and on confirm', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    const ten = tenPercent(ctx, { name: 'Ten' });
+    const fixed = tenPercent(ctx, { name: 'Fixed', benefits: { items: [{ type: 'ORDER_FIXED', amount: 1000 }] } });
+    const total = orderRow(ctx, id).total;
+    const selection = [`p:${ten}`, `p:${fixed}`];
+    const preview = await ctx.editing.previewDiscounts(id, { selection });
+    expect(preview.conflicts).toEqual([]);
+    expect(preview.after.total).toBe(total - 650 - 1000);
+    await ctx.editing.applyDiscounts(id, { selection }, 'user:1', 'op-rec-two');
+    expect(orderRow(ctx, id)).toMatchObject({ orderDiscount: 1650, total: total - 1650 });
+  });
+});

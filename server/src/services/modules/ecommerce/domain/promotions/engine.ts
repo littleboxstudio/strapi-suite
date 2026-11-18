@@ -49,6 +49,31 @@ export const compatible = (a: PromotionDefinition, b: PromotionDefinition): bool
   return true;
 };
 
+/**
+ * Why `a` does not stack with `b`, from `a`'s side (null when compatible): `EXCLUSIVE_SELF` (a is
+ * exclusive), `EXCLUSIVE_OTHER` (b is), `CLASS_SELF` (a does not allow `discountClass`, a class of
+ * b) or `CLASS_OTHER` (b does not allow `discountClass`, a class of a).
+ */
+export type StackingConflict = {
+  rule: 'EXCLUSIVE_SELF' | 'EXCLUSIVE_OTHER' | 'CLASS_SELF' | 'CLASS_OTHER';
+  discountClass: DiscountClass | null;
+};
+
+export const stackingConflict = (
+  a: PromotionDefinition,
+  b: PromotionDefinition
+): StackingConflict | null => {
+  if (a.stacking.exclusive) return { rule: 'EXCLUSIVE_SELF', discountClass: null };
+  if (b.stacking.exclusive) return { rule: 'EXCLUSIVE_OTHER', discountClass: null };
+  for (const c of [...classesOf(b)].sort()) {
+    if (!allows(a.stacking, c)) return { rule: 'CLASS_SELF', discountClass: c };
+  }
+  for (const c of [...classesOf(a)].sort()) {
+    if (!allows(b.stacking, c)) return { rule: 'CLASS_OTHER', discountClass: c };
+  }
+  return null;
+};
+
 export type CodeStatus =
   | 'APPLIED'
   | 'NOT_FOUND'

@@ -27,6 +27,8 @@ import {
   type PromotionDefinition,
   type PromotionEvaluation,
   type RejectionReason,
+  type StackingConflict,
+  stackingConflict,
 } from './promotions';
 
 export type DiscountLine = LineAmounts & {
@@ -108,6 +110,24 @@ export type DiscountRow = {
    * never removes a discount, it only adds new ones), `GIFT_SHIPPED` (its gift has shipped).
    */
   locked: 'APPLIED' | 'GIFT_SHIPPED' | null;
+  /**
+   * NEW rows: it does not stack with this kept applied promotion (the first one found), so it
+   * cannot be selected. Null otherwise.
+   */
+  blockedBy: {
+    promotionId: number;
+    name: string;
+    displayName: Record<string, string>;
+    conflict: StackingConflict;
+  } | null;
+  /** NEW rows: part of the best combination given the kept promotions (never preselected). */
+  recommended: boolean;
+};
+
+/** Two NEW rows that do not stack: `reasons[i]` is from `keys[i]`'s side. */
+export type DiscountRowConflict = {
+  keys: [string, string];
+  reasons: [StackingConflict, StackingConflict];
 };
 
 /** Part of a line at one unit discount (checkout's model: one priced line per unit discount). */
@@ -167,6 +187,8 @@ export type DiscountRecalculation = {
   rows: DiscountRow[];
   /** One per GIFT benefit of the NEW promotion rows. */
   gifts: DiscountGift[];
+  /** Every pair of selectable NEW rows that do not stack (the modal disables the other one). */
+  rowConflicts: DiscountRowConflict[];
   selection: string[];
   exhaustive: boolean;
 } & DiscountPricing;
@@ -306,14 +328,20 @@ const classify = (ctx: DiscountContext): Classified => {
         : (candidates.has(a.promotionId) && rejected.get(a.promotionId)) || 'NOT_FOUND',
       selected: true,
       locked: giftShipped.has(a.promotionId) ? 'GIFT_SHIPPED' : 'APPLIED',
+      blockedBy: null,
+      recommended: false,
     });
   }
-  for (const a of evaluation.applied) {
-    if (stored.has(a.promotionId)) continue;
+  // Every candidate eligible on its own (the ones giving nothing are dropped once priced).
+  const fresh = [...candidates.values()]
+    .filter((c) => !stored.has(c.id) && eligible.has(c.id))
+    .sort((a, b) => b.priority - a.priority || a.id - b.id);
+  for (const c of fresh) {
+    const a = appliedPromotionOf(c, []);
     rows.push({
-      key: promotionKey(a.promotionId),
+      key: promotionKey(c.id),
       kind: 'NEW',
-      promotionId: a.promotionId,
+      promotionId: c.id,
       manualId: null,
       name: a.name,
       displayName: a.displayName,
@@ -321,10 +349,12 @@ const classify = (ctx: DiscountContext): Classified => {
       method: a.method,
       classes: a.classes,
       currentAmount: null,
-      amount: a.amount,
+      amount: 0,
       invalidReason: null,
       selected: false,
       locked: null,
+      blockedBy: null,
+      recommended: false,
     });
   }
   for (const m of ctx.manual) {
@@ -343,6 +373,8 @@ const classify = (ctx: DiscountContext): Classified => {
       invalidReason: null,
       selected: true,
       locked: 'APPLIED',
+      blockedBy: null,
+      recommended: false,
     });
   }
   return { rows, evaluation, evaluationLines, candidates, stored, giftAmounts };
@@ -361,30 +393,24 @@ export function recalculateDiscounts(
   ctx: DiscountContext,
   selection?: string[]
 ): DiscountRecalculation {
-  const { rows, evaluation, evaluationLines, candidates, stored, giftAmounts } = classify(ctx);
+  const classified = classify(ctx);
+  const { evaluation, evaluationLines, candidates, stored, giftAmounts } = classified;
 
-  const wanted = new Set(selection ?? rows.filter((r) => r.selected).map((r) => r.key));
-  const isSelected = (r: DiscountRow) => r.locked !== null || wanted.has(r.key);
-  const selectedRows = rows.filter(isSelected);
   // The applied promotions are kept as stored (never removed nor re-priced, valid or not): their
   // lines keep their discount, their order and shipping amounts stay. Only NEW ones are priced.
   const keptApplied = new Set(
-    selectedRows
+    classified.rows
       .filter((r) => r.kind === 'APPLIED_VALID' || r.kind === 'APPLIED_INVALID')
       .map((r) => r.promotionId as number)
   );
-  const priced = selectedRows
-    .filter((r) => r.kind === 'NEW')
-    .map((r) => candidates.get(r.promotionId as number) as PromotionCandidate);
-  const pricedIds = new Set(priced.map((p) => p.id));
-  const keptIds = new Set([...keptApplied, ...pricedIds]);
+  const keptDefinitions = [...keptApplied].map((id) => definitionOf(stored.get(id) as AppliedPromotion));
 
   // Frozen lines keep their discount: they enter the combination at their net price, taking no
   // line-level benefit but counting in the order-level bases and the buy thresholds. A line with
   // a manual percent is always frozen (its evaluation input already is).
   const isFrozen = (l: DiscountLine) =>
     isManual(l) || l.refs.some((r) => keptApplied.has(r.promotionId));
-  const combination = applyCombination(priced, {
+  const pricingCtx = {
     lines: evaluationLines.map(({ line, input }) =>
       isFrozen(line)
         ? { ...input, unitPrice: line.unitPrice - line.unitDiscount, frozen: true }
@@ -393,7 +419,80 @@ export function recalculateDiscounts(
     shipping: ctx.shippingGross,
     gifts: ctx.gifts ?? new Map(),
     giftChoices: ctx.giftChoices ?? {},
+  };
+
+  // Each NEW candidate on its own, on top of the kept promotions (their lines frozen).
+  const aloneCache = new Map<number, ReturnType<typeof applyCombination>>();
+  const alone = (id: number) => {
+    let r = aloneCache.get(id);
+    if (!r) {
+      r = applyCombination([candidates.get(id) as PromotionCandidate], pricingCtx);
+      aloneCache.set(id, r);
+    }
+    return r;
+  };
+  const aloneAmount = (id: number) =>
+    sumOf(alone(id).benefitAmounts.get(id)) + sumOf(giftAmounts.get(id));
+  const blockOf = (c: PromotionCandidate): DiscountRow['blockedBy'] => {
+    for (const k of keptDefinitions) {
+      const conflict = stackingConflict(c, k);
+      if (conflict) {
+        return { promotionId: k.id, name: k.name, displayName: k.displayName, conflict };
+      }
+    }
+    return null;
+  };
+  const listed = classified.rows
+    .filter((r) => r.kind !== 'NEW' || aloneAmount(r.promotionId as number) > 0)
+    .map((r) =>
+      r.kind === 'NEW'
+        ? { ...r, blockedBy: blockOf(candidates.get(r.promotionId as number) as PromotionCandidate) }
+        : r
+    );
+  // The recommended set: the engine's best combination of the selectable NEW candidates, on top
+  // of the kept promotions (never preselected).
+  const selectable = listed
+    .filter((r) => r.kind === 'NEW' && r.blockedBy === null)
+    .map((r) => candidates.get(r.promotionId as number) as PromotionCandidate);
+  const recommendation = selectable.length
+    ? evaluatePromotions({
+        lines: pricingCtx.lines,
+        email: ctx.email,
+        shipping: ctx.shippingGross,
+        codes: ctx.codes,
+        candidates: selectable,
+        gifts: pricingCtx.gifts,
+        giftChoices: pricingCtx.giftChoices,
+        now: ctx.now,
+        searchLimit: ctx.searchLimit,
+      })
+    : null;
+  const recommendedIds = new Set(recommendation?.applied.map((a) => a.promotionId) ?? []);
+  const rows = listed.map((r) =>
+    r.kind === 'NEW' ? { ...r, recommended: recommendedIds.has(r.promotionId as number) } : r
+  );
+
+  const rowConflicts: DiscountRowConflict[] = [];
+  selectable.forEach((a, i) => {
+    for (const b of selectable.slice(i + 1)) {
+      const ra = stackingConflict(a, b);
+      const rb = stackingConflict(b, a);
+      if (ra && rb) {
+        rowConflicts.push({ keys: [promotionKey(a.id), promotionKey(b.id)], reasons: [ra, rb] });
+      }
+    }
   });
+
+  const wanted = new Set(selection ?? rows.filter((r) => r.selected).map((r) => r.key));
+  const isSelected = (r: DiscountRow) => r.locked !== null || wanted.has(r.key);
+  const selectedRows = rows.filter(isSelected);
+  const priced = selectedRows
+    .filter((r) => r.kind === 'NEW')
+    .map((r) => candidates.get(r.promotionId as number) as PromotionCandidate);
+  const pricedIds = new Set(priced.map((p) => p.id));
+  const keptIds = new Set([...keptApplied, ...pricedIds]);
+
+  const combination = applyCombination(priced, pricingCtx);
 
   // Exact line discounts (no remainders): one part per distinct unit discount, as checkout does.
   const lines: DiscountPricing['lines'] = [];
@@ -473,36 +572,17 @@ export function recalculateDiscounts(
     }
   });
 
-  // Unselected promotion rows: the value they would give (evaluation, else alone).
-  const evaluated = new Map(evaluation.applied.map((a) => [a.promotionId, a.amount]));
-  const evaluationCtx = {
-    lines: evaluationLines.map((e) => e.input),
-    shipping: ctx.shippingGross,
-    gifts: ctx.gifts ?? new Map(),
-    giftChoices: ctx.giftChoices ?? {},
-  };
-  const aloneCache = new Map<number, ReturnType<typeof applyCombination>>();
-  const alone = (id: number) => {
-    let r = aloneCache.get(id);
-    if (!r) {
-      r = applyCombination([candidates.get(id) as PromotionCandidate], evaluationCtx);
-      aloneCache.set(id, r);
-    }
-    return r;
-  };
-  const wouldGive = (id: number) =>
-    (evaluated.get(id) ?? sumOf(alone(id).benefitAmounts.get(id))) + sumOf(giftAmounts.get(id));
-  const isEvaluated = new Set(evaluation.applied.map((a) => a.promotionId));
-  /** The gift lines a NEW row gives: under the selection, the evaluation, else alone. */
+  /** The gift lines a NEW row gives: under the selection, else on its own. */
   const giftLinesOf = (id: number, selected: boolean) =>
-    (selected ? combination.lines : isEvaluated.has(id) ? evaluation.lines : alone(id).lines).filter(
+    (selected ? combination.lines : alone(id).lines).filter(
       (l) => l.isGift && l.refs.some((r) => r.promotionId === id)
     );
+  // A selected NEW row: its amount priced with the selection; unselected: on its own.
   const finalRows = rows.map((r) => {
     const selected = isSelected(r);
     if (r.kind !== 'NEW') return { ...r, selected };
     const id = r.promotionId as number;
-    return { ...r, selected, amount: selected ? sumOf(amountsOf(id)) : wouldGive(id) };
+    return { ...r, selected, amount: selected ? sumOf(amountsOf(id)) : aloneAmount(id) };
   });
 
   const gifts: DiscountGift[] = [];
@@ -577,8 +657,9 @@ export function recalculateDiscounts(
   return {
     rows: finalRows,
     gifts,
+    rowConflicts,
     selection: selectedRows.map((r) => r.key),
-    exhaustive: evaluation.exhaustive,
+    exhaustive: evaluation.exhaustive && (recommendation?.exhaustive ?? true),
     lines,
     removedGiftLines,
     addedGiftLines,

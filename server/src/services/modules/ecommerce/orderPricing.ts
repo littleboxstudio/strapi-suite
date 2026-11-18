@@ -678,7 +678,8 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
     const byId = new Map(candidates.map((c) => [c.id, c]));
     return {
       promotions: r.rows
-        .filter((row) => row.method === 'AUTOMATIC' && row.promotionId !== null)
+        // Unchanged for Create order: the best combination only (its modal has no conflicts).
+        .filter((row) => row.method === 'AUTOMATIC' && row.promotionId !== null && row.recommended)
         .map((row) => ({
           id: row.promotionId as number,
           name: row.name,
