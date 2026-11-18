@@ -22,6 +22,7 @@ import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchPromotions from '../../usecases/promotions/fetchPromotions';
 import EmptySection from '../../illustrations/EmptySection';
 import ListPagination from '../../components/ListPagination';
+import SearchFieldHeight from '../../components/SearchFieldHeight';
 import PromotionTabs from '../../components/promotions/PromotionTabs';
 import { usePromotionPermissions } from '../../hooks/usePromotionPermissions';
 import { statusTone, usageLabel, validityLabel } from '../../utils/promotionList';
@@ -109,22 +110,24 @@ const PromotionListPage = () => {
 
       <Flex justifyContent="space-between" alignItems="center" gap={4}>
         <Box style={{ flex: 1 }}>
-          <SearchForm onSubmit={(e: FormEvent) => e.preventDefault()}>
-            <Searchbar
-              name="searchbar"
-              value={searchTerm}
-              onClear={() => {
-                setSearchTerm('');
-                setSearch('');
-                setPage(1);
-              }}
-              onChange={(e: any) => setSearchTerm(e.target.value)}
-              clearLabel={t('ecommerce.promotions.search.clear')}
-              placeholder={t('ecommerce.promotions.search.placeholder')}
-            >
-              {t('ecommerce.promotions.search.label')}
-            </Searchbar>
-          </SearchForm>
+          <SearchFieldHeight>
+            <SearchForm onSubmit={(e: FormEvent) => e.preventDefault()}>
+              <Searchbar
+                name="searchbar"
+                value={searchTerm}
+                onClear={() => {
+                  setSearchTerm('');
+                  setSearch('');
+                  setPage(1);
+                }}
+                onChange={(e: any) => setSearchTerm(e.target.value)}
+                clearLabel={t('ecommerce.promotions.search.clear')}
+                placeholder={t('ecommerce.promotions.search.placeholder')}
+              >
+                {t('ecommerce.promotions.search.label')}
+              </Searchbar>
+            </SearchForm>
+          </SearchFieldHeight>
         </Box>
         {canManage && (
           <Button variant="secondary" onClick={create}>
