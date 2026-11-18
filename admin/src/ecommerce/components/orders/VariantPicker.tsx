@@ -9,6 +9,7 @@ import {
   Popover,
   TextInput,
   Typography,
+  VisuallyHidden,
 } from '@strapi/design-system';
 import { Search } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
@@ -23,13 +24,15 @@ type Props = {
   locale?: string;
   onAdd: (variant: VariantSearchResult) => void;
   disabled?: boolean;
+  /** False: no visible label above the field (Create order); it stays for screen readers. */
+  showLabel?: boolean;
 };
 
 /**
  * Searches active variants by product name or SKU; the results open in a dropdown under the field.
  * Variants without stock are listed but cannot be added.
  */
-const VariantPicker = ({ locale, onAdd, disabled }: Props) => {
+const VariantPicker = ({ locale, onAdd, disabled, showLabel = true }: Props) => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
@@ -87,7 +90,13 @@ const VariantPicker = ({ locale, onAdd, disabled }: Props) => {
     <Popover.Root open={open && !!term.trim() && hasContent} onOpenChange={setOpen}>
       <Popover.Anchor ref={anchorRef}>
         <Field.Root name="variant-search">
-          <Field.Label>{t('ecommerce.orders.picker.label')}</Field.Label>
+          {showLabel ? (
+            <Field.Label>{t('ecommerce.orders.picker.label')}</Field.Label>
+          ) : (
+            <VisuallyHidden>
+              <Field.Label>{t('ecommerce.orders.picker.label')}</Field.Label>
+            </VisuallyHidden>
+          )}
           <TextInput
             startAction={<Search />}
             placeholder={t('ecommerce.orders.picker.placeholder')}

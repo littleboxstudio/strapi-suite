@@ -3,7 +3,6 @@ import { Field, Flex, SingleSelect, SingleSelectOption, Typography } from '@stra
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { giftSelectors } from '../../utils/orderForm';
 import type { OrderQuote } from '../../orderTypes';
-import { ToneBadge } from './StatusBadges';
 
 type Props = {
   quote: OrderQuote;
@@ -15,26 +14,19 @@ type Props = {
   disabled?: boolean;
 };
 
-/** The gifts the quote gives and, for a promotion offering several, the choice of variant. */
+/**
+ * For a promotion offering several gifts, the choice of variant (the gift lines themselves are in
+ * the products table).
+ */
 const QuoteGifts = ({ quote, promotionName, variantLabel, onGiftChoice, disabled }: Props) => {
   const { formatMessage } = useIntl();
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
   const selectors = giftSelectors(quote);
-  const gifts = quote.lines.filter((l) => l.isGift);
-  if (!gifts.length && !selectors.length && quote.exhaustive) return null;
+  if (!selectors.length && quote.exhaustive) return null;
 
   return (
     <Flex direction="column" alignItems="stretch" gap={2}>
-      {gifts.map((g) => (
-        <Flex key={`gift-${g.variantId}`} gap={2} alignItems="center">
-          <ToneBadge variant="success">{t('ecommerce.orders.quote.gift')}</ToneBadge>
-          <Typography variant="pi" textColor="neutral800">
-            {g.quantity} × {g.name}
-            {g.option ? ` (${g.option})` : ''}
-          </Typography>
-        </Flex>
-      ))}
       {selectors.map((s) => {
         const promotion = quote.promotions.find((p) => p.promotionId === s.promotionId);
         return (

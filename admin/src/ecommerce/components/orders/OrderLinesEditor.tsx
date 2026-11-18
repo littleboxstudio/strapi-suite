@@ -21,6 +21,8 @@ import { FIT_CELL, LINE_CELL, PRODUCT_CELL } from './lineCells';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { formatCents } from '../../utils/money';
 import { lineSubtotal, lineUnitNet, type OrderLineDraft } from '../../utils/orderForm';
+import type { OrderQuoteLine } from '../../orderTypes';
+import { ToneBadge } from './StatusBadges';
 
 type Props = {
   lines: OrderLineDraft[];
@@ -33,6 +35,10 @@ type Props = {
   /** Translated error of line `index`'s discount, or undefined. */
   discountErrorFor: (index: number) => string | undefined;
   disabled?: boolean;
+  /** The quote's gift lines, listed after the products as in the order's Products table. */
+  gifts?: OrderQuoteLine[];
+  /** The names of the promotions that gave a gift line. */
+  giftLabel?: (line: OrderQuoteLine) => string | null;
 };
 
 const COLUMNS = ['product', 'sku', 'unitPrice', 'quantity', 'discount', 'subtotal'] as const;
@@ -46,6 +52,8 @@ const OrderLinesEditor = ({
   errorFor,
   discountErrorFor,
   disabled,
+  gifts = [],
+  giftLabel,
 }: Props) => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const t = (id: string, values?: Record<string, any>) =>
@@ -63,7 +71,7 @@ const OrderLinesEditor = ({
   }
 
   return (
-    <Table colCount={COLUMNS.length + 2} rowCount={lines.length + 1}>
+    <Table colCount={COLUMNS.length + 2} rowCount={lines.length + gifts.length + 1}>
       <Thead>
         <Tr>
           <Th>
@@ -184,6 +192,67 @@ const OrderLinesEditor = ({
                   </IconButton>
                 </Box>
               </Td>
+            </Tr>
+          );
+        })}
+        {gifts.map((gift) => {
+          const final = gift.unitPrice - gift.unitDiscount;
+          const label = giftLabel?.(gift) ?? null;
+          return (
+            <Tr key={`gift-${gift.variantId}`}>
+              <Td style={LINE_CELL}>
+                <LineThumbnail imageUrl={gift.imageUrl} />
+              </Td>
+              <Td style={{ ...PRODUCT_CELL, maxWidth: 320 }}>
+                <Flex direction="column" alignItems="flex-start" gap={1}>
+                  <Typography textColor="neutral800" fontWeight="semiBold">
+                    {gift.name}
+                  </Typography>
+                  {gift.option && (
+                    <Typography variant="pi" textColor="neutral600">
+                      {gift.option}
+                    </Typography>
+                  )}
+                  <ToneBadge variant="success">{t('ecommerce.orders.detail.lines.gift')}</ToneBadge>
+                </Flex>
+              </Td>
+              <Td style={LINE_CELL}>
+                <Typography textColor="neutral800">{gift.sku}</Typography>
+              </Td>
+              <Td style={FIT_CELL}>
+                <Flex direction="column" alignItems="flex-start">
+                  {gift.unitDiscount > 0 && (
+                    <Typography
+                      variant="pi"
+                      textColor="neutral500"
+                      style={{ textDecoration: 'line-through' }}
+                      aria-label={`${t('ecommerce.orders.detail.lines.originalPrice')}: ${money(gift.unitPrice)}`}
+                    >
+                      {money(gift.unitPrice)}
+                    </Typography>
+                  )}
+                  {gift.unitDiscount > 0 && label && (
+                    <Typography variant="pi" textColor="success600">
+                      {label}
+                    </Typography>
+                  )}
+                  <Typography textColor="neutral800">{money(final)}</Typography>
+                </Flex>
+              </Td>
+              <Td style={FIT_CELL}>
+                <Typography textColor="neutral800">{gift.quantity}</Typography>
+              </Td>
+              <Td style={FIT_CELL} />
+              <Td style={FIT_CELL}>
+                <Typography
+                  textColor="neutral800"
+                  fontWeight="semiBold"
+                  style={{ display: 'block', textAlign: 'right' }}
+                >
+                  {money(final * gift.quantity)}
+                </Typography>
+              </Td>
+              <Td style={FIT_CELL} />
             </Tr>
           );
         })}
