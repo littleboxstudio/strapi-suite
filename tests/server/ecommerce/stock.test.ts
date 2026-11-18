@@ -91,6 +91,18 @@ describe('EcommerceStockService', () => {
     ]);
   });
 
+  it('requireStock: a deduction larger than the stock throws INSUFFICIENT_STOCK and changes nothing', async () => {
+    const { service, tables } = makeStrapi();
+    const err: any = await service
+      .move({ variantId: 1, quantity: -4, type: 'ORDER_DEDUCT', operationKey: 'k-race', orderId: 1, actor: 'system', requireStock: true })
+      .catch((e: unknown) => e);
+    expect(err?.errors).toEqual([{ path: 'stock.1', code: 'INSUFFICIENT_STOCK', detail: '1' }]);
+    expect(stockOf(tables, 1)).toBe(3);
+    // Exactly the stock left: allowed, down to zero.
+    await service.move({ variantId: 1, quantity: -3, type: 'ORDER_DEDUCT', operationKey: 'k-ok', orderId: 1, actor: 'system', requireStock: true });
+    expect(stockOf(tables, 1)).toBe(0);
+  });
+
   it('runs the increment on the transaction trx', async () => {
     const { service, increments, trx, transaction } = makeStrapi();
     await service.move({

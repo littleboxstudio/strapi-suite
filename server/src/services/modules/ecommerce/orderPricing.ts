@@ -3,6 +3,7 @@
  * `orders.ts` with its dependencies injected, so this module never imports `orders.ts`.
  */
 import type { Core } from '@strapi/strapi';
+import { giftChoiceAt, type GiftChoice, type GiftChoices } from './domain/promotions/giftChoices';
 import { EcommerceValidationError, type ValidationIssue } from './errors';
 import { isValidEmailFormat } from './domain/email';
 import { marketCountry } from './domain/markets';
@@ -31,6 +32,7 @@ import {
   type DiscountClass,
   type EvaluationInput,
   type GiftOption,
+  type GiftUnavailable,
   type PricedLine,
   type PromotionCandidate,
   type PromotionEvaluation,
@@ -54,7 +56,7 @@ export type OrderQuoteInput = {
   locale: string;
   email?: string | null;
   promotionCodes?: string[];
-  giftChoices?: Record<number, number>;
+  giftChoices?: GiftChoices;
   shipping?: { country: string; postalCode?: string; providerId: string; serviceId: string } | null;
   /** Absent = trusted (admin); `false` = storefront without a verified e-mail. */
   emailVerified?: boolean;
@@ -126,6 +128,10 @@ export type QuoteGiftOption = {
   quantity: number;
   /** The variant of this benefit's gift line, null when the benefit gave nothing. */
   selectedVariantId: number | null;
+  /** How many gifts the benefit gives (each `quantity` units). Quotes only. */
+  repetitions?: number;
+  /** The variant of each gift, first to last (`repetitions` entries). Quotes only. */
+  selected?: number[];
   variants: {
     variantId: number;
     sku: string;
@@ -156,6 +162,8 @@ export type OrderQuote = {
   shippingOption: ShippingOption | null;
   exhaustive: boolean;
   giftOptions: QuoteGiftOption[];
+  /** Promotions met whose gift is out of stock (no gift variant active with stock). */
+  giftsUnavailable: GiftUnavailable[];
   /** The order-level manual discounts applied, in input order (empty when none). */
   manualDiscounts: QuoteManualDiscount[];
   /**
@@ -246,7 +254,7 @@ export type ApplicablePromotionsInput = {
   locale: string;
   email?: string | null;
   promotionCodes?: string[];
-  giftChoices?: Record<number, number>;
+  giftChoices?: GiftChoices;
   /** The order's shipping charges: only `amount` (cents) is read, their sum is the shipping. */
   shippingLines?: { amount: number }[];
   /** The draft has an order-level manual discount (it blocks what does not stack with it). */
@@ -282,6 +290,36 @@ export type ApplicablePromotions = {
  * Each GIFT benefit's variants (texts from `catalog`; a variant no longer in it is left out), as
  * Create order's quote lists them: available when active with enough stock on offer.
  */
+/**
+ * The variant of each gift a benefit gave, first to last, from its gift lines (one line per
+ * variant, `quantity` units per gift): the gift wished for a position when that variant was given,
+ * else the next given variant in the benefit's order (the engine's own rule).
+ */
+export function giftsInOrder(
+  giftLines: { variantId: number; quantity: number }[],
+  quantity: number,
+  variantIds: number[],
+  choice: GiftChoice | undefined
+): number[] {
+  const left = new Map<number, number>();
+  for (const l of giftLines) {
+    left.set(l.variantId, (left.get(l.variantId) ?? 0) + Math.floor(l.quantity / Math.max(quantity, 1)));
+  }
+  const total = [...left.values()].reduce((s, n) => s + n, 0);
+  const out: number[] = [];
+  for (let r = 0; r < total; r += 1) {
+    const wished = giftChoiceAt(choice, r);
+    const id =
+      wished !== undefined && (left.get(wished) ?? 0) > 0
+        ? wished
+        : variantIds.find((v) => (left.get(v) ?? 0) > 0) ?? [...left.keys()].find((v) => (left.get(v) ?? 0) > 0);
+    if (id === undefined) break;
+    out.push(id);
+    left.set(id, (left.get(id) ?? 0) - 1);
+  }
+  return out;
+}
+
 export function discountGiftOptions(
   gifts: DiscountGift[],
   catalog: Map<number, CatalogVariant>,
@@ -403,7 +441,7 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
     locale: string;
     email: string | null;
     codes: string[];
-    giftChoices: Record<number, number>;
+    giftChoices: GiftChoices;
     destination: PricingDestination | null;
     emailVerified?: boolean;
     /** Admin: the only automatic promotions evaluated (codes still apply). Absent: all. */
@@ -617,6 +655,8 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
         case 'APPLIED':
         case 'CONFLICT':
         case 'NO_BENEFIT':
+        // The customer saw it in the quote: the order goes on without the gift.
+        case 'GIFT_UNAVAILABLE':
           return;
         case 'USAGE_LIMIT_REACHED':
         case 'CUSTOMER_LIMIT_REACHED':
@@ -633,17 +673,24 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
    * One entry per GIFT benefit of the applied promotions, with every variant it offers (texts in
    * the quote's locale; a variant no longer in the catalog is left out).
    */
-  const giftOptionsOf = (priced: PricedCart): QuoteGiftOption[] => {
+  const giftOptionsOf = (priced: PricedCart, giftChoices: GiftChoices): QuoteGiftOption[] => {
     const out: QuoteGiftOption[] = [];
     for (const promotion of priced.evaluation.applied) {
       for (const benefit of promotion.benefits) {
         const params = benefit.params;
         if (params.type !== 'BUY_X_GET_Y' || params.get.mode !== 'GIFT') continue;
         const quantity = params.get.quantity;
-        const line = priced.evaluation.lines.find(
+        const giftLines = priced.evaluation.lines.filter(
           (l) =>
             l.isGift &&
             l.refs.some((r) => r.promotionId === promotion.promotionId && r.benefitIndex === benefit.index)
+        );
+        const line = giftLines[0];
+        const selected = giftsInOrder(
+          giftLines,
+          quantity,
+          params.get.variantIds,
+          giftChoices[promotion.promotionId]
         );
         const variants: QuoteGiftOption['variants'] = [];
         for (const variantId of params.get.variantIds) {
@@ -664,6 +711,8 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
           benefitIndex: benefit.index,
           quantity,
           selectedVariantId: line?.variantId ?? null,
+          repetitions: selected.length,
+          selected,
           variants,
         });
       }
@@ -931,7 +980,8 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
       },
       shippingOption: priced.option,
       exhaustive: e.exhaustive,
-      giftOptions: giftOptionsOf(priced),
+      giftOptions: giftOptionsOf(priced, giftChoices),
+      giftsUnavailable: e.giftsUnavailable ?? [],
       manualDiscounts: manual.items.map((m) => ({
         kind: m.kind as QuoteManualDiscount['kind'],
         percent: m.percent,

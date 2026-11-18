@@ -1,4 +1,5 @@
 import type { Core } from '@strapi/strapi';
+import type { GiftChoice } from './domain/promotions/giftChoices';
 import { randomBytes, randomInt } from 'node:crypto';
 import { PLUGIN_ID, LtbConfigs } from '../../../config';
 import { isValidEmailFormat, normalizeEmail } from './domain/email';
@@ -23,7 +24,7 @@ import { sendWithResend } from './providers/email/resendSender';
 export type StoredCart = {
   lines: { variantId: number; quantity: number }[];
   promotionCodes: string[];
-  giftChoices: Record<string, number>;
+  giftChoices: Record<string, GiftChoice>;
   email: string | null;
   destination: { country: string; postalCode?: string } | null;
   shippingMethod: { providerId: string; serviceId: string } | null;
@@ -83,7 +84,7 @@ const toStoredCart = (raw: unknown): StoredCart => {
       ? (c.promotionCodes as string[])
       : base.promotionCodes,
     giftChoices: isRecord(c.giftChoices)
-      ? (c.giftChoices as Record<string, number>)
+      ? (c.giftChoices as Record<string, GiftChoice>)
       : base.giftChoices,
     email: typeof c.email === 'string' ? c.email : null,
     destination: isRecord(c.destination) ? (c.destination as StoredCart['destination']) : null,

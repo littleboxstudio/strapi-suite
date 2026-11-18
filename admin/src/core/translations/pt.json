@@ -1780,6 +1780,7 @@
   "littlebox-strapi-suite.ecommerce.orders.promotions.codeStatus.REMOVED": "Removido",
   "littlebox-strapi-suite.ecommerce.orders.promotions.codeStatus.CONFLICT": "Não acumula com as outras promoções",
   "littlebox-strapi-suite.ecommerce.orders.promotions.codeStatus.NO_BENEFIT": "Sem desconto para este carrinho",
+  "littlebox-strapi-suite.ecommerce.orders.promotions.codeStatus.GIFT_UNAVAILABLE": "Oferta esgotada",
   "littlebox-strapi-suite.ecommerce.orders.promotions.codeStatus.AWAITING_SHIPPING": "Aplica-se quando a opção de envio for escolhida",
   "littlebox-strapi-suite.ecommerce.orders.history.type.PROMOTIONS_APPLIED": "Promoções aplicadas",
   "littlebox-strapi-suite.ecommerce.orders.history.type.PROMOTIONS_RELEASED": "Promoções libertadas",

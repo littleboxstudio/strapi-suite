@@ -402,7 +402,13 @@ export function lineDiscountLabel(
 export function codeStatusBadgeVariant(status: string): 'success' | 'secondary' | 'warning' | 'danger' {
   if (status === 'APPLIED') return 'success';
   if (status === 'AWAITING_SHIPPING' || status === 'REMOVED') return 'secondary';
-  if (status === 'CONFLICT' || status === 'NO_BENEFIT' || status === 'CONDITIONS_NOT_MET') return 'warning';
+  if (
+    status === 'CONFLICT' ||
+    status === 'NO_BENEFIT' ||
+    status === 'CONDITIONS_NOT_MET' ||
+    status === 'GIFT_UNAVAILABLE'
+  )
+    return 'warning';
   return 'danger';
 }
 

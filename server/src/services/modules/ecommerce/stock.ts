@@ -1,6 +1,7 @@
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID, LtbConfigs } from '../../../config';
 import { isUniqueViolation } from './dbErrors';
+import { EcommerceValidationError } from './errors';
 
 export type StockMovementType =
   | 'ORDER_DEDUCT'
@@ -20,6 +21,12 @@ export type StockMoveInput = {
   orderId?: number;
   reason?: string;
   actor: string;
+  /**
+   * A deduction that must find the units: the check and the deduction are one atomic update, and
+   * a stock too low throws INSUFFICIENT_STOCK (rolling the caller's transaction back). Without it a
+   * deduction may take stock below zero (admin edits).
+   */
+  requireStock?: boolean;
 };
 
 /**
@@ -83,11 +90,18 @@ const EcommerceStockService = ({ strapi }: { strapi: Core.Strapi }) => {
 
         if (variantExists && input.type !== 'RETURN_NO_RESTOCK' && input.quantity !== 0) {
           const { tableName } = strapi.db.metadata.get(u.variant);
-          const updated = await strapi.db
-            .connection(tableName)
-            .where({ id: input.variantId })
-            .increment('stock', input.quantity)
-            .transacting(trx);
+          // Two orders racing for the last unit cannot both get it: the stock read before the
+          // transaction is only a first check, this update is the guard.
+          const guarded = input.requireStock === true && input.quantity < 0;
+          let update = strapi.db.connection(tableName).where({ id: input.variantId });
+          if (guarded) update = update.where('stock', '>=', -input.quantity);
+          const updated = await update.increment('stock', input.quantity).transacting(trx);
+          if (!updated && guarded) {
+            // Rolls the caller's transaction back (the movement row included).
+            throw new EcommerceValidationError('Insufficient stock', [
+              { path: `stock.${input.variantId}`, code: 'INSUFFICIENT_STOCK', detail: String(input.variantId) },
+            ]);
+          }
           if (!updated) warnMissing(input);
         } else if (!variantExists) {
           warnMissing(input);

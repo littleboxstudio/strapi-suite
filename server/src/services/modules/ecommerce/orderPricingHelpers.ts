@@ -7,6 +7,7 @@ import type { PromotionEvaluation } from './domain/promotions';
 
 import { MAX_PROMOTION_CODES } from './domain/storefront/limits';
 import { readDiscountPercent } from './domain/lineDiscounts';
+import { parseGiftChoice, type GiftChoices } from './domain/promotions/giftChoices';
 
 export { MAX_PROMOTION_CODES };
 
@@ -128,12 +129,12 @@ export function normalizeLines(
 
 /**
  * `promotionCodes` (strings, at most MAX_PROMOTION_CODES, kept in order so errors point at the
- * entered index) and `giftChoices` (positive integer ids on both sides).
+ * entered index) and `giftChoices` (positive promotion ids → a variant id, or one per gift).
  */
 export function normalizePromotionFields(
   input: { promotionCodes?: unknown; giftChoices?: unknown } | undefined,
   errors: ValidationIssue[]
-): { promotionCodes: string[]; giftChoices: Record<number, number> } {
+): { promotionCodes: string[]; giftChoices: GiftChoices } {
   const rawCodes = input?.promotionCodes;
   let promotionCodes: string[] = [];
   if (rawCodes !== undefined && rawCodes !== null) {
@@ -150,24 +151,18 @@ export function normalizePromotionFields(
   }
 
   const rawChoices = input?.giftChoices;
-  const giftChoices: Record<number, number> = {};
+  const giftChoices: GiftChoices = {};
   if (rawChoices !== undefined && rawChoices !== null) {
     if (!isRecord(rawChoices)) {
       errors.push({ path: 'giftChoices', code: 'invalid' });
     } else {
       for (const [key, value] of Object.entries(rawChoices)) {
         const promotionId = Number(key);
-        const variantId = Number(value);
-        if (
-          !Number.isSafeInteger(promotionId) ||
-          promotionId <= 0 ||
-          typeof value !== 'number' ||
-          !Number.isSafeInteger(variantId) ||
-          variantId <= 0
-        ) {
+        const choice = parseGiftChoice(value);
+        if (!Number.isSafeInteger(promotionId) || promotionId <= 0 || choice === null) {
           errors.push({ path: `giftChoices.${key}`, code: 'invalid' });
         } else {
-          giftChoices[promotionId] = variantId;
+          giftChoices[promotionId] = choice;
         }
       }
     }

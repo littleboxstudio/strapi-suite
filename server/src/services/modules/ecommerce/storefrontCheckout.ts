@@ -20,6 +20,7 @@ import {
 } from './domain/storefront/publicViews';
 import { EcommerceNotFoundError, EcommerceValidationError, type ValidationIssue } from './errors';
 import { isRecord, shippingInputOfQuote } from './orderPricingHelpers';
+import { parseGiftChoice, type GiftChoice } from './domain/promotions/giftChoices';
 import type { Address, PaymentStatus } from './domain/orders';
 import type { CreatedOrder, OrderQuote, OrderState } from './orders';
 import {
@@ -45,7 +46,7 @@ export type StorefrontCartInput = {
   locale: string;
   email?: string | null;
   promotionCodes?: string[];
-  giftChoices?: Record<string, number>;
+  giftChoices?: Record<string, GiftChoice>;
   destination?: { country: string; postalCode?: string } | null;
   shippingMethod?: { providerId: string; serviceId: string } | null;
 };
@@ -59,7 +60,7 @@ export type StorefrontOrderInput = {
   lines: { variantId: number; quantity: number }[];
   shippingMethod: { providerId: string; serviceId: string };
   promotionCodes?: string[];
-  giftChoices?: Record<string, number>;
+  giftChoices?: Record<string, GiftChoice>;
   /** The total the customer was shown (cents); required. */
   expectedTotal: number;
   storeCreditCode?: string;
@@ -166,7 +167,7 @@ const toCart = (input: unknown): StoredCart => {
     }
   }
 
-  const giftChoices: Record<string, number> = {};
+  const giftChoices: Record<string, GiftChoice> = {};
   if (c.giftChoices !== undefined && c.giftChoices !== null) {
     if (!isRecord(c.giftChoices)) errors.push({ path: 'giftChoices', code: 'invalid' });
     else {
@@ -175,9 +176,10 @@ const toCart = (input: unknown): StoredCart => {
         errors.push({ path: 'giftChoices', code: 'too_many' });
       else {
         for (const [key, value] of entries) {
-          if (!/^[1-9]\d{0,14}$/.test(key) || !positiveInt(value)) {
+          const choice = parseGiftChoice(value);
+          if (!/^[1-9]\d{0,14}$/.test(key) || choice === null) {
             errors.push({ path: `giftChoices.${key}`, code: 'invalid' });
-          } else giftChoices[key] = value as number;
+          } else giftChoices[key] = choice;
         }
       }
     }

@@ -1,5 +1,6 @@
 import { EcommerceValidationError } from '../../../services/modules/ecommerce/errors';
 import { MAX_MONEY_CENTS } from '../../../services/modules/ecommerce/domain/orders';
+import { parseGiftChoice, type GiftChoice } from '../../../services/modules/ecommerce/domain/promotions/giftChoices';
 
 /** Request-body checks shared by the e-commerce admin controllers. They throw validation errors. */
 export const MAX_SHORT = 255;
@@ -110,7 +111,8 @@ export const MAX_GIFT_CHOICES = 10;
 /**
  * The promotion fields shared by order creation and quotes. Absent fields stay absent:
  * `promotionCodes` (<= 5 strings of <= 40 characters), `expectedTotal` (cents) and
- * `giftChoices` (<= 10 `promotionId → variantId` pairs of integers >= 1).
+ * `giftChoices` (<= 10 `promotionId → variantId` pairs, the variant an integer >= 1 or a list of
+ * them, one per gift).
  */
 export const promotionFields = (
   message: string,
@@ -118,7 +120,7 @@ export const promotionFields = (
 ): {
   promotionCodes?: string[];
   expectedTotal?: number;
-  giftChoices?: Record<string, number>;
+  giftChoices?: Record<string, GiftChoice>;
 } => {
   const out: ReturnType<typeof promotionFields> = {};
   if (b.promotionCodes !== undefined) {
@@ -146,7 +148,9 @@ export const promotionFields = (
       if (!Number.isInteger(id) || id < 1 || String(id) !== key) {
         return fail(message, `giftChoices.${key}`, 'invalid');
       }
-      out.giftChoices[key] = positiveInt(message, `giftChoices.${key}`, value);
+      const choice = parseGiftChoice(value);
+      if (choice === null) return fail(message, `giftChoices.${key}`, 'invalid');
+      out.giftChoices[key] = choice;
     }
   }
   return out;

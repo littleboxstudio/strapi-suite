@@ -1,4 +1,5 @@
 import { paymentReferenceOf, redactHistoryValue, redactVoucherCodes, storeCreditIdOf } from './paymentMask';
+import type { GiftChoices } from './domain/promotions/giftChoices';
 import type { Core } from '@strapi/strapi';
 import { randomUUID } from 'crypto';
 import { galleryCover } from './domain/galleryImages';
@@ -177,7 +178,7 @@ export type CreateOrderInput = {
   /** The total the customer was shown (cents): a different computed total → TOTAL_CHANGED. */
   expectedTotal?: number;
   /** Per promotion id, the chosen gift variant. */
-  giftChoices?: Record<number, number>;
+  giftChoices?: GiftChoices;
   /** Absent = trusted (admin); `false` = storefront without a verified e-mail. */
   emailVerified?: boolean;
   /**
@@ -1172,17 +1173,30 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
           });
         }
 
-        // One movement per variant (customer lines and gifts summed): the key is per variant.
+        // One movement per variant (customer lines and gifts summed): the key is per variant. A
+        // variant sold out since the pricing (a concurrent order) refuses the whole order, on the
+        // line that asked for it (a gift-only variant: on the lines).
         for (const [variantId, quantity] of deductions) {
-          await stock().move({
-            variantId,
-            quantity: -quantity,
-            type: 'ORDER_DEDUCT',
-            operationKey: `order:${orderId}:create:${variantId}`,
-            orderId,
-            reason: `Order #${reference} created`,
-            actor: ctx.actor,
-          });
+          try {
+            await stock().move({
+              variantId,
+              quantity: -quantity,
+              type: 'ORDER_DEDUCT',
+              operationKey: `order:${orderId}:create:${variantId}`,
+              orderId,
+              reason: `Order #${reference} created`,
+              actor: ctx.actor,
+              requireStock: true,
+            });
+          } catch (err) {
+            if (err instanceof EcommerceValidationError && err.errors.some((e) => e.code === 'INSUFFICIENT_STOCK')) {
+              const index = v.lines.findIndex((l: { variantId: number }) => l.variantId === variantId);
+              throw new EcommerceValidationError('Invalid order', [
+                { path: index >= 0 ? `lines.${index}.quantity` : 'lines', code: 'INSUFFICIENT_STOCK' },
+              ]);
+            }
+            throw err;
+          }
         }
 
         await history().record({

@@ -223,6 +223,16 @@ describe('EcommerceOrderController promotions', () => {
     );
   });
 
+  it('accepts a list of variants per gift', async () => {
+    const create = vi.fn().mockResolvedValue({ id: 1 });
+    const body = { giftChoices: { '3': [40, 41] } };
+    await run('create', body, { create });
+    expect(create).toHaveBeenCalledWith(
+      { idempotencyKey: 'k', ...body },
+      { actor: 'user:7', source: 'admin' }
+    );
+  });
+
   it('create passes promotionCodes, expectedTotal and giftChoices', async () => {
     const create = vi.fn().mockResolvedValue({ id: 1 });
     const body = { promotionCodes: ['SUMMER'], expectedTotal: 1000, giftChoices: { '3': 40 } };
@@ -250,6 +260,9 @@ describe('EcommerceOrderController promotions', () => {
     ['gift key zero', { giftChoices: { '0': 1 } }, 'giftChoices.0', 'invalid'],
     ['gift key signed', { giftChoices: { '-1': 1 } }, 'giftChoices.-1', 'invalid'],
     ['gift value zero', { giftChoices: { '1': 0 } }, 'giftChoices.1', 'invalid'],
+    ['gift list empty', { giftChoices: { '1': [] } }, 'giftChoices.1', 'invalid'],
+    ['gift list with zero', { giftChoices: { '1': [4, 0] } }, 'giftChoices.1', 'invalid'],
+    ['gift list too long', { giftChoices: { '1': Array(21).fill(4) } }, 'giftChoices.1', 'invalid'],
   ])('create and quote reject %s with 400 before the service', async (_n, extra, path, code) => {
     const create = vi.fn();
     const quote = vi.fn();

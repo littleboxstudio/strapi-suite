@@ -21,6 +21,7 @@ void _q;
 void _o;
 
 const ALL_CODE_STATUSES: CodeStatus[] = [
+  'GIFT_UNAVAILABLE',
   'APPLIED',
   'NOT_FOUND',
   'INACTIVE',
@@ -47,7 +48,7 @@ describe('toPublicCodeStatus (Review Focus 4)', () => {
   });
 
   it('keeps the others and reaches every public status', () => {
-    for (const s of ['APPLIED', 'NOT_FOUND', 'USAGE_LIMIT_REACHED', 'CONDITIONS_NOT_MET', 'CONFLICT', 'NO_BENEFIT', 'AWAITING_SHIPPING'] as const) {
+    for (const s of ['APPLIED', 'NOT_FOUND', 'USAGE_LIMIT_REACHED', 'CONDITIONS_NOT_MET', 'CONFLICT', 'NO_BENEFIT', 'AWAITING_SHIPPING', 'GIFT_UNAVAILABLE'] as const) {
       expect(toPublicCodeStatus(s)).toBe(s);
     }
     const reached = new Set(ALL_CODE_STATUSES.map(toPublicCodeStatus));
@@ -230,7 +231,11 @@ describe('toPublicQuote', () => {
       { code: 'WELCOME', status: 'APPLIED', message: codeStatusMessage('APPLIED', 'pt') },
       { code: 'VIPONLY', status: 'NOT_ELIGIBLE', message: codeStatusMessage('NOT_ELIGIBLE', 'pt') },
     ]);
-    expect(pub.giftOptions).toEqual(quote().giftOptions);
+    // A quote without `repetitions` / `selected` (an older source): one gift, the selected variant.
+    expect(pub.giftOptions).toEqual(
+      quote().giftOptions.map((g) => ({ ...g, repetitions: 1, selected: [g.selectedVariantId] }))
+    );
+    expect(pub.unavailableGifts).toEqual([]);
     expect(pub.giftOptions[0].benefitIndex).toBe(1);
     expect(pub.totals).toEqual(quote().totals);
     expect(pub.currency).toBe('EUR');
