@@ -31,6 +31,13 @@ import RestoreDefaultEmailTemplate from '../../usecases/settings/restoreDefaultE
 import FetchSettingsLocales from '../../usecases/settings/fetchSettingsLocales';
 import { extractFieldErrors } from '../../utils/productForm';
 import { isEmailTemplateType, shouldBlockNavigation } from '../../utils/emailTemplateEditor';
+import {
+  annotateTemplate,
+  joinTemplate,
+  replaceText,
+  splitTemplate,
+  type TemplatePart,
+} from '../../utils/emailTextEditing';
 import { useSettingsPermissions } from './useSettingsPermissions';
 import type {
   EmailPreview as EmailPreviewData,
@@ -83,6 +90,13 @@ const EmailTemplateEditorPage = () => {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState(false);
   const previewRequest = useRef(0);
+
+  // Edit texts: the preview shows the template with its texts marked, and typing there rewrites
+  // them in the HTML. While a text is being typed the preview is not refreshed (that would drop
+  // the caret): `editSession` holds the parts being edited and the html the preview shows.
+  const [editTexts, setEditTexts] = useState(false);
+  const [editSession, setEditSession] = useState<{ parts: TemplatePart[]; shown: string } | null>(null);
+  const previewSource = editSession?.shown ?? (editTexts ? annotateTemplate(splitTemplate(html)) : html);
 
   const [testOpen, setTestOpen] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
@@ -140,7 +154,7 @@ const EmailTemplateEditorPage = () => {
     setPreviewLoading(true);
     const timer = setTimeout(() => {
       new PreviewEmailTemplate()
-        .execute(type, { subject, html })
+        .execute(type, { subject, html: previewSource })
         .then((result) => {
           if (request !== previewRequest.current) return;
           setPreview(result);
@@ -154,7 +168,16 @@ const EmailTemplateEditorPage = () => {
         });
     }, PREVIEW_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [type, subject, html, loaded]);
+  }, [type, subject, previewSource, loaded]);
+
+  const onPreviewText = (id: number, text: string) => {
+    const parts = replaceText(editSession?.parts ?? splitTemplate(html), id, text);
+    setEditSession((current) => ({ parts, shown: current?.shown ?? previewSource }));
+    setHtml(joinTemplate(parts));
+    setIssues((current) => ({ ...current, html: undefined }));
+  };
+  // The caret left the texts: the preview catches up with the HTML.
+  const endPreviewEdit = () => setEditSession(null);
 
   useEffect(
     () => () => {
@@ -350,7 +373,7 @@ const EmailTemplateEditorPage = () => {
         <Columns>
           <Flex direction="column" alignItems="stretch" gap={4}>
             <Flex direction="column" alignItems="stretch" gap={2}>
-              <Typography variant="sigma" textColor="neutral600">
+              <Typography variant="omega" textColor="neutral800">
                 {t('ecommerce.settings.emailTemplates.editor.html')}
               </Typography>
               {htmlIssues && (
@@ -375,7 +398,24 @@ const EmailTemplateEditorPage = () => {
               />
             </Flex>
           </Flex>
-          <EmailPreview preview={preview} loading={previewLoading} error={previewError} />
+          <EmailPreview
+            preview={preview}
+            loading={previewLoading}
+            error={previewError}
+            textEditing={
+              readOnly
+                ? undefined
+                : {
+                    active: editTexts,
+                    onToggle: () => {
+                      setEditSession(null);
+                      setEditTexts((on) => !on);
+                    },
+                    onChange: onPreviewText,
+                    onEnd: endPreviewEdit,
+                  }
+            }
+          />
         </Columns>
       </Flex>
     );
