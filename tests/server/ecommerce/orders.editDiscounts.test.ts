@@ -1337,3 +1337,168 @@ describe('create order with manual discounts (duplicate order spec)', () => {
     expect(orderRow(ctx, created.id).manualDiscounts).toEqual({ items: [] });
   });
 });
+
+describe('remove an applied promotion (owner approved)', () => {
+  /** Buy 2 of variant 10, get a variant 12 free (a gift line). */
+  const buy2Gift = (ctx: Ctx) =>
+    addPromotion(ctx, {
+      name: 'Buy 2 get a gift',
+      benefits: {
+        items: [
+          {
+            type: 'BUY_X_GET_Y',
+            buy: { target: T([10]), quantity: 2, minAmount: null },
+            get: { mode: 'GIFT', variantIds: [12], quantity: 1 },
+            reward: { kind: 'FREE' },
+          },
+        ],
+      },
+    });
+  const freeShipping = (ctx: Ctx) =>
+    addPromotion(ctx, {
+      name: 'Free shipping over 30',
+      conditions: group([{ type: 'SUBTOTAL', operator: 'gte', value: 3000 }]),
+      benefits: { items: [{ type: 'SHIPPING_FREE', maxAmount: null }] },
+    });
+
+  /** Order 25's shape: a gift promotion, free shipping and a manual discount of 300. */
+  const order25 = async () => {
+    const ctx = setup();
+    const gift = buy2Gift(ctx);
+    const shipping = freeShipping(ctx);
+    const id = await createOrder(ctx, [{ variantId: 10, quantity: 2 }]);
+    await ctx.editing.addManualDiscount(id, { kind: 'FIXED', value: 300, reason: 'Loyal' }, 'user:1', 'op-rp-manual');
+    const row = orderRow(ctx, id);
+    expect(row.promotions.applied.map((a: any) => a.promotionId).sort()).toEqual([gift, shipping].sort());
+    expect(linesOf(ctx, id).find((l) => l.isGift)).toMatchObject({ variantId: 12, quantity: 1 });
+    return { ctx, id, gift, shipping };
+  };
+
+  it('the order view says each promotion can be removed, with the total change and gift units', async () => {
+    const { ctx, id, gift, shipping } = await order25();
+    const view = await ctx.orders.get(id);
+    const byId = new Map(view.promotions.map((p: any) => [p.promotionId, p.removal]));
+    expect(byId.get(gift)).toEqual({ blockedBy: null, difference: 0, giftUnits: 1 });
+    expect(byId.get(shipping)).toEqual({ blockedBy: null, difference: 500, giftUnits: 0 });
+  });
+
+  it('removing the gift promotion removes its gift line (restocked); the rest stays', async () => {
+    const { ctx, id, gift, shipping } = await order25();
+    const before = orderRow(ctx, id);
+    const total = before.total;
+    const productDiscount = before.productDiscount;
+    expect(stockOf(ctx, 12)).toBe(9);
+    const result = await ctx.editing.removePromotion(id, gift, 'user:1', 'op-rp-gift-1');
+    const row = orderRow(ctx, id);
+    expect(linesOf(ctx, id).map((l) => l.variantId)).toEqual([10]);
+    expect(stockOf(ctx, 12)).toBe(10);
+    expect(row.promotions.applied.map((a: any) => a.promotionId)).toEqual([shipping]);
+    expect(row.productDiscount).toBe(productDiscount - 1500);
+    expect(row.total).toBe(total);
+    expect(row.shippingDiscount).toBe(500);
+    expect(row.manualDiscounts.items.map((m: any) => m.amount)).toEqual([300]);
+    expect(row.orderDiscount).toBe(300);
+    expect(result.difference).toBe(0);
+    expect(redemptionsOf(ctx, id).find((r) => r.promotion === gift)?.status).toBe('RELEASED');
+    expect(redemptionsOf(ctx, id).find((r) => r.promotion === shipping)?.status).toBe('RESERVED');
+    const [entry] = historyOf(ctx, id, 'PROMOTION_REMOVED');
+    expect(entry.previousValue).toMatchObject({ promotionId: gift, name: 'Buy 2 get a gift', amount: 1500 });
+    expect(entry.newValue).toMatchObject({ promotionId: gift, giftUnits: 1, kind: 'promotion-remove' });
+  });
+
+  it('removing free shipping charges the shipping again: a paid order now owes it', async () => {
+    const { ctx, id, shipping } = await order25();
+    const total = orderRow(ctx, id).total;
+    await pay(ctx, id, total);
+    expect(orderRow(ctx, id).paymentStatus).toBe('PAID');
+    const result = await ctx.editing.removePromotion(id, shipping, 'user:1', 'op-rp-ship-1');
+    const row = orderRow(ctx, id);
+    expect(row.shippingDiscount).toBe(0);
+    expect(row.total).toBe(total + 500);
+    expect(result).toMatchObject({ outcome: 'DUE', difference: 500 });
+    expect(row.paymentStatus).not.toBe('PAID');
+    expect(linesOf(ctx, id).some((l) => l.isGift)).toBe(true);
+  });
+
+  it('is idempotent by operationId', async () => {
+    const { ctx, id, shipping } = await order25();
+    await ctx.editing.removePromotion(id, shipping, 'user:1', 'op-rp-same-1');
+    const again = await ctx.editing.removePromotion(id, shipping, 'user:1', 'op-rp-same-1');
+    expect(again.difference).toBe(500);
+    expect(historyOf(ctx, id, 'PROMOTION_REMOVED')).toHaveLength(1);
+  });
+
+  it('refused once its gift was shipped → PROMOTION_SHIPPED, nothing written', async () => {
+    const { ctx, id, gift, shipping } = await order25();
+    shipEverything(ctx, id);
+    const view = await ctx.orders.get(id);
+    expect(view.promotions.find((p: any) => p.promotionId === gift).removal.blockedBy).toBe('PROMOTION_SHIPPED');
+    const snapshot = JSON.stringify(ctx.tables);
+    expect(await issues(ctx.editing.removePromotion(id, gift, 'user:1', 'op-rp-shipped'))).toEqual([
+      { path: 'promotionId', code: 'PROMOTION_SHIPPED' },
+    ]);
+    expect(JSON.stringify(ctx.tables)).toBe(snapshot);
+    // The shipping promotion discounts no shipped unit: still removable.
+    await ctx.editing.removePromotion(id, shipping, 'user:1', 'op-rp-shipped-2');
+  });
+
+  it('refused once its gift units or the shipping are invoiced → PROMOTION_INVOICED', async () => {
+    const { ctx, id, gift, shipping } = await order25();
+    const giftLine = linesOf(ctx, id).find((l) => l.isGift);
+    ctx.tables[UIDS.invoice].push({
+      id: ctx.tables[UIDS.invoice].length + 1,
+      order: id,
+      kind: 'INVOICE',
+      status: 'ISSUED',
+      createdAt: new Date(Date.now() + 1000).toISOString(),
+      lines: {
+        lines: [
+          { kind: 'ITEM', orderLineId: giftLine.id, sku: 'G', name: 'G', quantity: 1, total: 0, tax: 23, partial: false, discountShare: 0 },
+          { kind: 'SHIPPING', orderLineId: null, sku: 'SHIPPING', name: 'S', quantity: 1, total: 500, tax: 23, partial: false, shippingLineId: 1, discountShare: 0 },
+        ],
+      },
+    });
+    for (const [promo, op] of [
+      [gift, 'op-rp-inv-1'],
+      [shipping, 'op-rp-inv-2'],
+    ] as const) {
+      expect(await issues(ctx.editing.removePromotion(id, promo, 'user:1', op))).toEqual([
+        { path: 'promotionId', code: 'PROMOTION_INVOICED' },
+      ]);
+    }
+    expect(historyOf(ctx, id, 'PROMOTION_REMOVED')).toEqual([]);
+  });
+
+  it('a promotion the order does not have → PROMOTION_NOT_APPLIED; a cancelled order → ORDER_NOT_EDITABLE', async () => {
+    const { ctx, id, gift } = await order25();
+    expect(await issues(ctx.editing.removePromotion(id, 999, 'user:1', 'op-rp-none'))).toEqual([
+      { path: 'promotionId', code: 'PROMOTION_NOT_APPLIED' },
+    ]);
+    orderRow(ctx, id).orderStatus = 'CANCELLED';
+    const err = await issues(ctx.editing.removePromotion(id, gift, 'user:1', 'op-rp-cancel'));
+    expect(err[0].code).toBe('ORDER_NOT_EDITABLE');
+  });
+
+  it("a code promotion: removed the same way, its redemption released and its code reads REMOVED", async () => {
+    const ctx = setup();
+    const promo = addPromotion(ctx, {
+      name: '10 off',
+      method: 'CODE',
+      code: 'TEN',
+      benefits: { items: [{ type: 'ORDER_FIXED', amount: 1000 }] },
+    });
+    const id = await createWithCodes(ctx, [{ variantId: 10, quantity: 2 }], ['TEN']);
+    const total = orderRow(ctx, id).total;
+    expect(orderRow(ctx, id).orderDiscount).toBe(1000);
+    await ctx.editing.removePromotion(id, promo, 'user:1', 'op-rp-code-1');
+    const row = orderRow(ctx, id);
+    expect(row.orderDiscount).toBe(0);
+    expect(row.total).toBe(total + 1000);
+    expect(row.promotions.applied).toEqual([]);
+    expect(row.promotions.codes).toEqual([
+      expect.objectContaining({ code: 'TEN', status: 'REMOVED', promotionId: promo }),
+    ]);
+    expect(redemptionsOf(ctx, id).find((r) => r.promotion === promo)?.status).toBe('RELEASED');
+    expect(promotionRow(ctx, promo).redemptions).toBe(0);
+  });
+});

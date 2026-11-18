@@ -73,6 +73,26 @@ describe('EcommerceOrderEditingController', () => {
     expect(editShippingLine).not.toHaveBeenCalled();
   });
 
+  it('passes :promotionId as a number; a bad one is a 400', async () => {
+    const removePromotion = vi.fn().mockResolvedValue({});
+    const c = controller({ removePromotion });
+    await c.removePromotion(
+      mkCtx({ params: { id: '25', promotionId: '3' }, request: { body: { operationId: 'o' } } })
+    );
+    expect(removePromotion).toHaveBeenCalledWith(25, 3, 'user:7', 'o');
+    const ctx = mkCtx({ params: { id: '25', promotionId: 'x' } });
+    await c.removePromotion(ctx);
+    expect(ctx.badRequest).toHaveBeenCalledWith('Invalid id');
+    expect(removePromotion).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['PROMOTION_INVOICED', 'PROMOTION_SHIPPED'])('maps %s to 409', async (code) => {
+    const ctx = mkCtx({ params: { id: '1', promotionId: '3' } });
+    await controller({ removePromotion: vi.fn().mockRejectedValue(invalid(code)) }).removePromotion(ctx);
+    expect(ctx.status).toBe(409);
+    expect(ctx.body.error.details.code).toBe(code);
+  });
+
   it('rejects a bad discountId with 400', async () => {
     const removeManualDiscount = vi.fn();
     const ctx = mkCtx({ params: { id: '1', discountId: '1.5' } });

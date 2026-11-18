@@ -48,6 +48,7 @@ const editing: [string, string, string, string][] = [
   ['POST', `${O}/:id/discounts`, 'applyDiscounts', P.ordersManage],
   ['POST', `${O}/:id/manual-discounts`, 'addManualDiscount', P.ordersManage],
   ['POST', `${O}/:id/manual-discounts/:discountId/remove`, 'removeManualDiscount', P.ordersManage],
+  ['POST', `${O}/:id/promotions/:promotionId/remove`, 'removePromotion', P.ordersManage],
   ['POST', `${O}/:id/review-flags/:code/dismiss`, 'dismissReviewFlag', P.ordersManage],
 ];
 

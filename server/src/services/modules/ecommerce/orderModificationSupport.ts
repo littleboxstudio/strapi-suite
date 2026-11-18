@@ -14,7 +14,9 @@ import type {
   ModificationCurrent,
   ModificationResult,
 } from './domain/orderModification';
-import type { AppliedPromotion } from './domain/promotions';
+import type { AppliedPromotion, BenefitRef } from './domain/promotions';
+import type { PromotionRemovalContext } from './domain/promotionRemoval';
+import { chargedShipping, readShippingLines } from './domain/shippingLines';
 import { isRecord, type CatalogVariant } from './orderPricingHelpers';
 import type { ShippingQuoteRequest } from './shipping';
 import type { StockMoveInput } from './stock';
@@ -39,6 +41,52 @@ export const toRefundLike = (r: any): RefundLike => ({
   kind: r.kind === 'STORE_CREDIT' ? 'STORE_CREDIT' : 'MONEY',
   promoted: r.metadata?.promotedFromFailed === true,
 });
+
+/** A line's stored `promotionRefs` (`{ refs }`; a legacy `[]` reads as none). */
+export const lineRefsOf = (stored: unknown): BenefitRef[] =>
+  isRecord(stored) && Array.isArray(stored.refs)
+    ? stored.refs.filter(isRecord).map((r) => ({
+        promotionId: num(r.promotionId),
+        benefitIndex: num(r.benefitIndex),
+        amount: num(r.amount),
+      }))
+    : [];
+
+/** What removing an applied promotion works on (`removePromotion`), read from the order state. */
+export const promotionRemovalContextOf = (
+  state: Pick<OrderState, 'order' | 'lines' | 'invoicing' | 'shippingLines' | 'payments' | 'refunds'>
+): PromotionRemovalContext => {
+  const order = state.order;
+  const rawById = new Map<number, any>((order.lines ?? []).map((l: any) => [l.id, l]));
+  return {
+    lines: state.lines.map((l) => ({
+      id: l.id,
+      variantId: l.variantId,
+      productId: l.productId,
+      isGift: l.isGift,
+      shipped: l.shipped,
+      reserved: l.reserved,
+      invoiced: l.invoiced ?? 0,
+      unitPrice: l.unitPrice,
+      unitDiscount: l.unitDiscount,
+      quantity: l.quantity,
+      returnedQuantity: l.returnedQuantity,
+      refs: lineRefsOf(rawById.get(l.id)?.promotionRefs),
+      manualDiscountPercent: l.manualDiscountPercent,
+    })),
+    applied: appliedOf(order),
+    orderDiscount: num(order.orderDiscount),
+    shippingGross: chargedShipping(readShippingLines(order)),
+    shippingDiscount: num(order.shippingDiscount),
+    creditAdjustment: invoicedRefundAdjustment(state.refunds),
+    invoicedDiscountIds: (state.invoicing?.items?.discounts ?? [])
+      .filter((d) => d.invoiced)
+      .map((d) => d.id),
+    shippingInvoiced: (state.shippingLines ?? []).some((l) => l.invoiced),
+    payments: state.payments.map(toPaymentLike),
+    refunds: state.refunds.map(toRefundLike),
+  };
+};
 
 /** A stock key already taken: the operationId was used elsewhere. */
 const operationConflict = () =>

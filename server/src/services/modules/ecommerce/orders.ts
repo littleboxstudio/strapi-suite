@@ -31,6 +31,7 @@ import {
 } from './domain/orders';
 import {
   appliedOf,
+  promotionRemovalContextOf,
   toPaymentLike,
   toRefundLike,
 } from './orderModificationSupport';
@@ -114,6 +115,11 @@ import {
 } from './domain/manualDiscounts';
 import { MAX_STORE_CREDIT_CODE_LENGTH } from './domain/storefront/limits';
 import { storedDiscountPercent } from './domain/lineDiscounts';
+import {
+  promotionRemovalBlock,
+  removePromotion,
+  type PromotionRemovalBlock,
+} from './domain/promotionRemoval';
 import { resolveLocale } from './locales';
 import {
   MAX_PROMOTION_CODES,
@@ -195,6 +201,11 @@ export type CreateOrderInput = {
 /** An applied promotion as the order stored it, with the state of its redemption. */
 export type OrderPromotionView = AppliedPromotion & {
   redemptionStatus: 'RESERVED' | 'RELEASED' | null;
+  /**
+   * Removing it from the order (owner approved): why it cannot be removed (its effect is invoiced
+   * or shipped), else null; what the order total changes by and the gift units that go.
+   */
+  removal: { blockedBy: PromotionRemovalBlock | null; difference: number; giftUnits: number };
 };
 
 /** A code entered at checkout, as the order stored its evaluation. */
@@ -1715,9 +1726,26 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     const redemptions = applied.length
       ? await promotions().redemptionStatuses(id)
       : new Map<number, 'RESERVED' | 'RELEASED'>();
+    const removalContext = applied.length
+      ? promotionRemovalContextOf({
+          order,
+          lines,
+          invoicing,
+          shippingLines,
+          payments: paymentRows,
+          refunds: refundRows,
+        })
+      : null;
+    const removalOf = (promotionId: number): OrderPromotionView['removal'] => {
+      const blockedBy = promotionRemovalBlock(removalContext!, promotionId);
+      if (blockedBy) return { blockedBy, difference: 0, giftUnits: 0 };
+      const r = removePromotion(removalContext!, promotionId);
+      return { blockedBy: null, difference: r.difference, giftUnits: r.giftUnits };
+    };
     const promotionViews: OrderPromotionView[] = applied.map((a) => ({
       ...a,
       redemptionStatus: redemptions.get(a.promotionId) ?? null,
+      removal: removalOf(a.promotionId),
     }));
 
     return {

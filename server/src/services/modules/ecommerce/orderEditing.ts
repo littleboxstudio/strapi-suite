@@ -14,6 +14,7 @@ import {
 import {
   appliedOf,
   createOrderModificationSupport,
+  promotionRemovalContextOf,
   toPaymentLike,
   toRefundLike,
   type QuoteUnit,
@@ -63,6 +64,7 @@ import {
   type DiscountRecalculation,
 } from './domain/discountRecalculation';
 import { computeTotals, financialSummary, MAX_MONEY_CENTS, type Address } from './domain/orders';
+import { removePromotion as removalOf } from './domain/promotionRemoval';
 import { invoicedRefundAdjustment } from './domain/refunds';
 import { normalizeEmail } from './domain/email';
 import { marketCountry, marketOf } from './domain/markets';
@@ -106,6 +108,7 @@ export type EditKind =
   | 'discounts'
   | 'manual-discount-add'
   | 'manual-discount-remove'
+  | 'promotion-remove'
   | 'review-dismiss';
 
 export type EditOutcome = { outcome: 'DUE' | 'REFUNDABLE' | 'NONE'; difference: number };
@@ -1554,7 +1557,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
    */
   const writeDiscountLines = async (
     state: OrderState,
-    r: DiscountRecalculation,
+    r: Pick<DiscountRecalculation, 'lines' | 'removedGiftLines'>,
     w: EditWriter
   ): Promise<SplitLine[]> => {
     const lines = strapi.db.query(uids().orderLine);
@@ -1847,6 +1850,68 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   /**
+   * Removes an applied promotion (owner approved; Recalculate discounts never removes one): its
+   * gift lines go (restocked), its discounted units go back to their price, its order and shipping
+   * discounts come off, and its redemption is released. Refused while its effect is invoiced
+   * (`PROMOTION_INVOICED`) or shipped (`PROMOTION_SHIPPED`). The order may then owe money.
+   */
+  const removePromotion = async (
+    rawOrderId: number | string,
+    rawPromotionId: number | string,
+    actor: string,
+    operationId: string
+  ): Promise<EditResult> => {
+    const orderId = Number(rawOrderId);
+    const promotionId = Number(rawPromotionId);
+    return runEdit(orderId, 'promotion-remove', operationId, actor, {
+      prepare: async () => {
+        const state = await orders().computeOrderState(orderId);
+        assertEditable(state, 'REMOVE_DISCOUNT');
+        removalOf(promotionRemovalContextOf(state), promotionId);
+      },
+      write: async (state, _prepared, w) => {
+        assertEditable(state, 'REMOVE_DISCOUNT');
+        const r = removalOf(promotionRemovalContextOf(state), promotionId);
+        const order = state.order;
+        await writeDiscountLines(state, r, w);
+        await promotions().releasePromotions(orderId, [promotionId]);
+        const stored: Record<string, unknown> = isRecord(order.promotions) ? order.promotions : {};
+        // The code it came from no longer applies: its entry reads REMOVED.
+        const codes = Array.isArray(stored.codes)
+          ? stored.codes.map((c: unknown) =>
+              isRecord(c) && num(c.promotionId) === promotionId && c.status === 'APPLIED'
+                ? { ...c, status: 'REMOVED' }
+                : c
+            )
+          : undefined;
+        const totals = await writeTotals(state, {
+          lines: true,
+          orderDiscount: r.orderDiscount,
+          shippingDiscount: r.shippingDiscount,
+          promotions: { ...stored, applied: r.applied, ...(codes ? { codes } : {}) },
+        });
+        const p = r.promotion;
+        const entry = { promotionId: p.promotionId, name: p.name, amount: p.amount };
+        return {
+          outcome: modificationOutcome(r.before, r.after),
+          difference: totals.total - r.before.total,
+          history: {
+            type: 'PROMOTION_REMOVED',
+            description: `Promotion removed: ${p.name} (${p.amount} cents); total ${r.before.total} → ${totals.total} cents`,
+            previousValue: { ...entry, totals: r.before },
+            newValue: {
+              ...entry,
+              giftUnits: r.giftUnits,
+              removedGiftLines: r.removedGiftLines.map((g) => g.id),
+              totals: r.after,
+            },
+          },
+        };
+      },
+    });
+  };
+
+  /**
    * Dismisses a raised flag, only once the order can no longer be edited (ruling 23). Persists
    * `reviewFlags` with its own update: `writeTotals` refuses an order that is not OPEN.
    */
@@ -1909,6 +1974,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     applyDiscounts,
     addManualDiscount,
     removeManualDiscount,
+    removePromotion,
     dismissReviewFlag,
   };
 };
