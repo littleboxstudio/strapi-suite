@@ -858,6 +858,8 @@ export type ShippingLineView = {
   actor: string;
   /** An EDIT line appended as a correction of the locked line with this id. */
   editOf?: number;
+  /** Create order's charges after the first: they never set the delivery method (also once edited). */
+  extra?: boolean;
   paid: boolean;
   invoiced: boolean;
   spent: boolean;

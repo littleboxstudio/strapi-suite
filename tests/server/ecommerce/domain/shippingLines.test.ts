@@ -144,10 +144,30 @@ describe('currentMethod', () => {
     // A charge added later on the order still sets the method.
     expect(currentMethod([...created, line({ id: 4, origin: 'MANUAL', ...B })])).toEqual(B);
   });
+  it('an edited delivery line stays the delivery method; an edited extra charge never becomes it', () => {
+    const created = [
+      line({ id: 1, origin: 'CREATE', ...A }),
+      line({ id: 2, origin: 'CREATE', extra: true, ...B }),
+    ];
+    // Line 1 edited (now EDIT): line 2 is still only a charge.
+    expect(currentMethod([line({ id: 1, origin: 'EDIT', ...A }), created[1]])).toEqual(A);
+    // Line 2 edited: it keeps `extra`, so line 1 is still the delivery method.
+    expect(currentMethod([created[0], line({ id: 2, origin: 'EDIT', extra: true, ...B })])).toEqual(A);
+    // Without its flag (orders created before it), a CREATE line above another line never sets it.
+    expect(currentMethod([line({ id: 1, origin: 'EDIT', ...A }), line({ id: 2, origin: 'CREATE', ...B })])).toEqual(A);
+  });
+  it('removing the delivery line promotes the next one', () => {
+    const rest = [
+      line({ id: 2, origin: 'CREATE', extra: true, ...B }),
+      line({ id: 3, origin: 'CREATE', extra: true, ...A }),
+    ];
+    expect(currentMethod(rest)).toEqual(B);
+    expect(currentMethod([line({ id: 2, origin: 'CREATE', ...B }), line({ id: 3, origin: 'CREATE', ...A })])).toEqual(B);
+  });
   it('reads stored CREATE lines', () => {
     const order = { createdAt: AT, shippingOriginal: 500, shippingTax: 23, shippingMethod: A };
     const l1 = line({ origin: 'CREATE' });
-    const l2 = line({ id: 2, origin: 'CREATE', amount: 0, ...B });
+    const l2 = line({ id: 2, origin: 'CREATE', amount: 0, extra: true, ...B });
     expect(readShippingLines({ ...order, shippingLines: { lines: [l1, l2] } })).toEqual([l1, l2]);
   });
 });

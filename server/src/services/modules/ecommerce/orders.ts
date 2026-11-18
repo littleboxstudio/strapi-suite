@@ -1002,6 +1002,8 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
           name: o.name,
           createdAt,
           actor: ctx.actor,
+          // Only the first line is the delivery method; the others are charges.
+          ...(i > 0 ? { extra: true as const } : {}),
         }))
       : [
           checkoutLine({
