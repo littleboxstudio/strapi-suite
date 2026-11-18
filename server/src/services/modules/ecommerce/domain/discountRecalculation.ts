@@ -22,6 +22,7 @@ import {
   type BenefitRef,
   type DiscountClass,
   type EvaluationLine,
+  type GiftOption,
   type PromotionCandidate,
   type PromotionDefinition,
   type PromotionEvaluation,
@@ -71,6 +72,13 @@ export type DiscountContext = {
   searchLimit: number;
   payments: PaymentLike[];
   refunds: RefundLike[];
+  /**
+   * Gift variants on offer (Create order's applicable promotions): a GIFT promotion is then priced
+   * at its gift. Absent (the order detail): no gift is offered.
+   */
+  gifts?: Map<number, GiftOption>;
+  /** Per promotion id, the chosen gift variant (with `gifts`). */
+  giftChoices?: Record<number, number>;
 };
 
 export type DiscountRow = {
@@ -222,7 +230,8 @@ const classify = (ctx: DiscountContext): Classified => {
     shipping: ctx.shippingGross,
     codes: ctx.codes,
     candidates: ctx.candidates,
-    gifts: new Map(),
+    gifts: ctx.gifts ?? new Map(),
+    giftChoices: ctx.giftChoices ?? {},
     now: ctx.now,
     searchLimit: ctx.searchLimit,
   });
@@ -352,8 +361,8 @@ export function recalculateDiscounts(
         : input
     ),
     shipping: ctx.shippingGross,
-    gifts: new Map(),
-    giftChoices: {},
+    gifts: ctx.gifts ?? new Map(),
+    giftChoices: ctx.giftChoices ?? {},
   });
 
   // Exact line discounts (no remainders): one part per distinct unit discount, as checkout does.
@@ -439,8 +448,8 @@ export function recalculateDiscounts(
   const evaluationCtx = {
     lines: evaluationLines.map((e) => e.input),
     shipping: ctx.shippingGross,
-    gifts: new Map(),
-    giftChoices: {},
+    gifts: ctx.gifts ?? new Map(),
+    giftChoices: ctx.giftChoices ?? {},
   };
   const wouldGive = (id: number) => {
     const alone =

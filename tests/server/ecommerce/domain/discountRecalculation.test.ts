@@ -710,3 +710,30 @@ describe('recalculateDiscounts — manual line discount (spec 4.1)', () => {
     expect(r.lines).toEqual([]);
   });
 });
+
+describe('gift options (Create order: applicable promotions)', () => {
+  const gift = promo(1, [
+    {
+      type: 'BUY_X_GET_Y',
+      buy: { target: T(10), quantity: 1, minAmount: null },
+      get: { mode: 'GIFT', variantIds: [30], quantity: 1 },
+      reward: { kind: 'FREE' },
+    },
+  ]);
+  const MUG: GiftOption = { variantId: 30, productId: 3000, unitPrice: 800, available: 5, active: true };
+
+  it('without gift options a GIFT promotion gives nothing (the order detail, unchanged)', () => {
+    const r = recalculateDiscounts(ctx({ lines: [line(1, 10, 2000, 1)], candidates: [gift] }), []);
+    expect(r.rows).toEqual([]);
+  });
+
+  it('with gift options it is listed at the value of its gift', () => {
+    const r = recalculateDiscounts(
+      ctx({ lines: [line(1, 10, 2000, 1)], candidates: [gift], gifts: new Map([[30, MUG]]) }),
+      []
+    );
+    expect(r.rows).toEqual([
+      expect.objectContaining({ key: 'p:1', kind: 'NEW', selected: false, amount: 800 }),
+    ]);
+  });
+});
