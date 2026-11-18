@@ -16,7 +16,9 @@ const LABEL: Record<CreateTotalsTile['key'], string> = {
  * Stays at the top of the page while it scrolls. The wrapper is painted with the page background
  * (the design system's `neutral100`, light and dark), so content scrolls under it cleanly.
  */
-const STICKY = { position: 'sticky', top: 0, zIndex: 3 } as const;
+// The page's scroll container has a 32px top padding, and `top` counts from inside it: -32 makes
+// the bar start at the very top of the scroll area, so nothing shows above it.
+const STICKY = { position: 'sticky', top: -32, zIndex: 3 } as const;
 
 type Props = {
   tiles: CreateTotalsTile[];
