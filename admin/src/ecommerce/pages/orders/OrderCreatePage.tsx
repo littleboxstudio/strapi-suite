@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useNotification } from '@strapi/strapi/admin';
@@ -143,6 +143,18 @@ const positiveId = (raw: string | null) => {
  * Create order (spec 2026-11-18-create-order-redesign-design): the totals stay at the top, and
  * each section is a table filled through modals, like the order detail.
  */
+/**
+ * Opens at the top: the admin's scroll area is shared between pages, so coming from a scrolled
+ * order (Duplicate) would otherwise keep that position. Every scrolled ancestor jumps to 0,
+ * instantly (no smooth scroll).
+ */
+const scrollAncestorsToTop = (node: HTMLElement | null) => {
+  for (let el = node?.parentElement ?? null; el; el = el.parentElement) {
+    if (el.scrollTop > 0) el.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
+  }
+  if (window.scrollY > 0) window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
+};
+
 const OrderCreatePage = () => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const navigate = useNavigate();
@@ -703,6 +715,11 @@ const OrderCreatePage = () => {
     </IconButton>
   );
 
+  // Called once when the form mounts: the page starts at the top.
+  const topRef = useCallback((node: HTMLDivElement | null) => {
+    if (node) scrollAncestorsToTop(node);
+  }, []);
+
   if (!permissionsLoading && !canManage) {
     return (
       <Flex gap={3} alignItems="center">
@@ -812,7 +829,7 @@ const OrderCreatePage = () => {
   ].filter((text): text is string => !!text);
 
   return (
-    <Flex direction="column" alignItems="stretch" gap={6}>
+    <Flex ref={topRef} direction="column" alignItems="stretch" gap={6}>
       <Flex justifyContent="space-between" alignItems="center" gap={4}>
         <Flex gap={3} alignItems="center">
           {backButton}
