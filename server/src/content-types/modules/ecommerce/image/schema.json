@@ -27,6 +27,10 @@
     "position": {
       "type": "integer"
     },
+    "cover": {
+      "type": "boolean",
+      "default": false
+    },
     "name": {
       "type": "string"
     },

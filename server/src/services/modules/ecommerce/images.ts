@@ -4,6 +4,8 @@ import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID, LtbConfigs } from '../../../config';
 import { slugify } from './domain/catalog';
 import { processImage, processLogo, ImageTransform } from './domain/imageProcessing';
+import { galleryCover, isGalleryPermutation, sortGallery } from './domain/galleryImages';
+import { EcommerceNotFoundError, EcommerceValidationError } from './errors';
 
 export type ImageRecord = {
   id: number;
@@ -13,7 +15,12 @@ export type ImageRecord = {
   sizeBytes: number;
   url: string;
   position: number;
+  /** The gallery's cover (only one per gallery). */
+  cover: boolean;
 };
+
+/** The images of one gallery: a product's or a variant's. */
+export type ImageOwner = { productId?: number; variantId?: number };
 
 /** Stored image row, as needed to delete its file from the upload provider. */
 export type StoredImage = {
@@ -55,7 +62,65 @@ const EcommerceImageService = ({ strapi }: { strapi: Core.Strapi }) => {
       provider_metadata: record.providerMetadata,
     });
 
+  const ownerWhere = (owner: ImageOwner) =>
+    owner.variantId ? { variant: owner.variantId } : { product: owner.productId };
+
+  /** The gallery's images (id, position, cover), in gallery order. */
+  const galleryOf = async (owner: ImageOwner) =>
+    sortGallery<{ id: number; position: number | null; cover: boolean | null }>(
+      await strapi.db.query(imageUid()).findMany({
+        where: ownerWhere(owner),
+        select: ['id', 'position', 'cover'],
+      })
+    );
+
   return {
+    /**
+     * Saves the gallery's order: `ids` lists every image of the gallery, first to last. A list that
+     * is not exactly the gallery's images (one added or deleted meanwhile) is refused. The cover
+     * never moves with the order: a gallery with no marked cover (images from before covers) gets
+     * its current cover, the first image before the move, marked. Returns the cover.
+     */
+    async reorder(owner: ImageOwner, ids: unknown): Promise<{ coverId: number | null }> {
+      if (!owner.productId === !owner.variantId) {
+        throw new EcommerceValidationError('Invalid images', [{ path: 'owner', code: 'required' }]);
+      }
+      const current = await galleryOf(owner);
+      if (!isGalleryPermutation(current.map((r) => r.id), ids)) {
+        throw new EcommerceValidationError('Invalid images', [{ path: 'ids', code: 'IMAGES_CHANGED' }]);
+      }
+      const cover = galleryCover(current);
+      const markCover = cover !== null && cover.cover !== true;
+      await strapi.db.transaction(async () => {
+        for (let i = 0; i < ids.length; i += 1) {
+          await strapi.db.query(imageUid()).update({
+            where: { id: ids[i] },
+            data: { position: i + 1, ...(markCover && ids[i] === cover.id ? { cover: true } : {}) },
+          });
+        }
+      });
+      return { coverId: cover?.id ?? null };
+    },
+
+    /** Marks the image as its gallery's cover; the gallery's previous cover stops being one. */
+    async setCover(imageId: number): Promise<void> {
+      const image = await strapi.db.query(imageUid()).findOne({
+        where: { id: imageId },
+        populate: { product: { select: ['id'] }, variant: { select: ['id'] } },
+      });
+      if (!image || (!image.product && !image.variant)) {
+        throw new EcommerceNotFoundError('Image not found');
+      }
+      const owner: ImageOwner = image.variant ? { variantId: image.variant.id } : { productId: image.product.id };
+      await strapi.db.transaction(async () => {
+        await strapi.db.query(imageUid()).updateMany({
+          where: { ...ownerWhere(owner), cover: true, id: { $ne: imageId } },
+          data: { cover: false },
+        });
+        await strapi.db.query(imageUid()).update({ where: { id: imageId }, data: { cover: true } });
+      });
+    },
+
     async upload(params: {
       buffer: Buffer;
       originalName: string;
@@ -83,9 +148,8 @@ const EcommerceImageService = ({ strapi }: { strapi: Core.Strapi }) => {
       await provider().upload(file);
 
       const { productId, variantId } = params.owner;
-      const ownerWhere = variantId ? { variant: variantId } : { product: productId };
       const siblings: { position: number }[] = await strapi.db.query(imageUid()).findMany({
-        where: ownerWhere,
+        where: ownerWhere(params.owner),
         select: ['position'],
       });
       const position = siblings.reduce((max, s) => Math.max(max, s.position ?? 0), 0) + 1;
@@ -97,6 +161,8 @@ const EcommerceImageService = ({ strapi }: { strapi: Core.Strapi }) => {
           ...(productId ? { product: productId } : {}),
           ...(variantId ? { variant: variantId } : {}),
           position,
+          // A gallery's first image is its cover; later ones never take it over by themselves.
+          cover: siblings.length === 0,
           name: file.name,
           width,
           height,
@@ -118,6 +184,7 @@ const EcommerceImageService = ({ strapi }: { strapi: Core.Strapi }) => {
         sizeBytes: record.sizeBytes,
         url: record.url,
         position: record.position,
+        cover: siblings.length === 0,
       };
     },
 
@@ -154,11 +221,25 @@ const EcommerceImageService = ({ strapi }: { strapi: Core.Strapi }) => {
       };
     },
 
+    /** Deletes the image; deleting the gallery's cover makes the first remaining image the cover. */
     async remove(imageId: number): Promise<void> {
-      const record = await strapi.db.query(imageUid()).findOne({ where: { id: imageId } });
+      const record = await strapi.db.query(imageUid()).findOne({
+        where: { id: imageId },
+        populate: { product: { select: ['id'] }, variant: { select: ['id'] } },
+      });
       if (!record) return;
       await deleteFile(record);
+      const owner: ImageOwner | null = record.variant
+        ? { variantId: record.variant.id }
+        : record.product
+          ? { productId: record.product.id }
+          : null;
+      const wasCover = owner ? galleryCover(await galleryOf(owner))?.id === imageId : false;
       await strapi.db.query(imageUid()).delete({ where: { id: imageId } });
+      if (owner && wasCover) {
+        const next = (await galleryOf(owner))[0];
+        if (next) await strapi.db.query(imageUid()).update({ where: { id: next.id }, data: { cover: true } });
+      }
     },
 
     /**

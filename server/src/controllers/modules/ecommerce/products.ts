@@ -137,6 +137,29 @@ const EcommerceProductController = ({ strapi }: { strapi: Core.Strapi }) => {
       }
     },
 
+    /** Body: { productId | variantId, ids } with every image of that gallery, first to last. */
+    async reorderImages(ctx: any) {
+      const body = ctx.request.body ?? {};
+      const owner = {
+        productId: body.productId ? Number(body.productId) : undefined,
+        variantId: body.variantId ? Number(body.variantId) : undefined,
+      };
+      try {
+        ctx.body = await images().reorder(owner, body.ids);
+      } catch (err) {
+        return handleDomainError(ctx, err);
+      }
+    },
+
+    async setImageCover(ctx: any) {
+      try {
+        await images().setCover(toId(ctx));
+        ctx.status = 204;
+      } catch (err) {
+        return handleDomainError(ctx, err);
+      }
+    },
+
     async removeImage(ctx: any) {
       await images().remove(toId(ctx));
       ctx.status = 204;

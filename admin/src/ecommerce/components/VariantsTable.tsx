@@ -23,6 +23,7 @@ import EmptyVariants from '../illustrations/EmptyVariants';
 import { formatCents } from '../utils/money';
 import { hasErrorsUnder, type ErrorMap, type FormVariant } from '../utils/productForm';
 import { ToneBadge } from './orders/StatusBadges';
+import { coverImage } from '../utils/gallery';
 
 type Props = {
   variants: FormVariant[];
@@ -126,9 +127,9 @@ const VariantsTable = ({
             return (
               <VariantRow key={v.key} $invalid={invalid} aria-invalid={invalid || undefined}>
                 <Td>
-                  {v.images[0] ? (
+                  {coverImage(v.images) ? (
                     <img
-                      src={v.images[0].url}
+                      src={coverImage(v.images)!.url}
                       alt=""
                       width={THUMBNAIL_SIZE}
                       height={THUMBNAIL_SIZE}
