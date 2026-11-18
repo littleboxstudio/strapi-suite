@@ -1,9 +1,18 @@
 import { useState } from 'react';
 import { useIntl } from 'react-intl';
-import { Button, Flex, Typography } from '@strapi/design-system';
+import {
+  Button,
+  Flex,
+  Table,
+  Tbody,
+  Td,
+  Th,
+  Thead,
+  Tr,
+  Typography,
+} from '@strapi/design-system';
 import { getTranslation } from '../../../../core/utils/getTranslation';
 import {
-  codeStatusBadgeVariant,
   type PromotionLocales,
   type PromotionRow,
 } from '../../../utils/orderDetail';
@@ -18,7 +27,6 @@ import CreateManualDiscountModal from '../CreateManualDiscountModal';
 import DiscountsTable, { type ManualDiscountTableRow } from '../DiscountsTable';
 import EmptyNote from '../EmptyNote';
 import OrderSection from '../OrderSection';
-import { ToneBadge } from '../StatusBadges';
 import AddCodeModal from './AddCodeModal';
 import ApplyDiscountModal from './ApplyDiscountModal';
 import SectionError from './SectionError';
@@ -162,29 +170,58 @@ const CreatePromotionsSection = ({
           <Typography variant="sigma" textColor="neutral600">
             {t('ecommerce.orders.new.codesNotApplied')}
           </Typography>
-          {unapplied.map((c) => (
-            <Flex key={c.code} gap={2} alignItems="center" wrap="wrap">
-              <Typography textColor="neutral800" fontWeight="semiBold">
-                {c.code}
-              </Typography>
-              {c.status && (
-                <ToneBadge variant={codeStatusBadgeVariant(c.status)}>
-                  {formatMessage({
-                    id: getTranslation(`ecommerce.orders.promotions.codeStatus.${c.status}`),
-                    defaultMessage: c.status,
-                  })}
-                </ToneBadge>
-              )}
-              <Button
-                size="S"
-                variant="danger-light"
-                disabled={disabled}
-                onClick={() => onRemoveCode(c.code)}
-              >
-                {t('ecommerce.orders.discounts.remove')}
-              </Button>
-            </Flex>
-          ))}
+          {/* The codes the quote did not apply, with why. Remove only drops the line (and the
+              code from the order being created); it confirms the admin saw it. */}
+          <Table colCount={3} rowCount={unapplied.length + 1}>
+            <Thead>
+              <Tr>
+                <Th>
+                  <Typography variant="sigma">{t('ecommerce.orders.new.unappliedCode')}</Typography>
+                </Th>
+                <Th>
+                  <Typography variant="sigma">{t('ecommerce.orders.new.unappliedReason')}</Typography>
+                </Th>
+                <Th>
+                  <Flex justifyContent="flex-end" style={{ width: '100%' }}>
+                    <Typography variant="sigma">{t('ecommerce.orders.new.unappliedActions')}</Typography>
+                  </Flex>
+                </Th>
+              </Tr>
+            </Thead>
+            <Tbody>
+              {unapplied.map((c) => (
+                <Tr key={c.code}>
+                  <Td>
+                    <Typography textColor="neutral800" fontWeight="semiBold">
+                      {c.code}
+                    </Typography>
+                  </Td>
+                  <Td style={{ whiteSpace: 'normal' }}>
+                    <Typography textColor="neutral800">
+                      {c.status
+                        ? formatMessage({
+                            id: getTranslation(`ecommerce.orders.promotions.codeStatus.${c.status}`),
+                            defaultMessage: c.status,
+                          })
+                        : '—'}
+                    </Typography>
+                  </Td>
+                  <Td>
+                    <Flex justifyContent="flex-end">
+                      <Button
+                        size="S"
+                        variant="danger-light"
+                        disabled={disabled}
+                        onClick={() => onRemoveCode(c.code)}
+                      >
+                        {t('ecommerce.orders.discounts.remove')}
+                      </Button>
+                    </Flex>
+                  </Td>
+                </Tr>
+              ))}
+            </Tbody>
+          </Table>
         </Flex>
       )}
 
