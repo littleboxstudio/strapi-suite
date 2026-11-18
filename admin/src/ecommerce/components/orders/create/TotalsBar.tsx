@@ -31,6 +31,9 @@ type Props = {
 /** Height of the admin's top bar over the scroll area: the bar is stuck once it reaches it. */
 const TOP_BAR = 60;
 
+/** The page's gap between sections (24px) plus the bar's top padding (12px) and the marker's 1px. */
+const MARKER_OFFSET = -(24 + 12 + 1);
+
 const TotalsBar = ({ tiles, note }: Props) => {
   const { formatMessage, locale } = useIntl();
   // A 1px marker just above the bar: once it scrolls out of sight the bar is stuck, and it
@@ -48,7 +51,9 @@ const TotalsBar = ({ tiles, note }: Props) => {
   }, []);
   return (
     <>
-      <div ref={marker} aria-hidden style={{ height: 1, marginBottom: -1 }} />
+      {/* The marker is a flex item of the page: its own gap and the bar's top padding are taken
+          back, so the space above the tiles is the gap between sections. */}
+      <div ref={marker} aria-hidden style={{ height: 1, marginBottom: MARKER_OFFSET }} />
       <Box
         background="neutral100"
         paddingTop={stuck ? 2 : 3}
@@ -58,7 +63,7 @@ const TotalsBar = ({ tiles, note }: Props) => {
         <Flex direction="column" alignItems="stretch" gap={stuck ? 1 : 2}>
           <Tiles $columns={tiles.length}>
             {tiles.map((tile) => (
-              <Tile key={tile.key} $compact={stuck}>
+              <Tile key={tile.key} $compact={stuck} $surface>
                 <Typography
                   variant="sigma"
                   textColor="neutral600"

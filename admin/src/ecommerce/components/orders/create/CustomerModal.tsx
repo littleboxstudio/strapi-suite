@@ -9,6 +9,8 @@ import {
   Loader,
   Modal,
   Popover,
+  SingleSelect,
+  SingleSelectOption,
   TextInput,
   Typography,
 } from '@strapi/design-system';
@@ -16,9 +18,9 @@ import { Search } from '@strapi/icons';
 import { getTranslation } from '../../../../core/utils/getTranslation';
 import FetchCustomers from '../../../usecases/orders/fetchCustomers';
 import FetchCustomer from '../../../usecases/orders/fetchCustomer';
-import { customerFormErrors } from '../../../utils/createOrder';
+import { customerFormErrors, pickedCustomerLocale } from '../../../utils/createOrder';
 import type { OrderForm } from '../../../utils/orderForm';
-import type { CustomerListItem } from '../../../orderTypes';
+import type { CustomerListItem, OrderLocales } from '../../../orderTypes';
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -37,9 +39,18 @@ type Props = {
   /** The server's errors of these fields (`email` → code). */
   errors?: Record<string, string>;
   codeText: (code: string) => string;
+  /** The order's language now, the configured ones and the default (a picked customer without one). */
+  locale: string;
+  locales: OrderLocales['locales'];
+  defaultLocale: string | null;
+  /** The server's error of the language. */
+  localeError?: string;
   onClose: () => void;
-  /** `customerId`: an existing customer was picked in the search (their addresses fill the tables). */
-  onSave: (customer: Customer, customerId: number | null) => void;
+  /**
+   * `customerId`: an existing customer was picked in the search (their addresses fill the tables).
+   * `locale`: the order's language (a new customer is saved with it).
+   */
+  onSave: (customer: Customer, customerId: number | null, locale: string) => void;
 };
 
 /**
@@ -50,6 +61,10 @@ const CustomerModal = ({
   initial,
   errors: initialErrors = {},
   codeText,
+  locale,
+  locales,
+  defaultLocale,
+  localeError,
   onClose,
   onSave,
 }: Props) => {
@@ -60,6 +75,8 @@ const CustomerModal = ({
   const [form, setForm] = useState<Customer>(initial);
   const [errors, setErrors] = useState<Record<string, string>>(initialErrors);
   const [pickedId, setPickedId] = useState<number | null>(null);
+  const [lang, setLang] = useState(locale);
+  const [langError, setLangError] = useState(localeError);
   const [term, setTerm] = useState('');
   const [results, setResults] = useState<CustomerListItem[]>([]);
   const [searching, setSearching] = useState(false);
@@ -106,8 +123,12 @@ const CustomerModal = ({
     setOpen(false);
     setTerm('');
     setPicking(true);
+    // Their saved language when the store has it, else the default.
+    const languageOf = (saved: string | null | undefined) =>
+      setLang(pickedCustomerLocale(saved, locales, defaultLocale || locale));
     try {
       const full = await new FetchCustomer().execute(c.id);
+      languageOf(full.locale ?? c.locale);
       setForm({
         firstName: full.firstName ?? '',
         lastName: full.lastName ?? '',
@@ -115,6 +136,7 @@ const CustomerModal = ({
         phone: full.phone ?? '',
       });
     } catch {
+      languageOf(c.locale);
       setForm({
         firstName: c.firstName ?? '',
         lastName: c.lastName ?? '',
@@ -130,8 +152,9 @@ const CustomerModal = ({
 
   const save = () => {
     const found = customerFormErrors(form);
-    if (Object.keys(found).length) {
+    if (Object.keys(found).length || !lang) {
       setErrors(found);
+      if (!lang) setLangError(codeText('required'));
       return;
     }
     onSave(
@@ -141,7 +164,8 @@ const CustomerModal = ({
         email: form.email.trim(),
         phone: form.phone.trim(),
       },
-      pickedId
+      pickedId,
+      lang
     );
     onClose();
   };
@@ -286,6 +310,27 @@ const CustomerModal = ({
                     </Field.Root>
                   </Grid.Item>
                 ))}
+                <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
+                  <Field.Root name="locale" required error={langError}>
+                    <Field.Label>{t('ecommerce.orders.new.locale')}</Field.Label>
+                    <SingleSelect
+                      value={lang || null}
+                      disabled={picking}
+                      hasError={!!langError}
+                      onChange={(value: string | number) => {
+                        setLang(String(value));
+                        setLangError(undefined);
+                      }}
+                    >
+                      {locales.map((l) => (
+                        <SingleSelectOption key={l.code} value={l.code}>
+                          {l.name}
+                        </SingleSelectOption>
+                      ))}
+                    </SingleSelect>
+                    <Field.Error />
+                  </Field.Root>
+                </Grid.Item>
               </Grid.Root>
             </Box>
           </Flex>

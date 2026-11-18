@@ -13,10 +13,11 @@ import {
   Typography,
 } from '@strapi/design-system';
 import { getTranslation } from '../../../../core/utils/getTranslation';
-import { fieldErrors, hasAddress, sectionError } from '../../../utils/createOrder';
+import { fieldErrors, hasAddress, postalCity, sectionError } from '../../../utils/createOrder';
 import { countryOptions } from '../../../utils/settingsForm';
 import { emptyAddressForm, type AddressForm, type OrderErrorMap } from '../../../utils/orderForm';
 import ColumnLabel from '../../ColumnLabel';
+import { FIT_CELL, PRODUCT_CELL } from '../lineCells';
 import EmptyNote from '../EmptyNote';
 import OrderSection from '../OrderSection';
 import AddressModal from './AddressModal';
@@ -38,7 +39,8 @@ type Props = {
   extraActions?: ReactNode;
 };
 
-const COLUMNS = ['street', 'postalCode', 'city', 'country', 'actions'] as const;
+const SHIPPING_COLUMNS = ['name', 'street', 'postalCity', 'country', 'actions'] as const;
+const BILLING_COLUMNS = ['name', 'street', 'postalCity', 'country', 'nif', 'actions'] as const;
 
 /** Create order's shipping or billing address: one row (or the empty state), Add/Edit in a modal. */
 const AddressSection = ({
@@ -71,9 +73,14 @@ const AddressSection = ({
         : codeText(error.code);
 
   const person = [value.firstName, value.lastName].filter((s) => s.trim()).join(' ');
-  const extra = billing
-    ? [value.company, value.nif ? `NIF ${value.nif}` : ''].filter((s) => s.trim())
-    : [];
+  const columns = billing ? BILLING_COLUMNS : SHIPPING_COLUMNS;
+  // Name and street wrap to more lines when there is no room; the other columns fit their text.
+  const wrap = { ...PRODUCT_CELL, maxWidth: 260 };
+  const muted = (text: string) => (
+    <Typography variant="pi" textColor="neutral600" style={{ whiteSpace: 'normal' }}>
+      {text}
+    </Typography>
+  );
   const country =
     countries.find((c) => c.code === value.country.toUpperCase())?.name ?? value.country;
 
@@ -101,10 +108,10 @@ const AddressSection = ({
       <SectionError text={errorText} />
       {present ? (
         <Box style={{ overflowX: 'auto' }}>
-          <Table colCount={COLUMNS.length} rowCount={2}>
+          <Table colCount={columns.length} rowCount={2}>
             <Thead>
               <Tr>
-                {COLUMNS.map((c) => (
+                {columns.map((c) => (
                   <Th key={c}>
                     <ColumnLabel column={c}>
                       {t(`ecommerce.orders.new.addressColumns.${c}`)}
@@ -115,32 +122,35 @@ const AddressSection = ({
             </Thead>
             <Tbody>
               <Tr>
-                <Td style={{ whiteSpace: 'normal' }}>
+                <Td style={wrap}>
                   <Flex direction="column" alignItems="flex-start" gap={1}>
-                    <Typography textColor="neutral800" fontWeight="semiBold">
-                      {[value.line1, value.line2].filter((s) => s.trim()).join(', ') || '—'}
+                    <Typography
+                      textColor="neutral800"
+                      fontWeight="semiBold"
+                      style={{ whiteSpace: 'normal' }}
+                    >
+                      {person || '—'}
                     </Typography>
-                    {(person || value.phone) && (
-                      <Typography variant="pi" textColor="neutral600">
-                        {[person, value.phone].filter((s) => s.trim()).join(' · ')}
-                      </Typography>
-                    )}
-                    {extra.length > 0 && (
-                      <Typography variant="pi" textColor="neutral600">
-                        {extra.join(' · ')}
-                      </Typography>
-                    )}
+                    {billing && value.company.trim() && muted(value.company)}
+                    {value.phone.trim() && muted(value.phone)}
                   </Flex>
                 </Td>
-                <Td>
-                  <Typography textColor="neutral800">{value.postalCode || '—'}</Typography>
+                <Td style={wrap}>
+                  <Typography textColor="neutral800" style={{ whiteSpace: 'normal' }}>
+                    {[value.line1, value.line2].filter((s) => s.trim()).join(', ') || '—'}
+                  </Typography>
                 </Td>
-                <Td>
-                  <Typography textColor="neutral800">{value.city || '—'}</Typography>
+                <Td style={FIT_CELL}>
+                  <Typography textColor="neutral800">{postalCity(value)}</Typography>
                 </Td>
-                <Td>
+                <Td style={FIT_CELL}>
                   <Typography textColor="neutral800">{country || '—'}</Typography>
                 </Td>
+                {billing && (
+                  <Td style={FIT_CELL}>
+                    <Typography textColor="neutral800">{value.nif.trim() || '—'}</Typography>
+                  </Td>
+                )}
                 <Td>
                   <Flex justifyContent="flex-end" gap={2}>
                     <Button
