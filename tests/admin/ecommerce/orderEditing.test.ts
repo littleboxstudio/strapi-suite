@@ -535,6 +535,29 @@ describe('currentShippingMethod', () => {
     expect(currentShippingMethod(lines)).toEqual({ providerId: 'dpd', serviceId: 'b' });
     expect(currentShippingMethod([])).toBeNull();
   });
+
+  it('of the CREATE lines only the first sets the method; a later edit still does', () => {
+    const create = [
+      line({ id: 1, origin: 'CREATE', providerId: 'ctt', serviceId: 'a' }),
+      line({ id: 2, origin: 'CREATE', providerId: 'dpd', serviceId: 'b' }),
+      line({ id: 3, origin: 'CREATE', providerId: 'manual', serviceId: 'c' }),
+    ];
+    expect(currentShippingMethod(create)).toEqual({ providerId: 'ctt', serviceId: 'a' });
+    // Out of order: the lowest id is the first one.
+    expect(currentShippingMethod([create[2], create[1], create[0]])).toEqual({ providerId: 'ctt', serviceId: 'a' });
+    expect(
+      currentShippingMethod([...create, line({ id: 4, origin: 'MANUAL', providerId: 'dpd', serviceId: 'b' })])
+    ).toEqual({ providerId: 'dpd', serviceId: 'b' });
+    expect(
+      currentShippingMethod([...create, line({ id: 4, origin: 'RECALCULATION', providerId: 'x', serviceId: 'y' })])
+    ).toEqual({ providerId: 'ctt', serviceId: 'a' });
+  });
+
+  it('translates the CREATE origin in en and pt', () => {
+    const key = 'littlebox-strapi-suite.ecommerce.orders.shippingCharges.origin.CREATE';
+    expect(require('../../../admin/src/core/translations/en.json')[key]).toEqual(expect.any(String));
+    expect(require('../../../admin/src/core/translations/pt.json')[key]).toEqual(expect.any(String));
+  });
 });
 
 describe('defaultShippingOptionKey', () => {

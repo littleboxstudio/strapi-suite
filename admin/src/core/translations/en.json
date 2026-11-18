@@ -2084,6 +2084,7 @@
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.origin.RECALCULATION": "Recalculation",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.origin.EDIT": "Edited",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.origin.MANUAL": "Added manually",
+  "littlebox-strapi-suite.ecommerce.orders.shippingCharges.origin.CREATE": "Order creation",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.badge.PAID": "Paid",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.badge.INVOICED": "Invoiced",
   "littlebox-strapi-suite.ecommerce.orders.shippingCharges.columns.method": "Method",

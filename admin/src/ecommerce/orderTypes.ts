@@ -785,7 +785,8 @@ export type OrderEditing = {
   actions: OrderEditAction[];
 };
 
-export type ShippingLineOrigin = 'CHECKOUT' | 'RECALCULATION' | 'EDIT' | 'MANUAL';
+/** `CREATE`: a charge entered on Create order (the first one is the delivery method). */
+export type ShippingLineOrigin = 'CHECKOUT' | 'CREATE' | 'RECALCULATION' | 'EDIT' | 'MANUAL';
 
 export type ShippingLineView = {
   id: number;
