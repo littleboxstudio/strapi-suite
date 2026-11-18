@@ -785,6 +785,8 @@
   "littlebox-strapi-suite.ecommerce.orders.new.deliveryMethod": "Método de entrega",
   "littlebox-strapi-suite.ecommerce.orders.new.applyDiscount": "Aplicar desconto",
   "littlebox-strapi-suite.ecommerce.orders.new.applicableError": "Não foi possível carregar as promoções que se aplicam a este carrinho.",
+  "littlebox-strapi-suite.ecommerce.orders.new.applicableStock": "Há produtos sem stock suficiente para a quantidade da encomenda. Corrija as quantidades em Products para ver as promoções que se aplicam.",
+  "littlebox-strapi-suite.ecommerce.orders.new.applicableLines": "Os produtos da encomenda têm erros. Corrija-os em Products para ver as promoções que se aplicam.",
   "littlebox-strapi-suite.ecommerce.orders.new.applicableNone": "Nenhuma promoção automática se aplica a este carrinho.",
   "littlebox-strapi-suite.ecommerce.orders.new.notApplicable": "Já não se aplica a este carrinho",
   "littlebox-strapi-suite.ecommerce.orders.new.addCode": "Adicionar código",
