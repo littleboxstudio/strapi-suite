@@ -1774,7 +1774,11 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
       write: async (state, { selection, giftChoices }, w) => {
         assertEditable(state, 'RECALCULATE_DISCOUNTS');
         const r = await discountEvaluation(state, { selection, giftChoices });
-        if (r.conflicts.length) throw invalidDiscounts('selection', 'PROMOTIONS_NOT_COMBINABLE');
+        // Also a NEW row blocked by a kept promotion or by manual discounts (exclusive ones).
+        const blocked = r.rows.some((row) => row.selected && row.kind === 'NEW' && row.blockedBy);
+        if (r.conflicts.length || blocked) {
+          throw invalidDiscounts('selection', 'PROMOTIONS_NOT_COMBINABLE');
+        }
         // The recalculation only adds discounts: an applied one is never removed.
         const dropped = r.rows.filter((row) => row.locked && !selection.includes(row.key));
         if (dropped.some((row) => row.locked === 'GIFT_SHIPPED')) {

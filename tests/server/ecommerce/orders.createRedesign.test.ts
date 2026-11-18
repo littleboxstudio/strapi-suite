@@ -336,7 +336,7 @@ describe('applicablePromotions: a recommender like the order detail', () => {
     ]);
   });
 
-  it('with a manual discount in the draft, an exclusive one (or one without order discounts) is blocked', async () => {
+  it('a manual discount in the draft blocks the exclusive promotions only', async () => {
     const c = setup();
     const vip = exclusive(c);
     const noOrder = addPromotion(c, {
@@ -345,21 +345,27 @@ describe('applicablePromotions: a recommender like the order detail', () => {
       benefits: { items: [{ type: 'SHIPPING_FREE', maxAmount: null }] },
     });
     const ten = tenPercent(c);
-    const res = await c.orders.applicablePromotions(input({ manualDiscount: true }));
-    const byId = new Map<number, any>(res.promotions.map((p: any) => [p.id, p]));
-    expect(byId.get(vip).blockedBy).toEqual({
+    const MANUAL = {
       kind: 'MANUAL',
       promotionId: null,
       name: '',
       displayName: {},
       conflict: { rule: 'EXCLUSIVE_SELF', discountClass: null },
-    });
-    expect(byId.get(noOrder).blockedBy).toMatchObject({
-      kind: 'MANUAL',
-      conflict: { rule: 'CLASS_SELF', discountClass: 'ORDER_DISCOUNT' },
-    });
-    expect(byId.get(ten)).toMatchObject({ blockedBy: null, recommended: true });
-    expect(res.conflicts).toEqual([]);
+    };
+    for (const draft of [
+      input({ manualDiscount: true }),
+      input({ lines: [{ variantId: 10, quantity: 2, discountPercent: 10 }] }),
+    ]) {
+      const res = await c.orders.applicablePromotions(draft);
+      const byId = new Map<number, any>(res.promotions.map((p: any) => [p.id, p]));
+      expect(byId.get(vip).blockedBy).toEqual(MANUAL);
+      expect(byId.get(vip).recommended).toBe(false);
+      expect(byId.get(noOrder).blockedBy).toBeNull();
+      expect(byId.get(ten)).toMatchObject({ blockedBy: null });
+      expect(byId.get(ten).recommended || byId.get(noOrder).recommended).toBe(true);
+      // The two stackable ones do not stack together (Ship allows no order discount).
+      expect(res.conflicts.map((c: any) => c.ids)).toEqual([[noOrder, ten]]);
+    }
   });
 
   it('a gift promotion comes with its gift options', async () => {
@@ -402,6 +408,15 @@ describe('applicablePromotions: a recommender like the order detail', () => {
             promotionIds: [vip],
             manualDiscounts: [{ kind: 'FIXED', value: 100, reason: 'Loyal' }],
           }),
+          ADMIN_QUOTE
+        )
+      )
+    ).toEqual(refused);
+    // A line manual percentage too.
+    expect(
+      await issues(
+        c.orders.quote(
+          quoteInput({ promotionIds: [vip], lines: [{ variantId: 10, quantity: 2, discountPercent: 10 }] }),
           ADMIN_QUOTE
         )
       )

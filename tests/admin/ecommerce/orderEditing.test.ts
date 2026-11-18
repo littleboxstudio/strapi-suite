@@ -1228,3 +1228,21 @@ describe('discountRowBlock', () => {
     expect(discountRowBlock(preview, [], ten)).toBeNull();
   });
 });
+
+describe('discountRowBlock: manual discounts', () => {
+  it('an exclusive row blocked by manual discounts stays blocked whatever is checked', () => {
+    const blockedBy = {
+      kind: 'MANUAL' as const,
+      promotionId: null,
+      name: '',
+      displayName: {},
+      conflict: { rule: 'EXCLUSIVE_SELF' as const, discountClass: null },
+    };
+    const vip = row({ key: 'p:2', promotionId: 2, kind: 'NEW', locked: null, selected: false, blockedBy });
+    const ten = row({ key: 'p:3', promotionId: 3, kind: 'NEW', locked: null, selected: false, blockedBy: null });
+    const preview = { rows: [vip, ten], rowConflicts: [] };
+    expect(discountRowBlock(preview, [], vip)).toEqual(blockedBy);
+    expect(discountRowBlock(preview, ['p:3'], vip)).toEqual(blockedBy);
+    expect(discountRowBlock(preview, [], ten)).toBeNull();
+  });
+});
