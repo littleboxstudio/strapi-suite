@@ -10,6 +10,8 @@ import {
   Grid,
   IconButton,
   Loader,
+  SingleSelect,
+  SingleSelectOption,
   TextInput,
   Typography,
 } from '@strapi/design-system';
@@ -64,9 +66,10 @@ const CustomerDetailPage = () => {
   const [title, setTitle] = useState('');
   // The saved e-mail: store credits are valid for it.
   const [email, setEmail] = useState('');
-  // The language saved when the customer was created (read-only).
+  // The customer's language (e-mails): set from the order that created it, editable here.
   const [locale, setLocale] = useState<string | null>(null);
   const [locales, setLocales] = useState<OrderLocales['locales']>([]);
+  const [localeError, setLocaleError] = useState<string | null>(null);
   const [errors, setErrors] = useState<CustomerErrorMap>({});
   const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -166,15 +169,21 @@ const CustomerDetailPage = () => {
     }
     setSaving(true);
     try {
-      const saved = await new UpdateCustomer().execute(customerId, buildCustomerInput(form));
+      const saved = await new UpdateCustomer().execute(customerId, {
+        ...buildCustomerInput(form),
+        ...(locale ? { locale } : {}),
+      });
       setForm(customerFormFromCustomer(saved));
       setTitle(customerName(saved));
       setEmail(saved.email);
       setLocale(saved.locale ?? null);
       setErrors({});
+      setLocaleError(null);
       toggleNotification({ type: 'success', message: t('ecommerce.customers.saved') });
     } catch (err) {
       const fieldErrors = extractFieldErrors(err);
+      const localeIssue = fieldErrors?.find((e) => e.path === 'locale');
+      setLocaleError(localeIssue ? (localeIssue.code as string) : null);
       if (fieldErrors) showErrors(fieldErrors);
       else toggleNotification({ type: 'danger', message: t('ecommerce.customers.saveError') });
     } finally {
@@ -222,16 +231,46 @@ const CustomerDetailPage = () => {
               </Grid.Item>
             ))}
             <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
-              <Field.Root name="locale" hint={t('ecommerce.customers.fields.localeHint')}>
+              <Field.Root
+                name="locale"
+                hint={t('ecommerce.customers.fields.localeHint')}
+                error={
+                  localeError
+                    ? formatMessage({
+                        id: getTranslation(`ecommerce.customers.errors.${localeError}`),
+                        defaultMessage: t('ecommerce.customers.errors.invalid'),
+                      })
+                    : undefined
+                }
+              >
                 <Field.Label>{t('ecommerce.customers.fields.locale')}</Field.Label>
-                <TextInput
-                  value={
-                    customerLocaleLabel(locale, locales) ??
-                    t('ecommerce.customers.fields.localeEmpty')
-                  }
-                  disabled
-                />
+                {canManage && locales.length > 0 ? (
+                  <SingleSelect
+                    value={locale ?? undefined}
+                    placeholder={t('ecommerce.customers.fields.localeEmpty')}
+                    onChange={(value: string | number) => {
+                      setLocale(String(value));
+                      setLocaleError(null);
+                    }}
+                  >
+                    {locales.map((l) => (
+                      <SingleSelectOption key={l.code} value={l.code}>
+                        {l.name}
+                      </SingleSelectOption>
+                    ))}
+                  </SingleSelect>
+                ) : (
+                  // Without the locales list (e.g. no orders permission) or rights, read-only.
+                  <TextInput
+                    value={
+                      customerLocaleLabel(locale, locales) ??
+                      t('ecommerce.customers.fields.localeEmpty')
+                    }
+                    disabled
+                  />
+                )}
                 <Field.Hint />
+                <Field.Error />
               </Field.Root>
             </Grid.Item>
           </Grid.Root>

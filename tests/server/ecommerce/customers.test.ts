@@ -130,6 +130,26 @@ describe('EcommerceCustomerService', () => {
     await expect(service.update(99, input('z@x.pt'))).rejects.toBeInstanceOf(EcommerceNotFoundError);
   });
 
+  it('update changes the language to a configured locale (stored with its case) and audits it', async () => {
+    const { service, log } = setup();
+    const { id } = await service.findOrCreate(input('l@x.pt'), { locale: 'en' });
+    const res: any = await service.update(id, input('l@x.pt', { locale: 'PT-pt' }), 'user:1');
+    expect(res.locale).toBe('pt-PT');
+    expect(log).toHaveBeenLastCalledWith(
+      expect.objectContaining({ action: 'customer.update', details: { changedFields: ['locale'] } })
+    );
+  });
+
+  it('update refuses a language the backend does not have, and keeps it when absent', async () => {
+    const { service } = setup();
+    const { id } = await service.findOrCreate(input('m@x.pt'), { locale: 'pt-PT' });
+    await expect(service.update(id, input('m@x.pt', { locale: 'xx' }))).rejects.toMatchObject({
+      errors: [{ path: 'locale', code: 'invalid_locale' }],
+    });
+    const res: any = await service.update(id, input('m@x.pt', { lastName: 'Lima' }));
+    expect(res.locale).toBe('pt-PT');
+  });
+
   it('Review Focus 5: update keeps order snapshots and search finds the new e-mail', async () => {
     const { service, tables } = setup();
     const c = await service.findOrCreate(input('old@x.pt'));
