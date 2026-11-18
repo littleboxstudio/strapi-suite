@@ -29,6 +29,8 @@ import PickupPointPicker from '../PickupPointPicker';
 type Props = {
   /** Edit: the line in the table; Add: none. */
   line?: DraftShippingLine;
+  /** The line is (or becomes) the delivery method: only its pickup point or store is used. */
+  delivery: boolean;
   /** Quotes the methods for the cart (gifts included) at the shipping address. */
   loadOptions: () => Promise<ShippingQuote>;
   /** Where the DPD point search starts (the shipping address's postal code). */
@@ -50,6 +52,7 @@ type Props = {
  */
 const CreateShippingLineModal = ({
   line,
+  delivery,
   loadOptions,
   postalCode,
   error,
@@ -123,11 +126,16 @@ const CreateShippingLineModal = ({
       setErrors(found);
       return;
     }
-    if (option.requiresPickupPoint && !point) {
+    if (delivery && option.requiresPickupPoint && !point) {
       setErrors({ pickup: 'PICKUP_POINT_REQUIRED' });
       return;
     }
-    const { key: _key, ...next } = shippingLineFromOption(option, draft.input.amount, point, '');
+    const { key: _key, ...next } = shippingLineFromOption(
+      option,
+      draft.input.amount,
+      delivery ? point : null,
+      ''
+    );
     onSave(next);
     onClose();
   };
@@ -214,7 +222,12 @@ const CreateShippingLineModal = ({
                     <Field.Hint />
                     <Field.Error />
                   </Field.Root>
-                  {option.requiresPickupPoint && (
+                  {option.requiresPickupPoint && !delivery && (
+                    <Typography variant="pi" textColor="neutral600">
+                      {t('ecommerce.orders.new.pickupDeliveryOnly')}
+                    </Typography>
+                  )}
+                  {option.requiresPickupPoint && delivery && (
                     <Flex direction="column" alignItems="stretch" gap={2}>
                       <Typography variant="sigma" textColor="neutral600">
                         {t(

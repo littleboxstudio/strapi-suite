@@ -14,6 +14,7 @@ import CreateOrder from '../../usecases/orders/createOrder';
 import QuoteOrder from '../../usecases/orders/quoteOrder';
 import FetchOrder from '../../usecases/orders/fetchOrder';
 import SearchPickupPoints from '../../usecases/orders/searchPickupPoints';
+import FetchApplicablePromotions from '../../usecases/orders/fetchApplicablePromotions';
 import VariantPicker from '../../components/orders/VariantPicker';
 import OrderLinesEditor from '../../components/orders/OrderLinesEditor';
 import OrderSection from '../../components/orders/OrderSection';
@@ -52,6 +53,7 @@ import {
   applyCustomerAddresses,
   hasAddress,
   isQuoteErrorPath,
+  keptPromotionIds,
   sectionError,
   shippingLineFromOption,
   unappliedCodes,
@@ -101,6 +103,7 @@ type Duplicate = {
   codes: string[];
   giftChoices: Record<number, number>;
   giftNames: Record<number, string>;
+  promotionNames: Record<number, string>;
   shipping: ShippingRef | null;
   pickup: PickupSelection | null;
   phase: 'LINES' | 'SHIPPING' | 'DONE';
@@ -111,6 +114,8 @@ type DuplicateNotices = {
   droppedLines: string[];
   refusedCodes: string[];
   missingGifts: string[];
+  /** Pre-selected promotions the cart no longer gets. */
+  droppedPromotions: string[];
   shipping: 'METHOD_GONE' | 'PICKUP_GONE' | null;
   /** Products whose lines had different percents (only the first percent's units were copied). */
   discountConflicts: string[];
@@ -120,6 +125,7 @@ const NO_NOTICES: DuplicateNotices = {
   droppedLines: [],
   refusedCodes: [],
   missingGifts: [],
+  droppedPromotions: [],
   shipping: null,
   discountConflicts: [],
 };
@@ -181,14 +187,22 @@ const OrderCreatePage = () => {
     });
   const under = (prefix: string) => (p: string) => p === prefix || p.startsWith(`${prefix}.`);
 
+  // The last addresses request in flight: a newer customer (or none) makes an older answer void.
+  const addressRequest = useRef(0);
+  const cancelAddressFill = () => {
+    addressRequest.current += 1;
+  };
+
   /** An existing customer was chosen: their last addresses fill the address tables. */
   const fillLastAddresses = async (id: number) => {
+    const request = ++addressRequest.current;
     try {
       const last = await new FetchCustomerLastAddresses().execute(id);
+      if (request !== addressRequest.current) return;
       setForm((f) => applyCustomerAddresses(f, last));
-      if (last.shippingAddress) clearErrors(under('shippingAddress'));
-      if (last.billingAddress) clearErrors(under('billingAddress'));
+      clearErrors((p) => under('shippingAddress')(p) || under('billingAddress')(p));
     } catch {
+      if (request !== addressRequest.current) return;
       toggleNotification({ type: 'warning', message: t('ecommerce.orders.new.lastAddressesError') });
     }
   };
@@ -258,6 +272,7 @@ const OrderCreatePage = () => {
           codes: draft.form.promotionCodes,
           giftChoices: draft.giftChoices,
           giftNames: draft.giftNames,
+          promotionNames: draft.promotionNames,
           shipping: draft.shipping,
           pickup: draft.pickup,
           phase: draft.form.lines.length ? 'LINES' : 'SHIPPING',
@@ -380,6 +395,8 @@ const OrderCreatePage = () => {
   const shownQuote = canPrice ? (priced?.quote ?? null) : null;
   const freshQuoteRef = useRef(freshQuote);
   freshQuoteRef.current = freshQuote;
+  const pricedRef = useRef<OrderQuote | null>(null);
+  pricedRef.current = priced?.quote ?? null;
 
   const variantLabel = (variantId: number) => {
     const fromQuote = shownQuote?.lines.find((l) => l.variantId === variantId);
@@ -424,6 +441,7 @@ const OrderCreatePage = () => {
     setForm((f) => ({ ...f, customer }));
     clearErrors(under('customer'));
     if (pickedId) fillLastAddresses(pickedId);
+    else cancelAddressFill();
   };
 
   const saveAddress = (which: 'shippingAddress' | 'billingAddress', address: AddressForm) => {
@@ -495,29 +513,62 @@ const OrderCreatePage = () => {
     }
   };
 
-  // A duplicate's shipping: quote the options once its products are settled, then restore its
-  // method as the first shipping line, at the price quoted today.
+  /**
+   * A duplicate's pre-selected promotions: only those the cart still gets stay selected; the others
+   * are named in a notice. A failed check keeps them (the quote reports what it rejects).
+   */
+  const checkDuplicatePromotions = async (dup: Duplicate, shippingLines: DraftShippingLine[]) => {
+    const f = formRef.current;
+    if (!f.promotionIds.length || !f.lines.length) return;
+    try {
+      const { promotions } = await new FetchApplicablePromotions().execute(
+        applicablePromotionsInput({ ...f, shippingLines }, giftChoices)
+      );
+      const { dropped } = keptPromotionIds(f.promotionIds, promotions);
+      if (!dropped.length) return;
+      setForm((cur) => ({ ...cur, promotionIds: cur.promotionIds.filter((id) => !dropped.includes(id)) }));
+      setNotices((n) => ({ ...n, droppedPromotions: dropped.map((id) => dup.promotionNames[id] ?? `#${id}`) }));
+    } catch {
+      // Kept: the quote names a selected promotion it no longer applies.
+    }
+  };
+
+  // A duplicate's shipping: once its products are settled, quote the options as the order (its
+  // gifts included) and restore its method as the first line at today's price for it; then check
+  // its pre-selected promotions.
   useEffect(() => {
     const dup = duplicate;
     if (dup?.phase !== 'SHIPPING') return;
     setDuplicatePhase('DONE');
-    if (!form.shippingAddress.country || !form.lines.length) return;
-    loadShippingOptions()
-      .then((result) => {
+    if (!form.shippingAddress.country || !form.lines.length) {
+      checkDuplicatePromotions(dup, formRef.current.shippingLines);
+      return;
+    }
+    (async () => {
+      let restoredLines = formRef.current.shippingLines;
+      try {
+        // A quote of the current cart: its gift lines weigh in the price (a pruned gift choice
+        // makes the earlier one stale, and the cart lines alone would price without the gifts).
+        const quote = freshQuoteRef.current ?? (await runPriceQuote()).quote ?? pricedRef.current;
+        const result = await new QuoteOrderShipping().execute(shippingOptionsInput(formRef.current, quote));
         const restored = restoreDuplicateShipping(dup.shipping, dup.pickup, result.options);
         const option = restored.shipping
           ? result.options.find(
               (o) => o.providerId === restored.shipping?.providerId && o.serviceId === restored.shipping?.serviceId
             )
           : undefined;
-        if (option) {
+        if (option && !restoredLines.length) {
           const line = shippingLineFromOption(option, option.price, restored.pickup, mintUuid());
+          restoredLines = [line];
           setForm((f) => (f.shippingLines.length ? f : { ...f, shippingLines: [line] }));
         }
         if (restored.notice) setNotices((n) => ({ ...n, shipping: restored.notice }));
         if (restored.checkPoint && restored.pickup) checkDuplicatePoint(restored.pickup);
-      })
-      .catch(() => toggleNotification({ type: 'danger', message: t('ecommerce.orders.shipping.error') }));
+      } catch {
+        toggleNotification({ type: 'danger', message: t('ecommerce.orders.shipping.error') });
+      }
+      await checkDuplicatePromotions(dup, restoredLines);
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [duplicate?.phase]);
 
@@ -734,6 +785,8 @@ const OrderCreatePage = () => {
     notices.shipping && t(`ecommerce.orders.new.duplicate.${notices.shipping}`),
     notices.refusedCodes.length > 0 &&
       t('ecommerce.orders.new.duplicate.refusedCodes', { codes: notices.refusedCodes.join(', ') }),
+    notices.droppedPromotions.length > 0 &&
+      t('ecommerce.orders.new.duplicate.droppedPromotions', { names: notices.droppedPromotions.join(', ') }),
     notices.missingGifts.length > 0 &&
       t('ecommerce.orders.new.duplicate.missingGifts', { names: notices.missingGifts.join(', ') }),
     notices.discountConflicts.length > 0 &&
@@ -785,6 +838,7 @@ const OrderCreatePage = () => {
         disabled={disabled}
         onSave={saveCustomer}
         onRemove={() => {
+          cancelAddressFill();
           setForm((f) => ({ ...f, customer: EMPTY_CUSTOMER }));
           clearErrors(under('customer'));
         }}

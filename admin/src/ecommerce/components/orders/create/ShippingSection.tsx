@@ -185,6 +185,7 @@ const ShippingSection = ({
       {editing && (
         <CreateShippingLineModal
           line={editing.index !== null ? lines[editing.index] : undefined}
+          delivery={editing.index === 0 || (editing.index === null && lines.length === 0)}
           loadOptions={loadOptions}
           postalCode={postalCode}
           error={editing.index !== null ? rowError(editing.index) : undefined}
