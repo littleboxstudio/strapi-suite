@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
 import {
+  Badge,
   Box,
   Button,
   Checkbox,
@@ -26,6 +27,7 @@ import { formatCents } from '../../utils/money';
 import {
   discountConflictNames,
   discountGiftChoices,
+  discountRowBlock,
   discountRowGift,
   discountRowGroups,
   discountSelectionToggle,
@@ -187,21 +189,41 @@ const RecalculateDiscountsModal = ({
     const checked = selection.includes(row.key);
     const name = nameOf(row);
     const gift = preview ? discountRowGift(preview, row) : null;
+    // Not stackable with a kept promotion or a checked row: disabled, with the reason.
+    const block = preview ? discountRowBlock(preview, selection, row) : null;
+    const blockName = block
+      ? promotionDisplayName(block, locales.locale, locales.defaultLocale) ?? block.name
+      : '';
     return (
       <Tr key={row.key}>
         <Td style={cell}>
           <Checkbox
             checked={checked}
-            disabled={busy || row.locked !== null}
+            disabled={busy || row.locked !== null || block !== null}
             aria-label={name}
             onCheckedChange={() => toggle(row)}
           />
         </Td>
         <Td style={cell}>
           <Flex direction="column" alignItems="flex-start" gap={1}>
-            <Typography textColor="neutral800" fontWeight="semiBold">
-              {name}
-            </Typography>
+            <Flex gap={2} wrap="wrap">
+              <Typography textColor={block ? 'neutral500' : 'neutral800'} fontWeight="semiBold">
+                {name}
+              </Typography>
+              {row.kind === 'NEW' && row.recommended && (
+                <Badge active>{t('ecommerce.orders.discounts.recommended')}</Badge>
+              )}
+            </Flex>
+            {block && (
+              <Typography variant="pi" textColor="warning700">
+                {t(`ecommerce.orders.discounts.stacking.${block.conflict.rule}`, {
+                  name: blockName,
+                  discountClass: block.conflict.discountClass
+                    ? t(`ecommerce.orders.discounts.stackingClass.${block.conflict.discountClass}`)
+                    : '',
+                })}
+              </Typography>
+            )}
             {row.kind !== 'MANUAL' && name !== row.name && (
               <Typography variant="pi" textColor="neutral500">
                 {t('ecommerce.orders.promotions.internalName', { name: row.name })}
