@@ -191,6 +191,19 @@ const CustomerDetailPage = () => {
     }
   };
 
+  const textField = (field: CustomerField, required: boolean, type: string) => (
+    <Field.Root name={field} required={required} error={errorText(field)}>
+      <Field.Label>{t(`ecommerce.customers.fields.${field}`)}</Field.Label>
+      <TextInput
+        type={type}
+        value={form[field]}
+        disabled={!canManage}
+        onChange={(e: any) => update(field, e.target.value)}
+      />
+      <Field.Error />
+    </Field.Root>
+  );
+
   return (
     <Flex direction="column" alignItems="stretch" gap={6}>
       <Flex justifyContent="space-between" alignItems="center" gap={4}>
@@ -216,62 +229,59 @@ const CustomerDetailPage = () => {
             {t('ecommerce.customers.details')}
           </Typography>
           <Grid.Root gap={5}>
-            {FIELDS.map(({ field, required, type }) => (
+            {FIELDS.filter((f) => f.field !== 'phone').map(({ field, required, type }) => (
               <Grid.Item key={field} col={6} s={12} direction="column" alignItems="stretch">
-                <Field.Root name={field} required={required} error={errorText(field)}>
-                  <Field.Label>{t(`ecommerce.customers.fields.${field}`)}</Field.Label>
-                  <TextInput
-                    type={type}
-                    value={form[field]}
-                    disabled={!canManage}
-                    onChange={(e: any) => update(field, e.target.value)}
-                  />
-                  <Field.Error />
-                </Field.Root>
+                {textField(field, required, type)}
               </Grid.Item>
             ))}
+            {/* Phone and language share the column next to the e-mail, half each. */}
             <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
-              <Field.Root
-                name="locale"
-                hint={t('ecommerce.customers.fields.localeHint')}
-                error={
-                  localeError
-                    ? formatMessage({
-                        id: getTranslation(`ecommerce.customers.errors.${localeError}`),
-                        defaultMessage: t('ecommerce.customers.errors.invalid'),
-                      })
-                    : undefined
-                }
-              >
-                <Field.Label>{t('ecommerce.customers.fields.locale')}</Field.Label>
-                {canManage && locales.length > 0 ? (
-                  <SingleSelect
-                    value={locale ?? undefined}
-                    placeholder={t('ecommerce.customers.fields.localeEmpty')}
-                    onChange={(value: string | number) => {
-                      setLocale(String(value));
-                      setLocaleError(null);
-                    }}
-                  >
-                    {locales.map((l) => (
-                      <SingleSelectOption key={l.code} value={l.code}>
-                        {l.name}
-                      </SingleSelectOption>
-                    ))}
-                  </SingleSelect>
-                ) : (
-                  // Without the locales list (e.g. no orders permission) or rights, read-only.
-                  <TextInput
-                    value={
-                      customerLocaleLabel(locale, locales) ??
-                      t('ecommerce.customers.fields.localeEmpty')
+              <Grid.Root gap={5} style={{ width: '100%' }}>
+                <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
+                  {textField('phone', false, 'tel')}
+                </Grid.Item>
+                <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
+                  <Field.Root
+                    name="locale"
+                    error={
+                      localeError
+                        ? formatMessage({
+                            id: getTranslation(`ecommerce.customers.errors.${localeError}`),
+                            defaultMessage: t('ecommerce.customers.errors.invalid'),
+                          })
+                        : undefined
                     }
-                    disabled
-                  />
-                )}
-                <Field.Hint />
-                <Field.Error />
-              </Field.Root>
+                  >
+                    <Field.Label>{t('ecommerce.customers.fields.locale')}</Field.Label>
+                    {canManage && locales.length > 0 ? (
+                      <SingleSelect
+                        value={locale ?? undefined}
+                        placeholder={t('ecommerce.customers.fields.localeEmpty')}
+                        onChange={(value: string | number) => {
+                          setLocale(String(value));
+                          setLocaleError(null);
+                        }}
+                      >
+                        {locales.map((l) => (
+                          <SingleSelectOption key={l.code} value={l.code}>
+                            {l.name}
+                          </SingleSelectOption>
+                        ))}
+                      </SingleSelect>
+                    ) : (
+                      // Without the locales list (e.g. no orders permission) or rights, read-only.
+                      <TextInput
+                        value={
+                          customerLocaleLabel(locale, locales) ??
+                          t('ecommerce.customers.fields.localeEmpty')
+                        }
+                        disabled
+                      />
+                    )}
+                    <Field.Error />
+                  </Field.Root>
+                </Grid.Item>
+              </Grid.Root>
             </Grid.Item>
           </Grid.Root>
         </Flex>

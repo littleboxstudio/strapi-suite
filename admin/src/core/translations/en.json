@@ -783,7 +783,6 @@
   "littlebox-strapi-suite.ecommerce.customers.fields.phone": "Phone",
   "littlebox-strapi-suite.ecommerce.customers.fields.locale": "Language",
   "littlebox-strapi-suite.ecommerce.customers.fields.localeEmpty": "Not set",
-  "littlebox-strapi-suite.ecommerce.customers.fields.localeHint": "The language of this customer's e-mails. Set from the order that created the customer; you can change it.",
   "littlebox-strapi-suite.ecommerce.customers.save": "Save",
   "littlebox-strapi-suite.ecommerce.customers.saved": "Customer saved",
   "littlebox-strapi-suite.ecommerce.customers.saveError": "Could not save the customer.",
