@@ -196,10 +196,11 @@ const DiscountsTable = ({ rows, manualRows, lineRows, total, showActions, rowAct
             {showActions && <Td />}
           </Tr>
         ))}
-        {/* The total: label and amount in one cell, on the right (under Amount). */}
+        {/* The total: label and amount in one cell spanning every column, always on the
+            table's right edge (with or without the Actions column). */}
         {showTotal && (
           <Tr>
-            <Td colSpan={columns.length - (showActions ? 1 : 0)}>
+            <Td colSpan={columns.length}>
               {/* The rows' own height (52px): 16px above and below the 20px line. The spanning
                   cell has 4px on the right, the others 16px: 12px more aligns the amount. */}
               <Flex justifyContent="flex-end" gap={2} paddingTop={4} paddingBottom={4} paddingRight={3}>
@@ -211,7 +212,6 @@ const DiscountsTable = ({ rows, manualRows, lineRows, total, showActions, rowAct
                 </Typography>
               </Flex>
             </Td>
-            {showActions && <Td />}
           </Tr>
         )}
       </Tbody>
