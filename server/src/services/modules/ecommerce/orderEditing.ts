@@ -749,7 +749,10 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
           ? releaseLineRefs(appliedOf(state.order), releasedRefs)
           : null;
         const written = await orders().computeOrderState(state.order.id);
-        const wouldApply = (await discountEvaluation(written)).rows.some((r) => r.kind === 'NEW');
+        // Only a promotion that could be added (one blocked by a kept promotion never can).
+        const wouldApply = (await discountEvaluation(written)).rows.some(
+          (r) => r.kind === 'NEW' && r.blockedBy === null
+        );
         if (unmet || wouldApply || replaced) {
           flags = await w.raise(flags, 'DISCOUNTS_REVIEW', 'PRODUCTS_CHANGED');
         }

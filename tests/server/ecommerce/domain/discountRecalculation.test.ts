@@ -1023,3 +1023,109 @@ describe('invoiced and shipped units count toward the buy (only the reward leave
     expect(none.rows).toEqual([]);
   });
 });
+
+describe('recommender: every eligible candidate is listed', () => {
+  const EXCL: Stacking = { ...ALL, exclusive: true };
+  const freeShipping = promo(1, [{ type: 'SHIPPING_FREE', maxAmount: null }], { name: 'Free shipping' });
+  const exclusive20 = promo(2, [{ type: 'ORDER_PERCENT', percent: 20 }], { name: 'VIP 20', stacking: EXCL });
+  const ten = promo(3, [{ type: 'ORDER_PERCENT', percent: 10 }], { name: 'Ten' });
+  const lines = [line(1, 1, 2000, 2)];
+
+  it('an exclusive candidate while a promotion is applied: listed, blocked with the reason', () => {
+    const applied = checkout([freeShipping], lines, { shipping: 500 });
+    const r = recalculateDiscounts(
+      ctx({
+        lines,
+        applied,
+        shippingGross: 500,
+        shippingDiscount: 500,
+        candidates: [freeShipping, exclusive20, ten],
+      })
+    );
+    const byKey = new Map(r.rows.map((row) => [row.key, row]));
+    expect(byKey.get('p:2')).toMatchObject({
+      kind: 'NEW',
+      selected: false,
+      recommended: false,
+      amount: 800,
+      blockedBy: {
+        promotionId: 1,
+        name: 'Free shipping',
+        conflict: { rule: 'EXCLUSIVE_SELF', discountClass: null },
+      },
+    });
+    expect(byKey.get('p:3')).toMatchObject({
+      kind: 'NEW',
+      selected: false,
+      recommended: true,
+      amount: 400,
+      blockedBy: null,
+    });
+    expect(r.selection).toEqual(['p:1']);
+    // Selected anyway: the pair is a conflict (the server refuses it).
+    const forced = recalculateDiscounts(
+      ctx({ lines, applied, shippingGross: 500, shippingDiscount: 500, candidates: [freeShipping, exclusive20] }),
+      ['p:1', 'p:2']
+    );
+    expect(forced.conflicts).toEqual([['p:1', 'p:2']]);
+  });
+
+  it('a class the kept promotion does not allow: CLASS_OTHER with the class', () => {
+    const noOrder = promo(1, [{ type: 'SHIPPING_FREE', maxAmount: null }], {
+      name: 'Free shipping',
+      stacking: { ...ALL, withOrder: false },
+    });
+    const applied = checkout([noOrder], lines, { shipping: 500 });
+    const r = recalculateDiscounts(
+      ctx({ lines, applied, shippingGross: 500, shippingDiscount: 500, candidates: [noOrder, ten] })
+    );
+    expect(r.rows.find((row) => row.key === 'p:3')?.blockedBy).toEqual({
+      promotionId: 1,
+      name: 'Free shipping',
+      displayName: { en: 'Promo 1' },
+      conflict: { rule: 'CLASS_OTHER', discountClass: 'ORDER_DISCOUNT' },
+    });
+  });
+
+  it('an exclusive and a stackable candidate, nothing applied: both listed, the pair conflict, the best recommended', () => {
+    const r = recalculateDiscounts(ctx({ lines, candidates: [exclusive20, ten] }));
+    expect(r.rows.map((row) => [row.key, row.selected, row.recommended, row.amount])).toEqual([
+      ['p:2', false, true, 800],
+      ['p:3', false, false, 400],
+    ]);
+    expect(r.rowConflicts).toEqual([
+      {
+        keys: ['p:2', 'p:3'],
+        reasons: [
+          { rule: 'EXCLUSIVE_SELF', discountClass: null },
+          { rule: 'EXCLUSIVE_OTHER', discountClass: null },
+        ],
+      },
+    ]);
+    expect(r.after.total).toBe(r.before.total);
+  });
+
+  it('two compatible selections are priced together', () => {
+    const fixed = promo(4, [{ type: 'ORDER_FIXED', amount: 1000 }], { name: 'Fixed' });
+    const r = recalculateDiscounts(
+      ctx({ lines, shippingGross: 500, candidates: [ten, fixed, freeShipping] }),
+      ['p:3', 'p:4', 'p:1']
+    );
+    expect(r.conflicts).toEqual([]);
+    expect(r.after).toMatchObject({ subtotal: 4000, shippingTotal: 0 });
+    expect(r.shippingDiscount).toBe(500);
+    // 10% and 1000 on the common base 4000: 400 + 1000 off; shipping free.
+    expect(r.after.orderDiscount).toBe(1400);
+    expect(r.after.total).toBe(4000 - 1400);
+    expect(r.applied.map((a) => [a.promotionId, a.amount]).sort()).toEqual([
+      [1, 500],
+      [3, 400],
+      [4, 1000],
+    ]);
+  });
+
+  it('a candidate that gives nothing is not listed', () => {
+    const notNeeded = promo(5, [{ type: 'SHIPPING_FREE', maxAmount: null }]);
+    expect(recalculateDiscounts(ctx({ lines, shippingGross: 0, candidates: [notNeeded] })).rows).toEqual([]);
+  });
+});
