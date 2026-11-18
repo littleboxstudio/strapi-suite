@@ -4,7 +4,7 @@ import { EcommerceNotFoundError, EcommerceValidationError, type ValidationIssue 
 import { isEmail } from './settings';
 import type { AuditEntry } from './audit';
 import { normalizeEmail } from './domain/email';
-import { resolveLocale } from './locales';
+import { findLocale, resolveLocale } from './locales';
 
 const AREA = 'customers';
 const PAGE_SIZE = 50;
@@ -132,12 +132,23 @@ const EcommerceCustomerService = ({ strapi }: { strapi: Core.Strapi }) => {
         const clash = await q.findOne({ where: { emailNormalized, id: { $ne: id } } });
         if (clash) errors.push({ path: 'email', code: 'duplicate_email' });
       }
+      // The language is optional here: absent keeps the current one; present must be a locale the
+      // backend has (stored with its own case), never silently replaced by the default.
+      const wantedLocale = (input as { locale?: unknown })?.locale;
+      const locale = wantedLocale === undefined ? undefined : await findLocale(strapi, wantedLocale);
+      if (wantedLocale !== undefined && !locale) errors.push({ path: 'locale', code: 'invalid_locale' });
       if (errors.length) throw new EcommerceValidationError('Invalid customer', errors);
 
-      const changedFields = (['firstName', 'lastName', 'email', 'phone'] as const).filter(
-        (f) => (current[f] ?? null) !== values[f]
-      );
-      await q.update({ where: { id }, data: { ...values, emailNormalized } });
+      const changedFields = [
+        ...(['firstName', 'lastName', 'email', 'phone'] as const).filter(
+          (f) => (current[f] ?? null) !== values[f]
+        ),
+        ...(locale && locale !== current.locale ? (['locale'] as const) : []),
+      ];
+      await q.update({
+        where: { id },
+        data: { ...values, emailNormalized, ...(locale ? { locale } : {}) },
+      });
       if (changedFields.length) {
         await audit({
           area: AREA,

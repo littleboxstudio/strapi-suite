@@ -106,6 +106,8 @@ export type CustomerInput = {
   lastName: string;
   email: string;
   phone: string | null;
+  /** A configured i18n locale; omitted keeps the customer's current language. */
+  locale?: string;
 };
 
 export type CustomerOrderListParams = { page?: number; search?: string };
