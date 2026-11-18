@@ -28,6 +28,7 @@ import {
   type PromotionEvaluation,
   type RejectionReason,
   type StackingConflict,
+  manualDiscountConflict,
   stackingConflict,
 } from './promotions';
 
@@ -85,6 +86,11 @@ export type DiscountContext = {
   gifts?: Map<number, GiftOption>;
   /** Per promotion id, the chosen gift variant (with `gifts`). */
   giftChoices?: Record<number, number>;
+  /**
+   * Create order: the draft has an order-level manual discount, so a NEW row that does not stack
+   * with order discounts is blocked. (The order detail does not pass it.)
+   */
+  manualOrderDiscount?: boolean;
 };
 
 export type DiscountRow = {
@@ -114,14 +120,21 @@ export type DiscountRow = {
    * NEW rows: it does not stack with this kept applied promotion (the first one found), so it
    * cannot be selected. Null otherwise.
    */
-  blockedBy: {
-    promotionId: number;
-    name: string;
-    displayName: Record<string, string>;
-    conflict: StackingConflict;
-  } | null;
+  blockedBy: DiscountBlock | null;
   /** NEW rows: part of the best combination given the kept promotions (never preselected). */
   recommended: boolean;
+};
+
+/**
+ * What a NEW row does not stack with: a kept promotion (`PROMOTION`), or the order-level manual
+ * discount (`MANUAL`: no promotion id, no name), and why (from the row's side).
+ */
+export type DiscountBlock = {
+  kind: 'PROMOTION' | 'MANUAL';
+  promotionId: number | null;
+  name: string;
+  displayName: Record<string, string>;
+  conflict: StackingConflict;
 };
 
 /** Two NEW rows that do not stack: `reasons[i]` is from `keys[i]`'s side. */
@@ -437,9 +450,11 @@ export function recalculateDiscounts(
     for (const k of keptDefinitions) {
       const conflict = stackingConflict(c, k);
       if (conflict) {
-        return { promotionId: k.id, name: k.name, displayName: k.displayName, conflict };
+        return { kind: 'PROMOTION', promotionId: k.id, name: k.name, displayName: k.displayName, conflict };
       }
     }
+    const manual = ctx.manualOrderDiscount ? manualDiscountConflict(c) : null;
+    if (manual) return { kind: 'MANUAL', promotionId: null, name: '', displayName: {}, conflict: manual };
     return null;
   };
   const listed = classified.rows

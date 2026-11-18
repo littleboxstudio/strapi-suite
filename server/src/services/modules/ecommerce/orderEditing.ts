@@ -94,7 +94,7 @@ import {
   type PickupSelection,
 } from './domain/pickupPoints';
 import { isRecord, normalizePromotionFields, type CatalogVariant } from './orderPricingHelpers';
-import type { QuoteGiftOption } from './orderPricing';
+import { discountGiftOptions, type QuoteGiftOption } from './orderPricing';
 import type { StockMoveInput } from './stock';
 import type { ShippingOption, ShippingQuoteRequest } from './shipping';
 import { normalizeAddress, type OrderState, type OrderView } from './orders';
@@ -542,27 +542,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     if (!r.gifts.length) return [];
     const ids = [...new Set(r.gifts.flatMap((g) => g.variantIds))];
     const catalog = await orders().loadCatalog(ids, state.order.locale);
-    return r.gifts.map((g) => ({
-      promotionId: g.promotionId,
-      benefitIndex: g.benefitIndex,
-      quantity: g.quantity,
-      selectedVariantId: g.selectedVariantId,
-      variants: g.variantIds.flatMap((variantId) => {
-        const c = catalog.get(variantId);
-        if (!c) return [];
-        const offer = r.giftsOnOffer.get(variantId);
-        return [
-          {
-            variantId,
-            sku: c.sku,
-            name: c.name,
-            option: c.option,
-            imageUrl: c.imageUrl,
-            available: !!offer && offer.active && offer.available >= g.quantity,
-          },
-        ];
-      }),
-    }));
+    return discountGiftOptions(r.gifts, catalog, r.giftsOnOffer);
   };
 
   // -------------------------------------------------------------------------

@@ -281,6 +281,137 @@ describe('applicablePromotions', () => {
   });
 });
 
+describe('applicablePromotions: a recommender like the order detail', () => {
+  const input = (extra: Record<string, unknown> = {}) => ({
+    locale: 'en',
+    email: 'ana@example.pt',
+    lines: LINES,
+    shippingLines: [{ providerId: 'manual', serviceId: '1', amount: 500 }],
+    ...extra,
+  });
+  const exclusive = (c: Commerce, percent = 30) =>
+    addPromotion(c, {
+      name: 'VIP',
+      stacking: { ...STACK_ALL, exclusive: true },
+      benefits: { items: [{ type: 'ORDER_PERCENT', percent }] },
+    });
+
+  it('every eligible promotion at its own amount; their conflict; the best recommended', async () => {
+    const c = setup();
+    const vip = exclusive(c);
+    const ten = tenPercent(c);
+    const res = await c.orders.applicablePromotions(input());
+    expect(res.promotions.map((p: any) => [p.id, p.amount, p.recommended, p.blockedBy])).toEqual([
+      [vip, 1200, true, null],
+      [ten, 400, false, null],
+    ]);
+    expect(res.conflicts).toEqual([
+      {
+        ids: [vip, ten],
+        reasons: [
+          { rule: 'EXCLUSIVE_SELF', discountClass: null },
+          { rule: 'EXCLUSIVE_OTHER', discountClass: null },
+        ],
+      },
+    ]);
+  });
+
+  it('a promotion that does not stack with an entered code is blocked by it', async () => {
+    const c = setup();
+    const five = code(c, 'FIVE', { stacking: { ...STACK_ALL, exclusive: true } });
+    const ten = tenPercent(c);
+    const res = await c.orders.applicablePromotions(input({ promotionCodes: ['FIVE'] }));
+    expect(res.promotions).toEqual([
+      expect.objectContaining({
+        id: ten,
+        recommended: false,
+        blockedBy: {
+          kind: 'PROMOTION',
+          promotionId: five,
+          name: 'Code FIVE',
+          displayName: { en: `Promo ${five}` },
+          conflict: { rule: 'EXCLUSIVE_OTHER', discountClass: null },
+        },
+      }),
+    ]);
+  });
+
+  it('with a manual discount in the draft, an exclusive one (or one without order discounts) is blocked', async () => {
+    const c = setup();
+    const vip = exclusive(c);
+    const noOrder = addPromotion(c, {
+      name: 'Ship',
+      stacking: { ...STACK_ALL, withOrder: false },
+      benefits: { items: [{ type: 'SHIPPING_FREE', maxAmount: null }] },
+    });
+    const ten = tenPercent(c);
+    const res = await c.orders.applicablePromotions(input({ manualDiscount: true }));
+    const byId = new Map<number, any>(res.promotions.map((p: any) => [p.id, p]));
+    expect(byId.get(vip).blockedBy).toEqual({
+      kind: 'MANUAL',
+      promotionId: null,
+      name: '',
+      displayName: {},
+      conflict: { rule: 'EXCLUSIVE_SELF', discountClass: null },
+    });
+    expect(byId.get(noOrder).blockedBy).toMatchObject({
+      kind: 'MANUAL',
+      conflict: { rule: 'CLASS_SELF', discountClass: 'ORDER_DISCOUNT' },
+    });
+    expect(byId.get(ten)).toMatchObject({ blockedBy: null, recommended: true });
+    expect(res.conflicts).toEqual([]);
+  });
+
+  it('a gift promotion comes with its gift options', async () => {
+    const c = setup();
+    const gift = giftMug(c);
+    const res = await c.orders.applicablePromotions(input());
+    expect(res.giftOptions).toEqual([
+      {
+        promotionId: gift,
+        benefitIndex: 0,
+        quantity: 1,
+        selectedVariantId: 30,
+        variants: [expect.objectContaining({ variantId: 30, sku: 'MUG', available: true })],
+      },
+    ]);
+  });
+
+  it('quote and create refuse promotionIds that do not stack (PROMOTIONS_NOT_COMBINABLE on promotionIds)', async () => {
+    const c = setup();
+    const vip = exclusive(c);
+    const ten = tenPercent(c);
+    const refused = [{ path: 'promotionIds', code: 'PROMOTIONS_NOT_COMBINABLE' }];
+    expect(
+      await issues(c.orders.quote(quoteInput({ promotionIds: [vip, ten] }), ADMIN_QUOTE))
+    ).toEqual(refused);
+    expect(
+      await issues(c.orders.create(createInput({ promotionIds: [vip, ten] }) as any, admin))
+    ).toEqual(refused);
+    expect(c.tables[UIDS.order]).toEqual([]);
+    // With a code that does not stack, or a manual discount.
+    const five = code(c, 'FIVE', { stacking: { ...STACK_ALL, exclusive: true } });
+    expect(
+      await issues(c.orders.quote(quoteInput({ promotionIds: [ten], promotionCodes: ['FIVE'] }), ADMIN_QUOTE))
+    ).toEqual(refused);
+    expect(five).toBeGreaterThan(0);
+    expect(
+      await issues(
+        c.orders.quote(
+          quoteInput({
+            promotionIds: [vip],
+            manualDiscounts: [{ kind: 'FIXED', value: 100, reason: 'Loyal' }],
+          }),
+          ADMIN_QUOTE
+        )
+      )
+    ).toEqual(refused);
+    // One of them alone is fine.
+    const q = await c.orders.quote(quoteInput({ promotionIds: [ten] }), ADMIN_QUOTE);
+    expect(q.promotions.map((p: any) => p.promotionId)).toEqual([ten]);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // 3. Promotion code search
 // ---------------------------------------------------------------------------

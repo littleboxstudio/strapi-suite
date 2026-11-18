@@ -15,9 +15,17 @@ import {
   type ManualDiscount,
 } from './domain/manualDiscounts';
 import type { ShippingOption, ShippingQuoteRequest } from './shipping';
-import { recalculateDiscounts, type DiscountLine } from './domain/discountRecalculation';
 import {
+  recalculateDiscounts,
+  type DiscountBlock,
+  type DiscountGift,
+  type DiscountLine,
+} from './domain/discountRecalculation';
+import {
+  compatible,
+  manualDiscountConflict,
   normalizePromotionCode,
+  type StackingConflict,
   type AppliedPromotion,
   type Benefit,
   type DiscountClass,
@@ -241,6 +249,8 @@ export type ApplicablePromotionsInput = {
   giftChoices?: Record<number, number>;
   /** The order's shipping charges: only `amount` (cents) is read, their sum is the shipping. */
   shippingLines?: { amount: number }[];
+  /** The draft has an order-level manual discount (it blocks what does not stack with it). */
+  manualDiscount?: boolean;
 };
 
 /** An automatic promotion the cart gets, with what it would take off (cents). */
@@ -251,8 +261,54 @@ export type ApplicablePromotion = {
   classes: DiscountClass[];
   /** The promotion's benefits as defined (no customer data). */
   benefits: Benefit[];
+  /** On its own (a gift promotion: its gift's value). */
   amount: number;
+  /** Part of the best combination with the entered codes (never preselected). */
+  recommended: boolean;
+  /** It does not stack with an entered code's promotion or the draft's manual discount. */
+  blockedBy: DiscountBlock | null;
 };
+
+export type ApplicablePromotions = {
+  promotions: ApplicablePromotion[];
+  /** Pairs of selectable promotions that do not stack; `reasons[i]` is from `ids[i]`'s side. */
+  conflicts: { ids: [number, number]; reasons: [StackingConflict, StackingConflict] }[];
+  /** Per GIFT benefit of the listed promotions, the gift variants on offer. */
+  giftOptions: QuoteGiftOption[];
+  exhaustive: boolean;
+};
+
+/**
+ * Each GIFT benefit's variants (texts from `catalog`; a variant no longer in it is left out), as
+ * Create order's quote lists them: available when active with enough stock on offer.
+ */
+export function discountGiftOptions(
+  gifts: DiscountGift[],
+  catalog: Map<number, CatalogVariant>,
+  offers: Map<number, GiftOption>
+): QuoteGiftOption[] {
+  return gifts.map((g) => ({
+    promotionId: g.promotionId,
+    benefitIndex: g.benefitIndex,
+    quantity: g.quantity,
+    selectedVariantId: g.selectedVariantId,
+    variants: g.variantIds.flatMap((variantId) => {
+      const c = catalog.get(variantId);
+      if (!c) return [];
+      const offer = offers.get(variantId);
+      return [
+        {
+          variantId,
+          sku: c.sku,
+          name: c.name,
+          option: c.option,
+          imageUrl: c.imageUrl,
+          available: !!offer && offer.active && offer.available >= g.quantity,
+        },
+      ];
+    }),
+  }));
+}
 
 /**
  * `strapi`, `service` and `getDefaultLocale` are not used by the current pricing code: they are
@@ -354,6 +410,8 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
     promotionIds?: number[];
     /** Admin: charges at entered amounts (non-empty, needs `destination`). */
     shippingLines?: ShippingLineInput[];
+    /** Admin: the cart has an order-level manual discount (with `promotionIds`). */
+    manualDiscount?: boolean;
   }): Promise<PricedCart> => {
     const promo = promotions();
     const verified = p.emailVerified === undefined ? {} : { emailVerified: p.emailVerified };
@@ -411,8 +469,37 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
         totalDiscount: e.totalDiscount + added,
       };
     };
+    /**
+     * Admin `promotionIds`: the selected ones the cart is eligible for must stack together, with
+     * the entered codes it is eligible for and with an order-level manual discount, else
+     * PROMOTIONS_NOT_COMBINABLE (Apply discount never offers such a selection).
+     */
+    const assertCombinable = (e: PromotionEvaluation): void => {
+      if (!selected) return;
+      const eligible = new Set(e.eligible);
+      const picked = candidates.filter(
+        (c) => c.method === 'AUTOMATIC' && selected.has(c.id) && eligible.has(c.id)
+      );
+      const codes = candidates.filter((c) => c.method === 'CODE' && eligible.has(c.id));
+      const clash = picked.some(
+        (a, i) =>
+          picked.slice(i + 1).some((b) => !compatible(a, b)) ||
+          codes.some((k) => !compatible(a, k)) ||
+          (p.manualDiscount === true && manualDiscountConflict(a) !== null)
+      );
+      if (clash) {
+        throw new EcommerceValidationError('Invalid order', [
+          { path: 'promotionIds', code: 'PROMOTIONS_NOT_COMBINABLE' },
+        ]);
+      }
+    };
     const now = new Date();
-    const evaluate = (shippingPrice: number | null) =>
+    const evaluate = (shippingPrice: number | null) => {
+      const e = evaluateRaw(shippingPrice);
+      assertCombinable(e);
+      return e;
+    };
+    const evaluateRaw = (shippingPrice: number | null) =>
       withManual(promo.evaluate({
         lines,
         email: p.email,
@@ -604,7 +691,7 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
    */
   const applicablePromotions = async (
     input: ApplicablePromotionsInput
-  ): Promise<{ promotions: ApplicablePromotion[]; exhaustive: boolean }> => {
+  ): Promise<ApplicablePromotions> => {
     const errors: ValidationIssue[] = [];
     const locale = clean(input?.locale);
     if (!locale) errors.push({ path: 'locale', code: 'required' });
@@ -655,11 +742,33 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
         manualDiscountPercent: manual ? (l.discountPercent as number) : null,
       };
     });
+    // The entered codes' promotions the cart gets are fixed: what does not stack with them is
+    // blocked, and the recommendation is made around them.
+    const codeCandidates = candidates.filter((c) => c.method === 'CODE');
+    const codeApplied = codeCandidates.length
+      ? promo.evaluate({
+          lines: discountLines.map((l) => ({
+            variantId: l.variantId,
+            productId: l.productId,
+            unitPrice: l.unitPrice - l.unitDiscount,
+            quantity: l.quantity,
+            ...(l.manualDiscountPercent !== null ? { frozen: true } : {}),
+          })),
+          email,
+          shipping: shippingGross,
+          codes: promotionCodes,
+          candidates: codeCandidates,
+          gifts,
+          giftChoices,
+          now: new Date(),
+        }).applied
+      : [];
     const r = recalculateDiscounts(
       {
         lines: discountLines,
-        applied: [],
+        applied: codeApplied,
         manual: [],
+        manualOrderDiscount: input?.manualDiscount === true,
         orderDiscount: 0,
         shippingGross,
         shippingDiscount: 0,
@@ -676,18 +785,30 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
       []
     );
     const byId = new Map(candidates.map((c) => [c.id, c]));
+    const listed = r.rows.filter(
+      (row) => row.kind === 'NEW' && row.method === 'AUTOMATIC' && row.promotionId !== null
+    );
+    const keys = new Set(listed.map((row) => row.key));
+    const idOf = (key: string) => Number(key.slice(2));
+    const giftRows = r.gifts.filter((g) => keys.has(`p:${g.promotionId}`));
+    const giftCatalog = giftRows.length
+      ? await loadCatalog([...new Set(giftRows.flatMap((g) => g.variantIds))], locale)
+      : new Map<number, CatalogVariant>();
     return {
-      promotions: r.rows
-        // Unchanged for Create order: the best combination only (its modal has no conflicts).
-        .filter((row) => row.method === 'AUTOMATIC' && row.promotionId !== null && row.recommended)
-        .map((row) => ({
-          id: row.promotionId as number,
-          name: row.name,
-          displayName: row.displayName,
-          classes: row.classes,
-          benefits: byId.get(row.promotionId as number)?.benefits ?? [],
-          amount: row.amount,
-        })),
+      promotions: listed.map((row) => ({
+        id: row.promotionId as number,
+        name: row.name,
+        displayName: row.displayName,
+        classes: row.classes,
+        benefits: byId.get(row.promotionId as number)?.benefits ?? [],
+        amount: row.amount,
+        recommended: row.recommended,
+        blockedBy: row.blockedBy,
+      })),
+      conflicts: r.rowConflicts
+        .filter((c) => keys.has(c.keys[0]) && keys.has(c.keys[1]))
+        .map((c) => ({ ids: [idOf(c.keys[0]), idOf(c.keys[1])], reasons: c.reasons })),
+      giftOptions: discountGiftOptions(giftRows, giftCatalog, gifts),
       exhaustive: r.exhaustive,
     };
   };
@@ -767,6 +888,7 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
       emailVerified,
       ...(promotionIds !== undefined ? { promotionIds } : {}),
       ...(shippingLines ? { shippingLines } : {}),
+      manualDiscount: Array.isArray(manualInput) && manualInput.length > 0,
     });
     const e = priced.evaluation;
     await assertPricedStock(lines, e.lines);

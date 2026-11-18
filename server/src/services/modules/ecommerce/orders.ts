@@ -1000,6 +1000,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       emailVerified: v.emailVerified,
       ...(v.promotionIds !== undefined ? { promotionIds: v.promotionIds } : {}),
       ...(v.shippingLines ? { shippingLines: v.shippingLines } : {}),
+      manualDiscount: Array.isArray(v.manualDiscounts) && v.manualDiscounts.length > 0,
     });
     const evaluation = priced.evaluation;
     const option = priced.option as ShippingOption;
