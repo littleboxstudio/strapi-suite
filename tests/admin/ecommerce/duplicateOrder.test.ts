@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   duplicateDraft,
+  duplicateLocale,
   duplicateQuoteNotices,
   dropUnavailableLines,
   restoreDuplicateShipping,
@@ -378,5 +379,15 @@ describe('restoreDuplicateShipping', () => {
       notice: null,
       checkPoint: false,
     });
+  });
+});
+
+describe('duplicateLocale', () => {
+  it("is the customer's saved language when they have one, else the order's", () => {
+    expect(duplicateLocale('pt', 'en')).toBe('pt');
+    expect(duplicateLocale(' PT ', 'en')).toBe('pt');
+    expect(duplicateLocale(null, 'en')).toBe('en');
+    expect(duplicateLocale(undefined, 'en')).toBe('en');
+    expect(duplicateLocale('', 'en')).toBe('en');
   });
 });

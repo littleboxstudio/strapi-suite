@@ -235,3 +235,9 @@ export function restoreDuplicateShipping(
   }
   return { shipping, pickup, notice: null, checkPoint: true };
 }
+
+/** A duplicate's language: the customer's saved one when they have it, else the order's. */
+export function duplicateLocale(customerLocale: string | null | undefined, orderLocale: string): string {
+  const saved = (customerLocale ?? '').trim().toLowerCase();
+  return saved || orderLocale;
+}

@@ -44,6 +44,7 @@ import { manualLineDiscountRows } from '../../utils/orderEditing';
 import {
   dropUnavailableLines,
   duplicateDraft,
+  duplicateLocale,
   duplicateQuoteNotices,
   restoreDuplicateShipping,
   type ShippingRef,
@@ -267,6 +268,19 @@ const OrderCreatePage = () => {
         if (cancelled) return;
         const draft = duplicateDraft(order, { legacyReason: t('ecommerce.orders.discounts.legacyReason') });
         setForm((f) => ({ ...draft.form, locale: draft.form.locale || f.locale }));
+        // The customer's saved language wins over the old order's (kept when they have none).
+        const customerId = order.customer?.id;
+        if (customerId) {
+          new FetchCustomer()
+            .execute(customerId)
+            .then((c) => {
+              if (cancelled) return;
+              setForm((f) => ({ ...f, locale: duplicateLocale(c.locale, f.locale) }));
+            })
+            .catch(() => {
+              // The order's language stays.
+            });
+        }
         setGiftChoices(draft.giftChoices);
         setErrors({});
         setNotices({ ...NO_NOTICES, discountConflicts: draft.discountConflicts });
