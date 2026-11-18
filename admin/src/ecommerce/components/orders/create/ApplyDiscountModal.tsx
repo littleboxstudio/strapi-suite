@@ -17,6 +17,7 @@ import {
 } from '@strapi/design-system';
 import { getTranslation } from '../../../../core/utils/getTranslation';
 import FetchApplicablePromotions from '../../../usecases/orders/fetchApplicablePromotions';
+import { extractFieldErrors } from '../../../utils/productForm';
 import { formatCents } from '../../../utils/money';
 import {
   apiErrorMessageId,
@@ -77,8 +78,17 @@ const ApplyDiscountModal = ({ input, selected, known, locales, onClose, onConfir
         if (!cancelled) setResult(r);
       })
       .catch((err) => {
-        if (!cancelled)
-          setLoadError(apiErrorMessageId(err, 'ecommerce.orders.new.applicableError'));
+        if (cancelled) return;
+        // The cart itself is refused (e.g. not enough stock for a product): say so, the generic
+        // "could not load" hides what the admin has to fix first.
+        const lineIssue = (extractFieldErrors(err) ?? []).find((e) => /^lines\./.test(e.path));
+        setLoadError(
+          lineIssue
+            ? (lineIssue.code as string) === 'INSUFFICIENT_STOCK'
+              ? 'ecommerce.orders.new.applicableStock'
+              : 'ecommerce.orders.new.applicableLines'
+            : apiErrorMessageId(err, 'ecommerce.orders.new.applicableError')
+        );
       });
     return () => {
       cancelled = true;

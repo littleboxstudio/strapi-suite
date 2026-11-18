@@ -1001,6 +1001,8 @@
   "littlebox-strapi-suite.ecommerce.orders.new.deliveryMethod": "Delivery method",
   "littlebox-strapi-suite.ecommerce.orders.new.applyDiscount": "Apply discount",
   "littlebox-strapi-suite.ecommerce.orders.new.applicableError": "Could not load the promotions that apply to this cart.",
+  "littlebox-strapi-suite.ecommerce.orders.new.applicableStock": "Some products don't have enough stock for the quantity in the order. Fix the quantities in Products to see the promotions that apply.",
+  "littlebox-strapi-suite.ecommerce.orders.new.applicableLines": "The products in the order have errors. Fix them in Products to see the promotions that apply.",
   "littlebox-strapi-suite.ecommerce.orders.new.applicableNone": "No automatic promotion applies to this cart.",
   "littlebox-strapi-suite.ecommerce.orders.new.notApplicable": "No longer applies to this cart",
   "littlebox-strapi-suite.ecommerce.orders.new.addCode": "Add code",
