@@ -94,7 +94,7 @@ const AddCodeModal = ({ codes, locales, onClose, onAdd }: Props) => {
     setPicked((p) => (p.includes(code) ? p.filter((c) => c !== code) : [...p, code]));
 
   const table = () => {
-    if (!term.trim()) return <EmptyNote>{t('ecommerce.orders.new.codeSearchHint')}</EmptyNote>;
+    if (!term.trim()) return null;
     if (failed) {
       return (
         <Typography variant="omega" textColor="danger600">
@@ -190,7 +190,7 @@ const AddCodeModal = ({ codes, locales, onClose, onAdd }: Props) => {
         </Modal.Header>
         <Modal.Body>
           <Flex direction="column" alignItems="stretch" gap={4}>
-            <Field.Root name="code-search" hint={t('ecommerce.orders.quote.codesHint')}>
+            <Field.Root name="code-search">
               <Field.Label>{t('ecommerce.orders.new.codeSearch')}</Field.Label>
               <TextInput
                 startAction={<Search />}
@@ -199,7 +199,6 @@ const AddCodeModal = ({ codes, locales, onClose, onAdd }: Props) => {
                 autoFocus
                 onChange={(e: any) => setTerm(e.target.value)}
               />
-              <Field.Hint />
             </Field.Root>
             {table()}
           </Flex>
