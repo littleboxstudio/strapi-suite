@@ -135,6 +135,15 @@ describe('pickupSearchErrorCode', () => {
 });
 
 describe('manual order form with a pickup point', () => {
+  const dpdLine = (pickup: OrderForm['shippingLines'][number]['pickup']) => ({
+    key: 'd',
+    providerId: 'dpd-portugal',
+    serviceId: 'PICKUP',
+    name: 'DPD Pickup',
+    amount: 400,
+    requiresPickupPoint: true,
+    pickup,
+  });
   const base = (): OrderForm => ({
     ...emptyOrderForm('en'),
     customer: { firstName: 'Ana', lastName: 'Silva', email: 'ana@example.pt', phone: '' },
@@ -151,39 +160,37 @@ describe('manual order form with a pickup point', () => {
       phone: '',
     },
     lines: [{ variantId: 10, name: 'Shirt', option: null, sku: 'SH', price: 2000, quantity: 1 } as any],
-    shipping: { providerId: 'dpd-portugal', serviceId: 'PICKUP', requiresPickupPoint: true },
+    shippingLines: [dpdLine(null)],
+  });
+  const withPoint = (): OrderForm => ({ ...base(), shippingLines: [dpdLine({ point: POINT, postalCode: '4000-200' })] });
+
+  it('a pickup option without a point → PICKUP_POINT_REQUIRED on the first line', () => {
+    expect(validateOrderForm(base())).toContainEqual({ path: 'shippingLines.0.pickupPointId', code: 'PICKUP_POINT_REQUIRED' });
+    expect(validateOrderForm(withPoint()).map((e) => e.path)).not.toContain('shippingLines.0.pickupPointId');
   });
 
-  it('a pickup option without a point → PICKUP_POINT_REQUIRED on pickupPointId', () => {
-    expect(validateOrderForm(base())).toContainEqual({ path: 'pickupPointId', code: 'PICKUP_POINT_REQUIRED' });
-    expect(
-      validateOrderForm({ ...base(), pickup: { point: POINT, postalCode: '4000-200' } }).map((e) => e.path)
-    ).not.toContain('pickupPointId');
-  });
-
-  it('the create input sends the point and only the method ids', () => {
-    const input = buildCreateOrderInput({ ...base(), pickup: { point: POINT, postalCode: '4000-200' } }, 'key-1');
-    expect(input.shipping).toEqual({ providerId: 'dpd-portugal', serviceId: 'PICKUP' });
-    expect(input.pickupPointId).toBe('PT12345');
-    expect(input.pickupPostalCode).toBe('4000-200');
+  it('the create input sends the point on its shipping line', () => {
+    const input = buildCreateOrderInput(withPoint(), 'key-1');
+    expect(input.shippingLines).toEqual([
+      { providerId: 'dpd-portugal', serviceId: 'PICKUP', amount: 400, pickupPointId: 'PT12345', pickupPostalCode: '4000-200' },
+    ]);
     expect(input.shippingAddress.postalCode).toBe('1000-001');
   });
 
   it('the price quote uses the point postal code (the delivery address)', () => {
-    const q = buildQuoteInput({ ...base(), pickup: { point: POINT, postalCode: '4000-200' } }, {});
-    expect(q.shipping).toEqual({
-      country: 'PT',
-      postalCode: '4000-200',
-      providerId: 'dpd-portugal',
-      serviceId: 'PICKUP',
-    });
+    const q = buildQuoteInput(withPoint(), {});
+    expect(q.destination).toEqual({ country: 'PT', postalCode: '4000-200' });
+    expect(q.shippingLines).toEqual([{ providerId: 'dpd-portugal', serviceId: 'PICKUP', amount: 400 }]);
   });
 
   it('without pickup nothing changes', () => {
-    const form = { ...base(), shipping: { providerId: 'manual', serviceId: '1' } };
+    const form = {
+      ...base(),
+      shippingLines: [{ key: 'm', providerId: 'manual', serviceId: '1', name: 'Manual', amount: 0, pickup: null }],
+    };
     const input = buildCreateOrderInput(form, 'key-1');
-    expect(input).not.toHaveProperty('pickupPointId');
-    expect(validateOrderForm(form).map((e) => e.path)).not.toContain('pickupPointId');
+    expect(input.shippingLines?.[0]).not.toHaveProperty('pickupPointId');
+    expect(validateOrderForm(form).map((e) => e.path)).not.toContain('shippingLines.0.pickupPointId');
   });
 });
 
@@ -274,6 +281,15 @@ describe('store pickup in the pickers', () => {
 });
 
 describe('manual order form with a store', () => {
+  const storeLine = (pickup: OrderForm['shippingLines'][number]['pickup']) => ({
+    key: 's',
+    providerId: 'store-pickup',
+    serviceId: 'STORE',
+    name: 'Store pickup',
+    amount: 0,
+    requiresPickupPoint: true,
+    pickup,
+  });
   const form = (): OrderForm => ({
     ...emptyOrderForm('en'),
     customer: { firstName: 'Ana', lastName: 'Silva', email: 'ana@example.pt', phone: '' },
@@ -290,20 +306,20 @@ describe('manual order form with a store', () => {
       phone: '',
     },
     lines: [{ variantId: 10, name: 'Shirt', option: null, sku: 'SH', price: 2000, quantity: 1 } as any],
-    shipping: { providerId: 'store-pickup', serviceId: 'STORE', requiresPickupPoint: true },
+    shippingLines: [storeLine(null)],
   });
 
   it('requires a store, then sends its id as pickupPointId without a postal code', () => {
-    expect(validateOrderForm(form())).toContainEqual({ path: 'pickupPointId', code: 'PICKUP_POINT_REQUIRED' });
-    const input = buildCreateOrderInput({ ...form(), pickup: storeSelection(STORE) }, 'key-1');
-    expect(input.shipping).toEqual({ providerId: 'store-pickup', serviceId: 'STORE' });
-    expect(input.pickupPointId).toBe('st_lisboa');
-    expect(input).not.toHaveProperty('pickupPostalCode');
+    expect(validateOrderForm(form())).toContainEqual({ path: 'shippingLines.0.pickupPointId', code: 'PICKUP_POINT_REQUIRED' });
+    const input = buildCreateOrderInput({ ...form(), shippingLines: [storeLine(storeSelection(STORE))] }, 'key-1');
+    expect(input.shippingLines).toEqual([
+      { providerId: 'store-pickup', serviceId: 'STORE', amount: 0, pickupPointId: 'st_lisboa' },
+    ]);
   });
 
   it('the price quote uses the store address', () => {
-    const q = buildQuoteInput({ ...form(), pickup: storeSelection(STORE_2) }, {});
-    expect(q.shipping).toMatchObject({ country: 'PT', postalCode: '4000-100', providerId: 'store-pickup' });
+    const q = buildQuoteInput({ ...form(), shippingLines: [storeLine(storeSelection(STORE_2))] }, {});
+    expect(q.destination).toEqual({ country: 'PT', postalCode: '4000-100' });
   });
 });
 

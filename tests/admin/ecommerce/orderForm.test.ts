@@ -23,8 +23,10 @@ import {
   createTotalsTiles,
   refreshLinesFromQuote,
   shippingOptionsInput,
-  listedShippingPrice,
   MAX_CREATE_MANUAL_DISCOUNTS,
+  shippingLinesInput,
+  quoteDestination,
+  type DraftShippingLine,
   type OrderForm,
   type OrderLineDraft,
 } from '../../../admin/src/ecommerce/utils/orderForm';
@@ -70,12 +72,23 @@ const address = {
   nif: '',
 };
 
+const shipLine = (over: Partial<DraftShippingLine> = {}): DraftShippingLine => ({
+  key: 's1',
+  providerId: 'manual',
+  serviceId: '1',
+  name: 'Courier',
+  amount: 500,
+  pickup: null,
+  ...over,
+});
+
 const validForm = (): OrderForm => ({
   ...emptyOrderForm('pt'),
   customer: { firstName: 'Ana', lastName: 'Silva', email: 'ana@example.com', phone: '' },
   shippingAddress: { ...address },
+  billingAddress: { ...address },
   lines: [line()],
-  shipping: { providerId: 'manual', serviceId: '1' },
+  shippingLines: [shipLine()],
 });
 
 describe('sumPreviewTotals', () => {
@@ -199,7 +212,7 @@ describe('validateOrderForm', () => {
         'shippingAddress.country:required',
         'billingAddress.lastName:required',
         'lines:required',
-        'shipping:required',
+        'shippingLines:required',
       ])
     );
   });
@@ -223,7 +236,7 @@ describe('validateOrderForm', () => {
 
 describe('buildCreateOrderInput', () => {
   it('trims, drops empty optionals, copies shipping into billing and sends the key', () => {
-    const form = validForm();
+    const form = { ...validForm(), billingSameAsShipping: true };
     form.customer.firstName = ' Ana ';
     form.billingAddress = { ...emptyAddressForm(), company: 'ACME', nif: '123' };
     form.notes = '';
@@ -250,7 +263,8 @@ describe('buildCreateOrderInput', () => {
       },
       locale: 'pt',
       lines: [{ variantId: 1, quantity: 1 }],
-      shipping: { providerId: 'manual', serviceId: '1' },
+      shippingLines: [{ providerId: 'manual', serviceId: '1', amount: 500 }],
+      promotionIds: [],
       idempotencyKey: 'key-1',
     });
   });
@@ -423,8 +437,8 @@ describe('order quote', () => {
     ...over,
   });
 
-  it('buildQuoteInput sends lines, locale, e-mail, codes, gift choices and the shipping destination', () => {
-    const form = { ...validForm(), promotionCodes: ['verao20'] };
+  it('buildQuoteInput sends lines, locale, e-mail, codes, gift choices, the selected promotions and the shipping lines', () => {
+    const form = { ...validForm(), promotionCodes: ['verao20'], promotionIds: [4] };
     form.shippingAddress.postalCode = ' 1000-001 ';
     expect(buildQuoteInput(form, { 4: 31 })).toEqual({
       lines: [{ variantId: 1, quantity: 1 }],
@@ -432,12 +446,18 @@ describe('order quote', () => {
       email: 'ana@example.com',
       promotionCodes: ['VERAO20'],
       giftChoices: { 4: 31 },
-      shipping: { country: 'PT', postalCode: '1000-001', providerId: 'manual', serviceId: '1' },
+      promotionIds: [4],
+      shippingLines: [{ providerId: 'manual', serviceId: '1', amount: 500 }],
+      destination: { country: 'PT', postalCode: '1000-001' },
     });
   });
 
-  it('buildQuoteInput leaves out shipping without a method or country, and an invalid e-mail', () => {
-    const form = { ...validForm(), shipping: null };
+  it('buildQuoteInput leaves out shipping without a line or a country, and an invalid e-mail', () => {
+    const noCountry = validForm();
+    noCountry.shippingAddress.country = '';
+    expect(buildQuoteInput(noCountry, {}).shipping).toBeNull();
+    expect('shippingLines' in buildQuoteInput(noCountry, {})).toBe(false);
+    const form = { ...validForm(), shippingLines: [] };
     form.customer.email = 'nope';
     const input = buildQuoteInput(form, {});
     expect(input.shipping).toBeNull();
@@ -757,21 +777,83 @@ describe('shipping options priced as the order quote', () => {
       subtotal: 4000,
     });
   });
-
-  it('listedShippingPrice: the order quote price for its method, else the option price', () => {
-    const option = { providerId: 'ctt', serviceId: 'manual', name: 'CTT', price: 2000, tax: 23 };
-    const priced = {
-      shippingOption: { providerId: 'ctt', serviceId: 'manual' },
-      totals: { shippingOriginal: 3000 },
-    } as unknown as OrderQuote;
-    expect(listedShippingPrice(option, priced)).toBe(3000);
-    expect(listedShippingPrice({ ...option, serviceId: 'other' }, priced)).toBe(2000);
-    expect(listedShippingPrice(option, null)).toBe(2000);
-  });
 });
 
 describe('createTotalsTiles while the prices are outdated', () => {
   it('shows every amount as unknown', () => {
     expect(createTotalsTiles(null, null).map((t) => t.amount)).toEqual([null, null, null, null]);
+  });
+});
+
+describe('create order shipping lines (redesign v2)', () => {
+  const point = {
+    id: 'P1',
+    name: 'Kiosk',
+    address: 'Rua P',
+    address2: null,
+    postalCode: '2000-002',
+    city: 'Santarém',
+    country: 'PT',
+    openingHours: [],
+  };
+  const dpd = (over: Partial<DraftShippingLine> = {}) =>
+    shipLine({ key: 'd', providerId: 'dpd-portugal', serviceId: 'PICKUP', requiresPickupPoint: true, ...over });
+
+  it('starts empty: no shipping lines, no promotions, billing never assumed', () => {
+    const form = emptyOrderForm('pt');
+    expect(form.shippingLines).toEqual([]);
+    expect(form.promotionIds).toEqual([]);
+    expect(form.billingSameAsShipping).toBe(false);
+  });
+
+  it('shippingLinesInput sends each line with its amount, and the pickup of a line that needs one', () => {
+    expect(
+      shippingLinesInput([dpd({ pickup: { point, postalCode: '2000-002' } }), shipLine({ amount: 0 })])
+    ).toEqual([
+      { providerId: 'dpd-portugal', serviceId: 'PICKUP', amount: 500, pickupPointId: 'P1', pickupPostalCode: '2000-002' },
+      { providerId: 'manual', serviceId: '1', amount: 0 },
+    ]);
+  });
+
+  it("quoteDestination: the first line's pickup point, else the shipping address; null without a country", () => {
+    const form = validForm();
+    expect(quoteDestination(form)).toEqual({ country: 'PT', postalCode: '1000-001' });
+    expect(quoteDestination({ ...form, shippingLines: [dpd({ pickup: { point, postalCode: '2000-002' } })] })).toEqual({
+      country: 'PT',
+      postalCode: '2000-002',
+    });
+    // A pickup on a later line does not move the parcel.
+    expect(
+      quoteDestination({ ...form, shippingLines: [shipLine(), dpd({ pickup: { point: { ...point, postalCode: '9' }, postalCode: '9' } })] })
+    ).toEqual({ country: 'PT', postalCode: '1000-001' });
+    const none = validForm();
+    none.shippingAddress.country = '';
+    expect(quoteDestination(none)).toBeNull();
+  });
+
+  it('create sends the shipping lines (the first is the delivery method) and the selected promotions', () => {
+    const form = {
+      ...validForm(),
+      promotionIds: [3, 4],
+      shippingLines: [dpd({ pickup: { point, postalCode: '2000-002' } }), shipLine({ key: 's2', amount: 250 })],
+    };
+    const input = buildCreateOrderInput(form, 'k');
+    expect(input.shippingLines).toEqual([
+      { providerId: 'dpd-portugal', serviceId: 'PICKUP', amount: 500, pickupPointId: 'P1', pickupPostalCode: '2000-002' },
+      { providerId: 'manual', serviceId: '1', amount: 250 },
+    ]);
+    expect(input.promotionIds).toEqual([3, 4]);
+    expect('shipping' in input).toBe(false);
+    expect('pickupPointId' in input).toBe(false);
+  });
+
+  it('validation requires a shipping line and the pickup point of the first one only', () => {
+    expect(validateOrderForm({ ...validForm(), shippingLines: [] })).toEqual([
+      { path: 'shippingLines', code: 'required' },
+    ]);
+    expect(validateOrderForm({ ...validForm(), shippingLines: [dpd()] })).toEqual([
+      { path: 'shippingLines.0.pickupPointId', code: 'PICKUP_POINT_REQUIRED' },
+    ]);
+    expect(validateOrderForm({ ...validForm(), shippingLines: [shipLine(), dpd()] })).toEqual([]);
   });
 });

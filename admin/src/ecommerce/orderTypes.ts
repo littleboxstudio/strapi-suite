@@ -532,6 +532,56 @@ export type OrderQuoteInput = {
   shipping?: { country: string; postalCode?: string; providerId: string; serviceId: string } | null;
   /** Order-level manual discounts (base: the subtotal), applied in this order. */
   manualDiscounts?: ManualDiscountInput[];
+  /** Admin: the only automatic promotions evaluated ([] = none; codes still apply). */
+  promotionIds?: number[];
+  /** Admin: the shipping charges (exclusive with `shipping`); needs `destination`. */
+  shippingLines?: { providerId: string; serviceId: string; amount: number }[];
+  /** Where the parcel goes (a pickup point's country and postal code for DPD Pickup). */
+  destination?: { country: string; postalCode?: string } | null;
+};
+
+/** `POST orders/applicable-promotions`: the cart as Create order prices it. */
+export type ApplicablePromotionsInput = {
+  lines: { variantId: number; quantity: number; discountPercent?: number }[];
+  locale: string;
+  email?: string | null;
+  promotionCodes?: string[];
+  giftChoices?: Record<number, number>;
+  /** Only the amounts count: their sum is the order's shipping. */
+  shippingLines?: { amount: number }[];
+};
+
+/** An automatic promotion that applies to the cart, with what it gives in the best combination. */
+export type ApplicablePromotion = {
+  id: number;
+  name: string;
+  displayName: Record<string, string>;
+  classes: DiscountClass[];
+  benefits: PromotionBenefit[];
+  /** Cents (a gift: the gift's value). */
+  amount: number;
+};
+
+export type ApplicablePromotions = { promotions: ApplicablePromotion[]; exhaustive: boolean };
+
+/** `GET promotion-codes/search`: a running promotion code (no usage or customer data). */
+export type PromotionCodeSearchResult = {
+  code: string;
+  promotionId: number;
+  name: string;
+  displayName: Record<string, string>;
+  classes: DiscountClass[];
+  benefits: PromotionBenefit[];
+};
+
+/** A shipping charge of a new order (Create order); the first one is the delivery method. */
+export type CreateShippingLineInput = {
+  providerId: string;
+  serviceId: string;
+  /** Integer cents, VAT included. */
+  amount: number;
+  pickupPointId?: string;
+  pickupPostalCode?: string;
 };
 
 export type OrderQuoteLine = {
@@ -595,6 +645,8 @@ export type OrderQuote = {
   giftOptions: QuoteGiftOption[];
   /** The manual discounts sent, in order, with their amounts (included in the totals). */
   manualDiscounts?: { kind: 'FIXED' | 'PERCENT'; percent: number | null; amount: number; reason: string }[];
+  /** Admin quotes: the shipping lines priced (name in the quote locale). */
+  shippingLines?: { providerId: string; serviceId: string; name: string; tax: number; amount: number }[];
 };
 
 export type CreateOrderInput = {
@@ -604,7 +656,12 @@ export type CreateOrderInput = {
   locale: string;
   /** `discountPercent`: the manual line discount (spec 4.1); omitted when none. */
   lines: { variantId: number; quantity: number; discountPercent?: number }[];
-  shipping: { providerId: string; serviceId: string };
+  /** The single method (storefront compatibility); Create order sends `shippingLines`. */
+  shipping?: { providerId: string; serviceId: string };
+  /** The shipping charges; the first is the delivery method and carries the pickup point. */
+  shippingLines?: CreateShippingLineInput[];
+  /** The only automatic promotions applied (codes apply as well). */
+  promotionIds?: number[];
   /** DPD Pickup: the chosen point, confirmed by the server with a search of `pickupPostalCode`. */
   pickupPointId?: string;
   pickupPostalCode?: string;

@@ -5,6 +5,9 @@ import config from '../../core/config';
 import { objectToQueryString } from '../../core/utils/objectToQueryString';
 import type {
   Address,
+  ApplicablePromotions,
+  ApplicablePromotionsInput,
+  PromotionCodeSearchResult,
   CreatedOrder,
   CreateOrderInput,
   Customer,
@@ -86,6 +89,10 @@ export default interface EcommerceOrdersGateway {
   quoteShipping(input: ShippingQuoteInput): Promise<ShippingQuote>;
   /** Prices a cart with promotions (`POST orders/quote`, orders.manage); writes nothing. */
   quote(input: OrderQuoteInput): Promise<OrderQuote>;
+  /** The automatic promotions that apply to a cart (Create order's Apply discount); writes nothing. */
+  applicablePromotions(input: ApplicablePromotionsInput): Promise<ApplicablePromotions>;
+  /** Running promotion codes containing `q` (orders.manage); no usage or customer data. */
+  searchPromotionCodes(q: string): Promise<{ results: PromotionCodeSearchResult[] }>;
   searchVariants(q: string, locale?: string): Promise<VariantSearchResult[]>;
   /** DPD pickup points near a postal code (orders.manage); a failed search is a 400 with its code. */
   searchPickupPoints(postalCode: string): Promise<{ points: PickupPoint[] }>;
@@ -242,6 +249,14 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
 
   async quote(input: OrderQuoteInput): Promise<OrderQuote> {
     return this.httpClient.post(`${this.orders}/quote`, input);
+  }
+
+  async applicablePromotions(input: ApplicablePromotionsInput): Promise<ApplicablePromotions> {
+    return this.httpClient.post(`${this.orders}/applicable-promotions`, input);
+  }
+
+  async searchPromotionCodes(q: string): Promise<{ results: PromotionCodeSearchResult[] }> {
+    return this.httpClient.get(`${this.base}/promotion-codes/search${objectToQueryString({ q })}`);
   }
 
   async searchVariants(q: string, locale?: string): Promise<VariantSearchResult[]> {
