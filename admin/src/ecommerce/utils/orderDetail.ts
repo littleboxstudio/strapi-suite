@@ -190,6 +190,12 @@ function historyChange(
     return { before: money(before), after: money(after) };
   }
 
+  if (type === 'PROMOTION_REMOVED') {
+    const amount = field(prev, 'amount');
+    if (!isNumber(amount)) return null;
+    return { before: money(amount), after: money(0) };
+  }
+
   if (type === 'MANUAL_DISCOUNT_ADDED' || type === 'MANUAL_DISCOUNT_REMOVED') {
     const amount = field(type === 'MANUAL_DISCOUNT_ADDED' ? next : prev, 'amount');
     if (!isNumber(amount)) return null;
@@ -395,7 +401,7 @@ export function lineDiscountLabel(
 /** Badge colour of a code status (applied, waiting, refused). */
 export function codeStatusBadgeVariant(status: string): 'success' | 'secondary' | 'warning' | 'danger' {
   if (status === 'APPLIED') return 'success';
-  if (status === 'AWAITING_SHIPPING') return 'secondary';
+  if (status === 'AWAITING_SHIPPING' || status === 'REMOVED') return 'secondary';
   if (status === 'CONFLICT' || status === 'NO_BENEFIT' || status === 'CONDITIONS_NOT_MET') return 'warning';
   return 'danger';
 }
@@ -622,6 +628,9 @@ export const API_ERROR_CODES = [
   'BILLING_ADDRESS_LOCKED',
   'MANUAL_DISCOUNT_NOT_FOUND',
   'MANUAL_DISCOUNT_INVOICED',
+  'PROMOTION_INVOICED',
+  'PROMOTION_SHIPPED',
+  'PROMOTION_NOT_APPLIED',
   'INVALID_PERCENT',
   // DPD Portugal (plan 12)
   'DPD_AUTH_FAILED',

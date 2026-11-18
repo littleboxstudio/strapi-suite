@@ -1,13 +1,16 @@
 import { useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
-import { Button, Flex, Modal, Typography } from '@strapi/design-system';
+import { Button, Flex, Modal, Tooltip, Typography } from '@strapi/design-system';
+import { ActionConfirmModal } from '../ActionConfirmModal';
+import RemovePromotion from '../../usecases/orders/removePromotion';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import EmptyNote from './EmptyNote';
 import RemoveManualDiscount from '../../usecases/orders/removeManualDiscount';
 import { formatCents } from '../../utils/money';
 import {
   apiErrorMessageId,
+  promotionDisplayName,
   codeStatusBadgeVariant,
   promotionRows,
   unappliedPromotionCodes,
@@ -24,6 +27,8 @@ import {
   manualLineDiscountRows,
   manualLineDiscountTotal,
   orderDiscountTotal,
+  promotionRemovalAction,
+  promotionRemovalText,
 } from '../../utils/orderEditing';
 import { mintUuid } from '../../utils/variantDraft';
 import type { EditResult, ManualDiscount, Order, OrderPromotion, OrderPromotionCode } from '../../orderTypes';
@@ -53,7 +58,11 @@ type Props = {
 };
 
 /** The open discounts modal; it unmounts on close, so each opening mints its own operationId. */
-type DiscountModal = { kind: 'RECALCULATE' } | { kind: 'ADD' } | { kind: 'REMOVE'; discount: ManualDiscount };
+type DiscountModal =
+  | { kind: 'RECALCULATE' }
+  | { kind: 'ADD' }
+  | { kind: 'REMOVE'; discount: ManualDiscount }
+  | { kind: 'REMOVE_PROMOTION'; promotion: OrderPromotion };
 
 /**
  * The promotions the order recorded (promotions requirements 3.2, 3.7 and 3.8): one row per benefit,
@@ -82,7 +91,43 @@ const PromotionsSection = ({
   const manualRows = manualDiscountRows(order, canManage);
   // Spec 4.1: each line with a manual percent is listed too, so the total matches the order.
   const lineRows = manualLineDiscountRows(order.lines ?? [], uiLocale);
-  const showActions = hasRowActions(manualRows);
+  const removalOf = (promotionId: number) => {
+    const promotion = promotions.find((p) => p.promotionId === promotionId);
+    const action = promotion ? promotionRemovalAction(order, promotion, canManage) : null;
+    return promotion && action ? { promotion, action } : null;
+  };
+  // One Remove per promotion, on its first benefit row.
+  const firstRowKeys = new Set<string>();
+  const seen = new Set<number>();
+  for (const r of rows) {
+    if (seen.has(r.promotionId)) continue;
+    seen.add(r.promotionId);
+    firstRowKeys.add(r.key);
+  }
+  const showActions =
+    hasRowActions(manualRows) || promotions.some((p) => removalOf(p.promotionId) !== null);
+  const promotionAction = (row: (typeof rows)[number]) => {
+    if (!firstRowKeys.has(row.key)) return null;
+    const removal = removalOf(row.promotionId);
+    if (!removal) return null;
+    const button = (
+      <Button
+        size="S"
+        variant="danger-light"
+        disabled={!removal.action.enabled}
+        onClick={() => setModal({ kind: 'REMOVE_PROMOTION', promotion: removal.promotion })}
+      >
+        {t('ecommerce.orders.discounts.remove')}
+      </Button>
+    );
+    return removal.action.reasonKey ? (
+      <Tooltip label={t(removal.action.reasonKey)}>
+        <span style={{ display: 'inline-flex' }}>{button}</span>
+      </Tooltip>
+    ) : (
+      button
+    );
+  };
 
   const [modal, setModal] = useState<DiscountModal | null>(null);
   const closeModal = () => setModal(null);
@@ -155,6 +200,7 @@ const PromotionsSection = ({
                 };
               })}
               lineRows={lineRows}
+              rowAction={promotionAction}
               total={orderDiscountTotal(promotions, order.manualDiscounts ?? []) + manualLineDiscountTotal(lineRows)}
               showActions={showActions}
             />
@@ -187,6 +233,15 @@ const PromotionsSection = ({
           order={order}
           discount={modal.discount}
           reason={manualReason(modal.discount)}
+          onClose={closeModal}
+          onSaved={onEdited}
+        />
+      )}
+      {canManage && modal?.kind === 'REMOVE_PROMOTION' && (
+        <RemovePromotionModal
+          order={order}
+          promotion={modal.promotion}
+          name={promotionDisplayName(modal.promotion, locales.locale, locales.defaultLocale) ?? modal.promotion.name}
           onClose={closeModal}
           onSaved={onEdited}
         />
@@ -261,6 +316,66 @@ const RemoveDiscountModal = ({
         </Modal.Footer>
       </Modal.Content>
     </Modal.Root>
+  );
+};
+
+/**
+ * Confirm removing an applied promotion: what the total goes up by and the gift units that go.
+ * Once removed it closes, like RemoveDiscountModal. Mounted only while open: one operationId.
+ */
+const RemovePromotionModal = ({
+  order,
+  promotion,
+  name,
+  onClose,
+  onSaved,
+}: {
+  order: Order;
+  promotion: OrderPromotion;
+  name: string;
+  onClose: () => void;
+  onSaved: (result: EditResult) => void;
+}) => {
+  const { formatMessage, locale } = useIntl();
+  const { toggleNotification } = useNotification();
+  const t = (id: string, values?: Record<string, any>) => formatMessage({ id: getTranslation(id) }, values);
+  const [operationId] = useState(() => mintUuid());
+  const [busy, setBusy] = useState(false);
+  const removal = promotion.removal ?? { blockedBy: null, difference: 0, giftUnits: 0 };
+  const text = promotionRemovalText(removal);
+
+  const remove = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const result = await new RemovePromotion().execute(order.id, promotion.promotionId, { operationId });
+      onSaved(result);
+      toggleNotification({ type: 'success', message: t('ecommerce.orders.promotions.removed') });
+      onClose();
+    } catch (err) {
+      toggleNotification({
+        type: 'danger',
+        message: t(apiErrorMessageId(err, 'ecommerce.orders.discounts.saveError')),
+      });
+      setBusy(false);
+    }
+  };
+
+  return (
+    <ActionConfirmModal
+      open
+      title={t('ecommerce.orders.promotions.removeTitle')}
+      text={
+        <Typography style={WRAP}>
+          {t(text.key, { name, amount: formatCents(removal.difference, locale) })}
+          {text.giftKey ? ` ${t(text.giftKey, { units: removal.giftUnits })}` : ''}
+        </Typography>
+      }
+      confirmLabel={t('ecommerce.orders.discounts.remove')}
+      cancelLabel={t('ecommerce.orders.discounts.close')}
+      onConfirm={remove}
+      onCancel={() => !busy && onClose()}
+    />
   );
 };
 
