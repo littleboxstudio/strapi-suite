@@ -74,6 +74,18 @@ export const stackingConflict = (
   return null;
 };
 
+/**
+ * Why `p` does not stack with an order-level manual discount (an ORDER_DISCOUNT the admin
+ * enters): `p` is exclusive, or it does not allow order discounts. Null when it stacks.
+ */
+export const manualDiscountConflict = (p: PromotionDefinition): StackingConflict | null => {
+  if (p.stacking.exclusive) return { rule: 'EXCLUSIVE_SELF', discountClass: null };
+  if (!allows(p.stacking, 'ORDER_DISCOUNT')) {
+    return { rule: 'CLASS_SELF', discountClass: 'ORDER_DISCOUNT' };
+  }
+  return null;
+};
+
 export type CodeStatus =
   | 'APPLIED'
   | 'NOT_FOUND'

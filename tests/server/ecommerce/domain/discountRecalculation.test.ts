@@ -1080,6 +1080,7 @@ describe('recommender: every eligible candidate is listed', () => {
       ctx({ lines, applied, shippingGross: 500, shippingDiscount: 500, candidates: [noOrder, ten] })
     );
     expect(r.rows.find((row) => row.key === 'p:3')?.blockedBy).toEqual({
+      kind: 'PROMOTION',
       promotionId: 1,
       name: 'Free shipping',
       displayName: { en: 'Promo 1' },
