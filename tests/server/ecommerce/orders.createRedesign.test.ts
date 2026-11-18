@@ -608,6 +608,27 @@ describe('shippingLines: several admin shipping charges', () => {
     expect(currentMethod(readShippingLines(orderRow(c, created.id)))).toMatchObject({ providerId: 'manual', serviceId: '1' });
   });
 
+  it('admin create with shipping lines finds the customer by e-mail or creates one with the order language', async () => {
+    const c = setup();
+    const first = await c.orders.create(createLines({ locale: 'pt', idempotencyKey: 'cust-1' }) as any, admin);
+    const customers = c.tables[UIDS.customer];
+    expect(customers).toHaveLength(1);
+    expect(customers[0]).toMatchObject({ email: 'ana@example.pt', locale: 'pt' });
+    expect(orderRow(c, first.id).customer).toBe(customers[0].id);
+    // The same e-mail (any case) is the same customer; their language is kept.
+    const second = await c.orders.create(
+      createLines({
+        locale: 'en',
+        idempotencyKey: 'cust-2',
+        customer: { firstName: 'Ana', lastName: 'S', email: 'ANA@Example.pt' },
+      }) as any,
+      admin
+    );
+    expect(c.tables[UIDS.customer]).toHaveLength(1);
+    expect(orderRow(c, second.id).customer).toBe(customers[0].id);
+    expect(customers[0].locale).toBe('pt');
+  });
+
   it('the storefront ignores shippingLines and keeps the single shipping', async () => {
     const c = setup();
     const created = await c.orders.create(createInput({ shippingLines: TWO_LINES }) as any, {
