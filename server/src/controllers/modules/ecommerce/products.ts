@@ -5,6 +5,16 @@ import { handleDomainError as handleSharedDomainError } from './errors';
 import { removeTempUploads } from './uploads';
 import { MAX_UPLOAD_BYTES } from '../../../services/modules/ecommerce/domain/imageProcessing';
 
+/**
+ * A short reason for a failed AI translation: the provider's own message when its answer carries
+ * one (e.g. "You have no credits remaining…"), else the error's first line. API keys are masked.
+ */
+export function aiFailureReason(error: string): string {
+  const message = /"message"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(error)?.[1];
+  const reason = (message ?? error.split('\n')[0]).replace(/^[a-z]{2}(?:-[A-Za-z]{2})?:\s*/, '');
+  return reason.replace(/sk-[A-Za-z0-9_*-]+/g, 'sk-…').slice(0, 300);
+}
+
 const EcommerceProductController = ({ strapi }: { strapi: Core.Strapi }) => {
   const service = (name: string): any => strapi.plugin(PLUGIN_ID).service(name);
   const products = () => service('EcommerceProductService');
@@ -184,14 +194,17 @@ const EcommerceProductController = ({ strapi }: { strapi: Core.Strapi }) => {
 
       const translations: Record<string, Record<string, string>> = {};
       let failed = 0;
+      const errors = new Set<string>();
       for (const code of targetLocales as string[]) {
         const target = locales.find((l) => l.code === code);
         if (!target) return ctx.badRequest(`The locale ${code} is not configured`);
         const result = await ai().translateStrings(credentials, source, target, strings);
         translations[code] = result.translations;
         failed += result.failed;
+        for (const error of result.errors ?? []) errors.add(aiFailureReason(String(error)));
       }
-      ctx.body = { translations, failed };
+      // Why strings failed (the provider's reasons, deduplicated), so the admin can say it.
+      ctx.body = { translations, failed, errors: [...errors] };
     },
   };
 };

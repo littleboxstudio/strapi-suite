@@ -98,4 +98,6 @@ export type TranslateInput = {
 export type TranslateOutput = {
   translations: Record<string, Record<string, string>>;
   failed: any;
+  /** Why strings failed: the AI provider's reasons (no secrets). */
+  errors?: string[];
 };

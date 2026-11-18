@@ -25,7 +25,7 @@ import type {
   StorePickupInput,
   StorePickupSaveResult,
 } from '../settingsTypes';
-import type { EcommerceLocales } from '../types';
+import type { EcommerceLocales, TranslateInput, TranslateOutput } from '../types';
 
 export default interface EcommerceSettingsGateway {
   fetchLocales(): Promise<EcommerceLocales>;
@@ -63,6 +63,7 @@ export default interface EcommerceSettingsGateway {
     content: TemplateContent
   ): Promise<EmailTemplateView>;
   previewEmailTemplate(type: EmailTemplateType, content: TemplateContent): Promise<EmailPreview>;
+  translateEmailTemplate(input: TranslateInput): Promise<TranslateOutput>;
   sendTestEmail(type: EmailTemplateType, locale: string, to: string): Promise<{ id: string }>;
   restoreDefaultEmailTemplate(type: EmailTemplateType, locale: string): Promise<EmailTemplateView>;
   fetchEmailTemplateVersions(
@@ -194,6 +195,10 @@ export class EcommerceSettingsGatewayHttp implements EcommerceSettingsGateway {
     content: TemplateContent
   ): Promise<EmailTemplateView> {
     return this.httpClient.put(this.template(type, locale), content);
+  }
+
+  async translateEmailTemplate(input: TranslateInput): Promise<TranslateOutput> {
+    return this.httpClient.post(`${this.base}/email-templates/translate`, input);
   }
 
   async previewEmailTemplate(

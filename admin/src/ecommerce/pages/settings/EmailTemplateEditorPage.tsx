@@ -11,6 +11,7 @@ import {
   IconButton,
   Loader,
   TextInput,
+  Tooltip,
   Typography,
 } from '@strapi/design-system';
 import { ArrowLeft } from '@strapi/icons';
@@ -27,6 +28,7 @@ import { HeaderActions } from '../../components/HeaderActions';
 import FetchEmailTemplate from '../../usecases/settings/fetchEmailTemplate';
 import SaveEmailTemplate from '../../usecases/settings/saveEmailTemplate';
 import PreviewEmailTemplate from '../../usecases/settings/previewEmailTemplate';
+import TranslateEmailTemplate from '../../usecases/settings/translateEmailTemplate';
 import RestoreDefaultEmailTemplate from '../../usecases/settings/restoreDefaultEmailTemplate';
 import FetchSettingsLocales from '../../usecases/settings/fetchSettingsLocales';
 import { extractFieldErrors } from '../../utils/productForm';
@@ -35,9 +37,11 @@ import {
   annotateTemplate,
   joinTemplate,
   replaceText,
+  applyTranslation,
   splitTemplate,
   textAt,
   textRange,
+  translationStrings,
   type TemplatePart,
 } from '../../utils/emailTextEditing';
 import { useSettingsPermissions } from './useSettingsPermissions';
@@ -68,7 +72,7 @@ function scrollParent(el: HTMLElement): HTMLElement {
 }
 
 type FieldIssues = { subject?: TemplateIssue[]; html?: TemplateIssue[] };
-type Locales = { defaultLocale: string; locales: { code: string; name: string }[] };
+type Locales = { defaultLocale: string; locales: { code: string; name: string }[]; aiAvailable?: boolean };
 
 const Columns = styled.div`
   display: grid;
@@ -138,6 +142,8 @@ const EmailTemplateEditorPage = () => {
   const [variablesOpen, setVariablesOpen] = useState(false);
   const [confirmRestore, setConfirmRestore] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const [confirmTranslate, setConfirmTranslate] = useState(false);
+  const [translating, setTranslating] = useState(false);
 
   const applyTemplate = (view: EmailTemplateView) => {
     setTemplate(view);
@@ -173,7 +179,7 @@ const EmailTemplateEditorPage = () => {
       })
       .catch(() => {
         // Without the locales only the current locale is offered.
-        if (!cancelled) setLocales({ defaultLocale: '', locales: [] });
+        if (!cancelled) setLocales({ defaultLocale: '', locales: [], aiAvailable: false });
       });
     return () => {
       cancelled = true;
@@ -344,6 +350,70 @@ const EmailTemplateEditorPage = () => {
     }
   };
 
+  const defaultLocale = locales?.defaultLocale ?? '';
+  const defaultLocaleName =
+    locales?.locales.find((l) => l.code === defaultLocale)?.name ?? defaultLocale.toUpperCase();
+  // Translations start from the default language's template; that one has nothing to start from.
+  const translateBlocked = !locales?.aiAvailable
+    ? t('ecommerce.product.ai.unavailable')
+    : !defaultLocale || locale === defaultLocale
+      ? t('ecommerce.settings.emailTemplates.ai.isDefault')
+      : null;
+
+  /**
+   * Replaces this language's subject and HTML with an AI translation of the default language's
+   * template: only its texts are translated (tags, variables and blocks are kept), and nothing is
+   * saved until Save.
+   */
+  const translateWithAi = async () => {
+    if (!type || translateBlocked) return;
+    setTranslating(true);
+    try {
+      const source = await new FetchEmailTemplate().execute(type, defaultLocale);
+      const parts = splitTemplate(source.html);
+      const result = await new TranslateEmailTemplate().execute({
+        sourceLocale: defaultLocale,
+        targetLocales: [locale],
+        strings: translationStrings(source.subject, parts),
+      });
+      const decoder = document.createElement('textarea');
+      const decode = (value: string) => {
+        decoder.innerHTML = value;
+        return decoder.value;
+      };
+      const translated = result.translations?.[locale] ?? {};
+      const reason = result.errors?.[0];
+      // Nothing came back: the template stays as it is (never replaced by the untranslated source).
+      if (!Object.values(translated).some((v) => typeof v === 'string' && v.trim())) {
+        const text = t('ecommerce.settings.emailTemplates.ai.error');
+        toggleNotification({ type: 'danger', message: reason ? `${text} ${reason}` : text });
+        return;
+      }
+      const next = applyTranslation(source.subject, parts, translated, decode);
+      setEditSession(null);
+      setSubject(next.subject);
+      setHtml(next.html);
+      setIssues({});
+      const failed = Number(result.failed) || 0;
+      toggleNotification(
+        failed > 0
+          ? {
+              type: 'warning',
+              message: [t('ecommerce.settings.emailTemplates.ai.partial', { failed }), reason].filter(Boolean).join(' '),
+            }
+          : { type: 'success', message: t('ecommerce.settings.emailTemplates.ai.done') }
+      );
+    } catch (err: any) {
+      const notConfigured = err?.response?.status === 409;
+      toggleNotification({
+        type: 'danger',
+        message: t(notConfigured ? 'ecommerce.product.ai.unavailable' : 'ecommerce.settings.emailTemplates.ai.error'),
+      });
+    } finally {
+      setTranslating(false);
+    }
+  };
+
   const issueText = (list: TemplateIssue[] | undefined) =>
     list?.map(
       (issue) => `${t(`ecommerce.settings.emailTemplates.issues.${issue.code}`)}: ${issue.detail}`
@@ -387,6 +457,25 @@ const EmailTemplateEditorPage = () => {
       )}
       {template && (
         <HeaderActions>
+          {!readOnly &&
+            (translateBlocked ? (
+              <Tooltip label={translateBlocked}>
+                <span>
+                  <Button variant="secondary" disabled>
+                    {t('ecommerce.product.ai.translate')}
+                  </Button>
+                </span>
+              </Tooltip>
+            ) : (
+              <Button
+                variant="secondary"
+                loading={translating}
+                disabled={translating || saving || restoring}
+                onClick={() => setConfirmTranslate(true)}
+              >
+                {t('ecommerce.product.ai.translate')}
+              </Button>
+            ))}
           <Button variant="secondary" onClick={() => setVariablesOpen(true)}>
             {t('ecommerce.settings.emailTemplates.editor.variables')}
           </Button>
@@ -558,6 +647,24 @@ const EmailTemplateEditorPage = () => {
         cancel={{
           button: t('ecommerce.settings.cancel'),
           action: () => setConfirmRestore(false),
+        }}
+      />
+
+      <ConfirmModal
+        open={confirmTranslate}
+        title={t('ecommerce.product.ai.translate')}
+        text={t('ecommerce.settings.emailTemplates.ai.confirm', { language: defaultLocaleName })}
+        confirm={{
+          variant: 'secondary',
+          button: t('ecommerce.product.ai.translate'),
+          action: () => {
+            setConfirmTranslate(false);
+            if (!readOnly) translateWithAi();
+          },
+        }}
+        cancel={{
+          button: t('ecommerce.settings.cancel'),
+          action: () => setConfirmTranslate(false),
         }}
       />
 

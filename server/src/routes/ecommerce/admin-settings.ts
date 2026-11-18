@@ -48,6 +48,8 @@ export default [
   route('GET', '/carriers/store-pickup/config', 'getStorePickup', read),
   route('PUT', '/carriers/store-pickup/config', 'saveStorePickup', manage),
   route('GET', '/email-templates', 'listEmailTemplates', read),
+  // AI translation of a template's texts (same engine and payload as the products').
+  route('POST', '/email-templates/translate', 'translateEmailTemplate', manage),
   // Registered before the ':locale' routes so 'preview' is never read as a locale.
   route('POST', '/email-templates/:type/preview', 'previewEmailTemplate', read),
   route('GET', '/email-templates/:type/:locale', 'getEmailTemplate', read),

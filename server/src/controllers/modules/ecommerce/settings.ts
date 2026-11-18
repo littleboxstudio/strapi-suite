@@ -39,6 +39,15 @@ const EcommerceSettingsController = ({ strapi }: { strapi: Core.Strapi }) => {
       return products.getLocales(ctx);
     },
 
+    /**
+     * Translates an e-mail template's strings ({ sourceLocale, targetLocales, strings }) with the
+     * products' AI translation, behind the settings permission instead of the products one.
+     */
+    translateEmailTemplate: (ctx: any) => {
+      const products: any = strapi.plugin(PLUGIN_ID).controller('EcommerceProductController');
+      return products.translate(ctx);
+    },
+
     /** What the admin shows to set up the Stripe webhook (no secrets). */
     getStripeWebhook: (ctx: any) => {
       // Same prefix as the raw-body middleware, so the URL copied into Stripe is the one served.
