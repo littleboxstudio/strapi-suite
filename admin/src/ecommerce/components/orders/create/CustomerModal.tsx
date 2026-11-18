@@ -278,6 +278,8 @@ const CustomerModal = ({
                           const value = e.target.value;
                           setForm((f) => ({ ...f, [field]: value }));
                           setErrors(({ [field]: _gone, ...rest }) => rest);
+                          // Another e-mail is another customer: no last addresses are filled.
+                          if (field === 'email') setPickedId(null);
                         }}
                       />
                       <Field.Error />

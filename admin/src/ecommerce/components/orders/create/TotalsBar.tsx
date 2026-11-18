@@ -1,6 +1,5 @@
 import { useIntl } from 'react-intl';
-import styled from 'styled-components';
-import { Flex, Typography } from '@strapi/design-system';
+import { Box, Flex, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../../core/utils/getTranslation';
 import { formatCents } from '../../../utils/money';
 import type { CreateTotalsTile } from '../../../utils/orderForm';
@@ -13,14 +12,11 @@ const LABEL: Record<CreateTotalsTile['key'], string> = {
   total: 'ecommerce.orders.totals.total',
 };
 
-/** Stays at the top of the page while it scrolls; the page background hides what passes below. */
-const Sticky = styled.div`
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  padding: 8px 0;
-  background: ${({ theme }) => theme.colors.neutral100};
-`;
+/**
+ * Stays at the top of the page while it scrolls. The wrapper is painted with the page background
+ * (the design system's `neutral100`, light and dark), so content scrolls under it cleanly.
+ */
+const STICKY = { position: 'sticky', top: 0, zIndex: 3 } as const;
 
 type Props = {
   tiles: CreateTotalsTile[];
@@ -32,7 +28,7 @@ type Props = {
 const TotalsBar = ({ tiles, note }: Props) => {
   const { formatMessage, locale } = useIntl();
   return (
-    <Sticky>
+    <Box background="neutral100" paddingTop={3} paddingBottom={3} style={STICKY}>
       <Flex direction="column" alignItems="stretch" gap={2}>
         <Tiles $columns={tiles.length}>
           {tiles.map((tile) => (
@@ -57,7 +53,7 @@ const TotalsBar = ({ tiles, note }: Props) => {
           </Typography>
         )}
       </Flex>
-    </Sticky>
+    </Box>
   );
 };
 

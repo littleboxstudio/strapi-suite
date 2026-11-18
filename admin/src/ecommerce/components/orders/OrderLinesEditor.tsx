@@ -21,6 +21,7 @@ import { FIT_CELL, LINE_CELL, PRODUCT_CELL } from './lineCells';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { formatCents } from '../../utils/money';
 import { lineSubtotal, lineUnitNet, type OrderLineDraft } from '../../utils/orderForm';
+import { giftLineKey } from '../../utils/createOrder';
 import type { OrderQuoteLine } from '../../orderTypes';
 import { ToneBadge } from './StatusBadges';
 
@@ -199,7 +200,7 @@ const OrderLinesEditor = ({
           const final = gift.unitPrice - gift.unitDiscount;
           const label = giftLabel?.(gift) ?? null;
           return (
-            <Tr key={`gift-${gift.variantId}`}>
+            <Tr key={giftLineKey(gift)}>
               <Td style={LINE_CELL}>
                 <LineThumbnail imageUrl={gift.imageUrl} />
               </Td>
