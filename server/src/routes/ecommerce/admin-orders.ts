@@ -69,5 +69,6 @@ export default [
   edit('POST', '/:id/discounts', 'applyDiscounts', manage),
   edit('POST', '/:id/manual-discounts', 'addManualDiscount', manage),
   edit('POST', '/:id/manual-discounts/:discountId/remove', 'removeManualDiscount', manage),
+  edit('POST', '/:id/promotions/:promotionId/remove', 'removePromotion', manage),
   edit('POST', '/:id/review-flags/:code/dismiss', 'dismissReviewFlag', manage),
 ];

@@ -97,6 +97,11 @@ const EcommerceOrderEditingController = ({ strapi }: { strapi: Core.Strapi }) =>
       return editing().removeManualDiscount(id, discountId, actorOf(ctx), operationId);
     }),
 
+    removePromotion: handle(['promotionId'], (ctx, id, promotionId) => {
+      const { operationId } = splitBody(ctx);
+      return editing().removePromotion(id, promotionId, actorOf(ctx), operationId);
+    }),
+
     dismissReviewFlag: async (ctx: any) => {
       const code = ctx.params?.code;
       if (!REVIEW_FLAG_CODES.includes(code)) {
