@@ -29,7 +29,7 @@ import {
   parseDiscountPercent,
   percentToInput,
   manualDiscountRows,
-  promotionRemovalAction,
+  canRemovePromotion,
   promotionRemovalText,
   manualDiscountBase,
   canAddManualDiscount,
@@ -1063,33 +1063,30 @@ describe('manual discount base (products not yet invoiced)', () => {
   });
 });
 
-describe('promotionRemovalAction (remove an applied promotion)', () => {
+describe('canRemovePromotion (remove an applied promotion)', () => {
   const promotion = (removal: unknown, over: Record<string, unknown> = {}) =>
     ({ promotionId: 3, name: 'Buy 2 get a gift', redemptionStatus: 'RESERVED', removal, ...over }) as any;
   const editable = order({ editing: editing({ actions: ['REMOVE_DISCOUNT'] }) });
   const allowed = { blockedBy: null, difference: 0, giftUnits: 2 };
 
   it('offers Remove behind REMOVE_DISCOUNT and orders.manage', () => {
-    expect(promotionRemovalAction(editable, promotion(allowed), true)).toEqual({ enabled: true, reasonKey: null });
-    expect(promotionRemovalAction(editable, promotion(allowed), false)).toBeNull();
-    expect(promotionRemovalAction(order({ editing: editing({ actions: [] }) }), promotion(allowed), true)).toBeNull();
+    expect(canRemovePromotion(editable, promotion(allowed), true)).toBe(true);
+    expect(canRemovePromotion(editable, promotion(allowed), false)).toBe(false);
+    expect(canRemovePromotion(order({ editing: editing({ actions: [] }) }), promotion(allowed), true)).toBe(false);
     expect(
-      promotionRemovalAction(order({ editing: editing({ editable: false, actions: ['REMOVE_DISCOUNT'] }) }), promotion(allowed), true)
-    ).toBeNull();
+      canRemovePromotion(order({ editing: editing({ editable: false, actions: ['REMOVE_DISCOUNT'] }) }), promotion(allowed), true)
+    ).toBe(false);
   });
 
-  it('disables it with the reason when invoiced or shipped', () => {
-    for (const code of ['PROMOTION_INVOICED', 'PROMOTION_SHIPPED']) {
-      const action = promotionRemovalAction(editable, promotion({ ...allowed, blockedBy: code }), true);
-      expect(action).toEqual({ enabled: false, reasonKey: `ecommerce.orders.promotions.removeBlocked.${code}` });
-      expect(en[`littlebox-strapi-suite.${action!.reasonKey}`]).toBeTruthy();
-      expect(pt[`littlebox-strapi-suite.${action!.reasonKey}`]).toBeTruthy();
+  it('offers no button when invoiced, shipped or no longer applied', () => {
+    for (const code of ['PROMOTION_INVOICED', 'PROMOTION_SHIPPED', 'PROMOTION_NOT_APPLIED']) {
+      expect(canRemovePromotion(editable, promotion({ ...allowed, blockedBy: code }), true)).toBe(false);
     }
   });
 
   it('offers nothing without the removal state or once released', () => {
-    expect(promotionRemovalAction(editable, promotion(undefined), true)).toBeNull();
-    expect(promotionRemovalAction(editable, promotion(allowed, { redemptionStatus: 'RELEASED' }), true)).toBeNull();
+    expect(canRemovePromotion(editable, promotion(undefined), true)).toBe(false);
+    expect(canRemovePromotion(editable, promotion(allowed, { redemptionStatus: 'RELEASED' }), true)).toBe(false);
   });
 });
 
@@ -1108,8 +1105,6 @@ describe('promotionRemovalText', () => {
       'removeConfirmSameTotal',
       'removeConfirmGifts',
       'removeTitle',
-      'removeBlocked.PROMOTION_INVOICED',
-      'removeBlocked.PROMOTION_SHIPPED',
     ]) {
       expect(en[`littlebox-strapi-suite.ecommerce.orders.promotions.${k}`]).toBeTruthy();
       expect(pt[`littlebox-strapi-suite.ecommerce.orders.promotions.${k}`]).toBeTruthy();

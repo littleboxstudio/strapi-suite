@@ -423,23 +423,15 @@ export function manualDiscountRows(order: Order, canManage: boolean): ManualDisc
 }
 
 /**
- * The Remove button of an applied promotion row (owner approved), behind REMOVE_DISCOUNT and
- * orders.manage: null for no button; disabled with the reason (translation id) while its effect
- * is invoiced or shipped (the server refuses it too).
+ * Whether an applied promotion row offers Remove (owner approved), behind REMOVE_DISCOUNT and
+ * orders.manage. A promotion whose effect is invoiced or shipped (the server refuses it too), not
+ * applied any more or released offers no button at all.
  */
-export function promotionRemovalAction(
-  order: Order,
-  promotion: OrderPromotion,
-  canManage: boolean
-): { enabled: boolean; reasonKey: string | null } | null {
-  if (!canManage || !canEdit(order, 'REMOVE_DISCOUNT')) return null;
+export function canRemovePromotion(order: Order, promotion: OrderPromotion, canManage: boolean): boolean {
+  if (!canManage || !canEdit(order, 'REMOVE_DISCOUNT')) return false;
   const removal = promotion.removal;
-  if (!removal || promotion.redemptionStatus === 'RELEASED') return null;
-  if (removal.blockedBy === 'PROMOTION_NOT_APPLIED') return null;
-  if (removal.blockedBy) {
-    return { enabled: false, reasonKey: `ecommerce.orders.promotions.removeBlocked.${removal.blockedBy}` };
-  }
-  return { enabled: true, reasonKey: null };
+  if (!removal || promotion.redemptionStatus === 'RELEASED') return false;
+  return !removal.blockedBy;
 }
 
 /** The confirmation texts (translation ids): how the total changes, then the gift units removed. */

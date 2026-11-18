@@ -1745,8 +1745,6 @@
   "littlebox-strapi-suite.ecommerce.orders.promotions.removeConfirm": "Remover a promoção \"{name}\"? O total da encomenda sobe {amount}.",
   "littlebox-strapi-suite.ecommerce.orders.promotions.removeConfirmSameTotal": "Remover a promoção \"{name}\"? O total da encomenda não muda.",
   "littlebox-strapi-suite.ecommerce.orders.promotions.removeConfirmGifts": "{units, plural, one {A sua # unidade de oferta é removida.} other {As suas # unidades de oferta são removidas.}}",
-  "littlebox-strapi-suite.ecommerce.orders.promotions.removeBlocked.PROMOTION_INVOICED": "O desconto desta promoção já está numa fatura: a promoção não pode ser removida.",
-  "littlebox-strapi-suite.ecommerce.orders.promotions.removeBlocked.PROMOTION_SHIPPED": "As unidades com desconto ou de oferta desta promoção já foram enviadas: a promoção não pode ser removida.",
   "littlebox-strapi-suite.ecommerce.orders.promotions.removed": "Promoção removida.",
   "littlebox-strapi-suite.ecommerce.orders.promotions.releasedHint": "A encomenda foi cancelada: esta utilização deixou de contar para os limites da promoção.",
   "littlebox-strapi-suite.ecommerce.orders.promotions.total": "Desconto total:",

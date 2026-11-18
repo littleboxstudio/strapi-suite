@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNotification } from '@strapi/strapi/admin';
-import { Button, Flex, Modal, Tooltip, Typography } from '@strapi/design-system';
+import { Button, Flex, Modal, Typography } from '@strapi/design-system';
 import { ActionConfirmModal } from '../ActionConfirmModal';
 import RemovePromotion from '../../usecases/orders/removePromotion';
 import { getTranslation } from '../../../core/utils/getTranslation';
@@ -27,7 +27,7 @@ import {
   manualLineDiscountRows,
   manualLineDiscountTotal,
   orderDiscountTotal,
-  promotionRemovalAction,
+  canRemovePromotion,
   promotionRemovalText,
 } from '../../utils/orderEditing';
 import { mintUuid } from '../../utils/variantDraft';
@@ -91,10 +91,10 @@ const PromotionsSection = ({
   const manualRows = manualDiscountRows(order, canManage);
   // Spec 4.1: each line with a manual percent is listed too, so the total matches the order.
   const lineRows = manualLineDiscountRows(order.lines ?? [], uiLocale);
-  const removalOf = (promotionId: number) => {
+  // Only a promotion that can be removed gets the button; one blocked (invoiced, shipped) gets none.
+  const removable = (promotionId: number) => {
     const promotion = promotions.find((p) => p.promotionId === promotionId);
-    const action = promotion ? promotionRemovalAction(order, promotion, canManage) : null;
-    return promotion && action ? { promotion, action } : null;
+    return promotion && canRemovePromotion(order, promotion, canManage) ? promotion : null;
   };
   // One Remove per promotion, on its first benefit row.
   const firstRowKeys = new Set<string>();
@@ -104,28 +104,21 @@ const PromotionsSection = ({
     seen.add(r.promotionId);
     firstRowKeys.add(r.key);
   }
+  // The Actions column shows only while some row has a button.
   const showActions =
-    hasRowActions(manualRows) || promotions.some((p) => removalOf(p.promotionId) !== null);
+    hasRowActions(manualRows) || promotions.some((p) => canRemovePromotion(order, p, canManage));
   const promotionAction = (row: (typeof rows)[number]) => {
     if (!firstRowKeys.has(row.key)) return null;
-    const removal = removalOf(row.promotionId);
-    if (!removal) return null;
-    const button = (
+    const promotion = removable(row.promotionId);
+    if (!promotion) return null;
+    return (
       <Button
         size="S"
         variant="danger-light"
-        disabled={!removal.action.enabled}
-        onClick={() => setModal({ kind: 'REMOVE_PROMOTION', promotion: removal.promotion })}
+        onClick={() => setModal({ kind: 'REMOVE_PROMOTION', promotion })}
       >
         {t('ecommerce.orders.discounts.remove')}
       </Button>
-    );
-    return removal.action.reasonKey ? (
-      <Tooltip label={t(removal.action.reasonKey)}>
-        <span style={{ display: 'inline-flex' }}>{button}</span>
-      </Tooltip>
-    ) : (
-      button
     );
   };
 
