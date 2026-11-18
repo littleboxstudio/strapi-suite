@@ -674,16 +674,36 @@ export function apiErrorCode(err: unknown): string | null {
   return null;
 }
 
+/** Carrier error codes whose server message says what went wrong (e.g. the carrier's HTTP status). */
+const CARRIER_DETAIL_CODES = [
+  'CARRIER_NOT_CONFIGURED',
+  'CARRIER_REQUEST_FAILED',
+  'CARRIER_UNREACHABLE',
+  'TIMEOUT',
+  'DPD_AUTH_FAILED',
+  'DPD_BLOCKED',
+  'DPD_SHIPMENT_FAILED',
+  'PICKUP_SEARCH_FAILED',
+];
+
 /**
- * The billing provider's own message of a refused request (Moloni: the rejected fields and
- * rules), or null when the server only sent the code.
+ * The provider's own message of a refused request (Moloni: the rejected fields and rules; a
+ * carrier: what failed, e.g. "The DPD label could not be downloaded (HTTP 401)."), or null when
+ * the server only sent the code. These messages never carry secrets.
  */
 export function apiErrorDetail(err: unknown): string | null {
   const error = (err as any)?.response?.data?.error;
   const code = error?.details?.code;
   const message = typeof error?.message === 'string' ? error.message.trim() : '';
-  if (typeof code !== 'string' || !code.startsWith('BILLING_')) return null;
+  if (typeof code !== 'string') return null;
+  if (!code.startsWith('BILLING_') && !CARRIER_DETAIL_CODES.includes(code)) return null;
   return message && message !== code ? message : null;
+}
+
+/** A translated error followed by the provider's own message, when there is one. */
+export function withErrorDetail(text: string, err: unknown): string {
+  const detail = apiErrorDetail(err);
+  return detail ? `${text} ${detail}` : text;
 }
 
 /** Translation id (without the plugin prefix) for a failed request: its code's message, or `fallback`. */

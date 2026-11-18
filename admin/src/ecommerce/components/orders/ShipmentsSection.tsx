@@ -29,7 +29,7 @@ import FetchShipmentLabel from '../../usecases/orders/fetchShipmentLabel';
 import RefreshShipmentTracking from '../../usecases/orders/refreshShipmentTracking';
 import RetryShipment from '../../usecases/orders/retryShipment';
 import MarkShipmentFailed from '../../usecases/orders/markShipmentFailed';
-import { apiErrorMessageId, type ToolbarAction } from '../../utils/orderDetail';
+import { apiErrorMessageId, type ToolbarAction, withErrorDetail } from '../../utils/orderDetail';
 import { STORE_PICKUP_ID } from '../../utils/pickupPoints';
 import {
   MAX_CANCEL_REASON,
@@ -132,7 +132,8 @@ const ShipmentsSection = ({
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState<number | null>(null);
 
-  const errorMessage = (err: unknown, fallback: string) => t(apiErrorMessageId(err, fallback));
+  // The translated error, then what the carrier said (e.g. its HTTP status).
+  const errorMessage = (err: unknown, fallback: string) => withErrorDetail(t(apiErrorMessageId(err, fallback)), err);
 
   const run = async (s: ShipmentView, work: () => Promise<ShipmentView | void>, success: string, fallback: string) => {
     if (busy !== null) return;

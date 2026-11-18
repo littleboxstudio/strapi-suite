@@ -125,14 +125,18 @@ export async function dpdCreateExpedition(
   return { trackingCode, labelUrl };
 }
 
-/** Downloads the label PDF returned by the expedition (`pdf_url`). */
-export async function dpdDownloadLabel(labelUrl: string, opts: Options = {}): Promise<Buffer> {
+/**
+ * Downloads the label PDF returned by the expedition (`pdf_url`). DPD answers 401 without a token:
+ * the link needs the same Bearer token as the expedition (a new one, tokens are never cached).
+ */
+export async function dpdDownloadLabel(rt: ProviderRuntime, labelUrl: string, opts: Options = {}): Promise<Buffer> {
   if (!/^https?:\/\//i.test(labelUrl)) {
     throw new EcommerceCarrierError('CARRIER_REQUEST_FAILED', 'The DPD label link is invalid.');
   }
+  const token = await dpdToken(rt, opts);
   const res = await timedFetch<{ status: number; content: Buffer }>(
     labelUrl,
-    { method: 'GET' },
+    { method: 'GET', headers: { Authorization: `Bearer ${token}` } },
     async (r) => ({ status: r.status, content: r.status === 200 ? Buffer.from(await r.arrayBuffer()) : Buffer.alloc(0) }),
     opts.timeoutMs
   );

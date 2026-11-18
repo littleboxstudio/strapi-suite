@@ -136,11 +136,11 @@ export function createDpdPortugalAdapter(
       };
     },
 
-    async getLabel(externalId, _rt, opts, labelRef) {
+    async getLabel(externalId, rt, opts, labelRef) {
       if (!labelRef) {
         throw new EcommerceCarrierError('CARRIER_REQUEST_FAILED', 'The DPD label link is missing.');
       }
-      const content = await dpdDownloadLabel(labelRef, opts);
+      const content = await dpdDownloadLabel(rt, labelRef, opts);
       return { filename: `dpd-${safeFilePart(externalId)}.pdf`, content };
     },
   };
