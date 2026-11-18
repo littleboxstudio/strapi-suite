@@ -14,11 +14,12 @@ export const Tiles = styled.div<{ $columns?: number }>`
 `;
 
 /** One figure: label, the amount large, and its small print; a tone colours the left border. */
-export const Tile = styled.div<{ $tone?: TileTone }>`
+export const Tile = styled.div<{ $tone?: TileTone; $compact?: boolean }>`
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 16px;
+  gap: ${({ $compact }) => ($compact ? '0' : '6px')};
+  padding: ${({ $compact }) => ($compact ? '6px 12px' : '16px')};
+  transition: padding 120ms ease, gap 120ms ease;
   border: 1px solid ${({ theme }) => theme.colors.neutral200};
   border-left: 4px solid
     ${({ theme, $tone }) =>

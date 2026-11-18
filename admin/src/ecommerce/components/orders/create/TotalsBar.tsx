@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { Box, Flex, Typography } from '@strapi/design-system';
 import { getTranslation } from '../../../../core/utils/getTranslation';
@@ -27,35 +28,64 @@ type Props = {
 };
 
 /** Create order's totals: the order detail's summary tiles, with no container and no title. */
+/** Height of the admin's top bar over the scroll area: the bar is stuck once it reaches it. */
+const TOP_BAR = 60;
+
 const TotalsBar = ({ tiles, note }: Props) => {
   const { formatMessage, locale } = useIntl();
+  // A 1px marker just above the bar: once it scrolls out of sight the bar is stuck, and it
+  // shrinks (smaller labels, amounts and spacing) to take as little room as possible.
+  const marker = useRef<HTMLDivElement>(null);
+  const [stuck, setStuck] = useState(false);
+  useEffect(() => {
+    const el = marker.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return undefined;
+    const observer = new IntersectionObserver(([entry]) => setStuck(!entry.isIntersecting), {
+      rootMargin: `-${TOP_BAR}px 0px 0px 0px`,
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   return (
-    <Box background="neutral100" paddingTop={3} paddingBottom={3} style={STICKY}>
-      <Flex direction="column" alignItems="stretch" gap={2}>
-        <Tiles $columns={tiles.length}>
-          {tiles.map((tile) => (
-            <Tile key={tile.key}>
-              <Typography variant="sigma" textColor="neutral600">
-                {formatMessage({ id: getTranslation(LABEL[tile.key]) })}
-              </Typography>
-              <Typography
-                variant="beta"
-                tag="p"
-                textColor="neutral800"
-                style={{ whiteSpace: 'nowrap' }}
-              >
-                {tile.amount === null ? '—' : formatCents(tile.amount, locale)}
-              </Typography>
-            </Tile>
-          ))}
-        </Tiles>
-        {note && (
-          <Typography variant="pi" textColor={note.color}>
-            {note.text}
-          </Typography>
-        )}
-      </Flex>
-    </Box>
+    <>
+      <div ref={marker} aria-hidden style={{ height: 1, marginBottom: -1 }} />
+      <Box
+        background="neutral100"
+        paddingTop={stuck ? 2 : 3}
+        paddingBottom={stuck ? 2 : 3}
+        style={STICKY}
+      >
+        <Flex direction="column" alignItems="stretch" gap={stuck ? 1 : 2}>
+          <Tiles $columns={tiles.length}>
+            {tiles.map((tile) => (
+              <Tile key={tile.key} $compact={stuck}>
+                <Typography
+                  variant="sigma"
+                  textColor="neutral600"
+                  style={stuck ? { fontSize: '1rem', lineHeight: 1.2 } : undefined}
+                >
+                  {formatMessage({ id: getTranslation(LABEL[tile.key]) })}
+                </Typography>
+                <Typography
+                  variant={stuck ? 'omega' : 'beta'}
+                  fontWeight={stuck ? 'bold' : undefined}
+                  tag="p"
+                  textColor="neutral800"
+                  style={{ whiteSpace: 'nowrap', ...(stuck ? { lineHeight: 1.3 } : {}) }}
+                >
+                  {tile.amount === null ? '—' : formatCents(tile.amount, locale)}
+                </Typography>
+              </Tile>
+            ))}
+          </Tiles>
+          {note && (
+            <Typography variant="pi" textColor={note.color}>
+              {note.text}
+            </Typography>
+          )}
+        </Flex>
+      </Box>
+    </>
   );
 };
 
