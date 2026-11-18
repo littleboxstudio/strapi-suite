@@ -1813,7 +1813,11 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         }
         if (r.removed.length) await promotions().releasePromotions(orderId, r.removed);
 
-        const flags = await w.clear(readReviewFlags(order.reviewFlags), 'DISCOUNTS_REVIEW');
+        let flags = await w.clear(readReviewFlags(order.reviewFlags), 'DISCOUNTS_REVIEW');
+        // Gift lines make the parcel heavier: the shipping is reviewed, as after Edit products.
+        if (r.addedGiftLines.length) {
+          flags = await w.raise(flags, 'SHIPPING_REVIEW', 'PRODUCTS_CHANGED');
+        }
         const totals = await writeTotals(state, {
           lines: true,
           orderDiscount: r.orderDiscount,

@@ -1600,6 +1600,70 @@ describe('Recalculate discounts offers GIFT promotions (order 25)', () => {
     expect(again.addedGiftLines).toEqual([]);
   });
 
+  it('adding a gift raises SHIPPING_REVIEW (PRODUCTS_CHANGED): the parcel got heavier', async () => {
+    const { ctx, id, gift } = await order25();
+    const flags = orderRow(ctx, id).reviewFlags;
+    if (flags) flags.flags = flags.flags.filter((f: any) => f.code !== 'SHIPPING_REVIEW');
+    await ctx.editing.applyDiscounts(id, { selection: [`p:${gift}`] }, 'user:1', 'op-g25-ship');
+    expect(flag(ctx, id, 'SHIPPING_REVIEW')).toMatchObject({ reason: 'PRODUCTS_CHANGED' });
+    expect(historyOf(ctx, id, 'REVIEW_FLAG_RAISED').map((h) => h.newValue)).toContainEqual({
+      code: 'SHIPPING_REVIEW',
+      reason: 'PRODUCTS_CHANGED',
+    });
+  });
+
+  it('no gift added: no SHIPPING_REVIEW', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    const promo = tenPercent(ctx);
+    await ctx.editing.applyDiscounts(id, { selection: [`p:${promo}`] }, 'user:1', 'op-g25-noship');
+    expect(flag(ctx, id, 'SHIPPING_REVIEW')).toBeUndefined();
+  });
+
+  it('2 paid units of the buy invoiced, one shipped: the gift is offered and added as a new gift line', async () => {
+    const ctx = setup();
+    const gift = buy2Gift(ctx);
+    promotionRow(ctx, gift).active = false;
+    const id = await createOrder(ctx, [{ variantId: 10, quantity: 2 }]);
+    await pay(ctx, id, orderRow(ctx, id).total);
+    const buyLine = linesOf(ctx, id).find((l) => l.variantId === 10);
+    ctx.tables[UIDS.invoice].push({
+      id: ctx.tables[UIDS.invoice].length + 1,
+      order: id,
+      kind: 'INVOICE',
+      status: 'ISSUED',
+      createdAt: new Date(Date.now() + 1000).toISOString(),
+      lines: {
+        lines: [
+          { kind: 'ITEM', orderLineId: buyLine.id, sku: 'SH-M', name: 'Shirt', quantity: 2, total: 4000, tax: 23, partial: false, discountShare: 0 },
+        ],
+      },
+    });
+    ctx.tables[UIDS.shipment].push({
+      id: ctx.tables[UIDS.shipment].length + 1,
+      order: id,
+      providerId: 'manual',
+      carrierName: 'CTT',
+      status: 'ACTIVE',
+      deliveryStatus: 'IN_TRANSIT',
+      items: { lines: [{ orderLineId: buyLine.id, sku: 'SH-M', name: 'Shirt', option: null, quantity: 1 }] },
+      idempotencyKey: `ship-${id}`,
+    });
+    promotionRow(ctx, gift).active = true;
+    const preview = await ctx.editing.previewDiscounts(id, {});
+    expect(preview.rows).toEqual([
+      expect.objectContaining({ key: `p:${gift}`, kind: 'NEW', selected: false, amount: 1500 }),
+    ]);
+    const before = JSON.stringify(linesOf(ctx, id).find((l) => l.id === buyLine.id));
+    const total = orderRow(ctx, id).total;
+    await ctx.editing.applyDiscounts(id, { selection: [`p:${gift}`] }, 'user:1', 'op-g25-inv');
+    expect(JSON.stringify(linesOf(ctx, id).find((l) => l.id === buyLine.id))).toBe(before);
+    expect(linesOf(ctx, id).filter((l) => l.isGift)).toEqual([
+      expect.objectContaining({ variantId: 12, unitPrice: 1500, unitDiscount: 1500, quantity: 1 }),
+    ]);
+    expect(orderRow(ctx, id).total).toBe(total);
+  });
+
   it('several gift variants: the admin chooses which one is added', async () => {
     const { ctx, id, gift } = await order25([12, 11]);
     const preview = await ctx.editing.previewDiscounts(id, { giftChoices: { [gift]: 11 } });
