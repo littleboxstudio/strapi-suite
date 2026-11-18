@@ -636,12 +636,12 @@ describe('gifts and cart changes (2.18 / 2.24)', () => {
     checkMoney(r);
   });
 
-  it('the cart shrinks to 1 A -> no gift, NO_BENEFIT, the bought B line intact', () => {
+  it('the cart shrinks to 1 A -> no gift, CONDITIONS_NOT_MET (buy unmet), the bought B line intact', () => {
     const r = evaluate([buy2AGetB], [line(1, 1000, 1), line(2, 700, 1)], { gifts: [giftB] });
     expect(r.applied).toEqual([]);
     expect(r.lines.some((l) => l.isGift)).toBe(false);
-    expect(reasonOf(r, 1)).toBe('NO_BENEFIT');
-    expect(r.eligible).toEqual([1]);
+    expect(reasonOf(r, 1)).toBe('CONDITIONS_NOT_MET');
+    expect(r.eligible).toEqual([]);
     expect(r.lines).toEqual([
       expect.objectContaining({
         sourceIndex: 0,
@@ -884,5 +884,58 @@ describe('verified e-mail: order of checks and EMAIL conditions', () => {
     expect(r({ active: false })).toBe('INACTIVE');
     expect(r({ startsAt: '2027-01-01T00:00:00.000Z' })).toBe('SCHEDULED');
     expect(r({ endsAt: '2026-02-01T00:00:00.000Z' })).toBe('EXPIRED');
+  });
+});
+
+describe('Buy X Get Y buy requirement (an unmet buy is an unmet condition)', () => {
+  const gift: GiftOption = { variantId: 2, productId: 200, unitPrice: 3100, available: 10, active: true };
+  const buy2 = (extra: Partial<PromotionCandidate> = {}) =>
+    promo(
+      3,
+      [
+        {
+          type: 'BUY_X_GET_Y',
+          buy: { target: T(1), quantity: 2, minAmount: null },
+          get: { mode: 'GIFT', variantIds: [2], quantity: 1 },
+          reward: { kind: 'FREE' },
+        },
+      ],
+      extra
+    );
+
+  it('is not eligible when the cart lacks the buy units', () => {
+    const r = evaluate([buy2()], [line(1, 2000, 1), line(2, 3100, 1)], { gifts: [gift] });
+    expect(r.eligible).toEqual([]);
+    expect(reasonOf(r, 3)).toBe('CONDITIONS_NOT_MET');
+  });
+
+  it('a code whose buy is unmet reads as conditions not met', () => {
+    const c = promo(3, buy2().benefits, { method: 'CODE', code: 'GIFT' });
+    const r = evaluate([c], [line(1, 2000, 1)], { gifts: [gift], codes: ['GIFT'] });
+    expect(r.codes[0]).toMatchObject({ code: 'GIFT', status: 'CONDITIONS_NOT_MET' });
+  });
+
+  it('is eligible when the buy units are there', () => {
+    const r = evaluate([buy2()], [line(1, 2000, 2)], { gifts: [gift] });
+    expect(r.eligible).toEqual([3]);
+    expect(appliedIds(r)).toEqual([3]);
+  });
+
+  it('frozen lines still count toward the buy', () => {
+    const r = evaluate([buy2()], [{ ...line(1, 2000, 2), frozen: true }], { gifts: [gift] });
+    expect(r.eligible).toEqual([3]);
+  });
+
+  it('an unmet minimum amount of the buy is an unmet condition', () => {
+    const p = promo(4, [
+      {
+        type: 'BUY_X_GET_Y',
+        buy: { target: T(1), quantity: 1, minAmount: 5000 },
+        get: { mode: 'GIFT', variantIds: [2], quantity: 1 },
+        reward: { kind: 'FREE' },
+      },
+    ]);
+    const r = evaluate([p], [line(1, 2000, 2)], { gifts: [gift] });
+    expect(reasonOf(r, 4)).toBe('CONDITIONS_NOT_MET');
   });
 });

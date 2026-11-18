@@ -6,6 +6,7 @@
 import { normalizeEmail } from '../email';
 import {
   targetMatches,
+  type Benefit,
   type Condition,
   type ConditionGroup,
   type Eligibility,
@@ -134,6 +135,29 @@ export const conditionsMet = (group: ConditionGroup, ctx: ConditionContext): boo
   return false;
 };
 
+/**
+ * The buy requirement of a Buy X Get Y benefit (its quantity and minimum amount of the buy
+ * target) over the customer lines: part of the promotion's conditions, even with an empty
+ * condition group. Frozen lines count; gift lines are never passed in (they never qualify).
+ * Met when at least one benefit can still apply: a benefit other than Buy X Get Y always can,
+ * so only a promotion whose every Buy X Get Y buy is unmet (and nothing else) fails.
+ */
+export const buyRequirementsMet = (
+  benefits: readonly (Benefit | null | undefined)[] | null | undefined,
+  lines: EvaluationLine[]
+): boolean => {
+  const list = (Array.isArray(benefits) ? benefits : []).filter(Boolean) as Benefit[];
+  if (!list.length) return true;
+  return list.some((b) => {
+    if (b.type !== 'BUY_X_GET_Y') return true;
+    const matching = lines.filter((l) => targetMatches(b.buy.target, l));
+    const units = matching.reduce((s, l) => s + l.quantity, 0);
+    if (units < b.buy.quantity) return false;
+    if (b.buy.minAmount === null || b.buy.minAmount === undefined) return true;
+    return matching.reduce((s, l) => s + l.unitPrice * l.quantity, 0) >= b.buy.minAmount;
+  });
+};
+
 export const eligibilityMet = (e: Eligibility, email: string | null): boolean => {
   if (e.mode === 'ALL') return true;
   if (email === null) return false;
@@ -147,6 +171,8 @@ export const unmetPromotions = (
     promotionId: number;
     name: string;
     snapshot: { eligibility: Eligibility; conditions: ConditionGroup };
+    /** The applied benefits: their Buy X Get Y buy requirement is checked too. */
+    benefits?: { params: Benefit }[];
   }[],
   ctx: ConditionContext
 ): { promotionId: number; name: string }[] =>
@@ -155,7 +181,11 @@ export const unmetPromotions = (
       (a) =>
         !(
           eligibilityMet(a.snapshot.eligibility, ctx.email) &&
-          conditionsMet(a.snapshot.conditions, ctx)
+          conditionsMet(a.snapshot.conditions, ctx) &&
+          buyRequirementsMet(
+            (a.benefits ?? []).map((b) => b?.params),
+            ctx.lines
+          )
         )
     )
     .map((a) => ({ promotionId: a.promotionId, name: a.name }));
@@ -170,6 +200,7 @@ export const unmetAppliedPromotions = (
     promotionId: number;
     name: string;
     snapshot: { eligibility: Eligibility; conditions: ConditionGroup };
+    benefits?: { params: Benefit }[];
   }[],
   ctx: { lines: EvaluationLine[]; email: string | null },
   onConditionError?: (promotionId: number, type: string, err: unknown) => void
