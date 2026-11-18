@@ -5,6 +5,8 @@ import {
   joinTemplate,
   replaceText,
   splitTemplate,
+  textAt,
+  textRange,
 } from '../../../admin/src/ecommerce/utils/emailTextEditing';
 
 const texts = (html: string) =>
@@ -76,5 +78,20 @@ describe('email text editing', () => {
 
   it('encodes non-breaking spaces', () => {
     expect(encodeText('a b')).toBe('a&nbsp;b');
+  });
+
+  it('maps a text to its source range and a source offset to its text', () => {
+    const html = '<p>Hi {{customer.firstName}}, welcome</p><p>Bye</p>';
+    const parts = splitTemplate(html);
+    const range = textRange(parts, 1)!;
+    expect(html.slice(range.from, range.to)).toBe(', welcome');
+    expect(textRange(parts, 9)).toBeNull();
+    expect(textAt(parts, html.indexOf('welcome'))).toBe(1);
+    // Inside a tag or variable: the next text.
+    expect(textAt(parts, 1)).toBe(0);
+    expect(textAt(parts, html.indexOf('customer'))).toBe(1);
+    // After the last text: the last one.
+    expect(textAt(parts, html.length)).toBe(2);
+    expect(textAt(splitTemplate('<br>'), 0)).toBeNull();
   });
 });

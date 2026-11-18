@@ -148,3 +148,31 @@ export function encodeText(plain: string): string {
 export function replaceText(parts: TemplatePart[], id: number, plain: string): TemplatePart[] {
   return parts.map((p) => (p.kind === 'text' && p.id === id ? { ...p, text: encodeText(plain) } : p));
 }
+
+/** Where text `id` sits in the source (`from`..`to`), or null when there is no such text. */
+export function textRange(parts: TemplatePart[], id: number): { from: number; to: number } | null {
+  let offset = 0;
+  for (const p of parts) {
+    if (p.kind === 'text' && p.id === id) return { from: offset, to: offset + p.text.length };
+    offset += p.text.length;
+  }
+  return null;
+}
+
+/**
+ * The text at a source offset: the one containing it, else the next one after it, else the last
+ * one before it. Null for a template without texts.
+ */
+export function textAt(parts: TemplatePart[], offset: number): number | null {
+  let start = 0;
+  let previous: number | null = null;
+  for (const p of parts) {
+    const end = start + p.text.length;
+    if (p.kind === 'text') {
+      if (offset <= end) return p.id;
+      previous = p.id;
+    }
+    start = end;
+  }
+  return previous;
+}
