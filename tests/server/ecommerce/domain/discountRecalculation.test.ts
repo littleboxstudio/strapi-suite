@@ -844,3 +844,127 @@ describe('recalculateDiscounts — conditions re-evaluated, gifts never qualify 
     expect(r.rows.find((x) => x.key === 'p:3')).toMatchObject({ kind: 'APPLIED_VALID' });
   });
 });
+
+describe('gift options on the order detail (Recalculate discounts offers GIFT promotions)', () => {
+  /** "Buy 2 get a gift": 2 of variant 1 → 1 of variant 2 free. */
+  const buy2 = (variantIds: number[]) =>
+    promo(3, [
+      {
+        type: 'BUY_X_GET_Y',
+        buy: { target: T(1), quantity: 2, minAmount: null },
+        get: { mode: 'GIFT', variantIds, quantity: 1 },
+        reward: { kind: 'FREE' },
+      },
+    ]);
+  const option = (variantId: number, unitPrice: number, available = 5): GiftOption => ({
+    variantId,
+    productId: variantId * 100,
+    unitPrice,
+    available,
+    active: true,
+  });
+  // Order 25's shape: 2 × variant 1 and 2 × variant 2, paid; the gift promotion was removed.
+  const lines = [line(35, 2, 3100, 2), line(37, 1, 2990, 2)];
+  const paid = [{ status: 'COMPLETED', amount: 2 * 3100 + 2 * 2990 }] as any;
+
+  it('order 25: offered unselected at its gift value, with the gift variant', () => {
+    const r = recalculateDiscounts(
+      ctx({ lines, candidates: [buy2([2])], gifts: new Map([[2, option(2, 3100)]]), payments: paid })
+    );
+    expect(r.rows).toEqual([
+      expect.objectContaining({ key: 'p:3', kind: 'NEW', selected: false, amount: 3100 }),
+    ]);
+    expect(r.gifts).toEqual([
+      { promotionId: 3, benefitIndex: 0, quantity: 1, variantIds: [2], selectedVariantId: 2 },
+    ]);
+    expect(r.addedGiftLines).toEqual([]);
+    expect(r.after.total).toBe(r.before.total);
+  });
+
+  it('order 25: selected, adds one gift line at its price with an equal discount; total unchanged', () => {
+    const r = recalculateDiscounts(
+      ctx({ lines, candidates: [buy2([2])], gifts: new Map([[2, option(2, 3100)]]), payments: paid }),
+      ['p:3']
+    );
+    expect(r.added).toEqual([3]);
+    expect(r.lines).toEqual([]);
+    expect(r.addedGiftLines).toEqual([
+      {
+        variantId: 2,
+        productId: 200,
+        unitPrice: 3100,
+        unitDiscount: 3100,
+        quantity: 1,
+        refs: [{ promotionId: 3, benefitIndex: 0, amount: 3100 }],
+      },
+    ]);
+    expect(r.applied).toEqual([expect.objectContaining({ promotionId: 3, amount: 3100 })]);
+    expect(r.after).toMatchObject({
+      total: r.before.total,
+      itemsOriginal: r.before.itemsOriginal + 3100,
+      productDiscount: r.before.productDiscount + 3100,
+      due: 0,
+    });
+  });
+
+  it('several gift variants: the chosen one is priced and added', () => {
+    const gifts = new Map([
+      [2, option(2, 3100)],
+      [4, option(4, 900)],
+    ]);
+    const unselected = recalculateDiscounts(
+      ctx({ lines, candidates: [buy2([2, 4])], gifts, giftChoices: { 3: 4 } })
+    );
+    expect(unselected.rows[0]).toMatchObject({ key: 'p:3', amount: 900 });
+    expect(unselected.gifts).toEqual([
+      { promotionId: 3, benefitIndex: 0, quantity: 1, variantIds: [2, 4], selectedVariantId: 4 },
+    ]);
+    const r = recalculateDiscounts(
+      ctx({ lines, candidates: [buy2([2, 4])], gifts, giftChoices: { 3: 4 } }),
+      ['p:3']
+    );
+    expect(r.addedGiftLines).toEqual([
+      expect.objectContaining({ variantId: 4, unitPrice: 900, unitDiscount: 900, quantity: 1 }),
+    ]);
+    // Without a choice: the first usable variant.
+    const first = recalculateDiscounts(ctx({ lines, candidates: [buy2([2, 4])], gifts }), ['p:3']);
+    expect(first.addedGiftLines).toEqual([expect.objectContaining({ variantId: 2 })]);
+  });
+
+  it('an already applied GIFT promotion is unchanged: no new gift line, no gift choice', () => {
+    const p = buy2([2]);
+    const giftLine = line(40, 2, 3100, 1, {
+      isGift: true,
+      unitDiscount: 3100,
+      refs: [{ promotionId: 3, benefitIndex: 0, amount: 3100 }],
+    });
+    const applied = checkout([p], [line(37, 1, 2990, 2)], { gifts: [option(2, 3100)] });
+    const r = recalculateDiscounts(
+      ctx({
+        lines: [...lines, giftLine],
+        applied,
+        candidates: [p],
+        gifts: new Map([[2, option(2, 3100)]]),
+      })
+    );
+    expect(r.rows).toEqual([expect.objectContaining({ key: 'p:3', kind: 'APPLIED_VALID' })]);
+    expect(r.gifts).toEqual([]);
+    expect(r.addedGiftLines).toEqual([]);
+    expect(r.after.total).toBe(r.before.total);
+  });
+
+  it('no gift candidates: no gift lines nor choices', () => {
+    const p1 = promo(1, [{ type: 'ORDER_PERCENT', percent: 10 }]);
+    const r = recalculateDiscounts(ctx({ lines, candidates: [p1], gifts: new Map() }), ['p:1']);
+    expect(r.gifts).toEqual([]);
+    expect(r.addedGiftLines).toEqual([]);
+  });
+
+  it('gift units never count toward the buy', () => {
+    const giftLine = line(40, 1, 2990, 2, { isGift: true, unitDiscount: 2990 });
+    const r = recalculateDiscounts(
+      ctx({ lines: [giftLine], candidates: [buy2([2])], gifts: new Map([[2, option(2, 3100)]]) })
+    );
+    expect(r.rows).toEqual([]);
+  });
+});

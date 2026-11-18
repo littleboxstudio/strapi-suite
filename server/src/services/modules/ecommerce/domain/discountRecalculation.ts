@@ -73,8 +73,8 @@ export type DiscountContext = {
   payments: PaymentLike[];
   refunds: RefundLike[];
   /**
-   * Gift variants on offer (Create order's applicable promotions): a GIFT promotion is then priced
-   * at its gift. Absent (the order detail): no gift is offered.
+   * Gift variants on offer (stock net of the cart's units): a GIFT promotion is then priced at its
+   * gift. Absent: no gift is offered.
    */
   gifts?: Map<number, GiftOption>;
   /** Per promotion id, the chosen gift variant (with `gifts`). */
@@ -121,10 +121,32 @@ export type DiscountLineChange = {
   splits?: DiscountSplit[];
 };
 
+/** A gift line a selected NEW GIFT promotion adds: at its price with an equal discount (FREE). */
+export type AddedGiftLine = {
+  variantId: number;
+  productId: number;
+  unitPrice: number;
+  unitDiscount: number;
+  quantity: number;
+  refs: BenefitRef[];
+};
+
+/** The gift of a NEW GIFT promotion row: the variants it offers and the one priced. */
+export type DiscountGift = {
+  promotionId: number;
+  benefitIndex: number;
+  quantity: number;
+  variantIds: number[];
+  /** The variant priced (the choice when usable, else the first usable); null when none is. */
+  selectedVariantId: number | null;
+};
+
 export type DiscountPricing = {
   /** Changed lines only. */
   lines: DiscountLineChange[];
   removedGiftLines: { id: number; variantId: number; quantity: number }[];
+  /** New gift lines of the selected NEW GIFT promotions. */
+  addedGiftLines: AddedGiftLine[];
   applied: AppliedPromotion[];
   manual: ManualDiscount[];
   orderDiscount: number;
@@ -139,6 +161,8 @@ export type DiscountPricing = {
 
 export type DiscountRecalculation = {
   rows: DiscountRow[];
+  /** One per GIFT benefit of the NEW promotion rows. */
+  gifts: DiscountGift[];
   selection: string[];
   exhaustive: boolean;
 } & DiscountPricing;
@@ -451,23 +475,60 @@ export function recalculateDiscounts(
     gifts: ctx.gifts ?? new Map(),
     giftChoices: ctx.giftChoices ?? {},
   };
-  const wouldGive = (id: number) => {
-    const alone =
-      evaluated.get(id) ??
-      sumOf(
-        applyCombination(
-          [candidates.get(id) as PromotionCandidate],
-          evaluationCtx
-        ).benefitAmounts.get(id)
-      );
-    return alone + sumOf(giftAmounts.get(id));
+  const aloneCache = new Map<number, ReturnType<typeof applyCombination>>();
+  const alone = (id: number) => {
+    let r = aloneCache.get(id);
+    if (!r) {
+      r = applyCombination([candidates.get(id) as PromotionCandidate], evaluationCtx);
+      aloneCache.set(id, r);
+    }
+    return r;
   };
+  const wouldGive = (id: number) =>
+    (evaluated.get(id) ?? sumOf(alone(id).benefitAmounts.get(id))) + sumOf(giftAmounts.get(id));
+  const isEvaluated = new Set(evaluation.applied.map((a) => a.promotionId));
+  /** The gift lines a NEW row gives: under the selection, the evaluation, else alone. */
+  const giftLinesOf = (id: number, selected: boolean) =>
+    (selected ? combination.lines : isEvaluated.has(id) ? evaluation.lines : alone(id).lines).filter(
+      (l) => l.isGift && l.refs.some((r) => r.promotionId === id)
+    );
   const finalRows = rows.map((r) => {
     const selected = isSelected(r);
     if (r.kind !== 'NEW') return { ...r, selected };
     const id = r.promotionId as number;
     return { ...r, selected, amount: selected ? sumOf(amountsOf(id)) : wouldGive(id) };
   });
+
+  const gifts: DiscountGift[] = [];
+  for (const r of finalRows) {
+    if (r.kind !== 'NEW') continue;
+    const id = r.promotionId as number;
+    (candidates.get(id) as PromotionCandidate).benefits.forEach((b, benefitIndex) => {
+      if (b.type !== 'BUY_X_GET_Y' || b.get.mode !== 'GIFT') return;
+      const given = giftLinesOf(id, r.selected).find((l) =>
+        l.refs.some((ref) => ref.promotionId === id && ref.benefitIndex === benefitIndex)
+      );
+      gifts.push({
+        promotionId: id,
+        benefitIndex,
+        quantity: b.get.quantity,
+        variantIds: [...b.get.variantIds],
+        selectedVariantId: given?.variantId ?? null,
+      });
+    });
+  }
+
+  // Only the selected NEW promotions are priced: every gift line of the combination is new.
+  const addedGiftLines: AddedGiftLine[] = combination.lines
+    .filter((l) => l.isGift && l.quantity > 0)
+    .map((l) => ({
+      variantId: l.variantId,
+      productId: l.productId,
+      unitPrice: l.unitPrice,
+      unitDiscount: l.unitDiscount,
+      quantity: l.quantity,
+      refs: l.refs.map((ref) => ({ ...ref })),
+    }));
 
   const stateFor = { shippingOriginal: ctx.shippingGross, creditAdjustment: ctx.creditAdjustment };
   const before = withMoney(
@@ -494,7 +555,8 @@ export function recalculateDiscounts(
           unitDiscount: p.unitDiscount,
         })),
       ];
-    });
+    })
+    .concat(addedGiftLines.map((g) => ({ ...g, returnedQuantity: 0 })));
   const after = withMoney(
     computeTotals(afterLines, {
       ...stateFor,
@@ -508,10 +570,12 @@ export function recalculateDiscounts(
 
   return {
     rows: finalRows,
+    gifts,
     selection: selectedRows.map((r) => r.key),
     exhaustive: evaluation.exhaustive,
     lines,
     removedGiftLines,
+    addedGiftLines,
     applied,
     manual,
     orderDiscount,
