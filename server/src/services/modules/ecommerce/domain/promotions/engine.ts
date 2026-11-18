@@ -12,7 +12,7 @@ import {
   type GiftOption,
   type PricedLine,
 } from './benefits';
-import { conditionsMet, eligibilityMet } from './conditions';
+import { buyRequirementsMet, conditionsMet, eligibilityMet } from './conditions';
 import { normalizePromotionCode } from './definition';
 import {
   BENEFIT_CLASS,
@@ -252,7 +252,8 @@ export const evaluatePromotions = (input: EvaluationInput): PromotionEvaluation 
         ? (type, err) => input.onConditionError?.(c.id, type, err)
         : undefined,
     });
-    if (!met) {
+    // The buy of a Buy X Get Y is a condition too (an empty group would otherwise hold).
+    if (!met || !buyRequirementsMet(c.benefits, input.lines)) {
       reasons.set(c.id, 'CONDITIONS_NOT_MET');
       continue;
     }

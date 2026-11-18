@@ -737,3 +737,110 @@ describe('gift options (Create order: applicable promotions)', () => {
     ]);
   });
 });
+
+describe('recalculateDiscounts — conditions re-evaluated, gifts never qualify (order 25)', () => {
+  const freeShipping = promo(1, [{ type: 'SHIPPING_FREE', maxAmount: null }], {
+    conditions: {
+      type: 'GROUP',
+      operator: 'AND',
+      children: [{ type: 'SUBTOTAL', operator: 'gte', value: 5000 }],
+    },
+  });
+  const buy2Gift = promo(3, [
+    {
+      type: 'BUY_X_GET_Y',
+      buy: { target: T(1), quantity: 2, minAmount: null },
+      get: { mode: 'GIFT', variantIds: [2], quantity: 1 },
+      reward: { kind: 'FREE' },
+    },
+  ]);
+  const gift2: GiftOption = { variantId: 2, productId: 200, unitPrice: 3100, available: 10, active: true };
+  // Created with 4× Black (variant 1) + variant 2: two gifts and free shipping.
+  const applied = checkout([freeShipping, buy2Gift], [line(1, 1, 2000, 4), line(35, 2, 3100, 1)], {
+    shipping: 3000,
+    gifts: [gift2],
+  });
+  const giftLine = line(36, 2, 3100, 2, {
+    isGift: true,
+    unitDiscount: 3100,
+    refs: [{ promotionId: 3, benefitIndex: 0, amount: 6200 }],
+  });
+  // The Black lines were removed in Edit products: 1 paid unit of variant 2 plus its 2 gifts.
+  const order25 = ctx({
+    lines: [line(35, 2, 3100, 1), giftLine],
+    applied,
+    manual: [manual(1, 500)],
+    orderDiscount: 500,
+    shippingGross: 3000,
+    shippingDiscount: 3000,
+    candidates: [freeShipping, buy2Gift],
+  });
+
+  it('stores both promotions at checkout', () => {
+    expect(applied.map((a) => [a.promotionId, a.amount])).toEqual([
+      [1, 3000],
+      [3, 6200],
+    ]);
+  });
+
+  it('reports "Buy 2 get a gift" as no longer applicable: its buy is no longer met', () => {
+    const r = recalculateDiscounts(order25);
+    expect(r.rows.find((x) => x.key === 'p:3')).toMatchObject({
+      kind: 'APPLIED_INVALID',
+      invalidReason: 'CONDITIONS_NOT_MET',
+      selected: true,
+      locked: 'APPLIED',
+    });
+  });
+
+  it('reports free shipping as no longer applicable: the gift units do not reach the threshold', () => {
+    const r = recalculateDiscounts(order25);
+    expect(r.rows.find((x) => x.key === 'p:1')).toMatchObject({
+      kind: 'APPLIED_INVALID',
+      invalidReason: 'CONDITIONS_NOT_MET',
+    });
+  });
+
+  it('never removes them nor their gifts (owner rule)', () => {
+    const r = recalculateDiscounts(order25);
+    expect(r.removed).toEqual([]);
+    expect(r.removedGiftLines).toEqual([]);
+    expect(r.applied.map((a) => a.promotionId)).toEqual([1, 3]);
+    expect(r.after.total).toBe(r.before.total);
+  });
+
+  it('gift units of the buy target never count toward the buy quantity', () => {
+    const selfGift = promo(5, [
+      {
+        type: 'BUY_X_GET_Y',
+        buy: { target: T(2), quantity: 2, minAmount: null },
+        get: { mode: 'GIFT', variantIds: [2], quantity: 1 },
+        reward: { kind: 'FREE' },
+      },
+    ]);
+    const stored = checkout([selfGift], [line(35, 2, 3100, 4)], { gifts: [gift2] });
+    const r = recalculateDiscounts(
+      ctx({
+        lines: [
+          line(35, 2, 3100, 1),
+          line(36, 2, 3100, 2, {
+            isGift: true,
+            unitDiscount: 3100,
+            refs: [{ promotionId: 5, benefitIndex: 0, amount: 6200 }],
+          }),
+        ],
+        applied: stored,
+        candidates: [selfGift],
+      })
+    );
+    expect(r.rows[0]).toMatchObject({ kind: 'APPLIED_INVALID', invalidReason: 'CONDITIONS_NOT_MET' });
+  });
+
+  it('stays valid while the buy still holds', () => {
+    const r = recalculateDiscounts({
+      ...order25,
+      lines: [line(34, 1, 2000, 2), line(35, 2, 3100, 1), giftLine],
+    });
+    expect(r.rows.find((x) => x.key === 'p:3')).toMatchObject({ kind: 'APPLIED_VALID' });
+  });
+});

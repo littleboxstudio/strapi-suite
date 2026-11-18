@@ -215,3 +215,28 @@ describe('conditions hardening', () => {
     expect(conditionsMet(q('lte', 2), c3)).toBe(false);
   });
 });
+
+describe('unmetPromotions — Buy X Get Y buy requirement', () => {
+  const buy = (quantity: number) => ({
+    params: {
+      type: 'BUY_X_GET_Y' as const,
+      buy: { target: A, quantity, minAmount: null },
+      get: { mode: 'GIFT' as const, variantIds: [2], quantity: 1 },
+      reward: { kind: 'FREE' as const },
+    },
+  });
+  const entry = (quantity: number) => ({
+    promotionId: 3,
+    name: 'Buy 2 get a gift',
+    snapshot: { eligibility: { mode: 'ALL' as const }, conditions: g('AND', []) },
+    benefits: [buy(quantity)],
+  });
+  it('flags a promotion whose buy is no longer met (empty conditions)', () => {
+    expect(unmetPromotions([entry(2)], ctx([line(1, 1, 2000, 1), line(2, 2, 3100, 1)]))).toEqual([
+      { promotionId: 3, name: 'Buy 2 get a gift' },
+    ]);
+  });
+  it('keeps it while the buy holds', () => {
+    expect(unmetPromotions([entry(2)], ctx([line(1, 1, 2000, 2)]))).toEqual([]);
+  });
+});
