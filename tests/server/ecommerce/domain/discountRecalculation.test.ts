@@ -968,3 +968,58 @@ describe('gift options on the order detail (Recalculate discounts offers GIFT pr
     expect(r.rows).toEqual([]);
   });
 });
+
+describe('invoiced and shipped units count toward the buy (only the reward leaves them alone)', () => {
+  const buy2 = promo(3, [
+    {
+      type: 'BUY_X_GET_Y',
+      buy: { target: T(1), quantity: 2, minAmount: null },
+      get: { mode: 'GIFT', variantIds: [2], quantity: 1 },
+      reward: { kind: 'FREE' },
+    },
+  ]);
+  const gifts = new Map<number, GiftOption>([
+    [2, { variantId: 2, productId: 200, unitPrice: 3100, available: 5, active: true }],
+  ]);
+
+  it('2 invoiced units of variant 1, one shipped: the gift is offered and added as a new gift line', () => {
+    const lines = [line(37, 1, 2990, 2, { invoiced: 2, shipped: 1 })];
+    const offered = recalculateDiscounts(ctx({ lines, candidates: [buy2], gifts }));
+    expect(offered.rows).toEqual([
+      expect.objectContaining({ key: 'p:3', kind: 'NEW', selected: false, amount: 3100 }),
+    ]);
+    const r = recalculateDiscounts(ctx({ lines, candidates: [buy2], gifts }), ['p:3']);
+    expect(r.lines).toEqual([]);
+    expect(r.addedGiftLines).toEqual([
+      expect.objectContaining({ variantId: 2, unitPrice: 3100, unitDiscount: 3100, quantity: 1 }),
+    ]);
+    expect(r.after.total).toBe(r.before.total);
+  });
+
+  it('returned units do not count', () => {
+    const lines = [line(37, 1, 2990, 2, { invoiced: 2, shipped: 2, returnedQuantity: 1 })];
+    expect(recalculateDiscounts(ctx({ lines, candidates: [buy2], gifts })).rows).toEqual([]);
+  });
+
+  it('IN_CART: a shipped unit counts as a buy unit but is never the discounted prize', () => {
+    const inCart = promo(5, [
+      {
+        type: 'BUY_X_GET_Y',
+        buy: { target: T(1), quantity: 2, minAmount: null },
+        get: { mode: 'IN_CART', target: T(1, 4), quantity: 1 },
+        reward: { kind: 'FREE' },
+      },
+    ]);
+    // 2 shipped units of 1 buy; the prize is the unshipped unit of 4.
+    const lines = [line(1, 1, 2000, 2, { shipped: 2 }), line(2, 4, 500, 1)];
+    const r = recalculateDiscounts(ctx({ lines, candidates: [inCart] }), ['p:5']);
+    expect(r.lines).toEqual([
+      { id: 2, unitDiscount: 500, refs: [{ promotionId: 5, benefitIndex: 0, amount: 500 }] },
+    ]);
+    // Only shipped units: nothing can be the prize.
+    const none = recalculateDiscounts(
+      ctx({ lines: [line(1, 1, 2000, 3, { shipped: 3 })], candidates: [inCart] })
+    );
+    expect(none.rows).toEqual([]);
+  });
+});

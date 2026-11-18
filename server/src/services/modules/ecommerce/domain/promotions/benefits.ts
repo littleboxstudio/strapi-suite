@@ -72,8 +72,10 @@ type Unit = {
   claim: Claim | null;
   /** Used as purchase by a Buy X Get Y: excluded from other Buy X Get Y only (requirement 2.12). */
   buyReserved: boolean;
-  /** From a frozen line: never claimed nor bought (see EvaluationLine.frozen). */
+  /** From a frozen line: never claimed (see EvaluationLine.frozen). */
   frozen: boolean;
+  /** May be used as a Buy X Get Y purchase: not frozen, or frozen but `buyable`. */
+  buyable: boolean;
 };
 
 type OrderedBenefit = {
@@ -127,19 +129,16 @@ const planInCartRepetitions = (
   getQty: number,
   perOrderLimit: number | null
 ): { buyUnits: Unit[]; prizeUnits: Unit[] }[] => {
-  const pool = units.filter(
-    (u) =>
-      !u.claim &&
-      !u.buyReserved &&
-      !u.frozen &&
-      (targetMatches(buyTarget, u) || targetMatches(getTarget, u))
-  );
+  // A frozen unit is never a prize; a buyable frozen one can still be a purchase.
+  const inBuyOf = (u: Unit) => u.buyable && targetMatches(buyTarget, u);
+  const inGetOf = (u: Unit) => !u.frozen && targetMatches(getTarget, u);
+  const pool = units.filter((u) => !u.claim && !u.buyReserved && (inBuyOf(u) || inGetOf(u)));
   type Kind = 'bo' | 'go' | 'both';
   const kind = new Map<Unit, Kind>();
   const count: Record<Kind, number> = { bo: 0, go: 0, both: 0 };
   for (const u of pool) {
-    const inBuy = targetMatches(buyTarget, u);
-    const inGet = targetMatches(getTarget, u);
+    const inBuy = inBuyOf(u);
+    const inGet = inGetOf(u);
     const k: Kind = inBuy && inGet ? 'both' : inBuy ? 'bo' : 'go';
     kind.set(u, k);
     count[k] += 1;
@@ -259,7 +258,7 @@ const applyBuyXGetY = (
   while (ob.perOrderLimit === null || repetitions < ob.perOrderLimit) {
     if (giftLeft(g) < get.quantity) break;
     const buyUnits = units
-      .filter((u) => !u.claim && !u.buyReserved && !u.frozen && targetMatches(buy.target, u))
+      .filter((u) => !u.claim && !u.buyReserved && u.buyable && targetMatches(buy.target, u))
       .sort(byPriceDesc)
       .slice(0, buy.quantity);
     if (buyUnits.length < buy.quantity) break;
@@ -433,6 +432,7 @@ export const applyCombination = (
         claim: null,
         buyReserved: false,
         frozen: line.frozen === true,
+        buyable: line.frozen !== true || line.buyable === true,
       });
     }
   });
