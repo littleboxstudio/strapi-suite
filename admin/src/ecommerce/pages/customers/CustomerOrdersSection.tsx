@@ -22,6 +22,7 @@ import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchCustomerOrders from '../../usecases/orders/fetchCustomerOrders';
 import EmptyCustomerOrders from '../../illustrations/EmptyCustomerOrders';
 import ListPagination from '../../components/ListPagination';
+import SearchFieldHeight from '../../components/SearchFieldHeight';
 import {
   FulfillmentStatusBadge,
   OrderStatusBadge,
@@ -101,22 +102,24 @@ const CustomerOrdersSection = ({ customerId, canCreateOrder }: Props) => {
           )}
         </Flex>
 
-        <SearchForm onSubmit={(e: FormEvent) => e.preventDefault()}>
-          <Searchbar
-            name="orders-search"
-            value={searchTerm}
-            onClear={() => {
-              setSearchTerm('');
-              setSearch('');
-              setPage(1);
-            }}
-            onChange={(e: any) => setSearchTerm(e.target.value)}
-            clearLabel={t('ecommerce.customers.orders.search.clear')}
-            placeholder={t('ecommerce.customers.orders.search.placeholder')}
-          >
-            {t('ecommerce.customers.orders.search.label')}
-          </Searchbar>
-        </SearchForm>
+        <SearchFieldHeight>
+          <SearchForm onSubmit={(e: FormEvent) => e.preventDefault()}>
+            <Searchbar
+              name="orders-search"
+              value={searchTerm}
+              onClear={() => {
+                setSearchTerm('');
+                setSearch('');
+                setPage(1);
+              }}
+              onChange={(e: any) => setSearchTerm(e.target.value)}
+              clearLabel={t('ecommerce.customers.orders.search.clear')}
+              placeholder={t('ecommerce.customers.orders.search.placeholder')}
+            >
+              {t('ecommerce.customers.orders.search.label')}
+            </Searchbar>
+          </SearchForm>
+        </SearchFieldHeight>
 
         {error && (
           <Typography textColor="danger600">{t('ecommerce.customers.orders.error')}</Typography>
