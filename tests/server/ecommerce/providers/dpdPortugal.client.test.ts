@@ -249,26 +249,42 @@ describe('dpdCreateExpedition', () => {
 });
 
 describe('dpdDownloadLabel', () => {
-  it('downloads the label url', async () => {
+  const LABEL = 'https://labels.dpd.test/abc.pdf';
+  /** The token request answers TOKEN_OK; the label request answers `label`. */
+  const withToken = (label: () => any) =>
+    stubFetch(async (url: string) => (url === 'https://dpd.test/auth' ? json(200, TOKEN_OK) : label()));
+
+  it('downloads the label url with a new Bearer token (DPD answers 401 without one)', async () => {
     const pdf = Buffer.from('%PDF-1.4 test');
-    const f = stubFetch(async () => ({ status: 200, ok: true, arrayBuffer: async () => pdf }) as any);
-    const out = await dpdDownloadLabel('https://labels.dpd.test/abc.pdf', { timeoutMs: 5000 });
+    const f = withToken(() => ({ status: 200, ok: true, arrayBuffer: async () => pdf }));
+    const out = await dpdDownloadLabel(rt(), LABEL, { timeoutMs: 5000 });
     expect(out.equals(pdf)).toBe(true);
-    expect(f.mock.calls[0][0]).toBe('https://labels.dpd.test/abc.pdf');
+    expect(f.mock.calls[0][0]).toBe('https://dpd.test/auth');
+    expect(f.mock.calls[1][0]).toBe(LABEL);
+    expect(f.mock.calls[1][1].headers).toEqual({ Authorization: 'Bearer tok-SECRET-TOKEN-777' });
   });
 
-  it('a non-200 → CARRIER_REQUEST_FAILED; unreachable → CARRIER_UNREACHABLE', async () => {
-    stubFetch(async () => ({ status: 404, ok: false, arrayBuffer: async () => new ArrayBuffer(0) }) as any);
-    await rejectsWith(dpdDownloadLabel('https://labels.dpd.test/abc.pdf', {}), 'CARRIER_REQUEST_FAILED');
-    stubFetch(async () => {
+  it('a non-200 → CARRIER_REQUEST_FAILED with the HTTP status; unreachable → CARRIER_UNREACHABLE', async () => {
+    withToken(() => ({ status: 401, ok: false, arrayBuffer: async () => new ArrayBuffer(0) }));
+    const err: any = await dpdDownloadLabel(rt(), LABEL, {}).catch((e) => e);
+    expect(err).toBeInstanceOf(EcommerceCarrierError);
+    expect(err.code).toBe('CARRIER_REQUEST_FAILED');
+    expect(err.message).toBe('The DPD label could not be downloaded (HTTP 401).');
+    withToken(() => {
       throw new Error('down');
     });
-    await rejectsWith(dpdDownloadLabel('https://labels.dpd.test/abc.pdf', {}), 'CARRIER_UNREACHABLE');
+    await rejectsWith(dpdDownloadLabel(rt(), LABEL, {}), 'CARRIER_UNREACHABLE');
+  });
+
+  it('rejected credentials → DPD_AUTH_FAILED, without asking for the label', async () => {
+    const f = stubFetch(async () => json(200, { status_code: 401 }));
+    await rejectsWith(dpdDownloadLabel(rt(), LABEL, {}), 'DPD_AUTH_FAILED');
+    expect(f).toHaveBeenCalledTimes(1);
   });
 
   it('refuses a non-http url without fetching', async () => {
     const f = stubFetch(async () => json(200, {}));
-    await rejectsWith(dpdDownloadLabel('file:///etc/passwd', {}), 'CARRIER_REQUEST_FAILED');
+    await rejectsWith(dpdDownloadLabel(rt(), 'file:///etc/passwd', {}), 'CARRIER_REQUEST_FAILED');
     expect(f).not.toHaveBeenCalled();
   });
 });
@@ -483,13 +499,16 @@ describe('dpdPortugal adapter createShipment', () => {
 });
 
 describe('dpdPortugal adapter getLabel', () => {
-  it('downloads labelRef', async () => {
+  it('downloads labelRef with the service credentials', async () => {
     const pdf = Buffer.from('%PDF-1.4');
-    const f = stubFetch(async () => ({ status: 200, ok: true, arrayBuffer: async () => pdf }) as any);
+    const f = stubFetch(async (url: string) =>
+      url === 'https://dpd.test/auth' ? json(200, TOKEN_OK) : ({ status: 200, ok: true, arrayBuffer: async () => pdf } as any)
+    );
     const label = await dpdPortugalAdapter.getLabel!('0987', rt(), { timeoutMs: 5000 }, 'https://labels.dpd.test/abc.pdf');
     expect(label.filename).toBe('dpd-0987.pdf');
     expect(label.content.equals(pdf)).toBe(true);
-    expect(f.mock.calls[0][0]).toBe('https://labels.dpd.test/abc.pdf');
+    expect(f.mock.calls[1][0]).toBe('https://labels.dpd.test/abc.pdf');
+    expect(f.mock.calls[1][1].headers.Authorization).toBe('Bearer tok-SECRET-TOKEN-777');
   });
 
   it('without labelRef → CARRIER_REQUEST_FAILED', async () => {

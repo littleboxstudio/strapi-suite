@@ -29,6 +29,7 @@ import FetchShipMethods from '../../usecases/orders/fetchShipMethods';
 import {
   apiErrorCode,
   apiErrorMessageId,
+  withErrorDetail,
   linePromotionNames,
   shouldRenewIdempotencyKey,
 } from '../../utils/orderDetail';
@@ -174,7 +175,7 @@ const ShipOrderModal = ({ order, defaultLocale = null, onClose, onShipped }: Pro
     );
     setErrors(map);
     if (!Object.keys(map).length) {
-      setFormError(t(apiErrorMessageId(err, 'ecommerce.orders.ship.error')));
+      setFormError(withErrorDetail(t(apiErrorMessageId(err, 'ecommerce.orders.ship.error')), err));
     } else if (other) {
       setFormError(codeText(other));
     }

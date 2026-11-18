@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   apiErrorDetail,
+  withErrorDetail,
   notificationErrorParts,
   actorLabel,
   paymentsOverview,
@@ -834,7 +835,16 @@ describe('apiErrorDetail', () => {
     );
   });
 
-  it('nothing when the message is the code, or the error is not from billing', () => {
+  it('the message of a carrier failure, appended to the translated text', () => {
+    const err = answer('CARRIER_REQUEST_FAILED', 'The DPD label could not be downloaded (HTTP 401).');
+    expect(apiErrorDetail(err)).toBe('The DPD label could not be downloaded (HTTP 401).');
+    expect(withErrorDetail('The carrier refused the request.', err)).toBe(
+      'The carrier refused the request. The DPD label could not be downloaded (HTTP 401).'
+    );
+    expect(withErrorDetail('Could not get the label.', new Error('network'))).toBe('Could not get the label.');
+  });
+
+  it('nothing when the message is the code, or the error is not from a provider', () => {
     expect(apiErrorDetail(answer('BILLING_UNREACHABLE', 'BILLING_UNREACHABLE'))).toBeNull();
     expect(apiErrorDetail(answer('ORDER_NOT_FOUND', 'Not found'))).toBeNull();
     expect(apiErrorDetail(new Error('network'))).toBeNull();
