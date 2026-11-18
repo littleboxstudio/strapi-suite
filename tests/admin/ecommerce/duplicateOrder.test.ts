@@ -113,6 +113,12 @@ describe('duplicateDraft', () => {
       { legacyReason: 'x' }
     );
     expect(d.form.promotionIds).toEqual([40, 42]);
+    expect(draft.promotionNames[40]).toBe('#40');
+    const named = duplicateDraft(
+      order({ promotions: [{ promotionId: 40, code: null, method: 'AUTOMATIC', name: 'Gift', displayName: { pt: 'Oferta' } }] }),
+      { legacyReason: 'x' }
+    );
+    expect(named.promotionNames).toEqual({ 40: 'Oferta' });
     expect(d.form.shippingLines).toEqual([]);
   });
 

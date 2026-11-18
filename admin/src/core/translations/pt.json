@@ -792,6 +792,8 @@
   "littlebox-strapi-suite.ecommerce.orders.new.codeSearchNone": "Nenhum código promocional ativo corresponde.",
   "littlebox-strapi-suite.ecommerce.orders.new.codeColumns.code": "Código",
   "littlebox-strapi-suite.ecommerce.orders.new.codesNotApplied": "Códigos não aplicados",
+  "littlebox-strapi-suite.ecommerce.orders.new.duplicate.droppedPromotions": "Estas promoções da encomenda original já não se aplicam e não foram selecionadas: {names}.",
+  "littlebox-strapi-suite.ecommerce.orders.new.pickupDeliveryOnly": "Só o método de entrega (a primeira linha de portes) usa um ponto de recolha ou uma loja.",
   "littlebox-strapi-suite.ecommerce.orders.address.firstName": "Nome",
   "littlebox-strapi-suite.ecommerce.orders.address.lastName": "Apelido",
   "littlebox-strapi-suite.ecommerce.orders.address.company": "Empresa",

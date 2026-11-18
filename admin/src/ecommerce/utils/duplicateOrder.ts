@@ -6,6 +6,7 @@
 import { addressFormFromAddress, emptyOrderForm, normalizePromotionCodes } from './orderForm';
 import type { DraftManualDiscount, OrderForm, OrderLineDraft } from './orderForm';
 import { isStorePickupMethod } from './pickupPoints';
+import { promotionDisplayName } from './orderDetail';
 import type { FieldError, Order, OrderQuote, PickupSelection, ShippingOption } from '../orderTypes';
 
 export type ShippingRef = { providerId: string; serviceId: string };
@@ -17,6 +18,8 @@ export type DuplicateDraft = {
   giftChoices: Record<number, number>;
   /** The gift variants' labels, for a notice when one is no longer offered. */
   giftNames: Record<number, string>;
+  /** The pre-selected promotions' names, for a notice when one no longer applies. */
+  promotionNames: Record<number, string>;
   /** The order's shipping method, restored once the options are quoted. */
   shipping: ShippingRef | null;
   /** The order's pickup point or store. */
@@ -86,10 +89,13 @@ export function duplicateDraft(order: Order, opts: { legacyReason: string }): Du
   // The automatic promotions are pre-selected (the quote keeps those still applicable); the code
   // promotions come back through their codes.
   const promotionIds: number[] = [];
+  const promotionNames: Record<number, string> = {};
   (order.promotions ?? []).forEach((p) => {
     const automatic = p.method ? p.method === 'AUTOMATIC' : !p.code;
     if (automatic && typeof p.promotionId === 'number' && !promotionIds.includes(p.promotionId)) {
       promotionIds.push(p.promotionId);
+      promotionNames[p.promotionId] =
+        promotionDisplayName(p, order.locale ?? '') ?? (text(p.name) || `#${p.promotionId}`);
     }
   });
 
@@ -154,6 +160,7 @@ export function duplicateDraft(order: Order, opts: { legacyReason: string }): Du
     },
     giftChoices,
     giftNames,
+    promotionNames,
     shipping,
     pickup,
     discountConflicts,
