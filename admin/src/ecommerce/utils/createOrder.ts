@@ -258,3 +258,32 @@ export function unappliedCodes(
     .map((code) => ({ code, status: quote?.codes.find((c) => c.code === code)?.status ?? null }))
     .filter((c) => c.status !== 'APPLIED');
 }
+
+/**
+ * The language of a picked customer: their saved locale when the store has it (any case), else the
+ * fallback (the current one, or the default).
+ */
+export function pickedCustomerLocale(
+  customerLocale: string | null | undefined,
+  locales: { code: string }[],
+  fallback: string
+): string {
+  const wanted = (customerLocale ?? '').trim().toLowerCase();
+  return locales.find((l) => l.code.toLowerCase() === wanted)?.code ?? fallback;
+}
+
+/** A locale's configured name, else its code; a dash without one. */
+export function localeName(code: string, locales: { code: string; name: string }[]): string {
+  if (!code) return '—';
+  return locales.find((l) => l.code === code)?.name ?? code;
+}
+
+/** "1000-001 / Lisboa": the postal code and the city in one cell, leaving out a blank one. */
+export function postalCity(a: Pick<AddressForm, 'postalCode' | 'city'>): string {
+  return (
+    [a.postalCode, a.city]
+      .map((v) => v.trim())
+      .filter(Boolean)
+      .join(' / ') || '—'
+  );
+}

@@ -6,6 +6,9 @@ import {
   fieldErrors,
   giftLineKey,
   keptPromotionIds,
+  localeName,
+  pickedCustomerLocale,
+  postalCity,
   applicablePromotionsInput,
   applyCustomerAddresses,
   applyDiscountRows,
@@ -351,6 +354,48 @@ describe('fix round 1', () => {
     [
       'ecommerce.orders.new.duplicate.droppedPromotions',
       'ecommerce.orders.new.pickupDeliveryOnly',
+    ].forEach((k) => {
+      expect(en[`littlebox-strapi-suite.${k}`], k).toEqual(expect.any(String));
+      expect(pt[`littlebox-strapi-suite.${k}`], k).toEqual(expect.any(String));
+    });
+  });
+});
+
+describe('round 2', () => {
+  const locales = [
+    { code: 'en', name: 'English' },
+    { code: 'pt', name: 'Portuguese' },
+  ];
+
+  it("pickedCustomerLocale: the customer's saved language when the store has it, else the fallback", () => {
+    expect(pickedCustomerLocale('pt', locales, 'en')).toBe('pt');
+    expect(pickedCustomerLocale('PT', locales, 'en')).toBe('pt');
+    expect(pickedCustomerLocale('fr', locales, 'en')).toBe('en');
+    expect(pickedCustomerLocale(null, locales, 'en')).toBe('en');
+    expect(pickedCustomerLocale(undefined, locales, 'pt')).toBe('pt');
+  });
+
+  it('localeName: the configured name, else the code; a dash without one', () => {
+    expect(localeName('pt', locales)).toBe('Portuguese');
+    expect(localeName('fr', locales)).toBe('fr');
+    expect(localeName('', locales)).toBe('—');
+  });
+
+  it('postalCity joins the postal code and the city with " / ", leaving out a blank one', () => {
+    expect(postalCity({ ...emptyAddressForm(), postalCode: '1000-001', city: 'Lisboa' })).toBe(
+      '1000-001 / Lisboa'
+    );
+    expect(postalCity({ ...emptyAddressForm(), city: 'Lisboa' })).toBe('Lisboa');
+    expect(postalCity({ ...emptyAddressForm(), postalCode: ' 1000-001 ' })).toBe('1000-001');
+    expect(postalCity(emptyAddressForm())).toBe('—');
+  });
+
+  it('has en + pt copy for the new columns', () => {
+    [
+      'ecommerce.orders.new.customerColumns.locale',
+      'ecommerce.orders.new.addressColumns.name',
+      'ecommerce.orders.new.addressColumns.postalCity',
+      'ecommerce.orders.new.addressColumns.nif',
     ].forEach((k) => {
       expect(en[`littlebox-strapi-suite.${k}`], k).toEqual(expect.any(String));
       expect(pt[`littlebox-strapi-suite.${k}`], k).toEqual(expect.any(String));
