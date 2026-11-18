@@ -6,7 +6,7 @@ import {
   EcommerceNotFoundError,
   EcommerceValidationError,
 } from '../../../server/src/services/modules/ecommerce/errors';
-import createController from '../../../server/src/controllers/modules/ecommerce/products';
+import createController, { aiFailureReason } from '../../../server/src/controllers/modules/ecommerce/products';
 
 function setup(services: Record<string, any>) {
   const strapi: any = { plugin: () => ({ service: (n: string) => services[n] }) };
@@ -36,7 +36,14 @@ describe('EcommerceProductController', () => {
     const ctx: any = { request: { body: { sourceLocale: 'en', targetLocales: ['pt', 'fr'], strings: { a: 'hi' } } } };
     await controller.translate(ctx);
     expect(translateStrings).toHaveBeenCalledTimes(2);
-    expect(ctx.body).toEqual({ translations: { pt: { a: 'x' }, fr: { a: 'y' } }, failed: 3 });
+    expect(ctx.body).toEqual({ translations: { pt: { a: 'x' }, fr: { a: 'y' } }, failed: 3, errors: [] });
+  });
+
+  it('aiFailureReason keeps the provider message and masks keys', () => {
+    const raw = 'pt: OpenAI request failed with status 429: {\n  "error": {\n    "message": "You have no credits remaining.",\n    "type": "insufficient_quota"\n  }\n}';
+    expect(aiFailureReason(raw)).toBe('You have no credits remaining.');
+    expect(aiFailureReason('pt: Incorrect API key provided: sk-proj-ab12****cd34.')).toBe('Incorrect API key provided: sk-….');
+    expect(aiFailureReason('fr-FR: timeout\nstack')).toBe('timeout');
   });
 
   it('uploadImage rejects files over 15 MB without calling the service', async () => {

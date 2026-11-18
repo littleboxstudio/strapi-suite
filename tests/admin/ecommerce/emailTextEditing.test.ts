@@ -5,8 +5,10 @@ import {
   joinTemplate,
   replaceText,
   splitTemplate,
+  applyTranslation,
   textAt,
   textRange,
+  translationStrings,
 } from '../../../admin/src/ecommerce/utils/emailTextEditing';
 
 const texts = (html: string) =>
@@ -93,5 +95,29 @@ describe('email text editing', () => {
     // After the last text: the last one.
     expect(textAt(parts, html.length)).toBe(2);
     expect(textAt(splitTemplate('<br>'), 0)).toBeNull();
+  });
+
+  it('sends the subject and the texts for translation, and puts the translations back as text', () => {
+    const html = '<p>Hi {{customer.firstName}}, welcome &amp; enjoy</p>{{#if x}}<b>Bye</b>{{/if}}';
+    const parts = splitTemplate(html);
+    expect(translationStrings('Order {{order.reference}}', parts)).toEqual({
+      subject: 'Order {{order.reference}}',
+      t0: 'Hi',
+      t1: ', welcome &amp; enjoy',
+      t2: 'Bye',
+    });
+    // A tiny decoder for the test (the admin uses the browser's).
+    const decode = (s: string) => s.replace(/&amp;/g, '&').replace(/&lt;/g, '<');
+    const out = applyTranslation(
+      'Order {{order.reference}}',
+      parts,
+      { subject: 'Encomenda {{order.reference}}', t0: 'Olá', t1: ', bem-vindo &amp; <b>aproveite</b>', t2: '  ' },
+      decode
+    );
+    expect(out.subject).toBe('Encomenda {{order.reference}}');
+    // Tags in a translation stay text; a blank translation keeps the source.
+    expect(out.html).toBe(
+      '<p>Olá {{customer.firstName}}, bem-vindo &amp; &lt;b&gt;aproveite&lt;/b&gt;</p>{{#if x}}<b>Bye</b>{{/if}}'
+    );
   });
 });

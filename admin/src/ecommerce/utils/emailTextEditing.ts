@@ -176,3 +176,41 @@ export function textAt(parts: TemplatePart[], offset: number): number | null {
   }
   return previous;
 }
+
+/** The key of the subject among the strings sent for translation (texts use their id). */
+export const SUBJECT_KEY = 'subject';
+
+/** The strings to translate: the subject and every fixed text of the HTML, keyed. */
+export function translationStrings(subject: string, parts: TemplatePart[]): Record<string, string> {
+  const strings: Record<string, string> = {};
+  if (subject.trim()) strings[SUBJECT_KEY] = subject;
+  for (const p of parts) if (p.kind === 'text') strings[`t${p.id}`] = p.text;
+  return strings;
+}
+
+/**
+ * The template with its translated strings: the subject as returned, each text decoded (the
+ * translation may return entities) and encoded again as text, so it can never add tags or template
+ * tags. Strings missing from `translations` keep the source.
+ */
+export function applyTranslation(
+  subject: string,
+  parts: TemplatePart[],
+  translations: Record<string, string>,
+  decode: (html: string) => string
+): { subject: string; html: string } {
+  const translated = (key: string) => {
+    const value = translations[key];
+    return typeof value === 'string' && value.trim() ? value : null;
+  };
+  return {
+    subject: translated(SUBJECT_KEY) ?? subject,
+    html: joinTemplate(
+      parts.map((p) => {
+        if (p.kind !== 'text') return p;
+        const value = translated(`t${p.id}`);
+        return value === null ? p : { ...p, text: encodeText(decode(value).trim()) };
+      })
+    ),
+  };
+}
