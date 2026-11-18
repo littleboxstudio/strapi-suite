@@ -2,18 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useNotification } from '@strapi/strapi/admin';
-import {
-  Button,
-  Checkbox,
-  Field,
-  Flex,
-  Grid,
-  IconButton,
-  SingleSelect,
-  SingleSelectOption,
-  TextInput,
-  Typography,
-} from '@strapi/design-system';
+import { Button, Flex, IconButton, Typography } from '@strapi/design-system';
 import { ArrowLeft } from '@strapi/icons';
 import config from '../../../core/config';
 import { getTranslation } from '../../../core/utils/getTranslation';
@@ -25,24 +14,30 @@ import CreateOrder from '../../usecases/orders/createOrder';
 import QuoteOrder from '../../usecases/orders/quoteOrder';
 import FetchOrder from '../../usecases/orders/fetchOrder';
 import SearchPickupPoints from '../../usecases/orders/searchPickupPoints';
-import AddressFields, { type AddressField } from '../../components/orders/AddressFields';
 import VariantPicker from '../../components/orders/VariantPicker';
 import OrderLinesEditor from '../../components/orders/OrderLinesEditor';
 import OrderSection from '../../components/orders/OrderSection';
 import NoticeBar from '../../components/orders/NoticeBar';
-import EmptyNote from '../../components/orders/EmptyNote';
-import DiscountsTable from '../../components/orders/DiscountsTable';
-import PromotionCodesField from '../../components/orders/PromotionCodesField';
 import QuoteGifts from '../../components/orders/QuoteGifts';
-import CreateManualDiscountModal from '../../components/orders/CreateManualDiscountModal';
-import CreateShippingPanel, { shippingOptionKey } from '../../components/orders/CreateShippingPanel';
-import { Tile, Tiles } from '../../components/orders/SummaryTiles';
+import TotalsBar from '../../components/orders/create/TotalsBar';
+import CustomerSection from '../../components/orders/create/CustomerSection';
+import AddressSection from '../../components/orders/create/AddressSection';
+import ShippingSection from '../../components/orders/create/ShippingSection';
+import CreatePromotionsSection from '../../components/orders/create/CreatePromotionsSection';
+import SectionError from '../../components/orders/create/SectionError';
 import { extractFieldErrors } from '../../utils/productForm';
 import { mintUuid } from '../../utils/variantDraft';
 import { formatCents } from '../../utils/money';
-import { keptPickup, pickupErrorId, storeChoices } from '../../utils/pickupPoints';
+import { pickupErrorId } from '../../utils/pickupPoints';
 import { useOrderPermissions } from '../../hooks/useOrderPermissions';
-import { apiErrorCode, apiErrorMessageId, promotionDisplayName, promotionRows } from '../../utils/orderDetail';
+import {
+  apiErrorCode,
+  apiErrorMessageId,
+  linePromotionNames,
+  promotionDisplayName,
+  promotionRows,
+  type PromotionRow,
+} from '../../utils/orderDetail';
 import { manualLineDiscountRows } from '../../utils/orderEditing';
 import {
   dropUnavailableLines,
@@ -52,24 +47,35 @@ import {
   type ShippingRef,
 } from '../../utils/duplicateOrder';
 import {
+  addPromotionCodes,
+  applicablePromotionsInput,
+  applyCustomerAddresses,
+  hasAddress,
+  isQuoteErrorPath,
+  sectionError,
+  shippingLineFromOption,
+  unappliedCodes,
+} from '../../utils/createOrder';
+import {
   addLine,
-  addPromotionCode,
-  addressFormFromAddress,
   buildCreateOrderInput,
   buildQuoteInput,
+  copyAddress,
   createOrderConflict,
   createTotalsTiles,
+  emptyAddressForm,
   emptyOrderForm,
   giftChoicesFromQuote,
   manualDiscountEntryError,
   MAX_CREATE_MANUAL_DISCOUNTS,
   pruneGiftChoices,
-  listedShippingPrice,
   refreshLinesFromQuote,
   shippingOptionsInput,
   sumPreviewTotals,
   toOrderErrorMap,
   validateOrderForm,
+  type AddressForm,
+  type DraftShippingLine,
   type OrderErrorMap,
   type OrderForm,
 } from '../../utils/orderForm';
@@ -79,22 +85,12 @@ import type {
   OrderLocales,
   OrderQuote,
   PickupSelection,
-  ShippingOption,
   ShippingQuote,
   VariantSearchResult,
 } from '../../orderTypes';
 
 /** Typing pause before the cart is priced again. */
 const QUOTE_DELAY_MS = 400;
-
-const CUSTOMER_FIELDS = [
-  { field: 'firstName', required: true, type: 'text' },
-  { field: 'lastName', required: true, type: 'text' },
-  { field: 'email', required: true, type: 'email' },
-  { field: 'phone', required: false, type: 'tel' },
-] as const;
-
-type CustomerField = (typeof CUSTOMER_FIELDS)[number]['field'];
 
 /**
  * A duplicated order being settled: `LINES` until the first quote (unavailable products are
@@ -128,11 +124,17 @@ const NO_NOTICES: DuplicateNotices = {
   discountConflicts: [],
 };
 
+const EMPTY_CUSTOMER: OrderForm['customer'] = { firstName: '', lastName: '', email: '', phone: '' };
+
 const positiveId = (raw: string | null) => {
   const n = Number(raw);
   return Number.isInteger(n) && n > 0 ? n : null;
 };
 
+/**
+ * Create order (spec 2026-11-18-create-order-redesign-design): the totals stay at the top, and
+ * each section is a table filled through modals, like the order detail.
+ */
 const OrderCreatePage = () => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const navigate = useNavigate();
@@ -153,9 +155,6 @@ const OrderCreatePage = () => {
   const [form, setForm] = useState<OrderForm>(() => emptyOrderForm(''));
   const [errors, setErrors] = useState<OrderErrorMap>({});
   const [locales, setLocales] = useState<OrderLocales['locales']>([]);
-  const [quote, setQuote] = useState<ShippingQuote | null>(null);
-  const [quoting, setQuoting] = useState(false);
-  const [loadingAddresses, setLoadingAddresses] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   // Promotions: the server's quote of the cart (codes, gifts, discounts and totals).
   const [defaultLocale, setDefaultLocale] = useState<string | null>(null);
@@ -166,12 +165,33 @@ const OrderCreatePage = () => {
   const [duplicate, setDuplicate] = useState<Duplicate | null>(null);
   const [loadingDuplicate, setLoadingDuplicate] = useState(!!duplicateId);
   const [notices, setNotices] = useState<DuplicateNotices>(NO_NOTICES);
-  const [addingDiscount, setAddingDiscount] = useState(false);
-  // Latest form and duplicate, read by the async quote handlers.
+  // Latest form and duplicate, read by the async handlers.
   const formRef = useRef(form);
   formRef.current = form;
   const duplicateRef = useRef(duplicate);
   duplicateRef.current = duplicate;
+
+  const clearErrors = (match: (path: string) => boolean) =>
+    setErrors((map) => {
+      const keys = Object.keys(map).filter(match);
+      if (!keys.length) return map;
+      const next = { ...map };
+      keys.forEach((k) => delete next[k]);
+      return next;
+    });
+  const under = (prefix: string) => (p: string) => p === prefix || p.startsWith(`${prefix}.`);
+
+  /** An existing customer was chosen: their last addresses fill the address tables. */
+  const fillLastAddresses = async (id: number) => {
+    try {
+      const last = await new FetchCustomerLastAddresses().execute(id);
+      setForm((f) => applyCustomerAddresses(f, last));
+      if (last.shippingAddress) clearErrors(under('shippingAddress'));
+      if (last.billingAddress) clearErrors(under('billingAddress'));
+    } catch {
+      toggleNotification({ type: 'warning', message: t('ecommerce.orders.new.lastAddressesError') });
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -192,6 +212,7 @@ const OrderCreatePage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The customer page's New order: that customer, with their last addresses.
   useEffect(() => {
     if (!customerId) return undefined;
     let cancelled = false;
@@ -208,6 +229,7 @@ const OrderCreatePage = () => {
             phone: c.phone ?? '',
           },
         }));
+        fillLastAddresses(customerId);
       })
       .catch(() => {
         if (!cancelled) toggleNotification({ type: 'warning', message: t('ecommerce.orders.new.customerError') });
@@ -256,20 +278,6 @@ const OrderCreatePage = () => {
   const setDuplicatePhase = (phase: Duplicate['phase']) =>
     setDuplicate((d) => (d && d.phase !== phase ? { ...d, phase } : d));
 
-  // The quote depends on the destination country and the lines: any change invalidates it.
-  const quoteSignature = useMemo(
-    () =>
-      `${form.shippingAddress.country}|${form.lines.map((l) => `${l.variantId}x${l.quantity}`).join(',')}`,
-    [form.shippingAddress.country, form.lines]
-  );
-  // Latest signature, read by the async quote handler.
-  const quoteSignatureRef = useRef(quoteSignature);
-  quoteSignatureRef.current = quoteSignature;
-  useEffect(() => {
-    setQuote(null);
-    setForm((f) => (f.shipping ? { ...f, shipping: null, pickup: null } : f));
-  }, [quoteSignature]);
-
   const quoteInput = useMemo(() => buildQuoteInput(form, giftChoices), [form, giftChoices]);
   const priceSignature = useMemo(() => JSON.stringify(quoteInput), [quoteInput]);
   const priceSignatureRef = useRef(priceSignature);
@@ -299,7 +307,8 @@ const OrderCreatePage = () => {
         const lines = refreshLinesFromQuote(f.lines, result);
         return lines === f.lines ? f : { ...f, lines };
       });
-      clearErrors((p) => p.startsWith('manualDiscounts'));
+      // The manual discounts, shipping lines and promotions were accepted.
+      clearErrors(isQuoteErrorPath);
       const dup = duplicateRef.current;
       if (dup?.phase === 'LINES') {
         // The first quote of a duplicate: what it no longer gives, then its shipping.
@@ -323,12 +332,12 @@ const OrderCreatePage = () => {
       if (signature === priceSignatureRef.current) {
         setPricingError(message);
         const fieldErrors = extractFieldErrors(err) ?? [];
-        // A manual discount's error is shown on its row.
-        const discountErrors = fieldErrors.filter((e) => e.path.startsWith('manualDiscounts'));
-        if (discountErrors.length) {
+        // A manual discount's, shipping line's or promotion's error is shown on its row or section.
+        const owned = fieldErrors.filter((e) => isQuoteErrorPath(e.path));
+        if (owned.length) {
           setErrors((map) => {
-            const kept = Object.fromEntries(Object.entries(map).filter(([k]) => !k.startsWith('manualDiscounts')));
-            return { ...kept, ...toOrderErrorMap(discountErrors, true) };
+            const kept = Object.fromEntries(Object.entries(map).filter(([k]) => !isQuoteErrorPath(k)));
+            return { ...kept, ...toOrderErrorMap(owned, false) };
           });
         }
         if (duplicateRef.current?.phase === 'LINES') settleDuplicateLines(fieldErrors);
@@ -349,7 +358,7 @@ const OrderCreatePage = () => {
     const names = dropped.map((l) => (l.option ? `${l.name} — ${l.option}` : l.name));
     setNotices((n) => ({ ...n, droppedLines: [...n.droppedLines, ...names] }));
     setForm((f) => ({ ...f, lines }));
-    clearErrors((p) => p === 'lines' || p.startsWith('lines.'));
+    clearErrors(under('lines'));
     // The remaining lines are quoted again (still LINES); with none left there is nothing to ship.
     if (!lines.length) setDuplicatePhase('DONE');
   };
@@ -369,6 +378,8 @@ const OrderCreatePage = () => {
 
   const freshQuote = priced && priced.signature === priceSignature ? priced.quote : null;
   const shownQuote = canPrice ? (priced?.quote ?? null) : null;
+  const freshQuoteRef = useRef(freshQuote);
+  freshQuoteRef.current = freshQuote;
 
   const variantLabel = (variantId: number) => {
     const fromQuote = shownQuote?.lines.find((l) => l.variantId === variantId);
@@ -383,24 +394,6 @@ const OrderCreatePage = () => {
     return `#${variantId}`;
   };
 
-  const addCode = (raw: string) => {
-    const result = addPromotionCode(form.promotionCodes, raw);
-    if (!result.error) setForm((f) => ({ ...f, promotionCodes: result.codes }));
-    return result.error;
-  };
-
-  const removeCode = (code: string) =>
-    setForm((f) => ({ ...f, promotionCodes: f.promotionCodes.filter((c) => c !== code) }));
-
-  const clearErrors = (match: (path: string) => boolean) =>
-    setErrors((map) => {
-      const keys = Object.keys(map).filter(match);
-      if (!keys.length) return map;
-      const next = { ...map };
-      keys.forEach((k) => delete next[k]);
-      return next;
-    });
-
   const translateCode = (code: string | undefined) =>
     code
       ? formatMessage({
@@ -408,153 +401,169 @@ const OrderCreatePage = () => {
           defaultMessage: t('ecommerce.orders.errors.invalid'),
         })
       : undefined;
+  const codeText = (code: string) => translateCode(code) as string;
 
   /** A pickup picker's error, worded for a store with Store pickup. */
-  const pickupError = (code: string | undefined, store: boolean) =>
-    code
-      ? formatMessage({
-          id: getTranslation(pickupErrorId(code, store)),
-          defaultMessage: t('ecommerce.orders.errors.invalid'),
-        })
-      : undefined;
-
-  const updateCustomer = (field: CustomerField, value: string) => {
-    setForm((f) => ({ ...f, customer: { ...f.customer, [field]: value } }));
-    clearErrors((p) => p === `customer.${field}`);
-  };
-
-  const updateAddress = (which: 'shippingAddress' | 'billingAddress', field: AddressField, value: string) => {
-    setForm((f) => ({ ...f, [which]: { ...f[which], [field]: value } }));
-    clearErrors((p) => p === `${which}.${field}`);
-  };
+  const pickupErrorText = (code: string, store: boolean) =>
+    formatMessage({
+      id: getTranslation(pickupErrorId(code, store)),
+      defaultMessage: t('ecommerce.orders.errors.invalid'),
+    });
 
   const updateLines = (fn: (lines: OrderForm['lines']) => OrderForm['lines']) => {
     setForm((f) => ({ ...f, lines: fn(f.lines) }));
     // Line errors are keyed by index, which a change may shift.
-    clearErrors((p) => p === 'lines' || p.startsWith('lines.') || p === 'shipping');
+    clearErrors(under('lines'));
   };
 
   const addVariant = (v: VariantSearchResult) => updateLines((lines) => addLine(lines, v));
 
-  const applyLastAddresses = async () => {
-    if (!customerId) return;
-    setLoadingAddresses(true);
-    try {
-      const last = await new FetchCustomerLastAddresses().execute(customerId);
-      if (!last.shippingAddress && !last.billingAddress) {
-        toggleNotification({ type: 'info', message: t('ecommerce.orders.new.noLastAddresses') });
-        return;
-      }
-      setForm((f) => ({
-        ...f,
-        shippingAddress: last.shippingAddress
-          ? addressFormFromAddress(last.shippingAddress)
-          : f.shippingAddress,
-        billingAddress: last.billingAddress ? addressFormFromAddress(last.billingAddress) : f.billingAddress,
-        billingSameAsShipping: last.billingAddress ? false : f.billingSameAsShipping,
-      }));
-      clearErrors((p) => p.startsWith('shippingAddress.') || p.startsWith('billingAddress.'));
-    } catch {
-      toggleNotification({ type: 'danger', message: t('ecommerce.orders.new.lastAddressesError') });
-    } finally {
-      setLoadingAddresses(false);
-    }
+  // --- Customer and addresses ---------------------------------------------------------------
+
+  const saveCustomer = (customer: OrderForm['customer'], pickedId: number | null) => {
+    setForm((f) => ({ ...f, customer }));
+    clearErrors(under('customer'));
+    if (pickedId) fillLastAddresses(pickedId);
   };
 
-  /** Quotes the shipping options of the cart; the quote, or null when it failed or is outdated. */
-  const getShippingOptions = async (): Promise<ShippingQuote | null> => {
-    if (!form.shippingAddress.country || !form.lines.length) {
+  const saveAddress = (which: 'shippingAddress' | 'billingAddress', address: AddressForm) => {
+    setForm((f) => ({ ...f, [which]: address, billingSameAsShipping: false }));
+    clearErrors(under(which));
+  };
+
+  const removeAddress = (which: 'shippingAddress' | 'billingAddress') => {
+    setForm((f) => ({ ...f, [which]: emptyAddressForm(), billingSameAsShipping: false }));
+    clearErrors(under(which));
+  };
+
+  /** Billing same as shipping: a copy in the billing table (company and NIF kept), editable. */
+  const copyShippingToBilling = () => {
+    setForm((f) => ({
+      ...f,
+      billingAddress: copyAddress(f.shippingAddress, f.billingAddress),
+      billingSameAsShipping: false,
+    }));
+    clearErrors(under('billingAddress'));
+  };
+
+  // --- Shipping ------------------------------------------------------------------------------
+
+  const canQuoteShipping = () => {
+    if (!formRef.current.shippingAddress.country || !formRef.current.lines.length) {
       toggleNotification({ type: 'warning', message: t('ecommerce.orders.shipping.needInput') });
-      return null;
+      return false;
     }
-    const signature = quoteSignature;
-    setQuoting(true);
-    try {
-      // The order quote's lines (gifts included) and subtotal: each option is priced as the order.
-      const result = await new QuoteOrderShipping().execute(shippingOptionsInput(form, freshQuote));
-      // Ignore a quote for lines or a country that changed meanwhile.
-      if (signature !== quoteSignatureRef.current) return null;
-      setQuote(result);
-      clearErrors((p) => p === 'shipping');
-      return result;
-    } catch (err) {
-      // Quoted with the order quote's lines, a line error's index is not the cart's: the order
-      // quote reports those.
-      const fieldErrors = (extractFieldErrors(err) ?? []).filter(
-        (e) => !freshQuote || !e.path.startsWith('lines.')
-      );
-      if (fieldErrors.length) {
-        setErrors((map) => ({ ...toOrderErrorMap(fieldErrors, form.billingSameAsShipping), ...map }));
-      }
-      toggleNotification({ type: 'danger', message: t('ecommerce.orders.shipping.error') });
-      return null;
-    } finally {
-      setQuoting(false);
-    }
+    return true;
+  };
+
+  /** The methods quoted for the cart as the order quote prices it (gifts included). */
+  const loadShippingOptions = (): Promise<ShippingQuote> =>
+    new QuoteOrderShipping().execute(shippingOptionsInput(formRef.current, freshQuoteRef.current));
+
+  const clearShippingErrors = () => clearErrors((p) => under('shippingLines')(p) || under('destination')(p));
+
+  const saveShippingLine = (line: Omit<DraftShippingLine, 'key'>, index: number | null) => {
+    setForm((f) => ({
+      ...f,
+      shippingLines:
+        index === null
+          ? [...f.shippingLines, { ...line, key: mintUuid() }]
+          : f.shippingLines.map((l, i) => (i === index ? { ...line, key: l.key } : l)),
+    }));
+    clearShippingErrors();
+  };
+
+  const removeShippingLine = (index: number) => {
+    // The next line becomes the delivery method.
+    setForm((f) => ({ ...f, shippingLines: f.shippingLines.filter((_, i) => i !== index) }));
+    clearShippingErrors();
   };
 
   /** A duplicate's DPD point is kept only when a search of its postal code still finds it. */
   const checkDuplicatePoint = async (pickup: PickupSelection) => {
     try {
       const found = (await new SearchPickupPoints().execute(pickup.postalCode)).find((p) => p.id === pickup.point.id);
-      setForm((f) =>
-        f.pickup?.point.id !== pickup.point.id
-          ? f
-          : { ...f, pickup: found ? { point: found, postalCode: pickup.postalCode } : null }
-      );
+      setForm((f) => {
+        const first = f.shippingLines[0];
+        if (first?.pickup?.point.id !== pickup.point.id) return f;
+        const kept = found ? { point: found, postalCode: pickup.postalCode } : null;
+        return { ...f, shippingLines: [{ ...first, pickup: kept }, ...f.shippingLines.slice(1)] };
+      });
       if (!found) setNotices((n) => ({ ...n, shipping: 'PICKUP_GONE' }));
     } catch {
       // The search failed: the point stays, and creating the order confirms it.
     }
   };
 
-  // A duplicate's shipping: quote the options once its products are settled, then restore its method.
+  // A duplicate's shipping: quote the options once its products are settled, then restore its
+  // method as the first shipping line, at the price quoted today.
   useEffect(() => {
     const dup = duplicate;
     if (dup?.phase !== 'SHIPPING') return;
     setDuplicatePhase('DONE');
     if (!form.shippingAddress.country || !form.lines.length) return;
-    getShippingOptions().then((result) => {
-      if (!result) return;
-      const restored = restoreDuplicateShipping(dup.shipping, dup.pickup, result.options);
-      if (restored.shipping) {
-        setForm((f) => (f.shipping ? f : { ...f, shipping: restored.shipping, pickup: restored.pickup }));
-      }
-      if (restored.notice) setNotices((n) => ({ ...n, shipping: restored.notice }));
-      if (restored.checkPoint && restored.pickup) checkDuplicatePoint(restored.pickup);
-    });
+    loadShippingOptions()
+      .then((result) => {
+        const restored = restoreDuplicateShipping(dup.shipping, dup.pickup, result.options);
+        const option = restored.shipping
+          ? result.options.find(
+              (o) => o.providerId === restored.shipping?.providerId && o.serviceId === restored.shipping?.serviceId
+            )
+          : undefined;
+        if (option) {
+          const line = shippingLineFromOption(option, option.price, restored.pickup, mintUuid());
+          setForm((f) => (f.shippingLines.length ? f : { ...f, shippingLines: [line] }));
+        }
+        if (restored.notice) setNotices((n) => ({ ...n, shipping: restored.notice }));
+        if (restored.checkPoint && restored.pickup) checkDuplicatePoint(restored.pickup);
+      })
+      .catch(() => toggleNotification({ type: 'danger', message: t('ecommerce.orders.shipping.error') }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [duplicate?.phase]);
 
-  const selectedKey = form.shipping ? shippingOptionKey(form.shipping) : null;
-  const selectedOption = quote?.options.find((o) => shippingOptionKey(o) === selectedKey) ?? null;
-  // Store pickup: the stores of the quote instead of the DPD search.
-  const stores = storeChoices(selectedOption);
-
-  const selectShipping = (option: ShippingOption) => {
-    setForm((f) => ({
-      ...f,
-      shipping: {
-        providerId: option.providerId,
-        serviceId: option.serviceId,
-        ...(option.requiresPickupPoint ? { requiresPickupPoint: true } : {}),
-      },
-      // DPD Pickup / Store pickup: the point is chosen beside it; another option drops it.
-      pickup: keptPickup(f.shipping, option, f.pickup),
-    }));
-    clearErrors((p) => p === 'shipping' || p === 'pickupPointId' || p === 'pickupPostalCode');
-  };
+  // --- Promotions and discounts ----------------------------------------------------------------
 
   // Manual discounts are indexed by the server: any change clears their errors.
   const addDiscount = (input: ManualDiscountInput) => {
     setForm((f) => ({ ...f, manualDiscounts: [...(f.manualDiscounts ?? []), { ...input, key: mintUuid() }] }));
-    clearErrors((p) => p.startsWith('manualDiscounts'));
+    clearErrors(under('manualDiscounts'));
   };
 
   const removeDiscount = (key: string) => {
     setForm((f) => ({ ...f, manualDiscounts: (f.manualDiscounts ?? []).filter((m) => m.key !== key) }));
-    clearErrors((p) => p.startsWith('manualDiscounts'));
+    clearErrors(under('manualDiscounts'));
   };
+
+  const applyPromotionIds = (ids: number[]) => {
+    setForm((f) => ({ ...f, promotionIds: ids }));
+    clearErrors(under('promotionIds'));
+  };
+
+  const addCodes = (picked: string[]) => {
+    const result = addPromotionCodes(formRef.current.promotionCodes, picked);
+    setForm((f) => ({ ...f, promotionCodes: result.codes }));
+    clearErrors(under('promotionCodes'));
+    if (result.refused.length) {
+      toggleNotification({
+        type: 'warning',
+        message: result.refused
+          .map((r) => `${r.code}: ${t(`ecommerce.orders.quote.codeErrors.${r.error}`)}`)
+          .join(' '),
+      });
+    }
+  };
+
+  const removeCode = (code: string) => {
+    setForm((f) => ({ ...f, promotionCodes: f.promotionCodes.filter((c) => c !== code) }));
+    clearErrors(under('promotionCodes'));
+  };
+
+  const removePromotion = (row: PromotionRow) => {
+    if (row.code) removeCode(row.code);
+    else applyPromotionIds(formRef.current.promotionIds.filter((id) => id !== row.promotionId));
+  };
+
+  // --- Create --------------------------------------------------------------------------------
 
   const showErrors = (list: FieldError[]) => {
     setErrors(toOrderErrorMap(list, form.billingSameAsShipping));
@@ -573,19 +582,19 @@ const OrderCreatePage = () => {
       // The order is created only with the totals the admin saw: a different server total → 409.
       let quote = freshQuote;
       if (!quote) {
-        const priced = await runPriceQuote();
-        if (!priced.quote) {
+        const result = await runPriceQuote();
+        if (!result.quote) {
           // Never create without a confirmed total: show why the cart could not be priced.
-          const fieldErrors = extractFieldErrors(priced.cause);
+          const fieldErrors = extractFieldErrors(result.cause);
           if (fieldErrors?.length) showErrors(fieldErrors);
           else
             toggleNotification({
               type: 'danger',
-              message: priced.error ?? t('ecommerce.orders.quote.error'),
+              message: result.error ?? t('ecommerce.orders.quote.error'),
             });
           return;
         }
-        quote = priced.quote;
+        quote = result.quote;
       }
       const decision = { expectedTotal: quote.totals.total, giftChoices: giftChoicesFromQuote(quote) };
       const created = await new CreateOrder().execute(buildCreateOrderInput(form, idempotencyKey, decision));
@@ -638,12 +647,23 @@ const OrderCreatePage = () => {
   const lineError = (index: number) =>
     translateCode(errors[`lines.${index}.quantity`] ?? errors[`lines.${index}.variantId`]);
   const discountError = (index: number) => translateCode(errors[`lines.${index}.discountPercent`]);
+  const promotionLocales = { locale: form.locale, defaultLocale };
+
+  // Products: the quote's gift lines follow the cart's, named by the promotions that gave them.
+  const giftLines = shownQuote?.lines.filter((l) => l.isGift) ?? [];
+  const giftLabel = (line: OrderQuote['lines'][number]) => {
+    const names = linePromotionNames(
+      line.refs.map((r) => r.promotionId),
+      shownQuote?.promotions ?? [],
+      promotionLocales
+    );
+    return names.length ? names.join(', ') : null;
+  };
 
   // Promotions and discounts: the quote's promotions, the draft's manual discounts (their amounts
   // come from a quote of the current cart only) and the manual line discounts.
   const manualDiscounts = form.manualDiscounts ?? [];
   const quotedDiscounts = freshQuote?.manualDiscounts ?? null;
-  const promotionLocales = { locale: form.locale, defaultLocale };
   const appliedRows = shownQuote
     ? promotionRows(
         shownQuote.promotions.map((p) => ({ ...p, redemptionStatus: null })),
@@ -674,24 +694,26 @@ const OrderCreatePage = () => {
       ),
     };
   });
-  const hasDiscountRows = appliedRows.length + manualRows.length + lineDiscountRows.length > 0;
+  const promotionsError =
+    translateCode(errors.manualDiscounts) ??
+    translateCode((sectionError(errors, 'promotionIds') ?? sectionError(errors, 'promotionCodes'))?.code);
   const promotionName = (p: OrderQuote['promotions'][number]) =>
     promotionDisplayName(p, form.locale, defaultLocale) ?? t('ecommerce.orders.promotions.fallbackName');
+
+  // Shipping: the section's own errors (none chosen, the destination); a line's sit on its row.
+  const shippingError = translateCode(
+    errors.shippingLines ?? sectionError(errors, 'destination')?.code ?? errors.shipping
+  );
 
   // Outdated (being priced again, or the last quote failed): the amounts are unknown until a quote
   // of the current cart, so the tiles and the discounts total never disagree with each other.
   const stale = !!shownQuote && !freshQuote;
+  const shippingSum = form.shippingLines.reduce((sum, l) => sum + l.amount, 0);
   const tiles = createTotalsTiles(
     freshQuote?.totals ?? null,
-    stale ? null : sumPreviewTotals(form.lines, selectedOption?.price ?? null),
-    !!selectedOption
+    stale ? null : sumPreviewTotals(form.lines, shippingSum),
+    form.shippingLines.length > 0
   );
-  const tileLabel: Record<(typeof tiles)[number]['key'], string> = {
-    products: 'ecommerce.orders.new.products',
-    shipping: 'ecommerce.orders.detail.summary.shipping',
-    discounts: 'ecommerce.orders.detail.summary.discounts',
-    total: 'ecommerce.orders.totals.total',
-  };
   const totalsNote = !canPrice
     ? null
     : pricing > 0
@@ -701,10 +723,10 @@ const OrderCreatePage = () => {
         : stale
           ? { text: t('ecommerce.orders.quote.loading'), color: 'neutral500' }
           : !shownQuote
-          ? { text: t('ecommerce.orders.totals.hint'), color: 'neutral500' }
-          : shownQuote.totals.shippingTotal === null
-            ? { text: t('ecommerce.orders.quote.awaitingShipping'), color: 'neutral500' }
-            : null;
+            ? { text: t('ecommerce.orders.totals.hint'), color: 'neutral500' }
+            : shownQuote.totals.shippingTotal === null
+              ? { text: t('ecommerce.orders.quote.awaitingShipping'), color: 'neutral500' }
+              : null;
 
   const noticeTexts = [
     notices.droppedLines.length > 0 &&
@@ -752,107 +774,67 @@ const OrderCreatePage = () => {
         </Flex>
       )}
 
-      <OrderSection title={t('ecommerce.orders.new.customer')}>
-        <Grid.Root gap={5}>
-          {CUSTOMER_FIELDS.map(({ field, required, type }) => (
-            <Grid.Item key={field} col={6} s={12} direction="column" alignItems="stretch">
-              <Field.Root
-                name={`customer.${field}`}
-                required={required}
-                error={translateCode(errors[`customer.${field}`])}
-              >
-                <Field.Label>{t(`ecommerce.customers.fields.${field}`)}</Field.Label>
-                <TextInput
-                  type={type}
-                  value={form.customer[field]}
-                  disabled={disabled}
-                  onChange={(e: any) => updateCustomer(field, e.target.value)}
-                />
-                <Field.Error />
-              </Field.Root>
-            </Grid.Item>
-          ))}
-          <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
-            <Field.Root name="locale" required error={translateCode(errors.locale)}>
-              <Field.Label>{t('ecommerce.orders.new.locale')}</Field.Label>
-              <SingleSelect
-                value={form.locale || null}
-                disabled={disabled}
-                hasError={!!errors.locale}
-                onChange={(value: string | number) => {
-                  setForm((f) => ({ ...f, locale: String(value) }));
-                  clearErrors((p) => p === 'locale');
-                }}
-              >
-                {locales.map((l) => (
-                  <SingleSelectOption key={l.code} value={l.code}>
-                    {l.name}
-                  </SingleSelectOption>
-                ))}
-              </SingleSelect>
-              <Field.Error />
-            </Field.Root>
-          </Grid.Item>
-        </Grid.Root>
-      </OrderSection>
+      <TotalsBar tiles={tiles} note={totalsNote} />
 
-      <OrderSection
+      <CustomerSection
+        customer={form.customer}
+        locale={form.locale}
+        locales={locales}
+        errors={errors}
+        codeText={codeText}
+        disabled={disabled}
+        onSave={saveCustomer}
+        onRemove={() => {
+          setForm((f) => ({ ...f, customer: EMPTY_CUSTOMER }));
+          clearErrors(under('customer'));
+        }}
+        onLocale={(locale) => {
+          setForm((f) => ({ ...f, locale }));
+          clearErrors((p) => p === 'locale');
+        }}
+      />
+
+      <AddressSection
+        name="shippingAddress"
         title={t('ecommerce.orders.new.shippingAddress')}
-        actions={
-          customerId ? (
-            <Button
-              size="S"
-              variant="secondary"
-              loading={loadingAddresses}
-              disabled={disabled}
-              onClick={applyLastAddresses}
-            >
-              {t('ecommerce.orders.new.useLastAddresses')}
-            </Button>
-          ) : undefined
-        }
-      >
-        <AddressFields
-          name="shippingAddress"
-          value={form.shippingAddress}
-          disabled={disabled}
-          onChange={(field, value) => updateAddress('shippingAddress', field, value)}
-          errorFor={(field) => translateCode(errors[`shippingAddress.${field}`])}
-        />
-      </OrderSection>
+        addLabel={t('ecommerce.orders.new.shippingAddressAdd')}
+        value={form.shippingAddress}
+        errors={errors}
+        codeText={codeText}
+        disabled={disabled}
+        onSave={(address) => saveAddress('shippingAddress', address)}
+        onRemove={() => removeAddress('shippingAddress')}
+      />
 
-      <OrderSection title={t('ecommerce.orders.new.billingAddress')}>
-        <Checkbox
-          checked={form.billingSameAsShipping}
-          disabled={disabled}
-          onCheckedChange={(checked: boolean | 'indeterminate') => {
-            setForm((f) => ({ ...f, billingSameAsShipping: checked === true }));
-            clearErrors((p) => p.startsWith('billingAddress.'));
-          }}
-        >
-          {t('ecommerce.orders.new.billingSame')}
-        </Checkbox>
-        {!form.billingSameAsShipping && (
-          <AddressFields
-            name="billingAddress"
-            billing
-            value={form.billingAddress}
-            disabled={disabled}
-            onChange={(field, value) => updateAddress('billingAddress', field, value)}
-            errorFor={(field) => translateCode(errors[`billingAddress.${field}`])}
-          />
-        )}
-      </OrderSection>
+      <AddressSection
+        name="billingAddress"
+        title={t('ecommerce.orders.new.billingAddress')}
+        addLabel={t('ecommerce.orders.new.billingAddressAdd')}
+        value={form.billingAddress}
+        errors={errors}
+        codeText={codeText}
+        disabled={disabled}
+        onSave={(address) => saveAddress('billingAddress', address)}
+        onRemove={() => removeAddress('billingAddress')}
+        extraActions={
+          <Button
+            size="S"
+            variant="tertiary"
+            disabled={disabled || !hasAddress(form.shippingAddress)}
+            onClick={copyShippingToBilling}
+          >
+            {t('ecommerce.orders.new.billingSame')}
+          </Button>
+        }
+      />
 
       <OrderSection title={t('ecommerce.orders.new.products')}>
-        <VariantPicker locale={form.locale || undefined} onAdd={addVariant} disabled={disabled} />
-        {errors.lines && (
-          <Typography textColor="danger600" variant="pi">
-            {translateCode(errors.lines)}
-          </Typography>
-        )}
+        <SectionError text={translateCode(errors.lines)} />
+        <VariantPicker locale={form.locale || undefined} onAdd={addVariant} disabled={disabled} showLabel={false} />
         <OrderLinesEditor
           lines={form.lines}
+          gifts={giftLines}
+          giftLabel={giftLabel}
           disabled={disabled}
           errorFor={lineError}
           discountErrorFor={discountError}
@@ -864,76 +846,6 @@ const OrderCreatePage = () => {
           }
           onRemove={(index) => updateLines((lines) => lines.filter((_, i) => i !== index))}
         />
-      </OrderSection>
-
-      <OrderSection
-        title={t('ecommerce.orders.shipping.title')}
-        actions={
-          <Button size="S" variant="secondary" loading={quoting} disabled={disabled} onClick={getShippingOptions}>
-            {t('ecommerce.orders.shipping.get')}
-          </Button>
-        }
-      >
-        <CreateShippingPanel
-          quote={quote}
-          priceOf={(o) => listedShippingPrice(o, freshQuote)}
-          selected={selectedOption}
-          onSelect={selectShipping}
-          error={translateCode(errors.shipping)}
-          stores={stores}
-          pickup={form.pickup ?? null}
-          onPickup={(pickup) => {
-            setForm((f) => ({ ...f, pickup }));
-            clearErrors((p) => p === 'pickupPointId' || p === 'pickupPostalCode');
-          }}
-          postalCode={form.shippingAddress.postalCode}
-          pickupError={pickupError(errors.pickupPointId ?? errors.pickupPostalCode, !!stores)}
-          disabled={disabled}
-        />
-      </OrderSection>
-
-      <OrderSection
-        title={t('ecommerce.orders.detail.sections.promotions')}
-        actions={
-          <Button
-            size="S"
-            variant="secondary"
-            disabled={disabled || manualDiscounts.length >= MAX_CREATE_MANUAL_DISCOUNTS}
-            onClick={() => setAddingDiscount(true)}
-          >
-            {t('ecommerce.orders.discounts.add')}
-          </Button>
-        }
-      >
-        <PromotionCodesField
-          codes={form.promotionCodes}
-          onAddCode={addCode}
-          onRemoveCode={removeCode}
-          quote={shownQuote}
-          disabled={disabled}
-        />
-        {errors.manualDiscounts && (
-          <Typography variant="omega" textColor="danger600" role="alert">
-            {translateCode(errors.manualDiscounts)}
-          </Typography>
-        )}
-        {hasDiscountRows && stale && (
-          // The rows are the last quote's: its amounts may change, and the total waits for the new one.
-          <Typography variant="pi" textColor={pricingError ? 'danger600' : 'neutral500'}>
-            {pricingError ?? t('ecommerce.orders.quote.loading')}
-          </Typography>
-        )}
-        {hasDiscountRows ? (
-          <DiscountsTable
-            rows={appliedRows}
-            manualRows={manualRows}
-            lineRows={lineDiscountRows}
-            total={freshQuote ? freshQuote.totals.totalDiscount : null}
-            showActions={manualRows.length > 0}
-          />
-        ) : (
-          <EmptyNote>{t('ecommerce.orders.new.promotionsEmpty')}</EmptyNote>
-        )}
         {shownQuote && (
           <QuoteGifts
             quote={shownQuote}
@@ -947,33 +859,50 @@ const OrderCreatePage = () => {
         )}
       </OrderSection>
 
-      <OrderSection title={t('ecommerce.orders.totals.title')}>
-        <Tiles $columns={tiles.length}>
-          {tiles.map((tile) => (
-            <Tile key={tile.key}>
-              <Typography variant="sigma" textColor="neutral600">
-                {t(tileLabel[tile.key])}
-              </Typography>
-              <Typography variant="beta" tag="p" textColor="neutral800" style={{ whiteSpace: 'nowrap' }}>
-                {tile.amount === null ? '—' : formatCents(tile.amount, uiLocale)}
-              </Typography>
-            </Tile>
-          ))}
-        </Tiles>
-        {totalsNote && (
-          <Typography variant="pi" textColor={totalsNote.color}>
-            {totalsNote.text}
-          </Typography>
-        )}
-      </OrderSection>
+      <ShippingSection
+        lines={form.shippingLines}
+        errors={errors}
+        error={shippingError}
+        codeText={codeText}
+        pickupErrorText={pickupErrorText}
+        loadOptions={loadShippingOptions}
+        canQuote={canQuoteShipping}
+        postalCode={form.shippingAddress.postalCode}
+        disabled={disabled}
+        onSave={saveShippingLine}
+        onRemove={removeShippingLine}
+      />
 
-      {addingDiscount && (
-        <CreateManualDiscountModal
-          percentBase={shownQuote?.totals.subtotal ?? null}
-          onClose={() => setAddingDiscount(false)}
-          onAdd={addDiscount}
-        />
-      )}
+      <CreatePromotionsSection
+        rows={appliedRows}
+        manualRows={manualRows}
+        lineRows={lineDiscountRows}
+        total={freshQuote ? freshQuote.totals.totalDiscount : null}
+        staleNote={
+          stale
+            ? {
+                text: pricingError ?? t('ecommerce.orders.quote.loading'),
+                color: pricingError ? 'danger600' : 'neutral500',
+              }
+            : null
+        }
+        error={promotionsError}
+        unapplied={unappliedCodes(form.promotionCodes, shownQuote)}
+        codes={form.promotionCodes}
+        selectedIds={form.promotionIds}
+        known={shownQuote?.promotions ?? []}
+        locales={promotionLocales}
+        disabled={disabled}
+        canAddDiscount={manualDiscounts.length < MAX_CREATE_MANUAL_DISCOUNTS}
+        canApply={canPrice}
+        percentBase={shownQuote?.totals.subtotal ?? null}
+        applicableInput={() => applicablePromotionsInput(formRef.current, giftChoices)}
+        onAddDiscount={addDiscount}
+        onApplyIds={applyPromotionIds}
+        onAddCodes={addCodes}
+        onRemovePromotion={removePromotion}
+        onRemoveCode={removeCode}
+      />
     </Flex>
   );
 };
