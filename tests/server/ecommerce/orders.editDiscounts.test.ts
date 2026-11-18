@@ -1502,3 +1502,183 @@ describe('remove an applied promotion (owner approved)', () => {
     expect(promotionRow(ctx, promo).redemptions).toBe(0);
   });
 });
+
+describe('Recalculate discounts offers GIFT promotions (order 25)', () => {
+  /** Buy 2 of variant 10, get one of `variantIds` free (a gift line). */
+  const buy2Gift = (ctx: Ctx, variantIds = [12]) =>
+    addPromotion(ctx, {
+      name: 'Buy 2 get a gift',
+      benefits: {
+        items: [
+          {
+            type: 'BUY_X_GET_Y',
+            buy: { target: T([10]), quantity: 2, minAmount: null },
+            get: { mode: 'GIFT', variantIds, quantity: 1 },
+            reward: { kind: 'FREE' },
+          },
+        ],
+      },
+    });
+
+  /** Order 25: 2 × 10 and 2 × 12, paid; the gift promotion was removed. */
+  const order25 = async (variantIds = [12]) => {
+    const ctx = setup();
+    const gift = buy2Gift(ctx, variantIds);
+    const id = await createOrder(ctx, [
+      { variantId: 10, quantity: 2 },
+      { variantId: 12, quantity: 2 },
+    ]);
+    await ctx.editing.removePromotion(id, gift, 'user:1', 'op-g25-remove');
+    expect(linesOf(ctx, id).some((l) => l.isGift)).toBe(false);
+    await pay(ctx, id, orderRow(ctx, id).total);
+    expect(orderRow(ctx, id).paymentStatus).toBe('PAID');
+    return { ctx, id, gift };
+  };
+
+  it('the preview offers it, unselected, at its gift value with the gift variant', async () => {
+    const { ctx, id, gift } = await order25();
+    const before = JSON.stringify(ctx.tables);
+    const preview = await ctx.editing.previewDiscounts(id, {});
+    expect(JSON.stringify(ctx.tables)).toBe(before);
+    expect(preview.rows).toEqual([
+      expect.objectContaining({ key: `p:${gift}`, kind: 'NEW', selected: false, amount: 1500 }),
+    ]);
+    expect(preview.selection).toEqual([]);
+    expect(preview.giftOptions).toEqual([
+      {
+        promotionId: gift,
+        benefitIndex: 0,
+        quantity: 1,
+        selectedVariantId: 12,
+        variants: [expect.objectContaining({ variantId: 12, sku: 'SH-XL', available: true })],
+      },
+    ]);
+  });
+
+  it('confirming adds one gift line at 0 net; the total and the payment status do not change', async () => {
+    const { ctx, id, gift } = await order25();
+    const total = orderRow(ctx, id).total;
+    const stock12 = stockOf(ctx, 12);
+    const res = await ctx.editing.applyDiscounts(
+      id,
+      { selection: [`p:${gift}`] },
+      'user:1',
+      'op-g25-apply'
+    );
+    expect(res).toMatchObject({ outcome: 'NONE', difference: 0 });
+    const giftLines = linesOf(ctx, id).filter((l) => l.isGift);
+    expect(giftLines).toEqual([
+      expect.objectContaining({
+        variantId: 12,
+        quantity: 1,
+        unitPrice: 1500,
+        unitDiscount: 1500,
+        sku: 'SH-XL',
+        promotionRefs: { refs: [{ promotionId: gift, benefitIndex: 0, amount: 1500 }] },
+      }),
+    ]);
+    expect(stockOf(ctx, 12)).toBe(stock12 - 1);
+    const row = orderRow(ctx, id);
+    expect(row.total).toBe(total);
+    expect(row.paymentStatus).toBe('PAID');
+    expect(row.promotions.applied.map((a: any) => a.promotionId)).toEqual([gift]);
+    expect(redemptionsOf(ctx, id).find((r) => r.status === 'RESERVED')).toMatchObject({
+      promotion: gift,
+    });
+    const [entry] = historyOf(ctx, id, 'DISCOUNTS_RECALCULATED');
+    expect(entry.newValue).toMatchObject({
+      added: [{ promotionId: gift, amount: 1500 }],
+      addedGiftLines: [{ variantId: 12, quantity: 1, promotionId: gift }],
+      totals: { total },
+    });
+    // Applied now: the next preview keeps it locked and adds no further gift.
+    const again = await ctx.editing.previewDiscounts(id, {});
+    expect(again.rows).toEqual([
+      expect.objectContaining({ key: `p:${gift}`, kind: 'APPLIED_VALID', locked: 'APPLIED' }),
+    ]);
+    expect(again.giftOptions).toEqual([]);
+    expect(again.addedGiftLines).toEqual([]);
+  });
+
+  it('several gift variants: the admin chooses which one is added', async () => {
+    const { ctx, id, gift } = await order25([12, 11]);
+    const preview = await ctx.editing.previewDiscounts(id, { giftChoices: { [gift]: 11 } });
+    expect(preview.giftOptions).toEqual([
+      expect.objectContaining({
+        selectedVariantId: 11,
+        variants: [
+          expect.objectContaining({ variantId: 12, available: true }),
+          expect.objectContaining({ variantId: 11, available: true }),
+        ],
+      }),
+    ]);
+    expect(preview.rows[0]).toMatchObject({ amount: 2500 });
+    await ctx.editing.applyDiscounts(
+      id,
+      { selection: [`p:${gift}`], giftChoices: { [gift]: 11 } },
+      'user:1',
+      'op-g25-choice'
+    );
+    expect(linesOf(ctx, id).filter((l) => l.isGift)).toEqual([
+      expect.objectContaining({ variantId: 11, unitPrice: 2500, unitDiscount: 2500 }),
+    ]);
+    expect(stockOf(ctx, 11)).toBe(0);
+  });
+
+  it('invalid gift choices are refused', async () => {
+    const { ctx, id } = await order25();
+    expect(
+      await issues(ctx.editing.previewDiscounts(id, { giftChoices: { 1: 'x' } as any }))
+    ).toEqual([{ path: 'giftChoices.1', code: 'invalid' }]);
+  });
+
+  it('confirming with nothing selected changes nothing on the lines or totals', async () => {
+    const { ctx, id } = await order25();
+    const lines = JSON.stringify(linesOf(ctx, id));
+    const total = orderRow(ctx, id).total;
+    const res = await ctx.editing.applyDiscounts(id, { selection: [] }, 'user:1', 'op-g25-none');
+    expect(res).toMatchObject({ outcome: 'NONE', difference: 0 });
+    expect(JSON.stringify(linesOf(ctx, id))).toBe(lines);
+    expect(orderRow(ctx, id).total).toBe(total);
+    expect(orderRow(ctx, id).promotions.applied).toEqual([]);
+  });
+});
+
+describe('Recalculate discounts is a recommender: nothing new is preselected', () => {
+  it('a new applicable promotion is listed unselected; confirming with no selection changes nothing', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    const promo = tenPercent(ctx);
+    const preview = await ctx.editing.previewDiscounts(id, {});
+    expect(preview.rows).toEqual([
+      expect.objectContaining({ key: `p:${promo}`, kind: 'NEW', selected: false, amount: 650 }),
+    ]);
+    expect(preview.selection).toEqual([]);
+    expect(preview.after.total).toBe(preview.before.total);
+    const snapshotLines = JSON.stringify(linesOf(ctx, id));
+    const total = orderRow(ctx, id).total;
+    await ctx.editing.applyDiscounts(id, { selection: [] }, 'user:1', 'op-rec-none');
+    expect(JSON.stringify(linesOf(ctx, id))).toBe(snapshotLines);
+    expect(orderRow(ctx, id)).toMatchObject({ total, orderDiscount: 0 });
+    expect(orderRow(ctx, id).promotions.applied).toEqual([]);
+  });
+
+  it('selecting one incompatible with a kept promotion: the preview flags it, confirm refuses it', async () => {
+    const ctx = setup();
+    const a = tenPercent(ctx, { stacking: { ...STACK_ALL, exclusive: true } });
+    const id = await createOrder(ctx);
+    expect(orderRow(ctx, id).promotions.applied.map((x: any) => x.promotionId)).toEqual([a]);
+    promotionRow(ctx, a).active = false;
+    const b = tenPercent(ctx, { benefits: { items: [{ type: 'ORDER_FIXED', amount: 100 }] } });
+    const initial = await ctx.editing.previewDiscounts(id, {});
+    expect(initial.rows.find((r) => r.key === `p:${b}`)).toMatchObject({ kind: 'NEW', selected: false });
+    expect(initial.conflicts).toEqual([]);
+    const preview = await ctx.editing.previewDiscounts(id, { selection: [`p:${a}`, `p:${b}`] });
+    expect(preview.conflicts).toEqual([[`p:${a}`, `p:${b}`]]);
+    expect(
+      await issues(
+        ctx.editing.applyDiscounts(id, { selection: [`p:${a}`, `p:${b}`] }, 'user:1', 'op-rec-x')
+      )
+    ).toEqual([{ path: 'selection', code: 'PROMOTIONS_NOT_COMBINABLE' }]);
+  });
+});

@@ -73,6 +73,7 @@ import type {
   AppliedPromotion,
   BenefitRef,
   EvaluationLine,
+  GiftOption,
   PromotionCandidate,
 } from './domain/promotions';
 import {
@@ -92,7 +93,9 @@ import {
   type PickupPointInput,
   type PickupSelection,
 } from './domain/pickupPoints';
-import { isRecord, type CatalogVariant } from './orderPricingHelpers';
+import { isRecord, normalizePromotionFields, type CatalogVariant } from './orderPricingHelpers';
+import type { QuoteGiftOption } from './orderPricing';
+import type { StockMoveInput } from './stock';
 import type { ShippingOption, ShippingQuoteRequest } from './shipping';
 import { normalizeAddress, type OrderState, type OrderView } from './orders';
 import type { ValidationIssue } from './errors';
@@ -114,6 +117,16 @@ export type EditKind =
 export type EditOutcome = { outcome: 'DUE' | 'REFUNDABLE' | 'NONE'; difference: number };
 
 export type EditResult = { order: OrderView } & EditOutcome;
+
+/**
+ * Recalculate discounts' preview: the recalculation plus, per GIFT benefit of its NEW rows, the
+ * gift variants on offer (texts in the order's locale; a variant no longer in the catalog is
+ * left out), as Create order's quote lists them.
+ */
+export type DiscountPreview = DiscountRecalculation & { giftOptions: QuoteGiftOption[] };
+
+/** The selection to price and, per promotion id, the chosen gift variant. */
+export type DiscountsInput = { selection?: string[]; giftChoices?: Record<number, number> };
 
 /** `discountPercent`: the line's manual discount (spec 4.1); absent, null or '' = none. */
 export type LinesInput = {
@@ -276,6 +289,8 @@ const hasShippingDiscount = (order: any): boolean =>
 
 const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
   const service = (name: string): any => strapi.plugin(PLUGIN_ID).service(name);
+  const stockService = (): { move(input: StockMoveInput): Promise<{ applied: boolean }> } =>
+    service('EcommerceStockService');
   const orders = (): OrderServiceLike => service('EcommerceOrderService');
   const events = (): { collector(): { emit(e: any): void; flush(): Promise<void> } } =>
     service('EcommerceEventBus');
@@ -305,6 +320,10 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
       email: string | null;
       appliedIds: number[];
     }): Promise<PromotionCandidate[]>;
+    giftOptions(
+      candidates: PromotionCandidate[],
+      cartQuantities: Map<number, number>
+    ): Promise<Map<number, GiftOption>>;
     reserve(
       applied: AppliedPromotion[],
       ctx: { orderId: number; customerId: number | null; email: string; actor: string }
@@ -445,8 +464,12 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
    */
   const discountEvaluation = async (
     state: OrderState,
-    overrides: { lines?: DiscountLine[]; selection?: string[] } = {}
-  ): Promise<DiscountRecalculation> => {
+    overrides: {
+      lines?: DiscountLine[];
+      selection?: string[];
+      giftChoices?: Record<number, number>;
+    } = {}
+  ): Promise<DiscountRecalculation & { giftsOnOffer: Map<number, GiftOption> }> => {
     const order = state.order;
     const rawById = new Map<number, any>((order.lines ?? []).map((l: any) => [l.id, l]));
     const lines =
@@ -481,7 +504,9 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
       .filter((c) => c.method === 'CODE' && appliedIds.includes(c.id) && typeof c.code === 'string')
       .map((c) => c.code as string);
     const codes = [...new Set([...codesOf(order), ...current])];
-    return recalculateDiscounts(
+    // The gifts on offer, as on Create order: the order's own units are already off the stock.
+    const giftsOnOffer = await promotions().giftOptions(candidates, new Map());
+    const r = recalculateDiscounts(
       {
         lines,
         applied,
@@ -501,9 +526,43 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
         searchLimit: promotions().searchLimit(),
         payments: state.payments.map(toPaymentLike),
         refunds: state.refunds.map(toRefundLike),
+        gifts: giftsOnOffer,
+        giftChoices: overrides.giftChoices ?? {},
       },
       overrides.selection
     );
+    return { ...r, giftsOnOffer };
+  };
+
+  /** Each NEW row's gift with its variants (Create order's `giftOptions`). */
+  const giftOptionsOf = async (
+    state: OrderState,
+    r: DiscountRecalculation & { giftsOnOffer: Map<number, GiftOption> }
+  ): Promise<QuoteGiftOption[]> => {
+    if (!r.gifts.length) return [];
+    const ids = [...new Set(r.gifts.flatMap((g) => g.variantIds))];
+    const catalog = await orders().loadCatalog(ids, state.order.locale);
+    return r.gifts.map((g) => ({
+      promotionId: g.promotionId,
+      benefitIndex: g.benefitIndex,
+      quantity: g.quantity,
+      selectedVariantId: g.selectedVariantId,
+      variants: g.variantIds.flatMap((variantId) => {
+        const c = catalog.get(variantId);
+        if (!c) return [];
+        const offer = r.giftsOnOffer.get(variantId);
+        return [
+          {
+            variantId,
+            sku: c.sku,
+            name: c.name,
+            option: c.option,
+            imageUrl: c.imageUrl,
+            available: !!offer && offer.active && offer.available >= g.quantity,
+          },
+        ];
+      }),
+    }));
   };
 
   // -------------------------------------------------------------------------
@@ -1532,16 +1591,92 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     return config.uuid.modules.ecommerce;
   };
 
-  /** Recalculate discounts for `selection` (the initial one when absent). Writes nothing. */
+  /** `giftChoices`: positive integer ids on both sides (Create order's rule). */
+  const normalizeGiftChoices = (input: DiscountsInput | undefined): Record<number, number> => {
+    const errors: ValidationIssue[] = [];
+    const { giftChoices } = normalizePromotionFields({ giftChoices: input?.giftChoices }, errors);
+    if (errors.length) throw new EcommerceValidationError('Invalid discounts', errors);
+    return giftChoices;
+  };
+
+  /**
+   * Recalculate discounts for `selection` (the initial one when absent: the applied promotions
+   * and manual discounts; nothing new is preselected). Writes nothing.
+   */
   const previewDiscounts = async (
     rawOrderId: number | string,
-    input: { selection?: string[] }
-  ): Promise<DiscountRecalculation> => {
+    input: DiscountsInput
+  ): Promise<DiscountPreview> => {
     const selection =
       input?.selection === undefined ? undefined : normalizeSelection(input.selection);
+    const giftChoices = normalizeGiftChoices(input);
     const state = await orders().computeOrderState(Number(rawOrderId));
     assertEditable(state, 'RECALCULATE_DISCOUNTS');
-    return discountEvaluation(state, { selection });
+    const evaluated = await discountEvaluation(state, { selection, giftChoices });
+    const giftOptions = await giftOptionsOf(state, evaluated);
+    const { giftsOnOffer, ...r } = evaluated;
+    void giftsOnOffer;
+    return { ...r, giftOptions };
+  };
+
+  /**
+   * The gift lines of the selected NEW GIFT promotions, as create stores them (catalog snapshot,
+   * `isGift`, price with an equal discount, promotion refs), their units taken off the stock (one
+   * movement per variant).
+   */
+  const writeAddedGiftLines = async (
+    state: OrderState,
+    gifts: DiscountRecalculation['addedGiftLines'],
+    from: number,
+    w: EditWriter
+  ): Promise<void> => {
+    if (!gifts.length) return;
+    const order = state.order;
+    const catalog = await orders().loadCatalog(
+      [...new Set(gifts.map((g) => g.variantId))],
+      order.locale
+    );
+    let position = from;
+    const deduct = new Map<number, number>();
+    for (const g of gifts) {
+      const c = catalog.get(g.variantId);
+      if (!c) throw invalidDiscounts('selection', 'GIFT_UNAVAILABLE');
+      await strapi.db.query(uids().orderLine).create({
+        data: {
+          order: order.id,
+          variant: g.variantId,
+          variantId: g.variantId,
+          productId: c.productId,
+          sku: c.sku,
+          name: c.name,
+          option: c.option,
+          imageUrl: c.imageUrl,
+          unitPrice: g.unitPrice,
+          unitDiscount: g.unitDiscount,
+          manualDiscountPercent: null,
+          quantity: g.quantity,
+          returnedQuantity: 0,
+          tax: c.tax,
+          isGift: true,
+          promotionRefs: { refs: g.refs },
+          position: position++,
+        },
+      });
+      deduct.set(g.variantId, (deduct.get(g.variantId) ?? 0) + g.quantity);
+    }
+    for (const [variantId, quantity] of deduct) {
+      const move: StockMoveInput = {
+        variantId,
+        quantity: -quantity,
+        type: 'ORDER_DEDUCT',
+        operationKey: `edit:${w.operationId}:gift:${variantId}`,
+        orderId: order.id,
+        reason: `Order #${order.reference} modified`,
+        actor: w.actor,
+      };
+      const { applied } = await stockService().move(move);
+      if (!applied) throw invalidDiscounts('operationId', 'OPERATION_ID_CONFLICT');
+    }
   };
 
   type SplitLine = {
@@ -1557,7 +1692,8 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
    */
   const writeDiscountLines = async (
     state: OrderState,
-    r: Pick<DiscountRecalculation, 'lines' | 'removedGiftLines'>,
+    r: Pick<DiscountRecalculation, 'lines' | 'removedGiftLines'> &
+      Partial<Pick<DiscountRecalculation, 'addedGiftLines'>>,
     w: EditWriter
   ): Promise<SplitLine[]> => {
     const lines = strapi.db.query(uids().orderLine);
@@ -1604,6 +1740,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
       }
       split.push({ orderLineId: l.id, quantity: first.quantity, newLines });
     }
+    await writeAddedGiftLines(state, r.addedGiftLines ?? [], position, w);
     if (!r.removedGiftLines.length) return split;
     const byId = new Map(state.lines.map((l) => [l.id, l]));
     const restock = new Map<number, number>();
@@ -1639,7 +1776,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
    */
   const applyDiscounts = async (
     rawOrderId: number | string,
-    input: { selection: string[] },
+    input: DiscountsInput & { selection: string[] },
     actor: string,
     operationId: string
   ): Promise<EditResult> => {
@@ -1647,12 +1784,13 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     return runEdit(orderId, 'discounts', operationId, actor, {
       prepare: async () => {
         const selection = normalizeSelection(input?.selection);
+        const giftChoices = normalizeGiftChoices(input);
         assertEditable(await orders().computeOrderState(orderId), 'RECALCULATE_DISCOUNTS');
-        return selection;
+        return { selection, giftChoices };
       },
-      write: async (state, selection, w) => {
+      write: async (state, { selection, giftChoices }, w) => {
         assertEditable(state, 'RECALCULATE_DISCOUNTS');
-        const r = await discountEvaluation(state, { selection });
+        const r = await discountEvaluation(state, { selection, giftChoices });
         if (r.conflicts.length) throw invalidDiscounts('selection', 'PROMOTIONS_NOT_COMBINABLE');
         // The recalculation only adds discounts: an applied one is never removed.
         const dropped = r.rows.filter((row) => row.locked && !selection.includes(row.key));
@@ -1713,6 +1851,15 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
                 .filter((id) => !manualIds.includes(id)),
               totals: r.after,
               ...(splitLines.length ? { splitLines } : {}),
+              ...(r.addedGiftLines.length
+                ? {
+                    addedGiftLines: r.addedGiftLines.map((g) => ({
+                      variantId: g.variantId,
+                      quantity: g.quantity,
+                      promotionId: g.refs[0]?.promotionId ?? null,
+                    })),
+                  }
+                : {}),
             },
           },
         };
