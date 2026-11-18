@@ -114,6 +114,7 @@ import {
 } from './domain/manualDiscounts';
 import { MAX_STORE_CREDIT_CODE_LENGTH } from './domain/storefront/limits';
 import { storedDiscountPercent } from './domain/lineDiscounts';
+import { resolveLocale } from './locales';
 import {
   MAX_PROMOTION_CODES,
   isRecord,
@@ -591,7 +592,10 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     available(ids: number[]): Promise<Map<number, number>>;
   } => service('EcommerceStockService');
   const customers = (): {
-    findOrCreate(input: CustomerInput): Promise<{ id: number; created: boolean }>;
+    findOrCreate(
+      input: CustomerInput,
+      opts?: { locale?: unknown }
+    ): Promise<{ id: number; created: boolean }>;
   } => service('EcommerceCustomerService');
   const shipping = (): {
     findOption(
@@ -934,7 +938,10 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       if (existing) return { ...existing, replayed: true };
     }
 
-    const validated = await validateInput(input, ctx.source);
+    const checked = await validateInput(input, ctx.source);
+    // The order (and the customer it creates) never keeps a locale the backend does not have:
+    // an unknown one becomes the default locale. E-mails, catalog texts and prices read this one.
+    const validated = { ...checked, locale: await resolveLocale(strapi, checked.locale) };
     // With a pickup method the point's address is the delivery address: it is stored and it prices
     // the shipping (its market, e.g. PT-ISL), while the customer's stays on `pickupPoint`.
     // With several charges the first one is the delivery method and carries the point.
@@ -1056,7 +1063,8 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       const operationId = randomUUID();
       const result = await strapi.db.transaction(async () => {
         const u = uids();
-        const customer = await customers().findOrCreate(v.customer);
+        // A new customer gets the order's (resolved) language; an existing one is never changed.
+        const customer = await customers().findOrCreate(v.customer, { locale: v.locale });
         const reference = await nextReference();
         const publicId = randomUUID();
 

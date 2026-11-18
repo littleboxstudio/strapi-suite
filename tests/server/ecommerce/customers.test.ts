@@ -17,7 +17,15 @@ function setup() {
   const strapi: any = {
     db: { query: db.query, transaction: db.transaction },
     config: { get: () => ({ uuid: { modules: { ecommerce: UIDS } } }) },
-    plugin: () => ({ service: () => ({ log }) }),
+    plugin: (id: string) =>
+      id === 'i18n'
+        ? {
+            service: () => ({
+              getDefaultLocale: async () => 'en',
+              find: async () => [{ code: 'en' }, { code: 'pt-PT' }],
+            }),
+          }
+        : { service: () => ({ log }) },
   };
   return { service: EcommerceCustomerService({ strapi }), log, ...db };
 }
@@ -47,6 +55,46 @@ describe('EcommerceCustomerService', () => {
     expect(b).toEqual({ id: 1, created: false });
     expect(tables[UIDS.customer]).toHaveLength(1);
     expect(tables[UIDS.customer][0]).toMatchObject({ email: 'Ana@X.pt', emailNormalized: 'ana@x.pt', firstName: 'Ana' });
+  });
+
+  it('findOrCreate saves the order locale on a new customer', async () => {
+    const { service, tables } = setup();
+    await service.findOrCreate(input('a@x.pt'), { locale: 'pt-PT' });
+    expect(tables[UIDS.customer][0].locale).toBe('pt-PT');
+  });
+
+  it('findOrCreate matches the locale case-insensitively and keeps the stored case', async () => {
+    const { service, tables } = setup();
+    await service.findOrCreate(input('a@x.pt'), { locale: ' PT-pt ' });
+    expect(tables[UIDS.customer][0].locale).toBe('pt-PT');
+  });
+
+  it('findOrCreate saves the default locale for an unknown or missing locale', async () => {
+    const { service, tables } = setup();
+    await service.findOrCreate(input('a@x.pt'), { locale: 'xx' });
+    await service.findOrCreate(input('b@x.pt'));
+    expect(tables[UIDS.customer].map((c) => c.locale)).toEqual(['en', 'en']);
+  });
+
+  it('findOrCreate never changes an existing customer, but fills a missing locale once', async () => {
+    const { service, tables } = setup();
+    tables[UIDS.customer].push(
+      { id: 1, firstName: 'A', lastName: 'A', email: 'a@x.pt', emailNormalized: 'a@x.pt', locale: 'en' },
+      { id: 2, firstName: 'B', lastName: 'B', email: 'b@x.pt', emailNormalized: 'b@x.pt', locale: null }
+    );
+    await service.findOrCreate(input('a@x.pt'), { locale: 'pt-PT' });
+    expect(tables[UIDS.customer][0]).toMatchObject({ firstName: 'A', locale: 'en' });
+    expect(await service.findOrCreate(input('b@x.pt'), { locale: 'pt-pt' })).toEqual({ id: 2, created: false });
+    expect(tables[UIDS.customer][1]).toMatchObject({ firstName: 'B', locale: 'pt-PT' });
+    await service.findOrCreate(input('b@x.pt'), { locale: 'en' });
+    expect(tables[UIDS.customer][1].locale).toBe('pt-PT');
+  });
+
+  it('get and list expose the customer locale', async () => {
+    const { service } = setup();
+    const c = await service.findOrCreate(input('a@x.pt'), { locale: 'pt-PT' });
+    expect((await service.get(c.id)).locale).toBe('pt-PT');
+    expect((await service.list()).results[0].locale).toBe('pt-PT');
   });
 
   it('findOrCreate picks the oldest of duplicates', async () => {

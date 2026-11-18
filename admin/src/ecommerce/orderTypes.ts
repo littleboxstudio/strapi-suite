@@ -84,6 +84,8 @@ export type CustomerListItem = {
   firstName: string;
   lastName: string;
   email: string;
+  /** The customer's language (i18n locale code); null for customers saved before it existed. */
+  locale?: string | null;
   ordersCount: number;
 };
 
@@ -93,6 +95,8 @@ export type Customer = {
   lastName: string;
   email: string;
   phone: string | null;
+  /** The customer's language (i18n locale code); null for customers saved before it existed. */
+  locale?: string | null;
   createdAt: string;
   updatedAt: string;
 };

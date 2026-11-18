@@ -19,10 +19,12 @@ import { HeaderActions } from '../../components/HeaderActions';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchCustomer from '../../usecases/orders/fetchCustomer';
 import UpdateCustomer from '../../usecases/orders/updateCustomer';
+import FetchOrderLocales from '../../usecases/orders/fetchOrderLocales';
 import { extractFieldErrors } from '../../utils/productForm';
 import {
   buildCustomerInput,
   customerFormFromCustomer,
+  customerLocaleLabel,
   customerName,
   toCustomerErrorMap,
   validateCustomerForm,
@@ -34,7 +36,7 @@ import { useCustomerPermissions } from '../../hooks/useCustomerPermissions';
 import { useOrderPermissions } from '../../hooks/useOrderPermissions';
 import { usePaymentPermissions } from '../../hooks/usePaymentPermissions';
 import CustomerStoreCredits from '../../components/customers/CustomerStoreCredits';
-import type { FieldError } from '../../orderTypes';
+import type { FieldError, OrderLocales } from '../../orderTypes';
 import CustomerOrdersSection from './CustomerOrdersSection';
 
 const FIELDS: { field: CustomerField; required: boolean; type: string }[] = [
@@ -62,6 +64,9 @@ const CustomerDetailPage = () => {
   const [title, setTitle] = useState('');
   // The saved e-mail: store credits are valid for it.
   const [email, setEmail] = useState('');
+  // The language saved when the customer was created (read-only).
+  const [locale, setLocale] = useState<string | null>(null);
+  const [locales, setLocales] = useState<OrderLocales['locales']>([]);
   const [errors, setErrors] = useState<CustomerErrorMap>({});
   const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -81,6 +86,7 @@ const CustomerDetailPage = () => {
         setForm(customerFormFromCustomer(customer));
         setTitle(customerName(customer));
         setEmail(customer.email);
+        setLocale(customer.locale ?? null);
       })
       .catch(() => {
         if (!cancelled) setLoadError(true);
@@ -89,6 +95,20 @@ const CustomerDetailPage = () => {
       cancelled = true;
     };
   }, [customerId]);
+
+  // Locale names for the language field; without them (e.g. no orders permission) the code shows.
+  useEffect(() => {
+    let cancelled = false;
+    new FetchOrderLocales()
+      .execute()
+      .then((res) => {
+        if (!cancelled) setLocales(res.locales ?? []);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const backButton = (
     <IconButton label={t('ecommerce.customers.back')} onClick={() => navigate(basePath)}>
@@ -150,6 +170,7 @@ const CustomerDetailPage = () => {
       setForm(customerFormFromCustomer(saved));
       setTitle(customerName(saved));
       setEmail(saved.email);
+      setLocale(saved.locale ?? null);
       setErrors({});
       toggleNotification({ type: 'success', message: t('ecommerce.customers.saved') });
     } catch (err) {
@@ -200,6 +221,19 @@ const CustomerDetailPage = () => {
                 </Field.Root>
               </Grid.Item>
             ))}
+            <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
+              <Field.Root name="locale" hint={t('ecommerce.customers.fields.localeHint')}>
+                <Field.Label>{t('ecommerce.customers.fields.locale')}</Field.Label>
+                <TextInput
+                  value={
+                    customerLocaleLabel(locale, locales) ??
+                    t('ecommerce.customers.fields.localeEmpty')
+                  }
+                  disabled
+                />
+                <Field.Hint />
+              </Field.Root>
+            </Grid.Item>
           </Grid.Root>
         </Flex>
       </Box>

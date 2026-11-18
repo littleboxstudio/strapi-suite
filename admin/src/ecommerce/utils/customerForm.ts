@@ -27,6 +27,18 @@ export function buildCustomerInput(form: CustomerForm): CustomerInput {
   };
 }
 
+/**
+ * The customer's language for display: the locale name (from the order locales), else its code;
+ * `null` when the customer has none (saved before customers had a language).
+ */
+export function customerLocaleLabel(
+  locale: string | null | undefined,
+  locales: { code: string; name: string }[]
+): string | null {
+  if (!locale) return null;
+  return locales.find((l) => l.code === locale)?.name || locale;
+}
+
 /** Mirrors the server rules so obvious mistakes are flagged without a round trip. */
 export function validateCustomerForm(form: CustomerForm): FieldError[] {
   const errors: FieldError[] = [];

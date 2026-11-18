@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildCustomerInput,
   customerFormFromCustomer,
+  customerLocaleLabel,
   customerName,
   toCustomerErrorMap,
   validateCustomerForm,
@@ -56,6 +57,22 @@ describe('customer form', () => {
   it('joins first and last names', () => {
     expect(customerName({ firstName: 'Ana', lastName: 'Silva' })).toBe('Ana Silva');
     expect(customerName({ firstName: 'Ana', lastName: '' })).toBe('Ana');
+  });
+
+  it('labels the customer language with the locale name, else the code, else null', () => {
+    const locales = [
+      { code: 'en', name: 'English (en)' },
+      { code: 'pt-PT', name: 'Portuguese (pt-PT)' },
+    ];
+    expect(customerLocaleLabel('pt-PT', locales)).toBe('Portuguese (pt-PT)');
+    expect(customerLocaleLabel('fr', locales)).toBe('fr');
+    expect(customerLocaleLabel('en', [])).toBe('en');
+    expect(customerLocaleLabel(null, locales)).toBeNull();
+    expect(customerLocaleLabel('', locales)).toBeNull();
+    for (const key of ['fields.locale', 'fields.localeEmpty']) {
+      expect(en[`littlebox-strapi-suite.ecommerce.customers.${key}`]).toEqual(expect.any(String));
+      expect(pt[`littlebox-strapi-suite.ecommerce.customers.${key}`]).toEqual(expect.any(String));
+    }
   });
 
   it.each(['required', 'invalid_email', 'duplicate_email'])('error %s is translated in en and pt', (code) => {
