@@ -134,6 +134,22 @@ describe('currentMethod', () => {
   it('is null for an empty table', () => {
     expect(currentMethod([])).toBeNull();
   });
+  it('lines made by Create order: the first one is the delivery method, later ones are charges', () => {
+    const created = [
+      line({ id: 1, origin: 'CREATE', ...A }),
+      line({ id: 2, origin: 'CREATE', ...B }),
+      line({ id: 3, origin: 'RECALCULATION', ...B }),
+    ];
+    expect(currentMethod(created)).toEqual(A);
+    // A charge added later on the order still sets the method.
+    expect(currentMethod([...created, line({ id: 4, origin: 'MANUAL', ...B })])).toEqual(B);
+  });
+  it('reads stored CREATE lines', () => {
+    const order = { createdAt: AT, shippingOriginal: 500, shippingTax: 23, shippingMethod: A };
+    const l1 = line({ origin: 'CREATE' });
+    const l2 = line({ id: 2, origin: 'CREATE', amount: 0, ...B });
+    expect(readShippingLines({ ...order, shippingLines: { lines: [l1, l2] } })).toEqual([l1, l2]);
+  });
 });
 
 describe('shippingLineViews', () => {

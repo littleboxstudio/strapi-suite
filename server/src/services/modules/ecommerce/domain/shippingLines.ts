@@ -3,7 +3,11 @@
  * with the method it was charged under. Pure: no Strapi imports.
  */
 
-export type ShippingLineOrigin = 'CHECKOUT' | 'RECALCULATION' | 'EDIT' | 'MANUAL';
+/**
+ * `CREATE`: a charge the admin entered on Create order (several are allowed; the first one is the
+ * order's delivery method). `CHECKOUT`: the single charge of an order created with one method.
+ */
+export type ShippingLineOrigin = 'CHECKOUT' | 'CREATE' | 'RECALCULATION' | 'EDIT' | 'MANUAL';
 
 export type ShippingMethodRef = { providerId: string; serviceId: string; name: string; tax: number };
 
@@ -44,7 +48,7 @@ export type ShippingLineView = ShippingLine & {
 
 type PlanMode = 'REPLACED' | 'APPENDED' | 'UNCHANGED';
 
-const ORIGINS: ShippingLineOrigin[] = ['CHECKOUT', 'RECALCULATION', 'EDIT', 'MANUAL'];
+const ORIGINS: ShippingLineOrigin[] = ['CHECKOUT', 'CREATE', 'RECALCULATION', 'EDIT', 'MANUAL'];
 
 const num = (v: unknown): number => {
   const n = Number(v);
@@ -145,10 +149,16 @@ export function chargedShipping(lines: ShippingLine[]): number {
   return lines.reduce((sum, l) => sum + l.amount, 0);
 }
 
-/** The line that sets the order's current method: the latest one not made by a recalculation. */
+/**
+ * The line that sets the order's current method: the latest one not made by a recalculation. Of
+ * the lines entered on Create order only the first sets it (the others are extra charges).
+ */
 export function currentLine(lines: ShippingLine[]): ShippingLine | null {
   const sorted = [...lines].sort(byId);
-  return [...sorted].reverse().find((l) => l.origin !== 'RECALCULATION') ?? sorted[sorted.length - 1] ?? null;
+  const firstCreate = sorted.find((l) => l.origin === 'CREATE');
+  const setsMethod = (l: ShippingLine) =>
+    l.origin !== 'RECALCULATION' && (l.origin !== 'CREATE' || l === firstCreate);
+  return [...sorted].reverse().find(setsMethod) ?? sorted[sorted.length - 1] ?? null;
 }
 
 export function currentMethod(lines: ShippingLine[]): ShippingMethodRef | null {
