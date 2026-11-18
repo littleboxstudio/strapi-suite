@@ -21,6 +21,11 @@ export type ShippingLine = ShippingMethodRef & {
   /** Legacy: an EDIT line once appended as a correction of the line with this id (read only). */
   editOf?: number;
   /**
+   * A charge that never sets the order's delivery method: Create order's lines after the first.
+   * An edit keeps it, so editing that charge never makes it the delivery line.
+   */
+  extra?: true;
+  /**
    * A pickup method charged once the order has shipments: the point (DPD point or store) the next
    * shipment goes to. The order's own delivery address and point no longer change by then.
    */
@@ -71,6 +76,7 @@ const plain = (l: ShippingLine): ShippingLine => ({
   createdAt: l.createdAt,
   actor: l.actor,
   ...(l.editOf !== undefined ? { editOf: l.editOf } : {}),
+  ...(l.extra === true ? { extra: true as const } : {}),
   ...(l.pickupPoint ? { pickupPoint: linePoint(l.pickupPoint) } : {}),
 });
 
@@ -121,10 +127,11 @@ const parseLine = (raw: unknown): ShippingLine | null => {
   for (const k of ['providerId', 'serviceId', 'name', 'createdAt', 'actor']) {
     if (typeof raw[k] !== 'string') return null;
   }
-  const { editOf, pickupPoint, ...rest } = raw;
+  const { editOf, pickupPoint, extra, ...rest } = raw;
   const point = parsePoint(pickupPoint);
   return plain({
     ...(rest as ShippingLine),
+    ...(extra === true ? { extra: true as const } : {}),
     ...(Number.isInteger(editOf) && editOf >= 1 ? { editOf } : {}),
     ...(point ? { pickupPoint: point } : {}),
   });
@@ -151,14 +158,21 @@ export function chargedShipping(lines: ShippingLine[]): number {
 
 /**
  * The line that sets the order's current method: the latest one not made by a recalculation. Of
- * the lines entered on Create order only the first sets it (the others are extra charges).
+ * the lines entered on Create order only the first sets it: the others are `extra` charges (also
+ * once edited), and a CREATE line sets it only while no line has a lower id. With none left (the
+ * delivery line was removed), the first remaining charge is promoted.
  */
 export function currentLine(lines: ShippingLine[]): ShippingLine | null {
   const sorted = [...lines].sort(byId);
-  const firstCreate = sorted.find((l) => l.origin === 'CREATE');
+  const lowest = sorted[0];
   const setsMethod = (l: ShippingLine) =>
-    l.origin !== 'RECALCULATION' && (l.origin !== 'CREATE' || l === firstCreate);
-  return [...sorted].reverse().find(setsMethod) ?? sorted[sorted.length - 1] ?? null;
+    l.origin !== 'RECALCULATION' && !l.extra && (l.origin !== 'CREATE' || l === lowest);
+  return (
+    [...sorted].reverse().find(setsMethod) ??
+    sorted.find((l) => l.origin !== 'RECALCULATION') ??
+    sorted[sorted.length - 1] ??
+    null
+  );
 }
 
 export function currentMethod(lines: ShippingLine[]): ShippingMethodRef | null {

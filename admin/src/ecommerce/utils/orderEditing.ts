@@ -196,15 +196,18 @@ type MethodRef = { providerId: string; serviceId: string };
 
 /**
  * The method of the newest line that chose one; RECALCULATION lines inherit it (spec 6.1). Of the
- * CREATE lines (Create order's charges), only the first (lowest id) is the delivery method, as on
- * the server.
+ * lines entered on Create order only the first sets it, as on the server: the others are `extra`
+ * charges (also once edited), and a CREATE line sets it only while no line has a lower id. With
+ * none left (the delivery line was removed), the first remaining charge is promoted.
  */
 export function currentShippingMethod(lines: ShippingLineView[]): MethodRef | null {
   const sorted = [...lines].sort((a, b) => a.id - b.id);
-  const firstCreate = sorted.find((l) => l.origin === 'CREATE');
-  const chosen = sorted
-    .reverse()
-    .find((l) => l.origin !== 'RECALCULATION' && (l.origin !== 'CREATE' || l === firstCreate));
+  const lowest = sorted[0];
+  const setsMethod = (l: ShippingLineView) =>
+    l.origin !== 'RECALCULATION' && !l.extra && (l.origin !== 'CREATE' || l === lowest);
+  const chosen =
+    [...sorted].reverse().find(setsMethod) ??
+    (sorted.some((l) => l.extra) ? sorted.find((l) => l.origin !== 'RECALCULATION') : undefined);
   return chosen ? { providerId: chosen.providerId, serviceId: chosen.serviceId } : null;
 }
 

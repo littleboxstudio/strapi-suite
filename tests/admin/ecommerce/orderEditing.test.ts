@@ -553,6 +553,17 @@ describe('currentShippingMethod', () => {
     ).toEqual({ providerId: 'ctt', serviceId: 'a' });
   });
 
+  it('an edited delivery line stays the delivery method; an edited extra charge never becomes it', () => {
+    const one = line({ id: 1, origin: 'CREATE', providerId: 'ctt', serviceId: 'a' });
+    const two = line({ id: 2, origin: 'CREATE', extra: true, providerId: 'dpd-portugal', serviceId: 'PICKUP' });
+    const ctt = { providerId: 'ctt', serviceId: 'a' };
+    expect(currentShippingMethod([{ ...one, origin: 'EDIT' }, two])).toEqual(ctt);
+    expect(currentShippingMethod([one, { ...two, origin: 'EDIT' }])).toEqual(ctt);
+    expect(currentShippingMethod([{ ...one, origin: 'EDIT' }, { ...two, extra: undefined }])).toEqual(ctt);
+    // The delivery line removed: the next one is promoted.
+    expect(currentShippingMethod([two])).toEqual({ providerId: 'dpd-portugal', serviceId: 'PICKUP' });
+  });
+
   it('translates the CREATE origin in en and pt', () => {
     const key = 'littlebox-strapi-suite.ecommerce.orders.shippingCharges.origin.CREATE';
     expect(require('../../../admin/src/core/translations/en.json')[key]).toEqual(expect.any(String));

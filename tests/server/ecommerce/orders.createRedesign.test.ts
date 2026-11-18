@@ -371,8 +371,9 @@ describe('shippingLines: several admin shipping charges', () => {
     });
     expect(row.shippingLines.lines).toEqual([
       expect.objectContaining({ id: 1, origin: 'CREATE', amount: 700, providerId: 'manual', serviceId: '1', name: 'Standard', tax: 23, actor: 'user:1' }),
-      expect.objectContaining({ id: 2, origin: 'CREATE', amount: 300, providerId: 'manual', serviceId: '2', name: 'Express', tax: 23, actor: 'user:1' }),
+      expect.objectContaining({ id: 2, origin: 'CREATE', amount: 300, providerId: 'manual', serviceId: '2', name: 'Express', tax: 23, actor: 'user:1', extra: true }),
     ]);
+    expect(row.shippingLines.lines[0].extra).toBeUndefined();
 
     const view = await c.orders.get(created.id);
     expect(view.totals).toMatchObject({
@@ -563,6 +564,48 @@ describe('shippingLines: several admin shipping charges', () => {
     expect(row.pickupPoint).toMatchObject({ id: POINT.id });
     expect(row.shippingAddress).toMatchObject({ postalCode: '4000-200', company: 'Papelaria Central' });
     expect(row).toMatchObject({ shippingOriginal: 600, total: 4600 });
+  });
+
+  it('editing a line on the order never moves the delivery method to another line', async () => {
+    const c = setup();
+    const POINT = {
+      id: 'PT12345',
+      name: 'Papelaria Central',
+      address: 'Rua do Ponto 10',
+      address2: null,
+      postalCode: '4000-200',
+      city: 'Porto',
+      country: 'PT',
+    };
+    c.services.EcommercePickupPointService = { findPoint: vi.fn(async () => POINT), search: vi.fn() };
+    const standard = { providerId: 'manual', serviceId: '1', name: 'Standard', price: 500, tax: 23 };
+    const pickup = { providerId: 'dpd-portugal', serviceId: 'PICKUP', name: 'DPD Pickup', price: 400, tax: 23, requiresPickupPoint: true };
+    c.services.EcommerceShippingService.quote = vi.fn(async () => ({ options: [standard, pickup], failures: [] }));
+    const created = await c.orders.create(
+      createLines({
+        shippingLines: [
+          { providerId: 'manual', serviceId: '1', amount: 500 },
+          { providerId: 'dpd-portugal', serviceId: 'PICKUP', amount: 400 },
+        ],
+      }) as any,
+      admin
+    );
+    const method = () => orderRow(c, created.id).shippingMethod;
+    expect(method()).toMatchObject({ providerId: 'manual', serviceId: '1' });
+
+    // Line 1's amount: still the delivery line, and no pickup point is asked for.
+    await c.editing.editShippingLine(created.id, 1, { providerId: 'manual', serviceId: '1', amount: 650 }, 'user:1', 'op-create-0001');
+    expect(method()).toMatchObject({ providerId: 'manual', serviceId: '1' });
+    expect(orderRow(c, created.id).pickupPoint ?? null).toBeNull();
+    const { currentMethod, readShippingLines } = await import(
+      '../../../server/src/services/modules/ecommerce/domain/shippingLines'
+    );
+    expect(currentMethod(readShippingLines(orderRow(c, created.id)))).toMatchObject({ providerId: 'manual', serviceId: '1' });
+
+    // Line 2's amount: it stays an extra charge.
+    await c.editing.editShippingLine(created.id, 2, { providerId: 'dpd-portugal', serviceId: 'PICKUP', amount: 300 }, 'user:1', 'op-create-0002');
+    expect(method()).toMatchObject({ providerId: 'manual', serviceId: '1' });
+    expect(currentMethod(readShippingLines(orderRow(c, created.id)))).toMatchObject({ providerId: 'manual', serviceId: '1' });
   });
 
   it('the storefront ignores shippingLines and keeps the single shipping', async () => {
