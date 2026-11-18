@@ -49,6 +49,10 @@ export type DiscountLine = LineAmounts & {
  * with invoiced units (an invoiced line is never modified), or with units held by a shipment,
  * ACTIVE or PENDING (its shipments reference its units: it is never split).
  */
+/** Units the customer bought and that are held (invoiced, shipped or in a shipment). */
+const isHeld = (l: DiscountLine) =>
+  (l.invoiced ?? 0) > 0 || l.shipped > 0 || (l.reserved ?? 0) > 0;
+
 const isManual = (l: DiscountLine) =>
   (l.manualDiscountPercent !== undefined && l.manualDiscountPercent !== null) ||
   (l.invoiced ?? 0) > 0 ||
@@ -240,6 +244,8 @@ const classify = (ctx: DiscountContext): Classified => {
             unitPrice: line.unitPrice - line.unitDiscount,
             quantity: effective(line),
             frozen: true,
+            // Bought units still count toward a Buy X Get Y; only the reward leaves them alone.
+            ...(isHeld(line) ? { buyable: true } : {}),
           }
         : {
             variantId: line.variantId,

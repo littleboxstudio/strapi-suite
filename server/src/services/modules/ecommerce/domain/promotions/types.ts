@@ -111,6 +111,11 @@ export type EvaluationLine = {
    * the subtotal and the buy thresholds. Used for order lines whose discount is kept as is.
    */
   frozen?: boolean;
+  /**
+   * With `frozen`: its units still count as Buy X Get Y purchases (units the customer bought:
+   * invoiced, shipped or held by a shipment). Only the reward side leaves them alone.
+   */
+  buyable?: boolean;
 };
 
 /** Half-up rounding of `amount * percent / 100` in integers (percent has at most 2 decimals). */
