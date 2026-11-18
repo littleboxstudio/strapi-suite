@@ -194,9 +194,17 @@ export function shippingAddressErrors(form: AddressForm): FieldError[] {
 
 type MethodRef = { providerId: string; serviceId: string };
 
-/** The method of the newest line that chose one; RECALCULATION lines inherit it (spec 6.1). */
+/**
+ * The method of the newest line that chose one; RECALCULATION lines inherit it (spec 6.1). Of the
+ * CREATE lines (Create order's charges), only the first (lowest id) is the delivery method, as on
+ * the server.
+ */
 export function currentShippingMethod(lines: ShippingLineView[]): MethodRef | null {
-  const chosen = [...lines].reverse().find((l) => l.origin !== 'RECALCULATION');
+  const sorted = [...lines].sort((a, b) => a.id - b.id);
+  const firstCreate = sorted.find((l) => l.origin === 'CREATE');
+  const chosen = sorted
+    .reverse()
+    .find((l) => l.origin !== 'RECALCULATION' && (l.origin !== 'CREATE' || l === firstCreate));
   return chosen ? { providerId: chosen.providerId, serviceId: chosen.serviceId } : null;
 }
 
