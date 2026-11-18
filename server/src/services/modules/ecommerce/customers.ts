@@ -4,6 +4,7 @@ import { EcommerceNotFoundError, EcommerceValidationError, type ValidationIssue 
 import { isEmail } from './settings';
 import type { AuditEntry } from './audit';
 import { normalizeEmail } from './domain/email';
+import { resolveLocale } from './locales';
 
 const AREA = 'customers';
 const PAGE_SIZE = 50;
@@ -49,15 +50,30 @@ const EcommerceCustomerService = ({ strapi }: { strapi: Core.Strapi }) => {
   });
 
   return {
-    /** Finds the oldest customer with this e-mail or creates one. Never updates an existing customer. */
-    async findOrCreate(input: CustomerInput): Promise<{ id: number; created: boolean }> {
+    /**
+     * Finds the oldest customer with this e-mail or creates one. Never updates an existing customer,
+     * with one exception: a customer saved before customers had a locale (legacy row, no `locale`)
+     * gets it once, from the first order that finds it. `opts.locale` (the order's language) is
+     * checked against the i18n locales: an unknown or missing one saves the default locale.
+     */
+    async findOrCreate(
+      input: CustomerInput,
+      opts: { locale?: unknown } = {}
+    ): Promise<{ id: number; created: boolean }> {
       const { values, errors } = validate(input);
       if (errors.length) throw new EcommerceValidationError('Invalid customer', errors);
       const q = strapi.db.query(uids().customer);
       const emailNormalized = normalizeEmail(values.email);
       const [existing] = await q.findMany({ where: { emailNormalized }, orderBy: { id: 'asc' }, limit: 1 });
-      if (existing) return { id: existing.id, created: false };
-      const created = await q.create({ data: { ...values, emailNormalized } });
+      if (existing) {
+        if (!existing.locale) {
+          const locale = await resolveLocale(strapi, opts.locale);
+          await q.update({ where: { id: existing.id }, data: { locale } });
+        }
+        return { id: existing.id, created: false };
+      }
+      const locale = await resolveLocale(strapi, opts.locale);
+      const created = await q.create({ data: { ...values, emailNormalized, locale } });
       return { id: created.id, created: true };
     },
 
@@ -83,6 +99,7 @@ const EcommerceCustomerService = ({ strapi }: { strapi: Core.Strapi }) => {
           firstName: c.firstName,
           lastName: c.lastName,
           email: c.email,
+          locale: c.locale ?? null,
           ordersCount: Array.isArray(c.orders) ? c.orders.length : 0,
         })),
         pagination: pagination(p, total),
@@ -98,6 +115,7 @@ const EcommerceCustomerService = ({ strapi }: { strapi: Core.Strapi }) => {
         lastName: c.lastName,
         email: c.email,
         phone: c.phone ?? null,
+        locale: c.locale ?? null,
         createdAt: c.createdAt,
         updatedAt: c.updatedAt,
       };

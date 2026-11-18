@@ -31,6 +31,9 @@
     "phone": {
       "type": "string"
     },
+    "locale": {
+      "type": "string"
+    },
     "orders": {
       "type": "relation",
       "relation": "oneToMany",

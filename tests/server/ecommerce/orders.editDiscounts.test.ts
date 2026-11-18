@@ -124,7 +124,12 @@ function setup() {
     config: { get: () => ({ uuid: { modules: { ecommerce: UIDS } } }) },
     plugin: (id: string) =>
       id === 'i18n'
-        ? { service: () => ({ getDefaultLocale: async () => 'en' }) }
+        ? {
+            service: () => ({
+              getDefaultLocale: async () => 'en',
+              find: async () => [{ code: 'en' }, { code: 'pt' }],
+            }),
+          }
         : { service: (name: string) => services[name] },
   };
   const methods = [

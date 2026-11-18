@@ -109,7 +109,12 @@ function setup(opts: { shippingPrice?: number | null } = {}) {
     config: { get: () => ({ uuid: { modules: { ecommerce: UIDS } } }) },
     plugin: (id: string) =>
       id === 'i18n'
-        ? { service: () => ({ getDefaultLocale: async () => 'en' }) }
+        ? {
+            service: () => ({
+              getDefaultLocale: async () => 'en',
+              find: async () => [{ code: 'en' }, { code: 'pt' }],
+            }),
+          }
         : { service: (name: string) => services[name] },
   };
   services.EcommerceStockService = EcommerceStockService({ strapi });
@@ -628,6 +633,36 @@ describe('EcommerceOrderService.create', () => {
     expect(l1).toMatchObject({ name: 'Shirt', option: 'Médio' });
     expect(l2).toMatchObject({ name: 'Shirt', option: 'Large' });
     expect(tables[UIDS.order][0].locale).toBe('pt');
+  });
+
+  it.each([
+    ['admin', ctx],
+    ['storefront', { actor: 'storefront', source: 'storefront' as const }],
+  ])('%s create saves the order locale on the new customer (case-insensitive)', async (_name, c) => {
+    const { service, tables } = setup();
+    await service.create(input({ locale: 'PT' }), c);
+    expect(tables[UIDS.order][0].locale).toBe('pt');
+    expect(tables[UIDS.customer][0].locale).toBe('pt');
+  });
+
+  it('an unknown order locale stores the default locale on the order and the customer', async () => {
+    const { service, tables } = setup();
+    await service.create(input({ locale: 'xx' }), ctx);
+    expect(tables[UIDS.order][0].locale).toBe('en');
+    expect(tables[UIDS.customer][0].locale).toBe('en');
+  });
+
+  it('an existing customer keeps its locale; a legacy customer without one gets it once', async () => {
+    const { service, tables } = setup();
+    const one = [{ variantId: 10, quantity: 1 }];
+    await service.create(input({ locale: 'en', lines: one }), ctx);
+    await service.create(input({ locale: 'pt', lines: one }), ctx);
+    expect(tables[UIDS.customer]).toHaveLength(1);
+    expect(tables[UIDS.customer][0].locale).toBe('en');
+    expect(tables[UIDS.order].map((o) => o.locale)).toEqual(['en', 'pt']);
+    tables[UIDS.customer][0].locale = null;
+    await service.create(input({ locale: 'pt', lines: one }), ctx);
+    expect(tables[UIDS.customer][0].locale).toBe('pt');
   });
 
   it('forwards emailVerified to the promotion engine; absent means trusted (admin)', async () => {
