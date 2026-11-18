@@ -19,6 +19,7 @@ const orders: [string, string, string, string][] = [
   ['GET', `${O}/locales`, 'getLocales', P.ordersRead],
   ['POST', `${O}/shipping-quote`, 'shippingQuote', P.ordersManage],
   ['POST', `${O}/quote`, 'quote', P.ordersManage],
+  ['POST', `${O}/applicable-promotions`, 'applicablePromotions', P.ordersManage],
   ['GET', `${O}/variant-search`, 'variantSearch', P.ordersManage],
   ['GET', `${O}/pickup-points`, 'pickupPoints', P.ordersManage],
   ['GET', `${O}/:id`, 'get', P.ordersRead],
@@ -29,6 +30,7 @@ const orders: [string, string, string, string][] = [
   ['POST', `${O}/:id/archive`, 'archive', P.ordersManage],
   ['GET', '/admin/ecommerce/payment-methods/suggestions', 'paymentMethodSuggestions', P.ordersManage],
   ['DELETE', '/admin/ecommerce/payment-methods/suggestions/:key', 'removePaymentMethodSuggestion', P.ordersManage],
+  ['GET', '/admin/ecommerce/promotion-codes/search', 'promotionCodeSearch', P.ordersManage],
 ];
 const editing: [string, string, string, string][] = [
   ['GET', `${O}/:id/shipping-address/countries`, 'shippingAddressCountries', P.ordersManage],

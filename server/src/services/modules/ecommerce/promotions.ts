@@ -5,6 +5,7 @@ import { EcommerceNotFoundError, EcommerceValidationError } from './errors';
 import { isUniqueViolation } from './dbErrors';
 import { normalizeEmail } from './domain/email';
 import {
+  BENEFIT_CLASS,
   PROMOTION_SEARCH_LIMIT_DEFAULT,
   PROMOTION_SEARCH_LIMIT_MAX,
   evaluatePromotions,
@@ -16,6 +17,7 @@ import {
   type AppliedPromotion,
   type Benefit,
   type ConditionGroup,
+  type DiscountClass,
   type EvaluationInput,
   type EvaluationLine,
   type GiftOption,
@@ -27,6 +29,10 @@ import {
 } from './domain/promotions';
 
 const PAGE_SIZE = 50;
+/** Create order's Add code search: at most this many codes. */
+export const CODE_SEARCH_LIMIT = 20;
+/** Rows read per search before the date filter (codes are few; inactive ones are not read). */
+const CODE_SEARCH_SCAN = 200;
 /** What `reserve` needs from the locked promotion row. */
 const RESERVE_COLUMNS = ['code', 'method', 'active', 'startsAt', 'endsAt', 'usageLimit', 'perCustomerLimit'];
 const DEFAULT_TIMEZONE = 'Europe/Lisbon';
@@ -72,6 +78,16 @@ export type PromotionRedemptionView = {
   status: 'RESERVED' | 'RELEASED';
   createdAt: string | null;
   releasedAt: string | null;
+};
+
+/** A running CODE promotion found by Create order's code search (no customer data). */
+export type PromotionCodeSearchResult = {
+  code: string;
+  promotionId: number;
+  name: string;
+  displayName: Record<string, string>;
+  classes: DiscountClass[];
+  benefits: Benefit[];
 };
 
 export type ReserveContext = {
@@ -526,6 +542,43 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
   const catalogSearch = (q: string, locale?: string) =>
     service('EcommerceOrderService').searchVariants(q, locale);
 
+  /**
+   * Create order's Add code: the running CODE promotions whose code contains `q` (any case, from
+   * the first letter), codes starting with it first, then by code; at most CODE_SEARCH_LIMIT.
+   * Code, promotion and benefits only: no redemption or customer data.
+   */
+  const searchCodes = async (q: string): Promise<{ results: PromotionCodeSearchResult[] }> => {
+    const term = normalizePromotionCode(typeof q === 'string' ? q : '');
+    // No code is longer than 40 characters: a longer term matches nothing.
+    if (!term || term.length > 64) return { results: [] };
+    const rows: any[] = await strapi.db.query(uids().promotion).findMany({
+      where: { method: 'CODE', active: true, code: { $containsi: term } },
+      orderBy: { code: 'asc' },
+      limit: CODE_SEARCH_SCAN,
+    });
+    const now = new Date();
+    const results = rows
+      .map((row) => toCandidate(row, 0))
+      .filter((c) => typeof c.code === 'string' && promotionStatus(c, now) === 'ACTIVE')
+      .map((c) => ({ c, code: normalizePromotionCode(c.code) }))
+      .filter(({ code }) => code.includes(term))
+      .sort(
+        (a, b) =>
+          Number(!a.code.startsWith(term)) - Number(!b.code.startsWith(term)) ||
+          (a.code < b.code ? -1 : a.code > b.code ? 1 : 0)
+      )
+      .slice(0, CODE_SEARCH_LIMIT)
+      .map(({ c, code }) => ({
+        code,
+        promotionId: c.id,
+        name: c.name,
+        displayName: c.displayName,
+        classes: [...new Set(c.benefits.map((b) => BENEFIT_CLASS[b.type]))].sort(),
+        benefits: c.benefits,
+      }));
+    return { results };
+  };
+
   // -------------------------------------------------------------------------
   // Engine inputs
   // -------------------------------------------------------------------------
@@ -845,6 +898,7 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
     remove,
     listRedemptions,
     catalogSearch,
+    searchCodes,
     context,
     searchLimit,
     evaluate,

@@ -281,8 +281,54 @@ describe('EcommerceOrderController promotions', () => {
     await run('quote', { lines: [{ variantId: 1, quantity: 1, discountPercent: 10 }] }, { quote });
     expect(quote).toHaveBeenCalledWith(
       expect.objectContaining({ lines: [{ variantId: 1, quantity: 1, discountPercent: 10 }] }),
-      { manualDiscounts: true }
+      { manualDiscounts: true, admin: true }
     );
+  });
+
+  it('create and quote pass promotionIds and shippingLines to the service (redesign v2)', async () => {
+    const create = vi.fn().mockResolvedValue({ id: 1 });
+    const quote = vi.fn().mockResolvedValue({});
+    const extra = {
+      promotionIds: [3],
+      shippingLines: [{ providerId: 'manual', serviceId: '1', amount: 500 }],
+      destination: { country: 'PT' },
+    };
+    await run('create', extra, { create });
+    expect(create).toHaveBeenCalledWith(
+      { idempotencyKey: 'k', ...extra },
+      { actor: 'user:7', source: 'admin' }
+    );
+    await run('quote', extra, { quote });
+    expect(quote).toHaveBeenCalledWith(expect.objectContaining(extra), { manualDiscounts: true, admin: true });
+  });
+
+  it('applicablePromotions passes the cart (codes checked first)', async () => {
+    const applicablePromotions = vi.fn().mockResolvedValue({ promotions: [], exhaustive: true });
+    const c = orders({ EcommerceOrderService: { applicablePromotions } });
+    const body = { lines: [{ variantId: 1, quantity: 1 }], locale: 'en', promotionCodes: ['A'] };
+    const ctx = mkCtx({ request: { body } });
+    await c.applicablePromotions(ctx);
+    expect(applicablePromotions).toHaveBeenCalledWith(body);
+    expect(ctx.body).toEqual({ promotions: [], exhaustive: true });
+    const bad = mkCtx({ request: { body: { promotionCodes: 'A' } } });
+    await c.applicablePromotions(bad);
+    expect(bad.badRequest).toHaveBeenCalledWith('Invalid order', {
+      code: 'invalid',
+      errors: [{ path: 'promotionCodes', code: 'invalid' }],
+    });
+    expect(applicablePromotions).toHaveBeenCalledTimes(1);
+  });
+
+  it('promotionCodeSearch passes q to the promotion service', async () => {
+    const searchCodes = vi.fn().mockResolvedValue({ results: [] });
+    const c = orders({ EcommercePromotionService: { searchCodes } });
+    const ctx = mkCtx({ query: { q: 'sum' } });
+    await c.promotionCodeSearch(ctx);
+    expect(searchCodes).toHaveBeenCalledWith('sum');
+    expect(ctx.body).toEqual({ results: [] });
+    const none = mkCtx({ query: {} });
+    await c.promotionCodeSearch(none);
+    expect(searchCodes).toHaveBeenLastCalledWith('');
   });
 
   it('create PROMOTION_UNAVAILABLE is a 409 carrying the code as detail', async () => {
@@ -326,7 +372,7 @@ describe('EcommerceOrderController promotions', () => {
     await c.quote(ctx);
     expect(quote).toHaveBeenCalledWith(
       { lines: [], promotionCodes: ['SUMMER'] },
-      { manualDiscounts: true }
+      { manualDiscounts: true, admin: true }
     );
     expect(ctx.body).toEqual(result);
     expect(ctx.body.codes).toBeDefined();

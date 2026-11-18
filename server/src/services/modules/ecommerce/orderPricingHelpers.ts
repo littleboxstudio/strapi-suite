@@ -174,3 +174,95 @@ export function normalizePromotionFields(
   }
   return { promotionCodes, giftChoices };
 }
+
+/** At most this many selected automatic promotions (`promotionIds`, admin Create order). */
+export const MAX_PROMOTION_IDS = 50;
+
+/**
+ * `promotionIds` (admin only): the automatic promotions to evaluate. Absent or null → undefined
+ * (every running automatic promotion, as before); otherwise distinct positive integer ids, in
+ * order. An empty list evaluates no automatic promotion.
+ */
+export function normalizePromotionIds(raw: unknown, errors: ValidationIssue[]): number[] | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!Array.isArray(raw)) {
+    errors.push({ path: 'promotionIds', code: 'invalid' });
+    return undefined;
+  }
+  if (raw.length > MAX_PROMOTION_IDS) {
+    errors.push({ path: 'promotionIds', code: 'too_many' });
+    return undefined;
+  }
+  const ids: number[] = [];
+  raw.forEach((v, i) => {
+    if (typeof v !== 'number' || !Number.isSafeInteger(v) || v < 1) {
+      errors.push({ path: `promotionIds.${i}`, code: 'invalid' });
+    } else if (!ids.includes(v)) {
+      ids.push(v);
+    }
+  });
+  return ids;
+}
+
+/** At most this many shipping charges entered on Create order. */
+export const MAX_CREATE_SHIPPING_LINES = 10;
+
+/** A shipping charge entered on Create order (admin): the method and its amount (cents, VAT incl.). */
+export type ShippingLineInput = {
+  providerId: string;
+  serviceId: string;
+  amount: number;
+  pickupPointId?: string | null;
+  pickupPostalCode?: string | null;
+};
+
+/**
+ * `shippingLines` (admin Create order): 1 to MAX_CREATE_SHIPPING_LINES entries, each with a
+ * method (`shippingLines.<i>` required) and an amount in whole cents in [0, MAX_MONEY_CENTS]
+ * (`shippingLines.<i>.amount` INVALID_AMOUNT). The pickup fields are kept as given (the first
+ * entry's are checked by the pickup resolution, as the single `shipping`'s are).
+ */
+export function normalizeShippingLines(
+  raw: unknown,
+  errors: ValidationIssue[],
+  maxAmount: number
+): ShippingLineInput[] {
+  if (!Array.isArray(raw)) {
+    errors.push({ path: 'shippingLines', code: 'invalid' });
+    return [];
+  }
+  if (!raw.length) {
+    errors.push({ path: 'shippingLines', code: 'required' });
+    return [];
+  }
+  if (raw.length > MAX_CREATE_SHIPPING_LINES) {
+    errors.push({ path: 'shippingLines', code: 'too_many' });
+    return [];
+  }
+  const text = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+  const out: ShippingLineInput[] = [];
+  raw.forEach((entry, i) => {
+    const e = isRecord(entry) ? entry : {};
+    const providerId = text(e.providerId);
+    const serviceId = text(e.serviceId);
+    const amount = e.amount;
+    let ok = true;
+    if (typeof amount !== 'number' || !Number.isInteger(amount) || amount < 0 || amount > maxAmount) {
+      errors.push({ path: `shippingLines.${i}.amount`, code: 'INVALID_AMOUNT' });
+      ok = false;
+    }
+    if (!providerId || !serviceId) {
+      errors.push({ path: `shippingLines.${i}`, code: 'required' });
+      ok = false;
+    }
+    if (!ok) return;
+    out.push({
+      providerId,
+      serviceId,
+      amount: amount as number,
+      ...(e.pickupPointId !== undefined ? { pickupPointId: e.pickupPointId } : {}),
+      ...(e.pickupPostalCode !== undefined ? { pickupPostalCode: e.pickupPostalCode } : {}),
+    });
+  });
+  return out;
+}
