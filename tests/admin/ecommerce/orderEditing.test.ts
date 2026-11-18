@@ -26,6 +26,8 @@ import {
   parseDiscountPercent,
   percentToInput,
   manualDiscountRows,
+  promotionRemovalAction,
+  promotionRemovalText,
   manualDiscountBase,
   canAddManualDiscount,
   orderDiscountTotal,
@@ -1055,5 +1057,72 @@ describe('manual discount base (products not yet invoiced)', () => {
     expect(canAddManualDiscount(editable({ products: 6200, pendingDiscounts: 0 }))).toBe(true);
     expect(canAddManualDiscount(editable({ products: 0, pendingDiscounts: 0 }))).toBe(false);
     expect(canAddManualDiscount(editable({ products: 1000, pendingDiscounts: 1000 }))).toBe(false);
+  });
+});
+
+describe('promotionRemovalAction (remove an applied promotion)', () => {
+  const promotion = (removal: unknown, over: Record<string, unknown> = {}) =>
+    ({ promotionId: 3, name: 'Buy 2 get a gift', redemptionStatus: 'RESERVED', removal, ...over }) as any;
+  const editable = order({ editing: editing({ actions: ['REMOVE_DISCOUNT'] }) });
+  const allowed = { blockedBy: null, difference: 0, giftUnits: 2 };
+
+  it('offers Remove behind REMOVE_DISCOUNT and orders.manage', () => {
+    expect(promotionRemovalAction(editable, promotion(allowed), true)).toEqual({ enabled: true, reasonKey: null });
+    expect(promotionRemovalAction(editable, promotion(allowed), false)).toBeNull();
+    expect(promotionRemovalAction(order({ editing: editing({ actions: [] }) }), promotion(allowed), true)).toBeNull();
+    expect(
+      promotionRemovalAction(order({ editing: editing({ editable: false, actions: ['REMOVE_DISCOUNT'] }) }), promotion(allowed), true)
+    ).toBeNull();
+  });
+
+  it('disables it with the reason when invoiced or shipped', () => {
+    for (const code of ['PROMOTION_INVOICED', 'PROMOTION_SHIPPED']) {
+      const action = promotionRemovalAction(editable, promotion({ ...allowed, blockedBy: code }), true);
+      expect(action).toEqual({ enabled: false, reasonKey: `ecommerce.orders.promotions.removeBlocked.${code}` });
+      expect(en[`littlebox-strapi-suite.${action!.reasonKey}`]).toBeTruthy();
+      expect(pt[`littlebox-strapi-suite.${action!.reasonKey}`]).toBeTruthy();
+    }
+  });
+
+  it('offers nothing without the removal state or once released', () => {
+    expect(promotionRemovalAction(editable, promotion(undefined), true)).toBeNull();
+    expect(promotionRemovalAction(editable, promotion(allowed, { redemptionStatus: 'RELEASED' }), true)).toBeNull();
+  });
+});
+
+describe('promotionRemovalText', () => {
+  it('says how much the total goes up, and the gift units removed', () => {
+    expect(promotionRemovalText({ difference: 3000, giftUnits: 0 })).toEqual({
+      key: 'ecommerce.orders.promotions.removeConfirm',
+      giftKey: null,
+    });
+    expect(promotionRemovalText({ difference: 0, giftUnits: 2 })).toEqual({
+      key: 'ecommerce.orders.promotions.removeConfirmSameTotal',
+      giftKey: 'ecommerce.orders.promotions.removeConfirmGifts',
+    });
+    for (const k of [
+      'removeConfirm',
+      'removeConfirmSameTotal',
+      'removeConfirmGifts',
+      'removeTitle',
+      'removeBlocked.PROMOTION_INVOICED',
+      'removeBlocked.PROMOTION_SHIPPED',
+    ]) {
+      expect(en[`littlebox-strapi-suite.ecommerce.orders.promotions.${k}`]).toBeTruthy();
+      expect(pt[`littlebox-strapi-suite.ecommerce.orders.promotions.${k}`]).toBeTruthy();
+    }
+  });
+
+  it('has the error, history and code status texts', () => {
+    for (const k of [
+      'ecommerce.orders.errors.PROMOTION_INVOICED',
+      'ecommerce.orders.errors.PROMOTION_SHIPPED',
+      'ecommerce.orders.errors.PROMOTION_NOT_APPLIED',
+      'ecommerce.orders.history.type.PROMOTION_REMOVED',
+      'ecommerce.orders.promotions.codeStatus.REMOVED',
+    ]) {
+      expect(en[`littlebox-strapi-suite.${k}`]).toBeTruthy();
+      expect(pt[`littlebox-strapi-suite.${k}`]).toBeTruthy();
+    }
   });
 });

@@ -502,8 +502,19 @@ export type AppliedPromotion = {
 };
 
 /** An applied promotion with the state of its redemption (RELEASED after a cancellation). */
+/** Removing an applied promotion from the order: why not (null: allowed), the total change, gifts. */
+export type PromotionRemoval = {
+  blockedBy: 'PROMOTION_NOT_APPLIED' | 'PROMOTION_INVOICED' | 'PROMOTION_SHIPPED' | null;
+  /** What the order total goes up by (cents). */
+  difference: number;
+  /** Gift units removed with it. */
+  giftUnits: number;
+};
+
 export type OrderPromotion = AppliedPromotion & {
   redemptionStatus: 'RESERVED' | 'RELEASED' | null;
+  /** Absent on older servers. */
+  removal?: PromotionRemoval;
 };
 
 /** A code entered at checkout, as the order stored its evaluation. */

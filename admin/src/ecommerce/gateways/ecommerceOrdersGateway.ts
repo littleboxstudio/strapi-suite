@@ -134,6 +134,7 @@ export default interface EcommerceOrdersGateway {
   applyDiscounts(id: number, input: { selection: string[]; operationId: string }): Promise<EditResult>;
   addManualDiscount(id: number, input: ManualDiscountInput & { operationId: string }): Promise<EditResult>;
   removeManualDiscount(id: number, discountId: number, input: { operationId: string }): Promise<EditResult>;
+  removePromotion(id: number, promotionId: number, input: { operationId: string }): Promise<EditResult>;
   dismissReviewFlag(id: number, code: ReviewFlagCode, input: { operationId: string }): Promise<EditResult>;
 
   // Payment links and instructions (payments.manage), store credit payment (orders.manage)
@@ -364,6 +365,14 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
     input: { operationId: string }
   ): Promise<EditResult> {
     return this.httpClient.post(`${this.orders}/${id}/manual-discounts/${discountId}/remove`, input);
+  }
+
+  async removePromotion(
+    id: number,
+    promotionId: number,
+    input: { operationId: string }
+  ): Promise<EditResult> {
+    return this.httpClient.post(`${this.orders}/${id}/promotions/${promotionId}/remove`, input);
   }
 
   async dismissReviewFlag(

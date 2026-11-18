@@ -20,6 +20,8 @@ import type {
   Order,
   OrderEditAction,
   OrderEditing,
+  OrderPromotion,
+  PromotionRemoval,
   ReviewFlagCode,
   ShippingLineInput,
   ShippingLineView,
@@ -342,6 +344,39 @@ export function manualDiscountRows(order: Order, canManage: boolean): ManualDisc
     // A discount an invoice reflects is never removed.
     actions: canRemove && !discount.invoiced ? ['REMOVE'] : [],
   }));
+}
+
+/**
+ * The Remove button of an applied promotion row (owner approved), behind REMOVE_DISCOUNT and
+ * orders.manage: null for no button; disabled with the reason (translation id) while its effect
+ * is invoiced or shipped (the server refuses it too).
+ */
+export function promotionRemovalAction(
+  order: Order,
+  promotion: OrderPromotion,
+  canManage: boolean
+): { enabled: boolean; reasonKey: string | null } | null {
+  if (!canManage || !canEdit(order, 'REMOVE_DISCOUNT')) return null;
+  const removal = promotion.removal;
+  if (!removal || promotion.redemptionStatus === 'RELEASED') return null;
+  if (removal.blockedBy === 'PROMOTION_NOT_APPLIED') return null;
+  if (removal.blockedBy) {
+    return { enabled: false, reasonKey: `ecommerce.orders.promotions.removeBlocked.${removal.blockedBy}` };
+  }
+  return { enabled: true, reasonKey: null };
+}
+
+/** The confirmation texts (translation ids): how the total changes, then the gift units removed. */
+export function promotionRemovalText(
+  removal: Pick<PromotionRemoval, 'difference' | 'giftUnits'>
+): { key: string; giftKey: string | null } {
+  return {
+    key:
+      removal.difference > 0
+        ? 'ecommerce.orders.promotions.removeConfirm'
+        : 'ecommerce.orders.promotions.removeConfirmSameTotal',
+    giftKey: removal.giftUnits > 0 ? 'ecommerce.orders.promotions.removeConfirmGifts' : null,
+  };
 }
 
 /** "10 %" for a PERCENT discount (its euros are shown beside it); null for the other kinds. */
