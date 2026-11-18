@@ -17,6 +17,7 @@ import {
   discountRowGroups,
   discountSelectionToggle,
   discountRowGift,
+  discountRowBlock,
   discountGiftChoices,
   hasRowActions,
   manualDiscountPercent,
@@ -1176,5 +1177,54 @@ describe('discountRowGift', () => {
 
   it('discountGiftChoices sets a promotion\'s choice', () => {
     expect(discountGiftChoices({ 3: 2 }, 4, 5)).toEqual({ 3: 2, 4: 5 });
+  });
+});
+
+describe('discountRowBlock', () => {
+  const vip = row({ key: 'p:2', promotionId: 2, kind: 'NEW', name: 'VIP', selected: false, locked: null });
+  const ten = row({ key: 'p:3', promotionId: 3, kind: 'NEW', name: 'Ten', selected: false, locked: null });
+  const rowConflicts = [
+    {
+      keys: ['p:2', 'p:3'] as [string, string],
+      reasons: [
+        { rule: 'EXCLUSIVE_SELF' as const, discountClass: null },
+        { rule: 'EXCLUSIVE_OTHER' as const, discountClass: null },
+      ] as [any, any],
+    },
+  ];
+  const preview = { rows: [vip, ten], rowConflicts };
+
+  it('a row blocked by a kept promotion', () => {
+    const blocked = row({
+      key: 'p:4',
+      promotionId: 4,
+      kind: 'NEW',
+      locked: null,
+      blockedBy: {
+        promotionId: 1,
+        name: 'Free shipping',
+        displayName: {},
+        conflict: { rule: 'EXCLUSIVE_SELF', discountClass: null },
+      },
+    });
+    expect(discountRowBlock(preview, [], blocked)).toEqual({
+      promotionId: 1,
+      name: 'Free shipping',
+      displayName: {},
+      conflict: { rule: 'EXCLUSIVE_SELF', discountClass: null },
+    });
+  });
+
+  it('checking a row blocks the rows it conflicts with, from their side; unchecking frees them', () => {
+    expect(discountRowBlock(preview, ['p:2'], ten)).toEqual({
+      promotionId: 2,
+      name: 'VIP',
+      displayName: {},
+      conflict: { rule: 'EXCLUSIVE_OTHER', discountClass: null },
+    });
+    expect(discountRowBlock(preview, ['p:3'], vip)?.conflict.rule).toBe('EXCLUSIVE_SELF');
+    // A checked row itself is never blocked (it can be unchecked).
+    expect(discountRowBlock(preview, ['p:2', 'p:3'], vip)).toBeNull();
+    expect(discountRowBlock(preview, [], ten)).toBeNull();
   });
 });

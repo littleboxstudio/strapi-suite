@@ -933,12 +933,38 @@ export type DiscountRow = {
   selected: boolean;
   /** `APPLIED`: an applied discount, never removed by the recalculation. */
   locked: 'APPLIED' | 'GIFT_SHIPPED' | null;
+  /** NEW rows: the kept promotion it does not stack with (not selectable). */
+  blockedBy?: DiscountRowBlock | null;
+  /** NEW rows: part of the best combination given the kept promotions (never preselected). */
+  recommended?: boolean;
+};
+
+/** Why `a` does not stack with `b`, from `a`'s side (the server's `stackingConflict`). */
+export type StackingConflict = {
+  rule: 'EXCLUSIVE_SELF' | 'EXCLUSIVE_OTHER' | 'CLASS_SELF' | 'CLASS_OTHER';
+  discountClass: DiscountClass | null;
+};
+
+/** The promotion a row does not stack with, and why. */
+export type DiscountRowBlock = {
+  promotionId: number;
+  name: string;
+  displayName: Record<string, string>;
+  conflict: StackingConflict;
+};
+
+/** Two NEW rows that do not stack: `reasons[i]` is from `keys[i]`'s side. */
+export type DiscountRowConflict = {
+  keys: [string, string];
+  reasons: [StackingConflict, StackingConflict];
 };
 
 export type DiscountRecalculation = {
   rows: DiscountRow[];
   /** Per GIFT benefit of the NEW rows, the gift variants on offer (Create order's shape). */
   giftOptions?: QuoteGiftOption[];
+  /** Every pair of selectable NEW rows that do not stack. */
+  rowConflicts?: DiscountRowConflict[];
   selection: string[];
   /** False when the best combination was searched greedily (too many candidates). */
   exhaustive: boolean;

@@ -12,6 +12,8 @@ import {
 import type {
   AppliedPromotion,
   DiscountRow,
+  DiscountRowBlock,
+  DiscountRowConflict,
   QuoteGiftOption,
   FieldError,
   ManualDiscount,
@@ -325,6 +327,34 @@ export function discountGiftChoices(
   variantId: number
 ): Record<number, number> {
   return { ...choices, [promotionId]: variantId };
+}
+
+/**
+ * Why `row` cannot be checked now: a kept promotion it does not stack with, or a checked NEW row
+ * it conflicts with (from `row`'s side). Null when it can be (a checked row can be unchecked).
+ */
+export function discountRowBlock(
+  preview: { rows: DiscountRow[]; rowConflicts?: DiscountRowConflict[] },
+  selection: string[],
+  row: DiscountRow
+): DiscountRowBlock | null {
+  if (row.blockedBy) return row.blockedBy;
+  if (row.kind !== 'NEW' || selection.includes(row.key)) return null;
+  for (const c of preview.rowConflicts ?? []) {
+    const side = c.keys.indexOf(row.key);
+    if (side < 0) continue;
+    const otherKey = c.keys[1 - side];
+    if (!selection.includes(otherKey)) continue;
+    const other = preview.rows.find((r) => r.key === otherKey);
+    if (!other || other.promotionId === null) continue;
+    return {
+      promotionId: other.promotionId,
+      name: other.name,
+      displayName: other.displayName,
+      conflict: c.reasons[side],
+    };
+  }
+  return null;
 }
 
 export type DiscountGroup = { kind: DiscountRow['kind']; rows: DiscountRow[] };
