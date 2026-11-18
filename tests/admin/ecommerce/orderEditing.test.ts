@@ -16,6 +16,8 @@ import {
   discountsSaveErrorId,
   discountRowGroups,
   discountSelectionToggle,
+  discountRowGift,
+  discountGiftChoices,
   hasRowActions,
   manualDiscountPercent,
   discountPercentFromInput,
@@ -1124,5 +1126,55 @@ describe('promotionRemovalText', () => {
       expect(en[`littlebox-strapi-suite.${k}`]).toBeTruthy();
       expect(pt[`littlebox-strapi-suite.${k}`]).toBeTruthy();
     }
+  });
+});
+
+describe('discountRowGift', () => {
+  const variant = (variantId: number, name: string, option: string | null = null, available = true) => ({
+    variantId,
+    sku: `S${variantId}`,
+    name,
+    option,
+    imageUrl: null,
+    available,
+  });
+  const giftOptions = [
+    { promotionId: 3, benefitIndex: 0, quantity: 1, selectedVariantId: 2, variants: [variant(2, 'Mug', 'Red')] },
+    {
+      promotionId: 4,
+      benefitIndex: 0,
+      quantity: 1,
+      selectedVariantId: 6,
+      variants: [variant(5, 'Cap'), variant(6, 'Pen', null, true), variant(7, 'Bag', null, false)],
+    },
+  ];
+
+  it('a NEW gift row: the priced variant and no choice for a single variant', () => {
+    expect(discountRowGift({ giftOptions }, row({ key: 'p:3', promotionId: 3, kind: 'NEW' }))).toEqual({
+      promotionId: 3,
+      label: 'Mug · Red',
+      choices: [],
+      selected: 2,
+    });
+  });
+
+  it('several variants: every one is a choice (unavailable ones flagged)', () => {
+    const g = discountRowGift({ giftOptions }, row({ key: 'p:4', promotionId: 4, kind: 'NEW' }));
+    expect(g).toMatchObject({ label: 'Pen', selected: 6 });
+    expect(g?.choices).toEqual([
+      { variantId: 5, label: 'Cap', available: true },
+      { variantId: 6, label: 'Pen', available: true },
+      { variantId: 7, label: 'Bag', available: false },
+    ]);
+  });
+
+  it('none for applied, manual or non-gift rows, or without gift options', () => {
+    expect(discountRowGift({ giftOptions }, row({ promotionId: 3, kind: 'APPLIED_VALID' }))).toBeNull();
+    expect(discountRowGift({ giftOptions }, row({ key: 'p:9', promotionId: 9, kind: 'NEW' }))).toBeNull();
+    expect(discountRowGift({}, row({ key: 'p:3', promotionId: 3, kind: 'NEW' }))).toBeNull();
+  });
+
+  it('discountGiftChoices sets a promotion\'s choice', () => {
+    expect(discountGiftChoices({ 3: 2 }, 4, 5)).toEqual({ 3: 2, 4: 5 });
   });
 });

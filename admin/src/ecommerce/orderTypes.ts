@@ -937,6 +937,8 @@ export type DiscountRow = {
 
 export type DiscountRecalculation = {
   rows: DiscountRow[];
+  /** Per GIFT benefit of the NEW rows, the gift variants on offer (Create order's shape). */
+  giftOptions?: QuoteGiftOption[];
   selection: string[];
   /** False when the best combination was searched greedily (too many candidates). */
   exhaustive: boolean;

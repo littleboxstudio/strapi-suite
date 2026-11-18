@@ -12,6 +12,7 @@ import {
 import type {
   AppliedPromotion,
   DiscountRow,
+  QuoteGiftOption,
   FieldError,
   ManualDiscount,
   ManualDiscountInput,
@@ -279,6 +280,51 @@ export function discountSelectionToggle(selection: string[], row: DiscountRow): 
   const selected = selection.includes(row.key);
   if (row.locked) return selected ? selection : [...selection, row.key];
   return selected ? selection.filter((k) => k !== row.key) : [...selection, row.key];
+}
+
+/** The gift of a NEW GIFT promotion row (Recalculate discounts): the priced variant and the choices. */
+export type DiscountRowGift = {
+  promotionId: number;
+  /** The priced variant's label; null when no variant could be given. */
+  label: string | null;
+  /** Every variant offered when there are several (Create order's choice); empty for one. */
+  choices: { variantId: number; label: string; available: boolean }[];
+  selected: number | null;
+};
+
+const giftVariantLabel = (v: { name: string; option: string | null }) =>
+  v.option ? `${v.name} · ${v.option}` : v.name;
+
+export function discountRowGift(
+  preview: { giftOptions?: QuoteGiftOption[] },
+  row: DiscountRow
+): DiscountRowGift | null {
+  if (row.kind !== 'NEW' || row.promotionId === null) return null;
+  const option = (preview.giftOptions ?? []).find((g) => g.promotionId === row.promotionId);
+  if (!option) return null;
+  const priced = option.variants.find((v) => v.variantId === option.selectedVariantId);
+  return {
+    promotionId: option.promotionId,
+    label: priced ? giftVariantLabel(priced) : null,
+    choices:
+      option.variants.length >= 2
+        ? option.variants.map((v) => ({
+            variantId: v.variantId,
+            label: giftVariantLabel(v),
+            available: v.available,
+          }))
+        : [],
+    selected: option.selectedVariantId,
+  };
+}
+
+/** The gift choices with `promotionId`'s set to `variantId`. */
+export function discountGiftChoices(
+  choices: Record<number, number>,
+  promotionId: number,
+  variantId: number
+): Record<number, number> {
+  return { ...choices, [promotionId]: variantId };
 }
 
 export type DiscountGroup = { kind: DiscountRow['kind']; rows: DiscountRow[] };

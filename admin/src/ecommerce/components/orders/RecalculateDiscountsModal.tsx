@@ -8,6 +8,8 @@ import {
   Flex,
   Loader,
   Modal,
+  SingleSelect,
+  SingleSelectOption,
   Table,
   Tbody,
   Td,
@@ -23,6 +25,8 @@ import ApplyDiscounts from '../../usecases/orders/applyDiscounts';
 import { formatCents } from '../../utils/money';
 import {
   discountConflictNames,
+  discountGiftChoices,
+  discountRowGift,
   discountRowGroups,
   discountSelectionToggle,
   discountsSaveErrorId,
@@ -81,6 +85,8 @@ const RecalculateDiscountsModal = ({
   const [operationId] = useState(() => mintUuid());
   const [preview, setPreview] = useState<DiscountRecalculation | null>(null);
   const [selection, setSelection] = useState<string[]>([]);
+  /** Per promotion id, the gift variant the admin chose (a promotion offering several). */
+  const [giftChoices, setGiftChoices] = useState<Record<number, number>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
   /** A re-preview is waiting or in flight: the shown totals and conflicts are not final yet. */
   const [pricing, setPricing] = useState(false);
@@ -89,11 +95,11 @@ const RecalculateDiscountsModal = ({
   const requestRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  /** Prices `next`; only the newest request's answer is applied. */
-  const load = (next?: string[]) => {
+  /** Prices `next` with `choices`; only the newest request's answer is applied. */
+  const load = (next?: string[], choices: Record<number, number> = giftChoices) => {
     const request = ++requestRef.current;
     new PreviewDiscounts()
-      .execute(order.id, next ? { selection: next } : {})
+      .execute(order.id, { ...(next ? { selection: next } : {}), giftChoices: choices })
       .then((p) => {
         if (request !== requestRef.current) return;
         setPreview(p);
@@ -119,21 +125,37 @@ const RecalculateDiscountsModal = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /** Prices again after a short pause (the newest change wins). */
+  const reprice = (next: string[], choices: Record<number, number>) => {
+    setPricing(true);
+    requestRef.current += 1;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => load(next, choices), PREVIEW_DELAY_MS);
+  };
+
   const toggle = (row: DiscountRow) => {
     if (busy) return;
     const next = discountSelectionToggle(selection, row);
     setSelection(next);
-    setPricing(true);
-    requestRef.current += 1;
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => load(next), PREVIEW_DELAY_MS);
+    reprice(next, giftChoices);
+  };
+
+  const chooseGift = (promotionId: number, variantId: number) => {
+    if (busy) return;
+    const choices = discountGiftChoices(giftChoices, promotionId, variantId);
+    setGiftChoices(choices);
+    reprice(selection, choices);
   };
 
   const confirm = async () => {
     if (busy || pricing || !preview || preview.conflicts.length > 0) return;
     setBusy(true);
     try {
-      const result = await new ApplyDiscounts().execute(order.id, { selection, operationId });
+      const result = await new ApplyDiscounts().execute(order.id, {
+        selection,
+        operationId,
+        giftChoices,
+      });
       onSaved(result);
       if (result.outcome === 'NONE') {
         toggleNotification({ type: 'success', message: t('ecommerce.orders.discounts.saved') });
@@ -164,6 +186,7 @@ const RecalculateDiscountsModal = ({
   const rowView = (row: DiscountRow) => {
     const checked = selection.includes(row.key);
     const name = nameOf(row);
+    const gift = preview ? discountRowGift(preview, row) : null;
     return (
       <Tr key={row.key}>
         <Td style={cell}>
@@ -200,6 +223,31 @@ const RecalculateDiscountsModal = ({
                     })})`
                   : ''}
               </Typography>
+            )}
+            {gift && gift.label && (
+              <Typography variant="pi" textColor="neutral600">
+                {t('ecommerce.orders.discounts.freeGift', { name: gift.label })}
+              </Typography>
+            )}
+            {gift && gift.choices.length > 0 && (
+              <Box paddingTop={1} style={{ minWidth: 220 }}>
+                <SingleSelect
+                  size="S"
+                  aria-label={t('ecommerce.orders.discounts.giftChoice', { name })}
+                  value={gift.selected !== null ? String(gift.selected) : null}
+                  disabled={busy}
+                  onChange={(value: string | number) => chooseGift(gift.promotionId, Number(value))}
+                >
+                  {gift.choices.map((c) => (
+                    // The engine skips an unavailable gift (inactive or short of stock).
+                    <SingleSelectOption key={c.variantId} value={String(c.variantId)} disabled={!c.available}>
+                      {c.available
+                        ? c.label
+                        : t('ecommerce.orders.quote.giftUnavailable', { name: c.label })}
+                    </SingleSelectOption>
+                  ))}
+                </SingleSelect>
+              </Box>
             )}
             {row.locked === 'GIFT_SHIPPED' && (
               <Typography variant="pi" textColor="neutral600">

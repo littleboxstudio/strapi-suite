@@ -9,7 +9,7 @@ export default class ApplyDiscounts {
     this.gateway = Registry.getInstance().inject('ecommerceOrdersGateway');
   }
 
-  async execute(id: number, input: { selection: string[]; operationId: string }): Promise<EditResult> {
+  async execute(id: number, input: { selection: string[]; operationId: string; giftChoices?: Record<number, number> }): Promise<EditResult> {
     return this.gateway.applyDiscounts(id, input);
   }
 }

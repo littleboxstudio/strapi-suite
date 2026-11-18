@@ -2212,6 +2212,8 @@
   "littlebox-strapi-suite.ecommerce.orders.discounts.reason.AWAITING_SHIPPING": "Applies once the shipping option is chosen",
   "littlebox-strapi-suite.ecommerce.orders.discounts.reason.NOT_FOUND": "Deleted",
   "littlebox-strapi-suite.ecommerce.orders.discounts.conflict": "These promotions cannot be combined: {names}",
+  "littlebox-strapi-suite.ecommerce.orders.discounts.freeGift": "Free gift: {name}",
+  "littlebox-strapi-suite.ecommerce.orders.discounts.giftChoice": "Gift of {name}",
   "littlebox-strapi-suite.ecommerce.orders.discounts.giftShipped": "Its gift was already shipped.",
   "littlebox-strapi-suite.ecommerce.orders.discounts.manual": "Manual",
   "littlebox-strapi-suite.ecommerce.orders.discounts.manualName": "Manual discount",

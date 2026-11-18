@@ -130,8 +130,8 @@ export default interface EcommerceOrdersGateway {
   addShippingLine(id: number, input: ShippingLineInput & { operationId: string }): Promise<EditResult>;
   removeShippingLine(id: number, lineId: number, input: { operationId: string }): Promise<EditResult>;
   /** Without a `selection` the initial one (applied promotions still valid) is priced. */
-  previewDiscounts(id: number, input: { selection?: string[] }): Promise<DiscountRecalculation>;
-  applyDiscounts(id: number, input: { selection: string[]; operationId: string }): Promise<EditResult>;
+  previewDiscounts(id: number, input: { selection?: string[]; giftChoices?: Record<number, number> }): Promise<DiscountRecalculation>;
+  applyDiscounts(id: number, input: { selection: string[]; operationId: string; giftChoices?: Record<number, number> }): Promise<EditResult>;
   addManualDiscount(id: number, input: ManualDiscountInput & { operationId: string }): Promise<EditResult>;
   removeManualDiscount(id: number, discountId: number, input: { operationId: string }): Promise<EditResult>;
   removePromotion(id: number, promotionId: number, input: { operationId: string }): Promise<EditResult>;
@@ -344,13 +344,13 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
     return this.httpClient.post(`${this.orders}/${id}/shipping-lines/${lineId}/remove`, input);
   }
 
-  async previewDiscounts(id: number, input: { selection?: string[] }): Promise<DiscountRecalculation> {
+  async previewDiscounts(id: number, input: { selection?: string[]; giftChoices?: Record<number, number> }): Promise<DiscountRecalculation> {
     return this.httpClient.post(`${this.orders}/${id}/discounts/preview`, input);
   }
 
   async applyDiscounts(
     id: number,
-    input: { selection: string[]; operationId: string }
+    input: { selection: string[]; operationId: string; giftChoices?: Record<number, number> }
   ): Promise<EditResult> {
     return this.httpClient.post(`${this.orders}/${id}/discounts`, input);
   }
