@@ -507,8 +507,6 @@
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.issues.UNSAFE_HTML": "HTML inseguro",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.issues.SYNTAX": "Erro de sintaxe",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.preview.title": "Pré-visualização",
-  "littlebox-strapi-suite.ecommerce.settings.emailTemplates.preview.editTexts": "Editar textos",
-  "littlebox-strapi-suite.ecommerce.settings.emailTemplates.preview.editTextsDone": "Concluir",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.preview.editTextsHint": "Clique num texto marcado com tracejado e escreva: o HTML é atualizado. Os valores destacados vêm de variáveis e alteram-se no HTML.",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.preview.subject": "Assunto:",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.preview.issues": "O modelo tem problemas:",

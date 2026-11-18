@@ -723,8 +723,6 @@
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.issues.UNSAFE_HTML": "Unsafe HTML",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.issues.SYNTAX": "Syntax error",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.preview.title": "Preview",
-  "littlebox-strapi-suite.ecommerce.settings.emailTemplates.preview.editTexts": "Edit texts",
-  "littlebox-strapi-suite.ecommerce.settings.emailTemplates.preview.editTextsDone": "Done",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.preview.editTextsHint": "Click a text marked with a dashed line and type: the HTML follows. Highlighted values come from variables and are changed in the HTML.",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.preview.subject": "Subject:",
   "littlebox-strapi-suite.ecommerce.settings.emailTemplates.preview.issues": "The template has problems:",

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { Navigate, useBlocker, useNavigate, useParams } from 'react-router-dom';
 import styled from 'styled-components';
@@ -18,8 +18,8 @@ import ConfirmModal from '../../../components/ConfirmModal';
 import config from '../../../core/config';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { LocaleSwitcher } from '../../components/LocaleSwitcher';
-import { HtmlCodeEditor } from '../../components/settings/HtmlCodeEditor';
-import { EmailPreview } from '../../components/settings/EmailPreview';
+import { HtmlCodeEditor, type HtmlCodeEditorHandle } from '../../components/settings/HtmlCodeEditor';
+import { EmailPreview, type EmailPreviewHandle } from '../../components/settings/EmailPreview';
 import { VariablesModal } from '../../components/settings/VariablesModal';
 import { TestEmailModal } from '../../components/settings/TestEmailModal';
 import { TemplateVersionsModal } from '../../components/settings/TemplateVersionsModal';
@@ -36,6 +36,8 @@ import {
   joinTemplate,
   replaceText,
   splitTemplate,
+  textAt,
+  textRange,
   type TemplatePart,
 } from '../../utils/emailTextEditing';
 import { useSettingsPermissions } from './useSettingsPermissions';
@@ -49,6 +51,22 @@ import { ToneBadge } from '../../components/orders/StatusBadges';
 /** Delay between the last keystroke and the preview request. */
 const PREVIEW_DEBOUNCE_MS = 400;
 
+/** Side by side, the HTML and the preview fill the screen's height left below them (each scrolls inside). */
+const MIN_PANE_HEIGHT = 480;
+/** Below this width the columns stack and keep a fixed height (the page scrolls). */
+const STACKED_WIDTH = 1100;
+/** Space kept under the panes. */
+const BOTTOM_GAP = 24;
+
+/** The nearest ancestor that scrolls (the admin's content area), else the document. */
+function scrollParent(el: HTMLElement): HTMLElement {
+  for (let node = el.parentElement; node; node = node.parentElement) {
+    const { overflowY } = getComputedStyle(node);
+    if ((overflowY === 'auto' || overflowY === 'scroll') && node.scrollHeight >= node.clientHeight) return node;
+  }
+  return document.scrollingElement as HTMLElement;
+}
+
 type FieldIssues = { subject?: TemplateIssue[]; html?: TemplateIssue[] };
 type Locales = { defaultLocale: string; locales: { code: string; name: string }[] };
 
@@ -58,9 +76,18 @@ const Columns = styled.div`
   gap: 24px;
   align-items: start;
 
-  @media (max-width: 1100px) {
+  @media (max-width: ${STACKED_WIDTH}px) {
     grid-template-columns: minmax(0, 1fr);
   }
+`;
+
+/** A column whose last box (the editor, the preview frame) takes the height left. */
+const Pane = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  height: 100%;
 `;
 
 const EmailTemplateEditorPage = () => {
@@ -91,12 +118,20 @@ const EmailTemplateEditorPage = () => {
   const [previewError, setPreviewError] = useState(false);
   const previewRequest = useRef(0);
 
-  // Edit texts: the preview shows the template with its texts marked, and typing there rewrites
+  // The preview shows the template with its texts marked, and typing there rewrites
   // them in the HTML. While a text is being typed the preview is not refreshed (that would drop
   // the caret): `editSession` holds the parts being edited and the html the preview shows.
-  const [editTexts, setEditTexts] = useState(false);
+  // The preview's texts are always editable (read-only users excepted); Save keeps the changes.
+  const editTexts = !readOnly;
   const [editSession, setEditSession] = useState<{ parts: TemplatePart[]; shown: string } | null>(null);
   const previewSource = editSession?.shown ?? (editTexts ? annotateTemplate(splitTemplate(html)) : html);
+  const codeEditor = useRef<HtmlCodeEditorHandle>(null);
+  const previewFrame = useRef<EmailPreviewHandle>(null);
+  const currentParts = () => editSession?.parts ?? splitTemplate(html);
+
+  // The panes' height: from their top to the screen's bottom, so the page itself never scrolls.
+  const columnsRef = useRef<HTMLDivElement>(null);
+  const [paneHeight, setPaneHeight] = useState<number | null>(null);
 
   const [testOpen, setTestOpen] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
@@ -176,6 +211,17 @@ const EmailTemplateEditorPage = () => {
     setHtml(joinTemplate(parts));
     setIssues((current) => ({ ...current, html: undefined }));
   };
+  // Edit texts keeps both sides on the same text: the caret in the preview selects it in the HTML,
+  // the caret in the HTML scrolls the preview to it.
+  const revealInHtml = (id: number) => {
+    const range = textRange(currentParts(), id);
+    if (range) codeEditor.current?.reveal(range.from, range.to);
+  };
+  const revealInPreview = (offset: number) => {
+    if (!editTexts) return;
+    const id = textAt(currentParts(), offset);
+    if (id !== null) previewFrame.current?.revealText(id);
+  };
   // The caret left the texts: the preview catches up with the HTML.
   const endPreviewEdit = () => setEditSession(null);
 
@@ -186,6 +232,37 @@ const EmailTemplateEditorPage = () => {
     },
     []
   );
+
+  const showsEditor = !!template && !permissionsLoading && !loadError;
+  useLayoutEffect(() => {
+    if (!showsEditor) return undefined;
+    let frame = 0;
+    const measure = () => {
+      const el = columnsRef.current;
+      if (!el) return;
+      if (window.innerWidth <= STACKED_WIDTH) {
+        setPaneHeight(null);
+        return;
+      }
+      const scroller = scrollParent(el);
+      // Where the panes start on screen with the content area scrolled to the top.
+      const top = el.getBoundingClientRect().top + scroller.scrollTop;
+      const first = Math.max(MIN_PANE_HEIGHT, window.innerHeight - top - BOTTOM_GAP);
+      setPaneHeight(first);
+      // Whatever still overflows (the content area's own padding) comes off the panes.
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const overflow = scroller.scrollHeight - scroller.clientHeight;
+        if (overflow > 0) setPaneHeight(Math.max(MIN_PANE_HEIGHT, first - overflow));
+      });
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => {
+      window.removeEventListener('resize', measure);
+      cancelAnimationFrame(frame);
+    };
+  }, [showsEditor, readOnly, !!locales]);
 
   const dirty = !!template && (subject !== template.subject || html !== template.html);
 
@@ -274,6 +351,9 @@ const EmailTemplateEditorPage = () => {
 
   const title = t(`ecommerce.settings.emailTemplates.types.${type}.name`);
 
+  const localeOptions =
+    locales && locales.locales.length ? locales.locales : [{ code: locale, name: locale }];
+
   const header = (
     <Flex justifyContent="space-between" alignItems="center" gap={4} wrap="wrap">
       <Flex gap={3} alignItems="center" style={{ minWidth: 0 }}>
@@ -295,20 +375,30 @@ const EmailTemplateEditorPage = () => {
             <ToneBadge>{t('ecommerce.settings.emailTemplates.editor.default')}</ToneBadge>
           ))}
       </Flex>
+      {/* The template's languages, on the title's row. */}
+      {locales && (
+        <LocaleSwitcher
+          locales={localeOptions}
+          defaultLocale={locales.defaultLocale}
+          value={locale}
+          onChange={onLocaleChange}
+          label={t('ecommerce.settings.emailTemplates.editor.locale')}
+        />
+      )}
       {template && (
         <HeaderActions>
-          <Button variant="tertiary" onClick={() => setVariablesOpen(true)}>
+          <Button variant="secondary" onClick={() => setVariablesOpen(true)}>
             {t('ecommerce.settings.emailTemplates.editor.variables')}
           </Button>
           <Button
-            variant="tertiary"
+            variant="secondary"
             onClick={() => setVersionsOpen(true)}
           >
             {t('ecommerce.settings.emailTemplates.editor.versions')}
           </Button>
           {/* Sending a test needs the manage permission. */}
           {!readOnly && (
-            <Button variant="tertiary" onClick={() => setTestOpen(true)}>
+            <Button variant="secondary" onClick={() => setTestOpen(true)}>
               {t('ecommerce.settings.emailTemplates.editor.sendTest')}
             </Button>
           )}
@@ -355,39 +445,37 @@ const EmailTemplateEditorPage = () => {
           </Typography>
         )}
 
-        <Box background="neutral0" shadow="tableShadow" hasRadius padding={6}>
-          <Field.Root name="subject" required error={issueText(issues.subject)?.join(' · ')}>
-            <Field.Label>{t('ecommerce.settings.emailTemplates.editor.subject')}</Field.Label>
-            <TextInput
-              value={subject}
-              disabled={readOnly}
-              onChange={(e: any) => {
-                setSubject(e.target.value);
-                setIssues((current) => ({ ...current, subject: undefined }));
-              }}
-            />
-            <Field.Error />
-          </Field.Root>
-        </Box>
-
-        <Columns>
-          <Flex direction="column" alignItems="stretch" gap={4}>
-            <Flex direction="column" alignItems="stretch" gap={2}>
-              <Typography variant="omega" textColor="neutral800">
-                {t('ecommerce.settings.emailTemplates.editor.html')}
-              </Typography>
-              {htmlIssues && (
-                <Box background="danger100" hasRadius padding={3} role="alert">
-                  <Flex direction="column" alignItems="stretch" gap={1}>
-                    {htmlIssues.map((text, i) => (
-                      <Typography key={i} variant="pi" textColor="danger700">
-                        {text}
-                      </Typography>
-                    ))}
-                  </Flex>
-                </Box>
-              )}
+        <Columns ref={columnsRef} style={paneHeight ? { height: paneHeight } : undefined}>
+          <Pane>
+            <Field.Root name="subject" required error={issueText(issues.subject)?.join(' · ')}>
+              <TextInput
+                aria-label={t('ecommerce.settings.emailTemplates.editor.subject')}
+                placeholder={t('ecommerce.settings.emailTemplates.editor.subject')}
+                value={subject}
+                disabled={readOnly}
+                onChange={(e: any) => {
+                  setSubject(e.target.value);
+                  setIssues((current) => ({ ...current, subject: undefined }));
+                }}
+              />
+              <Field.Error />
+            </Field.Root>
+            {htmlIssues && (
+              <Box background="danger100" hasRadius padding={3} role="alert">
+                <Flex direction="column" alignItems="stretch" gap={1}>
+                  {htmlIssues.map((text, i) => (
+                    <Typography key={i} variant="pi" textColor="danger700">
+                      {text}
+                    </Typography>
+                  ))}
+                </Flex>
+              </Box>
+            )}
+            <div style={paneHeight ? { flex: 1, minHeight: 0 } : undefined}>
               <HtmlCodeEditor
+                ref={codeEditor}
+                height={paneHeight ? '100%' : `${MIN_PANE_HEIGHT}px`}
+                onCursor={revealInPreview}
                 value={html}
                 readOnly={readOnly}
                 label={t('ecommerce.settings.emailTemplates.editor.html')}
@@ -396,46 +484,36 @@ const EmailTemplateEditorPage = () => {
                   setIssues((current) => ({ ...current, html: undefined }));
                 }}
               />
-            </Flex>
-          </Flex>
-          <EmailPreview
-            preview={preview}
-            loading={previewLoading}
-            error={previewError}
-            textEditing={
-              readOnly
-                ? undefined
-                : {
-                    active: editTexts,
-                    onToggle: () => {
-                      setEditSession(null);
-                      setEditTexts((on) => !on);
-                    },
-                    onChange: onPreviewText,
-                    onEnd: endPreviewEdit,
-                  }
-            }
-          />
+            </div>
+          </Pane>
+          <Pane>
+            <EmailPreview
+              ref={previewFrame}
+              fill={!!paneHeight}
+              preview={preview}
+              loading={previewLoading}
+              error={previewError}
+              textEditing={
+                readOnly
+                  ? undefined
+                  : {
+                      active: editTexts,
+                      onChange: onPreviewText,
+                      onEnd: endPreviewEdit,
+                      onFocusText: revealInHtml,
+                    }
+              }
+            />
+          </Pane>
         </Columns>
       </Flex>
     );
   };
 
-  const localeOptions =
-    locales && locales.locales.length ? locales.locales : [{ code: locale, name: locale }];
 
   return (
     <Flex direction="column" alignItems="stretch" gap={6}>
       {header}
-      {locales && (
-        <LocaleSwitcher
-          locales={localeOptions}
-          defaultLocale={locales.defaultLocale}
-          value={locale}
-          onChange={onLocaleChange}
-          label={t('ecommerce.settings.emailTemplates.editor.locale')}
-        />
-      )}
       {body()}
 
       {testOpen && !readOnly && (
