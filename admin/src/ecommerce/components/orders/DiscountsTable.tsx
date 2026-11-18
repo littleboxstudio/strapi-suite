@@ -36,13 +36,15 @@ type Props = {
   showActions: boolean;
   /** A promotion row's button (Create order: Remove), in the Actions column. */
   rowAction?: (row: PromotionRow) => ReactNode;
+  /** The Total discount row (default); Create order shows the total in its tiles instead. */
+  showTotal?: boolean;
 };
 
 /**
  * The promotions and discounts table of the order screen and Create order: one row per promotion
  * benefit, the manual discounts ("Manual" rows), the manual line discounts and the total.
  */
-const DiscountsTable = ({ rows, manualRows, lineRows, total, showActions, rowAction }: Props) => {
+const DiscountsTable = ({ rows, manualRows, lineRows, total, showActions, rowAction, showTotal = true }: Props) => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
@@ -53,7 +55,10 @@ const DiscountsTable = ({ rows, manualRows, lineRows, total, showActions, rowAct
   const amountCell = showActions ? undefined : ({ textAlign: 'right' } as const);
 
   return (
-    <Table colCount={columns.length} rowCount={rows.length + manualRows.length + lineRows.length + 2}>
+    <Table
+      colCount={columns.length}
+      rowCount={rows.length + manualRows.length + lineRows.length + (showTotal ? 2 : 1)}
+    >
       <Thead>
         <Tr>
           {columns.map((c) => (
@@ -192,21 +197,23 @@ const DiscountsTable = ({ rows, manualRows, lineRows, total, showActions, rowAct
           </Tr>
         ))}
         {/* The total: label and amount in one cell, on the right (under Amount). */}
-        <Tr>
-          <Td colSpan={columns.length - (showActions ? 1 : 0)}>
-            {/* The rows' own height (52px): 16px above and below the 20px line. The spanning
-                cell has 4px on the right, the others 16px: 12px more aligns the amount. */}
-            <Flex justifyContent="flex-end" gap={2} paddingTop={4} paddingBottom={4} paddingRight={3}>
-              <Typography fontWeight="bold" textColor="neutral800">
-                {t('ecommerce.orders.promotions.total')}
-              </Typography>
-              <Typography fontWeight="bold" textColor="neutral800" style={{ whiteSpace: 'nowrap' }}>
-                {total === null ? '—' : discount(total)}
-              </Typography>
-            </Flex>
-          </Td>
-          {showActions && <Td />}
-        </Tr>
+        {showTotal && (
+          <Tr>
+            <Td colSpan={columns.length - (showActions ? 1 : 0)}>
+              {/* The rows' own height (52px): 16px above and below the 20px line. The spanning
+                  cell has 4px on the right, the others 16px: 12px more aligns the amount. */}
+              <Flex justifyContent="flex-end" gap={2} paddingTop={4} paddingBottom={4} paddingRight={3}>
+                <Typography fontWeight="bold" textColor="neutral800">
+                  {t('ecommerce.orders.promotions.total')}
+                </Typography>
+                <Typography fontWeight="bold" textColor="neutral800" style={{ whiteSpace: 'nowrap' }}>
+                  {total === null ? '—' : discount(total)}
+                </Typography>
+              </Flex>
+            </Td>
+            {showActions && <Td />}
+          </Tr>
+        )}
       </Tbody>
     </Table>
   );

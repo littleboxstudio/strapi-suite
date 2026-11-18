@@ -14,7 +14,7 @@ export const Tiles = styled.div<{ $columns?: number }>`
 `;
 
 /** One figure: label, the amount large, and its small print; a tone colours the left border. */
-export const Tile = styled.div<{ $tone?: TileTone; $compact?: boolean }>`
+export const Tile = styled.div<{ $tone?: TileTone; $compact?: boolean; $surface?: boolean }>`
   display: flex;
   flex-direction: column;
   gap: ${({ $compact }) => ($compact ? '0' : '6px')};
@@ -29,5 +29,6 @@ export const Tile = styled.div<{ $tone?: TileTone; $compact?: boolean }>`
           ? theme.colors.success500
           : theme.colors.neutral200};
   border-radius: ${({ theme }) => theme.borderRadius};
-  background: ${({ theme }) => theme.colors.neutral100};
+  /* $surface: the sections' white card colour (Create order's sticky totals), else tinted. */
+  background: ${({ theme, $surface }) => ($surface ? theme.colors.neutral0 : theme.colors.neutral100)};
 `;

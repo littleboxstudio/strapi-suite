@@ -140,6 +140,7 @@ const CreatePromotionsSection = ({
           lineRows={lineRows}
           total={total}
           showActions={rows.length > 0 || manualRows.length > 0}
+          showTotal={false}
           rowAction={(row) =>
             firstRows.has(row.key) ? (
               <Button

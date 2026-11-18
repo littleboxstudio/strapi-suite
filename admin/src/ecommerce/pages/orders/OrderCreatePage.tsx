@@ -15,6 +15,7 @@ import QuoteOrder from '../../usecases/orders/quoteOrder';
 import FetchOrder from '../../usecases/orders/fetchOrder';
 import SearchPickupPoints from '../../usecases/orders/searchPickupPoints';
 import FetchApplicablePromotions from '../../usecases/orders/fetchApplicablePromotions';
+import { HeaderActions } from '../../components/HeaderActions';
 import VariantPicker from '../../components/orders/VariantPicker';
 import OrderLinesEditor from '../../components/orders/OrderLinesEditor';
 import OrderSection from '../../components/orders/OrderSection';
@@ -236,6 +237,8 @@ const OrderCreatePage = () => {
         if (cancelled) return;
         setForm((f) => ({
           ...f,
+          // Their saved language (the server falls back to the default for one it does not have).
+          locale: c.locale ? c.locale.toLowerCase() : f.locale,
           customer: {
             firstName: c.firstName ?? '',
             lastName: c.lastName ?? '',
@@ -437,9 +440,9 @@ const OrderCreatePage = () => {
 
   // --- Customer and addresses ---------------------------------------------------------------
 
-  const saveCustomer = (customer: OrderForm['customer'], pickedId: number | null) => {
-    setForm((f) => ({ ...f, customer }));
-    clearErrors(under('customer'));
+  const saveCustomer = (customer: OrderForm['customer'], pickedId: number | null, locale: string) => {
+    setForm((f) => ({ ...f, customer, locale }));
+    clearErrors((p) => under('customer')(p) || p === 'locale');
     if (pickedId) fillLastAddresses(pickedId);
     else cancelAddressFill();
   };
@@ -809,14 +812,16 @@ const OrderCreatePage = () => {
             )}
           </Flex>
         </Flex>
-        <Button
-          variant="secondary"
-          onClick={submit}
-          loading={submitting}
-          disabled={permissionsLoading || loadingDuplicate}
-        >
-          {t('ecommerce.orders.create')}
-        </Button>
+        <HeaderActions>
+          <Button
+            variant="secondary"
+            onClick={submit}
+            loading={submitting}
+            disabled={permissionsLoading || loadingDuplicate}
+          >
+            {t('ecommerce.orders.create')}
+          </Button>
+        </HeaderActions>
       </Flex>
 
       {noticeTexts.length > 0 && (
@@ -833,6 +838,7 @@ const OrderCreatePage = () => {
         customer={form.customer}
         locale={form.locale}
         locales={locales}
+        defaultLocale={defaultLocale}
         errors={errors}
         codeText={codeText}
         disabled={disabled}
@@ -841,10 +847,6 @@ const OrderCreatePage = () => {
           cancelAddressFill();
           setForm((f) => ({ ...f, customer: EMPTY_CUSTOMER }));
           clearErrors(under('customer'));
-        }}
-        onLocale={(locale) => {
-          setForm((f) => ({ ...f, locale }));
-          clearErrors((p) => p === 'locale');
         }}
       />
 
