@@ -9,7 +9,7 @@ export default class PreviewDiscounts {
     this.gateway = Registry.getInstance().inject('ecommerceOrdersGateway');
   }
 
-  async execute(id: number, input: { selection?: string[] }): Promise<DiscountRecalculation> {
+  async execute(id: number, input: { selection?: string[]; giftChoices?: Record<number, number> }): Promise<DiscountRecalculation> {
     return this.gateway.previewDiscounts(id, input);
   }
 }

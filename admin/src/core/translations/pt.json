@@ -1996,6 +1996,8 @@
   "littlebox-strapi-suite.ecommerce.orders.discounts.reason.AWAITING_SHIPPING": "Aplica-se quando a opção de envio for escolhida",
   "littlebox-strapi-suite.ecommerce.orders.discounts.reason.NOT_FOUND": "Eliminada",
   "littlebox-strapi-suite.ecommerce.orders.discounts.conflict": "Estas promoções não acumulam: {names}",
+  "littlebox-strapi-suite.ecommerce.orders.discounts.freeGift": "Oferta grátis: {name}",
+  "littlebox-strapi-suite.ecommerce.orders.discounts.giftChoice": "Oferta de {name}",
   "littlebox-strapi-suite.ecommerce.orders.discounts.giftShipped": "A oferta já foi enviada.",
   "littlebox-strapi-suite.ecommerce.orders.discounts.manual": "Manual",
   "littlebox-strapi-suite.ecommerce.orders.discounts.manualName": "Desconto manual",
