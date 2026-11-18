@@ -34,13 +34,15 @@ type Props = {
   total: number | null;
   /** Shows the Actions column. */
   showActions: boolean;
+  /** A promotion row's button (Create order: Remove), in the Actions column. */
+  rowAction?: (row: PromotionRow) => ReactNode;
 };
 
 /**
  * The promotions and discounts table of the order screen and Create order: one row per promotion
  * benefit, the manual discounts ("Manual" rows), the manual line discounts and the total.
  */
-const DiscountsTable = ({ rows, manualRows, lineRows, total, showActions }: Props) => {
+const DiscountsTable = ({ rows, manualRows, lineRows, total, showActions, rowAction }: Props) => {
   const { formatMessage, locale: uiLocale } = useIntl();
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
@@ -110,7 +112,11 @@ const DiscountsTable = ({ rows, manualRows, lineRows, total, showActions }: Prop
                 {discount(row.amount)}
               </Typography>
             </Td>
-            {showActions && <Td />}
+            {showActions && (
+              <Td>
+                <Flex justifyContent="flex-end">{rowAction?.(row)}</Flex>
+              </Td>
+            )}
           </Tr>
         ))}
         {manualRows.map((m) => (
