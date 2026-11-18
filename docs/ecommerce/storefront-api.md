@@ -113,7 +113,8 @@ expectedTotal, storeCreditCode?, notes?, pickupPointId?, pickupPostalCode? }`
 `nif?`, `line1`, `line2?`, `postalCode`, `city`, `country`, `phone?`.
 
 Input rules: `quantity` and `variantId` are integers, `quantity` in `[1, 1000]`; at most 5
-promotion codes of ≤ 40 characters and 10 gift choices; `email` ≤ 254; store-credit `code` ≤ 64;
+promotion codes of ≤ 40 characters and 10 gift choices (each a variant id or a list of 1–20 variant
+ids, see *Gifts* below); `email` ≤ 254; store-credit `code` ≤ 64;
 `country` is `^[A-Z]{2}$`; `postalCode` ≤ 20; `notes` ≤ 1000; `locale` must be a configured
 locale (empty → default); `:publicId` is a UUID. **Unknown fields are ignored**: prices,
 discounts, statuses, stock or `emailVerified` sent by the BFF never reach the services. Money is
@@ -227,14 +228,59 @@ provider. E-mails never point at Strapi: with the local provider they use
 `<storefrontUrl>/uploads/...`, so the BFF must serve `/uploads` publicly (as for the product
 images above). Without a storefront URL the e-mails show the store name instead of the logo.
 
+### Gifts (Buy X Get Y)
+
+A "Buy X get a gift" promotion adds its gift **by itself**: the BFF never puts the gift in the cart
+(a gift variant sent as a cart line is an ordinary purchase, charged in full).
+
+- **Gift lines.** When the promotion applies, the quote's `lines` include a line with
+  `isGift: true`, already discounted (`unitDiscount` = `unitPrice` for a free gift, `total: 0`)
+  and `promotionIds` naming the promotion. It has no quantity or remove control: it follows the
+  cart (buy fewer and it is gone at the next quote).
+- **`giftOptions`**: one entry per applied promotion with a gift:
+  ```
+  { promotionId, benefitIndex,
+    quantity,            // units per gift
+    repetitions,         // how many gifts it gives (e.g. buy 4, "buy 2 get 1" → 2)
+    selected,            // the variant of each gift, first to last (`repetitions` entries)
+    selectedVariantId,   // = selected[0], kept for compatibility
+    variants: [{ variantId, sku, name, option, imageUrl, available }] }
+  ```
+  `variants` are the variants the promotion offers (as set in the admin); `option` is the variant
+  name (e.g. "White"); `available` says whether it has stock for a gift (the cart's own units of
+  that variant are already taken out). A variant deleted from the catalogue is left out.
+- **Choosing.** By default each gift is the first variant with stock, in the promotion's order.
+  To choose, send `giftChoices` in the next `POST /cart/quote` (it is stored in the session cart
+  and read back by `GET /cart`), in `POST /discounts/apply` and in `POST /orders`:
+  `{ "<promotionId>": variantId }` uses that variant for every gift; `{ "<promotionId>":
+  [variantId, …] }` chooses each gift (first, second, …). A missing position, a variant the
+  promotion does not offer, an inactive one or one without stock is replaced by the default,
+  so `selected` always shows what the customer gets. Show a choice per gift (image + `option`,
+  disabled when `available` is false) only when `variants` has more than one entry.
+- **Out of stock.** When the cart meets the promotion but none of its gift variants has stock,
+  no gift line or `giftOptions` entry is given and the promotion is listed in
+  `unavailableGifts: [{ promotionId, name, code }]` (`name` in the quote's language, `code` for a
+  code promotion), so the customer can be told "the gift is out of stock". A promotion with other
+  benefits (e.g. also 10% off) still applies them. A code in this situation has the status
+  `GIFT_UNAVAILABLE`.
+
+**What the server checks.** Every quote, `discounts/apply` and `POST /orders` prices the cart
+again from the catalogue and the stored promotions: only `variantId` and `quantity` of the lines
+are read (prices, discounts, totals, `isGift` sent by the BFF are ignored, see *Input rules*), and
+a gift choice is only a wish, used when the variant is one the promotion offers, active, with
+stock, and the promotion applies to this cart. `POST /orders` compares the result with
+`expectedTotal` (`409 TOTAL_CHANGED` when it differs) and stores the gift from its own pricing.
+Its stock is taken in the same transaction as the order, refused with `400 INSUFFICIENT_STOCK` on
+`lines.<i>.quantity` (on `lines` for a gift-only variant) when a concurrent order took the last
+units: stock never goes below zero.
+
 ## 6. Checkout flow
 
 1. **Session**: `POST /checkout/session`; store the token in the BFF cookie.
 2. **Quote**: `POST /cart/quote` with the cart on every change (the cart is saved first, then
    priced; `GET /cart` reads it back). Codes go through `POST /discounts/apply`. A code whose
    status is `AWAITING_SHIPPING` (a shipping promotion without a delivery method) is kept in the
-   cart and re-evaluated once a shipping method is chosen. A gift variant deleted from the
-   catalogue is simply left out of `giftOptions`.
+   cart and re-evaluated once a shipping method is chosen. Gifts: see *Gifts* below.
 3. **E-mail verification, when asked**: a code with status `EMAIL_NOT_VERIFIED` (promotion
    restricted to e-mails or with a per-customer limit) needs the customer's e-mail verified on
    this session: `POST /checkout/email-verification` sends a 6-digit code valid 10 minutes;
@@ -319,7 +365,7 @@ errors? } } }`. `errors` is a list of `{ path, code, detail? }`.
 Public code statuses (`status` in quotes and `discounts/apply`, `detail` of
 `PROMOTION_CODE_INVALID`): `APPLIED`, `NOT_FOUND`, `NOT_ELIGIBLE`, `EMAIL_NOT_VERIFIED`,
 `EXPIRED`, `USAGE_LIMIT_REACHED`, `CONDITIONS_NOT_MET`, `CONFLICT`, `NO_BENEFIT`,
-`AWAITING_SHIPPING`. A code that is deactivated or not yet started answers `NOT_FOUND`; a code
+`AWAITING_SHIPPING`, `GIFT_UNAVAILABLE` (its gift is out of stock; the order is not refused). A code that is deactivated or not yet started answers `NOT_FOUND`; a code
 the e-mail already used up, or that is restricted to other e-mails, answers `NOT_ELIGIBLE`.
 
 Security events (`SESSION_INVALID`, `ORDER_ACCESS_DENIED`, `RATE_LIMITED`,

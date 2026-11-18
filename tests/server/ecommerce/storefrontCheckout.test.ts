@@ -215,7 +215,20 @@ describe('EcommerceStorefrontCheckoutService', () => {
           t.checkout.quote(s, t.cart({ promotionCodes: ['A', 'B', 'C', 'D', 'E', 'F'] }))
         )
       ).toEqual([{ path: 'promotionCodes', code: 'too_many' }]);
+      // A gift choice is a variant id or a list of them (one per gift); anything else is refused.
+      for (const bad of [0, '5', [], [5, 0], Array(21).fill(5)]) {
+        expect(await failure(t.checkout.quote(s, t.cart({ giftChoices: { '3': bad } })))).toEqual([
+          { path: 'giftChoices.3', code: 'invalid' },
+        ]);
+      }
       expect(t.storedCart(token).lines).toEqual([]);
+    });
+
+    it('keeps a per-gift list of gift choices in the stored cart', async () => {
+      const t = setup();
+      const { token, s } = await t.open();
+      await t.checkout.quote(s, t.cart({ giftChoices: { '3': [11, 12] } }));
+      expect(t.storedCart(token).giftChoices).toEqual({ '3': [11, 12] });
     });
 
     it('with a destination and no method: shippingOptions filled, selectedShipping null, no failures', async () => {

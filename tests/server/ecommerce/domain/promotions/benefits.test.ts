@@ -563,6 +563,36 @@ describe('applyCombination: Buy X Get Y', () => {
       expect(notListed.lines.at(-1)!.variantId).toBe(21);
     });
 
+    it('a list chooses each gift: 4 bought give 2 gifts, one of each wished variant', () => {
+      const gifts = [g(20, 5), g(21, 5)];
+      const r = run([promo(1, [gift([20, 21])])], lines, { gifts, giftChoices: { 1: [21, 20] } });
+      const giftLines = r.lines.filter((l) => l.isGift);
+      expect(giftLines.map((l) => [l.variantId, l.quantity]).sort()).toEqual([
+        [20, 1],
+        [21, 1],
+      ]);
+      expect(r.benefitAmounts.get(1)).toEqual([1600]);
+      checkInvariants(r, lines);
+    });
+
+    it('a list shorter than the gifts, or wishing a variant without stock, falls back per gift', () => {
+      // Second gift not chosen: the default (first with stock).
+      const short = run([promo(1, [gift([20, 21])])], lines, { gifts: [g(20, 5), g(21, 5)], giftChoices: { 1: [21] } });
+      expect(short.lines.filter((l) => l.isGift).map((l) => [l.variantId, l.quantity]).sort()).toEqual([
+        [20, 1],
+        [21, 1],
+      ]);
+      // Both wished 21, but it has 1 unit: the second gift takes 20.
+      const sold = run([promo(1, [gift([20, 21])])], lines, { gifts: [g(20, 5), g(21, 1)], giftChoices: { 1: [21, 21] } });
+      expect(sold.lines.filter((l) => l.isGift).map((l) => [l.variantId, l.quantity]).sort()).toEqual([
+        [20, 1],
+        [21, 1],
+      ]);
+      // A single id still applies to every gift.
+      const all = run([promo(1, [gift([20, 21])])], lines, { gifts: [g(20, 5), g(21, 5)], giftChoices: { 1: 21 } });
+      expect(all.lines.filter((l) => l.isGift).map((l) => [l.variantId, l.quantity])).toEqual([[21, 2]]);
+    });
+
     it('inactive gifts are skipped', () => {
       const r = run([promo(1, [gift([20, 21])], { perOrderLimit: 1 })], lines, {
         gifts: [g(20, 5, false), g(21, 5)],

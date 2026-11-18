@@ -21,6 +21,7 @@ export const PUBLIC_CODE_STATUSES = [
   'CONFLICT',
   'NO_BENEFIT',
   'AWAITING_SHIPPING',
+  'GIFT_UNAVAILABLE',
 ] as const;
 export type PublicCodeStatus = (typeof PUBLIC_CODE_STATUSES)[number];
 
@@ -46,6 +47,7 @@ export const toPublicCodeStatus = (s: CodeStatus): PublicCodeStatus => {
     case 'CONFLICT':
     case 'NO_BENEFIT':
     case 'AWAITING_SHIPPING':
+    case 'GIFT_UNAVAILABLE':
       return s;
     default: {
       const never: never = s;
@@ -67,6 +69,7 @@ const CODE_STATUS_MESSAGES: Record<'en' | 'pt', Record<PublicCodeStatus, string>
       'This code cannot be combined with the promotions already applied; we kept the best combination for you.',
     NO_BENEFIT: 'This code gives no discount on your current cart.',
     AWAITING_SHIPPING: 'This code applies to shipping: choose a delivery method.',
+    GIFT_UNAVAILABLE: 'The gift of this code is out of stock.',
   },
   pt: {
     APPLIED: 'Código aplicado.',
@@ -80,6 +83,7 @@ const CODE_STATUS_MESSAGES: Record<'en' | 'pt', Record<PublicCodeStatus, string>
       'Este código não pode ser combinado com as promoções já aplicadas; mantivemos a melhor combinação para si.',
     NO_BENEFIT: 'Este código não dá desconto no seu carrinho atual.',
     AWAITING_SHIPPING: 'Este código aplica-se aos portes: escolha um método de entrega.',
+    GIFT_UNAVAILABLE: 'A oferta deste código está esgotada.',
   },
 };
 
@@ -157,6 +161,8 @@ export type QuoteSource = {
     benefitIndex: number;
     quantity: number;
     selectedVariantId: number | null;
+    repetitions?: number;
+    selected?: number[];
     variants: {
       variantId: number;
       sku: string;
@@ -166,6 +172,7 @@ export type QuoteSource = {
       available: boolean;
     }[];
   }[];
+  giftsUnavailable?: { promotionId: number; displayName: Record<string, string> | null; code: string | null }[];
 };
 
 export type PublicShippingOption = {
@@ -229,7 +236,15 @@ export type PublicQuoteLine = {
   promotionIds: number[];
 };
 
-export type PublicGiftOption = QuoteSource['giftOptions'][number];
+export type PublicGiftOption = Omit<QuoteSource['giftOptions'][number], 'repetitions' | 'selected'> & {
+  /** How many gifts the promotion gives (each `quantity` units of one variant). */
+  repetitions: number;
+  /** The variant of each gift, first to last: send a list in `giftChoices` to change one. */
+  selected: number[];
+};
+
+/** A promotion met by the cart whose gift is out of stock (no gift variant has stock). */
+export type PublicUnavailableGift = { promotionId: number; name: string; code: string | null };
 
 export type PublicQuote = {
   lines: PublicQuoteLine[];
@@ -242,6 +257,7 @@ export type PublicQuote = {
   }[];
   codes: { code: string; status: PublicCodeStatus; message: string }[];
   giftOptions: PublicGiftOption[];
+  unavailableGifts: PublicUnavailableGift[];
   totals: QuoteSource['totals'];
   taxes: VatRow[];
   currency: 'EUR';
@@ -297,6 +313,8 @@ export const toPublicQuote = (
       benefitIndex: g.benefitIndex,
       quantity: g.quantity,
       selectedVariantId: g.selectedVariantId,
+      repetitions: g.repetitions ?? (g.selectedVariantId === null ? 0 : 1),
+      selected: g.selected ?? (g.selectedVariantId === null ? [] : [g.selectedVariantId]),
       variants: g.variants.map((v) => ({
         variantId: v.variantId,
         sku: v.sku,
@@ -305,6 +323,11 @@ export const toPublicQuote = (
         imageUrl: v.imageUrl,
         available: v.available,
       })),
+    })),
+    unavailableGifts: (q.giftsUnavailable ?? []).map((g) => ({
+      promotionId: g.promotionId,
+      name: publicPromotionName(g, ctx.locale, ctx.defaultLocale),
+      code: g.code,
     })),
     totals: {
       itemsOriginal: q.totals.itemsOriginal,

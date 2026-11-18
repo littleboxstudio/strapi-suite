@@ -15,6 +15,7 @@ import {
   type PromotionCandidate,
   type Reward,
 } from './types';
+import { giftChoiceAt, type GiftChoices } from './giftChoices';
 
 export type GiftOption = {
   variantId: number;
@@ -56,7 +57,7 @@ export type CombinationContext = {
   lines: EvaluationLine[];
   shipping: number | null;
   gifts: Map<number, GiftOption>;
-  giftChoices: Record<number, number>;
+  giftChoices: GiftChoices;
 };
 
 type Claim = { promotionId: number; benefitIndex: number; order: number; amount: number };
@@ -209,20 +210,24 @@ const applyBuyXGetY = (
   }
 
   const giftLeft = (g: GiftOption) => g.available - (giftUsed.get(g.variantId) ?? 0);
-  let gift: GiftOption | null = null;
-  if (get.mode === 'GIFT') {
-    const usable = (variantId: number | undefined): GiftOption | null => {
-      if (variantId === undefined || !get.variantIds.includes(variantId)) return null;
-      const g = ctx.gifts.get(variantId);
-      return g && g.active && giftLeft(g) >= get.quantity ? g : null;
-    };
-    gift = usable(ctx.giftChoices[ob.promotionId]);
+  const usable = (variantId: number | undefined): GiftOption | null => {
+    if (get.mode !== 'GIFT' || variantId === undefined || !get.variantIds.includes(variantId)) return null;
+    const g = ctx.gifts.get(variantId);
+    return g && g.active && giftLeft(g) >= get.quantity ? g : null;
+  };
+  const choice = ctx.giftChoices[ob.promotionId];
+  /** The gift of repetition `r`: the variant wished for it when usable, else the first usable one. */
+  const giftFor = (r: number): GiftOption | null => {
+    const wished = usable(giftChoiceAt(choice, r));
+    if (wished) return wished;
+    if (get.mode !== 'GIFT') return null;
     for (const id of get.variantIds) {
-      if (gift) break;
-      gift = usable(id);
+      const g = usable(id);
+      if (g) return g;
     }
-    if (!gift) return 0;
-  }
+    return null;
+  };
+  if (get.mode === 'GIFT' && !giftFor(0)) return 0;
 
   const claim = (u: Unit, amount: number) => {
     u.claim = {
@@ -253,10 +258,11 @@ const applyBuyXGetY = (
     return total;
   }
 
-  const g = gift as GiftOption;
   let repetitions = 0;
   while (ob.perOrderLimit === null || repetitions < ob.perOrderLimit) {
-    if (giftLeft(g) < get.quantity) break;
+    // Each gift may be a different variant (one choice per gift).
+    const g = giftFor(repetitions);
+    if (!g) break;
     const buyUnits = units
       .filter((u) => !u.claim && !u.buyReserved && u.buyable && targetMatches(buy.target, u))
       .sort(byPriceDesc)

@@ -532,7 +532,8 @@ export type PromotionCodeStatus =
   | 'CONDITIONS_NOT_MET'
   | 'CONFLICT'
   | 'NO_BENEFIT'
-  | 'AWAITING_SHIPPING';
+  | 'AWAITING_SHIPPING'
+  | 'GIFT_UNAVAILABLE';
 
 /** At most this many codes per order (server `MAX_PROMOTION_CODES`). */
 export const MAX_PROMOTION_CODES = 5;

@@ -4,6 +4,7 @@
  * integer cents. Pricing reuses the checkout engine (`evaluatePromotions`, `applyCombination`).
  */
 import type { ManualDiscount } from './manualDiscounts';
+import type { GiftChoices } from './promotions/giftChoices';
 import type { ModificationTotals } from './orderModification';
 import {
   computeTotals,
@@ -85,7 +86,7 @@ export type DiscountContext = {
    */
   gifts?: Map<number, GiftOption>;
   /** Per promotion id, the chosen gift variant (with `gifts`). */
-  giftChoices?: Record<number, number>;
+  giftChoices?: GiftChoices;
   /**
    * An order-level manual discount not in `manual` (Create order's draft). With `manual` or a
    * line's manual percent, every exclusive NEW row is blocked (owner ruling).

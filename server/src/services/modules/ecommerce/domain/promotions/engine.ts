@@ -14,6 +14,7 @@ import {
 } from './benefits';
 import { buyRequirementsMet, conditionsMet, eligibilityMet } from './conditions';
 import { normalizePromotionCode } from './definition';
+import type { GiftChoices } from './giftChoices';
 import {
   BENEFIT_CLASS,
   type Benefit,
@@ -88,7 +89,9 @@ export type CodeStatus =
   | 'CONDITIONS_NOT_MET'
   | 'CONFLICT'
   | 'NO_BENEFIT'
-  | 'AWAITING_SHIPPING';
+  | 'AWAITING_SHIPPING'
+  /** Its buy is met but none of its gift variants is active with stock: it gives nothing. */
+  | 'GIFT_UNAVAILABLE';
 
 export type AppliedBenefit = {
   index: number;
@@ -128,7 +131,7 @@ export type EvaluationInput = {
   candidates: PromotionCandidate[];
   /** `available` must already exclude the cart units of the same variant (see GiftOption). */
   gifts: Map<number, GiftOption>;
-  giftChoices?: Record<number, number>;
+  giftChoices?: GiftChoices;
   now: Date;
   searchLimit: number;
   /** Called when a condition evaluator throws; the condition then counts as false. */
@@ -137,10 +140,23 @@ export type EvaluationInput = {
 
 export type RejectionReason = Exclude<CodeStatus, 'APPLIED' | 'NOT_FOUND'>;
 
+/** A met promotion whose gift is out of stock (see `giftsUnavailable`). */
+export type GiftUnavailable = {
+  promotionId: number;
+  displayName: Record<string, string> | null;
+  /** Its code when it is a code promotion. */
+  code: string | null;
+};
+
 export type PromotionEvaluation = {
   evaluated: number[];
   eligible: number[];
   applied: AppliedPromotion[];
+  /**
+   * Promotions met (conditions and buy) whose gift cannot be given: no gift variant is active with
+   * stock. Applied ones (other benefits still count) and those that give nothing because of it.
+   */
+  giftsUnavailable: GiftUnavailable[];
   rejected: { promotionId: number; reason: RejectionReason }[];
   codes: { code: string; status: CodeStatus; promotionId: number | null }[];
   lines: PricedLine[];
@@ -222,6 +238,21 @@ export const appliedPromotionOf = (p: PromotionDefinition, amounts: number[]): A
   };
 };
 
+/**
+ * Whether a met promotion's gift cannot be given: it has a GIFT benefit and none of that benefit's
+ * variants is active with enough stock for one gift (stock already excludes the cart's units).
+ */
+const giftUnavailable = (c: PromotionCandidate, gifts: Map<number, GiftOption>): boolean =>
+  c.benefits.some(
+    (b) =>
+      b.type === 'BUY_X_GET_Y' &&
+      b.get.mode === 'GIFT' &&
+      !b.get.variantIds.some((id) => {
+        const g = gifts.get(id);
+        return !!g && g.active && g.available >= b.get.quantity;
+      })
+  );
+
 export const evaluatePromotions = (input: EvaluationInput): PromotionEvaluation => {
   const ctx: CombinationContext = {
     lines: input.lines,
@@ -254,6 +285,7 @@ export const evaluatePromotions = (input: EvaluationInput): PromotionEvaluation 
 
   // Step 2: filter and isolated value.
   const reasons = new Map<number, RejectionReason>();
+  const giftShort = new Set<number>();
   const eligible: PromotionCandidate[] = [];
   const isolated = new Map<number, number>();
   const pool: PromotionCandidate[] = [];
@@ -300,7 +332,8 @@ export const evaluatePromotions = (input: EvaluationInput): PromotionEvaluation 
     }
     const value = baseCost - costOf(applyCombination([c], ctx));
     isolated.set(c.id, value);
-    if (value <= 0) reasons.set(c.id, 'NO_BENEFIT');
+    if (giftUnavailable(c, input.gifts)) giftShort.add(c.id);
+    if (value <= 0) reasons.set(c.id, giftShort.has(c.id) ? 'GIFT_UNAVAILABLE' : 'NO_BENEFIT');
     else pool.push(c);
   }
 
@@ -372,6 +405,14 @@ export const evaluatePromotions = (input: EvaluationInput): PromotionEvaluation 
     evaluated: considered.map((c) => c.id),
     eligible: eligible.map((c) => c.id),
     applied,
+    // Reported only when it matters to the customer: applied anyway, or nothing else to give.
+    giftsUnavailable: considered
+      .filter((c) => giftShort.has(c.id) && (chosen.has(c.id) || reasons.get(c.id) === 'GIFT_UNAVAILABLE'))
+      .map((c) => ({
+        promotionId: c.id,
+        displayName: c.displayName ?? null,
+        code: c.method === 'CODE' && c.code !== null ? normalizePromotionCode(c.code) : null,
+      })),
     rejected: considered
       .filter((c) => reasons.has(c.id))
       .map((c) => ({ promotionId: c.id, reason: reasons.get(c.id) as RejectionReason })),

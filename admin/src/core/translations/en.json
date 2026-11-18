@@ -1996,6 +1996,7 @@
   "littlebox-strapi-suite.ecommerce.orders.promotions.codeStatus.REMOVED": "Removed",
   "littlebox-strapi-suite.ecommerce.orders.promotions.codeStatus.CONFLICT": "Cannot be combined with the other promotions",
   "littlebox-strapi-suite.ecommerce.orders.promotions.codeStatus.NO_BENEFIT": "No discount for this cart",
+  "littlebox-strapi-suite.ecommerce.orders.promotions.codeStatus.GIFT_UNAVAILABLE": "Gift out of stock",
   "littlebox-strapi-suite.ecommerce.orders.promotions.codeStatus.AWAITING_SHIPPING": "Applies once the shipping option is chosen",
   "littlebox-strapi-suite.ecommerce.orders.history.type.PROMOTIONS_APPLIED": "Promotions applied",
   "littlebox-strapi-suite.ecommerce.orders.history.type.PROMOTIONS_RELEASED": "Promotions released",

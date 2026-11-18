@@ -3,6 +3,7 @@
  * (`orderEditRunner.ts`).
  */
 import type { Core } from '@strapi/strapi';
+import type { GiftChoices } from './domain/promotions/giftChoices';
 import { PLUGIN_ID, LtbConfigs } from '../../../config';
 import { EcommerceNotFoundError, EcommerceValidationError } from './errors';
 import {
@@ -126,7 +127,7 @@ export type EditResult = { order: OrderView } & EditOutcome;
 export type DiscountPreview = DiscountRecalculation & { giftOptions: QuoteGiftOption[] };
 
 /** The selection to price and, per promotion id, the chosen gift variant. */
-export type DiscountsInput = { selection?: string[]; giftChoices?: Record<number, number> };
+export type DiscountsInput = { selection?: string[]; giftChoices?: GiftChoices };
 
 /** `discountPercent`: the line's manual discount (spec 4.1); absent, null or '' = none. */
 export type LinesInput = {
@@ -467,7 +468,7 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     overrides: {
       lines?: DiscountLine[];
       selection?: string[];
-      giftChoices?: Record<number, number>;
+      giftChoices?: GiftChoices;
     } = {}
   ): Promise<DiscountRecalculation & { giftsOnOffer: Map<number, GiftOption> }> => {
     const order = state.order;
@@ -1574,8 +1575,8 @@ const EcommerceOrderEditingService = ({ strapi }: { strapi: Core.Strapi }) => {
     return config.uuid.modules.ecommerce;
   };
 
-  /** `giftChoices`: positive integer ids on both sides (Create order's rule). */
-  const normalizeGiftChoices = (input: DiscountsInput | undefined): Record<number, number> => {
+  /** `giftChoices`: positive promotion ids → a variant id or one per gift (Create order's rule). */
+  const normalizeGiftChoices = (input: DiscountsInput | undefined): GiftChoices => {
     const errors: ValidationIssue[] = [];
     const { giftChoices } = normalizePromotionFields({ giftChoices: input?.giftChoices }, errors);
     if (errors.length) throw new EcommerceValidationError('Invalid discounts', errors);

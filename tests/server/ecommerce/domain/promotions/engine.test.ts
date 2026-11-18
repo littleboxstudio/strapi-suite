@@ -621,6 +621,39 @@ describe('gifts and cart changes (2.18 / 2.24)', () => {
     active: true,
   };
 
+  it('gift out of stock: GIFT_UNAVAILABLE (code and automatic), listed with its name; nothing listed when the buy is unmet', () => {
+    const soldOut = { ...giftB, available: 0 };
+    const auto = evaluate([buy2AGetB], [line(1, 1000, 2)], { gifts: [soldOut] });
+    expect(appliedIds(auto)).toEqual([]);
+    expect(reasonOf(auto, 1)).toBe('GIFT_UNAVAILABLE');
+    expect(auto.giftsUnavailable).toEqual([{ promotionId: 1, displayName: { en: 'Promo 1' }, code: null }]);
+
+    const code = coded(2, 'gift4u', buy2AGetB.benefits);
+    const byCode = evaluate([code], [line(1, 1000, 2)], { gifts: [soldOut], codes: ['GIFT4U'] });
+    expect(byCode.codes).toEqual([{ code: 'GIFT4U', status: 'GIFT_UNAVAILABLE', promotionId: 2 }]);
+    expect(byCode.giftsUnavailable.map((g) => [g.promotionId, g.code])).toEqual([[2, 'GIFT4U']]);
+
+    // Inactive gift variant: the same.
+    const inactive = evaluate([buy2AGetB], [line(1, 1000, 2)], { gifts: [{ ...giftB, active: false }] });
+    expect(reasonOf(inactive, 1)).toBe('GIFT_UNAVAILABLE');
+
+    const unmet = evaluate([buy2AGetB], [line(1, 1000, 1)], { gifts: [soldOut] });
+    expect(reasonOf(unmet, 1)).toBe('CONDITIONS_NOT_MET');
+    expect(unmet.giftsUnavailable).toEqual([]);
+
+    const inStock = evaluate([buy2AGetB], [line(1, 1000, 2)], { gifts: [giftB] });
+    expect(inStock.giftsUnavailable).toEqual([]);
+  });
+
+  it('a promotion with another benefit applies without its gift, and the gift is listed as unavailable', () => {
+    const mixed = promo(3, [...buy2AGetB.benefits, { type: 'ORDER_PERCENT', percent: 10 }]);
+    const r = evaluate([mixed], [line(1, 1000, 2)], { gifts: [{ ...giftB, available: 0 }] });
+    expect(appliedIds(r)).toEqual([3]);
+    expect(r.lines.some((l) => l.isGift)).toBe(false);
+    expect(r.giftsUnavailable.map((g) => g.promotionId)).toEqual([3]);
+    checkMoney(r);
+  });
+
   it('2 A -> one gift of B, applied (the gift lowers the effective total)', () => {
     const r = evaluate([buy2AGetB], [line(1, 1000, 2), line(2, 700, 1)], { gifts: [giftB] });
     expect(appliedIds(r)).toEqual([1]);

@@ -914,6 +914,8 @@ describe('orders with promotions: plan 7 pricing (gift options, line VAT, verifi
         benefitIndex: 0,
         quantity: 1,
         selectedVariantId: 30,
+        repetitions: 1,
+        selected: [30],
         variants: [
           { variantId: 30, sku: 'SKU-30', name: 'Meias', option: null, imageUrl: null, available: true },
           { variantId: 40, sku: 'SKU-40', name: 'Boné', option: null, imageUrl: null, available: false },
@@ -921,6 +923,37 @@ describe('orders with promotions: plan 7 pricing (gift options, line VAT, verifi
       },
     ]);
     expect(q.lines.find((l: any) => l.isGift)).toMatchObject({ variantId: 30, name: 'Meias' });
+  });
+
+  it('4 A give two gifts: a per-gift list picks one of each; `selected` follows it', async () => {
+    addVariant(30, 4, 300, 5, 'Socks');
+    addVariant(40, 5, 400, 5, 'Cap');
+    const promo = choiceGift();
+
+    const q = await c.orders.quote({
+      lines: [{ variantId: 10, quantity: 4 }],
+      locale: 'en',
+      giftChoices: { [promo]: [40, 30] },
+    });
+
+    expect(q.giftOptions[0]).toMatchObject({ repetitions: 2, selected: [40, 30] });
+    expect(q.lines.filter((l: any) => l.isGift).map((l: any) => [l.variantId, l.quantity]).sort()).toEqual([
+      [30, 1],
+      [40, 1],
+    ]);
+    expect(q.giftsUnavailable).toEqual([]);
+  });
+
+  it('every gift variant out of stock: no gift, no gift option, the promotion listed in giftsUnavailable', async () => {
+    addVariant(30, 4, 300, 0, 'Socks');
+    addVariant(40, 5, 400, 0, 'Cap');
+    const promo = choiceGift();
+
+    const q = await c.orders.quote({ lines: [{ variantId: 10, quantity: 2 }], locale: 'en' });
+
+    expect(q.lines.some((l: any) => l.isGift)).toBe(false);
+    expect(q.giftOptions).toEqual([]);
+    expect(q.giftsUnavailable.map((g: any) => g.promotionId)).toEqual([promo]);
   });
 
   it('a quote without gift promotions has no giftOptions; every line carries its VAT rate', async () => {
