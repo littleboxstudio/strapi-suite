@@ -82,15 +82,38 @@ describe('duplicateDraft', () => {
     });
     expect(draft.form.locale).toBe('pt');
     expect(draft.form.shippingAddress).toMatchObject({ line1: 'Rua A 1', country: 'PT' });
-    // Same address apart from the billing-only fields: the checkbox stays on and the NIF is kept.
-    expect(draft.form.billingSameAsShipping).toBe(true);
-    expect(draft.form.billingAddress.nif).toBe('123456789');
+    // The billing table gets the order's own billing address, NIF included (never "same as shipping").
+    expect(draft.form.billingSameAsShipping).toBe(false);
+    expect(draft.form.billingAddress).toMatchObject({ line1: 'Rua A 1', nif: '123456789' });
   });
 
-  it('turns the checkbox off when the billing address differs', () => {
+  it('copies a different billing address as it is', () => {
     const d = duplicateDraft(order({ billingAddress: { ...address, line1: 'Rua B 2' } }), { legacyReason: 'x' });
     expect(d.form.billingSameAsShipping).toBe(false);
     expect(d.form.billingAddress.line1).toBe('Rua B 2');
+  });
+
+  it('leaves the billing table empty when the order has no billing address', () => {
+    const d = duplicateDraft(order({ billingAddress: null }), { legacyReason: 'x' });
+    expect(Object.values(d.form.billingAddress).every((v) => v === '')).toBe(true);
+  });
+
+  it("pre-selects the order's automatic promotions; code promotions come back through their codes", () => {
+    expect(draft.form.promotionIds).toEqual([40]);
+    expect(draft.form.promotionCodes).toEqual(['VERAO20']);
+    const d = duplicateDraft(
+      order({
+        promotions: [
+          { promotionId: 40, code: null, method: 'AUTOMATIC' },
+          { promotionId: 40, code: null, method: 'AUTOMATIC' },
+          { promotionId: 42, code: null, method: 'AUTOMATIC' },
+          { promotionId: 41, code: 'VERAO20', method: 'CODE' },
+        ],
+      }),
+      { legacyReason: 'x' }
+    );
+    expect(d.form.promotionIds).toEqual([40, 42]);
+    expect(d.form.shippingLines).toEqual([]);
   });
 
   it('copies the non-gift lines with the units not returned and their percent; empty ones are skipped', () => {
@@ -165,7 +188,7 @@ describe('duplicateDraft', () => {
   });
 
   it('keeps the shipping method aside (the form waits for the options)', () => {
-    expect(draft.form.shipping).toBeNull();
+    expect(draft.form.shippingLines).toEqual([]);
     expect(draft.shipping).toEqual({ providerId: 'ctt', serviceId: 'EXPRESS' });
     expect(draft.pickup).toBeNull();
   });

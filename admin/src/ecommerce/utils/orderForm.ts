@@ -5,13 +5,13 @@ import {
   MAX_PROMOTION_CODES,
   type Address,
   type CreateOrderInput,
+  type CreateShippingLineInput,
   type FieldError,
   type ManualDiscountInput,
   type OrderQuote,
   type OrderQuoteInput,
   type PickupSelection,
   type QuoteGiftOption,
-  type ShippingOption,
   type ShippingQuoteInput,
   type VariantSearchResult,
 } from '../orderTypes';
@@ -44,6 +44,24 @@ export type OrderLineDraft = {
   discount?: string;
 };
 
+/**
+ * A shipping charge of the new order (Create order's shipping table). The first line is the order's
+ * delivery method; `amount` is what the admin entered (cents, VAT included).
+ */
+export type DraftShippingLine = {
+  key: string;
+  providerId: string;
+  serviceId: string;
+  name: string;
+  amount: number;
+  /** DPD Pickup and Store pickup: a point or store must be chosen. */
+  requiresPickupPoint?: boolean;
+  pickup: PickupSelection | null;
+};
+
+/** Server cap of shipping lines sent with a new order. */
+export const MAX_CREATE_SHIPPING_LINES = 10;
+
 /** An order-level manual discount of the new order: FIXED `value` in cents, PERCENT a percentage. */
 export type DraftManualDiscount = ManualDiscountInput & { key: string };
 
@@ -57,13 +75,13 @@ export type OrderForm = {
   billingAddress: AddressForm;
   billingSameAsShipping: boolean;
   lines: OrderLineDraft[];
-  /** `requiresPickupPoint`: the option is DPD Pickup (spec 5.3). */
-  shipping: { providerId: string; serviceId: string; requiresPickupPoint?: boolean } | null;
-  /** DPD Pickup: the chosen point; the delivery address becomes the point's on the server. */
-  pickup?: PickupSelection | null;
+  /** The shipping charges; the first one is the delivery method (its pickup point is the order's). */
+  shippingLines: DraftShippingLine[];
   notes: string;
-  /** Promotion codes typed by the admin (shown as tags). */
+  /** Promotion codes added by the admin. */
   promotionCodes: string[];
+  /** The automatic promotions the admin selected: the only ones the quote evaluates. */
+  promotionIds: number[];
   /** Order-level manual discounts, applied in this order (base: the subtotal). */
   manualDiscounts?: DraftManualDiscount[];
 };
@@ -103,12 +121,13 @@ export function emptyOrderForm(locale: string): OrderForm {
     locale,
     shippingAddress: emptyAddressForm(),
     billingAddress: emptyAddressForm(),
-    billingSameAsShipping: true,
+    // Never assumed: "Billing same as shipping" copies the address into the billing table.
+    billingSameAsShipping: false,
     lines: [],
-    shipping: null,
-    pickup: null,
+    shippingLines: [],
     notes: '',
     promotionCodes: [],
+    promotionIds: [],
     manualDiscounts: [],
   };
 }
@@ -239,20 +258,6 @@ export function shippingOptionsInput(form: OrderForm, quote: OrderQuote | null):
   };
 }
 
-/** An option's price as listed: the order quote's for the method it priced, else the option's. */
-export function listedShippingPrice(option: ShippingOption, quote: OrderQuote | null): number {
-  const priced = quote?.shippingOption;
-  if (
-    priced &&
-    priced.providerId === option.providerId &&
-    priced.serviceId === option.serviceId &&
-    typeof quote?.totals.shippingOriginal === 'number'
-  ) {
-    return quote.totals.shippingOriginal;
-  }
-  return option.price;
-}
-
 /** Local preview only: the server recomputes every amount when the order is created. */
 export function sumPreviewTotals(
   lines: OrderLineDraft[],
@@ -310,9 +315,11 @@ export function validateOrderForm(form: OrderForm): FieldError[] {
       errors.push({ path: `lines.${i}.discountPercent`, code: 'INVALID_PERCENT' });
     }
   });
-  if (!form.shipping) errors.push({ path: 'shipping', code: 'required' });
-  else if (form.shipping.requiresPickupPoint && !form.pickup) {
-    errors.push({ path: 'pickupPointId', code: 'PICKUP_POINT_REQUIRED' });
+  const first = form.shippingLines[0];
+  if (!first) errors.push({ path: 'shippingLines', code: 'required' });
+  // Only the first line's point is the order's (the server ignores the others).
+  else if (first.requiresPickupPoint && !first.pickup) {
+    errors.push({ path: 'shippingLines.0.pickupPointId', code: 'PICKUP_POINT_REQUIRED' });
   }
   return errors;
 }
@@ -356,10 +363,8 @@ export function buildCreateOrderInput(
     billingAddress: toAddress(billing, true),
     locale: form.locale,
     lines: form.lines.map(lineInput),
-    shipping: form.shipping
-      ? { providerId: form.shipping.providerId, serviceId: form.shipping.serviceId }
-      : { providerId: '', serviceId: '' },
-    ...(form.shipping?.requiresPickupPoint ? pickupSelectionInput(form.pickup ?? null) : {}),
+    shippingLines: shippingLinesInput(form.shippingLines),
+    promotionIds: [...form.promotionIds],
     ...(notes ? { notes } : {}),
     idempotencyKey,
     ...(codes.length ? { promotionCodes: codes } : {}),
@@ -418,31 +423,55 @@ export function addPromotionCode(
   return { codes: [...codes, code], error: null };
 }
 
+/** The shipping lines as the server input; the pickup only on a line that needs one. */
+export function shippingLinesInput(lines: DraftShippingLine[]): CreateShippingLineInput[] {
+  return lines.map((l) => ({
+    providerId: l.providerId,
+    serviceId: l.serviceId,
+    amount: l.amount,
+    ...(l.requiresPickupPoint ? pickupSelectionInput(l.pickup) : {}),
+  }));
+}
+
 /**
- * Body of `orders/quote`. The shipping destination is sent only once a country and a shipping
- * method are chosen; an e-mail only when it looks valid (it decides e-mail eligibility).
+ * Where the parcel goes, as the quote prices it: the first line's pickup point (DPD Pickup, Store
+ * pickup), else the shipping address. Null without a country.
+ */
+export function quoteDestination(form: OrderForm): { country: string; postalCode?: string } | null {
+  const first = form.shippingLines[0];
+  const point = first?.requiresPickupPoint ? (first.pickup?.point ?? null) : null;
+  const country = (point?.country ?? form.shippingAddress.country).trim().toUpperCase();
+  const postalCode = (point?.postalCode ?? form.shippingAddress.postalCode).trim();
+  return country ? { country, ...(postalCode ? { postalCode } : {}) } : null;
+}
+
+/**
+ * Body of `orders/quote`. The shipping lines are sent once there are some and a destination
+ * country; an e-mail only when it looks valid (it decides e-mail eligibility). Only the selected
+ * automatic promotions are evaluated.
  */
 export function buildQuoteInput(form: OrderForm, giftChoices: Record<number, number>): OrderQuoteInput {
   const email = form.customer.email.trim();
-  // DPD Pickup: the point is the delivery address, so it prices the shipping (as on the server).
-  const point = form.shipping?.requiresPickupPoint ? (form.pickup?.point ?? null) : null;
-  const country = (point?.country ?? form.shippingAddress.country).trim().toUpperCase();
-  const postalCode = (point?.postalCode ?? form.shippingAddress.postalCode).trim();
+  const destination = quoteDestination(form);
+  const shipping =
+    destination && form.shippingLines.length
+      ? {
+          shippingLines: form.shippingLines.map(({ providerId, serviceId, amount }) => ({
+            providerId,
+            serviceId,
+            amount,
+          })),
+          destination,
+        }
+      : { shipping: null };
   return {
     lines: form.lines.map(lineInput),
     locale: form.locale,
     email: email && isEmail(email) ? email : null,
     promotionCodes: normalizePromotionCodes(form.promotionCodes ?? []),
     giftChoices: { ...giftChoices },
-    shipping:
-      country && form.shipping
-        ? {
-            country,
-            ...(postalCode ? { postalCode } : {}),
-            providerId: form.shipping.providerId,
-            serviceId: form.shipping.serviceId,
-          }
-        : null,
+    promotionIds: [...form.promotionIds],
+    ...shipping,
     ...manualDiscountsField(form),
   };
 }

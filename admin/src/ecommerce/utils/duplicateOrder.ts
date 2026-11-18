@@ -4,14 +4,14 @@
  * payments, invoices, shipments, returns, refunds, notes and history are left out.
  */
 import { addressFormFromAddress, emptyOrderForm, normalizePromotionCodes } from './orderForm';
-import type { AddressForm, DraftManualDiscount, OrderForm, OrderLineDraft } from './orderForm';
+import type { DraftManualDiscount, OrderForm, OrderLineDraft } from './orderForm';
 import { isStorePickupMethod } from './pickupPoints';
 import type { FieldError, Order, OrderQuote, PickupSelection, ShippingOption } from '../orderTypes';
 
 export type ShippingRef = { providerId: string; serviceId: string };
 
 export type DuplicateDraft = {
-  /** The Create order form; its shipping waits for the options (`shipping`, `pickup`). */
+  /** The Create order form; its shipping table waits for the options (`shipping`, `pickup`). */
   form: OrderForm;
   /** Per GIFT promotion, the variant the order received. */
   giftChoices: Record<number, number>;
@@ -31,10 +31,6 @@ export type DuplicateDraft = {
 const text = (v: unknown): string => (typeof v === 'string' ? v : '');
 const label = (l: { name: string; option: string | null }) => (l.option ? `${l.name} — ${l.option}` : l.name);
 
-/** Billing-only fields aside, the two addresses are the same. */
-const sameAddress = (a: AddressForm, b: AddressForm) =>
-  (Object.keys(a) as (keyof AddressForm)[]).every((k) => k === 'company' || k === 'nif' || a[k] === b[k]);
-
 const methodOf = (m: unknown): ShippingRef | null => {
   const r = m as { providerId?: unknown; serviceId?: unknown } | null | undefined;
   const providerId = text(r?.providerId);
@@ -53,7 +49,8 @@ export function duplicateDraft(order: Order, opts: { legacyReason: string }): Du
   const point = order.pickupPoint ?? null;
   // A pickup order delivers to the point: the customer's own address is the one they typed.
   const shippingAddress = addressFormFromAddress(point?.customerAddress ?? order.shippingAddress);
-  const billingAddress = order.billingAddress ? addressFormFromAddress(order.billingAddress) : { ...shippingAddress };
+  // Never assumed from the shipping address: an order without one leaves the billing table empty.
+  const billingAddress = addressFormFromAddress(order.billingAddress ?? null);
 
   const lines: OrderLineDraft[] = [];
   const discountConflicts: string[] = [];
@@ -85,6 +82,16 @@ export function duplicateDraft(order: Order, opts: { legacyReason: string }): Du
   const codes = Array.isArray(order.promotionCodes)
     ? order.promotionCodes.filter((c) => c.status === 'APPLIED').map((c) => c.code)
     : (order.promotions ?? []).map((p) => p.code ?? '');
+
+  // The automatic promotions are pre-selected (the quote keeps those still applicable); the code
+  // promotions come back through their codes.
+  const promotionIds: number[] = [];
+  (order.promotions ?? []).forEach((p) => {
+    const automatic = p.method ? p.method === 'AUTOMATIC' : !p.code;
+    if (automatic && typeof p.promotionId === 'number' && !promotionIds.includes(p.promotionId)) {
+      promotionIds.push(p.promotionId);
+    }
+  });
 
   const giftChoices: Record<number, number> = {};
   const giftNames: Record<number, string> = {};
@@ -139,9 +146,10 @@ export function duplicateDraft(order: Order, opts: { legacyReason: string }): Du
       },
       shippingAddress,
       billingAddress,
-      billingSameAsShipping: sameAddress(shippingAddress, billingAddress),
+      billingSameAsShipping: false,
       lines,
       promotionCodes: normalizePromotionCodes(codes),
+      promotionIds,
       manualDiscounts,
     },
     giftChoices,
@@ -186,8 +194,11 @@ export function duplicateQuoteNotices(
   return { refusedCodes, missingGifts };
 }
 
+/** A method chosen among the quoted options. */
+export type ShippingChoice = { providerId: string; serviceId: string; requiresPickupPoint?: boolean };
+
 export type RestoredShipping = {
-  shipping: OrderForm['shipping'];
+  shipping: ShippingChoice | null;
   pickup: PickupSelection | null;
   /** METHOD_GONE: the method is not offered; PICKUP_GONE: the store is not. */
   notice: 'METHOD_GONE' | 'PICKUP_GONE' | null;
