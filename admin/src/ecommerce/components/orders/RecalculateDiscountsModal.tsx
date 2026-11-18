@@ -45,6 +45,7 @@ import type { DiscountRecalculation, DiscountRow, EditResult, Order } from '../.
 import BalanceOutcome from './BalanceOutcome';
 import EmptyNote from './EmptyNote';
 import NoticeBar from './NoticeBar';
+import StackingReason from './StackingReason';
 
 type Props = {
   order: Order;
@@ -191,9 +192,6 @@ const RecalculateDiscountsModal = ({
     const gift = preview ? discountRowGift(preview, row) : null;
     // Not stackable with a kept promotion or a checked row: disabled, with the reason.
     const block = preview ? discountRowBlock(preview, selection, row) : null;
-    const blockName = block
-      ? promotionDisplayName(block, locales.locale, locales.defaultLocale) ?? block.name
-      : '';
     return (
       <Tr key={row.key}>
         <Td style={cell}>
@@ -214,16 +212,7 @@ const RecalculateDiscountsModal = ({
                 <Badge active>{t('ecommerce.orders.discounts.recommended')}</Badge>
               )}
             </Flex>
-            {block && (
-              <Typography variant="pi" textColor="warning700">
-                {t(`ecommerce.orders.discounts.stacking.${block.conflict.rule}`, {
-                  name: blockName,
-                  discountClass: block.conflict.discountClass
-                    ? t(`ecommerce.orders.discounts.stackingClass.${block.conflict.discountClass}`)
-                    : '',
-                })}
-              </Typography>
-            )}
+            {block && <StackingReason block={block} locales={locales} />}
             {row.kind !== 'MANUAL' && name !== row.name && (
               <Typography variant="pi" textColor="neutral500">
                 {t('ecommerce.orders.promotions.internalName', { name: row.name })}

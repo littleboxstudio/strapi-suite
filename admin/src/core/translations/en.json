@@ -2222,6 +2222,8 @@
   "littlebox-strapi-suite.ecommerce.orders.discounts.stackingClass.PRODUCT_DISCOUNT": "product discounts",
   "littlebox-strapi-suite.ecommerce.orders.discounts.stackingClass.ORDER_DISCOUNT": "order discounts",
   "littlebox-strapi-suite.ecommerce.orders.discounts.stackingClass.SHIPPING_DISCOUNT": "shipping discounts",
+  "littlebox-strapi-suite.ecommerce.orders.discounts.manualDiscountName": "the manual discount",
+  "littlebox-strapi-suite.ecommerce.orders.discounts.freeGiftChoice": "Free gift: {name} (another one can be chosen after applying)",
   "littlebox-strapi-suite.ecommerce.orders.discounts.giftShipped": "Its gift was already shipped.",
   "littlebox-strapi-suite.ecommerce.orders.discounts.manual": "Manual",
   "littlebox-strapi-suite.ecommerce.orders.discounts.manualName": "Manual discount",

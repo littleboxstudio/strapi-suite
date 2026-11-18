@@ -538,10 +538,11 @@ const OrderCreatePage = () => {
     const f = formRef.current;
     if (!f.promotionIds.length || !f.lines.length) return;
     try {
-      const { promotions } = await new FetchApplicablePromotions().execute(
+      const { promotions, conflicts } = await new FetchApplicablePromotions().execute(
         applicablePromotionsInput({ ...f, shippingLines }, giftChoices)
       );
-      const { dropped } = keptPromotionIds(f.promotionIds, promotions);
+      // Only while they are still selectable together.
+      const { dropped } = keptPromotionIds(f.promotionIds, promotions, conflicts);
       if (!dropped.length) return;
       setForm((cur) => ({ ...cur, promotionIds: cur.promotionIds.filter((id) => !dropped.includes(id)) }));
       setNotices((n) => ({ ...n, droppedPromotions: dropped.map((id) => dup.promotionNames[id] ?? `#${id}`) }));

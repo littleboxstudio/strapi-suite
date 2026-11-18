@@ -566,6 +566,8 @@ export type ApplicablePromotionsInput = {
   giftChoices?: Record<number, number>;
   /** Only the amounts count: their sum is the order's shipping. */
   shippingLines?: { amount: number }[];
+  /** The draft has an order-level manual discount (what does not stack with it is blocked). */
+  manualDiscount?: boolean;
 };
 
 /** An automatic promotion that applies to the cart, with what it gives in the best combination. */
@@ -575,11 +577,22 @@ export type ApplicablePromotion = {
   displayName: Record<string, string>;
   classes: DiscountClass[];
   benefits: PromotionBenefit[];
-  /** Cents (a gift: the gift's value). */
+  /** Cents, on its own (a gift: the gift's value). */
   amount: number;
+  /** Part of the best combination with the entered codes (never preselected). */
+  recommended?: boolean;
+  /** An entered code's promotion or the draft's manual discount it does not stack with. */
+  blockedBy?: DiscountRowBlock | null;
 };
 
-export type ApplicablePromotions = { promotions: ApplicablePromotion[]; exhaustive: boolean };
+export type ApplicablePromotions = {
+  promotions: ApplicablePromotion[];
+  /** Pairs of promotions that do not stack; `reasons[i]` is from `ids[i]`'s side. */
+  conflicts?: { ids: [number, number]; reasons: [StackingConflict, StackingConflict] }[];
+  /** Per GIFT benefit of the listed promotions, the gift variants on offer. */
+  giftOptions?: QuoteGiftOption[];
+  exhaustive: boolean;
+};
 
 /** `GET promotion-codes/search`: a running promotion code (no usage or customer data). */
 export type PromotionCodeSearchResult = {
@@ -945,9 +958,10 @@ export type StackingConflict = {
   discountClass: DiscountClass | null;
 };
 
-/** The promotion a row does not stack with, and why. */
+/** What a row does not stack with (a promotion, or the manual discount), and why. */
 export type DiscountRowBlock = {
-  promotionId: number;
+  kind?: 'PROMOTION' | 'MANUAL';
+  promotionId: number | null;
   name: string;
   displayName: Record<string, string>;
   conflict: StackingConflict;

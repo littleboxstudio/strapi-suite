@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
 import {
+  Badge,
   Button,
   Checkbox,
   Flex,
@@ -23,7 +24,13 @@ import {
   type PromotionLocales,
 } from '../../../utils/orderDetail';
 import { describeBenefit } from '../../../utils/promotionForm';
-import { applyDiscountRows, toggleId, type ApplyDiscountRow } from '../../../utils/createOrder';
+import {
+  applyDiscountBlock,
+  applyDiscountRows,
+  toggleId,
+  type ApplyDiscountRow,
+} from '../../../utils/createOrder';
+import StackingReason from '../StackingReason';
 import type {
   ApplicablePromotions,
   ApplicablePromotionsInput,
@@ -83,20 +90,39 @@ const ApplyDiscountModal = ({ input, selected, known, locales, onClose, onConfir
   const rowView = (row: ApplyDiscountRow) => {
     const checked = selection.includes(row.id);
     const name = promotionDisplayName(row, locales.locale, locales.defaultLocale) ?? row.name;
+    // Not stackable with a code, the manual discount or a checked promotion: disabled, with why.
+    const block = result && row.listed ? applyDiscountBlock(result, selection, row) : null;
+    const gift = (result?.giftOptions ?? []).find((g) => g.promotionId === row.id);
+    const giftVariant = gift?.variants.find((v) => v.variantId === gift.selectedVariantId);
     return (
       <Tr key={row.id}>
         <Td style={cell}>
           <Checkbox
             checked={checked}
             aria-label={name}
+            disabled={block !== null && !checked}
             onCheckedChange={() => setSelection((s) => toggleId(s, row.id))}
           />
         </Td>
         <Td style={{ ...cell, ...WRAP }}>
           <Flex direction="column" alignItems="flex-start" gap={1}>
-            <Typography textColor="neutral800" fontWeight="semiBold">
-              {name}
-            </Typography>
+            <Flex gap={2} wrap="wrap">
+              <Typography textColor={block ? 'neutral500' : 'neutral800'} fontWeight="semiBold">
+                {name}
+              </Typography>
+              {row.recommended && <Badge active>{t('ecommerce.orders.discounts.recommended')}</Badge>}
+            </Flex>
+            {block && <StackingReason block={block} locales={locales} />}
+            {giftVariant && (
+              <Typography variant="pi" textColor="neutral600">
+                {t(
+                  (gift?.variants.length ?? 0) > 1
+                    ? 'ecommerce.orders.discounts.freeGiftChoice'
+                    : 'ecommerce.orders.discounts.freeGift',
+                  { name: giftVariant.option ? `${giftVariant.name} · ${giftVariant.option}` : giftVariant.name }
+                )}
+              </Typography>
+            )}
             {name !== row.name && (
               <Typography variant="pi" textColor="neutral500">
                 {t('ecommerce.orders.promotions.internalName', { name: row.name })}

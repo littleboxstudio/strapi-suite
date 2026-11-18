@@ -12,6 +12,7 @@ import {
   applicablePromotionsInput,
   applyCustomerAddresses,
   applyDiscountRows,
+  applyDiscountBlock,
   hasAddress,
   hasCustomer,
   isQuoteErrorPath,
@@ -400,5 +401,75 @@ describe('round 2', () => {
       expect(en[`littlebox-strapi-suite.${k}`], k).toEqual(expect.any(String));
       expect(pt[`littlebox-strapi-suite.${k}`], k).toEqual(expect.any(String));
     });
+  });
+});
+
+describe('Apply discount: the recommender rules', () => {
+  const EXCL = { rule: 'EXCLUSIVE_SELF' as const, discountClass: null };
+  const OTHER = { rule: 'EXCLUSIVE_OTHER' as const, discountClass: null };
+  const promotion = (id: number, over: Partial<ApplicablePromotion> = {}): ApplicablePromotion => ({
+    id,
+    name: `P${id}`,
+    displayName: {},
+    classes: ['ORDER_DISCOUNT'],
+    benefits: [],
+    amount: 100,
+    recommended: false,
+    blockedBy: null,
+    ...over,
+  });
+  const result = {
+    promotions: [promotion(2, { recommended: true }), promotion(3)],
+    conflicts: [{ ids: [2, 3] as [number, number], reasons: [EXCL, OTHER] as [any, any] }],
+    giftOptions: [],
+    exhaustive: true,
+  };
+
+  it('applyDiscountRows carries recommended and blockedBy', () => {
+    const rows = applyDiscountRows(result.promotions, [], []);
+    expect(rows.map((r) => [r.id, r.recommended, r.blockedBy])).toEqual([
+      [2, true, null],
+      [3, false, null],
+    ]);
+  });
+
+  it('applyDiscountBlock: a checked promotion blocks the ones it conflicts with; unchecking frees them', () => {
+    const rows = applyDiscountRows(result.promotions, [], []);
+    expect(applyDiscountBlock(result, [2], rows[1])).toEqual({
+      kind: 'PROMOTION',
+      promotionId: 2,
+      name: 'P2',
+      displayName: {},
+      conflict: OTHER,
+    });
+    expect(applyDiscountBlock(result, [3], rows[0])?.conflict).toEqual(EXCL);
+    expect(applyDiscountBlock(result, [], rows[1])).toBeNull();
+    expect(applyDiscountBlock(result, [2, 3], rows[0])).toBeNull();
+  });
+
+  it('applyDiscountBlock: blocked by a code or the manual discount', () => {
+    const blockedBy = { kind: 'MANUAL' as const, promotionId: null, name: '', displayName: {}, conflict: EXCL };
+    const r = { ...result, promotions: [promotion(4, { blockedBy })], conflicts: [] };
+    const [row] = applyDiscountRows(r.promotions, [], []);
+    expect(applyDiscountBlock(r, [], row)).toEqual(blockedBy);
+  });
+
+  it('keptPromotionIds keeps a duplicate\'s promotions only while they stack together', () => {
+    expect(keptPromotionIds([3, 2], result.promotions, result.conflicts)).toEqual({ kept: [3], dropped: [2] });
+    const blocked = [promotion(5, { blockedBy: { kind: 'MANUAL', promotionId: null, name: '', displayName: {}, conflict: EXCL } }), promotion(6)];
+    expect(keptPromotionIds([5, 6], blocked, [])).toEqual({ kept: [6], dropped: [5] });
+  });
+
+  it('a refused selection (PROMOTIONS_NOT_COMBINABLE on promotionIds) is a quote error of the Promotions section', () => {
+    expect(isQuoteErrorPath('promotionIds')).toBe(true);
+    expect(sectionError({ promotionIds: 'PROMOTIONS_NOT_COMBINABLE' }, 'promotionIds')).toMatchObject({
+      code: 'PROMOTIONS_NOT_COMBINABLE',
+    });
+  });
+
+  it('applicablePromotionsInput says when the draft has a manual discount', () => {
+    const form = { ...emptyOrderForm('pt'), manualDiscounts: [{ key: 'm1' } as any] };
+    expect(applicablePromotionsInput(form, {})).toMatchObject({ manualDiscount: true });
+    expect(applicablePromotionsInput(emptyOrderForm('pt'), {})).not.toHaveProperty('manualDiscount');
   });
 });

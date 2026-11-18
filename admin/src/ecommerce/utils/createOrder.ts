@@ -18,7 +18,9 @@ import {
 import { parseDiscountPercent } from './lineDiscount';
 import type {
   ApplicablePromotion,
+  ApplicablePromotions,
   ApplicablePromotionsInput,
+  DiscountRowBlock,
   AppliedPromotion,
   CustomerLastAddresses,
   DiscountClass,
@@ -158,6 +160,7 @@ export function applicablePromotionsInput(
     promotionCodes: normalizePromotionCodes(form.promotionCodes),
     giftChoices: { ...giftChoices },
     shippingLines: form.shippingLines.map((l) => ({ amount: l.amount })),
+    ...((form.manualDiscounts ?? []).length > 0 ? { manualDiscount: true } : {}),
   };
 }
 
@@ -171,6 +174,10 @@ export type ApplyDiscountRow = {
   amount: number | null;
   /** False: selected before, but it no longer applies to the cart. */
   listed: boolean;
+  /** Part of the best combination (a badge; never preselected). */
+  recommended: boolean;
+  /** An entered code's promotion or the manual discount it does not stack with. */
+  blockedBy: DiscountRowBlock | null;
 };
 
 /**
@@ -190,6 +197,8 @@ export function applyDiscountRows(
     benefits: p.benefits,
     amount: p.amount,
     listed: true,
+    recommended: p.recommended === true,
+    blockedBy: p.blockedBy ?? null,
   }));
   const missing: ApplyDiscountRow[] = selected
     .filter((id) => !applicable.some((p) => p.id === id))
@@ -203,6 +212,8 @@ export function applyDiscountRows(
         benefits: (p?.benefits ?? []).map((b) => b.params),
         amount: null,
         listed: false,
+        recommended: false,
+        blockedBy: null,
       };
     });
   return [...listed, ...missing];
@@ -214,13 +225,48 @@ export function applyDiscountRows(
  */
 export function keptPromotionIds(
   selected: number[],
-  applicable: Pick<ApplicablePromotion, 'id'>[]
+  applicable: Pick<ApplicablePromotion, 'id' | 'blockedBy'>[],
+  conflicts: NonNullable<ApplicablePromotions['conflicts']> = []
 ): { kept: number[]; dropped: number[] } {
-  const ids = new Set(applicable.map((p) => p.id));
-  return {
-    kept: selected.filter((id) => ids.has(id)),
-    dropped: selected.filter((id) => !ids.has(id)),
-  };
+  // Still returned and selectable, and stacking with the ones kept before it (in order).
+  const ids = new Set(applicable.filter((p) => !p.blockedBy).map((p) => p.id));
+  const clash = (a: number, b: number) =>
+    conflicts.some((c) => (c.ids[0] === a && c.ids[1] === b) || (c.ids[0] === b && c.ids[1] === a));
+  const kept: number[] = [];
+  for (const id of selected) {
+    if (ids.has(id) && !kept.some((k) => clash(k, id))) kept.push(id);
+  }
+  return { kept, dropped: selected.filter((id) => !kept.includes(id)) };
+}
+
+/**
+ * Why `row` cannot be checked now: an entered code's promotion or the manual discount it does
+ * not stack with, or a checked promotion it conflicts with (from `row`'s side). Null when it can
+ * be (a checked row can always be unchecked).
+ */
+export function applyDiscountBlock(
+  result: Pick<ApplicablePromotions, 'promotions' | 'conflicts'>,
+  selection: number[],
+  row: Pick<ApplyDiscountRow, 'id' | 'blockedBy'>
+): DiscountRowBlock | null {
+  if (row.blockedBy) return row.blockedBy;
+  if (selection.includes(row.id)) return null;
+  for (const c of result.conflicts ?? []) {
+    const side = c.ids.indexOf(row.id);
+    if (side < 0) continue;
+    const otherId = c.ids[1 - side];
+    if (!selection.includes(otherId)) continue;
+    const other = result.promotions.find((p) => p.id === otherId);
+    if (!other) continue;
+    return {
+      kind: 'PROMOTION',
+      promotionId: other.id,
+      name: other.name,
+      displayName: other.displayName ?? {},
+      conflict: c.reasons[side],
+    };
+  }
+  return null;
 }
 
 /** A gift line's row key: unique per promotion benefit and variant. */
