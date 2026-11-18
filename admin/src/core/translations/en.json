@@ -1008,6 +1008,8 @@
   "littlebox-strapi-suite.ecommerce.orders.new.codeSearchNone": "No active promotion code matches.",
   "littlebox-strapi-suite.ecommerce.orders.new.codeColumns.code": "Code",
   "littlebox-strapi-suite.ecommerce.orders.new.codesNotApplied": "Codes not applied",
+  "littlebox-strapi-suite.ecommerce.orders.new.duplicate.droppedPromotions": "These promotions of the original order no longer apply and were not selected: {names}.",
+  "littlebox-strapi-suite.ecommerce.orders.new.pickupDeliveryOnly": "Only the delivery method (the first shipping line) uses a pickup point or store.",
   "littlebox-strapi-suite.ecommerce.orders.address.firstName": "First name",
   "littlebox-strapi-suite.ecommerce.orders.address.lastName": "Last name",
   "littlebox-strapi-suite.ecommerce.orders.address.company": "Company",

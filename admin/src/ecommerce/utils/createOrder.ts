@@ -84,18 +84,15 @@ export function sectionError(errors: OrderErrorMap, prefix: string): SectionErro
 }
 
 /**
- * An existing customer was picked: their last addresses fill the tables. An address the customer
- * does not have leaves the table as it was (the billing is never assumed from the shipping).
+ * An existing customer was picked: their last addresses fill the tables, and an address they do not
+ * have empties its table (another customer's address or NIF is never kept; the billing is never
+ * assumed from the shipping).
  */
 export function applyCustomerAddresses(form: OrderForm, last: CustomerLastAddresses): OrderForm {
   return {
     ...form,
-    shippingAddress: last.shippingAddress
-      ? addressFormFromAddress(last.shippingAddress)
-      : form.shippingAddress,
-    billingAddress: last.billingAddress
-      ? addressFormFromAddress(last.billingAddress)
-      : form.billingAddress,
+    shippingAddress: addressFormFromAddress(last.shippingAddress ?? null),
+    billingAddress: addressFormFromAddress(last.billingAddress ?? null),
     billingSameAsShipping: false,
   };
 }
@@ -209,6 +206,27 @@ export function applyDiscountRows(
       };
     });
   return [...listed, ...missing];
+}
+
+/**
+ * A duplicate's pre-selected promotions checked against the applicable ones: those still returned
+ * stay selected (in order), the others are dropped and named in a notice.
+ */
+export function keptPromotionIds(
+  selected: number[],
+  applicable: Pick<ApplicablePromotion, 'id'>[]
+): { kept: number[]; dropped: number[] } {
+  const ids = new Set(applicable.map((p) => p.id));
+  return {
+    kept: selected.filter((id) => ids.has(id)),
+    dropped: selected.filter((id) => !ids.has(id)),
+  };
+}
+
+/** A gift line's row key: unique per promotion benefit and variant. */
+export function giftLineKey(line: Pick<OrderQuote['lines'][number], 'variantId' | 'refs'>): string {
+  const refs = line.refs.map((r) => `${r.promotionId}.${r.benefitIndex}`).join('_');
+  return `gift-${refs}-${line.variantId}`;
 }
 
 /** Adds `id`, or removes it when it is there. */

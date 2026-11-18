@@ -4,6 +4,8 @@ import {
   addressFormErrors,
   customerFormErrors,
   fieldErrors,
+  giftLineKey,
+  keptPromotionIds,
   applicablePromotionsInput,
   applyCustomerAddresses,
   applyDiscountRows,
@@ -89,16 +91,21 @@ describe('applyCustomerAddresses', () => {
     expect(next.billingSameAsShipping).toBe(false);
   });
 
-  it('without a stored billing address the billing stays as it was (never assumed)', () => {
-    const next = applyCustomerAddresses(form(), { shippingAddress: address, billingAddress: null });
-    expect(next.shippingAddress.city).toBe('Lisboa');
-    expect(hasAddress(next.billingAddress)).toBe(false);
-  });
-
-  it('keeps what was there when the customer has no address at all', () => {
-    const before = form();
-    const next = applyCustomerAddresses(before, { shippingAddress: null, billingAddress: null });
-    expect(next.shippingAddress).toEqual(before.shippingAddress);
+  it("clears an address the picked customer does not have: B never keeps A's billing or NIF", () => {
+    const withA: OrderForm = {
+      ...form(),
+      shippingAddress: { ...emptyAddressForm(), ...address, city: 'Lisboa A' },
+      billingAddress: { ...emptyAddressForm(), ...address, company: 'A Lda', nif: '111111111' },
+    };
+    const next = applyCustomerAddresses(withA, {
+      shippingAddress: { ...address, city: 'Porto' },
+      billingAddress: null,
+    });
+    expect(next.shippingAddress.city).toBe('Porto');
+    expect(next.billingAddress).toEqual(emptyAddressForm());
+    const none = applyCustomerAddresses(withA, { shippingAddress: null, billingAddress: null });
+    expect(none.shippingAddress).toEqual(emptyAddressForm());
+    expect(none.billingAddress).toEqual(emptyAddressForm());
   });
 });
 
@@ -315,5 +322,38 @@ describe('create order v2 translations', () => {
     const key = `littlebox-strapi-suite.${k}`;
     expect(en[key]).toEqual(expect.any(String));
     expect(pt[key]).toEqual(expect.any(String));
+  });
+});
+
+describe('fix round 1', () => {
+  it('keptPromotionIds keeps the selected ids the endpoint still returns, in order, and names the others', () => {
+    const applicable = [{ id: 5 }, { id: 3 }] as ApplicablePromotion[];
+    expect(keptPromotionIds([3, 7, 5, 9], applicable)).toEqual({ kept: [3, 5], dropped: [7, 9] });
+    expect(keptPromotionIds([], applicable)).toEqual({ kept: [], dropped: [] });
+  });
+
+  it('giftLineKey is unique per promotion benefit and variant', () => {
+    const gift = (variantId: number, refs: { promotionId: number; benefitIndex: number }[]) =>
+      ({
+        variantId,
+        refs: refs.map((r) => ({ ...r, amount: 0 })),
+      }) as unknown as OrderQuote['lines'][number];
+    const keys = [
+      giftLineKey(gift(9, [{ promotionId: 1, benefitIndex: 0 }])),
+      giftLineKey(gift(9, [{ promotionId: 2, benefitIndex: 0 }])),
+      giftLineKey(gift(9, [{ promotionId: 1, benefitIndex: 1 }])),
+      giftLineKey(gift(8, [{ promotionId: 1, benefitIndex: 0 }])),
+    ];
+    expect(new Set(keys).size).toBe(4);
+  });
+
+  it('has en + pt copy for the fix round', () => {
+    [
+      'ecommerce.orders.new.duplicate.droppedPromotions',
+      'ecommerce.orders.new.pickupDeliveryOnly',
+    ].forEach((k) => {
+      expect(en[`littlebox-strapi-suite.${k}`], k).toEqual(expect.any(String));
+      expect(pt[`littlebox-strapi-suite.${k}`], k).toEqual(expect.any(String));
+    });
   });
 });
