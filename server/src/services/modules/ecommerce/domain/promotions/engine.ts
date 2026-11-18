@@ -75,16 +75,11 @@ export const stackingConflict = (
 };
 
 /**
- * Why `p` does not stack with an order-level manual discount (an ORDER_DISCOUNT the admin
- * enters): `p` is exclusive, or it does not allow order discounts. Null when it stacks.
+ * Why `p` does not stack with manual discounts (order-level or a line's manual percent): only an
+ * exclusive promotion is blocked (owner ruling). Null when it stacks.
  */
-export const manualDiscountConflict = (p: PromotionDefinition): StackingConflict | null => {
-  if (p.stacking.exclusive) return { rule: 'EXCLUSIVE_SELF', discountClass: null };
-  if (!allows(p.stacking, 'ORDER_DISCOUNT')) {
-    return { rule: 'CLASS_SELF', discountClass: 'ORDER_DISCOUNT' };
-  }
-  return null;
-};
+export const manualDiscountConflict = (p: PromotionDefinition): StackingConflict | null =>
+  p.stacking.exclusive ? { rule: 'EXCLUSIVE_SELF', discountClass: null } : null;
 
 export type CodeStatus =
   | 'APPLIED'

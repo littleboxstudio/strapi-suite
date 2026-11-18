@@ -1823,3 +1823,47 @@ describe('Recalculate discounts lists every eligible promotion (recommender)', (
     expect(orderRow(ctx, id)).toMatchObject({ orderDiscount: 1650, total: total - 1650 });
   });
 });
+
+describe('manual discounts block exclusive promotions on the order detail', () => {
+  const vip = (ctx: Ctx) =>
+    tenPercent(ctx, {
+      name: 'VIP',
+      stacking: { ...STACK_ALL, exclusive: true },
+      benefits: { items: [{ type: 'ORDER_PERCENT', percent: 30 }] },
+    });
+
+  it('an order manual discount: the exclusive one is blocked, a stackable one is not; selecting it is refused', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    await ctx.editing.addManualDiscount(id, { kind: 'FIXED', value: 300, reason: 'Loyal' }, 'user:1', 'op-manual-block-1');
+    const v = vip(ctx);
+    const ten = tenPercent(ctx, { name: 'Ten' });
+    const preview = await ctx.editing.previewDiscounts(id, {});
+    expect(preview.rows.find((r) => r.key === `p:${v}`)).toMatchObject({
+      blockedBy: { kind: 'MANUAL', conflict: { rule: 'EXCLUSIVE_SELF' } },
+      recommended: false,
+    });
+    expect(preview.rows.find((r) => r.key === `p:${ten}`)).toMatchObject({ blockedBy: null, recommended: true });
+    const manualKey = preview.rows.find((r) => r.kind === 'MANUAL')!.key;
+    expect(
+      await issues(ctx.editing.applyDiscounts(id, { selection: [manualKey, `p:${v}`] }, 'user:1', 'op-manual-block-2'))
+    ).toEqual([{ path: 'selection', code: 'PROMOTIONS_NOT_COMBINABLE' }]);
+  });
+
+  it('a line manual percentage blocks it too', async () => {
+    const ctx = setup();
+    const id = await createOrder(ctx);
+    await ctx.editing.applyLines(
+      id,
+      { lines: lineInputs(ctx, id).map((l, i) => (i === 0 ? { ...l, discountPercent: 10 } : l)) },
+      'user:1',
+      'op-manual-block-3'
+    );
+    const v = vip(ctx);
+    const preview = await ctx.editing.previewDiscounts(id, {});
+    expect(preview.rows.find((r) => r.key === `p:${v}`)?.blockedBy).toMatchObject({ kind: 'MANUAL' });
+    expect(
+      await issues(ctx.editing.applyDiscounts(id, { selection: [`p:${v}`] }, 'user:1', 'op-manual-block-4'))
+    ).toEqual([{ path: 'selection', code: 'PROMOTIONS_NOT_COMBINABLE' }]);
+  });
+});

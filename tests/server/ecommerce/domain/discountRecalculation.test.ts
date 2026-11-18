@@ -1130,3 +1130,51 @@ describe('recommender: every eligible candidate is listed', () => {
     expect(recalculateDiscounts(ctx({ lines, shippingGross: 0, candidates: [notNeeded] })).rows).toEqual([]);
   });
 });
+
+describe('manual discounts block exclusive promotions (owner ruling)', () => {
+  const vip = promo(2, [{ type: 'ORDER_PERCENT', percent: 20 }], {
+    name: 'VIP',
+    stacking: { ...ALL, exclusive: true },
+  });
+  const noOrder = promo(3, [{ type: 'SHIPPING_FREE', maxAmount: null }], {
+    name: 'Ship',
+    stacking: { ...ALL, withOrder: false },
+  });
+  const ten = promo(4, [{ type: 'ORDER_PERCENT', percent: 10 }], { name: 'Ten' });
+  const MANUAL_BLOCK = {
+    kind: 'MANUAL',
+    promotionId: null,
+    name: '',
+    displayName: {},
+    conflict: { rule: 'EXCLUSIVE_SELF', discountClass: null },
+  };
+  const rowsOf = (extra: Partial<DiscountContext>) =>
+    new Map(
+      recalculateDiscounts(
+        ctx({ lines: [line(1, 1, 2000, 2)], shippingGross: 500, candidates: [vip, noOrder, ten], ...extra })
+      ).rows.map((r) => [r.key, r])
+    );
+
+  it('an order-level manual discount blocks the exclusive one only; the recommendation skips it', () => {
+    const rows = rowsOf({ manual: [manual(1, 300)], orderDiscount: 300 });
+    expect(rows.get('p:2')).toMatchObject({ blockedBy: MANUAL_BLOCK, recommended: false });
+    // Not exclusive: never blocked by manual discounts (even without order discounts allowed).
+    expect(rows.get('p:3')).toMatchObject({ blockedBy: null });
+    expect(rows.get('p:4')).toMatchObject({ blockedBy: null });
+    // The recommendation is made among the selectable ones only.
+    expect(rows.get('p:3')?.recommended || rows.get('p:4')?.recommended).toBe(true);
+  });
+
+  it('a line manual percentage blocks it too', () => {
+    const rows = rowsOf({
+      lines: [line(1, 1, 2000, 2), line(2, 5, 1000, 1, { manualDiscountPercent: 10, unitDiscount: 100 })],
+    });
+    expect(rows.get('p:2')?.blockedBy).toEqual(MANUAL_BLOCK);
+    expect(rows.get('p:4')?.blockedBy).toBeNull();
+  });
+
+  it('without manual discounts nothing is blocked (the exclusive one is recommended)', () => {
+    const rows = rowsOf({});
+    expect(rows.get('p:2')).toMatchObject({ blockedBy: null, recommended: true });
+  });
+});

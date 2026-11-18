@@ -481,11 +481,14 @@ export const createOrderPricing = (deps: OrderPricingDeps) => {
         (c) => c.method === 'AUTOMATIC' && selected.has(c.id) && eligible.has(c.id)
       );
       const codes = candidates.filter((c) => c.method === 'CODE' && eligible.has(c.id));
+      // Manual discounts: order-level, or a line's manual percent (exclusive ones never stack).
+      const manualDiscount =
+        p.manualDiscount === true || p.lines.some((l) => (l.discountPercent ?? 0) > 0);
       const clash = picked.some(
         (a, i) =>
           picked.slice(i + 1).some((b) => !compatible(a, b)) ||
           codes.some((k) => !compatible(a, k)) ||
-          (p.manualDiscount === true && manualDiscountConflict(a) !== null)
+          (manualDiscount && manualDiscountConflict(a) !== null)
       );
       if (clash) {
         throw new EcommerceValidationError('Invalid order', [

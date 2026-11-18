@@ -87,8 +87,8 @@ export type DiscountContext = {
   /** Per promotion id, the chosen gift variant (with `gifts`). */
   giftChoices?: Record<number, number>;
   /**
-   * Create order: the draft has an order-level manual discount, so a NEW row that does not stack
-   * with order discounts is blocked. (The order detail does not pass it.)
+   * An order-level manual discount not in `manual` (Create order's draft). With `manual` or a
+   * line's manual percent, every exclusive NEW row is blocked (owner ruling).
    */
   manualOrderDiscount?: boolean;
 };
@@ -446,6 +446,11 @@ export function recalculateDiscounts(
   };
   const aloneAmount = (id: number) =>
     sumOf(alone(id).benefitAmounts.get(id)) + sumOf(giftAmounts.get(id));
+  // Manual discounts (order-level, or a line's manual percent) block the exclusive promotions.
+  const hasManualDiscount =
+    ctx.manualOrderDiscount === true ||
+    ctx.manual.length > 0 ||
+    ctx.lines.some((l) => !l.isGift && effective(l) > 0 && (l.manualDiscountPercent ?? 0) > 0);
   const blockOf = (c: PromotionCandidate): DiscountRow['blockedBy'] => {
     for (const k of keptDefinitions) {
       const conflict = stackingConflict(c, k);
@@ -453,7 +458,7 @@ export function recalculateDiscounts(
         return { kind: 'PROMOTION', promotionId: k.id, name: k.name, displayName: k.displayName, conflict };
       }
     }
-    const manual = ctx.manualOrderDiscount ? manualDiscountConflict(c) : null;
+    const manual = hasManualDiscount ? manualDiscountConflict(c) : null;
     if (manual) return { kind: 'MANUAL', promotionId: null, name: '', displayName: {}, conflict: manual };
     return null;
   };
