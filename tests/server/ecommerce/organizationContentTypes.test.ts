@@ -36,7 +36,7 @@ const names: Record<string, string[]> = {
   'product-tag-translation': ['tag', 'locale', 'name'],
   collection: ['type', 'sortOrder', 'active', 'image', 'match', 'conditions', 'translations', 'members'],
   'collection-translation': ['collection', 'locale', 'title', 'handle', 'description', 'seoTitle', 'seoDescription'],
-  'collection-product': ['collection', 'product', 'position'],
+  'collection-product': ['collection', 'product', 'position', 'uniqueKey'],
 };
 
 describe('ecommerce product organization content-types', () => {
@@ -99,7 +99,8 @@ describe('ecommerce product organization content-types', () => {
     idx('product-type', 'ecommerce_product_type_key_unique', ['key']);
     idx('product-tag', 'ecommerce_product_tag_key_unique', ['key']);
     idx('collection-translation', 'ecommerce_collection_tr_locale_handle_unique', ['locale', 'handle']);
-    idx('collection-product', 'ecommerce_collection_product_unique', ['collection_id', 'product_id']);
+    idx('collection-product', 'ecommerce_collection_product_unique_key_unique', ['unique_key']);
+    expect(get('collection-product').attributes.uniqueKey).toMatchObject({ type: 'string', required: true, unique: true });
     expect(get('product-type').attributes.key).toMatchObject({ type: 'string', required: true, unique: true });
     expect(get('product-tag').attributes.key).toMatchObject({ type: 'string', required: true, unique: true });
   });

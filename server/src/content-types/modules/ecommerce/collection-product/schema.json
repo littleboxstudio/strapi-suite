@@ -27,6 +27,11 @@
     "position": {
       "type": "integer",
       "default": 0
+    },
+    "uniqueKey": {
+      "type": "string",
+      "required": true,
+      "unique": true
     }
   },
   "pluginOptions": {
@@ -42,10 +47,9 @@
   },
   "indexes": [
     {
-      "name": "ecommerce_collection_product_unique",
+      "name": "ecommerce_collection_product_unique_key_unique",
       "columns": [
-        "collection_id",
-        "product_id"
+        "unique_key"
       ],
       "type": "unique"
     }
