@@ -28,6 +28,10 @@
       "required": true,
       "min": 0
     },
+    "compareAtPrice": {
+      "type": "integer",
+      "min": 0
+    },
     "tax": {
       "type": "decimal",
       "required": true,

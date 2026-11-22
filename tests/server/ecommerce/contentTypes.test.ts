@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest';
 import contentTypes from '../../../server/src/content-types';
 
 const names: Record<string, string[]> = {
-  'product': ['active', 'translations', 'variants', 'images'],
+  'product': ['active', 'translations', 'variants', 'images', 'vendor', 'category', 'productType', 'tags', 'collectionMembers'],
   'product-translation': ['product', 'locale', 'name', 'slug', 'shortDescription', 'description'],
-  'variant': ['product', 'sku', 'price', 'tax', 'stock', 'weight', 'width', 'height', 'depth', 'active', 'position', 'translations', 'images'],
+  'variant': ['product', 'sku', 'price', 'compareAtPrice', 'tax', 'stock', 'weight', 'width', 'height', 'depth', 'active', 'position', 'translations', 'images'],
   'variant-translation': ['variant', 'locale', 'option'],
   'image': ['product', 'variant', 'position', 'name', 'width', 'height', 'sizeBytes', 'mime', 'ext', 'hash', 'url', 'provider', 'providerMetadata'],
 };

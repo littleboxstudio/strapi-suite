@@ -1,0 +1,78 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_collections",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-collection",
+    "pluralName": "ltb-st-module-ecommerce-collections",
+    "displayName": "Littlebox Strapi Suite - E-commerce Collection",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Collection"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "type": {
+      "type": "enumeration",
+      "enum": [
+        "MANUAL",
+        "AUTOMATED"
+      ],
+      "required": true
+    },
+    "sortOrder": {
+      "type": "enumeration",
+      "enum": [
+        "MANUAL",
+        "BEST_SELLING",
+        "TITLE_ASC",
+        "TITLE_DESC",
+        "PRICE_ASC",
+        "PRICE_DESC",
+        "NEWEST",
+        "OLDEST"
+      ]
+    },
+    "active": {
+      "type": "boolean",
+      "default": true
+    },
+    "image": {
+      "type": "string"
+    },
+    "match": {
+      "type": "enumeration",
+      "enum": [
+        "ALL",
+        "ANY"
+      ],
+      "default": "ALL"
+    },
+    "conditions": {
+      "type": "json"
+    },
+    "translations": {
+      "type": "relation",
+      "relation": "oneToMany",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-collection-translation",
+      "mappedBy": "collection"
+    },
+    "members": {
+      "type": "relation",
+      "relation": "oneToMany",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-collection-product",
+      "mappedBy": "collection"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  }
+}

@@ -37,3 +37,56 @@ describe('fakeDb range operators', () => {
     expect(await db.query('t').deleteMany({ where: { n: { $lt: 3 } } })).toEqual({ count: 2 });
   });
 });
+
+describe('fakeDb many-to-many', () => {
+  const PRODUCT = 'product';
+  const TAG = 'tag';
+  const setup = () =>
+    createFakeDb([PRODUCT, TAG], {
+      [PRODUCT]: { tags: [TAG, 'products_tags', 'manyToMany'] },
+      [TAG]: { products: [PRODUCT, 'products_tags', 'manyToMany'] },
+    });
+
+  it('connects on create and filters by a nested where, from both sides', async () => {
+    const db = setup();
+    for (const key of ['a', 'b', 'c']) await db.query(TAG).create({ data: { key } });
+    const p1 = await db.query(PRODUCT).create({ data: { name: 'p1', tags: { connect: [1, 2] } } });
+    await db.query(PRODUCT).create({ data: { name: 'p2', tags: { connect: [{ id: 3 }] } } });
+    expect(p1).not.toHaveProperty('tags');
+    const found = await db.query(PRODUCT).findMany({ where: { tags: { id: 2 } } });
+    expect(found.map((r: any) => r.name)).toEqual(['p1']);
+    expect(await db.query(PRODUCT).count({ where: { tags: { key: 'c' } } })).toBe(1);
+    const tagsOf1 = await db.query(TAG).findMany({ where: { products: { name: 'p1' } } });
+    expect(tagsOf1.map((r: any) => r.key)).toEqual(['a', 'b']);
+  });
+
+  it('set replaces, connect adds, disconnect removes', async () => {
+    const db = setup();
+    for (const key of ['a', 'b', 'c']) await db.query(TAG).create({ data: { key } });
+    await db.query(PRODUCT).create({ data: { name: 'p1', tags: { connect: [1, 2] } } });
+    await db.query(PRODUCT).update({ where: { id: 1 }, data: { tags: { set: [3] } } });
+    let p: any = await db.query(PRODUCT).findOne({ where: { id: 1 }, populate: { tags: true } });
+    expect(p.tags.map((t: any) => t.id)).toEqual([3]);
+    await db.query(PRODUCT).update({ where: { id: 1 }, data: { tags: { connect: [1, 2], disconnect: [3] } } });
+    p = await db.query(PRODUCT).findOne({ where: { id: 1 }, populate: { tags: true } });
+    expect(p.tags.map((t: any) => t.id)).toEqual([1, 2]);
+    expect(await db.query(PRODUCT).findMany({ where: { tags: { id: 3 } } })).toEqual([]);
+  });
+
+  it('populates tag rows and the reverse side; delete drops links; rolls back', async () => {
+    const db = setup();
+    await db.query(TAG).create({ data: { key: 'a' } });
+    await db.query(PRODUCT).create({ data: { name: 'p1', tags: { connect: [1] } } });
+    const t: any = await db.query(TAG).findOne({ where: { id: 1 }, populate: { products: true } });
+    expect(t.products.map((r: any) => r.name)).toEqual(['p1']);
+    await expect(
+      db.transaction(async () => {
+        await db.query(PRODUCT).update({ where: { id: 1 }, data: { tags: { set: [] } } });
+        throw new Error('x');
+      })
+    ).rejects.toThrow('x');
+    expect(await db.query(PRODUCT).count({ where: { tags: { id: 1 } } })).toBe(1);
+    await db.query(PRODUCT).delete({ where: { id: 1 } });
+    expect(await db.query(TAG).findMany({ where: { products: { id: 1 } } })).toEqual([]);
+  });
+});

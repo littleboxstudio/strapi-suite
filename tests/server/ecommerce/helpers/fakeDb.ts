@@ -62,11 +62,12 @@ const RANGE_OPS: [string, (a: any, b: any) => boolean][] = [
 
 /**
  * relation name -> [target uid, foreign key on target] (oneToMany), or
- * [target uid, column on this row holding the target id, 'manyToOne'].
+ * [target uid, column on this row holding the target id, 'manyToOne'], or
+ * [target uid, join table name, 'manyToMany'] (declare it on both sides with the same join table).
  */
 export type FakeRelations = Record<
   string,
-  Record<string, [string, string] | [string, string, 'manyToOne']>
+  Record<string, [string, string] | [string, string, 'manyToOne' | 'manyToMany']>
 >;
 
 /**
@@ -88,6 +89,39 @@ export function createFakeDb(
   };
   const tables: Record<string, any[]> = Object.fromEntries(uids.map((u) => [u, []]));
   const seq: Record<string, number> = {};
+  /** join table -> links, each `{ [uid]: id }` for both sides. */
+  let joins: Record<string, Record<string, number>[]> = {};
+  const linkedIds = (uid: string, id: number, rel: [string, string, string]): number[] =>
+    (joins[rel[1]] ?? []).filter((l) => l[uid] === id).map((l) => l[rel[0]]);
+  const idOf = (v: any): number => (v && typeof v === 'object' ? v.id : v);
+  /** Applies `{ connect, disconnect, set }` for every manyToMany relation and strips them from `data`. */
+  const splitManyToMany = (uid: string, data: any): { data: any; apply: (id: number) => void } => {
+    const plain = { ...data };
+    const ops: [[string, string, string], any][] = [];
+    for (const [key, rel] of Object.entries(relations[uid] ?? {})) {
+      if (rel[2] !== 'manyToMany' || !(key in plain)) continue;
+      ops.push([rel as [string, string, string], plain[key]]);
+      delete plain[key];
+    }
+    const apply = (id: number) => {
+      for (const [rel, op] of ops) {
+        const links = (joins[rel[1]] ??= []);
+        const remove = (target: number) => {
+          joins[rel[1]] = joins[rel[1]].filter((l) => !(l[uid] === id && l[rel[0]] === target));
+        };
+        if (op?.set) {
+          joins[rel[1]] = links.filter((l) => l[uid] !== id);
+          for (const t of op.set) joins[rel[1]].push({ [uid]: id, [rel[0]]: idOf(t) });
+        }
+        for (const t of op?.disconnect ?? []) remove(idOf(t));
+        for (const t of op?.connect ?? []) {
+          remove(idOf(t));
+          joins[rel[1]].push({ [uid]: id, [rel[0]]: idOf(t) });
+        }
+      }
+    };
+    return { data: plain, apply };
+  };
   const comparable = (v: any) =>
     v instanceof Date ? v.getTime() : typeof v === 'string' && ISO_DATE.test(v) ? Date.parse(v) : v;
   const isOp = (o: any) =>
@@ -100,6 +134,10 @@ export function createFakeDb(
       if (rel) {
         if (rel[2] === 'manyToOne') {
           return tables[rel[0]].some((r) => r.id === row[rel[1]] && match(rel[0], r, cond));
+        }
+        if (rel[2] === 'manyToMany') {
+          const ids = linkedIds(uid, row.id, rel as [string, string, string]);
+          return tables[rel[0]].some((r) => ids.includes(r.id) && match(rel[0], r, cond));
         }
         return tables[rel[0]].some((r) => r[rel[1]] === row.id && match(rel[0], r, cond));
       }
@@ -139,6 +177,13 @@ export function createFakeDb(
         out[key] = r ? populate(target, r, nested) : null;
         continue;
       }
+      if (kind === 'manyToMany') {
+        const ids = linkedIds(uid, row.id, relations[uid][key] as [string, string, string]);
+        out[key] = tables[target]
+          .filter((r) => ids.includes(r.id))
+          .map((r) => populate(target, r, nested));
+        continue;
+      }
       out[key] = tables[target]
         .filter((r) => r[fk] === row.id)
         .map((r) => populate(target, r, spec === true ? null : spec.populate));
@@ -161,6 +206,11 @@ export function createFakeDb(
     });
   };
 
+  /** Deleting a row removes its many-to-many links, as the join tables' cascades do. */
+  const dropLinks = (uid: string, ids: number[]) => {
+    for (const t of Object.keys(joins)) joins[t] = joins[t].filter((l) => !(l[uid] !== undefined && ids.includes(l[uid])));
+  };
+
   const query = (uid: string) => ({
     findMany: async (p: any = {}) => {
       let rows = sort(
@@ -178,34 +228,46 @@ export function createFakeDb(
       return r ? populate(uid, r, p.populate) : null;
     },
     count: async (p: any = {}) => tables[uid].filter((r) => match(uid, r, p.where)).length,
-    create: async ({ data }: any) => {
+    create: async ({ data: input }: any) => {
+      const { data, apply } = splitManyToMany(uid, input);
       assertJsonColumns(uid, data);
       checkUnique(uid, data);
       seq[uid] = (seq[uid] ?? 0) + 1;
       const row = { id: seq[uid], ...data };
       tables[uid].push(row);
+      apply(row.id);
       return { ...row };
     },
-    update: async ({ where, data }: any) => {
+    update: async ({ where, data: input }: any) => {
+      const { data, apply } = splitManyToMany(uid, input);
       assertJsonColumns(uid, data);
       const r = tables[uid].find((x) => match(uid, x, where));
       if (!r) return null;
       checkUnique(uid, data, r.id);
       Object.assign(r, data);
+      apply(r.id);
       return { ...r };
     },
-    updateMany: async ({ where, data }: any) => {
+    updateMany: async ({ where, data: input }: any) => {
+      const { data, apply } = splitManyToMany(uid, input);
       assertJsonColumns(uid, data);
       const rows = tables[uid].filter((x) => match(uid, x, where));
-      rows.forEach((r) => Object.assign(r, data));
+      rows.forEach((r) => {
+        Object.assign(r, data);
+        apply(r.id);
+      });
       return { count: rows.length };
     },
     delete: async ({ where }: any) => {
       const i = tables[uid].findIndex((x) => match(uid, x, where));
-      if (i >= 0) tables[uid].splice(i, 1);
+      if (i >= 0) {
+        dropLinks(uid, [tables[uid][i].id]);
+        tables[uid].splice(i, 1);
+      }
     },
     deleteMany: async ({ where }: any) => {
       const before = tables[uid].length;
+      dropLinks(uid, tables[uid].filter((x) => match(uid, x, where)).map((x) => x.id));
       tables[uid] = tables[uid].filter((x) => !match(uid, x, where));
       return { count: before - tables[uid].length };
     },
@@ -314,12 +376,13 @@ export function createFakeDb(
   const metadata = { get: (uid: string) => ({ tableName: uid }) };
 
   const transaction = vi.fn(async (cb: (ctx: { trx: any }) => Promise<any>) => {
-    const snapshot = JSON.stringify(tables);
+    const snapshot = JSON.stringify({ tables, joins });
     try {
       return await cb({ trx });
     } catch (e) {
       const restored = JSON.parse(snapshot);
-      for (const k of Object.keys(tables)) tables[k] = restored[k];
+      for (const k of Object.keys(tables)) tables[k] = restored.tables[k];
+      joins = restored.joins;
       throw e;
     }
   });

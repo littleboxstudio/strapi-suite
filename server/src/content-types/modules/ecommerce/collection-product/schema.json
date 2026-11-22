@@ -1,0 +1,53 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_collection_products",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-collection-product",
+    "pluralName": "ltb-st-module-ecommerce-collection-products",
+    "displayName": "Littlebox Strapi Suite - E-commerce Collection Product",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Collection Product"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "collection": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-collection",
+      "inversedBy": "members"
+    },
+    "product": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-product",
+      "inversedBy": "collectionMembers"
+    },
+    "position": {
+      "type": "integer",
+      "default": 0
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_collection_product_unique",
+      "columns": [
+        "collection_id",
+        "product_id"
+      ],
+      "type": "unique"
+    }
+  ]
+}

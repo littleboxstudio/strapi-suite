@@ -1,0 +1,62 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_product_categories",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-product-category",
+    "pluralName": "ltb-st-module-ecommerce-product-categories",
+    "displayName": "Littlebox Strapi Suite - E-commerce Product Category",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Product Category"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "parent": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-product-category",
+      "inversedBy": "children"
+    },
+    "children": {
+      "type": "relation",
+      "relation": "oneToMany",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-product-category",
+      "mappedBy": "parent"
+    },
+    "position": {
+      "type": "integer",
+      "default": 0
+    },
+    "active": {
+      "type": "boolean",
+      "default": true
+    },
+    "image": {
+      "type": "string"
+    },
+    "translations": {
+      "type": "relation",
+      "relation": "oneToMany",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-product-category-translation",
+      "mappedBy": "category"
+    },
+    "products": {
+      "type": "relation",
+      "relation": "oneToMany",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-product",
+      "mappedBy": "category"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  }
+}

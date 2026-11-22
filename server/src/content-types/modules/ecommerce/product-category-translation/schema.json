@@ -1,0 +1,64 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_product_category_translations",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-product-category-translation",
+    "pluralName": "ltb-st-module-ecommerce-product-category-translations",
+    "displayName": "Littlebox Strapi Suite - E-commerce Product Category Translation",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Product Category Translation"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "category": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-product-category",
+      "inversedBy": "translations"
+    },
+    "locale": {
+      "type": "string",
+      "required": true
+    },
+    "name": {
+      "type": "string",
+      "required": true
+    },
+    "slug": {
+      "type": "string",
+      "required": true
+    },
+    "description": {
+      "type": "text"
+    },
+    "seoTitle": {
+      "type": "string"
+    },
+    "seoDescription": {
+      "type": "string"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_category_tr_locale_slug_unique",
+      "columns": [
+        "locale",
+        "slug"
+      ],
+      "type": "unique"
+    }
+  ]
+}

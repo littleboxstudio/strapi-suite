@@ -39,6 +39,15 @@ import EcommercePromotionRedemptionSchema from './modules/ecommerce/promotion-re
 import EcommercePromotionCustomerUsageSchema from './modules/ecommerce/promotion-customer-usage';
 import EcommerceCheckoutSessionSchema from './modules/ecommerce/checkout-session';
 import EcommercePaymentMethodSuggestionSchema from './modules/ecommerce/payment-method-suggestion';
+import EcommerceProductCategorySchema from './modules/ecommerce/product-category';
+import EcommerceProductCategoryTranslationSchema from './modules/ecommerce/product-category-translation';
+import EcommerceProductTypeSchema from './modules/ecommerce/product-type';
+import EcommerceProductTypeTranslationSchema from './modules/ecommerce/product-type-translation';
+import EcommerceProductTagSchema from './modules/ecommerce/product-tag';
+import EcommerceProductTagTranslationSchema from './modules/ecommerce/product-tag-translation';
+import EcommerceCollectionSchema from './modules/ecommerce/collection';
+import EcommerceCollectionTranslationSchema from './modules/ecommerce/collection-translation';
+import EcommerceCollectionProductSchema from './modules/ecommerce/collection-product';
 
 export default {
   "ltb-st-app-setting": SettingsAppSchema,
@@ -81,5 +90,14 @@ export default {
   "ltb-st-module-ecommerce-promotion-redemption": EcommercePromotionRedemptionSchema,
   "ltb-st-module-ecommerce-promotion-customer-usage": EcommercePromotionCustomerUsageSchema,
   "ltb-st-module-ecommerce-checkout-session": EcommerceCheckoutSessionSchema,
-  "ltb-st-module-ecommerce-payment-method-suggestion": EcommercePaymentMethodSuggestionSchema
+  "ltb-st-module-ecommerce-payment-method-suggestion": EcommercePaymentMethodSuggestionSchema,
+  "ltb-st-module-ecommerce-product-category": EcommerceProductCategorySchema,
+  "ltb-st-module-ecommerce-product-category-translation": EcommerceProductCategoryTranslationSchema,
+  "ltb-st-module-ecommerce-product-type": EcommerceProductTypeSchema,
+  "ltb-st-module-ecommerce-product-type-translation": EcommerceProductTypeTranslationSchema,
+  "ltb-st-module-ecommerce-product-tag": EcommerceProductTagSchema,
+  "ltb-st-module-ecommerce-product-tag-translation": EcommerceProductTagTranslationSchema,
+  "ltb-st-module-ecommerce-collection": EcommerceCollectionSchema,
+  "ltb-st-module-ecommerce-collection-translation": EcommerceCollectionTranslationSchema,
+  "ltb-st-module-ecommerce-collection-product": EcommerceCollectionProductSchema
 };

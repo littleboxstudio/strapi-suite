@@ -33,6 +33,34 @@
       "relation": "oneToMany",
       "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-image",
       "mappedBy": "product"
+    },
+    "vendor": {
+      "type": "string",
+      "maxLength": 255
+    },
+    "category": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-product-category",
+      "inversedBy": "products"
+    },
+    "productType": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-product-type",
+      "inversedBy": "products"
+    },
+    "tags": {
+      "type": "relation",
+      "relation": "manyToMany",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-product-tag",
+      "inversedBy": "products"
+    },
+    "collectionMembers": {
+      "type": "relation",
+      "relation": "oneToMany",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-collection-product",
+      "mappedBy": "product"
     }
   },
   "pluginOptions": {

@@ -61,6 +61,15 @@ export interface LtbConfigs {
         promotionCustomerUsage: UID.ContentType;
         checkoutSession: UID.ContentType;
         paymentMethodSuggestion: UID.ContentType;
+        category: UID.ContentType;
+        categoryTranslation: UID.ContentType;
+        productType: UID.ContentType;
+        productTypeTranslation: UID.ContentType;
+        tag: UID.ContentType;
+        tagTranslation: UID.ContentType;
+        collection: UID.ContentType;
+        collectionTranslation: UID.ContentType;
+        collectionProduct: UID.ContentType;
       },
     },
     customFields: {
@@ -119,6 +128,15 @@ export default {
           promotionCustomerUsage: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-promotion-customer-usage`,
           checkoutSession: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-checkout-session`,
           paymentMethodSuggestion: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-payment-method-suggestion`,
+          category: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-product-category`,
+          categoryTranslation: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-product-category-translation`,
+          productType: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-product-type`,
+          productTypeTranslation: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-product-type-translation`,
+          tag: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-product-tag`,
+          tagTranslation: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-product-tag-translation`,
+          collection: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-collection`,
+          collectionTranslation: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-collection-translation`,
+          collectionProduct: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-collection-product`,
         },
       },
       customFields: {
