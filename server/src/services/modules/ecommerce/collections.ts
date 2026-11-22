@@ -144,10 +144,33 @@ const EcommerceCollectionService = ({ strapi }: { strapi: Core.Strapi }) => {
     strapi.db.query(uids().collectionProduct).count({ where: { collection: { id: collectionId } } });
 
   /**
-   * Units sold per product for BEST_SELLING. Empty for now (every product counts 0, so ties fall
-   * back to newest); sales ranking plugs in here.
+   * Net units sold per product over the last 90 days: lines of non-cancelled, paid (or partly
+   * refunded) orders, minus returned units, gifts excluded. One query per 500 products.
    */
-  const unitsSold = async (_productIds: number[]): Promise<Map<number, number>> => new Map();
+  const unitsSold = async (productIds: number[], now: Date = new Date()): Promise<Map<number, number>> => {
+    const totals = new Map<number, number>();
+    const ids = [...new Set(productIds.filter((id) => Number.isInteger(id)))];
+    const since = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    for (let i = 0; i < ids.length; i += 500) {
+      const lines: any[] = await strapi.db.query(uids().orderLine).findMany({
+        where: {
+          productId: { $in: ids.slice(i, i + 500) },
+          order: {
+            orderStatus: { $ne: 'CANCELLED' },
+            paymentStatus: { $in: ['PAID', 'PARTIALLY_REFUNDED'] },
+            createdAt: { $gte: since },
+          },
+        },
+        select: ['productId', 'quantity', 'returnedQuantity', 'isGift'],
+      });
+      for (const l of lines) {
+        if (l.isGift === true) continue;
+        const net = Math.max(0, (l.quantity ?? 0) - (l.returnedQuantity ?? 0));
+        totals.set(l.productId, (totals.get(l.productId) ?? 0) + net);
+      }
+    }
+    return totals;
+  };
 
   /** Hooks provided by the automated-collection evaluation; a failure never undoes the change. */
   const afterCommit = async (label: string, work: () => Promise<unknown> | undefined) => {
@@ -438,6 +461,9 @@ const EcommerceCollectionService = ({ strapi }: { strapi: Core.Strapi }) => {
   const rowProductId = (r: any): number | null => r.product?.id ?? (typeof r.product === 'number' ? r.product : null);
 
   const service = {
+    /** Net units sold in the last 90 days per product (for best-selling order). */
+    unitsSoldByProduct: (productIds: number[], now: Date = new Date()) => unitsSold(productIds, now),
+
     async list(params: { page?: number; search?: string; locale?: string } = {}) {
       const u = uids();
       const page = pageOf(params.page);

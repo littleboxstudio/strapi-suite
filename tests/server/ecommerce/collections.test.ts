@@ -18,6 +18,8 @@ const UIDS = {
   collection: `${P}collection`,
   collectionTranslation: `${P}collection-translation`,
   collectionProduct: `${P}collection-product`,
+  order: `${P}order`,
+  orderLine: `${P}order-line`,
 };
 
 const RELATIONS: FakeRelations = {
@@ -40,6 +42,7 @@ const RELATIONS: FakeRelations = {
     collection: [UIDS.collection, 'collection', 'manyToOne'],
     product: [UIDS.product, 'product', 'manyToOne'],
   },
+  [UIDS.orderLine]: { order: [UIDS.order, 'order', 'manyToOne'] },
 };
 
 function setup() {
