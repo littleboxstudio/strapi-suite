@@ -625,15 +625,92 @@ describe('unmet', () => {
   });
 });
 
-describe('requireVerifiedEmail', () => {
-  it('is stored, returned by get and passed to the engine; legacy rows read as false', async () => {
-    const created: any = await svc.create(input({ requireVerifiedEmail: true }));
-    expect((await svc.get(created.id)).requireVerifiedEmail).toBe(true);
-    const [cand] = await svc.loadCandidates({ codes: ['VERAO20'], email: null });
-    expect(cand.requireVerifiedEmail).toBe(true);
-    const legacy = addPromotion({ method: 'CODE', code: 'OLD' });
-    const out = await svc.loadCandidates({ codes: ['OLD'], email: null });
-    expect(out.find((x) => x.id === legacy)?.requireVerifiedEmail).toBe(false);
+describe('eligibility by customers', () => {
+  const addCustomer = (id: number, email: string | null, names: [string | null, string | null] = ['Ana', 'Silva']) => {
+    c.tables[UIDS.customer].push({
+      id,
+      firstName: names[0],
+      lastName: names[1],
+      email,
+      emailNormalized: email ? email.trim().toLowerCase() : null,
+    });
+    return id;
+  };
+  const customers = (ids: unknown[]) => ({ eligibility: { mode: 'CUSTOMERS', customerIds: ids } });
+
+  it('stores the ids as given (deduplicated); the view returns them and the customers in that order', async () => {
+    addCustomer(7, 'Bruno@Example.pt', ['Bruno', 'Costa']);
+    addCustomer(3, 'ana@example.pt');
+    const view = await svc.create(input(customers([7, 3, 7])), 'user:1');
+    expect(promo(view.id).eligibility).toEqual({ mode: 'CUSTOMERS', customerIds: [7, 3] });
+    expect(view.eligibility).toEqual({ mode: 'CUSTOMERS', customerIds: [7, 3] });
+    expect(view.eligibilityCustomers).toEqual([
+      { id: 7, firstName: 'Bruno', lastName: 'Costa', email: 'Bruno@Example.pt' },
+      { id: 3, firstName: 'Ana', lastName: 'Silva', email: 'ana@example.pt' },
+    ]);
+    expect(view).not.toHaveProperty('requireVerifiedEmail');
+    // A customer deleted afterwards is left out of the view (the id stays stored).
+    c.tables[UIDS.customer] = c.tables[UIDS.customer].filter((r) => r.id !== 7);
+    const again = await svc.get(view.id);
+    expect(again.eligibility).toEqual({ mode: 'CUSTOMERS', customerIds: [7, 3] });
+    expect(again.eligibilityCustomers.map((x: any) => x.id)).toEqual([3]);
+  });
+
+  it('eligibilityCustomers is empty for ALL', async () => {
+    const view = await svc.create(input(), 'user:1');
+    expect(view.eligibilityCustomers).toEqual([]);
+  });
+
+  it('unknown customers → not_found at their index in the request; nothing is saved', async () => {
+    addCustomer(3, 'ana@example.pt');
+    expect(await errorsOf(svc.create(input(customers([3, 99, 98, 99])), 'user:1'))).toEqual([
+      { path: 'eligibility.customerIds.1', code: 'not_found' },
+      { path: 'eligibility.customerIds.2', code: 'not_found' },
+    ]);
+    expect(c.tables[UIDS.promotion]).toHaveLength(0);
+  });
+
+  it('refuses an e-mail list on save and ignores requireVerifiedEmail', async () => {
+    expect(await errorsOf(svc.create(input({ eligibility: { mode: 'EMAILS', emails: ['a@b.pt'] } }), 'user:1'))).toEqual([
+      { path: 'eligibility', code: 'invalid' },
+    ]);
+    const view = await svc.create(input({ requireVerifiedEmail: true }), 'user:1');
+    expect(promo(view.id)).not.toHaveProperty('requireVerifiedEmail');
+  });
+
+  it('loadCandidates resolves the customers to their CURRENT e-mails (one customer query)', async () => {
+    addCustomer(3, 'ana@example.pt');
+    addCustomer(4, null);
+    const a = addPromotion({ method: 'CODE', code: 'VIP', ...customers([3, 4, 99]) });
+    const b = addPromotion({ method: 'CODE', code: 'GONE', ...customers([99]) });
+    const legacy = addPromotion({ method: 'CODE', code: 'OLD', eligibility: { mode: 'EMAILS', emails: ['x@y.pt'] } });
+    const realQuery = c.strapi.db.query;
+    let customerQueries = 0;
+    c.strapi.db.query = (uid: string) => {
+      if (uid === UIDS.customer) customerQueries++;
+      return realQuery(uid);
+    };
+    const out = await svc.loadCandidates({ codes: ['VIP', 'GONE', 'OLD'], email: null });
+    c.strapi.db.query = realQuery;
+    expect(customerQueries).toBe(1);
+    expect(out.find((x: any) => x.id === a).eligibility).toEqual({ mode: 'EMAILS', emails: ['ana@example.pt'] });
+    expect(out.find((x: any) => x.id === b).eligibility).toEqual({ mode: 'EMAILS', emails: [] });
+    expect(out.find((x: any) => x.id === legacy).eligibility).toEqual({ mode: 'EMAILS', emails: ['x@y.pt'] });
+    expect(out[0]).not.toHaveProperty('requireVerifiedEmail');
+
+    // The customer changes e-mail: the new one applies, the old one no longer does.
+    const row = c.tables[UIDS.customer].find((r) => r.id === 3);
+    Object.assign(row, { email: 'Ana.Nova@Example.pt', emailNormalized: 'ana.nova@example.pt' });
+    const lines = [{ variantId: 1, productId: 1, unitPrice: 1000, quantity: 1 }];
+    const status = async (email: string) => {
+      // No verified e-mail is needed for a customer restriction.
+      const candidates = await svc.loadCandidates({ codes: ['VIP'], email, emailVerified: false });
+      return svc
+        .evaluate({ candidates, lines, shipping: null, codes: ['VIP'], email, emailVerified: false, now: new Date(), gifts: new Map() })
+        .codes[0].status;
+    };
+    expect(await status('ana.nova@example.pt')).toBe('APPLIED');
+    expect(await status('ana@example.pt')).toBe('EMAIL_NOT_ELIGIBLE');
   });
 
   it('skips the per-customer usage lookup for an unverified e-mail', async () => {

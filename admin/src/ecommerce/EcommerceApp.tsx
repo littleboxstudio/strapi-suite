@@ -11,7 +11,6 @@ import { OrderListPage } from './pages/orders/OrderListPage';
 import { OrderCreatePage } from './pages/orders/OrderCreatePage';
 import { OrderDetailPage } from './pages/orders/OrderDetailPage';
 import { PromotionListPage } from './pages/promotions/PromotionListPage';
-import { StoreCreditListPage } from './pages/promotions/StoreCreditListPage';
 import { PromotionEditPage } from './pages/promotions/PromotionEditPage';
 
 const EcommerceApp = () => (
@@ -27,7 +26,6 @@ const EcommerceApp = () => (
       <Route path="customers" element={<CustomerListPage />} />
       <Route path="customers/:id" element={<CustomerDetailPage />} />
       <Route path="promotions" element={<PromotionListPage />} />
-      <Route path="promotions/store-credits" element={<StoreCreditListPage />} />
       <Route path="promotions/new" element={<PromotionEditPage />} />
       <Route path="promotions/:id" element={<PromotionEditPage />} />
       <Route path="settings" element={<SettingsPage />} />

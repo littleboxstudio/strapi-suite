@@ -160,7 +160,8 @@ export const buyRequirementsMet = (
 
 export const eligibilityMet = (e: Eligibility, email: string | null): boolean => {
   if (e.mode === 'ALL') return true;
-  if (email === null) return false;
+  // CUSTOMERS not resolved to e-mails by the loader: applies to nobody.
+  if (e.mode !== 'EMAILS' || email === null) return false;
   const normalized = normalizeEmail(email);
   return e.emails.some((stored) => normalizeEmail(stored) === normalized);
 };

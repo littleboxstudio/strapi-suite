@@ -27,7 +27,6 @@ const base = (over: Partial<PromotionCandidate> = {}): PromotionCandidate => ({
   endsAt: null,
   usageLimit: null,
   perCustomerLimit: null,
-  requireVerifiedEmail: false,
   redemptions: 0,
   customerUses: 0,
   ...over,
@@ -58,6 +57,10 @@ describe('candidateBlock', () => {
     expect(candidateBlock(c, { now, email: null })).toBe('EMAIL_NOT_ELIGIBLE');
     expect(candidateBlock(c, { now, email: 'x@b.pt' })).toBe('EMAIL_NOT_ELIGIBLE');
     expect(candidateBlock(c, ctx)).toBeNull();
+  });
+  it('CUSTOMERS not resolved to e-mails applies to nobody', () => {
+    const c = base({ eligibility: { mode: 'CUSTOMERS', customerIds: [1] } });
+    expect(candidateBlock(c, ctx)).toBe('EMAIL_NOT_ELIGIBLE');
   });
 });
 
@@ -98,13 +101,13 @@ describe('requiresVerifiedEmail', () => {
       { type: 'GROUP', operator: 'OR', children: [{ type: 'EMAIL', operator: 'contains', value: '@empresa.pt' }] },
     ],
   } as any;
-  it('is true for the flag, an e-mail list, a nested EMAIL condition and a per-customer limit', () => {
-    expect(requiresVerifiedEmail(base({ requireVerifiedEmail: true }))).toBe(true);
-    expect(requiresVerifiedEmail(base({ eligibility: { mode: 'EMAILS', emails: ['a@x.pt'] } }))).toBe(true);
+  it('is true for a nested EMAIL condition and a per-customer limit', () => {
     expect(requiresVerifiedEmail(base({ conditions: { type: 'GROUP', operator: 'AND', children: [deep] } }))).toBe(true);
     expect(requiresVerifiedEmail(base({ perCustomerLimit: 1 }))).toBe(true);
   });
-  it('is false otherwise', () => {
+  it('is false otherwise, eligibility by e-mails or customers included', () => {
     expect(requiresVerifiedEmail(base())).toBe(false);
+    expect(requiresVerifiedEmail(base({ eligibility: { mode: 'EMAILS', emails: ['a@x.pt'] } }))).toBe(false);
+    expect(requiresVerifiedEmail(base({ eligibility: { mode: 'CUSTOMERS', customerIds: [1] } }))).toBe(false);
   });
 });

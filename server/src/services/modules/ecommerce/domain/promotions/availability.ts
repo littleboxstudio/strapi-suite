@@ -29,19 +29,13 @@ const hasEmailCondition = (node: ConditionGroup | Condition): boolean =>
   node.type === 'GROUP' ? node.children.some(hasEmailCondition) : node.type === 'EMAIL';
 
 /**
- * Whether the promotion may only apply to a verified e-mail: the flag, an e-mail list, an EMAIL
- * condition at any depth, or a per-customer limit (which, checked against an unverified e-mail,
- * would reveal whether that e-mail already bought).
+ * Whether the promotion may only apply to a verified e-mail: an EMAIL condition at any depth, or
+ * a per-customer limit (which, checked against an unverified e-mail, would reveal whether that
+ * e-mail already bought). The eligibility (e-mails or customers) does not require it.
  */
 export const requiresVerifiedEmail = (
-  p: Pick<PromotionDefinition, 'requireVerifiedEmail' | 'eligibility' | 'conditions'> & {
-    perCustomerLimit: number | null;
-  }
-): boolean =>
-  p.requireVerifiedEmail === true ||
-  p.eligibility.mode === 'EMAILS' ||
-  hasEmailCondition(p.conditions) ||
-  p.perCustomerLimit !== null;
+  p: Pick<PromotionDefinition, 'conditions'> & { perCustomerLimit: number | null }
+): boolean => hasEmailCondition(p.conditions) || p.perCustomerLimit !== null;
 
 /** Why a candidate cannot apply right now, or null when it is available. `email` is normalised. */
 export function candidateBlock(
@@ -56,6 +50,9 @@ export function candidateBlock(
   }
   if (c.eligibility.mode === 'EMAILS') {
     if (!ctx.email || !c.eligibility.emails.includes(ctx.email)) return 'EMAIL_NOT_ELIGIBLE';
+  } else if (c.eligibility.mode !== 'ALL') {
+    // CUSTOMERS not resolved to e-mails by the loader: applies to nobody.
+    return 'EMAIL_NOT_ELIGIBLE';
   }
   return null;
 }

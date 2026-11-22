@@ -10,8 +10,8 @@ import {
   Flex,
   IconButton,
   Loader,
+  Grid,
   Radio,
-  Switch,
   Textarea,
   TextInput,
   Typography,
@@ -26,12 +26,13 @@ import FetchPromotionEditorContext from '../../usecases/promotions/fetchPromotio
 import SavePromotion from '../../usecases/promotions/savePromotion';
 import DeletePromotion from '../../usecases/promotions/deletePromotion';
 import { LocaleSwitcher } from '../../components/LocaleSwitcher';
-import ConditionGroupEditor from '../../components/promotions/ConditionGroupEditor';
+import ConditionsEditor, { AddScenarioButton } from '../../components/promotions/ConditionsEditor';
 import BenefitEditor from '../../components/promotions/BenefitEditor';
 import EligibilityFields from '../../components/promotions/EligibilityFields';
 import LimitsFields from '../../components/promotions/LimitsFields';
 import StackingFields from '../../components/promotions/StackingFields';
 import PromotionSummary from '../../components/promotions/PromotionSummary';
+import { HeaderActions } from '../../components/HeaderActions';
 import RedemptionsTable from '../../components/promotions/RedemptionsTable';
 import { usePromotionPermissions } from '../../hooks/usePromotionPermissions';
 import { formatCents } from '../../utils/money';
@@ -39,11 +40,10 @@ import { apiErrorCode } from '../../utils/orderDetail';
 import { statusTone } from '../../utils/promotionList';
 import {
   clearErrorsUnder,
-  deactivationInput,
+  activationInput,
   describeBenefit,
   emptyBenefit,
   emptyPromotionForm,
-  verifiedEmailForced,
   errorMapFromIssues,
   MAX_BENEFITS,
   promotionFormFromView,
@@ -59,12 +59,24 @@ import {
 import type { Promotion, PromotionEditorContext, PromotionMethod } from '../../promotionTypes';
 import { ToneBadge } from '../../components/orders/StatusBadges';
 
-const Section = ({ title, children }: { title: string; children: ReactNode }) => (
-  <Box background="neutral0" shadow="tableShadow" hasRadius padding={6}>
+const Section = ({
+  title,
+  actions,
+  children,
+}: {
+  title: string;
+  /** Top right of the section, beside the title. */
+  actions?: ReactNode;
+  children: ReactNode;
+}) => (
+  <Box background="neutral0" shadow="tableShadow" hasRadius padding={6} style={{ height: '100%' }}>
     <Flex direction="column" alignItems="stretch" gap={5}>
-      <Typography variant="delta" tag="h2">
-        {title}
-      </Typography>
+      <Flex justifyContent="space-between" alignItems="center" gap={3} wrap="wrap">
+        <Typography variant="delta" tag="h2">
+          {title}
+        </Typography>
+        {actions}
+      </Flex>
       {children}
     </Flex>
   </Box>
@@ -241,25 +253,34 @@ const PromotionEditPage = () => {
   };
 
   /**
-   * Saves only the deactivation: the stored definition with `active: false` and the loaded
-   * version. Unsaved edits stay in the form (not saved) and the next Save uses the new version.
+   * Activate / Deactivate a saved promotion at once: only `active` changes on the stored
+   * definition (loaded version). Unsaved edits stay in the form (not saved) and the next Save
+   * uses the new version. A new promotion only switches the form (saved with it).
    */
-  const deactivate = async () => {
-    if (!view || saving || readOnly) return;
+  const setActive = async (active: boolean) => {
+    if (saving || readOnly) return;
+    if (!view) {
+      update({ active });
+      return;
+    }
     setSaving(true);
     try {
-      const saved = await new SavePromotion().execute(deactivationInput(view, localeCodes), view.id);
+      const saved = await new SavePromotion().execute(activationInput(view, active, localeCodes), view.id);
       setView(saved);
-      setForm((f) => (f ? { ...f, active: false } : f));
+      setForm((f) => (f ? { ...f, active } : f));
       setInUse(false);
-      toggleNotification({ type: 'success', message: t(`${p}.deactivated`) });
+      toggleNotification({ type: 'success', message: t(active ? `${p}.activated` : `${p}.deactivated`) });
     } catch (err) {
+      const issues = (err as any)?.response?.data?.error?.details?.errors;
       if (apiErrorCode(err) === 'PROMOTION_VERSION_CONFLICT') setConflict(true);
+      else if (Array.isArray(issues) && issues.length) showErrors(errorMapFromIssues(issues));
       else toggleNotification({ type: 'danger', message: t(`${p}.saveError`) });
     } finally {
       setSaving(false);
     }
   };
+  const deactivate = () => setActive(false);
+  const isActive = view ? view.active !== false : form.active;
 
   const title = form.name.trim() || view?.name || t(`${p}.new`);
   const isDefaultLocale = activeLocale === context.defaultLocale;
@@ -282,16 +303,25 @@ const PromotionEditPage = () => {
           )}
         </Flex>
         {!readOnly && (
-          <Flex gap={2}>
+          // In the page header, top right (as the other pages' actions).
+          <HeaderActions>
             {view && (
               <Button variant="danger-light" disabled={saving} onClick={() => setConfirmDelete(true)}>
                 {t(`${p}.delete`)}
               </Button>
             )}
+            {/* Red to deactivate an active promotion, green to activate an inactive one. */}
+            <Button
+              variant={isActive ? 'danger-light' : 'success-light'}
+              disabled={saving}
+              onClick={() => setActive(!isActive)}
+            >
+              {t(isActive ? `${p}.deactivate` : `${p}.activate`)}
+            </Button>
             <Button variant="secondary" onClick={() => save()} loading={saving}>
               {t(`${p}.save`)}
             </Button>
-          </Flex>
+          </HeaderActions>
         )}
       </Flex>
 
@@ -365,15 +395,6 @@ const PromotionEditPage = () => {
               <Field.Hint />
             </Field.Root>
           </Box>
-          <Flex gap={2} alignItems="center" paddingTop={6}>
-            <Switch
-              checked={form.active}
-              disabled={disabled}
-              onCheckedChange={(checked: boolean) => update({ active: checked })}
-              aria-label={t(`${p}.active`)}
-            />
-            <Typography variant="omega">{t(`${p}.active`)}</Typography>
-          </Flex>
         </Flex>
 
         <Field.Root name="description" error={errorText('description')}>
@@ -422,51 +443,75 @@ const PromotionEditPage = () => {
         </Flex>
       </Section>
 
-      {/* 2. Method */}
-      <Section title={t(`${p}.sections.method`)}>
-        <Radio.Group
-          value={form.method}
-          disabled={disabled}
-          aria-label={t(`${p}.sections.method`)}
-          onValueChange={(value: string) => setMethod(value as PromotionMethod)}
-        >
-          {(['CODE', 'AUTOMATIC'] as const).map((method) => (
-            <Radio.Item key={method} value={method}>
-              <Flex direction="column" alignItems="flex-start">
-                <Typography textColor="neutral800">{t(`${p}.method.${method}`)}</Typography>
-                <Typography variant="pi" textColor="neutral600">
-                  {t(`${p}.method.${method}.hint`)}
-                </Typography>
-              </Flex>
-            </Radio.Item>
-          ))}
-        </Radio.Group>
-        {sectionErrors('method')}
-        <Box style={{ maxWidth: 420 }}>
-          <Field.Root
-            name="code"
-            required={form.method === 'CODE'}
-            error={errorText('code')}
-            hint={form.method === 'CODE' ? t(`${p}.code.hint`) : t(`${p}.campaign.hint`)}
-          >
-            <Field.Label>{form.method === 'CODE' ? t(`${p}.code`) : t(`${p}.campaign`)}</Field.Label>
-            <TextInput
-              value={form.code}
+      {/* 2. Method and 3. Validity, side by side (half each). */}
+      <Grid.Root gap={6}>
+        <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
+          <Section title={t(`${p}.sections.method`)}>
+            <Radio.Group
+              value={form.method}
               disabled={disabled}
-              maxLength={40}
-              style={{ fontFamily: 'monospace' }}
-              onChange={(e: any) => update({ code: String(e.target.value).toUpperCase() }, ['code'])}
-            />
-            <Field.Error />
-            <Field.Hint />
-          </Field.Root>
-        </Box>
-      </Section>
-
-      {/* 3. Validity */}
-      <Section title={t(`${p}.sections.validity`)}>
-        <Flex gap={4} alignItems="flex-start" wrap="wrap">
-          <Box style={{ flex: '1 1 240px' }}>
+              aria-label={t(`${p}.sections.method`)}
+              onValueChange={(value: string) => setMethod(value as PromotionMethod)}
+            >
+              {(['CODE', 'AUTOMATIC'] as const).map((method) => (
+                <Radio.Item key={method} value={method}>
+                  <Flex direction="column" alignItems="flex-start">
+                    <Typography textColor="neutral800">{t(`${p}.method.${method}`)}</Typography>
+                    <Typography variant="pi" textColor="neutral600">
+                      {t(`${p}.method.${method}.hint`)}
+                    </Typography>
+                  </Flex>
+                </Radio.Item>
+              ))}
+            </Radio.Group>
+            {sectionErrors('method')}
+            <Field.Root
+              name="code"
+              required={form.method === 'CODE'}
+              error={errorText('code')}
+              hint={form.method === 'CODE' ? t(`${p}.code.hint`) : t(`${p}.campaign.hint`)}
+            >
+              <Field.Label>{form.method === 'CODE' ? t(`${p}.code`) : t(`${p}.campaign`)}</Field.Label>
+              <TextInput
+                value={form.code}
+                disabled={disabled}
+                maxLength={40}
+                style={{ fontFamily: 'monospace' }}
+                onChange={(e: any) => update({ code: String(e.target.value).toUpperCase() }, ['code'])}
+              />
+              <Field.Error />
+              <Field.Hint />
+            </Field.Root>
+          </Section>
+        </Grid.Item>
+        <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
+          <Section
+            title={t(`${p}.sections.validity`)}
+            actions={
+              // The store's time zone (dates are in it), changed in Settings → General.
+              <Flex gap={2} alignItems="stretch">
+                <Button
+                  size="S"
+                  variant="secondary"
+                  onClick={() => navigate(`/plugins/${config.pluginId}/ecommerce/settings/general`)}
+                >
+                  {t(`${p}.editTimezone`)}
+                </Button>
+                <Flex
+                  alignItems="center"
+                  paddingLeft={3}
+                  paddingRight={3}
+                  hasRadius
+                  background="neutral150"
+                  title={t(`${p}.timezone`, { timezone })}
+                >
+                  <Typography variant="pi" fontWeight="semiBold" textColor="neutral700">
+                    {timezone}
+                  </Typography>
+                </Flex>
+              </Flex>
+            }
+          >
             <Field.Root name="startsAt" required error={errorText('startsAt')}>
               <Field.Label>{t(`${p}.startsAt`)}</Field.Label>
               <DateInput
@@ -477,8 +522,6 @@ const PromotionEditPage = () => {
               />
               <Field.Error />
             </Field.Root>
-          </Box>
-          <Box style={{ flex: '1 1 240px' }}>
             <Field.Root name="endsAt" error={errorText('endsAt')}>
               <Field.Label>{t(`${p}.endsAt`)}</Field.Label>
               <DateInput
@@ -489,26 +532,21 @@ const PromotionEditPage = () => {
               />
               <Field.Error />
             </Field.Root>
-          </Box>
-        </Flex>
-        <Typography variant="pi" textColor="neutral600">
-          {t(`${p}.timezone`, { timezone })}
-        </Typography>
-        {sectionErrors('validity')}
-        {errors.timeZone && (
-          <Typography variant="pi" textColor="danger600" role="alert">
-            {t(`${p}.errors.${errors.timeZone}`)}
-          </Typography>
-        )}
-      </Section>
+            {sectionErrors('validity')}
+            {errors.timeZone && (
+              <Typography variant="pi" textColor="danger600" role="alert">
+                {t(`${p}.errors.${errors.timeZone}`)}
+              </Typography>
+            )}
+          </Section>
+        </Grid.Item>
+      </Grid.Root>
 
       {/* 4. Eligibility */}
       <Section title={t(`${p}.sections.eligibility`)}>
         <EligibilityFields
           mode={form.eligibilityMode}
-          emails={form.emails}
-          requireVerifiedEmail={form.requireVerifiedEmail}
-          verifiedEmailForced={verifiedEmailForced(form)}
+          customers={form.customers}
           errors={errors}
           disabled={disabled}
           onChange={(patch) => update(patch, ['eligibility'])}
@@ -517,9 +555,21 @@ const PromotionEditPage = () => {
       </Section>
 
       {/* 5. Conditions */}
-      <Section title={t(`${p}.sections.conditions`)}>
-        <ConditionGroupEditor
+      <Section
+        title={t(`${p}.sections.conditions`)}
+        actions={
+          !readOnly && (
+            <AddScenarioButton
+              tree={form.conditions}
+              disabled={disabled}
+              onChange={(conditions) => update({ conditions }, ['conditions'])}
+            />
+          )
+        }
+      >
+        <ConditionsEditor
           tree={form.conditions}
+          hasBuyXGetY={form.benefits.some((b) => b.type === 'BUY_X_GET_Y')}
           onChange={(conditions) =>
             // Paths shift when nodes move, so the old condition errors no longer point at the right rows.
             update({ conditions }, ['conditions'])

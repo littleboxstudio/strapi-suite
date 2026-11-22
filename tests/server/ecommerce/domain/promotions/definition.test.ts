@@ -97,12 +97,7 @@ describe('validatePromotionInput', () => {
     const leaves = Array.from({ length: 51 }, () => ({ type: 'TOTAL_QUANTITY', operator: 'gte', value: 1 }));
     expect(codes(valid({ conditions: group(leaves) }))).toContain('conditions:too_many');
   });
-  it('validates emails with index', () => {
-    expect(codes(valid({ eligibility: { mode: 'EMAILS', emails: ['a@b.pt', 'bad'] } }))).toContain(
-      'eligibility.emails.1:invalid_email'
-    );
-    const r = validatePromotionInput(valid({ eligibility: { mode: 'EMAILS', emails: ['A@B.pt', 'a@b.pt'] } }), ctx);
-    expect(r.value?.eligibility).toEqual({ mode: 'EMAILS', emails: ['a@b.pt'] });
+  it('validates EMAIL conditions', () => {
     expect(
       codes(valid({ conditions: group([{ type: 'EMAIL', operator: 'eq', value: 'bad' }]) }))
     ).toContain('conditions.children.0.value:invalid_email');
@@ -175,10 +170,50 @@ describe('validatePromotionInput', () => {
   });
 });
 
-describe('requireVerifiedEmail', () => {
-  it('defaults to false, accepts a boolean and rejects other types', () => {
-    expect(validatePromotionInput(valid(), ctx).value?.requireVerifiedEmail).toBe(false);
-    expect(validatePromotionInput(valid({ requireVerifiedEmail: true }), ctx).value?.requireVerifiedEmail).toBe(true);
-    expect(codes(valid({ requireVerifiedEmail: 'yes' }))).toContain('requireVerifiedEmail:invalid');
+describe('eligibility', () => {
+  it('defaults to ALL', () => {
+    expect(validatePromotionInput(valid({ eligibility: undefined }), ctx).value?.eligibility).toEqual({ mode: 'ALL' });
+  });
+  it('accepts CUSTOMERS with positive integer ids, duplicates dropped silently', () => {
+    const r = validatePromotionInput(valid({ eligibility: { mode: 'CUSTOMERS', customerIds: [3, 1, 3] } }), ctx);
+    expect(r.errors).toEqual([]);
+    expect(r.value?.eligibility).toEqual({ mode: 'CUSTOMERS', customerIds: [3, 1] });
+  });
+  it('requires at least one customer', () => {
+    expect(codes(valid({ eligibility: { mode: 'CUSTOMERS', customerIds: [] } }))).toEqual([
+      'eligibility.customerIds:required',
+    ]);
+  });
+  it('rejects a non positive-integer id with its index', () => {
+    expect(codes(valid({ eligibility: { mode: 'CUSTOMERS', customerIds: [1, 0, -2, 1.5, '4', null] } }))).toEqual([
+      'eligibility.customerIds.1:invalid',
+      'eligibility.customerIds.2:invalid',
+      'eligibility.customerIds.3:invalid',
+      'eligibility.customerIds.4:invalid',
+      'eligibility.customerIds.5:invalid',
+    ]);
+  });
+  it('allows at most 1000 distinct customers', () => {
+    const ids = Array.from({ length: 1001 }, (_, i) => i + 1);
+    expect(codes(valid({ eligibility: { mode: 'CUSTOMERS', customerIds: ids } }))).toEqual([
+      'eligibility.customerIds:too_many',
+    ]);
+    const dup = [...Array.from({ length: 1000 }, (_, i) => i + 1), 1];
+    expect(codes(valid({ eligibility: { mode: 'CUSTOMERS', customerIds: dup } }))).toEqual([]);
+  });
+  it('refuses an e-mail list on save, and an unknown mode or a missing list', () => {
+    expect(codes(valid({ eligibility: { mode: 'EMAILS', emails: ['a@b.pt'] } }))).toEqual(['eligibility:invalid']);
+    expect(codes(valid({ eligibility: { mode: 'OTHER' } }))).toEqual(['eligibility:invalid']);
+    expect(codes(valid({ eligibility: { mode: 'CUSTOMERS' } }))).toEqual(['eligibility:invalid']);
+  });
+});
+
+describe('requireVerifiedEmail (removed)', () => {
+  it('is ignored as an unknown field, whatever its value', () => {
+    for (const v of [true, false, 'yes']) {
+      const r = validatePromotionInput(valid({ requireVerifiedEmail: v }), ctx);
+      expect(r.errors).toEqual([]);
+      expect(r.value).not.toHaveProperty('requireVerifiedEmail');
+    }
   });
 });

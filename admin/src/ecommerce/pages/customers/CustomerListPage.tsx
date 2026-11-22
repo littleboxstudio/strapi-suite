@@ -22,6 +22,7 @@ import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchCustomers from '../../usecases/orders/fetchCustomers';
 import EmptyCustomers from '../../illustrations/EmptyCustomers';
 import ListPagination from '../../components/ListPagination';
+import SearchFieldHeight from '../../components/SearchFieldHeight';
 import { customerName } from '../../utils/customerForm';
 import type { CustomerListItem } from '../../orderTypes';
 
@@ -82,22 +83,24 @@ const CustomerListPage = () => {
 
   return (
     <Flex direction="column" alignItems="stretch" gap={4}>
-      <SearchForm onSubmit={(e: FormEvent) => e.preventDefault()}>
-        <Searchbar
-          name="searchbar"
-          value={searchTerm}
-          onClear={() => {
-            setSearchTerm('');
-            setSearch('');
-            setPage(1);
-          }}
-          onChange={(e: any) => setSearchTerm(e.target.value)}
-          clearLabel={t('ecommerce.customers.search.clear')}
-          placeholder={t('ecommerce.customers.search.placeholder')}
-        >
-          {t('ecommerce.customers.search.label')}
-        </Searchbar>
-      </SearchForm>
+      <SearchFieldHeight>
+        <SearchForm onSubmit={(e: FormEvent) => e.preventDefault()}>
+          <Searchbar
+            name="searchbar"
+            value={searchTerm}
+            onClear={() => {
+              setSearchTerm('');
+              setSearch('');
+              setPage(1);
+            }}
+            onChange={(e: any) => setSearchTerm(e.target.value)}
+            clearLabel={t('ecommerce.customers.search.clear')}
+            placeholder={t('ecommerce.customers.search.placeholder')}
+          >
+            {t('ecommerce.customers.search.label')}
+          </Searchbar>
+        </SearchForm>
+      </SearchFieldHeight>
 
       {error && <Typography textColor="danger600">{t('ecommerce.customers.error')}</Typography>}
 

@@ -230,7 +230,6 @@ const definitionOf = (a: AppliedPromotion): PromotionDefinition => ({
   benefits: a.benefits.map((b) => b.params),
   stacking: a.snapshot.stacking,
   perOrderLimit: a.snapshot.perOrderLimit,
-  requireVerifiedEmail: false,
   version: a.version,
 });
 

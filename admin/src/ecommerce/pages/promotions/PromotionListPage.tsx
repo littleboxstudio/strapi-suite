@@ -23,7 +23,7 @@ import FetchPromotions from '../../usecases/promotions/fetchPromotions';
 import EmptySection from '../../illustrations/EmptySection';
 import ListPagination from '../../components/ListPagination';
 import SearchFieldHeight from '../../components/SearchFieldHeight';
-import PromotionTabs from '../../components/promotions/PromotionTabs';
+import { HeaderActions } from '../../components/HeaderActions';
 import { usePromotionPermissions } from '../../hooks/usePromotionPermissions';
 import { statusTone, usageLabel, validityLabel } from '../../utils/promotionList';
 import type { PromotionListItem } from '../../promotionTypes';
@@ -94,7 +94,6 @@ const PromotionListPage = () => {
   if (!canRead) {
     return (
       <Flex direction="column" alignItems="stretch" gap={4}>
-        <PromotionTabs />
         <Typography textColor="neutral600">{t('ecommerce.promotions.forbidden')}</Typography>
       </Flex>
     );
@@ -106,35 +105,34 @@ const PromotionListPage = () => {
 
   return (
     <Flex direction="column" alignItems="stretch" gap={4}>
-      <PromotionTabs />
-
-      <Flex justifyContent="space-between" alignItems="center" gap={4}>
-        <Box style={{ flex: 1 }}>
-          <SearchFieldHeight>
-            <SearchForm onSubmit={(e: FormEvent) => e.preventDefault()}>
-              <Searchbar
-                name="searchbar"
-                value={searchTerm}
-                onClear={() => {
-                  setSearchTerm('');
-                  setSearch('');
-                  setPage(1);
-                }}
-                onChange={(e: any) => setSearchTerm(e.target.value)}
-                clearLabel={t('ecommerce.promotions.search.clear')}
-                placeholder={t('ecommerce.promotions.search.placeholder')}
-              >
-                {t('ecommerce.promotions.search.label')}
-              </Searchbar>
-            </SearchForm>
-          </SearchFieldHeight>
-        </Box>
-        {canManage && (
+      {canManage && (
+        // In the page header, top right (as the other pages' main action).
+        <HeaderActions>
           <Button variant="secondary" onClick={create}>
             {t('ecommerce.promotions.create')}
           </Button>
-        )}
-      </Flex>
+        </HeaderActions>
+      )}
+
+      {/* The search takes the whole width. */}
+      <SearchFieldHeight>
+        <SearchForm onSubmit={(e: FormEvent) => e.preventDefault()}>
+          <Searchbar
+            name="searchbar"
+            value={searchTerm}
+            onClear={() => {
+              setSearchTerm('');
+              setSearch('');
+              setPage(1);
+            }}
+            onChange={(e: any) => setSearchTerm(e.target.value)}
+            clearLabel={t('ecommerce.promotions.search.clear')}
+            placeholder={t('ecommerce.promotions.search.placeholder')}
+          >
+            {t('ecommerce.promotions.search.label')}
+          </Searchbar>
+        </SearchForm>
+      </SearchFieldHeight>
 
       {error && <Typography textColor="danger600">{t('ecommerce.promotions.error')}</Typography>}
 

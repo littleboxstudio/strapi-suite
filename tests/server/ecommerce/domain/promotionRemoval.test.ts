@@ -36,7 +36,6 @@ const promo = (id: number, extra: Partial<PromotionCandidate>): PromotionCandida
   endsAt: null,
   usageLimit: null,
   perCustomerLimit: null,
-  requireVerifiedEmail: false,
   redemptions: 0,
   customerUses: 0,
   ...extra,

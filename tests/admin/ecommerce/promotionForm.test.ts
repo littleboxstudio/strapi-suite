@@ -3,19 +3,26 @@ import en from '../../../admin/src/core/translations/en.json';
 import pt from '../../../admin/src/core/translations/pt.json';
 import { IntlMessageFormat } from 'intl-messageformat';
 import {
-  verifiedEmailForced,
   addCondition,
-  addGroup,
-  deactivationInput,
+  addScenario,
+  addScenarioCondition,
+  activationInput,
   describeBenefit,
+  describeConditions,
+  markedParts,
+  markValue,
   describePromotion,
   emptyBenefit,
   emptyPromotionForm,
   errorMapFromIssues,
   promotionFormFromView,
   removeNode,
+  removeScenario,
+  removeScenarioCondition,
+  scenariosOf,
   setStacking,
   toPromotionInput,
+  toScenarioTree,
   unmappedErrors,
   updateNode,
   validatePromotionForm,
@@ -75,8 +82,11 @@ describe('toPromotionInput', () => {
         usageLimit: '',
         perCustomerLimit: '2',
         priority: '',
-        eligibilityMode: 'EMAILS',
-        emails: 'a@x.pt\n\n b@x.pt \n',
+        eligibilityMode: 'CUSTOMERS',
+        customers: [
+          { id: 4, firstName: 'Ana', lastName: 'Silva', email: 'a@x.pt' },
+          { id: 9, firstName: null, lastName: null, email: 'b@x.pt' },
+        ],
       })
     );
     expect(input.code).toBe('VERAO20');
@@ -84,7 +94,8 @@ describe('toPromotionInput', () => {
     expect(input.usageLimit).toBeNull();
     expect(input.perCustomerLimit).toBe(2);
     expect(input.priority).toBe(0);
-    expect(input.eligibility).toEqual({ mode: 'EMAILS', emails: ['a@x.pt', 'b@x.pt'] });
+    expect(input.eligibility).toEqual({ mode: 'CUSTOMERS', customerIds: [4, 9] });
+    expect(input).not.toHaveProperty('requireVerifiedEmail');
     expect(input.endsAt).toBeNull();
   });
 
@@ -146,7 +157,6 @@ describe('toPromotionInput', () => {
       endsAt: null,
       usageLimit: 100,
       perCustomerLimit: null,
-      requireVerifiedEmail: true,
       status: 'INACTIVE',
       redemptions: 0,
       version: 3,
@@ -156,38 +166,26 @@ describe('toPromotionInput', () => {
       labels: { products: {}, variants: { 5: { name: 'Sock', option: 'Red', sku: 'S-R' } } },
     } as Promotion;
     const form = promotionFormFromView(view);
-    expect(form.requireVerifiedEmail).toBe(true);
-    expect(promotionFormFromView({ ...view, requireVerifiedEmail: undefined } as any).requireVerifiedEmail).toBe(false);
     expect(form.benefits[0].amount).toBe('2.50');
     expect(form.labels.variants[5].name).toBe('Sock');
     const { id, status, redemptions, version, timezone, createdAt, updatedAt, labels, ...definition } = view;
-    expect(toPromotionInput(form)).toEqual(definition);
+    // The editor shows conditions as scenarios: the lone condition under OR becomes its own group.
+    expect(toPromotionInput(form)).toEqual({
+      ...definition,
+      conditions: {
+        type: 'GROUP',
+        operator: 'OR',
+        children: [
+          { type: 'GROUP', operator: 'AND', children: [{ type: 'SUBTOTAL_BETWEEN', min: 1000, max: 2050 }] },
+          { type: 'GROUP', operator: 'AND', children: [{ type: 'EMAIL', operator: 'contains', value: '@x.pt' }] },
+        ],
+      },
+    });
   });
 });
 
 describe('condition tree', () => {
   const root = (): GroupNode => emptyPromotionForm('en', '').conditions;
-
-  it('adds conditions and groups at a path', () => {
-    let tree = addCondition(root(), []);
-    tree = addGroup(tree, [])!;
-    tree = addCondition(tree, [1]);
-    expect(tree.children).toHaveLength(2);
-    expect(tree.children[1].type).toBe('GROUP');
-    expect((tree.children[1] as GroupNode).children).toHaveLength(2);
-  });
-
-  it('refuses a group at the 4th level', () => {
-    // A new group starts with one condition, so the nested group lands after it.
-    const level2 = addGroup(root(), [])!; // root (1) > [0] (2)
-    const level3 = addGroup(level2, [0])!; // [0, 1] (3)
-    expect(level3).not.toBeNull();
-    expect(level3.children[0].type).toBe('GROUP');
-    expect((level3.children[0] as GroupNode).children[1].type).toBe('GROUP');
-    expect(addGroup(level3, [0, 1])).toBeNull();
-    // a condition can still be added at the 3rd level
-    expect(addCondition(level3, [0, 1])).not.toBe(level3);
-  });
 
   it('does not remove the root, removes any other node', () => {
     const tree = addCondition(addCondition(root(), []), []);
@@ -202,6 +200,114 @@ describe('condition tree', () => {
     expect((tree.children[0] as any).operator).toBe('gte');
     tree = updateNode(tree, [], { operator: 'OR' });
     expect(tree.operator).toBe('OR');
+  });
+});
+
+describe('condition scenarios', () => {
+  const root = (): GroupNode => emptyPromotionForm('en', '').conditions;
+  const leaf = (type: string, extra: Record<string, unknown> = {}) => ({ type, operator: 'gte', value: 1, ...extra });
+  const view = (conditions: any) =>
+    promotionFormFromView(
+      {
+        name: 'X',
+        method: 'AUTOMATIC',
+        displayName: {},
+        eligibility: { mode: 'ALL' },
+        conditions,
+        benefits: [],
+        stacking: { exclusive: true, withProduct: false, withOrder: false, withShipping: false },
+        startsAt: '2026-07-01T10:00',
+        labels: { products: {}, variants: {} },
+      } as any,
+      'en'
+    ).conditions;
+
+  it('keeps one scenario as a plain AND list', () => {
+    let tree = addScenarioCondition(root(), 0);
+    tree = addScenarioCondition(tree, 0);
+    expect(tree.operator).toBe('AND');
+    expect(tree.children.map((c) => c.type)).toEqual(['SUBTOTAL', 'SUBTOTAL']);
+    expect(scenariosOf(tree)).toHaveLength(1);
+    expect(scenariosOf(root())).toEqual([]);
+  });
+
+  it('a second scenario turns the root into OR of AND groups, and back', () => {
+    const one = addScenarioCondition(addScenarioCondition(root(), 0), 0);
+    const two = addScenario(one);
+    expect(two.key).toBe(one.key);
+    expect(two.operator).toBe('OR');
+    expect(two.children.map((g) => (g as GroupNode).operator)).toEqual(['AND', 'AND']);
+    expect(scenariosOf(two).map((sc) => sc.length)).toEqual([2, 1]);
+    const back = removeScenario(two, 1);
+    expect(back.operator).toBe('AND');
+    expect(back.children).toHaveLength(2);
+    expect(back.children.every((c) => c.type !== 'GROUP')).toBe(true);
+  });
+
+  it('removing the last condition of a scenario removes the scenario', () => {
+    const two = addScenario(addScenarioCondition(root(), 0));
+    const one = removeScenarioCondition(two, 1, 0);
+    expect(one.operator).toBe('AND');
+    expect(scenariosOf(one)).toHaveLength(1);
+    expect(scenariosOf(removeScenarioCondition(one, 0, 0))).toEqual([]);
+  });
+
+  it('rewrites older trees as scenarios with the same meaning', () => {
+    // a AND (b OR c) -> (a AND b) OR (a AND c)
+    const tree = view({
+      type: 'GROUP',
+      operator: 'AND',
+      children: [
+        leaf('TOTAL_QUANTITY', { value: 1 }),
+        { type: 'GROUP', operator: 'OR', children: [leaf('TOTAL_QUANTITY', { value: 2 }), leaf('TOTAL_QUANTITY', { value: 3 })] },
+      ],
+    });
+    expect(tree.operator).toBe('OR');
+    expect(scenariosOf(tree).map((sc) => sc.map((c) => c.value))).toEqual([
+      ['1', '2'],
+      ['1', '3'],
+    ]);
+    const keys = scenariosOf(tree).flat().map((c) => c.key);
+    expect(new Set(keys).size).toBe(keys.length);
+    // root OR of single conditions -> one scenario each
+    const ors = view({ type: 'GROUP', operator: 'OR', children: [leaf('TOTAL_QUANTITY'), leaf('DISTINCT_PRODUCTS')] });
+    expect(scenariosOf(ors).map((sc) => sc.length)).toEqual([1, 1]);
+    // an empty group is true: the whole tree has no real condition
+    const empty = view({ type: 'GROUP', operator: 'OR', children: [leaf('TOTAL_QUANTITY'), { type: 'GROUP', operator: 'AND', children: [] }] });
+    expect(scenariosOf(empty)).toEqual([]);
+  });
+
+  it('keeps a tree that would pass the condition limit as it is', () => {
+    const or = (n: number) => ({ type: 'GROUP', operator: 'OR', children: Array.from({ length: n }, () => leaf('TOTAL_QUANTITY')) });
+    const big = { type: 'GROUP', operator: 'AND', children: [or(5), or(5), or(5)] };
+    const tree = view(big);
+    expect(toScenarioTree(tree)).toBeNull();
+    expect(tree.operator).toBe('AND');
+    expect(tree.children).toHaveLength(3);
+  });
+
+  it('marks the values the user filled in, never the "…" of an empty field', () => {
+    let tree = updateNode(addScenarioCondition(root(), 0), [0], { type: 'SUBTOTAL', operator: 'gte', value: '50' });
+    tree = addScenarioCondition(tree, 0); // an empty subtotal
+    const parts = markedParts(describeConditions(tree, moneyEn, tEn, undefined, markValue));
+    expect(parts.filter((x) => x.value).map((x) => nbsp(x.text))).toEqual(['at least', '€50.00', 'at least']);
+    expect(nbsp(parts.map((x) => x.text).join(''))).toBe(nbsp(describeConditions(tree, moneyEn, tEn)));
+  });
+
+  it('describes when the promotion applies', () => {
+    expect(describeConditions(root(), moneyEn, tEn)).toBe('Applies to any cart (no conditions)');
+    let tree = updateNode(addScenarioCondition(root(), 0), [0], { type: 'SUBTOTAL', operator: 'gte', value: '50' });
+    tree = addScenarioCondition(tree, 0);
+    tree = updateNode(tree, [1], { type: 'CART_CONTAINS', target: { productIds: [7], variantIds: [] } });
+    tree = addScenario(tree);
+    tree = updateNode(tree, [1, 0], { type: 'EMAIL', operator: 'contains', value: '@shop.pt' });
+    const labels = { products: { 7: 'Mug' }, variants: {} };
+    expect(nbsp(describeConditions(tree, moneyEn, tEn, labels))).toBe(
+      'Applies when (the subtotal is at least €50.00 and the cart contains any of Mug) or the e-mail contains “@shop.pt”'
+    );
+    expect(nbsp(describeConditions(tree, moneyPt, tPt, labels))).toBe(
+      'Aplica-se quando (o subtotal é pelo menos 50,00 € e o carrinho contém algum de Mug) ou o e-mail contém “@shop.pt”'
+    );
   });
 });
 
@@ -235,7 +341,7 @@ describe('validatePromotionForm', () => {
   });
 
   it('uses the server paths for conditions and benefits', () => {
-    let tree = addGroup(baseForm().conditions, [])!;
+    let tree = addScenario(addCondition(baseForm().conditions, []));
     tree = updateNode(tree, [0, 0], { type: 'EMAIL', operator: 'eq', value: 'nope' });
     const form = baseForm({
       conditions: tree,
@@ -268,13 +374,15 @@ describe('validatePromotionForm', () => {
     expect((pt as Record<string, string>)[key]).toEqual(expect.any(String));
   });
 
-  it('checks the e-mail list', () => {
-    expect(validatePromotionForm(baseForm({ eligibilityMode: 'EMAILS', emails: ' ' }))).toMatchObject({
-      'eligibility.emails': 'required',
+  it('specific customers need at least one customer', () => {
+    expect(validatePromotionForm(baseForm({ eligibilityMode: 'CUSTOMERS', customers: [] }))).toMatchObject({
+      'eligibility.customerIds': 'required',
     });
     expect(
-      validatePromotionForm(baseForm({ eligibilityMode: 'EMAILS', emails: 'a@x.pt\nbad' }))
-    ).toMatchObject({ 'eligibility.emails.1': 'invalid_email' });
+      validatePromotionForm(
+        baseForm({ eligibilityMode: 'CUSTOMERS', customers: [{ id: 1, firstName: 'A', lastName: 'B', email: 'a@x.pt' }] })
+      )['eligibility.customerIds']
+    ).toBeUndefined();
   });
 });
 
@@ -407,9 +515,10 @@ describe('fix round 1', () => {
       ...over,
     }) as Promotion;
 
-  it('deactivation sends the stored definition with active false and the version, never form edits', () => {
-    const body = deactivationInput(view(), ['en', 'pt']);
+  it('activation / deactivation sends the stored definition with only `active` changed and the version, never form edits', () => {
+    const body = activationInput(view(), false, ['en', 'pt']);
     expect(body).toMatchObject({ name: 'X', code: 'X20', active: false, version: 7 });
+    expect(activationInput(view({ active: false }), true).active).toBe(true);
     expect(body.benefits).toEqual([{ type: 'ORDER_FIXED', amount: 1250 }]);
     expect(body.displayName).toEqual({ pt: 'Promo' });
     expect(body).not.toHaveProperty('status');
@@ -472,35 +581,29 @@ describe('fix round 1', () => {
   });
 });
 
-describe('verifiedEmailForced', () => {
-  it('is forced by an e-mail list or a per-customer limit only', () => {
-    expect(verifiedEmailForced(baseForm())).toBe(false);
-    expect(verifiedEmailForced(baseForm({ eligibilityMode: 'EMAILS' }))).toBe(true);
-    expect(verifiedEmailForced(baseForm({ perCustomerLimit: '2' }))).toBe(true);
-    expect(verifiedEmailForced(baseForm({ perCustomerLimit: ' ' }))).toBe(false);
-  });
-
-  it('is forced by an EMAIL condition at any depth (mirrors the server requiresVerifiedEmail)', () => {
-    const form = baseForm();
-    let tree = addCondition(form.conditions, []);
-    expect(verifiedEmailForced({ ...form, conditions: tree })).toBe(false);
-    tree = addGroup(tree, [])!;
-    tree = addCondition(tree, [1], 'EMAIL');
-    expect(verifiedEmailForced({ ...form, conditions: tree })).toBe(true);
-  });
-});
-
-describe('requireVerifiedEmail', () => {
-  it('toPromotionInput includes it and the form reads it from the view', () => {
-    expect(toPromotionInput(baseForm()).requireVerifiedEmail).toBe(false);
-    expect(toPromotionInput(baseForm({ requireVerifiedEmail: true })).requireVerifiedEmail).toBe(true);
-    expect(emptyPromotionForm('en', '2026-07-01T10:00').requireVerifiedEmail).toBe(false);
+describe('specific customers', () => {
+  it('the form reads the customers from the view; a new form has none', () => {
+    const view = {
+      name: 'VIP',
+      method: 'AUTOMATIC',
+      displayName: {},
+      conditions: { type: 'GROUP', operator: 'AND', children: [] },
+      benefits: [],
+      stacking: { exclusive: false, withProduct: true, withOrder: true, withShipping: true },
+      startsAt: '2026-07-01T10:00',
+      eligibility: { mode: 'CUSTOMERS', customerIds: [3] },
+      eligibilityCustomers: [{ id: 3, firstName: 'Rui', lastName: null, email: 'r@x.pt' }],
+    } as unknown as Promotion;
+    const form = promotionFormFromView(view);
+    expect(form.eligibilityMode).toBe('CUSTOMERS');
+    expect(form.customers.map((c) => c.id)).toEqual([3]);
+    expect(emptyPromotionForm('en', '2026-07-01T10:00').customers).toEqual([]);
   });
   it('has en and pt texts', () => {
     for (const t of [tEn, tPt]) {
-      expect(t('ecommerce.promotions.form.requireVerifiedEmail')).not.toContain('ecommerce.promotions');
-      expect(t('ecommerce.promotions.form.requireVerifiedEmail.hint')).not.toContain('ecommerce.promotions');
-      expect(t('ecommerce.orders.promotions.codeStatus.EMAIL_NOT_VERIFIED')).not.toContain('ecommerce.orders');
+      for (const k of ['eligibility.CUSTOMERS', 'customers.search', 'customers.empty', 'customers.required', 'customers.remove', 'activate', 'deactivate', 'editTimezone']) {
+        expect(t(`ecommerce.promotions.form.${k}`)).not.toContain('ecommerce.promotions');
+      }
     }
   });
 });

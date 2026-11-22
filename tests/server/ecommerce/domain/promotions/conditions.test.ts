@@ -199,6 +199,9 @@ describe('conditions hardening', () => {
   it('eligibility normalises stored e-mails', () => {
     expect(eligibilityMet({ mode: 'EMAILS', emails: [' A@B.pt '] }, 'a@b.pt')).toBe(true);
   });
+  it('CUSTOMERS not resolved to e-mails is met by nobody', () => {
+    expect(eligibilityMet({ mode: 'CUSTOMERS', customerIds: [1] }, 'a@b.pt')).toBe(false);
+  });
   it('deep nesting, OR with all false, gt/lt/lte', () => {
     const deep = g('AND', [g('OR', [g('AND', [g('OR', [contains(A), sub])])])]);
     expect(conditionsMet(deep, ctx([line(1, 1, 1, 1)]))).toBe(true);

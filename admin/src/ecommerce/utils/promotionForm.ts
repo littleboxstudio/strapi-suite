@@ -6,6 +6,7 @@
  */
 import { formatAmountInput, MAX_MONEY_CENTS, parseMoneyToCents } from './money';
 import type {
+  EligibilityCustomer,
   EmailOperator,
   NumberOperator,
   ProductTarget,
@@ -81,10 +82,9 @@ export type PromotionForm = {
   code: string;
   startsAt: string;
   endsAt: string;
-  eligibilityMode: 'ALL' | 'EMAILS';
-  /** One e-mail per line. */
-  emails: string;
-  requireVerifiedEmail: boolean;
+  eligibilityMode: 'ALL' | 'CUSTOMERS';
+  /** The customers of a CUSTOMERS eligibility, in the order they were added. */
+  customers: EligibilityCustomer[];
   conditions: GroupNode;
   benefits: BenefitForm[];
   usageLimit: string;
@@ -127,7 +127,6 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const WALL_TIME_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/;
 const MAX_QUANTITY = 100_000;
 const MAX_LIMIT = 1_000_000;
-const MAX_EMAILS = 1000;
 
 let keyCounter = 0;
 const nextKey = (prefix: string) => `${prefix}-${++keyCounter}`;
@@ -209,8 +208,7 @@ export function emptyPromotionForm(defaultLocale: string, startsAt: string): Pro
     startsAt,
     endsAt: '',
     eligibilityMode: 'ALL',
-    emails: '',
-    requireVerifiedEmail: false,
+    customers: [],
     conditions: emptyGroup(),
     benefits: [emptyBenefit()],
     usageLimit: '',
@@ -315,10 +313,12 @@ function benefitFormFrom(b: PromotionBenefit, locale: string): BenefitForm {
 
 /** `locale`: the admin's, for the decimal separator of the loaded amounts (`12,50` in pt). */
 export function promotionFormFromView(view: Promotion, locale = 'en'): PromotionForm {
-  const conditions = conditionNodeFrom(
+  const loaded = conditionNodeFrom(
     view.conditions ?? { type: 'GROUP', operator: 'AND', children: [] },
     locale
   ) as GroupNode;
+  // Shown (and saved) as scenarios; a tree too large to rewrite is kept as it is.
+  const conditions = toScenarioTree(loaded) ?? loaded;
   return {
     name: view.name ?? '',
     description: view.description ?? '',
@@ -329,9 +329,8 @@ export function promotionFormFromView(view: Promotion, locale = 'en'): Promotion
     code: view.code ?? '',
     startsAt: view.startsAt ?? '',
     endsAt: view.endsAt ?? '',
-    eligibilityMode: view.eligibility?.mode === 'EMAILS' ? 'EMAILS' : 'ALL',
-    emails: view.eligibility?.mode === 'EMAILS' ? view.eligibility.emails.join('\n') : '',
-    requireVerifiedEmail: view.requireVerifiedEmail === true,
+    eligibilityMode: view.eligibility?.mode === 'CUSTOMERS' ? 'CUSTOMERS' : 'ALL',
+    customers: view.eligibility?.mode === 'CUSTOMERS' ? [...(view.eligibilityCustomers ?? [])] : [],
     conditions,
     benefits: (view.benefits ?? []).map((b) => benefitFormFrom(b, locale)),
     usageLimit: numberToInput(view.usageLimit),
@@ -371,14 +370,6 @@ const parseInteger = (raw: string): number | null => {
   const s = (raw ?? '').trim();
   return /^-?\d+$/.test(s) ? Number(s) : null;
 };
-
-/** The non-empty lines of the e-mail list, trimmed (index = server path index). */
-export function emailList(raw: string): string[] {
-  return (raw ?? '')
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-}
 
 export const normalizeCode = (raw: string): string => (raw ?? '').trim().toUpperCase();
 
@@ -491,7 +482,9 @@ export function toPromotionInput(form: PromotionForm, locales?: string[]): Promo
     displayName,
     priority: parseInteger(form.priority) ?? 0,
     eligibility:
-      form.eligibilityMode === 'EMAILS' ? { mode: 'EMAILS', emails: emailList(form.emails) } : { mode: 'ALL' },
+      form.eligibilityMode === 'CUSTOMERS'
+        ? { mode: 'CUSTOMERS', customerIds: form.customers.map((c) => c.id) }
+        : { mode: 'ALL' },
     conditions: toCondition(form.conditions) as PromotionConditionGroup,
     benefits: form.benefits.map(toBenefit),
     stacking: { ...form.stacking },
@@ -501,15 +494,19 @@ export function toPromotionInput(form: PromotionForm, locales?: string[]): Promo
     endsAt: form.endsAt.trim() ? form.endsAt : null,
     usageLimit: nullableCount(form.usageLimit),
     perCustomerLimit: nullableCount(form.perCustomerLimit),
-    requireVerifiedEmail: form.requireVerifiedEmail,
   };
 }
 
 /**
- * "Deactivate" after PROMOTION_IN_USE: the stored definition (not the form, whose unsaved
- * edits must not ride along) with `active: false` and the loaded `version`.
+ * Activate / Deactivate (header button, or "Deactivate" after PROMOTION_IN_USE): the stored
+ * definition (not the form, whose unsaved edits must not ride along) with `active` changed and
+ * the loaded `version`.
  */
-export function deactivationInput(view: Promotion, locales?: string[]): PromotionDefinition & { version: number } {
+export function activationInput(
+  view: Promotion,
+  active: boolean,
+  locales?: string[]
+): PromotionDefinition & { version: number } {
   return {
     name: view.name,
     description: view.description ?? null,
@@ -522,12 +519,11 @@ export function deactivationInput(view: Promotion, locales?: string[]): Promotio
     benefits: view.benefits,
     stacking: view.stacking,
     perOrderLimit: view.perOrderLimit ?? null,
-    active: false,
+    active,
     startsAt: view.startsAt,
     endsAt: view.endsAt ?? null,
     usageLimit: view.usageLimit ?? null,
     perCustomerLimit: view.perCustomerLimit ?? null,
-    requireVerifiedEmail: view.requireVerifiedEmail === true,
     version: view.version,
   };
 }
@@ -556,24 +552,9 @@ function replaceAt(tree: GroupNode, path: NodePath, fn: (node: TreeNode) => Tree
   };
 }
 
-/** Depth of the group at `path` (the root is level 1). */
-export const groupLevel = (path: NodePath): number => path.length + 1;
-
-/** A group may be added inside the group at `path` while it stays within 3 levels. */
-export const canAddGroup = (path: NodePath): boolean => groupLevel(path) < MAX_CONDITION_DEPTH;
-
 export function addCondition(tree: GroupNode, path: NodePath, type?: ConditionType): GroupNode {
   if (nodeAt(tree, path)?.type !== 'GROUP') return tree;
   return replaceAt(tree, path, (g) => ({ ...(g as GroupNode), children: [...(g as GroupNode).children, emptyCondition(type)] }));
-}
-
-/** Adds a group (with one condition) inside the group at `path`; null at the 4th level. */
-export function addGroup(tree: GroupNode, path: NodePath): GroupNode | null {
-  if (nodeAt(tree, path)?.type !== 'GROUP' || !canAddGroup(path)) return null;
-  return replaceAt(tree, path, (g) => ({
-    ...(g as GroupNode),
-    children: [...(g as GroupNode).children, emptyGroup([emptyCondition()])],
-  }));
 }
 
 /** Removes the node at `path`; the root cannot be removed (null). */
@@ -614,6 +595,226 @@ const countLeaves = (g: GroupNode): number =>
   g.children.reduce((n, c) => n + (c.type === 'GROUP' ? countLeaves(c) : 1), 0);
 const depthOf = (g: GroupNode): number =>
   1 + Math.max(0, ...g.children.filter((c): c is GroupNode => c.type === 'GROUP').map(depthOf));
+
+// ---------------------------------------------------------------------------
+// Scenarios: how the editor shows the condition tree
+// ---------------------------------------------------------------------------
+//
+// The editor shows the conditions as scenarios: the promotion applies when every condition of at
+// least one scenario holds. The stored tree keeps its shape:
+//  - no scenario / one scenario: the root (AND) holds the conditions;
+//  - two or more: the root is OR and holds one AND group per scenario.
+// Any other tree (loaded from older promotions) is rewritten to that shape by `toScenarioTree`,
+// with the same meaning.
+
+const cloneCondition = (c: ConditionNode): ConditionNode => ({ ...c, key: nextKey('c'), target: copyTarget(c.target) });
+
+/** True when the tree already has the scenario shape. */
+export function isScenarioTree(tree: GroupNode): boolean {
+  const leaves = tree.children.every((c) => c.type !== 'GROUP');
+  if (tree.operator === 'AND') return leaves;
+  return (
+    tree.children.length >= 2 &&
+    tree.children.every(
+      (c) => c.type === 'GROUP' && c.operator === 'AND' && c.children.length > 0 && c.children.every((l) => l.type !== 'GROUP')
+    )
+  );
+}
+
+/**
+ * The scenarios of any tree (every condition of one scenario must hold). A group without
+ * conditions is true, so a scenario that ends up empty makes the whole tree true: `[]` (no
+ * conditions). null when the rewrite would pass the condition limit.
+ */
+function scenariosFromTree(node: TreeNode, budget: { leaves: number }): ConditionNode[][] | null {
+  if (node.type !== 'GROUP') return [[node]];
+  if (node.children.length === 0) return [[]];
+  const parts: ConditionNode[][][] = [];
+  for (const child of node.children) {
+    const part = scenariosFromTree(child, budget);
+    if (!part) return null;
+    parts.push(part);
+  }
+  if (node.operator === 'OR') return parts.flat();
+  let product: ConditionNode[][] = [[]];
+  for (const part of parts) {
+    const next: ConditionNode[][] = [];
+    for (const left of product) for (const right of part) next.push([...left, ...right]);
+    if (next.reduce((n, sc) => n + sc.length, 0) > budget.leaves) return null;
+    product = next;
+  }
+  return product;
+}
+
+/** The tree with these scenarios (the root key is kept). */
+function treeOfScenarios(rootKey: string, scenarios: ConditionNode[][], groupKeys: string[] = []): GroupNode {
+  if (scenarios.length <= 1) {
+    return { key: rootKey, type: 'GROUP', operator: 'AND', children: scenarios[0] ?? [] };
+  }
+  return {
+    key: rootKey,
+    type: 'GROUP',
+    operator: 'OR',
+    children: scenarios.map((children, i) => ({ ...emptyGroup(children), key: groupKeys[i] ?? nextKey('g') })),
+  };
+}
+
+/**
+ * The tree in the scenario shape, with the same meaning; null when it cannot be shown as
+ * scenarios within the condition limit (the editor then offers to start over).
+ */
+export function toScenarioTree(tree: GroupNode): GroupNode | null {
+  if (isScenarioTree(tree)) return tree;
+  const scenarios = scenariosFromTree(tree, { leaves: MAX_CONDITIONS });
+  if (!scenarios) return null;
+  // An empty scenario is always true: the promotion then has no real condition.
+  if (scenarios.some((sc) => sc.length === 0)) return treeOfScenarios(tree.key, []);
+  return treeOfScenarios(tree.key, scenarios.map((sc) => sc.map(cloneCondition)));
+}
+
+/** The scenarios of a scenario-shaped tree; `[]` when there are no conditions. */
+export function scenariosOf(tree: GroupNode): ConditionNode[][] {
+  if (tree.operator === 'OR') {
+    return tree.children.map((g) => (g.type === 'GROUP' ? (g.children as ConditionNode[]) : [g]));
+  }
+  const leaves = tree.children.filter((c): c is ConditionNode => c.type !== 'GROUP');
+  return leaves.length ? [leaves] : [];
+}
+
+/** The tree path of condition `index` of scenario `scenario`. */
+export const scenarioConditionPath = (tree: GroupNode, scenario: number, index: number): NodePath =>
+  tree.operator === 'OR' ? [scenario, index] : [index];
+
+/** Adds an empty condition to a scenario (the first one when there are none). */
+export function addScenarioCondition(tree: GroupNode, scenario: number): GroupNode {
+  return tree.operator === 'OR' ? addCondition(tree, [scenario]) : addCondition(tree, []);
+}
+
+const groupKeysOf = (tree: GroupNode) => (tree.operator === 'OR' ? tree.children.map((c) => c.key) : []);
+
+/** Adds a scenario with one empty condition; the first conditions become scenario 1. */
+export function addScenario(tree: GroupNode): GroupNode {
+  const scenarios = scenariosOf(tree);
+  if (scenarios.length === 0) return addCondition(tree, []);
+  return treeOfScenarios(tree.key, [...scenarios, [emptyCondition()]], groupKeysOf(tree));
+}
+
+/** Removes a scenario; one left goes back to a plain list of conditions. */
+export function removeScenario(tree: GroupNode, scenario: number): GroupNode {
+  const keys = groupKeysOf(tree).filter((_, i) => i !== scenario);
+  return treeOfScenarios(tree.key, scenariosOf(tree).filter((_, i) => i !== scenario), keys);
+}
+
+/** Removes a condition; a scenario left without conditions is removed with it. */
+export function removeScenarioCondition(tree: GroupNode, scenario: number, index: number): GroupNode {
+  const scenarios = scenariosOf(tree);
+  if (!scenarios[scenario]) return tree;
+  const rest = scenarios[scenario].filter((_, i) => i !== index);
+  if (rest.length === 0 && scenarios.length > 1) return removeScenario(tree, scenario);
+  const next = scenarios.map((sc, i) => (i === scenario ? rest : sc));
+  return treeOfScenarios(tree.key, next.filter((sc) => sc.length > 0), groupKeysOf(tree));
+}
+
+const NAMES_SHOWN = 3;
+
+/** The products / variants of a target by name ("A, B, C +2"). */
+function targetNames(target: ProductTarget, labels: PromotionLabels | undefined, t: Translate): string {
+  const names = [
+    ...target.productIds.map((id) => labels?.products?.[id] ?? `#${id}`),
+    ...target.variantIds.map((id) => {
+      const v = labels?.variants?.[id];
+      return v ? [v.name, v.option].filter(Boolean).join(' – ') : `#${id}`;
+    }),
+  ];
+  if (names.length === 0) return '…';
+  const shown = names.slice(0, NAMES_SHOWN).join(', ');
+  return names.length > NAMES_SHOWN ? `${shown} ${t(`${S}.conditions.more`, { count: names.length - NAMES_SHOWN })}` : shown;
+}
+
+/** Wraps a value the user filled in (see `markedParts`); "…" (not filled) stays plain. */
+export type Mark = (value: string) => string;
+const plain: Mark = (v) => v;
+const MARK_START = '\u0001';
+const MARK_END = '\u0002';
+/** Wraps a value so `markedParts` can find it again. */
+export const markValue: Mark = (v) => (v === '…' ? v : `${MARK_START}${v}${MARK_END}`);
+
+/** A text with `markValue` values, split into plain text and the values the user filled in. */
+export function markedParts(text: string): { text: string; value: boolean }[] {
+  const parts: { text: string; value: boolean }[] = [];
+  const re = new RegExp(`${MARK_START}([^${MARK_END}]*)${MARK_END}`, 'g');
+  let last = 0;
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    if (m.index > last) parts.push({ text: text.slice(last, m.index), value: false });
+    parts.push({ text: m[1], value: true });
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) parts.push({ text: text.slice(last), value: false });
+  return parts;
+}
+
+/** One condition in plain words; unreadable values show as "…". `mark` wraps the filled-in values. */
+export function describeCondition(
+  node: ConditionNode,
+  money: Money,
+  t: Translate,
+  labels?: PromotionLabels,
+  mark: Mark = plain
+): string {
+  const C = 'ecommerce.promotions.form.conditions';
+  const op = node.operator ? mark(t(`${C}.operators.${node.operator}`)) : '…';
+  const amount = (v: string) => {
+    const cents = parseMoneyInput(v);
+    return cents === null || !Number.isFinite(cents) ? '…' : mark(money(cents));
+  };
+  const count = (v: string) => {
+    const n = parseCountInput(v);
+    return n === null || !Number.isFinite(n) ? '…' : mark(String(n));
+  };
+  switch (node.type) {
+    case 'SUBTOTAL':
+      return t(`${S}.conditions.SUBTOTAL`, { operator: op, amount: amount(node.value) });
+    case 'SUBTOTAL_BETWEEN':
+      return t(`${S}.conditions.SUBTOTAL_BETWEEN`, { min: amount(node.min), max: amount(node.max) });
+    case 'CART_CONTAINS':
+      return t(`${S}.conditions.CART_CONTAINS.${node.match}`, { items: mark(targetNames(node.target, labels, t)) });
+    case 'PRODUCT_QUANTITY':
+      return t(`${S}.conditions.PRODUCT_QUANTITY`, {
+        operator: op,
+        value: count(node.value),
+        items: mark(targetNames(node.target, labels, t)),
+      });
+    case 'TOTAL_QUANTITY':
+    case 'DISTINCT_PRODUCTS':
+      return t(`${S}.conditions.${node.type}`, { operator: op, value: count(node.value) });
+    case 'EMAIL':
+      return t(`${S}.conditions.EMAIL.${(EMAIL_OPERATORS as string[]).includes(node.operator) ? node.operator : 'eq'}`, {
+        value: node.value.trim() ? mark(node.value.trim()) : '…',
+      });
+    default:
+      return '…';
+  }
+}
+
+/** When the promotion applies, in plain words ("subtotal at least €50.00 and … or …"). */
+export function describeConditions(
+  tree: GroupNode,
+  money: Money,
+  t: Translate,
+  labels?: PromotionLabels,
+  mark: Mark = plain
+): string {
+  const shaped = toScenarioTree(tree);
+  const scenarios = shaped ? scenariosOf(shaped) : null;
+  if (!scenarios) return t(`${S}.conditions.complex`);
+  if (scenarios.length === 0) return t(`${S}.conditions.none`);
+  const and = ` ${t(`${S}.conditions.and`)} `;
+  const parts = scenarios.map((sc) => {
+    const text = sc.map((c) => describeCondition(c, money, t, labels, mark)).join(and);
+    return scenarios.length > 1 && sc.length > 1 ? `(${text})` : text;
+  });
+  return t(`${S}.conditions.when`, { conditions: parts.join(` ${t(`${S}.conditions.or`)} `) });
+}
 
 // ---------------------------------------------------------------------------
 // Stacking
@@ -860,12 +1061,8 @@ export function validatePromotionForm(form: PromotionForm, timeZone?: string): P
     if ((text ?? '').trim().length > 120) errors[`displayName.${locale}`] = 'too_long';
   });
 
-  if (form.eligibilityMode === 'EMAILS') {
-    const emails = emailList(form.emails);
-    if (emails.length < 1 || emails.length > MAX_EMAILS) errors['eligibility.emails'] = 'required';
-    emails.slice(0, MAX_EMAILS).forEach((email, i) => {
-      if (!EMAIL_RE.test(email.toLowerCase())) errors[`eligibility.emails.${i}`] = 'invalid_email';
-    });
+  if (form.eligibilityMode === 'CUSTOMERS' && form.customers.length < 1) {
+    errors['eligibility.customerIds'] = 'required';
   }
 
   validateGroup(form.conditions, [], errors);
@@ -927,7 +1124,7 @@ const SECTION_ORDER: FormSection[] = [
 
 /** Paths a form field displays (everything under `conditions` is shown by the tree editor). */
 const SHOWN_PATH =
-  /^(name|description|priority|displayName\.[^.]+|code|startsAt|endsAt|timeZone|eligibility(\.emails(\.\d+)?)?|requireVerifiedEmail|conditions(\..*)?|benefits|usageLimit|perCustomerLimit|perOrderLimit)$|^benefits\.\d+(\.(type|percent|amount|per|maxQuantity|maxAmount|target(\..*)?|buy\.target(\..*)?|buy\.quantity|buy\.minAmount|get\.target(\..*)?|get\.variantIds(\..*)?|get\.quantity|reward\.kind|reward\.percent|reward\.amount))?$/;
+  /^(name|description|priority|displayName\.[^.]+|code|startsAt|endsAt|timeZone|eligibility(\.customerIds(\.\d+)?)?|conditions(\..*)?|benefits|usageLimit|perCustomerLimit|perOrderLimit)$|^benefits\.\d+(\.(type|percent|amount|per|maxQuantity|maxAmount|target(\..*)?|buy\.target(\..*)?|buy\.quantity|buy\.minAmount|get\.target(\..*)?|get\.variantIds(\..*)?|get\.quantity|reward\.kind|reward\.percent|reward\.amount))?$/;
 
 function sectionOf(path: string): FormSection {
   const head = path.split('.')[0];
@@ -1035,16 +1232,11 @@ export function describePromotion(form: PromotionForm, money: Money, t: Translat
     );
   }
   lines.push(
-    form.eligibilityMode === 'EMAILS'
-      ? t(`${S}.eligibility.emails`, { count: emailList(form.emails).length })
+    form.eligibilityMode === 'CUSTOMERS'
+      ? t(`${S}.eligibility.customers`, { count: form.customers.length })
       : t(`${S}.eligibility.all`)
   );
-  const leaves = countLeaves(form.conditions);
-  lines.push(
-    leaves === 0
-      ? t(`${S}.conditions.none`)
-      : t(`${S}.conditions.${form.conditions.operator}`, { count: leaves })
-  );
+  lines.push(describeConditions(form.conditions, money, t, form.labels));
   form.benefits.forEach((b) => {
     const text = describeBenefit(toBenefit(b), money, t);
     if (text) lines.push(text);
@@ -1069,16 +1261,3 @@ export function describePromotion(form: PromotionForm, money: Money, t: Translat
   return lines;
 }
 
-const hasEmailCondition = (node: TreeNode): boolean =>
-  node.type === 'GROUP' ? node.children.some(hasEmailCondition) : node.type === 'EMAIL';
-
-/**
- * The "verified e-mail" box is forced on (and disabled) for an e-mail list, an EMAIL condition at
- * any depth or a per-customer limit: the same rule as the server's `requiresVerifiedEmail`.
- */
-export const verifiedEmailForced = (
-  form: Pick<PromotionForm, 'eligibilityMode' | 'perCustomerLimit' | 'conditions'>
-): boolean =>
-  form.eligibilityMode === 'EMAILS' ||
-  form.perCustomerLimit.trim() !== '' ||
-  hasEmailCondition(form.conditions);

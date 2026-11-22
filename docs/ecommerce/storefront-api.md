@@ -282,7 +282,7 @@ units: stock never goes below zero.
    status is `AWAITING_SHIPPING` (a shipping promotion without a delivery method) is kept in the
    cart and re-evaluated once a shipping method is chosen. Gifts: see *Gifts* below.
 3. **E-mail verification, when asked**: a code with status `EMAIL_NOT_VERIFIED` (promotion
-   restricted to e-mails or with a per-customer limit) needs the customer's e-mail verified on
+   with an e-mail condition or a per-customer limit) needs the customer's e-mail verified on
    this session: `POST /checkout/email-verification` sends a 6-digit code valid 10 minutes;
    `POST /checkout/email-verification/confirm` checks it (5 attempts; after that
    `429 VERIFICATION_LOCKED` until the code expires). Without a verified e-mail, per-customer
@@ -366,7 +366,8 @@ Public code statuses (`status` in quotes and `discounts/apply`, `detail` of
 `PROMOTION_CODE_INVALID`): `APPLIED`, `NOT_FOUND`, `NOT_ELIGIBLE`, `EMAIL_NOT_VERIFIED`,
 `EXPIRED`, `USAGE_LIMIT_REACHED`, `CONDITIONS_NOT_MET`, `CONFLICT`, `NO_BENEFIT`,
 `AWAITING_SHIPPING`, `GIFT_UNAVAILABLE` (its gift is out of stock; the order is not refused). A code that is deactivated or not yet started answers `NOT_FOUND`; a code
-the e-mail already used up, or that is restricted to other e-mails, answers `NOT_ELIGIBLE`.
+the e-mail already used up, or that is restricted to other customers (matched by their current
+e-mail), answers `NOT_ELIGIBLE`.
 
 Security events (`SESSION_INVALID`, `ORDER_ACCESS_DENIED`, `RATE_LIMITED`,
 `VERIFICATION_LOCKED`) go to Strapi's log as warnings with the rule name only: no tokens, IPs or

@@ -561,12 +561,16 @@ describe('EcommerceStorefrontCheckoutService', () => {
       expect(t.storedCart(token).promotionCodes).toEqual([]);
     });
 
-    it('a code restricted to e-mails: EMAIL_NOT_VERIFIED, then applied after confirmEmailVerification and used by placeOrder', async () => {
+    it('a code with an e-mail condition: EMAIL_NOT_VERIFIED, then applied after confirmEmailVerification and used by placeOrder', async () => {
       const t = setup();
       t.addPromotion(1, {
         method: 'CODE',
         code: 'VIP',
-        eligibility: { mode: 'EMAILS', emails: ['ana@example.pt'] },
+        conditions: {
+          type: 'GROUP',
+          operator: 'AND',
+          children: [{ type: 'EMAIL', operator: 'eq', value: 'ana@example.pt' }],
+        },
         benefits: { items: [{ type: 'ORDER_FIXED', amount: 500 }] },
       });
       const { token, s } = await t.open();

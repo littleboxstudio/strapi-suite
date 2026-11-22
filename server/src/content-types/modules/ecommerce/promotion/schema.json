@@ -67,10 +67,6 @@
     "perCustomerLimit": {
       "type": "integer"
     },
-    "requireVerifiedEmail": {
-      "type": "boolean",
-      "default": false
-    },
     "perOrderLimit": {
       "type": "integer"
     },

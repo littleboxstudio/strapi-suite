@@ -72,7 +72,15 @@ export type Stacking = {
   withShipping: boolean;
 };
 
-export type Eligibility = { mode: 'ALL' } | { mode: 'EMAILS'; emails: string[] };
+/**
+ * Who may use the promotion. Saved promotions are ALL or CUSTOMERS (customer ids); the loader
+ * resolves CUSTOMERS to EMAILS (the customers' current e-mails) before the engine runs, so the
+ * engine and the order snapshots only ever see ALL or EMAILS (older snapshots keep EMAILS too).
+ */
+export type Eligibility =
+  | { mode: 'ALL' }
+  | { mode: 'EMAILS'; emails: string[] }
+  | { mode: 'CUSTOMERS'; customerIds: number[] };
 
 export type PromotionDefinition = {
   id: number;
@@ -86,8 +94,6 @@ export type PromotionDefinition = {
   benefits: Benefit[];
   stacking: Stacking;
   perOrderLimit: number | null;
-  /** Checkout must have a verified e-mail (always the case when restricted by e-mail or per customer). */
-  requireVerifiedEmail: boolean;
   version: number;
 };
 

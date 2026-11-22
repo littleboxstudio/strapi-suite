@@ -42,7 +42,6 @@ const promo = (
   endsAt: null,
   usageLimit: null,
   perCustomerLimit: null,
-  requireVerifiedEmail: false,
   redemptions: 0,
   customerUses: 0,
   ...extra,
@@ -858,24 +857,14 @@ describe('verified e-mail (requirement 1.8)', () => {
     expect(verified.codes[0].status).toBe('CUSTOMER_LIMIT_REACHED');
   });
 
-  it('an e-mail list gives the same answer for listed and unlisted e-mails when unverified', () => {
+  it('an e-mail list no longer requires a verified e-mail: listed applies, unlisted is not eligible', () => {
     const only = coded(1, 'VIP', benefit, { eligibility: { mode: 'EMAILS', emails: ['ana@x.pt'] } });
-    for (const email of ['ana@x.pt', 'bruno@x.pt']) {
-      const r = evaluate([only], lines, { codes: ['VIP'], email, emailVerified: false });
-      expect(r.codes[0].status).toBe('EMAIL_NOT_VERIFIED');
-    }
-    const verified = evaluate([only], lines, { codes: ['VIP'], email: 'bruno@x.pt', emailVerified: true });
-    expect(verified.codes[0].status).toBe('EMAIL_NOT_ELIGIBLE');
+    const listed = evaluate([only], lines, { codes: ['VIP'], email: 'ana@x.pt', emailVerified: false });
+    expect(listed.codes[0].status).toBe('APPLIED');
+    const unlisted = evaluate([only], lines, { codes: ['VIP'], email: 'bruno@x.pt', emailVerified: false });
+    expect(unlisted.codes[0].status).toBe('EMAIL_NOT_ELIGIBLE');
     const trusted = evaluate([only], lines, { codes: ['VIP'], email: 'ana@x.pt' });
     expect(trusted.codes[0].status).toBe('APPLIED');
-  });
-
-  it('the flag alone requires a verified e-mail', () => {
-    const c = coded(1, 'FLAG', benefit, { requireVerifiedEmail: true });
-    expect(evaluate([c], lines, { codes: ['FLAG'], emailVerified: false }).codes[0].status).toBe(
-      'EMAIL_NOT_VERIFIED'
-    );
-    expect(evaluate([c], lines, { codes: ['FLAG'], emailVerified: true }).codes[0].status).toBe('APPLIED');
   });
 
   it('exhausted promotions keep USAGE_LIMIT_REACHED; unrestricted automatic ones still apply', () => {
@@ -910,7 +899,7 @@ describe('verified e-mail: order of checks and EMAIL conditions', () => {
   });
   it('inactive, scheduled and expired are reported before EMAIL_NOT_VERIFIED', () => {
     const r = (extra: Partial<PromotionCandidate>) =>
-      evaluate([coded(1, 'X', benefit, { requireVerifiedEmail: true, ...extra })], lines, {
+      evaluate([coded(1, 'X', benefit, { perCustomerLimit: 1, ...extra })], lines, {
         codes: ['X'],
         emailVerified: false,
       }).codes[0].status;

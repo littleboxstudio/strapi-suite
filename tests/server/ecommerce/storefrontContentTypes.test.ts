@@ -49,7 +49,7 @@ describe('ecommerce storefront content-types', () => {
     expect(r.inversedBy).toBeUndefined();
   });
 
-  it('promotion.requireVerifiedEmail defaults to false', () => {
-    expect(get('promotion').attributes.requireVerifiedEmail).toMatchObject({ type: 'boolean', default: false });
+  it('promotion has no requireVerifiedEmail attribute (removed)', () => {
+    expect(get('promotion').attributes.requireVerifiedEmail).toBeUndefined();
   });
 });

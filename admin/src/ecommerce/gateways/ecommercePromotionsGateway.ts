@@ -2,7 +2,7 @@ import HttpClient from '../../core/http/httpClient';
 import Registry from '../../core/di/registry';
 import config from '../../core/config';
 import { objectToQueryString } from '../../core/utils/objectToQueryString';
-import type { Paginated, StoreCredit } from '../orderTypes';
+import type { Paginated } from '../orderTypes';
 import type {
   Promotion,
   PromotionCatalogResult,
@@ -11,7 +11,6 @@ import type {
   PromotionListParams,
   PromotionRedemption,
   PromotionSaveInput,
-  StoreCreditMovement,
 } from '../promotionTypes';
 
 /** Promotions admin API (server routes admin-promotions) and the store credit list (admin-refunds). */
@@ -27,8 +26,6 @@ export default interface EcommercePromotionsGateway {
   deletePromotion(id: number): Promise<{ ok: true }>;
   searchCatalog(q: string, locale?: string): Promise<PromotionCatalogResult[]>;
   // Store credit: read with customers.read (the void action stays in the orders gateway)
-  fetchStoreCredits(params: PromotionListParams): Promise<Paginated<StoreCredit>>;
-  fetchStoreCredit(id: number): Promise<StoreCredit & { movements: StoreCreditMovement[] }>;
 }
 
 export class EcommercePromotionsGatewayHttp implements EcommercePromotionsGateway {
@@ -39,7 +36,6 @@ export class EcommercePromotionsGatewayHttp implements EcommercePromotionsGatewa
   }
 
   private promotions = `/${config.pluginId}/admin/ecommerce/promotions`;
-  private credits = `/${config.pluginId}/admin/ecommerce/store-credits`;
 
   async fetchPromotions(params: PromotionListParams): Promise<Paginated<PromotionListItem>> {
     return this.httpClient.get(`${this.promotions}${objectToQueryString(params)}`);
@@ -73,11 +69,5 @@ export class EcommercePromotionsGatewayHttp implements EcommercePromotionsGatewa
     return this.httpClient.get(`${this.promotions}/catalog-search${objectToQueryString({ q, locale })}`);
   }
 
-  async fetchStoreCredits(params: PromotionListParams): Promise<Paginated<StoreCredit>> {
-    return this.httpClient.get(`${this.credits}${objectToQueryString(params)}`);
-  }
 
-  async fetchStoreCredit(id: number): Promise<StoreCredit & { movements: StoreCreditMovement[] }> {
-    return this.httpClient.get(`${this.credits}/${id}`);
-  }
 }

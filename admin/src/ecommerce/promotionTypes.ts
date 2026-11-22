@@ -79,7 +79,15 @@ export type PromotionStacking = {
   withShipping: boolean;
 };
 
-export type PromotionEligibility = { mode: 'ALL' } | { mode: 'EMAILS'; emails: string[] };
+export type PromotionEligibility = { mode: 'ALL' } | { mode: 'CUSTOMERS'; customerIds: number[] };
+
+/** A customer a promotion is restricted to (as the promotion's detail returns it). */
+export type EligibilityCustomer = {
+  id: number;
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;
+};
 
 /** The promotion definition the server validates (create and update bodies). */
 export type PromotionDefinition = {
@@ -99,7 +107,6 @@ export type PromotionDefinition = {
   endsAt: string | null;
   usageLimit: number | null;
   perCustomerLimit: number | null;
-  requireVerifiedEmail: boolean;
 };
 
 export type PromotionLabels = {
@@ -116,6 +123,8 @@ export type Promotion = PromotionDefinition & {
   createdAt: string | null;
   updatedAt: string | null;
   labels: PromotionLabels;
+  /** The customers of a CUSTOMERS eligibility, in order (unknown ones left out). */
+  eligibilityCustomers?: EligibilityCustomer[];
 };
 
 /** Update body: the definition plus the `version` it was loaded with. */

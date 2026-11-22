@@ -984,11 +984,15 @@ describe('orders with promotions: plan 7 pricing (gift options, line VAT, verifi
     ]);
   });
 
-  it('requireVerifiedEmail with emailVerified false → EMAIL_NOT_VERIFIED in the quote and 400 on create; absent → applied', async () => {
+  it('an EMAIL condition with emailVerified false → EMAIL_NOT_VERIFIED in the quote and 400 on create; absent → applied', async () => {
     const promo = addPromotion({
       method: 'CODE',
       code: 'VIP',
-      requireVerifiedEmail: true,
+      conditions: {
+        type: 'GROUP',
+        operator: 'AND',
+        children: [{ type: 'EMAIL', operator: 'contains', value: '@example.pt' }],
+      },
       benefits: { items: [{ type: 'ORDER_FIXED', amount: 100 }] },
     });
     const base = { lines: [{ variantId: 10, quantity: 1 }], locale: 'en', email: 'ana@example.pt', promotionCodes: ['vip'] };

@@ -1,6 +1,6 @@
 import type { ValidationIssue } from '../../errors';
 import { MAX_MONEY_CENTS } from '../orders';
-import { isValidEmailFormat, normalizeEmail } from '../email';
+import { isValidEmailFormat } from '../email';
 import { MAX_PROMOTION_CODE_LENGTH } from '../storefront/limits';
 import { isValidTimeZone, zonedWallTimeToUtc } from './time';
 import type {
@@ -279,25 +279,33 @@ function readBenefit(raw: unknown, path: string, errors: Issues): Benefit | null
   }
 }
 
+/** Most customers one promotion may be restricted to. */
+export const MAX_ELIGIBLE_CUSTOMERS = 1000;
+
+/**
+ * ALL (default) or CUSTOMERS with 1..1000 positive integer ids (duplicates dropped). EMAILS is
+ * only read from older order snapshots, never accepted on save. Ids are checked to exist by the
+ * service.
+ */
 function readEligibility(raw: unknown, errors: Issues): Eligibility {
   if (raw === undefined || raw === null || (isObj(raw) && raw.mode === 'ALL')) return { mode: 'ALL' };
-  if (!isObj(raw) || raw.mode !== 'EMAILS' || !Array.isArray(raw.emails)) {
+  if (!isObj(raw) || raw.mode !== 'CUSTOMERS' || !Array.isArray(raw.customerIds)) {
     errors.push({ path: 'eligibility', code: 'invalid' });
     return { mode: 'ALL' };
   }
-  if (raw.emails.length < 1 || raw.emails.length > 1000) {
-    errors.push({ path: 'eligibility.emails', code: 'required' });
-  }
-  const emails: string[] = [];
-  raw.emails.slice(0, 1000).forEach((e: unknown, i: number) => {
-    const normalized = typeof e === 'string' ? normalizeEmail(e) : '';
-    if (!isValidEmailFormat(normalized)) {
-      errors.push({ path: `eligibility.emails.${i}`, code: 'invalid_email' });
+  if (raw.customerIds.length < 1) errors.push({ path: 'eligibility.customerIds', code: 'required' });
+  const customerIds: number[] = [];
+  raw.customerIds.forEach((id: unknown, i: number) => {
+    if (!isInt(id) || (id as number) < 1) {
+      errors.push({ path: `eligibility.customerIds.${i}`, code: 'invalid' });
       return;
     }
-    if (!emails.includes(normalized)) emails.push(normalized);
+    if (!customerIds.includes(id as number)) customerIds.push(id as number);
   });
-  return { mode: 'EMAILS', emails };
+  if (customerIds.length > MAX_ELIGIBLE_CUSTOMERS) {
+    errors.push({ path: 'eligibility.customerIds', code: 'too_many' });
+  }
+  return { mode: 'CUSTOMERS', customerIds };
 }
 
 function readStacking(raw: unknown, errors: Issues): Stacking {
@@ -391,12 +399,6 @@ export function validatePromotionInput(
   const stacking = readStacking(raw.stacking, errors);
 
   const eligibility = readEligibility(raw.eligibility, errors);
-  let requireVerifiedEmail = false;
-  if (raw.requireVerifiedEmail !== undefined) {
-    if (typeof raw.requireVerifiedEmail !== 'boolean') {
-      errors.push({ path: 'requireVerifiedEmail', code: 'invalid' });
-    } else requireVerifiedEmail = raw.requireVerifiedEmail;
-  }
 
   const leaves = { n: 0, tooDeep: false };
   const conditions = readGroup(raw.conditions ?? { type: 'GROUP', operator: 'AND', children: [] }, 'conditions', errors, leaves);
@@ -448,7 +450,6 @@ export function validatePromotionInput(
       usageLimit,
       perCustomerLimit,
       perOrderLimit,
-      requireVerifiedEmail,
       eligibility,
       conditions,
       benefits,

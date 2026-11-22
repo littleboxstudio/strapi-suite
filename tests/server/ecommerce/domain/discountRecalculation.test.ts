@@ -45,7 +45,6 @@ const promo = (
   endsAt: null,
   usageLimit: null,
   perCustomerLimit: null,
-  requireVerifiedEmail: false,
   redemptions: 0,
   customerUses: 0,
   ...extra,

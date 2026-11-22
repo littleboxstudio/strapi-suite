@@ -18,6 +18,7 @@ import {
   type Benefit,
   type ConditionGroup,
   type DiscountClass,
+  type Eligibility,
   type EvaluationInput,
   type EvaluationLine,
   type GiftOption,
@@ -65,6 +66,15 @@ export type PromotionView = PromotionInput & {
   createdAt: string | null;
   updatedAt: string | null;
   labels: PromotionLabels;
+  /** The customers of a CUSTOMERS eligibility, in `customerIds` order (unknown ids left out). */
+  eligibilityCustomers: PromotionEligibilityCustomer[];
+};
+
+export type PromotionEligibilityCustomer = {
+  id: number;
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;
 };
 
 export type PromotionRedemptionView = {
@@ -130,6 +140,20 @@ const pagination = (page: number, total: number) => ({
   pageCount: Math.ceil(total / PAGE_SIZE),
 });
 
+/** The stored eligibility, read defensively (anything unreadable is ALL). */
+const eligibilityOf = (v: unknown): Eligibility => {
+  if (!isObj(v)) return { mode: 'ALL' };
+  if (v.mode === 'CUSTOMERS') {
+    const ids = Array.isArray(v.customerIds) ? v.customerIds : [];
+    return { mode: 'CUSTOMERS', customerIds: ids.filter((n: unknown) => Number.isInteger(n) && (n as number) > 0) };
+  }
+  if (v.mode === 'EMAILS') {
+    const emails = Array.isArray(v.emails) ? v.emails : [];
+    return { mode: 'EMAILS', emails: emails.filter((e: unknown): e is string => typeof e === 'string') };
+  }
+  return { mode: 'ALL' };
+};
+
 const EMPTY_GROUP: ConditionGroup = { type: 'GROUP', operator: 'AND', children: [] };
 const DEFAULT_STACKING = { exclusive: false, withProduct: true, withOrder: true, withShipping: true };
 
@@ -151,12 +175,11 @@ const toCandidate = (row: any, customerUses: number): PromotionCandidate => ({
   method: row.method,
   displayName: isObj(row.displayName) ? row.displayName : {},
   priority: num(row.priority),
-  eligibility: isObj(row.eligibility) ? (row.eligibility as any) : { mode: 'ALL' },
+  eligibility: eligibilityOf(row.eligibility),
   conditions: isObj(row.conditions) ? (row.conditions as ConditionGroup) : EMPTY_GROUP,
   benefits: benefitsOf(row.benefits),
   stacking: isObj(row.stacking) ? (row.stacking as any) : DEFAULT_STACKING,
   perOrderLimit: intOrNull(row.perOrderLimit),
-  requireVerifiedEmail: row.requireVerifiedEmail === true,
   version: num(row.version) || 1,
   active: !!row.active,
   startsAt: iso(row.startsAt) ?? '',
@@ -210,7 +233,6 @@ const toRowData = (v: PromotionInput) => ({
   usageLimit: v.usageLimit,
   perCustomerLimit: v.perCustomerLimit,
   perOrderLimit: v.perOrderLimit,
-  requireVerifiedEmail: v.requireVerifiedEmail,
 });
 
 /** Comparable form of a row for the audit diff (field names only ever leave this module). */
@@ -233,7 +255,6 @@ const comparable = (row: any): Record<string, string> => {
     usageLimit: c.usageLimit,
     perCustomerLimit: c.perCustomerLimit,
     perOrderLimit: c.perOrderLimit,
-    requireVerifiedEmail: c.requireVerifiedEmail,
   };
   return Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, JSON.stringify(v)]));
 };
@@ -345,6 +366,54 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
     return labels;
   };
 
+  /** Customers by id, in one query (unknown ids are absent from the map). */
+  const customersById = async (ids: number[]): Promise<Map<number, any>> => {
+    const unique = [...new Set(ids)];
+    if (!unique.length) return new Map();
+    const rows: any[] = await strapi.db.query(uids().customer).findMany({
+      where: { id: { $in: unique } },
+      select: ['id', 'firstName', 'lastName', 'email', 'emailNormalized'],
+    });
+    return new Map(rows.map((r) => [r.id, r]));
+  };
+
+  const eligibilityCustomersOf = async (e: Eligibility): Promise<PromotionEligibilityCustomer[]> => {
+    if (e.mode !== 'CUSTOMERS') return [];
+    const found = await customersById(e.customerIds);
+    return e.customerIds
+      .filter((id) => found.has(id))
+      .map((id) => {
+        const r = found.get(id);
+        return {
+          id,
+          firstName: r.firstName ?? null,
+          lastName: r.lastName ?? null,
+          email: r.email ?? null,
+        };
+      });
+  };
+
+  /**
+   * CUSTOMERS eligibility resolved to the customers' CURRENT normalised e-mails (one query for
+   * every candidate), so the engine and the order snapshot work with e-mails. Customers gone or
+   * without an e-mail are left out (none left: the promotion applies to nobody).
+   */
+  const resolveEligibility = async (candidates: PromotionCandidate[]): Promise<PromotionCandidate[]> => {
+    const ids = candidates.flatMap((c) => (c.eligibility.mode === 'CUSTOMERS' ? c.eligibility.customerIds : []));
+    if (!ids.length) return candidates;
+    const found = await customersById(ids);
+    return candidates.map((c) => {
+      if (c.eligibility.mode !== 'CUSTOMERS') return c;
+      const emails = new Set<string>();
+      for (const id of c.eligibility.customerIds) {
+        const r = found.get(id);
+        const email = r ? normalizeEmail(String(r.emailNormalized || r.email || '')) : '';
+        if (email) emails.add(email);
+      }
+      return { ...c, eligibility: { mode: 'EMAILS', emails: [...emails] } };
+    });
+  };
+
   const toView = async (row: any, tz: string): Promise<PromotionView> => {
     const c = toCandidate(row, 0);
     return {
@@ -360,8 +429,7 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
       benefits: c.benefits,
       stacking: c.stacking,
       perOrderLimit: c.perOrderLimit,
-      requireVerifiedEmail: c.requireVerifiedEmail,
-      active: c.active,
+        active: c.active,
       startsAt: c.startsAt ? (utcToZonedWallTime(c.startsAt, tz) ?? '') : '',
       endsAt: c.endsAt ? utcToZonedWallTime(c.endsAt, tz) : null,
       usageLimit: c.usageLimit,
@@ -373,6 +441,7 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
       createdAt: iso(row.createdAt),
       updatedAt: iso(row.updatedAt),
       labels: await labelsFor(c),
+      eligibilityCustomers: await eligibilityCustomersOf(c.eligibility),
     };
   };
 
@@ -385,6 +454,15 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
   const validate = async (raw: unknown, tz: string): Promise<PromotionInput> => {
     const { value, errors } = validatePromotionInput(raw, { locales: await localeCodes(), timeZone: tz });
     if (!value || errors.length) throw new EcommerceValidationError('Invalid promotion', errors);
+    if (value.eligibility.mode === 'CUSTOMERS') {
+      const found = await customersById(value.eligibility.customerIds);
+      // Paths use the index in the request (the first occurrence of a repeated id).
+      const rawIds: unknown[] = (raw as any).eligibility.customerIds;
+      const missing = value.eligibility.customerIds
+        .filter((id) => !found.has(id))
+        .map((id) => ({ path: `eligibility.customerIds.${rawIds.indexOf(id)}`, code: 'not_found' }));
+      if (missing.length) throw new EcommerceValidationError('Invalid promotion', missing);
+    }
     return value;
   };
 
@@ -634,13 +712,14 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
         if (id !== null) own.set(id, r.emailNormalized ?? null);
       }
     }
-    return rows.map((r) => {
+    const candidates = rows.map((r) => {
       const customerUses = email ? (uses.get(promotionUsageKey(r.id, email)) ?? 0) : 0;
       if (!own.has(r.id)) return toCandidate(r, customerUses);
       const ownEmail = own.get(r.id);
       const candidate = toCandidate(r, ownEmail && ownEmail === email ? Math.max(0, customerUses - 1) : customerUses);
       return { ...candidate, redemptions: Math.max(0, candidate.redemptions - 1) };
     });
+    return resolveEligibility(candidates);
   };
 
   /**

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import type { GiftChoices } from '../../../../../server/src/services/modules/ecommerce/domain/promotions/giftChoices';
 import {
   applyCombination,
   type Benefit,
@@ -36,7 +37,6 @@ const promo = (
   perCustomerLimit: null,
   redemptions: 0,
   customerUses: 0,
-  requireVerifiedEmail: false,
   ...extra,
 });
 
@@ -53,7 +53,7 @@ const run = (
   opts: {
     shipping?: number | null;
     gifts?: GiftOption[];
-    giftChoices?: Record<number, number>;
+    giftChoices?: GiftChoices;
   } = {}
 ): CombinationResult =>
   applyCombination(promotions, {
