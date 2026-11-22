@@ -11,6 +11,9 @@ import {
   scopedErrors,
   toErrorMap,
   validateProductForm,
+  addTag,
+  emptyOrganization,
+  organizationError,
   type FormVariant,
   type ProductForm,
 } from '../../../admin/src/ecommerce/utils/productForm';
@@ -41,6 +44,7 @@ const form = (over: Partial<ProductForm> = {}): ProductForm => ({
     pt: { name: '', shortDescription: '', description: '' },
   },
   variants: [variant()],
+  organization: emptyOrganization(),
   ...over,
 });
 
@@ -53,6 +57,14 @@ describe('emptyProductForm', () => {
         pt: { name: '', shortDescription: '', description: '' },
       },
       variants: [],
+      organization: {
+        vendor: '',
+        category: null,
+        productType: null,
+        tags: [],
+        collections: [],
+        automatedCollections: [],
+      },
     });
   });
 });
@@ -108,6 +120,47 @@ describe('productFormFromDetail', () => {
       en: { option: 'Black' },
       pt: { option: '' },
     });
+    expect(result.variants[0].compareAtPrice).toBeNull();
+    expect(result.organization).toEqual(emptyOrganization());
+  });
+
+  it('reads the organization fields and splits manual from automated collections', () => {
+    const detail = {
+      id: 7,
+      active: true,
+      deletable: true,
+      images: [],
+      translations: { en: { name: 'Shirt', slug: 'shirt', description: '<p>x</p>' } },
+      vendor: 'Acme',
+      categoryId: 3,
+      categoryPath: [
+        { id: 1, name: 'Clothing' },
+        { id: 2, name: 'Shirts' },
+        { id: 3, name: 'Linen' },
+      ],
+      productTypeId: 5,
+      productTypeName: 'Shirt',
+      tags: [
+        { id: 8, name: 'summer' },
+        { id: 9, name: 'linen' },
+      ],
+      collections: [
+        { id: 11, title: 'Featured', type: 'MANUAL' },
+        { id: 12, title: 'On sale', type: 'AUTOMATED' },
+      ],
+      variants: [],
+    } as ProductDetail;
+    expect(productFormFromDetail(detail, LOCALES).organization).toEqual({
+      vendor: 'Acme',
+      category: { id: 3, path: 'Clothing > Shirts > Linen' },
+      productType: { id: 5, name: 'Shirt' },
+      tags: [
+        { id: 8, name: 'summer' },
+        { id: 9, name: 'linen' },
+      ],
+      collections: [{ id: 11, title: 'Featured' }],
+      automatedCollections: [{ id: 12, title: 'On sale' }],
+    });
   });
 });
 
@@ -138,6 +191,57 @@ describe('buildProductInput', () => {
     });
     expect('key' in input.variants[0]).toBe(false);
     expect('deletable' in input.variants[0]).toBe(false);
+  });
+
+  it('always sends every organization field explicitly (empty = cleared)', () => {
+    const input = buildProductInput(form());
+    expect(input).toMatchObject({
+      vendor: null,
+      categoryId: null,
+      productTypeId: null,
+      tagIds: [],
+      tagNames: [],
+      collectionIds: [],
+    });
+    expect('productTypeName' in input).toBe(false);
+  });
+
+  it('sends chosen organization values, existing tags as ids and new ones as names', () => {
+    const input = buildProductInput(
+      form({
+        organization: {
+          vendor: '  Acme  ',
+          category: { id: 3, path: 'A > B' },
+          productType: { id: 5, name: 'Shirt' },
+          tags: [{ id: 8, name: 'summer' }, { name: 'new one' }, { id: 9, name: 'linen' }],
+          collections: [{ id: 11, title: 'Featured' }],
+          automatedCollections: [{ id: 12, title: 'On sale' }],
+        },
+      })
+    );
+    expect(input).toMatchObject({
+      vendor: 'Acme',
+      categoryId: 3,
+      productTypeId: 5,
+      tagIds: [8, 9],
+      tagNames: ['new one'],
+      // Automated memberships are computed by the server, never sent.
+      collectionIds: [11],
+    });
+    expect('productTypeName' in input).toBe(false);
+  });
+
+  it('sends a new product type by name, without an id', () => {
+    const input = buildProductInput(
+      form({ organization: { ...emptyOrganization(), productType: { name: ' Poster ' } } })
+    );
+    expect(input.productTypeName).toBe('Poster');
+    expect('productTypeId' in input).toBe(false);
+  });
+
+  it('keeps the compare-at price of the variants', () => {
+    const input = buildProductInput(form({ variants: [variant({ compareAtPrice: 3990 })] }));
+    expect(input.variants[0].compareAtPrice).toBe(3990);
   });
 
   it('sends a pending stock adjustment of an existing variant', () => {
@@ -175,7 +279,64 @@ describe('validateProductForm', () => {
   });
 });
 
+describe('tags', () => {
+  const suggestions = [
+    { id: 8, name: 'Summer' },
+    { id: 9, name: 'Linen' },
+  ];
+
+  it('adds a typed name as a new tag, trimmed', () => {
+    expect(addTag([], '  Cotton ', [])).toEqual([{ name: 'Cotton' }]);
+  });
+
+  it('uses the existing tag when the name matches a suggestion (any case)', () => {
+    expect(addTag([], 'summer', suggestions)).toEqual([{ id: 8, name: 'Summer' }]);
+  });
+
+  it('ignores blanks and names already chosen (any case, any spacing)', () => {
+    const chosen = [{ id: 8, name: 'Summer' }, { name: 'Cotton' }];
+    expect(addTag(chosen, '   ', suggestions)).toBe(chosen);
+    expect(addTag(chosen, 'SUMMER', suggestions)).toBe(chosen);
+    expect(addTag(chosen, ' cotton  ', suggestions)).toBe(chosen);
+    expect(addTag(chosen, 'Big  Cotton', [])).toEqual([...chosen, { name: 'Big Cotton' }]);
+  });
+
+  it('adds a picked suggestion by id', () => {
+    expect(addTag([{ name: 'x' }], { id: 9, name: 'Linen' }, [])).toEqual([
+      { name: 'x' },
+      { id: 9, name: 'Linen' },
+    ]);
+    const chosen = [{ id: 9, name: 'Linen' }];
+    expect(addTag(chosen, { id: 9, name: 'Linen' }, [])).toBe(chosen);
+  });
+});
+
+describe('vendor', () => {
+  it('refuses a vendor longer than 255 characters', () => {
+    const f = form({ organization: { ...emptyOrganization(), vendor: 'x'.repeat(256) } });
+    expect(validateProductForm(f, 'en')).toEqual([{ path: 'vendor', code: 'too_long' }]);
+    const ok = form({ organization: { ...emptyOrganization(), vendor: ` ${'x'.repeat(255)} ` } });
+    expect(validateProductForm(ok, 'en')).toEqual([]);
+  });
+});
+
 describe('error mapping', () => {
+  it('finds the error of an organization field, including per-item paths', () => {
+    const map = toErrorMap([
+      { path: 'categoryId', code: 'unknown' },
+      { path: 'tagIds.1', code: 'unknown' },
+      { path: 'collectionIds.0', code: 'automated_collection' },
+      { path: 'tagNames.0', code: 'too_long' },
+    ]);
+    expect(organizationError(map, 'category')).toBe('unknown');
+    expect(organizationError(map, 'tags')).toBe('unknown');
+    expect(organizationError(map, 'collections')).toBe('automated_collection');
+    expect(organizationError(map, 'vendor')).toBeUndefined();
+    expect(organizationError(map, 'productType')).toBeUndefined();
+    expect(organizationError({ productTypeName: 'too_long' }, 'productType')).toBe('too_long');
+    expect(organizationError({ 'tagNames.2': 'too_long' }, 'tags')).toBe('too_long');
+  });
+
   const errors = [
     { path: 'translations.en.name', code: 'required' as const },
     { path: 'variants.1.sku', code: 'duplicate_sku' as const },

@@ -152,7 +152,21 @@ const VariantsTable = ({
                   </Typography>
                 </Td>
                 <Td>
-                  <Typography textColor="neutral800">{formatCents(v.price, uiLocale)}</Typography>
+                  <Flex gap={2} alignItems="baseline">
+                    <Typography textColor="neutral800">{formatCents(v.price, uiLocale)}</Typography>
+                    {v.compareAtPrice != null && (
+                      <Typography
+                        variant="pi"
+                        textColor={
+                          errors[`variants.${index}.compareAtPrice`] ? 'danger600' : 'neutral500'
+                        }
+                        title={t('ecommerce.product.variant.compareAtPrice')}
+                        style={{ textDecoration: 'line-through' }}
+                      >
+                        {formatCents(v.compareAtPrice, uiLocale)}
+                      </Typography>
+                    )}
+                  </Flex>
                 </Td>
                 <Td>
                   <Typography textColor="neutral800">{`${v.tax}%`}</Typography>

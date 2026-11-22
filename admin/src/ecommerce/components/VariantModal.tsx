@@ -52,6 +52,7 @@ type TextField =
   | 'sku'
   | 'stock'
   | 'price'
+  | 'compareAtPrice'
   | 'weight'
   | 'width'
   | 'height'
@@ -122,6 +123,8 @@ const VariantModal = ({
   const setField = (field: TextField, value: string) => {
     setDraft((d) => ({ ...d, [field]: value }));
     clearError(field);
+    // The compare-at check depends on the price too.
+    if (field === 'price') clearError('compareAtPrice');
   };
 
   const errorText = (path: string) =>
@@ -209,6 +212,11 @@ const VariantModal = ({
                 {textField('price', {
                   required: true,
                   hint: t('ecommerce.product.variant.price.hint'),
+                })}
+              </Grid.Item>
+              <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
+                {textField('compareAtPrice', {
+                  hint: t('ecommerce.product.variant.compareAtPrice.hint'),
                 })}
               </Grid.Item>
               <Grid.Item col={6} s={12} direction="column" alignItems="stretch">

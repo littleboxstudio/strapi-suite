@@ -23,6 +23,7 @@ const saved: FormVariant = {
   height: 0,
   depth: 0,
   active: false,
+  compareAtPrice: null,
   translations: { en: { option: 'Black' } },
 };
 
@@ -35,6 +36,7 @@ describe('variant drafts', () => {
       sku: '',
       stock: '0',
       price: '',
+      compareAtPrice: '',
       taxChoice: '23',
       taxOther: '',
       weight: '0',
@@ -118,6 +120,40 @@ describe('variant drafts', () => {
   it('requires a price', () => {
     const draft = { ...emptyVariantDraft(LOCALES, 'k'), sku: 'A', options: { en: 'M', pt: '' } };
     expect(draftToVariant(draft, 'en').errors).toEqual({ price: 'required' });
+  });
+
+  describe('compare-at price', () => {
+    const named = { sku: 'A', price: '10', options: { en: 'M', pt: '' } };
+
+    it('shows a saved compare-at price in the ui locale, or blank', () => {
+      expect(variantToDraft({ ...saved, compareAtPrice: 3990 }, LOCALES, 'pt-PT').compareAtPrice).toBe('39,90');
+      expect(variantToDraft(saved, LOCALES, 'en').compareAtPrice).toBe('');
+      expect(variantToDraft({ ...saved, compareAtPrice: undefined }, LOCALES, 'en').compareAtPrice).toBe('');
+    });
+
+    it('is optional: blank means none (null clears it on the server)', () => {
+      const draft = { ...emptyVariantDraft(LOCALES, 'k'), ...named, compareAtPrice: '  ' };
+      expect(draftToVariant(draft, 'en').variant).toMatchObject({ price: 1000, compareAtPrice: null });
+    });
+
+    it('parses a compare-at price above the price', () => {
+      const draft = { ...emptyVariantDraft(LOCALES, 'k'), ...named, compareAtPrice: '12,5' };
+      expect(draftToVariant(draft, 'en').variant).toMatchObject({ price: 1000, compareAtPrice: 1250 });
+    });
+
+    it('must be above the price', () => {
+      for (const compareAtPrice of ['10', '9,99', '0']) {
+        const draft = { ...emptyVariantDraft(LOCALES, 'k'), ...named, compareAtPrice };
+        expect(draftToVariant(draft, 'en').errors).toEqual({ compareAtPrice: 'compare_at_not_above_price' });
+      }
+    });
+
+    it('reports an invalid number, and no comparison while the price is invalid', () => {
+      const bad = { ...emptyVariantDraft(LOCALES, 'k'), ...named, compareAtPrice: 'abc' };
+      expect(draftToVariant(bad, 'en').errors).toEqual({ compareAtPrice: 'invalid_number' });
+      const badPrice = { ...emptyVariantDraft(LOCALES, 'k'), ...named, price: 'x', compareAtPrice: '1' };
+      expect(draftToVariant(badPrice, 'en').errors).toEqual({ price: 'invalid_number' });
+    });
   });
 
   describe('stock', () => {

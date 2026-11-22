@@ -20,6 +20,8 @@ export type VariantDraft = {
   /** Existing variants: the stock stored on the server when the product was loaded. */
   savedStock?: number;
   price: string;
+  /** Optional "was" price; blank = none. */
+  compareAtPrice: string;
   taxChoice: string;
   taxOther: string;
   weight: string;
@@ -39,6 +41,7 @@ export function emptyVariantDraft(localeCodes: string[], key: string): VariantDr
     sku: '',
     stock: '0',
     price: '',
+    compareAtPrice: '',
     taxChoice: String(TAX_PRESETS[0]),
     taxOther: '',
     weight: '0',
@@ -72,6 +75,8 @@ export function variantToDraft(
     stock: String(variant.stock + (variant.stockAdjustment ?? 0)),
     ...(variant.id !== undefined ? { savedStock: variant.stock } : {}),
     price: centsToText(variant.price, uiLocale),
+    compareAtPrice:
+      variant.compareAtPrice != null ? centsToText(variant.compareAtPrice, uiLocale) : '',
     taxChoice: preset ? String(variant.tax) : TAX_OTHER,
     taxOther: preset ? '' : String(variant.tax),
     weight: String(variant.weight),
@@ -125,6 +130,15 @@ export function draftToVariant(
     else price = cents;
   }
 
+  // Optional; when set it must be above the price (checked only once the price is valid).
+  let compareAtPrice: number | null = null;
+  if (draft.compareAtPrice.trim() !== '') {
+    const cents = parseMoneyToCents(draft.compareAtPrice);
+    if (cents === null) errors.compareAtPrice = 'invalid_number';
+    else if (!errors.price && cents <= price) errors.compareAtPrice = 'compare_at_not_above_price';
+    else compareAtPrice = cents;
+  }
+
   const taxText = draft.taxChoice === TAX_OTHER ? draft.taxOther : draft.taxChoice;
   const tax = parseDecimal(taxText);
   if (taxText.trim() === '') errors.tax = 'required';
@@ -150,6 +164,7 @@ export function draftToVariant(
       images: draft.images,
       sku,
       price,
+      compareAtPrice,
       tax: tax as number,
       stock,
       ...(stockAdjustment !== 0 ? { stockAdjustment, stockExpected: savedStock } : {}),

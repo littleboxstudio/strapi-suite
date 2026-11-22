@@ -33,12 +33,15 @@ import { DescriptionEditor } from '../components/DescriptionEditor';
 import { VariantsTable } from '../components/VariantsTable';
 import { VariantModal } from '../components/VariantModal';
 import { Gallery } from '../components/Gallery';
+import { ProductOrganizationSection } from '../components/products/ProductOrganizationSection';
 import {
   applyTranslations,
   buildProductInput,
   buildTranslationRequest,
   emptyProductForm,
   extractFieldErrors,
+  ORGANIZATION_ERROR_PATHS,
+  organizationError,
   productFormFromDetail,
   scopedErrors,
   toErrorMap,
@@ -46,6 +49,8 @@ import {
   type ErrorMap,
   type FormVariant,
   type ProductForm,
+  type OrganizationField,
+  type ProductOrganization,
   type ProductTranslation,
 } from '../utils/productForm';
 import type { EcommerceLocales, ImageRecord, ProductDetail } from '../types';
@@ -207,6 +212,21 @@ const ProductEditPage = () => {
 
   const errorText = (path: string) =>
     errors[path] ? t(`ecommerce.product.errors.${errors[path]}`) : undefined;
+
+  const organizationErrors = Object.fromEntries(
+    (Object.keys(ORGANIZATION_ERROR_PATHS) as OrganizationField[]).map((field) => {
+      const code = organizationError(errors, field);
+      return [field, code ? t(`ecommerce.product.errors.${code}`) : undefined];
+    })
+  ) as Partial<Record<OrganizationField, string>>;
+
+  const clearOrganizationErrors = (field: OrganizationField) =>
+    clearErrors((p) =>
+      ORGANIZATION_ERROR_PATHS[field].some((prefix) => p === prefix || p.startsWith(`${prefix}.`))
+    );
+
+  const setOrganization = (organization: ProductOrganization) =>
+    setForm((f) => (f ? { ...f, organization } : f));
 
   const showErrors = (map: ErrorMap) => {
     setErrors(map);
@@ -521,6 +541,18 @@ const ProductEditPage = () => {
           />
           <Field.Error />
         </Field.Root>
+      </Section>
+
+      <Section title={t('ecommerce.product.organization')}>
+        <ProductOrganizationSection
+          value={form.organization}
+          onChange={setOrganization}
+          errors={organizationErrors}
+          onFieldEdit={clearOrganizationErrors}
+          defaultLocale={defaultLocale}
+          isNew={productId === undefined}
+          disabled={saving}
+        />
       </Section>
 
       <Section title={t('ecommerce.product.gallery')}>

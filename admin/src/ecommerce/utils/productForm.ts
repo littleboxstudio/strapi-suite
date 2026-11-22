@@ -20,11 +20,33 @@ export type ProductTranslation = {
   description: string;
 };
 
+/** A chosen tag: existing ones carry their id, new ones (created on save) only a name. */
+export type FormTag = { id?: number; name: string };
+
+export type FormCollection = { id: number; title: string };
+
+/** The "Product organization" section. */
+export type ProductOrganization = {
+  vendor: string;
+  /** `path` is the full label ("Clothing > Shirts > Linen"). */
+  category: { id: number; path: string } | null;
+  /** Without an id: a new type, created by name on save. */
+  productType: { id?: number; name: string } | null;
+  tags: FormTag[];
+  /** MANUAL collections: the full set is sent. */
+  collections: FormCollection[];
+  /** AUTOMATED collections the product is in: read-only, computed by the server. */
+  automatedCollections: FormCollection[];
+};
+
 export type ProductForm = {
   active: boolean;
   translations: Record<string, ProductTranslation>;
   variants: FormVariant[];
+  organization: ProductOrganization;
 };
+
+export const MAX_VENDOR_LENGTH = 255;
 
 /** Field errors indexed by path (e.g. `variants.1.sku`). */
 export type ErrorMap = Record<string, FieldError['code']>;
@@ -37,12 +59,72 @@ const blankTranslation = (): ProductTranslation => ({
   description: '',
 });
 
+export function emptyOrganization(): ProductOrganization {
+  return {
+    vendor: '',
+    category: null,
+    productType: null,
+    tags: [],
+    collections: [],
+    automatedCollections: [],
+  };
+}
+
 export function emptyProductForm(localeCodes: string[]): ProductForm {
   return {
     active: true,
     translations: Object.fromEntries(localeCodes.map((code) => [code, blankTranslation()])),
     variants: [],
+    organization: emptyOrganization(),
   };
+}
+
+function organizationFromDetail(detail: ProductDetail): ProductOrganization {
+  const collections = detail.collections ?? [];
+  const pick = (type: 'MANUAL' | 'AUTOMATED') =>
+    collections.filter((c) => c.type === type).map(({ id, title }) => ({ id, title }));
+  return {
+    vendor: detail.vendor ?? '',
+    category:
+      detail.categoryId != null
+        ? {
+            id: detail.categoryId,
+            path: (detail.categoryPath ?? []).map((c) => c.name).join(' > '),
+          }
+        : null,
+    productType:
+      detail.productTypeId != null
+        ? { id: detail.productTypeId, name: detail.productTypeName ?? '' }
+        : null,
+    tags: (detail.tags ?? []).map(({ id, name }) => ({ id, name })),
+    collections: pick('MANUAL'),
+    automatedCollections: pick('AUTOMATED'),
+  };
+}
+
+/** Case- and spacing-insensitive key of a tag name. */
+const tagKey = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase();
+
+/**
+ * Adds a tag to the chosen ones: a picked suggestion (with id) or a typed name, which becomes the
+ * existing tag when it matches a suggestion. Blanks and names already chosen are ignored (the same
+ * array is returned).
+ */
+export function addTag(
+  chosen: FormTag[],
+  value: string | { id: number; name: string },
+  suggestions: { id: number; name: string }[]
+): FormTag[] {
+  const name = (typeof value === 'string' ? value : value.name).trim().replace(/\s+/g, ' ');
+  if (name === '') return chosen;
+  const key = tagKey(name);
+  if (typeof value !== 'string') {
+    if (chosen.some((tag) => tag.id === value.id || tagKey(tag.name) === key)) return chosen;
+    return [...chosen, { id: value.id, name: value.name }];
+  }
+  if (chosen.some((tag) => tagKey(tag.name) === key)) return chosen;
+  const existing = suggestions.find((s) => tagKey(s.name) === key);
+  return [...chosen, existing ? { id: existing.id, name: existing.name } : { name }];
 }
 
 export function productFormFromDetail(detail: ProductDetail, localeCodes: string[]): ProductForm {
@@ -68,11 +150,31 @@ export function productFormFromDetail(detail: ProductDetail, localeCodes: string
     ),
   }));
 
-  return { active: detail.active, translations, variants };
+  return { active: detail.active, translations, variants, organization: organizationFromDetail(detail) };
+}
+
+/**
+ * Every organization field is sent explicitly (empty = cleared). Tags go as ids and names together:
+ * names alone would replace the stored tags.
+ */
+function organizationInput(org: ProductOrganization): Partial<ProductInput> {
+  const vendor = org.vendor.trim();
+  const type = org.productType;
+  return {
+    vendor: vendor === '' ? null : vendor,
+    categoryId: org.category?.id ?? null,
+    ...(type && type.id === undefined
+      ? { productTypeName: type.name.trim() }
+      : { productTypeId: type?.id ?? null }),
+    tagIds: org.tags.filter((tag) => tag.id !== undefined).map((tag) => tag.id as number),
+    tagNames: org.tags.filter((tag) => tag.id === undefined).map((tag) => tag.name),
+    collectionIds: org.collections.map((c) => c.id),
+  };
 }
 
 export function buildProductInput(form: ProductForm): ProductInput {
   return {
+    ...organizationInput(form.organization),
     active: form.active,
     translations: Object.fromEntries(
       Object.entries(form.translations).map(([code, t]) => [
@@ -109,6 +211,9 @@ export function validateProductForm(form: ProductForm, defaultLocale: string): F
   if (form.variants.length === 0) {
     errors.push({ path: 'variants', code: 'min_variants' });
   }
+  if (form.organization.vendor.trim().length > MAX_VENDOR_LENGTH) {
+    errors.push({ path: 'vendor', code: 'too_long' });
+  }
   return errors;
 }
 
@@ -130,6 +235,28 @@ export function scopedErrors(map: ErrorMap, prefix: string): ErrorMap {
     if (path.startsWith(start)) scoped[path.slice(start.length)] = code;
   });
   return scoped;
+}
+
+/** Server paths of each organization field (per-item paths like `tagIds.1` included). */
+export type OrganizationField = 'vendor' | 'category' | 'productType' | 'tags' | 'collections';
+
+export const ORGANIZATION_ERROR_PATHS: Record<OrganizationField, string[]> = {
+  vendor: ['vendor'],
+  category: ['categoryId'],
+  productType: ['productTypeId', 'productTypeName'],
+  tags: ['tagIds', 'tagNames'],
+  collections: ['collectionIds'],
+};
+
+/** The first error code of an organization field, or undefined. */
+export function organizationError(
+  map: ErrorMap,
+  field: OrganizationField
+): FieldError['code'] | undefined {
+  const prefix = ORGANIZATION_ERROR_PATHS[field].find((p) => hasErrorsUnder(map, p));
+  if (!prefix) return undefined;
+  const path = Object.keys(map).find((p) => p === prefix || p.startsWith(`${prefix}.`));
+  return path ? map[path] : undefined;
 }
 
 export function hasErrorsUnder(map: ErrorMap, prefix: string): boolean {
