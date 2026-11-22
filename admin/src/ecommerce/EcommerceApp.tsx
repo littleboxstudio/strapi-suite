@@ -15,6 +15,7 @@ import { PromotionEditPage } from './pages/promotions/PromotionEditPage';
 import { CategoryListPage } from './pages/organization/CategoryListPage';
 import { CategoryEditPage } from './pages/organization/CategoryEditPage';
 import { CollectionListPage } from './pages/organization/CollectionListPage';
+import { CollectionEditPage } from './pages/organization/CollectionEditPage';
 import { TypesTagsPage } from './pages/organization/TypesTagsPage';
 
 const EcommerceApp = () => (
@@ -28,8 +29,8 @@ const EcommerceApp = () => (
       <Route path="categories/new" element={<CategoryEditPage />} />
       <Route path="categories/:id" element={<CategoryEditPage />} />
       <Route path="collections" element={<CollectionListPage />} />
-      <Route path="collections/new" element={<CollectionListPage />} />
-      <Route path="collections/:id" element={<CollectionListPage />} />
+      <Route path="collections/new" element={<CollectionEditPage />} />
+      <Route path="collections/:id" element={<CollectionEditPage />} />
       <Route path="types-tags" element={<TypesTagsPage />} />
       <Route path="orders" element={<OrderListPage />} />
       <Route path="orders/new" element={<OrderCreatePage />} />
