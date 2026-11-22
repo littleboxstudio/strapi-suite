@@ -45,6 +45,7 @@ const CollectionPreview = ({ input }: Props) => {
     lastKey.current = key;
     if (changed) debounce.current = true;
     if (changed && page !== 1) {
+      requestId.current++;
       setPage(1);
       return undefined;
     }
@@ -72,7 +73,11 @@ const CollectionPreview = ({ input }: Props) => {
       },
       debounce.current ? PREVIEW_DEBOUNCE_MS : 0
     );
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      // An answer for these conditions / this page arriving later is ignored.
+      requestId.current++;
+    };
   }, [key, page]);
 
   return (

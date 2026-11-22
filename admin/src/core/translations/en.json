@@ -2649,7 +2649,7 @@
   "littlebox-strapi-suite.ecommerce.organization.collection.conditions.fields.COMPARE_AT_PRICE": "Compare-at price",
   "littlebox-strapi-suite.ecommerce.organization.collection.conditions.fields.INVENTORY": "Inventory quantity",
   "littlebox-strapi-suite.ecommerce.organization.collection.recalculate": "Recalculate",
-  "littlebox-strapi-suite.ecommerce.organization.collection.recalculated": "Recalculated: {added} added, {removed} removed.",
+  "littlebox-strapi-suite.ecommerce.organization.collection.recalculated": "Recalculated: {added, plural, one {# product added} other {# products added}}, {removed, plural, one {# removed} other {# removed}}.",
   "littlebox-strapi-suite.ecommerce.organization.collection.recalculateError": "Could not recalculate the collection.",
   "littlebox-strapi-suite.ecommerce.organization.collection.preview.title": "Preview",
   "littlebox-strapi-suite.ecommerce.organization.collection.preview.count": "{count, plural, =0 {No products match} one {# product matches} other {# products match}}",
@@ -2692,5 +2692,6 @@
   "littlebox-strapi-suite.ecommerce.organization.collection.describe.fields.PRODUCT_TYPE.eq": "its type is {value}",
   "littlebox-strapi-suite.ecommerce.organization.collection.describe.fields.PRODUCT_TYPE.neq": "its type is not {value}",
   "littlebox-strapi-suite.ecommerce.organization.collection.describe.fields.TAG.eq": "it has the tag {value}",
-  "littlebox-strapi-suite.ecommerce.organization.collection.describe.fields.TAG.neq": "it does not have the tag {value}"
+  "littlebox-strapi-suite.ecommerce.organization.collection.describe.fields.TAG.neq": "it does not have the tag {value}",
+  "littlebox-strapi-suite.ecommerce.organization.collection.products.tooManyToReorder": "This collection has too many products to reorder here."
 }

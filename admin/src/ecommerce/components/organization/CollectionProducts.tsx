@@ -90,6 +90,8 @@ const CollectionProducts = ({ collectionId, manualSort, onCountChange }: Props) 
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  /** Fewer members loaded than the collection has: a reorder would not name them all. */
+  const [incomplete, setIncomplete] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -114,15 +116,18 @@ const CollectionProducts = ({ collectionId, manualSort, onCountChange }: Props) 
       const all: CollectionProductItem[] = [];
       let page = 1;
       let pageCount = 1;
+      let total = 0;
       do {
         const data = await new FetchCollectionProducts().execute(collectionId, { page });
         all.push(...(data.results ?? []));
         pageCount = data.pagination?.pageCount ?? 1;
+        total = data.pagination?.total ?? all.length;
         page += 1;
       } while (page <= pageCount && page <= MAX_PAGES);
       // The manual order, whatever the collection's sorting.
       const sorted = [...all].sort((a, b) => a.position - b.position);
       setMembers(sorted.map(({ productId, name, thumbnailUrl }) => ({ productId, name, thumbnailUrl })));
+      setIncomplete(all.length < total);
       setLoadError(false);
     } catch {
       setLoadError(true);
@@ -170,7 +175,11 @@ const CollectionProducts = ({ collectionId, manualSort, onCountChange }: Props) 
     const message = organizationErrorMessage(err);
     const issue = organizationIssues(err)[0];
     if (message) setError(t(message.id, message.values));
-    else if (issue?.code === 'not_permutation') setError(t('ecommerce.organization.errors.not_permutation'));
+    else if (issue?.code === 'not_permutation') {
+      // The list changed elsewhere: read it again so the next drag sends the current members.
+      setError(t('ecommerce.organization.errors.not_permutation'));
+      void load();
+    }
     else setError(t(fallback));
   };
 
@@ -256,7 +265,7 @@ const CollectionProducts = ({ collectionId, manualSort, onCountChange }: Props) 
     if (next && !sameOrder(next, members)) void saveOrder(next);
   };
 
-  const canDrag = members.length > 1 && !busy;
+  const canDrag = members.length > 1 && !busy && !incomplete;
   const hasContent = searching || searchError || searched || results.length > 0;
   const popoverOpen = open && !!term.trim() && hasContent;
 
@@ -442,7 +451,7 @@ const CollectionProducts = ({ collectionId, manualSort, onCountChange }: Props) 
 
       {!loading && members.length > 1 && (
         <Typography variant="pi" textColor="neutral600">
-          {t(`${p}.reorderHint`)}
+          {incomplete ? t(`${p}.tooManyToReorder`) : t(`${p}.reorderHint`)}
           {!manualSort && ` ${t(`${p}.orderNotUsed`)}`}
         </Typography>
       )}

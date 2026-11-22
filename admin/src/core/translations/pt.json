@@ -2381,7 +2381,7 @@
   "littlebox-strapi-suite.ecommerce.organization.collection.type.label": "Tipo de coleção",
   "littlebox-strapi-suite.ecommerce.organization.collection.type.MANUAL": "Manual",
   "littlebox-strapi-suite.ecommerce.organization.collection.type.AUTOMATED": "Automática",
-  "littlebox-strapi-suite.ecommerce.organization.collection.type.MANUAL.hint": "Escolhe os produtos e a sua ordem.",
+  "littlebox-strapi-suite.ecommerce.organization.collection.type.MANUAL.hint": "Escolha os produtos e a sua ordem.",
   "littlebox-strapi-suite.ecommerce.organization.collection.type.AUTOMATED.hint": "Os produtos que cumprem as condições são adicionados e removidos automaticamente.",
   "littlebox-strapi-suite.ecommerce.organization.collection.type.fixed": "O tipo não pode ser alterado depois de a coleção ser criada.",
   "littlebox-strapi-suite.ecommerce.organization.collection.products.search": "Pesquisar produtos para adicionar",
@@ -2433,7 +2433,7 @@
   "littlebox-strapi-suite.ecommerce.organization.collection.conditions.fields.COMPARE_AT_PRICE": "Preço de comparação",
   "littlebox-strapi-suite.ecommerce.organization.collection.conditions.fields.INVENTORY": "Quantidade em stock",
   "littlebox-strapi-suite.ecommerce.organization.collection.recalculate": "Recalcular",
-  "littlebox-strapi-suite.ecommerce.organization.collection.recalculated": "Recalculada: {added} adicionados, {removed} removidos.",
+  "littlebox-strapi-suite.ecommerce.organization.collection.recalculated": "Recalculada: {added, plural, one {# produto adicionado} other {# produtos adicionados}}, {removed, plural, one {# removido} other {# removidos}}.",
   "littlebox-strapi-suite.ecommerce.organization.collection.recalculateError": "Não foi possível recalcular a coleção.",
   "littlebox-strapi-suite.ecommerce.organization.collection.preview.title": "Pré-visualização",
   "littlebox-strapi-suite.ecommerce.organization.collection.preview.count": "{count, plural, =0 {Nenhum produto corresponde} one {# produto corresponde} other {# produtos correspondem}}",
@@ -2476,5 +2476,6 @@
   "littlebox-strapi-suite.ecommerce.organization.collection.describe.fields.PRODUCT_TYPE.eq": "o tipo é {value}",
   "littlebox-strapi-suite.ecommerce.organization.collection.describe.fields.PRODUCT_TYPE.neq": "o tipo não é {value}",
   "littlebox-strapi-suite.ecommerce.organization.collection.describe.fields.TAG.eq": "tem a tag {value}",
-  "littlebox-strapi-suite.ecommerce.organization.collection.describe.fields.TAG.neq": "não tem a tag {value}"
+  "littlebox-strapi-suite.ecommerce.organization.collection.describe.fields.TAG.neq": "não tem a tag {value}",
+  "littlebox-strapi-suite.ecommerce.organization.collection.products.tooManyToReorder": "Esta coleção tem demasiados produtos para os reordenar aqui."
 }

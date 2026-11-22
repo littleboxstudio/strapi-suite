@@ -335,3 +335,17 @@ describe('describeCollectionConditions', () => {
     );
   });
 });
+
+describe('collection texts', () => {
+  const R = 'ecommerce.organization.collection.recalculated';
+  it('recalculate result uses plurals', () => {
+    expect(tEn(R, { added: 1, removed: 0 })).toBe('Recalculated: 1 product added, 0 removed.');
+    expect(tEn(R, { added: 3, removed: 1 })).toBe('Recalculated: 3 products added, 1 removed.');
+    expect(tPt(R, { added: 1, removed: 2 })).toBe('Recalculada: 1 produto adicionado, 2 removidos.');
+    expect(tPt(R, { added: 0, removed: 1 })).toBe('Recalculada: 0 produtos adicionados, 1 removido.');
+  });
+
+  it('the manual type hint uses the formal register in pt', () => {
+    expect(tPt('ecommerce.organization.collection.type.MANUAL.hint', {})).toBe('Escolha os produtos e a sua ordem.');
+  });
+});
