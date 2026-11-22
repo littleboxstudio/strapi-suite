@@ -33,6 +33,7 @@ import EcommercePromotionService from './modules/ecommerce/promotions';
 import EcommerceStorefrontCatalogService from './modules/ecommerce/storefrontCatalog';
 import EcommerceStorefrontSessionService from './modules/ecommerce/storefrontSessions';
 import EcommerceStorefrontCheckoutService from './modules/ecommerce/storefrontCheckout';
+import EcommerceOrganizationService from './modules/ecommerce/organization';
 
 export default {
   SettingAppService,
@@ -70,4 +71,5 @@ export default {
   EcommerceStorefrontCatalogService,
   EcommerceStorefrontSessionService,
   EcommerceStorefrontCheckoutService,
+  EcommerceOrganizationService,
 };

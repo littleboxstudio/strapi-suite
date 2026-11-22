@@ -6,6 +6,7 @@ import ecommerceRefundRoutes from './ecommerce/admin-refunds';
 import ecommerceFulfillmentRoutes from './ecommerce/admin-fulfillment';
 import ecommerceInvoiceRoutes from './ecommerce/admin-invoices';
 import ecommercePromotionRoutes from './ecommerce/admin-promotions';
+import ecommerceOrganizationRoutes from './ecommerce/admin-organization';
 
 export default [
   {
@@ -232,4 +233,5 @@ export default [
   ...ecommerceFulfillmentRoutes,
   ...ecommerceInvoiceRoutes,
   ...ecommercePromotionRoutes,
+  ...ecommerceOrganizationRoutes,
 ];
