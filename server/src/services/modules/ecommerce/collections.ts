@@ -439,20 +439,27 @@ const EcommerceCollectionService = ({ strapi }: { strapi: Core.Strapi }) => {
       const page = pageOf(params.page);
       const defaultLocale = await getDefaultLocale();
       const locale = params.locale || defaultLocale;
+      // Every member, with only what sorting needs; images are read for the page alone.
       const rows: any[] = await strapi.db.query(uids().collectionProduct).findMany({
         where: { collection: { id } },
+        select: ['id', 'position'],
         populate: {
-          product: { populate: { translations: true, images: true, variants: { populate: { images: true } } } },
+          product: {
+            select: ['id'],
+            populate: {
+              translations: { select: ['locale', 'name'] },
+              variants: { select: ['active', 'price', 'position'] },
+            },
+          },
         },
       });
       const members = rows.filter((r) => r.product);
       const sold = await unitsSold(members.map((r) => r.product.id));
       const entries = members.map((r) => {
         const p = r.product;
-        const variants: any[] = [...(p.variants ?? [])].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+        const variants: any[] = p.variants ?? [];
         const active = variants.filter((v) => v.active !== false);
         const prices = (active.length ? active : variants).map((v) => v.price ?? 0);
-        const thumb = galleryCover(p.images) ?? variants.map((v) => galleryCover(v.images)).find(Boolean) ?? null;
         return {
           id: p.id as number,
           name: pick(p.translations, locale, defaultLocale, 'name'),
@@ -460,15 +467,38 @@ const EcommerceCollectionService = ({ strapi }: { strapi: Core.Strapi }) => {
           priceMax: prices.length ? Math.max(...prices) : 0,
           unitsSold: sold.get(p.id) ?? 0,
           position: r.position ?? 0,
-          thumbnailUrl: (thumb as any)?.url ?? null,
         };
       });
       const sortOrder: CollectionSort =
         collection.sortOrder ?? (collection.type === 'AUTOMATED' ? 'NEWEST' : 'MANUAL');
       const sorted = sortEntries(entries, sortOrder, locale);
-      const results: CollectionProductItem[] = sorted
-        .slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
-        .map((e) => ({ productId: e.id, name: e.name, thumbnailUrl: e.thumbnailUrl, position: e.position }));
+      const pageEntries = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+      const withImages: any[] = pageEntries.length
+        ? await strapi.db.query(uids().product).findMany({
+            where: { id: { $in: pageEntries.map((e) => e.id) } },
+            select: ['id'],
+            populate: {
+              images: true,
+              variants: { select: ['id', 'position'], populate: { images: true } },
+            },
+          })
+        : [];
+      const thumbnails = new Map<number, string | null>(
+        withImages.map((p) => {
+          const variants: any[] = [...(p.variants ?? [])].sort(
+            (a, b) => (a.position ?? 0) - (b.position ?? 0) || a.id - b.id
+          );
+          const thumb = galleryCover(p.images) ?? variants.map((v) => galleryCover(v.images)).find(Boolean) ?? null;
+          return [p.id, (thumb as any)?.url ?? null];
+        })
+      );
+      const results: CollectionProductItem[] = pageEntries.map((e) => ({
+        productId: e.id,
+        name: e.name,
+        thumbnailUrl: thumbnails.get(e.id) ?? null,
+        position: e.position,
+      }));
       return { results, pagination: paginate(page, sorted.length) };
     },
 

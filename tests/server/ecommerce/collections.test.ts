@@ -359,6 +359,43 @@ describe('EcommerceCollectionService — manual members', () => {
   });
 });
 
+describe('EcommerceCollectionService — member list pagination', () => {
+  it('a 2nd page answers the right items and loads images only for that page', async () => {
+    const s = setup();
+    const ids: number[] = [];
+    for (let i = 0; i < 52; i += 1) ids.push(await s.product(`P${String(i).padStart(2, '0')}`));
+    await s.q(UIDS.image).create({ data: { product: ids[51], url: '/last.jpg', position: 0 } });
+    const { id } = await s.service.create(manual('Big', { sortOrder: 'TITLE_DESC' }));
+    await s.service.addProducts(id, ids.slice(0, 50));
+    await s.service.addProducts(id, ids.slice(50));
+
+    const imageLoads: any[] = [];
+    const original = s.strapi.db.query;
+    s.strapi.db.query = (uid: string) => {
+      const q = original(uid);
+      const spy = (method: 'findMany' | 'findOne') => async (p: any = {}) => {
+        const pop = JSON.stringify(p.populate ?? {});
+        if (pop.includes('images')) imageLoads.push({ uid, where: p.where });
+        return q[method](p);
+      };
+      return { ...q, findMany: spy('findMany'), findOne: spy('findOne') };
+    };
+
+    // TITLE_DESC: P51, P50, ... P00 — page 2 holds P01 and P00.
+    const second = await s.service.listProducts(id, { page: 2 });
+    expect(second.results).toEqual([
+      { productId: ids[1], name: 'P01', thumbnailUrl: null, position: 1 },
+      { productId: ids[0], name: 'P00', thumbnailUrl: null, position: 0 },
+    ]);
+    expect(second.pagination).toEqual({ page: 2, pageSize: 50, total: 52, pageCount: 2 });
+    expect(imageLoads).toEqual([{ uid: UIDS.product, where: { id: { $in: [ids[1], ids[0]] } } }]);
+
+    const first = await s.service.listProducts(id, { page: 1 });
+    expect(first.results[0]).toEqual({ productId: ids[51], name: 'P51', thumbnailUrl: '/last.jpg', position: 51 });
+    expect(first.results).toHaveLength(50);
+  });
+});
+
 describe('EcommerceCollectionService — bulk product actions', () => {
   it('addTag on 3 products links the tag once each, and syncs the changed products', async () => {
     const s = setup();
