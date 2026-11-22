@@ -38,11 +38,19 @@ const EcommerceProductController = ({ strapi }: { strapi: Core.Strapi }) => {
     },
 
     async list(ctx: any) {
-      const { page, search, locale } = ctx.query || {};
+      const { page, search, locale, vendor } = ctx.query || {};
+      const filters: Record<string, number | string> = {};
+      for (const key of ['categoryId', 'productTypeId', 'tagId', 'collectionId']) {
+        const raw = ctx.query?.[key];
+        const n = typeof raw === 'string' && /^\d+$/.test(raw) ? Number(raw) : NaN;
+        if (Number.isSafeInteger(n) && n > 0) filters[key] = n;
+      }
+      if (typeof vendor === 'string' && vendor.trim()) filters.vendor = vendor;
       ctx.body = await products().list({
         page: Number(page) || 1,
         search: typeof search === 'string' ? search : undefined,
         locale: typeof locale === 'string' ? locale : undefined,
+        ...filters,
       });
     },
 

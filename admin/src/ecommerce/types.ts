@@ -18,6 +18,8 @@ export type VariantInput = {
   height: number;
   depth: number;
   active: boolean;
+  /** The "was" price in cents; when set it must be above `price`. Omitted = unchanged. */
+  compareAtPrice?: number | null;
   translations: Record<string, { option: string }>;
 };
 
@@ -28,6 +30,25 @@ export type ProductInput = {
     { name: string; slug?: string; shortDescription?: string; description: string }
   >;
   variants: VariantInput[];
+  // Organization fields: omitted = unchanged on update (empty on create); null clears.
+  vendor?: string | null;
+  categoryId?: number | null;
+  productTypeId?: number | null;
+  /** Used only when `productTypeId` is absent: reused by name or created. */
+  productTypeName?: string | null;
+  tagIds?: number[];
+  /** Reused by name or created; merged with `tagIds`. */
+  tagNames?: string[];
+  /** The full set of MANUAL collections. */
+  collectionIds?: number[];
+};
+
+export type ProductListFilters = {
+  categoryId?: number;
+  productTypeId?: number;
+  tagId?: number;
+  vendor?: string;
+  collectionId?: number;
 };
 
 export type FieldError = {
@@ -40,7 +61,11 @@ export type FieldError = {
     | 'out_of_range'
     | 'VARIANT_IN_ORDERS'
     | 'PRODUCT_IN_ORDERS'
-    | 'STOCK_CHANGED';
+    | 'STOCK_CHANGED'
+    | 'compare_at_not_above_price'
+    | 'too_long'
+    | 'unknown'
+    | 'automated_collection';
 };
 
 export type ImageRecord = {
@@ -68,12 +93,29 @@ export type ProductListItem = {
   active: boolean;
 };
 
-export type ProductDetail = Omit<ProductInput, 'variants'> & {
+export type ProductDetail = Omit<
+  ProductInput,
+  'variants' | 'vendor' | 'categoryId' | 'productTypeId' | 'productTypeName' | 'tagIds' | 'tagNames' | 'collectionIds'
+> & {
   id: number;
   images: ImageRecord[];
   /** False once the product is in any order: it can only be deactivated. */
   deletable: boolean;
-  variants: (VariantInput & { id: number; images: ImageRecord[]; deletable: boolean })[];
+  vendor: string | null;
+  categoryId: number | null;
+  /** Root first, names in the default locale. */
+  categoryPath: { id: number; name: string }[];
+  productTypeId: number | null;
+  productTypeName: string | null;
+  tags: { id: number; name: string }[];
+  /** Manual and automated collections the product is in. */
+  collections: { id: number; title: string; type: 'MANUAL' | 'AUTOMATED' }[];
+  variants: (VariantInput & {
+    id: number;
+    images: ImageRecord[];
+    deletable: boolean;
+    compareAtPrice: number | null;
+  })[];
 };
 
 export type EcommerceLocales = {

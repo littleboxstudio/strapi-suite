@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { EcommerceValidationError, EcommerceNotFoundError } from '../../../server/src/services/modules/ecommerce/errors';
 import EcommerceProductService from '../../../server/src/services/modules/ecommerce/products';
 import EcommerceStockService from '../../../server/src/services/modules/ecommerce/stock';
+import EcommerceOrganizationService from '../../../server/src/services/modules/ecommerce/organization';
 import { createFakeDb, type FakeRelations } from './helpers/fakeDb';
 
 const P = 'plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-';
@@ -14,6 +15,15 @@ const UIDS = {
   stockMovement: `${P}stock-movement`,
   order: `${P}order`,
   orderLine: `${P}order-line`,
+  category: `${P}product-category`,
+  categoryTranslation: `${P}product-category-translation`,
+  productType: `${P}product-type`,
+  productTypeTranslation: `${P}product-type-translation`,
+  tag: `${P}product-tag`,
+  tagTranslation: `${P}product-tag-translation`,
+  collection: `${P}collection`,
+  collectionTranslation: `${P}collection-translation`,
+  collectionProduct: `${P}collection-product`,
 };
 
 // relation name -> [target uid, foreign key on target]
@@ -22,23 +32,52 @@ const RELATIONS: FakeRelations = {
     translations: [UIDS.productTranslation, 'product'],
     variants: [UIDS.variant, 'product'],
     images: [UIDS.image, 'product'],
+    category: [UIDS.category, 'category', 'manyToOne'],
+    productType: [UIDS.productType, 'productType', 'manyToOne'],
+    tags: [UIDS.tag, 'product_tags', 'manyToMany'],
+    collectionMembers: [UIDS.collectionProduct, 'product'],
   },
   [UIDS.variant]: {
+    product: [UIDS.product, 'product', 'manyToOne'],
     translations: [UIDS.variantTranslation, 'variant'],
     images: [UIDS.image, 'variant'],
   },
   [UIDS.orderLine]: { order: [UIDS.order, 'order', 'manyToOne'] },
+  [UIDS.category]: {
+    parent: [UIDS.category, 'parent', 'manyToOne'],
+    children: [UIDS.category, 'parent'],
+    translations: [UIDS.categoryTranslation, 'category'],
+    products: [UIDS.product, 'category'],
+  },
+  [UIDS.productType]: {
+    translations: [UIDS.productTypeTranslation, 'productType'],
+    products: [UIDS.product, 'productType'],
+  },
+  [UIDS.tag]: {
+    translations: [UIDS.tagTranslation, 'tag'],
+    products: [UIDS.product, 'product_tags', 'manyToMany'],
+  },
+  [UIDS.collection]: {
+    translations: [UIDS.collectionTranslation, 'collection'],
+    members: [UIDS.collectionProduct, 'collection'],
+  },
+  [UIDS.collectionProduct]: {
+    collection: [UIDS.collection, 'collection', 'manyToOne'],
+    product: [UIDS.product, 'product', 'manyToOne'],
+  },
 };
 
 function makeStrapi() {
   const { tables, query, transaction, connection, metadata } = createFakeDb(
     Object.values(UIDS),
     RELATIONS,
-    { enforceUnique: [UIDS.stockMovement, UIDS.variant] }
+    { enforceUnique: [UIDS.stockMovement, UIDS.variant, UIDS.productType, UIDS.tag, UIDS.collectionProduct] }
   );
 
   const imageService = { remove: vi.fn(), removeFiles: vi.fn(async (_rows: any[]) => undefined) };
+  const collectionService = { syncProducts: vi.fn(async (_ids: number[]) => undefined) };
   let stockService: any;
+  let organizationService: any;
 
   const strapi: any = {
     db: { query, transaction, connection, metadata },
@@ -56,11 +95,28 @@ function makeStrapi() {
           }
         : {
             service: (name: string) =>
-              name === 'EcommerceStockService' ? stockService : imageService,
+              name === 'EcommerceStockService'
+                ? stockService
+                : name === 'EcommerceOrganizationService'
+                  ? organizationService
+                  : name === 'EcommerceCollectionService'
+                    ? collectionService
+                    : imageService,
           },
+    log: { warn: vi.fn() },
   };
   stockService = EcommerceStockService({ strapi });
-  return { service: EcommerceProductService({ strapi }), tables, imageService, transaction };
+  organizationService = EcommerceOrganizationService({ strapi });
+  return {
+    service: EcommerceProductService({ strapi }),
+    tables,
+    imageService,
+    collectionService,
+    organizationService,
+    transaction,
+    query,
+    strapi,
+  };
 }
 
 const variant = (sku: string, extra: any = {}) => ({
@@ -583,5 +639,285 @@ describe('EcommerceProductService — setVariantActive', () => {
   it('is a not-found error for an unknown variant', async () => {
     const { service } = makeStrapi();
     await expect(service.setVariantActive(404, true)).rejects.toBeInstanceOf(EcommerceNotFoundError);
+  });
+});
+
+describe('EcommerceProductService — organization', () => {
+  const setupOrg = async () => {
+    const env = makeStrapi();
+    const { query } = env;
+    const addCategory = async (name: string, parent: number | null, pt?: string) => {
+      const c = await query(UIDS.category).create({ data: { parent, position: 0, active: true } });
+      await query(UIDS.categoryTranslation).create({
+        data: { category: c.id, locale: 'en', name, slug: name.toLowerCase() },
+      });
+      if (pt) {
+        await query(UIDS.categoryTranslation).create({
+          data: { category: c.id, locale: 'pt', name: pt, slug: pt.toLowerCase() },
+        });
+      }
+      return c.id as number;
+    };
+    const addCollection = async (title: string, type: 'MANUAL' | 'AUTOMATED') => {
+      const c = await query(UIDS.collection).create({
+        data: { type, match: 'ALL', sortOrder: type === 'MANUAL' ? 'MANUAL' : 'NEWEST', active: true, conditions: [] },
+      });
+      await query(UIDS.collectionTranslation).create({
+        data: { collection: c.id, locale: 'en', title, handle: title.toLowerCase() },
+      });
+      return c.id as number;
+    };
+    const clothing = await addCategory('Clothing', null, 'Roupa');
+    const shirts = await addCategory('Shirts', clothing);
+    const linen = await addCategory('Linen', shirts);
+    const shirtType = await env.organizationService.ensureProductType('Shirt');
+    const [summer, sale] = await env.organizationService.ensureTags(['Summer', 'Sale']);
+    return { ...env, addCategory, addCollection, clothing, shirts, linen, shirtType, summer, sale };
+  };
+
+  const errorsOf = async (p: Promise<unknown>) => {
+    const err: any = await p.catch((e) => e);
+    expect(err).toBeInstanceOf(EcommerceValidationError);
+    return err.errors;
+  };
+
+  it('persists vendor, category, type, tags and compare-at price; get() returns them', async () => {
+    const s = await setupOrg();
+    const { id } = await s.service.create(
+      input('Linen shirt', [variant('LS-1', { compareAtPrice: 1500 })], {
+        vendor: '  ACME  ',
+        categoryId: s.linen,
+        productTypeId: s.shirtType,
+        tagIds: [s.summer, s.sale, s.summer],
+      })
+    );
+    const detail = await s.service.get(id);
+    expect(detail).toMatchObject({
+      vendor: 'ACME',
+      categoryId: s.linen,
+      categoryPath: [
+        { id: s.clothing, name: 'Clothing' },
+        { id: s.shirts, name: 'Shirts' },
+        { id: s.linen, name: 'Linen' },
+      ],
+      productTypeId: s.shirtType,
+      productTypeName: 'Shirt',
+      collections: [],
+    });
+    expect(detail.tags).toEqual([
+      { id: s.summer, name: 'Summer' },
+      { id: s.sale, name: 'Sale' },
+    ]);
+    expect(detail.variants[0].compareAtPrice).toBe(1500);
+  });
+
+  it('a product without organization reads as empty', async () => {
+    const s = await setupOrg();
+    const { id } = await s.service.create(input());
+    expect(await s.service.get(id)).toMatchObject({
+      vendor: null,
+      categoryId: null,
+      categoryPath: [],
+      productTypeId: null,
+      productTypeName: null,
+      tags: [],
+      collections: [],
+    });
+    expect((await s.service.get(id)).variants[0].compareAtPrice).toBeNull();
+  });
+
+  it('omitted fields keep the stored values on update; null clears them', async () => {
+    const s = await setupOrg();
+    const { id } = await s.service.create(
+      input('A', [variant('A-1')], { vendor: 'ACME', categoryId: s.shirts, productTypeId: s.shirtType, tagIds: [s.sale] })
+    );
+    const v = (await s.service.get(id)).variants[0];
+    await s.service.update(id, input('A', [variant('A-1', { id: v.id })]));
+    expect(await s.service.get(id)).toMatchObject({
+      vendor: 'ACME',
+      categoryId: s.shirts,
+      productTypeId: s.shirtType,
+      tags: [{ id: s.sale, name: 'Sale' }],
+    });
+    await s.service.update(
+      id,
+      input('A', [variant('A-1', { id: v.id })], { vendor: null, categoryId: null, productTypeId: null, tagIds: [] })
+    );
+    expect(await s.service.get(id)).toMatchObject({
+      vendor: null,
+      categoryId: null,
+      productTypeId: null,
+      tags: [],
+    });
+  });
+
+  it('resolves productTypeName and tagNames by name key, creating missing ones; the id wins over the name', async () => {
+    const s = await setupOrg();
+    const { id } = await s.service.create(
+      input('A', [variant('A-1')], { productTypeName: '  shirt ', tagNames: ['SUMMER', 'New in', 'new  in'], tagIds: [s.sale] })
+    );
+    const d = await s.service.get(id);
+    expect(d.productTypeId).toBe(s.shirtType);
+    expect(d.tags.map((t) => t.name).sort()).toEqual(['New in', 'Sale', 'Summer']);
+    expect(s.tables[UIDS.tag]).toHaveLength(3);
+
+    const other = await s.organizationService.ensureProductType('Gift card');
+    const { id: id2 } = await s.service.create(
+      input('B', [variant('B-1')], { productTypeId: other, productTypeName: 'Mug' })
+    );
+    expect((await s.service.get(id2)).productTypeId).toBe(other);
+    expect(s.tables[UIDS.productType]).toHaveLength(2);
+  });
+
+  it('refuses unknown category, type, tag and collection ids', async () => {
+    const s = await setupOrg();
+    const errors = await errorsOf(
+      s.service.create(input('A', [variant('A-1')], { categoryId: 999, productTypeId: 998, tagIds: [s.sale, 997], collectionIds: [996] }))
+    );
+    expect(errors).toEqual(
+      expect.arrayContaining([
+        { path: 'categoryId', code: 'unknown' },
+        { path: 'productTypeId', code: 'unknown' },
+        { path: 'tagIds.1', code: 'unknown' },
+        { path: 'collectionIds.0', code: 'unknown' },
+      ])
+    );
+    expect(s.tables[UIDS.product]).toHaveLength(0);
+  });
+
+  it('refuses an automated collection in collectionIds', async () => {
+    const s = await setupOrg();
+    const auto = await s.addCollection('Sale', 'AUTOMATED');
+    const errors = await errorsOf(s.service.create(input('A', [variant('A-1')], { collectionIds: [auto] })));
+    expect(errors).toEqual([{ path: 'collectionIds.0', code: 'automated_collection' }]);
+  });
+
+  it('refuses a compare-at price not above the price', async () => {
+    const s = await setupOrg();
+    const errors = await errorsOf(s.service.create(input('A', [variant('A-1', { compareAtPrice: 1000 })])));
+    expect(errors).toEqual([{ path: 'variants.0.compareAtPrice', code: 'compare_at_not_above_price' }]);
+  });
+
+  it('an omitted compare-at price keeps the stored one, which must stay above a changed price', async () => {
+    const s = await setupOrg();
+    const { id } = await s.service.create(input('A', [variant('A-1', { compareAtPrice: 1500 })]));
+    const v = (await s.service.get(id)).variants[0];
+    const { compareAtPrice: _omit, ...withoutCap } = variant('A-1', { id: v.id, price: 1200 });
+    await s.service.update(id, input('A', [withoutCap]));
+    expect((await s.service.get(id)).variants[0]).toMatchObject({ price: 1200, compareAtPrice: 1500 });
+    const errors = await errorsOf(s.service.update(id, input('A', [{ ...withoutCap, price: 1500 }])));
+    expect(errors).toEqual([{ path: 'variants.0.compareAtPrice', code: 'compare_at_not_above_price' }]);
+    await s.service.update(id, input('A', [{ ...withoutCap, compareAtPrice: null }]));
+    expect((await s.service.get(id)).variants[0].compareAtPrice).toBeNull();
+  });
+
+  it('collectionIds sets the manual memberships (position max+1, uniqueKey), leaving automated ones alone', async () => {
+    const s = await setupOrg();
+    const summerCol = await s.addCollection('Summer', 'MANUAL');
+    const gifts = await s.addCollection('Gifts', 'MANUAL');
+    const auto = await s.addCollection('Auto', 'AUTOMATED');
+    const { id: first } = await s.service.create(input('First', [variant('F-1')], { collectionIds: [summerCol] }));
+    const { id } = await s.service.create(input('A', [variant('A-1')], { collectionIds: [summerCol, gifts] }));
+    // An automated membership computed elsewhere.
+    await s.query(UIDS.collectionProduct).create({
+      data: { collection: auto, product: id, position: 0, uniqueKey: `${auto}:${id}` },
+    });
+
+    const rows = () =>
+      s.tables[UIDS.collectionProduct]
+        .filter((r: any) => r.product === id)
+        .map((r: any) => ({ collection: r.collection, position: r.position, uniqueKey: r.uniqueKey }));
+    expect(rows()).toEqual([
+      { collection: summerCol, position: 1, uniqueKey: `${summerCol}:${id}` },
+      { collection: gifts, position: 0, uniqueKey: `${gifts}:${id}` },
+      { collection: auto, position: 0, uniqueKey: `${auto}:${id}` },
+    ]);
+    expect(s.tables[UIDS.collectionProduct].find((r: any) => r.product === first)).toMatchObject({ position: 0 });
+
+    const d = await s.service.get(id);
+    expect(d.collections).toEqual([
+      { id: summerCol, title: 'Summer', type: 'MANUAL' },
+      { id: gifts, title: 'Gifts', type: 'MANUAL' },
+      { id: auto, title: 'Auto', type: 'AUTOMATED' },
+    ]);
+
+    const v = d.variants[0];
+    await s.service.update(id, input('A', [variant('A-1', { id: v.id })], { collectionIds: [gifts] }));
+    expect(rows()).toEqual([
+      { collection: gifts, position: 0, uniqueKey: `${gifts}:${id}` },
+      { collection: auto, position: 0, uniqueKey: `${auto}:${id}` },
+    ]);
+    // Omitted: unchanged.
+    await s.service.update(id, input('A', [variant('A-1', { id: v.id })]));
+    expect(rows()).toHaveLength(2);
+  });
+
+  it('delete removes the product\'s collection memberships', async () => {
+    const s = await setupOrg();
+    const col = await s.addCollection('Summer', 'MANUAL');
+    const { id } = await s.service.create(input('A', [variant('A-1')], { collectionIds: [col] }));
+    await s.service.delete(id);
+    expect(s.tables[UIDS.collectionProduct]).toHaveLength(0);
+  });
+
+  it('list filters by category subtree, type, tag, vendor (exact, case-insensitive) and collection', async () => {
+    const s = await setupOrg();
+    const col = await s.addCollection('Summer', 'MANUAL');
+    const { id: a } = await s.service.create(
+      input('A', [variant('A-1')], { categoryId: s.linen, vendor: 'acme', tagIds: [s.summer], collectionIds: [col] })
+    );
+    const { id: b } = await s.service.create(
+      input('B', [variant('B-1')], { categoryId: s.shirts, vendor: 'ACME Corp', productTypeId: s.shirtType })
+    );
+    const { id: c } = await s.service.create(input('C', [variant('C-1')], { vendor: 'Other', tagIds: [s.sale] }));
+    const ids = async (filters: any) => (await s.service.list({ page: 1, ...filters })).results.map((r: any) => r.id);
+
+    expect(await ids({ categoryId: s.clothing })).toEqual([b, a]);
+    expect(await ids({ categoryId: s.linen })).toEqual([a]);
+    expect(await ids({ productTypeId: s.shirtType })).toEqual([b]);
+    expect(await ids({ tagId: s.summer })).toEqual([a]);
+    expect(await ids({ tagId: s.sale })).toEqual([c]);
+    expect(await ids({ vendor: 'ACME' })).toEqual([a]);
+    expect(await ids({ vendor: ' other ' })).toEqual([c]);
+    expect(await ids({ collectionId: col })).toEqual([a]);
+    expect(await ids({ categoryId: s.clothing, vendor: 'acme corp' })).toEqual([b]);
+    const vendorPage = await s.service.list({ page: 1, vendor: 'ACME' });
+    expect(vendorPage.pagination.total).toBe(1);
+  });
+
+  it('list vendor filter keeps pagination correct', async () => {
+    const s = await setupOrg();
+    for (let i = 0; i < 60; i += 1) {
+      await s.service.create(input(`P${i}`, [variant(`S-${i}`)], { vendor: i % 2 ? 'ACME' : 'ACME Corp' }));
+    }
+    const p1 = await s.service.list({ page: 1, vendor: 'acme' });
+    const p2 = await s.service.list({ page: 2, vendor: 'acme' });
+    expect(p1.pagination).toEqual({ page: 1, pageSize: 50, total: 30, pageCount: 1 });
+    expect(p1.results).toHaveLength(30);
+    expect(p2.results).toHaveLength(0);
+  });
+
+  it('calls the collection sync with [id] after create, update, setActive, setVariantActive and delete', async () => {
+    const s = await setupOrg();
+    const { id } = await s.service.create(input());
+    expect(s.collectionService.syncProducts).toHaveBeenLastCalledWith([id]);
+    const v = (await s.service.get(id)).variants[0];
+    s.collectionService.syncProducts.mockClear();
+    await s.service.update(id, input('Camisa', [variant('CAM-P-M', { id: v.id })]));
+    await s.service.setActive(id, false);
+    await s.service.setVariantActive(v.id, false);
+    await s.service.delete(id);
+    expect(s.collectionService.syncProducts.mock.calls).toEqual([[[id]], [[id]], [[id]], [[id]]]);
+  });
+
+  it('does not call the sync when the save fails, and a sync failure does not fail the save', async () => {
+    const s = await setupOrg();
+    await s.service.create(input('A', [variant('A-1', { compareAtPrice: 10 })])).catch(() => undefined);
+    expect(s.collectionService.syncProducts).not.toHaveBeenCalled();
+    s.collectionService.syncProducts.mockRejectedValueOnce(Object.assign(new Error('boom secret'), { name: 'SyncError' }));
+    const { id } = await s.service.create(input());
+    expect(id).toBeGreaterThan(0);
+    expect(s.strapi.log.warn).toHaveBeenCalledWith(expect.stringContaining('SyncError'));
+    expect(s.strapi.log.warn).not.toHaveBeenCalledWith(expect.stringContaining('boom secret'));
   });
 });

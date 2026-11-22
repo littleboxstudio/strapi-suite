@@ -157,3 +157,59 @@ describe('validateProductInput', () => {
     expect(withDescription).toEqual([{ path: 'translations.pt.name', code: 'required' }]);
   });
 });
+
+describe('validateProductInput — organization fields', () => {
+  const codesAt = (input: ProductInput, path: string) =>
+    validateProductInput(input, 'en')
+      .filter((e) => e.path === path)
+      .map((e) => e.code);
+
+  it('refuses a compare-at price equal to the price', () => {
+    expect(codesAt(product({ variants: [variant({ compareAtPrice: 1000 })] }), 'variants.0.compareAtPrice')).toEqual([
+      'compare_at_not_above_price',
+    ]);
+  });
+
+  it('refuses a compare-at price below the price', () => {
+    expect(codesAt(product({ variants: [variant({ compareAtPrice: 999 })] }), 'variants.0.compareAtPrice')).toEqual([
+      'compare_at_not_above_price',
+    ]);
+  });
+
+  it('accepts a compare-at price above the price, null or absent', () => {
+    expect(validateProductInput(product({ variants: [variant({ compareAtPrice: 1500 })] }), 'en')).toEqual([]);
+    expect(validateProductInput(product({ variants: [variant({ compareAtPrice: null })] }), 'en')).toEqual([]);
+    expect(validateProductInput(product(), 'en')).toEqual([]);
+  });
+
+  it('refuses a non-integer or negative compare-at price', () => {
+    expect(codesAt(product({ variants: [variant({ compareAtPrice: 1500.5 })] }), 'variants.0.compareAtPrice')).toEqual([
+      'invalid_number',
+    ]);
+    expect(
+      codesAt(product({ variants: [variant({ compareAtPrice: 'x' as any })] }), 'variants.0.compareAtPrice')
+    ).toEqual(['invalid_number']);
+  });
+
+  it('refuses a vendor longer than 255 characters (after trimming)', () => {
+    expect(codesAt(product({ vendor: 'a'.repeat(256) }), 'vendor')).toEqual(['too_long']);
+    expect(validateProductInput(product({ vendor: ` ${'a'.repeat(255)} ` }), 'en')).toEqual([]);
+    expect(validateProductInput(product({ vendor: null }), 'en')).toEqual([]);
+  });
+
+  it('refuses malformed organization ids as unknown', () => {
+    expect(codesAt(product({ categoryId: 0 }), 'categoryId')).toEqual(['unknown']);
+    expect(codesAt(product({ productTypeId: 'x' as any }), 'productTypeId')).toEqual(['unknown']);
+    expect(codesAt(product({ tagIds: [1, -2] }), 'tagIds.1')).toEqual(['unknown']);
+    expect(codesAt(product({ collectionIds: [1.5] }), 'collectionIds.0')).toEqual(['unknown']);
+    expect(codesAt(product({ tagIds: 'x' as any }), 'tagIds')).toEqual(['unknown']);
+    expect(
+      validateProductInput(product({ categoryId: null, productTypeId: null, tagIds: [], collectionIds: [] }), 'en')
+    ).toEqual([]);
+  });
+
+  it('refuses type and tag names longer than 255 characters', () => {
+    expect(codesAt(product({ productTypeName: 'a'.repeat(256) }), 'productTypeName')).toEqual(['too_long']);
+    expect(codesAt(product({ tagNames: ['ok', 'a'.repeat(256)] }), 'tagNames.1')).toEqual(['too_long']);
+  });
+});

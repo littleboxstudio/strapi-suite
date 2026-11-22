@@ -65,6 +65,13 @@ describe('productFormFromDetail', () => {
       deletable: true,
       images: [],
       translations: { en: { name: 'Shirt', slug: 'shirt', description: '<p>x</p>' } },
+      vendor: null,
+      categoryId: null,
+      categoryPath: [],
+      productTypeId: null,
+      productTypeName: null,
+      tags: [],
+      collections: [],
       variants: [
         {
           id: 3,
@@ -77,6 +84,7 @@ describe('productFormFromDetail', () => {
           height: 0,
           depth: 0,
           active: true,
+          compareAtPrice: null,
           translations: { en: { option: 'Black' } },
           images: [],
           deletable: false,

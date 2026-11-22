@@ -15,6 +15,7 @@ import type { ImageRecord, StoredImage } from './images';
 import { galleryCover, sortGallery } from './domain/galleryImages';
 import type { StockMoveInput } from './stock';
 import { EcommerceNotFoundError, EcommerceValidationError } from './errors';
+import { categoryPath, subtreeIds, type CategoryNode } from './domain/organization';
 
 const PAGE_SIZE = 50 as const;
 
@@ -35,13 +36,49 @@ export type ProductListItem = {
   active: boolean;
 };
 
-export type ProductDetail = Omit<ProductInput, 'variants'> & {
+export type ProductListFilters = {
+  /** The category or any of its subcategories. */
+  categoryId?: number;
+  productTypeId?: number;
+  tagId?: number;
+  /** Exact, case-insensitive (surrounding spaces ignored). */
+  vendor?: string;
+  collectionId?: number;
+};
+
+export type ProductDetail = Omit<
+  ProductInput,
+  'variants' | 'vendor' | 'categoryId' | 'productTypeId' | 'productTypeName' | 'tagIds' | 'tagNames' | 'collectionIds'
+> & {
   id: number;
   images: ImageRecord[];
   /** False once any order (in any state) has a line with this product: it can only be deactivated. */
   deletable: boolean;
-  variants: (VariantInput & { id: number; images: ImageRecord[]; deletable: boolean })[];
+  vendor: string | null;
+  categoryId: number | null;
+  /** Root first, names in the default locale. */
+  categoryPath: { id: number; name: string }[];
+  productTypeId: number | null;
+  productTypeName: string | null;
+  tags: { id: number; name: string }[];
+  /** Manual and automated collections the product is in. */
+  collections: { id: number; title: string; type: 'MANUAL' | 'AUTOMATED' }[];
+  variants: (VariantInput & {
+    id: number;
+    images: ImageRecord[];
+    deletable: boolean;
+    compareAtPrice: number | null;
+  })[];
 };
+
+const isPositiveInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v > 0;
+
+/** Text in the default locale, else any. */
+const pickText = (translations: any[] = [], defaultLocale: string, field = 'name'): string =>
+  translations.find((t) => t.locale === defaultLocale)?.[field] ?? translations[0]?.[field] ?? '';
+
+const cleanVendor = (vendor: string | null | undefined): string | null =>
+  typeof vendor === 'string' && vendor.trim() ? vendor.trim() : null;
 
 const toImage = (r: any, coverId: number | null): ImageRecord => ({
   id: r.id,
@@ -70,6 +107,140 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
     strapi.plugin(PLUGIN_ID).service('EcommerceImageService');
   const stock = (): { move(input: StockMoveInput): Promise<{ applied: boolean }> } =>
     strapi.plugin(PLUGIN_ID).service('EcommerceStockService');
+  const organization = (): {
+    ensureProductType(name: string): Promise<number>;
+    ensureTags(names: string[]): Promise<number[]>;
+  } => strapi.plugin(PLUGIN_ID).service('EcommerceOrganizationService');
+
+  /**
+   * Re-evaluates the product against the automated collections, after the change is committed.
+   * A failure never undoes the change: the collections' Recalculate button repairs memberships.
+   */
+  const syncCollections = async (productId: number) => {
+    try {
+      const collections = strapi.plugin(PLUGIN_ID).service('EcommerceCollectionService') as
+        | { syncProducts?: (ids: number[]) => Promise<unknown> }
+        | undefined;
+      await collections?.syncProducts?.([productId]);
+    } catch (e) {
+      strapi.log?.warn?.(
+        '[ecommerce] collection sync after a product change failed: ' + (e instanceof Error ? e.name : typeof e)
+      );
+    }
+  };
+
+  const loadCategoryNodes = async (): Promise<(CategoryNode & { translations: any[] })[]> => {
+    const rows: any[] = await strapi.db.query(uids().category).findMany({
+      populate: { parent: true, translations: true },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      parentId: r.parent?.id ?? null,
+      position: r.position ?? 0,
+      translations: r.translations ?? [],
+    }));
+  };
+
+  /** Ids among `ids` with no row in `uid`. */
+  const missingIds = async (uid: string, ids: number[]): Promise<Set<number>> => {
+    if (!ids.length) return new Set();
+    const found: { id: number }[] = await strapi.db
+      .query(uid as any)
+      .findMany({ where: { id: { $in: ids } }, select: ['id'] });
+    const present = new Set(found.map((r) => r.id));
+    return new Set(ids.filter((id) => !present.has(id)));
+  };
+
+  /** Existence of the referenced category, type, tags and (manual) collections. */
+  const organizationErrors = async (input: ProductInput): Promise<FieldError[]> => {
+    const u = uids();
+    const errors: FieldError[] = [];
+    if (isPositiveInt(input.categoryId) && (await missingIds(u.category, [input.categoryId])).size) {
+      errors.push({ path: 'categoryId', code: 'unknown' });
+    }
+    if (isPositiveInt(input.productTypeId) && (await missingIds(u.productType, [input.productTypeId])).size) {
+      errors.push({ path: 'productTypeId', code: 'unknown' });
+    }
+    if (Array.isArray(input.tagIds)) {
+      const missing = await missingIds(u.tag, input.tagIds.filter(isPositiveInt));
+      input.tagIds.forEach((id, i) => {
+        if (missing.has(id)) errors.push({ path: `tagIds.${i}`, code: 'unknown' });
+      });
+    }
+    if (Array.isArray(input.collectionIds)) {
+      const ids = input.collectionIds.filter(isPositiveInt);
+      const rows: { id: number; type: string }[] = ids.length
+        ? await strapi.db.query(u.collection).findMany({ where: { id: { $in: ids } }, select: ['id', 'type'] })
+        : [];
+      const types = new Map(rows.map((r) => [r.id, r.type]));
+      input.collectionIds.forEach((id, i) => {
+        if (!isPositiveInt(id)) return;
+        if (!types.has(id)) errors.push({ path: `collectionIds.${i}`, code: 'unknown' });
+        else if (types.get(id) !== 'MANUAL') errors.push({ path: `collectionIds.${i}`, code: 'automated_collection' });
+      });
+    }
+    return errors;
+  };
+
+  /**
+   * The product's relation data for the fields present in `input` (omitted = unchanged on update;
+   * on create every field is written, so omitted = empty). Names are resolved (created when new).
+   */
+  const organizationData = async (input: ProductInput, creating: boolean): Promise<Record<string, unknown>> => {
+    const data: Record<string, unknown> = {};
+    if (creating || input.vendor !== undefined) data.vendor = cleanVendor(input.vendor);
+    if (creating || input.categoryId !== undefined) data.category = input.categoryId ?? null;
+
+    if (input.productTypeId !== undefined) {
+      data.productType = input.productTypeId ?? null;
+    } else if (typeof input.productTypeName === 'string' && input.productTypeName.trim()) {
+      data.productType = await organization().ensureProductType(input.productTypeName);
+    } else if (creating || input.productTypeName === null) {
+      data.productType = null;
+    }
+
+    const tagNames = Array.isArray(input.tagNames) ? input.tagNames.filter((n) => typeof n === 'string') : [];
+    if (creating || input.tagIds !== undefined || tagNames.length) {
+      const ids = [...(input.tagIds ?? [])];
+      if (tagNames.length) ids.push(...(await organization().ensureTags(tagNames)));
+      data.tags = { set: [...new Set(ids)] };
+    }
+    return data;
+  };
+
+  /**
+   * Makes the product's MANUAL collection memberships exactly `collectionIds`. New members go last
+   * (position max + 1); automated memberships are computed elsewhere and never touched here.
+   */
+  const syncManualCollections = async (productId: number, collectionIds: number[]) => {
+    const u = uids();
+    const q = strapi.db.query(u.collectionProduct);
+    const wanted = new Set(collectionIds);
+    const current: any[] = await q.findMany({
+      where: { product: { id: productId } },
+      populate: { collection: true },
+    });
+    const have = new Set<number>();
+    for (const row of current) {
+      const collection = row.collection;
+      if (!collection || collection.type !== 'MANUAL') continue;
+      if (wanted.has(collection.id)) have.add(collection.id);
+      else await q.delete({ where: { id: row.id } });
+    }
+    for (const collectionId of wanted) {
+      if (have.has(collectionId)) continue;
+      const last: any[] = await q.findMany({
+        where: { collection: { id: collectionId } },
+        orderBy: { position: 'desc' },
+        limit: 1,
+        select: ['position'],
+      });
+      const position = last.length ? (last[0].position ?? 0) + 1 : 0;
+      await q.create({
+        data: { collection: collectionId, product: productId, position, uniqueKey: `${collectionId}:${productId}` },
+      });
+    }
+  };
 
   const getDefaultLocale = async (): Promise<string> => locales().getDefaultLocale();
 
@@ -136,6 +307,31 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
       });
     }
 
+    // An omitted compare-at price keeps the stored one, which must still be above the new price.
+    if (productId !== null) {
+      const keptIds = variants
+        .map((v) => (v.compareAtPrice === undefined && isPositiveInt(v.id) ? v.id : null))
+        .filter((id): id is number => id !== null);
+      const stored: { id: number; compareAtPrice: number | null }[] = keptIds.length
+        ? await strapi.db.query(u.variant).findMany({
+            where: { id: { $in: keptIds }, product: { id: productId } },
+            select: ['id', 'compareAtPrice'],
+          })
+        : [];
+      const caps = new Map(stored.map((r) => [r.id, r.compareAtPrice]));
+      variants.forEach((v, i) => {
+        const cap = v.id ? caps.get(v.id) : undefined;
+        const path = `variants.${i}.compareAtPrice`;
+        if (typeof cap === 'number' && typeof v.price === 'number' && cap <= v.price && !errorList.some((e) => e.path === path)) {
+          errorList.push({ path, code: 'compare_at_not_above_price' });
+        }
+      });
+    }
+
+    if (!errorList.some((e) => /^(categoryId|productTypeId|tagIds|collectionIds)(\.|$)/.test(e.path))) {
+      errorList.push(...(await organizationErrors(input)));
+    }
+
     if (errorList.length) {
       throw new EcommerceValidationError('Invalid product', errorList);
     }
@@ -150,15 +346,19 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
 
     const savedId: number = await strapi.db.transaction(async () => {
       let id = productId;
+      const organized = await organizationData(input, id === null);
       if (id === null) {
         const created = await strapi.db
           .query(u.product)
-          .create({ data: { active: input.active } });
+          .create({ data: { active: input.active, ...organized } });
         id = created.id as number;
       } else {
-        await strapi.db.query(u.product).update({ where: { id }, data: { active: input.active } });
+        await strapi.db
+          .query(u.product)
+          .update({ where: { id }, data: { active: input.active, ...organized } });
       }
       const ownerId = id as number;
+      if (Array.isArray(input.collectionIds)) await syncManualCollections(ownerId, input.collectionIds);
 
       for (const [locale, t] of Object.entries(input.translations ?? {})) {
         // Validation guarantees a blank name here means the whole translation was cleared.
@@ -267,6 +467,10 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
         const data = {
           sku: skus[i],
           price: v.price,
+          // Omitted on an existing variant = unchanged (callers that do not know the field).
+          ...(v.compareAtPrice !== undefined || !(v.id && currentIds.has(v.id))
+            ? { compareAtPrice: v.compareAtPrice ?? null }
+            : {}),
           tax: v.tax,
           weight: v.weight,
           width: v.width,
@@ -333,6 +537,7 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
     });
 
     if (removedImages.length) await images().removeFiles(removedImages);
+    await syncCollections(savedId);
     return savedId;
   };
 
@@ -340,11 +545,11 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
     getDefaultLocale,
     getLocales,
 
-    async list(params: { page: number; search?: string; locale?: string }) {
+    async list(params: { page: number; search?: string; locale?: string } & ProductListFilters) {
       const u = uids();
       const page = Math.max(1, params.page || 1);
       const search = params.search?.trim();
-      const where = search
+      const where: Record<string, any> = search
         ? {
             $or: [
               { translations: { name: { $containsi: search } } },
@@ -352,6 +557,27 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
             ],
           }
         : {};
+      if (isPositiveInt(params.categoryId)) {
+        const nodes = await loadCategoryNodes();
+        where.category = { id: { $in: subtreeIds(nodes, params.categoryId) } };
+      }
+      if (isPositiveInt(params.productTypeId)) where.productType = { id: params.productTypeId };
+      if (isPositiveInt(params.tagId)) where.tags = { id: params.tagId };
+      if (isPositiveInt(params.collectionId)) {
+        where.collectionMembers = { collection: { id: params.collectionId } };
+      }
+      const vendor = typeof params.vendor === 'string' ? params.vendor.trim().toLowerCase() : '';
+      if (vendor) {
+        // Exact and case-insensitive: narrowed in the database, compared exactly here, then the
+        // page itself is read by id so the pagination stays in the database.
+        const candidates: { id: number; vendor: string | null }[] = await strapi.db.query(u.product).findMany({
+          where: { vendor: { $containsi: vendor } },
+          select: ['id', 'vendor'],
+        });
+        where.id = {
+          $in: candidates.filter((r) => (r.vendor ?? '').trim().toLowerCase() === vendor).map((r) => r.id),
+        };
+      }
       const defaultLocale = await getDefaultLocale();
       const locale = params.locale || defaultLocale;
 
@@ -406,9 +632,30 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
           translations: true,
           images: true,
           variants: { populate: { translations: true, images: true } },
+          category: true,
+          productType: { populate: { translations: true } },
+          tags: { populate: { translations: true } },
+          collectionMembers: { populate: { collection: { populate: { translations: true } } } },
         },
       });
       if (!p) throw new EcommerceNotFoundError('Product not found');
+      const defaultLocale = await getDefaultLocale();
+
+      const categoryId: number | null = p.category?.id ?? null;
+      let path: ProductDetail['categoryPath'] = [];
+      if (categoryId !== null) {
+        const nodes = await loadCategoryNodes();
+        const byId = new Map(nodes.map((n) => [n.id, n]));
+        path = categoryPath(nodes, categoryId).map((cid) => ({
+          id: cid,
+          name: pickText(byId.get(cid)?.translations, defaultLocale),
+        }));
+      }
+      const collections: ProductDetail['collections'] = (p.collectionMembers ?? [])
+        .map((m: any) => m.collection)
+        .filter(Boolean)
+        .sort((a: any, b: any) => a.id - b.id)
+        .map((c: any) => ({ id: c.id, title: pickText(c.translations, defaultLocale, 'title'), type: c.type }));
 
       const translations: ProductInput['translations'] = {};
       for (const t of p.translations ?? []) {
@@ -429,12 +676,22 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
         active: !!p.active,
         deletable: !usage.product,
         translations,
+        vendor: cleanVendor(p.vendor),
+        categoryId,
+        categoryPath: path,
+        productTypeId: p.productType?.id ?? null,
+        productTypeName: p.productType ? pickText(p.productType.translations, defaultLocale) : null,
+        tags: [...(p.tags ?? [])]
+          .sort((a: any, b: any) => a.id - b.id)
+          .map((t: any) => ({ id: t.id, name: pickText(t.translations, defaultLocale) })),
+        collections,
         images: sortImages(p.images),
         variants: vs.map((v) => ({
           deletable: !usage.variants.has(v.id),
           id: v.id,
           sku: v.sku,
           price: v.price,
+          compareAtPrice: v.compareAtPrice ?? null,
           tax: v.tax,
           stock: v.stock,
           weight: v.weight,
@@ -465,15 +722,17 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
       const found = await strapi.db.query(u.product).findOne({ where: { id } });
       if (!found) throw new EcommerceNotFoundError('Product not found');
       await strapi.db.query(u.product).update({ where: { id }, data: { active } });
+      await syncCollections(id);
       return { active };
     },
 
     /** Enables or disables one variant on its own (the variant modal button), without a full save. */
     async setVariantActive(id: number, active: boolean): Promise<{ active: boolean }> {
       const u = uids();
-      const found = await strapi.db.query(u.variant).findOne({ where: { id } });
+      const found = await strapi.db.query(u.variant).findOne({ where: { id }, populate: { product: true } });
       if (!found) throw new EcommerceNotFoundError('Variant not found');
       await strapi.db.query(u.variant).update({ where: { id }, data: { active } });
+      if (found.product?.id) await syncCollections(found.product.id);
       return { active };
     },
 
@@ -507,10 +766,12 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
           await strapi.db.query(u.variant).delete({ where: { id: variantId } });
         }
         await strapi.db.query(u.productTranslation).deleteMany({ where: { product: id } });
+        await strapi.db.query(u.collectionProduct).deleteMany({ where: { product: { id } } });
         await strapi.db.query(u.product).delete({ where: { id } });
       });
       // Files go only after the rows are gone for good.
       if (removedImages.length) await images().removeFiles(removedImages);
+      await syncCollections(id);
     },
   };
 };
