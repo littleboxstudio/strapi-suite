@@ -26,6 +26,9 @@ import PixelAlignedDialogs from './components/PixelAlignedDialogs';
 /** Text-only side menu. */
 const MENU = [
   { key: 'products' },
+  { key: 'categories' },
+  { key: 'collections' },
+  { key: 'types-tags' },
   { key: 'orders' },
   { key: 'customers' },
   { key: 'promotions' },

@@ -12,6 +12,10 @@ import { OrderCreatePage } from './pages/orders/OrderCreatePage';
 import { OrderDetailPage } from './pages/orders/OrderDetailPage';
 import { PromotionListPage } from './pages/promotions/PromotionListPage';
 import { PromotionEditPage } from './pages/promotions/PromotionEditPage';
+import { CategoryListPage } from './pages/organization/CategoryListPage';
+import { CategoryEditPage } from './pages/organization/CategoryEditPage';
+import { CollectionListPage } from './pages/organization/CollectionListPage';
+import { TypesTagsPage } from './pages/organization/TypesTagsPage';
 
 const EcommerceApp = () => (
   <EcommerceLayout>
@@ -20,6 +24,13 @@ const EcommerceApp = () => (
       <Route path="products" element={<ProductListPage />} />
       <Route path="products/new" element={<ProductEditPage />} />
       <Route path="products/:id" element={<ProductEditPage />} />
+      <Route path="categories" element={<CategoryListPage />} />
+      <Route path="categories/new" element={<CategoryEditPage />} />
+      <Route path="categories/:id" element={<CategoryEditPage />} />
+      <Route path="collections" element={<CollectionListPage />} />
+      <Route path="collections/new" element={<CollectionListPage />} />
+      <Route path="collections/:id" element={<CollectionListPage />} />
+      <Route path="types-tags" element={<TypesTagsPage />} />
       <Route path="orders" element={<OrderListPage />} />
       <Route path="orders/new" element={<OrderCreatePage />} />
       <Route path="orders/:id" element={<OrderDetailPage />} />

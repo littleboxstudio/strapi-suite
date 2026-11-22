@@ -20,6 +20,7 @@ import { EcommerceProductGatewayHttp } from "./ecommerce/gateways/ecommerceProdu
 import { EcommerceSettingsGatewayHttp } from "./ecommerce/gateways/ecommerceSettingsGateway";
 import { EcommerceOrdersGatewayHttp } from "./ecommerce/gateways/ecommerceOrdersGateway";
 import { EcommercePromotionsGatewayHttp } from "./ecommerce/gateways/ecommercePromotionsGateway";
+import { EcommerceOrganizationGatewayHttp } from './ecommerce/gateways/ecommerceOrganizationGateway';
 import Mediator from './core/mediator/mediator';
 import PageAttributesBox from './components/PageAttributesBox';
 import DocumentTranslateBox from './components/DocumentTranslateBox';
@@ -148,6 +149,7 @@ export default {
     Registry.getInstance().provide("ecommerceSettingsGateway", new EcommerceSettingsGatewayHttp());
     Registry.getInstance().provide("ecommerceOrdersGateway", new EcommerceOrdersGatewayHttp());
     Registry.getInstance().provide("ecommercePromotionsGateway", new EcommercePromotionsGatewayHttp());
+    Registry.getInstance().provide("ecommerceOrganizationGateway", new EcommerceOrganizationGatewayHttp());
     app.getPlugin('content-manager').apis.addEditViewSidePanel([
       PageAttributesBox,
       DocumentTranslateBox,
