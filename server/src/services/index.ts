@@ -34,6 +34,7 @@ import EcommerceStorefrontCatalogService from './modules/ecommerce/storefrontCat
 import EcommerceStorefrontSessionService from './modules/ecommerce/storefrontSessions';
 import EcommerceStorefrontCheckoutService from './modules/ecommerce/storefrontCheckout';
 import EcommerceOrganizationService from './modules/ecommerce/organization';
+import EcommerceCollectionService from './modules/ecommerce/collections';
 
 export default {
   SettingAppService,
@@ -72,4 +73,5 @@ export default {
   EcommerceStorefrontSessionService,
   EcommerceStorefrontCheckoutService,
   EcommerceOrganizationService,
+  EcommerceCollectionService,
 };

@@ -67,6 +67,8 @@ export const CONFLICT_CODES = [
   'NAME_TAKEN',
   'CATEGORY_CYCLE',
   'CATEGORY_TOO_DEEP',
+  // Collections
+  'COLLECTION_IS_AUTOMATED',
 ];
 
 /**
