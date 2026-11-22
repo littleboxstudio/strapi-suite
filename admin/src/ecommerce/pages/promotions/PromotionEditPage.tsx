@@ -28,6 +28,7 @@ import DeletePromotion from '../../usecases/promotions/deletePromotion';
 import { LocaleSwitcher } from '../../components/LocaleSwitcher';
 import ConditionsEditor, { AddScenarioButton } from '../../components/promotions/ConditionsEditor';
 import BenefitEditor from '../../components/promotions/BenefitEditor';
+import EmptyNote from '../../components/orders/EmptyNote';
 import EligibilityFields from '../../components/promotions/EligibilityFields';
 import LimitsFields from '../../components/promotions/LimitsFields';
 import StackingFields from '../../components/promotions/StackingFields';
@@ -42,6 +43,8 @@ import {
   clearErrorsUnder,
   activationInput,
   describeBenefit,
+  markValue,
+  scenariosOf,
   emptyBenefit,
   emptyPromotionForm,
   errorMapFromIssues,
@@ -82,6 +85,9 @@ const Section = ({
   </Box>
 );
 
+/** Space kept above a block scrolled into view, for the sticky header. */
+const SCROLL_MARGIN = 80;
+
 type LoadState = 'loading' | 'ready' | 'error' | 'notFound';
 
 const PromotionEditPage = () => {
@@ -98,6 +104,15 @@ const PromotionEditPage = () => {
 
   const [context, setContext] = useState<PromotionEditorContext | null>(null);
   const [view, setView] = useState<Promotion | null>(null);
+  // A scenario or benefit just added is scrolled into view once it is on the page.
+  const [scrollTarget, setScrollTarget] = useState<string | null>(null);
+  const scrollToAdded = (id: string) => setScrollTarget(id);
+  useEffect(() => {
+    if (!scrollTarget) return;
+    document.querySelector(`[data-scroll-id="${scrollTarget}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setScrollTarget(null);
+  }, [scrollTarget]);
+
   const [form, setForm] = useState<PromotionForm | null>(null);
   const [loadState, setLoadState] = useState<LoadState>('loading');
   const [activeLocale, setActiveLocale] = useState('');
@@ -562,7 +577,10 @@ const PromotionEditPage = () => {
             <AddScenarioButton
               tree={form.conditions}
               disabled={disabled}
-              onChange={(conditions) => update({ conditions }, ['conditions'])}
+              onChange={(conditions) => {
+                update({ conditions }, ['conditions']);
+                scrollToAdded(`scenario-${scenariosOf(conditions).length - 1}`);
+              }}
             />
           )
         }
@@ -584,67 +602,81 @@ const PromotionEditPage = () => {
       </Section>
 
       {/* 6. Benefits */}
-      <Section title={t(`${p}.sections.benefits`)}>
+      <Section
+        title={t(`${p}.sections.benefits`)}
+        actions={
+          !readOnly && (
+            <Button
+              size="S"
+              variant="secondary"
+              disabled={saving || form.benefits.length >= MAX_BENEFITS}
+              onClick={() => {
+                const added = emptyBenefit();
+                update({ benefits: [...form.benefits, added] }, ['benefits']);
+                scrollToAdded(`benefit-${added.key}`);
+              }}
+            >
+              {t(`${p}.benefits.add`)}
+            </Button>
+          )
+        }
+      >
         {errors.benefits && (
           <Typography variant="omega" textColor="danger600" role="alert">
             {t(`${p}.benefits.count`)}
           </Typography>
         )}
         {sectionErrors('benefits')}
+        {form.benefits.length === 0 && <EmptyNote>{t(`${p}.benefits.empty`)}</EmptyNote>}
         {form.benefits.map((benefit, index) => (
-          <BenefitEditor
-            key={benefit.key}
-            benefit={benefit}
-            index={index}
-            labels={form.labels}
-            onLabels={(labels) => update({ labels })}
-            errors={errors}
-            disabled={disabled}
-            readOnly={readOnly}
-            summary={describeBenefit(toBenefit(benefit), money, t)}
-            onChange={(next) =>
-              update({ benefits: form.benefits.map((b, i) => (i === index ? next : b)) }, [`benefits.${index}`])
-            }
-            onRemove={() => update({ benefits: form.benefits.filter((_, i) => i !== index) }, ['benefits'])}
-          />
-        ))}
-        {!readOnly && (
-          <Box>
-            <Button
-              variant="secondary"
-              disabled={saving || form.benefits.length >= MAX_BENEFITS}
-              onClick={() => update({ benefits: [...form.benefits, emptyBenefit()] }, ['benefits'])}
-            >
-              {t(`${p}.benefits.add`)}
-            </Button>
+          // Scrolled into view when added (Add benefit); room for the sticky header.
+          <Box key={benefit.key} data-scroll-id={`benefit-${benefit.key}`} style={{ scrollMarginTop: SCROLL_MARGIN }}>
+            <BenefitEditor
+              benefit={benefit}
+              index={index}
+              labels={form.labels}
+              onLabels={(labels) => update({ labels })}
+              errors={errors}
+              disabled={disabled}
+              readOnly={readOnly}
+              summary={describeBenefit(toBenefit(benefit), money, t, markValue)}
+              onChange={(next) =>
+                update({ benefits: form.benefits.map((b, i) => (i === index ? next : b)) }, [`benefits.${index}`])
+              }
+              onRemove={() => update({ benefits: form.benefits.filter((_, i) => i !== index) }, ['benefits'])}
+            />
           </Box>
-        )}
+        ))}
       </Section>
 
-      {/* 7. Limits */}
-      <Section title={t(`${p}.sections.limits`)}>
-        <LimitsFields
-          values={{
-            usageLimit: form.usageLimit,
-            perCustomerLimit: form.perCustomerLimit,
-            perOrderLimit: form.perOrderLimit,
-          }}
-          errors={errors}
-          disabled={disabled}
-          onChange={(key, value) => update({ [key]: value } as Partial<PromotionForm>, [key])}
-        />
-        {sectionErrors('limits')}
-      </Section>
-
-      {/* 8. Stacking */}
-      <Section title={t(`${p}.sections.stacking`)}>
-        <StackingFields
-          stacking={form.stacking}
-          disabled={disabled}
-          onChange={(stacking) => update({ stacking }, ['stacking'])}
-        />
-        {sectionErrors('stacking')}
-      </Section>
+      {/* 7–8. Limits and Stacking, side by side */}
+      <Grid.Root gap={6}>
+        <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
+          <Section title={t(`${p}.sections.limits`)}>
+            <LimitsFields
+              values={{
+                usageLimit: form.usageLimit,
+                perCustomerLimit: form.perCustomerLimit,
+                perOrderLimit: form.perOrderLimit,
+              }}
+              errors={errors}
+              disabled={disabled}
+              onChange={(key, value) => update({ [key]: value } as Partial<PromotionForm>, [key])}
+            />
+            {sectionErrors('limits')}
+          </Section>
+        </Grid.Item>
+        <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
+          <Section title={t(`${p}.sections.stacking`)}>
+            <StackingFields
+              stacking={form.stacking}
+              disabled={disabled}
+              onChange={(stacking) => update({ stacking }, ['stacking'])}
+            />
+            {sectionErrors('stacking')}
+          </Section>
+        </Grid.Item>
+      </Grid.Root>
 
       {/* 9. Summary */}
       <Section title={t(`${p}.sections.summary`)}>

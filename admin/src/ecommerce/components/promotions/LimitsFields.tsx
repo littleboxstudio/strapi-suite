@@ -21,9 +21,10 @@ const LimitsFields = ({ values, onChange, errors, disabled }: Props) => {
   const p = 'ecommerce.promotions.form';
 
   return (
-    <Flex gap={4} alignItems="flex-start" wrap="wrap">
+    // One field per line, full width (the section takes half the page, beside Stacking).
+    <Flex direction="column" alignItems="stretch" gap={4}>
       {KEYS.map((key) => (
-        <Box key={key} style={{ minWidth: 200, flex: '1 1 200px' }}>
+        <Box key={key}>
           <Field.Root
             name={key}
             error={errors[key] ? t(`${p}.errors.${errors[key]}`) : undefined}

@@ -1170,31 +1170,34 @@ export function clearErrorsUnder(errors: PromotionErrors, prefix: string): Promo
 const S = 'ecommerce.promotions.summary';
 const isNum = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
 
-/** One sentence for a benefit; unreadable amounts show as "…". */
-export function describeBenefit(b: PromotionBenefit, money: Money, t: Translate): string {
-  const m = (n: number | null | undefined) => (isNum(n) ? money(n) : '…');
-  const p = (n: number | null | undefined) => (isNum(n) ? n : '…');
+/** One sentence for a benefit; unreadable amounts show as "…". `mark` wraps the filled-in values. */
+export function describeBenefit(b: PromotionBenefit, money: Money, t: Translate, mark: Mark = plain): string {
+  const m = (n: number | null | undefined) => (isNum(n) ? mark(money(n)) : '…');
+  const p = (n: number | null | undefined) => (isNum(n) ? mark(String(n)) : '…');
+  const pct = (n: number | null | undefined) => (isNum(n) ? mark(`${n}%`) : '…%');
   switch (b.type) {
     case 'PRODUCT_PERCENT':
     case 'PRODUCT_FIXED': {
       const main =
         b.type === 'PRODUCT_PERCENT'
-          ? t(`${S}.PRODUCT_PERCENT`, { percent: p(b.percent) })
+          ? t(`${S}.PRODUCT_PERCENT`, { percent: pct(b.percent) })
           : t(`${S}.PRODUCT_FIXED.${b.per === 'SET' ? 'SET' : 'UNIT'}`, { amount: m(b.amount) });
-      return isNum(b.maxQuantity) ? `${main} ${t(`${S}.maxQuantity`, { count: b.maxQuantity })}` : main;
+      return isNum(b.maxQuantity)
+        ? `${main} ${t(`${S}.maxQuantity`, { count: b.maxQuantity, value: p(b.maxQuantity) })}`
+        : main;
     }
     case 'BUY_X_GET_Y': {
       const buy = p(b.buy.quantity);
       const get =
         b.get.mode === 'GIFT'
           ? isNum(b.get.quantity)
-            ? t(`${S}.gifts`, { count: b.get.quantity })
+            ? t(`${S}.gifts`, { count: b.get.quantity, value: p(b.get.quantity) })
             : '…'
-          : String(p(b.get.quantity));
+          : p(b.get.quantity);
       const reward = b.reward;
       const main =
         reward.kind === 'PERCENT'
-          ? t(`${S}.BUY_X_GET_Y.PERCENT`, { buy, get, percent: p(reward.percent) })
+          ? t(`${S}.BUY_X_GET_Y.PERCENT`, { buy, get, percent: pct(reward.percent) })
           : reward.kind === 'FIXED'
             ? t(`${S}.BUY_X_GET_Y.FIXED`, { buy, get, amount: m(reward.amount) })
             : t(`${S}.BUY_X_GET_Y.FREE`, { buy, get });
@@ -1204,14 +1207,12 @@ export function describeBenefit(b: PromotionBenefit, money: Money, t: Translate)
     }
     case 'ORDER_PERCENT':
     case 'SHIPPING_PERCENT':
-      return t(`${S}.${b.type}`, { percent: p(b.percent) });
+      return t(`${S}.${b.type}`, { percent: pct(b.percent) });
     case 'ORDER_FIXED':
     case 'SHIPPING_FIXED':
       return t(`${S}.${b.type}`, { amount: m(b.amount) });
     case 'SHIPPING_FREE':
-      return isNum(b.maxAmount)
-        ? t(`${S}.SHIPPING_FREE.max`, { amount: m(b.maxAmount) })
-        : t(`${S}.SHIPPING_FREE`);
+      return isNum(b.maxAmount) ? t(`${S}.SHIPPING_FREE.max`, { amount: m(b.maxAmount) }) : t(`${S}.SHIPPING_FREE`);
     default:
       return '';
   }

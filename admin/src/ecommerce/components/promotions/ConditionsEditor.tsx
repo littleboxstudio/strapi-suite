@@ -14,7 +14,8 @@ import {
 import { Trash } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import { formatCents } from '../../utils/money';
-import NoticeBar, { NOTICE_BACKGROUND, NOTICE_TEXT } from '../orders/NoticeBar';
+import NoticeBar from '../orders/NoticeBar';
+import MarkedSentence from './MarkedSentence';
 import TargetPicker from './TargetPicker';
 import {
   addScenario,
@@ -22,7 +23,6 @@ import {
   CONDITION_TYPES,
   conditionPath,
   describeConditions,
-  markedParts,
   markValue,
   errorUnder,
   isScenarioTree,
@@ -270,29 +270,7 @@ const ConditionsEditor = ({
     );
   };
 
-  const sentence = (
-    <Box padding={3} hasRadius background="neutral100">
-      <Typography variant="omega" textColor="neutral800" fontWeight="semiBold">
-        {markedParts(describeConditions(tree, money, t, labels, markValue)).map((part, i) =>
-          part.value ? (
-            // What the user filled in, in the notice colours.
-            <Box
-              key={i}
-              tag="span"
-              hasRadius
-              paddingLeft={1}
-              paddingRight={1}
-              style={{ background: NOTICE_BACKGROUND, color: NOTICE_TEXT }}
-            >
-              {part.text}
-            </Box>
-          ) : (
-            <Fragment key={i}>{part.text}</Fragment>
-          )
-        )}
-      </Typography>
-    </Box>
-  );
+  const sentence = <MarkedSentence text={describeConditions(tree, money, t, labels, markValue)} />;
   const treeError = errors.conditions ?? errors['conditions.operator'];
   const treeErrorText = treeError && (
     <Typography variant="omega" textColor="danger600" role="alert">
@@ -376,6 +354,9 @@ const ConditionsEditor = ({
                 hasRadius
                 borderColor={errors[conditionPath([s])] ? 'danger600' : 'primary200'}
                 background="neutral100"
+                // Scrolled into view when added (Add scenario); room for the sticky header.
+                data-scroll-id={`scenario-${s}`}
+                style={{ scrollMarginTop: 80 }}
               >
                 <Flex direction="column" alignItems="stretch" gap={3}>
                   <Flex justifyContent="space-between" alignItems="center" gap={3} wrap="wrap">

@@ -3,6 +3,7 @@ import { useIntl } from 'react-intl';
 import {
   Box,
   Button,
+  Divider,
   Field,
   Flex,
   Radio,
@@ -13,6 +14,7 @@ import {
 } from '@strapi/design-system';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import TargetPicker from './TargetPicker';
+import MarkedSentence from './MarkedSentence';
 import {
   BENEFIT_TYPES,
   emptyBenefit,
@@ -31,7 +33,7 @@ type Props = {
   labels: PromotionLabels;
   onLabels: (labels: PromotionLabels) => void;
   errors: PromotionErrors;
-  /** Description of the benefit (from `describeBenefit`). */
+  /** Description of the benefit (from `describeBenefit`, with `markValue` values). */
   summary: string;
   /** Disables the controls (e.g. while saving) without hiding them. */
   disabled?: boolean;
@@ -39,7 +41,11 @@ type Props = {
   readOnly?: boolean;
 };
 
-const PERCENT_TYPES: PromotionBenefitType[] = ['PRODUCT_PERCENT', 'ORDER_PERCENT', 'SHIPPING_PERCENT'];
+const PERCENT_TYPES: PromotionBenefitType[] = [
+  'PRODUCT_PERCENT',
+  'ORDER_PERCENT',
+  'SHIPPING_PERCENT',
+];
 const AMOUNT_TYPES: PromotionBenefitType[] = ['PRODUCT_FIXED', 'ORDER_FIXED', 'SHIPPING_FIXED'];
 
 const Cell = ({ children, width = 200 }: { children: ReactNode; width?: number }) => (
@@ -47,12 +53,25 @@ const Cell = ({ children, width = 200 }: { children: ReactNode; width?: number }
 );
 
 /** One benefit, with the fields of its type; error paths follow the server (`benefits.<i>.buy.quantity`). */
-const BenefitEditor = ({ benefit, index, onChange, onRemove, labels, onLabels, errors, summary, disabled, readOnly }: Props) => {
+const BenefitEditor = ({
+  benefit,
+  index,
+  onChange,
+  onRemove,
+  labels,
+  onLabels,
+  errors,
+  summary,
+  disabled,
+  readOnly,
+}: Props) => {
   const { formatMessage } = useIntl();
-  const t = (id: string, values?: Record<string, any>) => formatMessage({ id: getTranslation(id) }, values);
+  const t = (id: string, values?: Record<string, any>) =>
+    formatMessage({ id: getTranslation(id) }, values);
   const p = 'ecommerce.promotions.form.benefits';
   const base = `benefits.${index}`;
-  const errorText = (code: string | undefined) => (code ? t(`ecommerce.promotions.form.errors.${code}`) : undefined);
+  const errorText = (code: string | undefined) =>
+    code ? t(`ecommerce.promotions.form.errors.${code}`) : undefined;
   const targetError = (path: string) => {
     const code = errorUnder(errors, path);
     return code === 'required' ? t('ecommerce.promotions.form.target.required') : errorText(code);
@@ -60,12 +79,26 @@ const BenefitEditor = ({ benefit, index, onChange, onRemove, labels, onLabels, e
   const set = (patch: Partial<BenefitForm>) => onChange({ ...benefit, ...patch });
 
   const text = (
-    field: 'percent' | 'amount' | 'maxQuantity' | 'maxAmount' | 'buyQuantity' | 'buyMinAmount' | 'getQuantity' | 'rewardPercent' | 'rewardAmount',
+    field:
+      | 'percent'
+      | 'amount'
+      | 'maxQuantity'
+      | 'maxAmount'
+      | 'buyQuantity'
+      | 'buyMinAmount'
+      | 'getQuantity'
+      | 'rewardPercent'
+      | 'rewardAmount',
     path: string,
     label: string,
     options: { hint?: string; required?: boolean } = {}
   ) => (
-    <Field.Root name={`${base}.${path}`} error={errorText(errors[`${base}.${path}`])} hint={options.hint} required={options.required}>
+    <Field.Root
+      name={`${base}.${path}`}
+      error={errorText(errors[`${base}.${path}`])}
+      hint={options.hint}
+      required={options.required}
+    >
       <Field.Label>{label}</Field.Label>
       <TextInput
         value={benefit[field]}
@@ -80,36 +113,50 @@ const BenefitEditor = ({ benefit, index, onChange, onRemove, labels, onLabels, e
 
   const changeType = (type: PromotionBenefitType) => {
     // Keep what the admin typed that still applies; the key keeps the React identity.
-    onChange({ ...emptyBenefit(type), key: benefit.key, target: benefit.target, percent: benefit.percent, amount: benefit.amount });
+    onChange({
+      ...emptyBenefit(type),
+      key: benefit.key,
+      target: benefit.target,
+      percent: benefit.percent,
+      amount: benefit.amount,
+    });
   };
 
   return (
-    <Box padding={4} hasRadius borderColor="neutral200" background="neutral0">
+    <Box
+      padding={3}
+      hasRadius
+      borderColor={errors[base] ? 'danger600' : 'primary200'}
+      background="neutral100"
+    >
       <Flex direction="column" alignItems="stretch" gap={4}>
-        <Flex justifyContent="space-between" alignItems="flex-end" gap={3} wrap="wrap">
-          <Cell width={260}>
-            <Field.Root name={`${base}.type`} error={errorText(errors[`${base}.type`])}>
-              <Field.Label>{t(`${p}.title`, { index: index + 1 })}</Field.Label>
-              <SingleSelect
-                value={benefit.type}
-                disabled={disabled}
-                onChange={(value: string | number) => changeType(String(value) as PromotionBenefitType)}
-              >
-                {BENEFIT_TYPES.map((type) => (
-                  <SingleSelectOption key={type} value={type}>
-                    {t(`${p}.types.${type}`)}
-                  </SingleSelectOption>
-                ))}
-              </SingleSelect>
-              <Field.Error />
-            </Field.Root>
-          </Cell>
+        {/* Same header as a condition scenario: the title, and Remove on the right. */}
+        <Flex justifyContent="space-between" alignItems="center" gap={3} wrap="wrap">
+          <Typography variant="delta" fontWeight="semiBold" tag="h3">
+            {t(`${p}.title`, { index: index + 1 })}
+          </Typography>
           {!readOnly && (
             <Button variant="danger-light" size="S" disabled={disabled} onClick={onRemove}>
               {t(`${p}.remove`)}
             </Button>
           )}
         </Flex>
+
+        <Field.Root name={`${base}.type`} error={errorText(errors[`${base}.type`])}>
+          <Field.Label>{t(`${p}.type`)}</Field.Label>
+          <SingleSelect
+            value={benefit.type}
+            disabled={disabled}
+            onChange={(value: string | number) => changeType(String(value) as PromotionBenefitType)}
+          >
+            {BENEFIT_TYPES.map((type) => (
+              <SingleSelectOption key={type} value={type}>
+                {t(`${p}.types.${type}`)}
+              </SingleSelectOption>
+            ))}
+          </SingleSelect>
+          <Field.Error />
+        </Field.Root>
 
         {errors[base] && (
           <Typography variant="pi" textColor="danger600" role="alert">
@@ -130,8 +177,12 @@ const BenefitEditor = ({ benefit, index, onChange, onRemove, labels, onLabels, e
         )}
 
         <Flex gap={3} alignItems="flex-start" wrap="wrap">
-          {PERCENT_TYPES.includes(benefit.type) && <Cell>{text('percent', 'percent', t(`${p}.percent`), { required: true })}</Cell>}
-          {AMOUNT_TYPES.includes(benefit.type) && <Cell>{text('amount', 'amount', t(`${p}.amount`), { required: true })}</Cell>}
+          {PERCENT_TYPES.includes(benefit.type) && (
+            <Cell>{text('percent', 'percent', t(`${p}.percent`), { required: true })}</Cell>
+          )}
+          {AMOUNT_TYPES.includes(benefit.type) && (
+            <Cell>{text('amount', 'amount', t(`${p}.amount`), { required: true })}</Cell>
+          )}
           {benefit.type === 'PRODUCT_FIXED' && (
             <Cell width={260}>
               <Field.Root name={`${base}.per`} error={errorText(errors[`${base}.per`])}>
@@ -139,7 +190,9 @@ const BenefitEditor = ({ benefit, index, onChange, onRemove, labels, onLabels, e
                 <SingleSelect
                   value={benefit.per}
                   disabled={disabled}
-                  onChange={(value: string | number) => set({ per: String(value) as BenefitForm['per'] })}
+                  onChange={(value: string | number) =>
+                    set({ per: String(value) as BenefitForm['per'] })
+                  }
                 >
                   <SingleSelectOption value="UNIT">{t(`${p}.per.UNIT`)}</SingleSelectOption>
                   <SingleSelectOption value="SET">{t(`${p}.per.SET`)}</SingleSelectOption>
@@ -149,19 +202,32 @@ const BenefitEditor = ({ benefit, index, onChange, onRemove, labels, onLabels, e
             </Cell>
           )}
           {(benefit.type === 'PRODUCT_PERCENT' || benefit.type === 'PRODUCT_FIXED') && (
-            <Cell>{text('maxQuantity', 'maxQuantity', t(`${p}.maxQuantity`), { hint: t(`${p}.noLimit`) })}</Cell>
+            <Cell>
+              {text('maxQuantity', 'maxQuantity', t(`${p}.maxQuantity`), {
+                hint: t(`${p}.noLimit`),
+              })}
+            </Cell>
           )}
           {benefit.type === 'SHIPPING_FREE' && (
-            <Cell>{text('maxAmount', 'maxAmount', t(`${p}.maxAmount`), { hint: t(`${p}.maxAmount.hint`) })}</Cell>
+            <Cell>
+              {text('maxAmount', 'maxAmount', t(`${p}.maxAmount`), {
+                hint: t(`${p}.maxAmount.hint`),
+              })}
+            </Cell>
           )}
         </Flex>
 
         {benefit.type === 'BUY_X_GET_Y' && (
-          <Flex direction="column" alignItems="stretch" gap={4}>
+          <Flex direction="column" alignItems="stretch" gap={5}>
             <Flex direction="column" alignItems="stretch" gap={3}>
-              <Typography variant="sigma" textColor="neutral700">
-                {t(`${p}.buy`)}
-              </Typography>
+              <Flex direction="column" alignItems="flex-start" gap={1}>
+                <Typography variant="omega" fontWeight="bold" textColor="neutral800">
+                  {t(`${p}.buy`)}
+                </Typography>
+                <Typography variant="pi" textColor="neutral600">
+                  {t(`${p}.buy.hint`)}
+                </Typography>
+              </Flex>
               <TargetPicker
                 target={benefit.buyTarget}
                 labels={labels}
@@ -172,15 +238,26 @@ const BenefitEditor = ({ benefit, index, onChange, onRemove, labels, onLabels, e
                 readOnly={readOnly}
               />
               <Flex gap={3} alignItems="flex-start" wrap="wrap">
-                <Cell>{text('buyQuantity', 'buy.quantity', t(`${p}.quantity`), { required: true })}</Cell>
-                <Cell width={260}>{text('buyMinAmount', 'buy.minAmount', t(`${p}.buyMinAmount`))}</Cell>
+                <Cell>
+                  {text('buyQuantity', 'buy.quantity', t(`${p}.quantity`), { required: true })}
+                </Cell>
+                <Cell width={260}>
+                  {text('buyMinAmount', 'buy.minAmount', t(`${p}.buyMinAmount`))}
+                </Cell>
               </Flex>
             </Flex>
 
+            <Divider />
+
             <Flex direction="column" alignItems="stretch" gap={3}>
-              <Typography variant="sigma" textColor="neutral700">
-                {t(`${p}.get`)}
-              </Typography>
+              <Flex direction="column" alignItems="flex-start" gap={1}>
+                <Typography variant="omega" fontWeight="bold" textColor="neutral800">
+                  {t(`${p}.get`)}
+                </Typography>
+                <Typography variant="pi" textColor="neutral600">
+                  {t(`${p}.get.hint`)}
+                </Typography>
+              </Flex>
               <Radio.Group
                 value={benefit.getMode}
                 disabled={disabled}
@@ -210,16 +287,23 @@ const BenefitEditor = ({ benefit, index, onChange, onRemove, labels, onLabels, e
                   variantsOnly
                   max={MAX_GIFT_VARIANTS}
                   error={
-                    errorUnder(errors, `${base}.get.variantIds`) ? t(`${p}.giftVariants.required`) : undefined
+                    errorUnder(errors, `${base}.get.variantIds`)
+                      ? t(`${p}.giftVariants.required`)
+                      : undefined
                   }
                   disabled={disabled}
                   readOnly={readOnly}
                 />
               )}
               <Flex gap={3} alignItems="flex-start" wrap="wrap">
-                <Cell>{text('getQuantity', 'get.quantity', t(`${p}.quantity`), { required: true })}</Cell>
+                <Cell>
+                  {text('getQuantity', 'get.quantity', t(`${p}.quantity`), { required: true })}
+                </Cell>
                 <Cell width={240}>
-                  <Field.Root name={`${base}.reward.kind`} error={errorText(errors[`${base}.reward.kind`])}>
+                  <Field.Root
+                    name={`${base}.reward.kind`}
+                    error={errorText(errors[`${base}.reward.kind`])}
+                  >
                     <Field.Label>{t(`${p}.reward`)}</Field.Label>
                     <SingleSelect
                       value={benefit.rewardKind}
@@ -238,21 +322,21 @@ const BenefitEditor = ({ benefit, index, onChange, onRemove, labels, onLabels, e
                   </Field.Root>
                 </Cell>
                 {benefit.rewardKind === 'PERCENT' && (
-                  <Cell>{text('rewardPercent', 'reward.percent', t(`${p}.percent`), { required: true })}</Cell>
+                  <Cell>
+                    {text('rewardPercent', 'reward.percent', t(`${p}.percent`), { required: true })}
+                  </Cell>
                 )}
                 {benefit.rewardKind === 'FIXED' && (
-                  <Cell>{text('rewardAmount', 'reward.amount', t(`${p}.amount`), { required: true })}</Cell>
+                  <Cell>
+                    {text('rewardAmount', 'reward.amount', t(`${p}.amount`), { required: true })}
+                  </Cell>
                 )}
               </Flex>
             </Flex>
           </Flex>
         )}
 
-        {summary && (
-          <Typography variant="pi" textColor="neutral600">
-            {summary}
-          </Typography>
-        )}
+        {summary && <MarkedSentence text={summary} background="neutral0" />}
       </Flex>
     </Box>
   );
