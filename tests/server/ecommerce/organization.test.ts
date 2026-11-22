@@ -158,13 +158,6 @@ describe('EcommerceOrganizationService — categories', () => {
     );
   });
 
-  it('refuses an image that is not an http(s) or relative URL', async () => {
-    const { service } = setup();
-    await expectIssue(service.createCategory(cat('A', null, { image: 'javascript:alert(1)' })), 'image', 'invalid_url');
-    const { id } = await service.createCategory(cat('A', null, { image: 'https://cdn.example/a.webp' }));
-    expect((await service.getCategory(id)).image).toBe('https://cdn.example/a.webp');
-  });
-
   it('refuses an unknown parent', async () => {
     const { service } = setup();
     await expectIssue(service.createCategory(cat('A', 999)), 'parentId', 'unknown');

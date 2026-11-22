@@ -2545,8 +2545,6 @@
   "littlebox-strapi-suite.ecommerce.organization.category.parent": "Parent category",
   "littlebox-strapi-suite.ecommerce.organization.category.parent.hint": "Empty: a top-level category.",
   "littlebox-strapi-suite.ecommerce.organization.category.root": "None (top level)",
-  "littlebox-strapi-suite.ecommerce.organization.category.image": "Image URL",
-  "littlebox-strapi-suite.ecommerce.organization.category.image.hint": "An http(s) address or a path starting with /.",
   "littlebox-strapi-suite.ecommerce.organization.category.name": "Name",
   "littlebox-strapi-suite.ecommerce.organization.category.slug": "Slug",
   "littlebox-strapi-suite.ecommerce.organization.category.slug.hint": "Used in the storefront address. Empty: made from the name.",

@@ -58,7 +58,6 @@ type TranslationForm = Record<TextField, string>;
 type CategoryForm = {
   parentId: number | null;
   active: boolean;
-  image: string;
   translations: Record<string, TranslationForm>;
 };
 
@@ -73,7 +72,6 @@ const emptyTranslation = (): TranslationForm => ({
 const formFromDetail = (detail: CategoryDetail | null, localeCodes: string[]): CategoryForm => ({
   parentId: detail?.parentId ?? null,
   active: detail ? detail.active : true,
-  image: detail?.image ?? '',
   translations: Object.fromEntries(
     localeCodes.map((code) => {
       const tr = detail?.translations?.[code];
@@ -96,7 +94,6 @@ const formFromDetail = (detail: CategoryDetail | null, localeCodes: string[]): C
 const toInput = (form: CategoryForm): CategoryInput => ({
   parentId: form.parentId,
   active: form.active,
-  image: form.image.trim() || null,
   translations: Object.fromEntries(
     Object.entries(form.translations).map(([code, tr]) => [
       code,
@@ -360,16 +357,6 @@ const CategoryEditPage = () => {
           <Field.Hint />
         </Field.Root>
 
-        <Field.Root name="image" error={errorText('image')} hint={t(`${p}.image.hint`)}>
-          <Field.Label>{t(`${p}.image`)}</Field.Label>
-          <TextInput
-            value={form.image}
-            placeholder="https://"
-            onChange={(e: any) => update({ image: e.target.value }, 'image')}
-          />
-          <Field.Error />
-          <Field.Hint />
-        </Field.Root>
         {errors.active && (
           <Typography variant="pi" textColor="danger600" role="alert">
             {errorText('active')}

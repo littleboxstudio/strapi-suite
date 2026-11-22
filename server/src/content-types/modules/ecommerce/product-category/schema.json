@@ -32,9 +32,6 @@
       "type": "boolean",
       "default": true
     },
-    "image": {
-      "type": "string"
-    },
     "translations": {
       "type": "relation",
       "relation": "oneToMany",

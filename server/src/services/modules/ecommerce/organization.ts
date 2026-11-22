@@ -22,7 +22,6 @@ export type CategoryTranslationInput = {
 export type CategoryInput = {
   parentId: number | null;
   active: boolean;
-  image: string | null;
   translations: Translations<CategoryTranslationInput>;
 };
 
@@ -43,7 +42,6 @@ export type CategoryDetail = {
   parentId: number | null;
   position: number;
   active: boolean;
-  image: string | null;
   translations: Translations<Required<CategoryTranslationInput>>;
   productCount: number;
   childCount: number;
@@ -71,9 +69,6 @@ const invalid = (errors: ValidationIssue[], message = 'Invalid request'): never 
 };
 
 const isPositiveInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v > 0;
-
-/** An image is an absolute http(s) URL or a site-relative path (never `javascript:` and the like). */
-const validImageUrl = (url: string) => /^https?:\/\/[^\s]+$/i.test(url) || /^\/(?!\/)[^\s]*$/.test(url);
 
 const EcommerceOrganizationService = ({ strapi }: { strapi: Core.Strapi }) => {
   const uids = () => {
@@ -182,11 +177,6 @@ const EcommerceOrganizationService = ({ strapi }: { strapi: Core.Strapi }) => {
     const errors: ValidationIssue[] = [];
     if (!input || typeof input !== 'object') return [{ path: 'body', code: 'invalid' }];
     if (typeof input.active !== 'boolean') errors.push({ path: 'active', code: 'invalid' });
-    if (input.image !== null && input.image !== undefined) {
-      if (typeof input.image !== 'string') errors.push({ path: 'image', code: 'invalid' });
-      else if (input.image.trim().length > MAX_STRING) errors.push({ path: 'image', code: 'too_long' });
-      else if (input.image.trim() && !validImageUrl(input.image.trim())) errors.push({ path: 'image', code: 'invalid_url' });
-    }
     const translations = input.translations && typeof input.translations === 'object' ? input.translations : {};
     const known = await localeCodes();
     for (const [locale, t] of Object.entries(translations)) {
@@ -253,8 +243,6 @@ const EcommerceOrganizationService = ({ strapi }: { strapi: Core.Strapi }) => {
     }
     if (errors.length) invalid(errors, 'Invalid category');
   };
-
-  const cleanImage = (image: string | null | undefined) => (typeof image === 'string' && image.trim() ? image.trim() : null);
 
   // ------------------------------------------------------------------ types and tags
 
@@ -478,7 +466,6 @@ const EcommerceOrganizationService = ({ strapi }: { strapi: Core.Strapi }) => {
         parentId: r.parent?.id ?? null,
         position: r.position ?? 0,
         active: r.active !== false,
-        image: r.image ?? null,
         translations,
         productCount,
         childCount,
@@ -498,7 +485,6 @@ const EcommerceOrganizationService = ({ strapi }: { strapi: Core.Strapi }) => {
             parent: parentId,
             position: siblingsOf(nodes, parentId).length,
             active: input.active,
-            image: cleanImage(input.image),
           },
         });
         await saveCategoryTranslations(created.id, input.translations);
@@ -521,7 +507,7 @@ const EcommerceOrganizationService = ({ strapi }: { strapi: Core.Strapi }) => {
       await strapi.db.transaction(async () => {
         await strapi.db.query(uids().category).update({
           where: { id },
-          data: { active: input.active, image: cleanImage(input.image) },
+          data: { active: input.active },
         });
         if (moved) {
           await writeOrder([...siblingsOf(nodes, parentId, id), self], parentId);

@@ -2329,8 +2329,6 @@
   "littlebox-strapi-suite.ecommerce.organization.category.parent": "Categoria superior",
   "littlebox-strapi-suite.ecommerce.organization.category.parent.hint": "Vazio: uma categoria de topo.",
   "littlebox-strapi-suite.ecommerce.organization.category.root": "Nenhuma (topo)",
-  "littlebox-strapi-suite.ecommerce.organization.category.image": "URL da imagem",
-  "littlebox-strapi-suite.ecommerce.organization.category.image.hint": "Um endereço http(s) ou um caminho começado por /.",
   "littlebox-strapi-suite.ecommerce.organization.category.name": "Nome",
   "littlebox-strapi-suite.ecommerce.organization.category.slug": "Slug",
   "littlebox-strapi-suite.ecommerce.organization.category.slug.hint": "Usado no endereço da loja. Vazio: criado a partir do nome.",

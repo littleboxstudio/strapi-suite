@@ -54,7 +54,7 @@ the store's configured locales and default-locale fallback apply as they do for 
 - `parent` (self relation, optional), `position` (order among siblings), `active`.
 - Translation: `name` (required in the default locale), `slug` (unique per locale), `description`,
   `seoTitle`, `seoDescription`.
-- Optional image.
+- Category image removed by the owner on 2026-11-22.
 - Depth: at most **5** levels.
 - Product → category: many-to-one, optional.
 - Deleting a category is refused while it has subcategories; its products lose their category.
@@ -159,7 +159,7 @@ New entries in the products area: **Categories**, **Collections**, and a page fo
 ### Categories page
 - Tree view (indented table) with name, slug, product count, active; Add (top right), Edit, Delete;
   reorder siblings and move to another parent.
-- Edit page / modal: parent picker, translations (locale switcher), image, SEO, active.
+- Edit page / modal: parent picker, translations (locale switcher), SEO, active.
 
 ### Collections
 - List: search (38px, full width), title, type badge (Manual / Automated), product count, active;
@@ -199,7 +199,7 @@ New entries in the products area: **Categories**, **Collections**, and a page fo
 
 ## Storefront API (documented in `docs/ecommerce/storefront-api.md`)
 
-- `GET /categories?locale=` — the active category tree (id, name, slug, parent, position, image).
+- `GET /categories?locale=` — the active category tree (id, name, slug, parent, position).
 - `GET /categories/:slug?locale=` — one category with its path (breadcrumb).
 - `GET /collections?locale=&page=&pageSize=` — active collections, by title (paginated).
 - `GET /collections/:handle?locale=` — title, handle, description, image, SEO.

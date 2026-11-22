@@ -28,7 +28,7 @@ const configKeys: Record<string, string> = {
   collectionProduct: 'collection-product',
 };
 const names: Record<string, string[]> = {
-  'product-category': ['parent', 'children', 'position', 'active', 'image', 'translations', 'products'],
+  'product-category': ['parent', 'children', 'position', 'active', 'translations', 'products'],
   'product-category-translation': ['category', 'locale', 'name', 'slug', 'description', 'seoTitle', 'seoDescription'],
   'product-type': ['key', 'translations', 'products'],
   'product-type-translation': ['productType', 'locale', 'name'],
@@ -110,8 +110,7 @@ describe('ecommerce product organization content-types', () => {
     expect(c.parent).toMatchObject({ relation: 'manyToOne', inversedBy: 'children', target: `${P}product-category` });
     expect(c.position).toMatchObject({ type: 'integer', default: 0 });
     expect(c.active).toMatchObject({ type: 'boolean', default: true });
-    expect(c.image.type).toBe('string');
-    expect(c.image.required).toBeFalsy();
+    expect(c.image).toBeUndefined();
     const col = get('collection').attributes;
     expect(col.type).toMatchObject({ type: 'enumeration', enum: ['MANUAL', 'AUTOMATED'], required: true });
     expect(col.sortOrder.enum).toEqual(['MANUAL', 'BEST_SELLING', 'TITLE_ASC', 'TITLE_DESC', 'PRICE_ASC', 'PRICE_DESC', 'NEWEST', 'OLDEST']);

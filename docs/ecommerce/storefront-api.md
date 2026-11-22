@@ -182,8 +182,8 @@ priceMax, compareAtPriceMin, currency, available, category, productType, tags }`
 - `productType`: `{ id, name } | null`; `tags`: `[{ id, name }]` by name. Names in the request
   locale, else the default locale.
 
-**Categories.** `PublicCategory`: `{ id, name, slug, parentId, position, image, children }`
-(`image` is the stored URL or `null`; `children` by `position`). `GET /categories` answers the
+**Categories.** `PublicCategory`: `{ id, name, slug, parentId, position, children }`
+(`children` by `position`). `GET /categories` answers the
 active roots: an inactive category hides its whole subtree. `PublicCategoryDetail` (`GET
 /categories/:slug`): the same fields without `children`, plus `description`, `seoTitle`,
 `seoDescription` (`null` when empty) and `path` (breadcrumb, root first, the category last). Name,

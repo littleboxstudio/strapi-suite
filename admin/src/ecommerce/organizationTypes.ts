@@ -31,7 +31,6 @@ export type CategoryTranslationInput = {
 export type CategoryInput = {
   parentId: number | null;
   active: boolean;
-  image: string | null;
   translations: Record<string, CategoryTranslationInput>;
 };
 
@@ -52,7 +51,6 @@ export type CategoryDetail = {
   parentId: number | null;
   position: number;
   active: boolean;
-  image: string | null;
   translations: Record<string, CategoryTranslation>;
   productCount: number;
   childCount: number;

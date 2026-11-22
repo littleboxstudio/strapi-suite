@@ -864,7 +864,7 @@ describe('EcommerceStorefrontController', () => {
     it('GET /categories, /categories/:slug, /collections, /collections/:handle', async () => {
       const t = setup();
       const tables = t.c.tables;
-      tables[UIDS.category].push({ id: 1, parent: null, position: 0, active: true, image: null });
+      tables[UIDS.category].push({ id: 1, parent: null, position: 0, active: true });
       tables[UIDS.categoryTranslation].push({ id: 1, category: 1, locale: 'en', name: 'Shoes', slug: 'shoes' });
       tables[UIDS.collection].push({
         id: 1,
@@ -879,7 +879,7 @@ describe('EcommerceStorefrontController', () => {
       const tree = await t.call('listCategories', { query: { locale: 'pt' } });
       expect(tree.status).toBe(200);
       expect(tree.body).toEqual([
-        { id: 1, name: 'Shoes', slug: 'shoes', parentId: null, position: 0, image: null, children: [] },
+        { id: 1, name: 'Shoes', slug: 'shoes', parentId: null, position: 0, children: [] },
       ]);
       const one = await t.call('getCategory', { params: { slug: 'shoes' }, query: { locale: 'pt' } });
       expect(one.status).toBe(200);

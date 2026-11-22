@@ -167,14 +167,13 @@ function setup(opts: { duplicateRows?: boolean } = {}) {
   let seq = 1000;
   const next = () => ++seq;
   type Texts = Record<string, Record<string, string>>;
-  const addCategory = (o: { texts: Texts; parent?: number; active?: boolean; position?: number; image?: string }) => {
+  const addCategory = (o: { texts: Texts; parent?: number; active?: boolean; position?: number }) => {
     const id = next();
     tables[UIDS.category].push({
       id,
       parent: o.parent ?? null,
       active: o.active ?? true,
       position: o.position ?? 0,
-      image: o.image ?? null,
     });
     for (const [locale, t] of Object.entries(o.texts))
       tables[UIDS.categoryTranslation].push({ id: next(), category: id, locale, ...t });
@@ -391,7 +390,7 @@ describe('EcommerceStorefrontCatalogService', () => {
   describe('categories', () => {
     it('tree: active only, an inactive node hides its whole subtree, ordered by position, locale fallback', async () => {
       const { service, addCategory } = setup();
-      const a = addCategory({ texts: { en: { name: 'Apparel', slug: 'apparel' }, pt: { name: 'Roupa', slug: 'roupa' } }, position: 1, image: 'https://cdn/x.png' });
+      const a = addCategory({ texts: { en: { name: 'Apparel', slug: 'apparel' }, pt: { name: 'Roupa', slug: 'roupa' } }, position: 1 });
       const a2 = addCategory({ texts: { en: { name: 'Hidden', slug: 'hidden' } }, parent: a, active: false, position: 0 });
       addCategory({ texts: { en: { name: 'Under hidden', slug: 'under-hidden' } }, parent: a2 });
       const a1 = addCategory({ texts: { en: { name: 'Shirts', slug: 'shirts' } }, parent: a, position: 2 });
@@ -400,15 +399,14 @@ describe('EcommerceStorefrontCatalogService', () => {
       const b = addCategory({ texts: { en: { name: 'Books', slug: 'books' } }, position: 0 });
       const tree = await service.listCategories('pt');
       expect(tree).toEqual([
-        { id: b, name: 'Books', slug: 'books', parentId: null, position: 0, image: null, children: [] },
+        { id: b, name: 'Books', slug: 'books', parentId: null, position: 0, children: [] },
         {
           id: a,
           name: 'Roupa',
           slug: 'roupa',
           parentId: null,
           position: 1,
-          image: 'https://cdn/x.png',
-          children: [{ id: a1, name: 'Shirts', slug: 'shirts', parentId: a, position: 2, image: null, children: [] }],
+          children: [{ id: a1, name: 'Shirts', slug: 'shirts', parentId: a, position: 2, children: [] }],
         },
       ]);
     });

@@ -90,8 +90,6 @@ export type PublicCategory = {
   slug: string;
   parentId: number | null;
   position: number;
-  /** URL as stored, or null. */
-  image: string | null;
   children: PublicCategory[];
 };
 
@@ -241,14 +239,13 @@ const EcommerceStorefrontCatalogService = ({ strapi }: { strapi: Core.Strapi }) 
     parentId: number | null;
     position: number;
     active: boolean;
-    image: string | null;
     translations: any[];
   };
 
   /** Every category (active or not): the tree is small and is walked in memory. */
   const loadCategories = async (): Promise<CategoryNodeRow[]> => {
     const rows: any[] = await strapi.db.query(uids().category).findMany({
-      select: ['id', 'position', 'active', 'image'],
+      select: ['id', 'position', 'active'],
       populate: {
         parent: { select: ['id'] },
         translations: { select: ['locale', 'name', 'slug'] },
@@ -259,7 +256,6 @@ const EcommerceStorefrontCatalogService = ({ strapi }: { strapi: Core.Strapi }) 
       parentId: r.parent?.id ?? null,
       position: r.position ?? 0,
       active: r.active !== false,
-      image: typeof r.image === 'string' && r.image ? r.image : null,
       translations: r.translations ?? [],
     }));
   };
@@ -608,7 +604,6 @@ const EcommerceStorefrontCatalogService = ({ strapi }: { strapi: Core.Strapi }) 
               ...categoryRef(n, locale, defaultLocale),
               parentId: n.parentId,
               position: n.position,
-              image: n.image,
               children: build(n.id),
             };
           });
@@ -628,7 +623,6 @@ const EcommerceStorefrontCatalogService = ({ strapi }: { strapi: Core.Strapi }) 
         ...categoryRef(node, locale, defaultLocale),
         parentId: node.parentId,
         position: node.position,
-        image: node.image,
         description: pickText(texts, locale, defaultLocale, 'description'),
         seoTitle: pickText(texts, locale, defaultLocale, 'seoTitle') || null,
         seoDescription: pickText(texts, locale, defaultLocale, 'seoDescription') || null,
