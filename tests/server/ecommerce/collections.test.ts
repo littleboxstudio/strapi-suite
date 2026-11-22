@@ -321,7 +321,8 @@ describe('EcommerceCollectionService — manual members', () => {
 
   it('add / remove / reorder on an automated collection is COLLECTION_IS_AUTOMATED', async () => {
     const s = setup();
-    const a = await s.product('A');
+    // Priced below the rule (PRICE gt 500): the automated evaluation does not add it.
+    const a = await s.product('A', 100);
     const { id } = await s.service.create(automated('Pricey'));
     for (const run of [
       () => s.service.addProducts(id, [a]),

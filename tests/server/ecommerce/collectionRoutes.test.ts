@@ -12,6 +12,8 @@ const expected: [string, string, string, string][] = [
   ['POST', '/admin/ecommerce/products/bulk', 'bulkProducts', P.productsManage],
   ['GET', '/admin/ecommerce/collections', 'list', P.productsRead],
   ['POST', '/admin/ecommerce/collections', 'create', P.productsManage],
+  ['POST', '/admin/ecommerce/collections/preview', 'preview', P.productsManage],
+  ['POST', '/admin/ecommerce/collections/:id/recalculate', 'recalculate', P.productsManage],
   ['GET', '/admin/ecommerce/collections/:id/products', 'listProducts', P.productsRead],
   ['POST', '/admin/ecommerce/collections/:id/products', 'addProducts', P.productsManage],
   ['DELETE', '/admin/ecommerce/collections/:id/products', 'removeProducts', P.productsManage],
@@ -35,6 +37,7 @@ describe('ecommerce collection routes', () => {
     expect(routes).toHaveLength(expected.length);
     const index = (path: string) => routes.findIndex((r) => r.path === path);
     expect(index('/admin/ecommerce/collections/:id/products')).toBeLessThan(index('/admin/ecommerce/collections/:id'));
+    expect(index('/admin/ecommerce/collections/preview')).toBeLessThan(index('/admin/ecommerce/collections/:id'));
   });
 
   it('are included in the admin routes, and the controller and service are registered', () => {
@@ -104,6 +107,34 @@ describe('EcommerceCollectionController', () => {
     await c.bulkProducts(bulk);
     expect(service.bulkProducts).toHaveBeenCalledWith({ productIds: [1, 2], action: 'addTag', value: 5 });
     expect(bulk.body).toEqual({ updated: 2 });
+  });
+
+  it('preview passes match/conditions/page/locale from the body; recalculate answers the counts', async () => {
+    const service = {
+      preview: vi.fn().mockResolvedValue({ results: [], pagination: { page: 2 } }),
+      recalculate: vi.fn().mockResolvedValue({ added: 1, removed: 2 }),
+    };
+    const c = setup(service);
+    const conditions = [{ field: 'PRICE', operator: 'lt', value: 1000 }];
+    const preview = ctxOf({ body: { match: 'ANY', conditions, page: 2, locale: 'pt' } });
+    await c.preview(preview);
+    expect(service.preview).toHaveBeenCalledWith({ match: 'ANY', conditions, page: 2, locale: 'pt' });
+    expect(preview.body).toEqual({ results: [], pagination: { page: 2 } });
+    const recalc = ctxOf({ params: { id: '7' } });
+    await c.recalculate(recalc);
+    expect(service.recalculate).toHaveBeenCalledWith(7);
+    expect(recalc.body).toEqual({ added: 1, removed: 2 });
+  });
+
+  it('preview validation errors answer 400', async () => {
+    const c = setup({
+      preview: vi
+        .fn()
+        .mockRejectedValue(new EcommerceValidationError('Invalid collection', [{ path: 'conditions', code: 'required' }])),
+    });
+    const ctx = ctxOf({ body: { match: 'ALL', conditions: [] } });
+    await c.preview(ctx);
+    expect(ctx.badRequest).toHaveBeenCalledWith('Invalid collection', { errors: [{ path: 'conditions', code: 'required' }] });
   });
 
   it('COLLECTION_IS_AUTOMATED answers 409; other validation errors 400', async () => {

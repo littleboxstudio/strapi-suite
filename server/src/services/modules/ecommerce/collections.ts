@@ -6,10 +6,13 @@ import {
   CollectionCondition,
   CollectionMatch,
   CollectionSort,
+  EvaluableProduct,
   parseConditions,
+  productMatches,
   sortEntries,
 } from './domain/collections';
 import { galleryCover, isGalleryPermutation } from './domain/galleryImages';
+import { CategoryNode, subtreeIds } from './domain/organization';
 import { EcommerceNotFoundError, EcommerceValidationError, ValidationIssue } from './errors';
 
 const PAGE_SIZE = 50 as const;
@@ -17,6 +20,8 @@ const PAGE_SIZE = 50 as const;
 const MAX_PRODUCT_IDS = 100 as const;
 /** `string` attributes are varchar(255). */
 const MAX_STRING = 255 as const;
+/** Automated evaluation reads the catalogue this many products at a time. */
+const EVALUATION_BATCH = 200 as const;
 
 export type CollectionType = 'MANUAL' | 'AUTOMATED';
 
@@ -307,6 +312,131 @@ const EcommerceCollectionService = ({ strapi }: { strapi: Core.Strapi }) => {
     if (errors.length) invalid(errors);
   };
 
+  /** Thumbnail (product gallery cover, else the first variant's) per product id; one query. */
+  const thumbnailsOf = async (productIds: number[]): Promise<Map<number, string | null>> => {
+    const withImages: any[] = productIds.length
+      ? await strapi.db.query(uids().product).findMany({
+          where: { id: { $in: productIds } },
+          select: ['id'],
+          populate: {
+            images: true,
+            variants: { select: ['id', 'position'], populate: { images: true } },
+          },
+        })
+      : [];
+    return new Map<number, string | null>(
+      withImages.map((p) => {
+        const variants: any[] = [...(p.variants ?? [])].sort(
+          (a, b) => (a.position ?? 0) - (b.position ?? 0) || a.id - b.id
+        );
+        const thumb = galleryCover(p.images) ?? variants.map((v) => galleryCover(v.images)).find(Boolean) ?? null;
+        return [p.id, (thumb as any)?.url ?? null];
+      })
+    );
+  };
+
+  type Rules = { id: number; match: CollectionMatch; conditions: CollectionCondition[] };
+
+  const rulesOf = (row: any): Rules => {
+    const parsed = parseConditions(row.conditions ?? [], row.match);
+    // Stored rules were validated on save; anything unreadable evaluates as "no conditions" (no members).
+    return { id: row.id, match: parsed.match, conditions: parsed.errors.length ? [] : parsed.conditions };
+  };
+
+  const automatedRules = async (): Promise<Rules[]> =>
+    (
+      await strapi.db.query(uids().collection).findMany({
+        where: { type: 'AUTOMATED' },
+        select: ['id', 'match', 'conditions'],
+      })
+    ).map(rulesOf);
+
+  /** `categorySubtreeOf` over one categories query; each subtree is computed once. */
+  const categoryTester = async (): Promise<(categoryId: number, productCategoryId: number | null) => boolean> => {
+    const rows: any[] = await strapi.db.query(uids().category).findMany({
+      select: ['id', 'position'],
+      populate: { parent: { select: ['id'] } },
+    });
+    const nodes: CategoryNode[] = rows.map((r) => ({
+      id: r.id,
+      parentId: r.parent?.id ?? null,
+      position: r.position ?? 0,
+    }));
+    const cache = new Map<number, Set<number>>();
+    return (categoryId, productCategoryId) => {
+      if (productCategoryId === null) return false;
+      let subtree = cache.get(categoryId);
+      if (!subtree) {
+        subtree = new Set(subtreeIds(nodes, categoryId));
+        cache.set(categoryId, subtree);
+      }
+      return subtree.has(productCategoryId);
+    };
+  };
+
+  /** What evaluation needs of a product, in one query per batch (no N+1). */
+  const EVALUATION_POPULATE = {
+    translations: { select: ['locale', 'name'] },
+    category: { select: ['id'] },
+    productType: { select: ['id'] },
+    tags: { select: ['id'] },
+    variants: { select: ['active', 'price', 'compareAtPrice', 'stock'] },
+  };
+
+  const toEvaluable = (
+    p: any,
+    inCategory: (categoryId: number, productCategoryId: number | null) => boolean
+  ): EvaluableProduct => {
+    const productCategoryId: number | null = p.category?.id ?? null;
+    return {
+      id: p.id,
+      active: p.active !== false,
+      names: (p.translations ?? []).map((t: any) => t.name).filter((n: unknown) => typeof n === 'string'),
+      vendor: typeof p.vendor === 'string' ? p.vendor : null,
+      categorySubtreeOf: (categoryId) => inCategory(categoryId, productCategoryId),
+      productTypeId: p.productType?.id ?? null,
+      tagIds: (p.tags ?? []).map((t: any) => t.id),
+      variants: (p.variants ?? []).map((v: any) => ({
+        active: v.active !== false,
+        price: v.price ?? 0,
+        compareAtPrice: v.compareAtPrice ?? null,
+        stock: v.stock ?? 0,
+      })),
+    };
+  };
+
+  /** Walks the catalogue by id ascending, `EVALUATION_BATCH` products at a time. */
+  const eachCatalogueBatch = async (visit: (products: any[]) => void) => {
+    let lastId = 0;
+    for (;;) {
+      const batch: any[] = await strapi.db.query(uids().product).findMany({
+        where: { id: { $gt: lastId } },
+        select: ['id', 'active', 'vendor'],
+        populate: EVALUATION_POPULATE,
+        orderBy: { id: 'asc' },
+        limit: EVALUATION_BATCH,
+      });
+      if (!batch.length) return;
+      visit(batch);
+      if (batch.length < EVALUATION_BATCH) return;
+      lastId = batch[batch.length - 1].id;
+    }
+  };
+
+  /** Product ids of every product matching `rules`, across the whole catalogue. */
+  const matchingProductIds = async (rules: Pick<Rules, 'match' | 'conditions'>): Promise<number[]> => {
+    const inCategory = await categoryTester();
+    const ids: number[] = [];
+    await eachCatalogueBatch((products) => {
+      for (const p of products) {
+        if (productMatches(toEvaluable(p, inCategory), rules.conditions, rules.match)) ids.push(p.id);
+      }
+    });
+    return ids;
+  };
+
+  const rowProductId = (r: any): number | null => r.product?.id ?? (typeof r.product === 'number' ? r.product : null);
+
   const service = {
     async list(params: { page?: number; search?: string; locale?: string } = {}) {
       const u = uids();
@@ -392,7 +522,7 @@ const EcommerceCollectionService = ({ strapi }: { strapi: Core.Strapi }) => {
         return created.id;
       });
       if (input.type === 'AUTOMATED') {
-        await afterCommit('collection recalculation', () => (service as any).recalculate?.(id));
+        await afterCommit('collection recalculation', () => service.recalculate(id));
       }
       return { id };
     },
@@ -419,7 +549,7 @@ const EcommerceCollectionService = ({ strapi }: { strapi: Core.Strapi }) => {
         });
         await saveTranslations(id, input.translations);
       });
-      if (rulesChanged) await afterCommit('collection recalculation', () => (service as any).recalculate?.(id));
+      if (rulesChanged) await afterCommit('collection recalculation', () => service.recalculate(id));
     },
 
     /** Removes the collection, its translations and memberships; products are never deleted. */
@@ -474,25 +604,7 @@ const EcommerceCollectionService = ({ strapi }: { strapi: Core.Strapi }) => {
       const sorted = sortEntries(entries, sortOrder, locale);
       const pageEntries = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-      const withImages: any[] = pageEntries.length
-        ? await strapi.db.query(uids().product).findMany({
-            where: { id: { $in: pageEntries.map((e) => e.id) } },
-            select: ['id'],
-            populate: {
-              images: true,
-              variants: { select: ['id', 'position'], populate: { images: true } },
-            },
-          })
-        : [];
-      const thumbnails = new Map<number, string | null>(
-        withImages.map((p) => {
-          const variants: any[] = [...(p.variants ?? [])].sort(
-            (a, b) => (a.position ?? 0) - (b.position ?? 0) || a.id - b.id
-          );
-          const thumb = galleryCover(p.images) ?? variants.map((v) => galleryCover(v.images)).find(Boolean) ?? null;
-          return [p.id, (thumb as any)?.url ?? null];
-        })
-      );
+      const thumbnails = await thumbnailsOf(pageEntries.map((e) => e.id));
       const results: CollectionProductItem[] = pageEntries.map((e) => ({
         productId: e.id,
         name: e.name,
@@ -636,11 +748,135 @@ const EcommerceCollectionService = ({ strapi }: { strapi: Core.Strapi }) => {
         }
       });
       if (changed.length) {
-        await afterCommit('collection sync after a bulk product action', () =>
-          (service as any).syncProducts?.(changed)
-        );
+        await afterCommit('collection sync after a bulk product action', () => service.syncProducts(changed));
       }
       return { updated: changed.length };
+    },
+
+    /**
+     * Re-evaluates these products against every AUTOMATED collection and applies the difference
+     * (adds missing memberships, removes extra ones). A product that no longer exists leaves every
+     * automated collection. Idempotent; reuses the caller's transaction when there is one.
+     */
+    async syncProducts(productIds: number[]): Promise<void> {
+      const ids = [...new Set((productIds ?? []).filter(isPositiveInt))];
+      if (!ids.length) return;
+      const rules = await automatedRules();
+      if (!rules.length) return;
+      const u = uids();
+      await strapi.db.transaction(async () => {
+        const products: any[] = await strapi.db.query(u.product).findMany({
+          where: { id: { $in: ids } },
+          select: ['id', 'active', 'vendor'],
+          populate: EVALUATION_POPULATE,
+        });
+        const inCategory = await categoryTester();
+        const evaluable = new Map(products.map((p) => [p.id as number, toEvaluable(p, inCategory)]));
+        const memberships: any[] = await strapi.db.query(u.collectionProduct).findMany({
+          where: { product: { id: { $in: ids } }, collection: { type: 'AUTOMATED' } },
+          select: ['id'],
+          populate: { collection: { select: ['id'] }, product: { select: ['id'] } },
+        });
+        const present = new Map<string, number>();
+        for (const m of memberships) {
+          const productId = rowProductId(m);
+          const collectionId = m.collection?.id ?? m.collection;
+          if (productId !== null && collectionId) present.set(`${collectionId}:${productId}`, m.id);
+        }
+        const extra: number[] = [];
+        for (const r of rules) {
+          for (const productId of ids) {
+            const key = `${r.id}:${productId}`;
+            const p = evaluable.get(productId);
+            const wanted = !!p && productMatches(p, r.conditions, r.match);
+            const rowId = present.get(key);
+            if (wanted && rowId === undefined) {
+              await strapi.db.query(u.collectionProduct).create({
+                data: { collection: r.id, product: productId, position: 0, uniqueKey: key },
+              });
+            } else if (!wanted && rowId !== undefined) {
+              extra.push(rowId);
+            }
+          }
+        }
+        if (extra.length) await strapi.db.query(u.collectionProduct).deleteMany({ where: { id: { $in: extra } } });
+      });
+    },
+
+    /**
+     * Re-evaluates an automated collection over the whole catalogue (batches of 200 by id) and
+     * applies the difference. A manual collection is left alone.
+     */
+    async recalculate(id: number): Promise<{ added: number; removed: number }> {
+      const collection = await findCollection(id);
+      if (collection.type !== 'AUTOMATED') return { added: 0, removed: 0 };
+      const wanted = new Set(await matchingProductIds(rulesOf(collection)));
+      const q = strapi.db.query(uids().collectionProduct);
+      return strapi.db.transaction(async () => {
+        const rows: any[] = await q.findMany({
+          where: { collection: { id } },
+          select: ['id'],
+          populate: { product: { select: ['id'] } },
+        });
+        const present = new Set<number>();
+        const extra: number[] = [];
+        for (const r of rows) {
+          const productId = rowProductId(r);
+          if (productId !== null && wanted.has(productId) && !present.has(productId)) present.add(productId);
+          else extra.push(r.id);
+        }
+        let added = 0;
+        for (const productId of wanted) {
+          if (present.has(productId)) continue;
+          await q.create({ data: { collection: id, product: productId, position: 0, uniqueKey: `${id}:${productId}` } });
+          added += 1;
+        }
+        if (extra.length) await q.deleteMany({ where: { id: { $in: extra } } });
+        return { added, removed: extra.length };
+      });
+    },
+
+    /** Recalculates every automated collection with at least one CATEGORY condition. */
+    async recalculateWhere(filter: { categoryConditions: true }): Promise<void> {
+      if (!filter?.categoryConditions) return;
+      for (const r of await automatedRules()) {
+        if (r.conditions.some((c) => c.field === 'CATEGORY')) await service.recalculate(r.id);
+      }
+    },
+
+    /** The products `conditions` would select (newest first, paginated); nothing is stored. */
+    async preview(input: {
+      match: unknown;
+      conditions: unknown;
+      page?: number;
+      locale?: string;
+    }): Promise<{ results: { productId: number; name: string; thumbnailUrl: string | null }[]; pagination: Pagination }> {
+      const parsed = parseConditions(input?.conditions, input?.match);
+      if (parsed.errors.length) invalid(parsed.errors);
+      if (!parsed.conditions.length) invalid([{ path: 'conditions', code: 'required' }]);
+      const page = pageOf(input?.page);
+      const defaultLocale = await getDefaultLocale();
+      const locale = input?.locale || defaultLocale;
+      const inCategory = await categoryTester();
+      const matches: { id: number; translations: any[] }[] = [];
+      await eachCatalogueBatch((products) => {
+        for (const p of products) {
+          if (productMatches(toEvaluable(p, inCategory), parsed.conditions, parsed.match)) {
+            matches.push({ id: p.id, translations: p.translations ?? [] });
+          }
+        }
+      });
+      matches.sort((a, b) => b.id - a.id);
+      const pageRows = matches.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+      const thumbnails = await thumbnailsOf(pageRows.map((m) => m.id));
+      return {
+        results: pageRows.map((m) => ({
+          productId: m.id,
+          name: pick(m.translations, locale, defaultLocale, 'name'),
+          thumbnailUrl: thumbnails.get(m.id) ?? null,
+        })),
+        pagination: paginate(page, matches.length),
+      };
     },
   };
 

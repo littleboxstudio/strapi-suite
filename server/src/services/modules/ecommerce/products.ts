@@ -118,10 +118,9 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
    */
   const syncCollections = async (productId: number) => {
     try {
-      const collections = strapi.plugin(PLUGIN_ID).service('EcommerceCollectionService') as
-        | { syncProducts?: (ids: number[]) => Promise<unknown> }
-        | undefined;
-      await collections?.syncProducts?.([productId]);
+      const collections: { syncProducts(ids: number[]): Promise<unknown> } =
+        strapi.plugin(PLUGIN_ID).service('EcommerceCollectionService');
+      await collections.syncProducts([productId]);
     } catch (e) {
       strapi.log?.warn?.(
         '[ecommerce] collection sync after a product change failed: ' + (e instanceof Error ? e.name : typeof e)

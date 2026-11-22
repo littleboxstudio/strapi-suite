@@ -60,6 +60,21 @@ const EcommerceCollectionController = ({ strapi }: { strapi: Core.Strapi }) => {
         const { page, locale } = ctx.query || {};
         ctx.body = await collections().listProducts(toId(ctx), { page: Number(page) || 1, locale: text(locale) });
       }),
+    /** The products the rules in the body would select; nothing is stored. */
+    preview: (ctx: any) =>
+      run(ctx, async () => {
+        const body = ctx.request.body ?? {};
+        ctx.body = await collections().preview({
+          match: body.match,
+          conditions: body.conditions,
+          page: Number(body.page) || 1,
+          locale: text(body.locale) ?? text(ctx.query?.locale),
+        });
+      }),
+    recalculate: (ctx: any) =>
+      run(ctx, async () => {
+        ctx.body = await collections().recalculate(toId(ctx));
+      }),
     addProducts: members('addProducts'),
     removeProducts: members('removeProducts'),
     reorderProducts: members('reorderProducts'),

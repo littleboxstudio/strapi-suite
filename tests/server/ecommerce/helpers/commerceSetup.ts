@@ -20,6 +20,7 @@ import EcommercePromotionService from '../../../../server/src/services/modules/e
 import EcommerceStorefrontSessionService from '../../../../server/src/services/modules/ecommerce/storefrontSessions';
 import EcommerceStorefrontCatalogService from '../../../../server/src/services/modules/ecommerce/storefrontCatalog';
 import EcommerceStorefrontCheckoutService from '../../../../server/src/services/modules/ecommerce/storefrontCheckout';
+import EcommerceCollectionService from '../../../../server/src/services/modules/ecommerce/collections';
 import { createEventBus } from '../../../../server/src/services/modules/ecommerce/events';
 import { createFakeDb, type FakeRelations } from './fakeDb';
 
@@ -53,6 +54,12 @@ export const UIDS = {
   checkoutSession: `${P}checkout-session`,
   auditLog: `${P}audit-log`,
   paymentMethodSuggestion: `${P}payment-method-suggestion`,
+  category: `${P}product-category`,
+  productType: `${P}product-type`,
+  tag: `${P}product-tag`,
+  collection: `${P}collection`,
+  collectionTranslation: `${P}collection-translation`,
+  collectionProduct: `${P}collection-product`,
 };
 
 const RELATIONS: FakeRelations = {
@@ -60,8 +67,22 @@ const RELATIONS: FakeRelations = {
     translations: [UIDS.productTranslation, 'product'],
     variants: [UIDS.variant, 'product'],
     images: [UIDS.image, 'product'],
+    category: [UIDS.category, 'category', 'manyToOne'],
+    productType: [UIDS.productType, 'productType', 'manyToOne'],
+    tags: [UIDS.tag, 'product_tags', 'manyToMany'],
+    collectionMembers: [UIDS.collectionProduct, 'product'],
+  },
+  [UIDS.category]: { parent: [UIDS.category, 'parent', 'manyToOne'] },
+  [UIDS.collection]: {
+    translations: [UIDS.collectionTranslation, 'collection'],
+    members: [UIDS.collectionProduct, 'collection'],
+  },
+  [UIDS.collectionProduct]: {
+    collection: [UIDS.collection, 'collection', 'manyToOne'],
+    product: [UIDS.product, 'product', 'manyToOne'],
   },
   [UIDS.variant]: {
+    product: [UIDS.product, 'product', 'manyToOne'],
     translations: [UIDS.variantTranslation, 'variant'],
     images: [UIDS.image, 'variant'],
   },
@@ -169,6 +190,7 @@ export function setupCommerce(
         : { service: (name: string) => services[name] },
   };
   services.EcommerceStockService = EcommerceStockService({ strapi });
+  services.EcommerceCollectionService = EcommerceCollectionService({ strapi });
   services.EcommerceCustomerService = EcommerceCustomerService({ strapi });
   services.EcommerceOrderHistoryService = EcommerceOrderHistoryService({ strapi });
   services.EcommerceShippingService = {

@@ -159,9 +159,9 @@ const EcommerceOrganizationService = ({ strapi }: { strapi: Core.Strapi }) => {
 
   const recalculateCategoryConditions = async () => {
     try {
-      await (strapi.plugin(PLUGIN_ID).service('EcommerceCollectionService') as any)?.recalculateWhere?.({
-        categoryConditions: true,
-      });
+      const collections: { recalculateWhere(filter: { categoryConditions: true }): Promise<unknown> } =
+        strapi.plugin(PLUGIN_ID).service('EcommerceCollectionService');
+      await collections.recalculateWhere({ categoryConditions: true });
     } catch (e) {
       // The change is committed; the collections' Recalculate button repairs memberships.
       strapi.log?.warn?.(

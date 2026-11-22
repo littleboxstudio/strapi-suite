@@ -74,6 +74,7 @@ const RELATIONS: FakeRelations = {
     images: [UIDS.image, 'product'],
   },
   [UIDS.variant]: {
+    product: [UIDS.product, 'product', 'manyToOne'],
     translations: [UIDS.variantTranslation, 'variant'],
     images: [UIDS.image, 'variant'],
   },
@@ -146,6 +147,8 @@ function setup(
         : { service: (name: string) => services[name] },
   };
   services.EcommerceStockService = EcommerceStockService({ strapi });
+  // Stock movements re-evaluate the product's automated collections (none here).
+  services.EcommerceCollectionService = { syncProducts: vi.fn(async () => undefined) };
   services.EcommerceCustomerService = EcommerceCustomerService({ strapi });
   const realHistory = EcommerceOrderHistoryService({ strapi });
   // Simulates a database failure in the next transaction that records `type`.

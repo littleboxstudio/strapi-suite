@@ -57,7 +57,38 @@ const EcommerceStockService = ({ strapi }: { strapi: Core.Strapi }) => {
     );
   };
 
+  /**
+   * The variant's product is re-evaluated against the automated collections (an "inventory ≤ 0"
+   * collection follows order stock changes). Runs in the caller's transaction context; a failure
+   * is logged by error name only and never undoes the stock move.
+   */
+  const syncCollections = async (variantId: number): Promise<void> => {
+    try {
+      const row: any = await strapi.db.query(uids().variant).findOne({
+        where: { id: variantId },
+        select: ['id'],
+        populate: { product: { select: ['id'] } },
+      });
+      const productId = row?.product?.id;
+      if (!productId) return;
+      const collections: { syncProducts(ids: number[]): Promise<unknown> } = strapi
+        .plugin(PLUGIN_ID)
+        .service('EcommerceCollectionService');
+      await collections.syncProducts([productId]);
+    } catch (e) {
+      strapi.log?.warn?.(
+        '[ecommerce] collection sync after a stock movement failed: ' + (e instanceof Error ? e.name : typeof e)
+      );
+    }
+  };
+
   const move = async (input: StockMoveInput): Promise<{ applied: boolean }> => {
+    const result = await applyMove(input);
+    if (result.applied) await syncCollections(input.variantId);
+    return result;
+  };
+
+  const applyMove = async (input: StockMoveInput): Promise<{ applied: boolean }> => {
     const u = uids();
     const movements = () => strapi.db.query(u.stockMovement);
 

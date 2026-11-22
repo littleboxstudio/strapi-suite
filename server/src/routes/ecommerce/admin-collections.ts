@@ -22,6 +22,8 @@ export default [
   route('POST', '/admin/ecommerce/products/bulk', 'bulkProducts', manage),
   route('GET', '/admin/ecommerce/collections', 'list', read),
   route('POST', '/admin/ecommerce/collections', 'create', manage),
+  route('POST', '/admin/ecommerce/collections/preview', 'preview', manage),
+  route('POST', '/admin/ecommerce/collections/:id/recalculate', 'recalculate', manage),
   route('GET', '/admin/ecommerce/collections/:id/products', 'listProducts', read),
   route('POST', '/admin/ecommerce/collections/:id/products', 'addProducts', manage),
   route('DELETE', '/admin/ecommerce/collections/:id/products', 'removeProducts', manage),
