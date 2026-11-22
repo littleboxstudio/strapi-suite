@@ -163,9 +163,9 @@ const EcommerceOrganizationService = ({ strapi }: { strapi: Core.Strapi }) => {
         categoryConditions: true,
       });
     } catch (e) {
-      // The move is committed; the collections' Recalculate button repairs memberships.
+      // The change is committed; the collections' Recalculate button repairs memberships.
       strapi.log?.warn?.(
-        '[ecommerce] collection recalculation after a category move failed: ' + (e instanceof Error ? e.name : typeof e)
+        '[ecommerce] collection recalculation after a category change failed: ' + (e instanceof Error ? e.name : typeof e)
       );
     }
   };
@@ -567,7 +567,7 @@ const EcommerceOrganizationService = ({ strapi }: { strapi: Core.Strapi }) => {
       }
       const inUse = await collectionsReferencing('categoryIds', id);
       if (inUse.length) invalid(inUse, 'Invalid category');
-      await strapi.db.transaction(async () => {
+      const unlinked: number = await strapi.db.transaction(async () => {
         const products: any[] = await strapi.db
           .query(u.product)
           .findMany({ where: { category: { id } }, select: ['id'] });
@@ -577,7 +577,11 @@ const EcommerceOrganizationService = ({ strapi }: { strapi: Core.Strapi }) => {
         await strapi.db.query(u.categoryTranslation).deleteMany({ where: { category: id } });
         await strapi.db.query(u.category).delete({ where: { id } });
         await writeOrder(siblingsOf(nodes, self.parentId, id), self.parentId);
+        return products.length;
       });
+      // Category conditions match whole subtrees: products leaving this category may leave an
+      // ancestor's automated collection.
+      if (unlinked > 0) await recalculateCategoryConditions();
     },
 
     // ---------------------------------------------------------------- product types

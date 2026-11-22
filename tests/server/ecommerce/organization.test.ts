@@ -258,6 +258,24 @@ describe('EcommerceOrganizationService — categories', () => {
     expect(db.tables[UIDS.category]).toHaveLength(1);
   });
 
+  it('deleting a leaf with products recalculates category conditions (its ancestor may be referenced)', async () => {
+    const { service, db, recalculateWhere } = setup();
+    const parent = await service.createCategory(cat('Clothing'));
+    const leaf = await service.createCategory(cat('Shirts', parent.id));
+    await addAutomatedCollection(db, 'Clothing', [{ field: 'CATEGORY', operator: 'eq', value: parent.id }]);
+    await addProduct(db, { category: leaf.id });
+    await service.deleteCategory(leaf.id);
+    expect(recalculateWhere).toHaveBeenCalledTimes(1);
+    expect(recalculateWhere).toHaveBeenCalledWith({ categoryConditions: true });
+  });
+
+  it('deleting a category without products does not recalculate', async () => {
+    const { service, recalculateWhere } = setup();
+    const a = await service.createCategory(cat('A'));
+    await service.deleteCategory(a.id);
+    expect(recalculateWhere).not.toHaveBeenCalled();
+  });
+
   it('deleting an unknown category is not found', async () => {
     const { service } = setup();
     await expect(service.deleteCategory(1)).rejects.toBeInstanceOf(EcommerceNotFoundError);
