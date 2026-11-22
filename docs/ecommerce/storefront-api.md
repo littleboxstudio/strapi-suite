@@ -89,8 +89,12 @@ a 1-hour grace; nothing ever cancels an order.
 
 | Method | Path | S | Rule | Body / answer |
 |---|---|---|---|---|
-| GET | `/products?page=&pageSize=&search=&sort=&locale=` | | `catalog` | `{ results, pagination }` |
+| GET | `/products?page=&pageSize=&search=&sort=&category=&collection=&type=&tag=&vendor=&locale=` | | `catalog` | `{ results, pagination }` (see *Catalogue* below) |
 | GET | `/products/:slug?locale=` | | `catalog` | `PublicProduct` |
+| GET | `/categories?locale=` | | `catalog` | `PublicCategory[]` (the active tree) |
+| GET | `/categories/:slug?locale=` | | `catalog` | `PublicCategoryDetail` |
+| GET | `/collections?page=&pageSize=&locale=` | | `catalog` | `{ results: PublicCollection[], pagination }` |
+| GET | `/collections/:handle?locale=` | | `catalog` | `PublicCollection` |
 | POST | `/checkout/session` | optional | `session.create` | `201 { token, expiresAt }` or `200 { token: null, expiresAt, reused: true }` |
 | GET | `/cart` | S | `cart.quote` | the stored cart |
 | POST | `/cart/quote` | S | `cart.quote` | cart (0–100 lines; empty → empty quote) → `PublicQuote` |
@@ -142,6 +146,55 @@ limit always covers it).
 Public answers never carry internal ids of orders, customers or payments (an order is its
 `publicId`), internal promotion names, the code of an automatic promotion, snapshots, stock
 counts, costs, audit or history, nor any backoffice URL.
+
+### Catalogue
+
+**Product list filters** (`GET /products`), combined with AND (and with `search`):
+
+| Param | Value | Matches |
+|---|---|---|
+| `category` | category slug | products of that category **and its whole subtree** (any depth) |
+| `collection` | collection handle | the collection's members |
+| `type` | one product type id (positive integer) | products of that type |
+| `tag` | comma-separated tag ids (at most 50) | products with **any** of them |
+| `vendor` | text (≤ 255, trimmed) | exact vendor, case-insensitive |
+
+- `category` / `collection` are looked up in the request `locale`, then in the default locale (an
+  `en` slug works on a `pt` request). An unknown slug / handle, an inactive collection, or a
+  category that is inactive **or under an inactive ancestor** → `404 NOT_FOUND`.
+- Types and tags have no slug: use the ids the product answers carry. Unknown ids simply give an
+  empty list. A malformed `type` or `tag` (not positive integers, empty items) → `400` with
+  `invalid` on `type` / `tag`; a repeated `category`, `collection` or `vendor` → `400 invalid`.
+- `sort`: `newest` (default), `oldest`, `name_asc`, `name_desc`, `price_asc` (lowest active-variant
+  price), `price_desc` (highest), `best_selling` (units sold in the last 90 days in paid orders,
+  returns and gifts excluded). Ties by newest. With `collection` and no `sort`, the collection's own
+  order applies (manual collections: the admin's order).
+
+**Answers.** `PublicProductListItem`: `{ id, slug, name, shortDescription, image, priceMin,
+priceMax, compareAtPriceMin, currency, available, vendor, category, productType, tags }`.
+`PublicProduct` has the same organization fields and `compareAtPriceMin`, and each variant has
+`compareAtPrice`.
+
+- `compareAtPrice` (variant): the "was" price in cents, only when **above** the variant's price,
+  else `null`. `compareAtPriceMin`: the `compareAtPrice` of the lowest-priced active variant (the
+  first by position on a tie), else `null`.
+- `vendor`: `string | null`.
+- `category`: `{ id, name, slug, path: [{ id, name, slug }] } | null` — `path` runs from the root
+  to the category itself. `null` without a category, or when it or an ancestor is inactive.
+- `productType`: `{ id, name } | null`; `tags`: `[{ id, name }]` by name. Names in the request
+  locale, else the default locale.
+
+**Categories.** `PublicCategory`: `{ id, name, slug, parentId, position, image, children }`
+(`image` is the stored URL or `null`; `children` by `position`). `GET /categories` answers the
+active roots: an inactive category hides its whole subtree. `PublicCategoryDetail` (`GET
+/categories/:slug`): the same fields without `children`, plus `description`, `seoTitle`,
+`seoDescription` (`null` when empty) and `path` (breadcrumb, root first, the category last). Name,
+slug and texts are in the request locale, else the default locale.
+
+**Collections.** `PublicCollection`: `{ id, title, handle, description, image, seoTitle,
+seoDescription }`. `GET /collections` answers the active collections by title (paginated like the
+products: `pageSize` 1–50, default 24). Never exposed: the collection's type (manual /
+automated), its conditions, match mode or sort order.
 
 ### Pickup points
 
@@ -350,7 +403,7 @@ errors? } } }`. `errors` is a list of `{ path, code, detail? }`.
 | 401 | `SESSION_INVALID` | missing, unknown or expired session |
 | 403 | — | wrong BFF token, or the module is inactive |
 | 404 | `ORDER_NOT_FOUND` | order of another session or unknown |
-| 404 | `NOT_FOUND` | unknown product |
+| 404 | `NOT_FOUND` | unknown product; unknown or inactive category (or under an inactive ancestor) or collection, also as a `/products` filter |
 | 409 | `TOTAL_CHANGED` | the total changed: re-quote (`detail` = new total) |
 | 409 | `PROMOTION_UNAVAILABLE` | an entered code reached its usage limit meanwhile (`promotionCodes.<i>`), or an automatic promotion became unavailable (`promotions`, without its code): re-quote |
 | 409 | `STORE_CREDIT_INSUFFICIENT`, `STORE_CREDIT_CONFLICT` | the credit changed meanwhile |

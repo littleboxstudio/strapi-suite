@@ -249,7 +249,7 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   return {
-    /** GET /products?page=&pageSize=&search=&sort=&locale= */
+    /** GET /products?page=&pageSize=&search=&sort=&category=&collection=&type=&tag=&vendor=&locale= */
     async listProducts(ctx: any) {
       if (limited(ctx, 'catalog', { sessionId: null })) return;
       const q = ctx.query ?? {};
@@ -259,8 +259,58 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
           pageSize: q.pageSize,
           search: q.search,
           sort: q.sort,
+          category: q.category,
+          collection: q.collection,
+          type: q.type,
+          tag: q.tag,
+          vendor: q.vendor,
           locale: await resolveLocale(q.locale),
         }),
+      }));
+    },
+
+    /** GET /categories?locale= */
+    async listCategories(ctx: any) {
+      if (limited(ctx, 'catalog', { sessionId: null })) return;
+      return respond(ctx, { notFound: 'NOT_FOUND' }, async () => ({
+        body: await catalog().listCategories(await resolveLocale(ctx.query?.locale)),
+      }));
+    },
+
+    /** GET /categories/:slug?locale= */
+    async getCategory(ctx: any) {
+      if (limited(ctx, 'catalog', { sessionId: null })) return;
+      const slug = ctx.params?.slug;
+      return respond(ctx, { notFound: 'NOT_FOUND' }, async () => ({
+        body: await catalog().getCategory(
+          typeof slug === 'string' ? slug : '',
+          await resolveLocale(ctx.query?.locale)
+        ),
+      }));
+    },
+
+    /** GET /collections?locale=&page=&pageSize= */
+    async listCollections(ctx: any) {
+      if (limited(ctx, 'catalog', { sessionId: null })) return;
+      const q = ctx.query ?? {};
+      return respond(ctx, { notFound: 'NOT_FOUND' }, async () => ({
+        body: await catalog().listCollections({
+          page: q.page,
+          pageSize: q.pageSize,
+          locale: await resolveLocale(q.locale),
+        }),
+      }));
+    },
+
+    /** GET /collections/:handle?locale= */
+    async getCollection(ctx: any) {
+      if (limited(ctx, 'catalog', { sessionId: null })) return;
+      const handle = ctx.params?.handle;
+      return respond(ctx, { notFound: 'NOT_FOUND' }, async () => ({
+        body: await catalog().getCollection(
+          typeof handle === 'string' ? handle : '',
+          await resolveLocale(ctx.query?.locale)
+        ),
       }));
     },
 

@@ -20,6 +20,10 @@ const route = (method: 'GET' | 'POST', path: string, action: string) => ({
 export default [
   route('GET', '/products', 'listProducts'),
   route('GET', '/products/:slug', 'getProduct'),
+  route('GET', '/categories', 'listCategories'),
+  route('GET', '/categories/:slug', 'getCategory'),
+  route('GET', '/collections', 'listCollections'),
+  route('GET', '/collections/:handle', 'getCollection'),
   route('POST', '/checkout/session', 'openSession'),
   route('GET', '/cart', 'getCart'),
   route('POST', '/cart/quote', 'quoteCart'),

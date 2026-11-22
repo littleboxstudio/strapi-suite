@@ -55,8 +55,11 @@ export const UIDS = {
   auditLog: `${P}audit-log`,
   paymentMethodSuggestion: `${P}payment-method-suggestion`,
   category: `${P}product-category`,
+  categoryTranslation: `${P}product-category-translation`,
   productType: `${P}product-type`,
+  productTypeTranslation: `${P}product-type-translation`,
   tag: `${P}product-tag`,
+  tagTranslation: `${P}product-tag-translation`,
   collection: `${P}collection`,
   collectionTranslation: `${P}collection-translation`,
   collectionProduct: `${P}collection-product`,
@@ -72,7 +75,15 @@ const RELATIONS: FakeRelations = {
     tags: [UIDS.tag, 'product_tags', 'manyToMany'],
     collectionMembers: [UIDS.collectionProduct, 'product'],
   },
-  [UIDS.category]: { parent: [UIDS.category, 'parent', 'manyToOne'] },
+  [UIDS.category]: {
+    parent: [UIDS.category, 'parent', 'manyToOne'],
+    translations: [UIDS.categoryTranslation, 'category'],
+  },
+  [UIDS.productType]: { translations: [UIDS.productTypeTranslation, 'productType'] },
+  [UIDS.tag]: {
+    translations: [UIDS.tagTranslation, 'tag'],
+    products: [UIDS.product, 'product_tags', 'manyToMany'],
+  },
   [UIDS.collection]: {
     translations: [UIDS.collectionTranslation, 'collection'],
     members: [UIDS.collectionProduct, 'collection'],

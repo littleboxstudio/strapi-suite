@@ -157,6 +157,8 @@ export function createFakeDb(
           if (Object.keys(cond).length !== ranges.length) throw new Error('unsupported op');
           return ranges.every(([op, cmp]) => cmp(comparable(value), comparable(cond[op])));
         }
+        if ('$eqi' in cond)
+          return typeof value === 'string' && value.toLowerCase() === String(cond.$eqi).toLowerCase();
         if ('$containsi' in cond)
           return String(value ?? '')
             .toLowerCase()

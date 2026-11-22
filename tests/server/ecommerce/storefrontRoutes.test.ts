@@ -9,6 +9,10 @@ const MIDDLEWARE = 'plugin::littlebox-strapi-suite.check-module-is-active';
 const EXPECTED: [string, string, string][] = [
   ['GET', '/ecommerce/storefront/products', 'listProducts'],
   ['GET', '/ecommerce/storefront/products/:slug', 'getProduct'],
+  ['GET', '/ecommerce/storefront/categories', 'listCategories'],
+  ['GET', '/ecommerce/storefront/categories/:slug', 'getCategory'],
+  ['GET', '/ecommerce/storefront/collections', 'listCollections'],
+  ['GET', '/ecommerce/storefront/collections/:handle', 'getCollection'],
   ['POST', '/ecommerce/storefront/checkout/session', 'openSession'],
   ['GET', '/ecommerce/storefront/cart', 'getCart'],
   ['POST', '/ecommerce/storefront/cart/quote', 'quoteCart'],
@@ -23,8 +27,8 @@ const EXPECTED: [string, string, string][] = [
 ];
 
 describe('storefront content-api routes', () => {
-  it('declares the 13 routes with the handler, auth: false, the BFF policy and the module middleware', () => {
-    expect(storefrontRoutes).toHaveLength(13);
+  it('declares the 17 routes with the handler, auth: false, the BFF policy and the module middleware', () => {
+    expect(storefrontRoutes).toHaveLength(17);
     expect(storefrontRoutes.map((r: any) => [r.method, r.path, r.handler])).toEqual(
       EXPECTED.map(([m, p, h]) => [m, p, `EcommerceStorefrontController.${h}`])
     );
@@ -67,8 +71,8 @@ describe('storefront content-api routes', () => {
       expect(r.config.policies).toEqual(['check-api-token']);
       expect(r.config.auth).toBe(false);
     }
-    // Legacy (6) + Stripe webhook (1) + storefront (13).
-    expect(contentApiRoutes).toHaveLength(20);
-    expect((contentApiRoutes as any[]).filter((r) => r.config.policies.includes('check-storefront-token'))).toHaveLength(13);
+    // Legacy (6) + Stripe webhook (1) + storefront (17).
+    expect(contentApiRoutes).toHaveLength(24);
+    expect((contentApiRoutes as any[]).filter((r) => r.config.policies.includes('check-storefront-token'))).toHaveLength(17);
   });
 });

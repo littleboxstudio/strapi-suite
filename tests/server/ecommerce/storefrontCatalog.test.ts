@@ -13,16 +13,46 @@ const UIDS = {
   variant: `${P}variant`,
   variantTranslation: `${P}variant-translation`,
   image: `${P}image`,
+  category: `${P}product-category`,
+  categoryTranslation: `${P}product-category-translation`,
+  productType: `${P}product-type`,
+  productTypeTranslation: `${P}product-type-translation`,
+  tag: `${P}product-tag`,
+  tagTranslation: `${P}product-tag-translation`,
+  collection: `${P}collection`,
+  collectionTranslation: `${P}collection-translation`,
+  collectionProduct: `${P}collection-product`,
 };
 const RELATIONS: FakeRelations = {
   [UIDS.product]: {
     translations: [UIDS.productTranslation, 'product'],
     variants: [UIDS.variant, 'product'],
     images: [UIDS.image, 'product'],
+    category: [UIDS.category, 'category', 'manyToOne'],
+    productType: [UIDS.productType, 'productType', 'manyToOne'],
+    tags: [UIDS.tag, 'product_tags', 'manyToMany'],
+    collectionMembers: [UIDS.collectionProduct, 'product'],
   },
   [UIDS.variant]: {
     translations: [UIDS.variantTranslation, 'variant'],
     images: [UIDS.image, 'variant'],
+  },
+  [UIDS.category]: {
+    parent: [UIDS.category, 'parent', 'manyToOne'],
+    translations: [UIDS.categoryTranslation, 'category'],
+  },
+  [UIDS.productType]: { translations: [UIDS.productTypeTranslation, 'productType'] },
+  [UIDS.tag]: {
+    translations: [UIDS.tagTranslation, 'tag'],
+    products: [UIDS.product, 'product_tags', 'manyToMany'],
+  },
+  [UIDS.collection]: {
+    translations: [UIDS.collectionTranslation, 'collection'],
+    members: [UIDS.collectionProduct, 'collection'],
+  },
+  [UIDS.collectionProduct]: {
+    collection: [UIDS.collection, 'collection', 'manyToOne'],
+    product: [UIDS.product, 'product', 'manyToOne'],
   },
 };
 
@@ -45,13 +75,23 @@ function setup(opts: { duplicateRows?: boolean } = {}) {
   const strapi: any = {
     db: { query },
     config: { get: () => ({ uuid: { modules: { ecommerce: UIDS } } }) },
-    plugin: () => ({
-      service: () => ({
-        getDefaultLocale: async () => 'en',
-        find: async () => [{ code: 'en' }, { code: 'pt' }],
-      }),
-    }),
+    plugin: (id: string) =>
+      id === 'i18n'
+        ? {
+            service: () => ({
+              getDefaultLocale: async () => 'en',
+              find: async () => [{ code: 'en' }, { code: 'pt' }],
+            }),
+          }
+        : {
+            service: (name: string) =>
+              name === 'EcommerceCollectionService'
+                ? { unitsSoldByProduct: async (ids: number[]) => new Map(ids.map((i) => [i, sold.get(i) ?? 0])) }
+                : undefined,
+          },
   };
+  /** Units sold per product id, as EcommerceCollectionService.unitsSoldByProduct answers. */
+  const sold = new Map<number, number>();
   const service = EcommerceStorefrontCatalogService({ strapi });
   let pid = 0;
   let vid = 0;
@@ -68,6 +108,7 @@ function setup(opts: { duplicateRows?: boolean } = {}) {
       active?: boolean;
       images?: string[];
       option?: string;
+      compareAtPrice?: number | null;
     }[];
   }) => {
     pid += 1;
@@ -103,6 +144,7 @@ function setup(opts: { duplicateRows?: boolean } = {}) {
         product: pid,
         sku: v.sku,
         price: v.price,
+        compareAtPrice: v.compareAtPrice ?? null,
         tax: 23,
         stock: v.stock ?? 5,
         weight: 1,
@@ -122,7 +164,71 @@ function setup(opts: { duplicateRows?: boolean } = {}) {
     });
     return pid;
   };
-  return { service, addProduct, tables };
+  let seq = 1000;
+  const next = () => ++seq;
+  type Texts = Record<string, Record<string, string>>;
+  const addCategory = (o: { texts: Texts; parent?: number; active?: boolean; position?: number; image?: string }) => {
+    const id = next();
+    tables[UIDS.category].push({
+      id,
+      parent: o.parent ?? null,
+      active: o.active ?? true,
+      position: o.position ?? 0,
+      image: o.image ?? null,
+    });
+    for (const [locale, t] of Object.entries(o.texts))
+      tables[UIDS.categoryTranslation].push({ id: next(), category: id, locale, ...t });
+    return id;
+  };
+  const addType = (names: Record<string, string>) => {
+    const id = next();
+    tables[UIDS.productType].push({ id, key: names.en.toLowerCase() });
+    for (const [locale, name] of Object.entries(names))
+      tables[UIDS.productTypeTranslation].push({ id: next(), productType: id, locale, name });
+    return id;
+  };
+  const addTag = (names: Record<string, string>) => {
+    const id = next();
+    tables[UIDS.tag].push({ id, key: names.en.toLowerCase() });
+    for (const [locale, name] of Object.entries(names))
+      tables[UIDS.tagTranslation].push({ id: next(), tag: id, locale, name });
+    return id;
+  };
+  const addCollection = (o: {
+    texts: Texts;
+    active?: boolean;
+    sortOrder?: string;
+    image?: string;
+    members?: number[];
+  }) => {
+    const id = next();
+    tables[UIDS.collection].push({
+      id,
+      type: 'AUTOMATED',
+      sortOrder: o.sortOrder ?? 'MANUAL',
+      active: o.active ?? true,
+      image: o.image ?? null,
+      match: 'ALL',
+      conditions: [{ field: 'VENDOR', operator: 'eq', value: 'secret-vendor' }],
+    });
+    for (const [locale, t] of Object.entries(o.texts))
+      tables[UIDS.collectionTranslation].push({ id: next(), collection: id, locale, ...t });
+    (o.members ?? []).forEach((product, position) =>
+      tables[UIDS.collectionProduct].push({ id: next(), collection: id, product, position })
+    );
+    return id;
+  };
+  const organize = async (
+    pid: number,
+    o: { category?: number; productType?: number; vendor?: string; tags?: number[] }
+  ) => {
+    const row = tables[UIDS.product].find((p: any) => p.id === pid);
+    if (o.category !== undefined) row.category = o.category;
+    if (o.productType !== undefined) row.productType = o.productType;
+    if (o.vendor !== undefined) row.vendor = o.vendor;
+    if (o.tags) await fake.query(UIDS.product).update({ where: { id: pid }, data: { tags: { set: o.tags } } });
+  };
+  return { service, addProduct, tables, sold, addCategory, addType, addTag, addCollection, organize };
 }
 
 const v = (sku: string, price = 1000, extra: any = {}) => ({ sku, price, ...extra });
@@ -281,5 +387,276 @@ describe('EcommerceStorefrontCatalogService', () => {
     const res = await service.listProducts({ locale: 'en' });
     expect(res.results.map((r) => r.name)).toEqual(['B', 'A']);
     expect(res.pagination.total).toBe(2);
+  });
+
+  describe('categories', () => {
+    it('tree: active only, an inactive node hides its whole subtree, ordered by position, locale fallback', async () => {
+      const { service, addCategory } = setup();
+      const a = addCategory({ texts: { en: { name: 'Apparel', slug: 'apparel' }, pt: { name: 'Roupa', slug: 'roupa' } }, position: 1, image: 'https://cdn/x.png' });
+      const a2 = addCategory({ texts: { en: { name: 'Hidden', slug: 'hidden' } }, parent: a, active: false, position: 0 });
+      addCategory({ texts: { en: { name: 'Under hidden', slug: 'under-hidden' } }, parent: a2 });
+      const a1 = addCategory({ texts: { en: { name: 'Shirts', slug: 'shirts' } }, parent: a, position: 2 });
+      const off = addCategory({ texts: { en: { name: 'Off', slug: 'off' } }, active: false, position: 0 });
+      addCategory({ texts: { en: { name: 'Under off', slug: 'under-off' } }, parent: off });
+      const b = addCategory({ texts: { en: { name: 'Books', slug: 'books' } }, position: 0 });
+      const tree = await service.listCategories('pt');
+      expect(tree).toEqual([
+        { id: b, name: 'Books', slug: 'books', parentId: null, position: 0, image: null, children: [] },
+        {
+          id: a,
+          name: 'Roupa',
+          slug: 'roupa',
+          parentId: null,
+          position: 1,
+          image: 'https://cdn/x.png',
+          children: [{ id: a1, name: 'Shirts', slug: 'shirts', parentId: a, position: 2, image: null, children: [] }],
+        },
+      ]);
+    });
+
+    it('Review Focus 5: a pt request with the en slug resolves (default-locale fallback)', async () => {
+      const { service, addCategory, addProduct, organize } = setup();
+      const root = addCategory({ texts: { en: { name: 'Shoes', slug: 'shoes' }, pt: { name: 'Sapatos', slug: 'sapatos' } } });
+      const kid = addCategory({ texts: { en: { name: 'Boots', slug: 'boots' }, pt: { name: 'Botas', slug: 'botas' } }, parent: root });
+      const c = await service.getCategory('boots', 'pt');
+      expect(c).toMatchObject({
+        id: kid,
+        name: 'Botas',
+        slug: 'botas',
+        parentId: root,
+        path: [
+          { id: root, name: 'Sapatos', slug: 'sapatos' },
+          { id: kid, name: 'Botas', slug: 'botas' },
+        ],
+      });
+      expect(c).not.toHaveProperty('children');
+      const p = addProduct({ name: 'Boot', variants: [v('B1')] });
+      addProduct({ name: 'Other', variants: [v('O1')] });
+      await organize(p, { category: kid });
+      const list = await service.listProducts({ locale: 'pt', category: 'shoes' });
+      expect(list.results.map((r) => r.id)).toEqual([p]);
+      // The pt slug does not resolve in en.
+      await expect(service.getCategory('botas', 'en')).rejects.toBeInstanceOf(EcommerceNotFoundError);
+    });
+
+    it('Review Focus 5: an inactive ancestor (or itself) → 404, for the category and the product filter', async () => {
+      const { service, addCategory, addProduct, organize } = setup();
+      const root = addCategory({ texts: { en: { name: 'Root', slug: 'root' } }, active: false });
+      const mid = addCategory({ texts: { en: { name: 'Mid', slug: 'mid' } }, parent: root });
+      const leaf = addCategory({ texts: { en: { name: 'Leaf', slug: 'leaf' } }, parent: mid });
+      const p = addProduct({ name: 'P', variants: [v('P1')] });
+      await organize(p, { category: leaf });
+      for (const slug of ['root', 'mid', 'leaf', 'unknown']) {
+        await expect(service.getCategory(slug, 'en')).rejects.toBeInstanceOf(EcommerceNotFoundError);
+        await expect(service.listProducts({ locale: 'pt', category: slug })).rejects.toBeInstanceOf(
+          EcommerceNotFoundError
+        );
+      }
+      // The product stays reachable by other routes, without the hidden category.
+      const detail = await service.getProduct('p', 'en');
+      expect(detail.category).toBeNull();
+    });
+
+    it('category filter includes the whole subtree, any depth, whatever the subcategories activity', async () => {
+      const { service, addCategory, addProduct, organize } = setup();
+      const root = addCategory({ texts: { en: { name: 'Root', slug: 'root' } } });
+      const off = addCategory({ texts: { en: { name: 'Off', slug: 'off' } }, parent: root, active: false });
+      const deep = addCategory({ texts: { en: { name: 'Deep', slug: 'deep' } }, parent: off });
+      const other = addCategory({ texts: { en: { name: 'Other', slug: 'other' } } });
+      const a = addProduct({ name: 'A', variants: [v('A1')] });
+      const b = addProduct({ name: 'B', variants: [v('B1')] });
+      const c = addProduct({ name: 'C', variants: [v('C1')] });
+      await organize(a, { category: root });
+      await organize(b, { category: deep });
+      await organize(c, { category: other });
+      const res = await service.listProducts({ locale: 'en', category: 'root' });
+      expect(res.results.map((r) => r.id)).toEqual([b, a]);
+    });
+  });
+
+  describe('collections', () => {
+    it('list: active only, by title in the locale, paginated; never conditions, match or type', async () => {
+      const { service, addCollection } = setup();
+      const sale = addCollection({ texts: { en: { title: 'Sale', handle: 'sale' }, pt: { title: 'Promoções', handle: 'promocoes' } } });
+      const news = addCollection({ texts: { en: { title: 'New in', handle: 'new-in' } }, image: 'https://cdn/n.png' });
+      addCollection({ texts: { en: { title: 'Archive', handle: 'archive' } }, active: false });
+      const all = await service.listCollections({ locale: 'pt' });
+      expect(all.results.map((r) => r.id)).toEqual([news, sale]);
+      expect(all.pagination).toEqual({ page: 1, pageSize: 24, total: 2, pageCount: 1 });
+      expect(all.results[1]).toEqual({
+        id: sale,
+        title: 'Promoções',
+        handle: 'promocoes',
+        description: '',
+        image: null,
+        seoTitle: null,
+        seoDescription: null,
+      });
+      const p2 = await service.listCollections({ locale: 'en', page: 2, pageSize: 1 });
+      expect(p2.results.map((r) => r.id)).toEqual([sale]);
+      expect(p2.pagination).toEqual({ page: 2, pageSize: 1, total: 2, pageCount: 2 });
+      const json = JSON.stringify(all);
+      expect(json).not.toContain('conditions');
+      expect(json).not.toContain('secret-vendor');
+      expect(json).not.toContain('AUTOMATED');
+      expect((await service.listCollections({ locale: 'en', pageSize: 51 }).catch((e: any) => e)).errors).toEqual([
+        { path: 'pageSize', code: 'invalid_number' },
+      ]);
+    });
+
+    it('by handle: request locale then default locale; inactive or unknown → 404; no conditions', async () => {
+      const { service, addCollection } = setup();
+      const id = addCollection({
+        texts: {
+          en: { title: 'Sale', handle: 'sale', description: 'Cheap', seoTitle: 'Sale!', seoDescription: 'All on sale' },
+          pt: { title: 'Promoções', handle: 'promocoes' },
+        },
+        image: 'https://cdn/s.png',
+      });
+      addCollection({ texts: { en: { title: 'Off', handle: 'off' } }, active: false });
+      const c = await service.getCollection('sale', 'pt');
+      expect(c).toEqual({
+        id,
+        title: 'Promoções',
+        handle: 'promocoes',
+        description: 'Cheap',
+        image: 'https://cdn/s.png',
+        seoTitle: 'Sale!',
+        seoDescription: 'All on sale',
+      });
+      expect(JSON.stringify(c)).not.toMatch(/conditions|match|secret-vendor|AUTOMATED|sortOrder/);
+      expect((await service.getCollection('promocoes', 'pt')).id).toBe(id);
+      await expect(service.getCollection('promocoes', 'en')).rejects.toBeInstanceOf(EcommerceNotFoundError);
+      await expect(service.getCollection('off', 'en')).rejects.toBeInstanceOf(EcommerceNotFoundError);
+      await expect(service.getCollection('nope', 'en')).rejects.toBeInstanceOf(EcommerceNotFoundError);
+      await expect(service.listProducts({ locale: 'en', collection: 'off' })).rejects.toBeInstanceOf(
+        EcommerceNotFoundError
+      );
+    });
+
+    it('collection filter uses the collection sort (manual = member position) unless sort is given', async () => {
+      const { service, addProduct, addCollection, sold } = setup();
+      const a = addProduct({ name: 'A', variants: [v('A1', 300)] });
+      const b = addProduct({ name: 'B', variants: [v('B1', 100)] });
+      const c = addProduct({ name: 'C', variants: [v('C1', 200)] });
+      addProduct({ name: 'Outside', variants: [v('O1')] });
+      addCollection({ texts: { en: { title: 'Manual', handle: 'manual' } }, members: [b, a, c] });
+      addCollection({ texts: { en: { title: 'Best', handle: 'best' } }, sortOrder: 'BEST_SELLING', members: [a, b, c] });
+      addCollection({ texts: { en: { title: 'Cheap', handle: 'cheap' } }, sortOrder: 'PRICE_ASC', members: [a, b, c] });
+      const ids = async (q: any) => (await service.listProducts({ locale: 'en', ...q })).results.map((r) => r.id);
+      expect(await ids({ collection: 'manual' })).toEqual([b, a, c]);
+      expect(await ids({ collection: 'manual', sort: 'name_desc' })).toEqual([c, b, a]);
+      expect(await ids({ collection: 'cheap' })).toEqual([b, c, a]);
+      sold.set(c, 5);
+      sold.set(a, 2);
+      expect(await ids({ collection: 'best' })).toEqual([c, a, b]);
+      expect(await ids({ collection: 'best', sort: 'oldest' })).toEqual([a, b, c]);
+    });
+  });
+
+  describe('product filters and sorts', () => {
+    it('type, tag (any of), vendor (exact, case-insensitive, trimmed), combined with AND', async () => {
+      const { service, addProduct, addType, addTag, organize } = setup();
+      const shirt = addType({ en: 'Shirt' });
+      const mug = addType({ en: 'Mug' });
+      const red = addTag({ en: 'Red' });
+      const blue = addTag({ en: 'Blue' });
+      const green = addTag({ en: 'Green' });
+      const a = addProduct({ name: 'A', variants: [v('A1')] });
+      const b = addProduct({ name: 'B', variants: [v('B1')] });
+      const c = addProduct({ name: 'C', variants: [v('C1')] });
+      await organize(a, { productType: shirt, tags: [red], vendor: 'Acme' });
+      await organize(b, { productType: shirt, tags: [blue, green], vendor: 'Acme Co' });
+      await organize(c, { productType: mug, tags: [red, blue], vendor: 'acme' });
+      const ids = async (q: any) => (await service.listProducts({ locale: 'en', ...q })).results.map((r) => r.id);
+      expect(await ids({ type: String(shirt) })).toEqual([b, a]);
+      expect(await ids({ tag: String(red) })).toEqual([c, a]);
+      expect(await ids({ tag: `${red},${green}` })).toEqual([c, b, a]);
+      expect(await ids({ vendor: '  ACME ' })).toEqual([c, a]);
+      expect(await ids({ type: String(shirt), tag: `${red},${blue}`, vendor: 'acme' })).toEqual([a]);
+      expect(await ids({ type: '999999' })).toEqual([]);
+      expect(await ids({ tag: '999999' })).toEqual([]);
+      const err = async (q: any) => (await service.listProducts({ locale: 'en', ...q }).catch((e: any) => e)).errors;
+      expect(await err({ type: 'x' })).toEqual([{ path: 'type', code: 'invalid' }]);
+      expect(await err({ type: '0' })).toEqual([{ path: 'type', code: 'invalid' }]);
+      expect(await err({ tag: `${red},x` })).toEqual([{ path: 'tag', code: 'invalid' }]);
+      expect(await err({ tag: `${red},,${blue}` })).toEqual([{ path: 'tag', code: 'invalid' }]);
+      expect(await err({ category: ['a', 'b'] })).toEqual([{ path: 'category', code: 'invalid' }]);
+    });
+
+    it('sorts best_selling (ties by newest), oldest and name_desc', async () => {
+      const { service, addProduct, sold } = setup();
+      const a = addProduct({ name: 'Alpha', variants: [v('A1')] });
+      const b = addProduct({ name: 'Bravo', variants: [v('B1')] });
+      const c = addProduct({ name: 'Charlie', variants: [v('C1')] });
+      const d = addProduct({ name: 'Delta', variants: [v('D1')] });
+      sold.set(b, 4);
+      sold.set(a, 1);
+      const ids = async (sort: string) => (await service.listProducts({ locale: 'en', sort })).results.map((r) => r.id);
+      expect(await ids('best_selling')).toEqual([b, a, d, c]);
+      expect(await ids('oldest')).toEqual([a, b, c, d]);
+      expect(await ids('name_desc')).toEqual([d, c, b, a]);
+    });
+
+    it('compareAtPrice only when above the price; vendor, category, type and tags on the answers', async () => {
+      const { service, addProduct, addCategory, addType, addTag, organize } = setup();
+      const root = addCategory({ texts: { en: { name: 'Home', slug: 'home' }, pt: { name: 'Casa', slug: 'casa' } } });
+      const kid = addCategory({ texts: { en: { name: 'Mugs', slug: 'mugs' } }, parent: root });
+      const type = addType({ en: 'Mug', pt: 'Caneca' });
+      const red = addTag({ en: 'Red', pt: 'Vermelho' });
+      const big = addTag({ en: 'Big' });
+      const p = addProduct({
+        name: 'Cup',
+        variants: [
+          v('C1', 1000, { compareAtPrice: 1500 }),
+          v('C2', 800, { compareAtPrice: 800 }),
+          v('C3', 900, { compareAtPrice: 1200 }),
+          v('C4', 700, { compareAtPrice: 2000, active: false }),
+        ],
+      });
+      const q = addProduct({ name: 'Plain', variants: [v('Q1', 500, { compareAtPrice: 900 }), v('Q2', 600)] });
+      await organize(p, { category: kid, productType: type, tags: [red, big], vendor: 'Acme' });
+      const list = await service.listProducts({ locale: 'pt', sort: 'name_asc' });
+      const cup = list.results.find((r) => r.id === p)!;
+      const plain = list.results.find((r) => r.id === q)!;
+      // Lowest price C2 (800) has no compare-at above it.
+      expect(cup.compareAtPriceMin).toBeNull();
+      expect(plain.compareAtPriceMin).toBe(900);
+      const category = {
+        id: kid,
+        name: 'Mugs',
+        slug: 'mugs',
+        path: [
+          { id: root, name: 'Casa', slug: 'casa' },
+          { id: kid, name: 'Mugs', slug: 'mugs' },
+        ],
+      };
+      expect(cup).toMatchObject({
+        vendor: 'Acme',
+        category,
+        productType: { id: type, name: 'Caneca' },
+        tags: [
+          { id: big, name: 'Big' },
+          { id: red, name: 'Vermelho' },
+        ],
+      });
+      expect(plain).toMatchObject({ vendor: null, category: null, productType: null, tags: [] });
+      const detail = await service.getProduct('cup', 'pt');
+      expect(detail.variants.map((x) => [x.sku, x.compareAtPrice])).toEqual([
+        ['C1', 1500],
+        ['C2', null],
+        ['C3', 1200],
+      ]);
+      expect(detail).toMatchObject({
+        vendor: 'Acme',
+        category,
+        productType: { id: type, name: 'Caneca' },
+        tags: [
+          { id: big, name: 'Big' },
+          { id: red, name: 'Vermelho' },
+        ],
+      });
+      expect(JSON.stringify([list, detail])).not.toMatch(/"key"|"active"|stock/);
+    });
   });
 });

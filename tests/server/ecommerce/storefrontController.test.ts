@@ -828,6 +828,81 @@ describe('EcommerceStorefrontController', () => {
       expect(errorOf(ctx).details).toEqual({ code: 'NOT_FOUND' });
     });
 
+    it('GET /products forwards the catalogue filters and the resolved locale', async () => {
+      const t = setup();
+      const list = vi
+        .spyOn(t.catalog, 'listProducts')
+        .mockResolvedValue({ results: [], pagination: { page: 1, pageSize: 24, total: 0, pageCount: 0 } });
+      const query = { category: 'shoes', collection: 'sale', type: '3', tag: '1,2', vendor: 'Acme', sort: 'best_selling', locale: 'pt' };
+      const ctx = await t.call('listProducts', { query });
+      expect(ctx.status).toBe(200);
+      expect(list).toHaveBeenCalledWith({
+        page: undefined,
+        pageSize: undefined,
+        search: undefined,
+        sort: 'best_selling',
+        category: 'shoes',
+        collection: 'sale',
+        type: '3',
+        tag: '1,2',
+        vendor: 'Acme',
+        locale: 'pt',
+      });
+    });
+
+    it('GET /products with an unknown category or collection → 404 NOT_FOUND; a bad tag → 400', async () => {
+      const t = setup();
+      for (const query of [{ category: 'nope' }, { collection: 'nope' }]) {
+        const ctx = await t.call('listProducts', { query });
+        expect(ctx.status).toBe(404);
+        expect(errorOf(ctx).details).toEqual({ code: 'NOT_FOUND' });
+      }
+      const ctx = await t.call('listProducts', { query: { tag: '1,x' } });
+      expect(ctx.status).toBe(400);
+      expect(errorOf(ctx).details.errors).toEqual([{ path: 'tag', code: 'invalid' }]);
+    });
+
+    it('GET /categories, /categories/:slug, /collections, /collections/:handle', async () => {
+      const t = setup();
+      const tables = t.c.tables;
+      tables[UIDS.category].push({ id: 1, parent: null, position: 0, active: true, image: null });
+      tables[UIDS.categoryTranslation].push({ id: 1, category: 1, locale: 'en', name: 'Shoes', slug: 'shoes' });
+      tables[UIDS.collection].push({
+        id: 1,
+        type: 'AUTOMATED',
+        sortOrder: 'NEWEST',
+        active: true,
+        image: null,
+        match: 'ALL',
+        conditions: [{ field: 'VENDOR', operator: 'eq', value: 'x' }],
+      });
+      tables[UIDS.collectionTranslation].push({ id: 1, collection: 1, locale: 'en', title: 'Sale', handle: 'sale' });
+      const tree = await t.call('listCategories', { query: { locale: 'pt' } });
+      expect(tree.status).toBe(200);
+      expect(tree.body).toEqual([
+        { id: 1, name: 'Shoes', slug: 'shoes', parentId: null, position: 0, image: null, children: [] },
+      ]);
+      const one = await t.call('getCategory', { params: { slug: 'shoes' }, query: { locale: 'pt' } });
+      expect(one.status).toBe(200);
+      expect(one.body.path).toEqual([{ id: 1, name: 'Shoes', slug: 'shoes' }]);
+      const list = await t.call('listCollections', { query: { pageSize: '10' } });
+      expect(list.status).toBe(200);
+      expect(list.body.results.map((r: any) => r.handle)).toEqual(['sale']);
+      const col = await t.call('getCollection', { params: { handle: 'sale' } });
+      expect(col.status).toBe(200);
+      expect(col.body).not.toHaveProperty('conditions');
+      for (const [handler, params] of [
+        ['getCategory', { slug: 'nope' }],
+        ['getCollection', { handle: 'nope' }],
+      ] as const) {
+        const ctx = await t.call(handler, { params });
+        expect(ctx.status).toBe(404);
+        expect(errorOf(ctx).details).toEqual({ code: 'NOT_FOUND' });
+      }
+      expect((await t.call('listCategories', { query: { locale: 'xx' } })).status).toBe(400);
+      expect((await t.call('listCollections', { query: { page: '0' } })).status).toBe(400);
+    });
+
     it('GET /products with an unknown locale → 400', async () => {
       const t = setup();
       const ctx = await t.call('listProducts', { query: { locale: 'xx' } });
