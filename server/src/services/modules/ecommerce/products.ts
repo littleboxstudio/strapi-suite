@@ -491,6 +491,8 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
                 type: 'MANUAL_ADJUST',
                 operationKey: `adjust:${variantId}:${adjustmentKey(v.stockAdjustmentKey)}`,
                 actor,
+                // save() syncs the product's collections itself, after its commit.
+                skipCollectionSync: true,
               }
             );
           }
@@ -506,6 +508,8 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
                 operationKey: `initial:${variantId}:${randomUUID()}`,
                 reason: 'initial stock',
                 actor,
+                // save() syncs the product's collections itself, after its commit.
+                skipCollectionSync: true,
               }
             );
           }

@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { vi } from 'vitest';
@@ -375,17 +376,41 @@ export function createFakeDb(
 
   const metadata = { get: (uid: string) => ({ tableName: uid }) };
 
-  const transaction = vi.fn(async (cb: (ctx: { trx: any }) => Promise<any>) => {
+  /**
+   * Nesting as Strapi's: an inner `transaction` joins the outer one, and `onCommit` / `onRollback`
+   * callbacks run (not awaited) only when the outermost transaction commits / rolls back.
+   */
+  const txContext = new AsyncLocalStorage<{ commit: (() => void)[]; rollback: (() => void)[] }>();
+  const inTransaction = () => !!txContext.getStore();
+
+  const transaction = vi.fn(async (cb: (ctx: any) => Promise<any>) => {
+    const outer = txContext.getStore();
+    const store = outer ?? { commit: [], rollback: [] };
     const snapshot = JSON.stringify({ tables, joins });
     try {
-      return await cb({ trx });
+      const result = await txContext.run(store, () =>
+        cb({
+          trx,
+          onCommit: (fn: () => void) => store.commit.push(fn),
+          onRollback: (fn: () => void) => store.rollback.push(fn),
+        })
+      );
+      if (!outer) {
+        store.rollback = [];
+        store.commit.splice(0).forEach((fn) => fn());
+      }
+      return result;
     } catch (e) {
       const restored = JSON.parse(snapshot);
       for (const k of Object.keys(tables)) tables[k] = restored.tables[k];
       joins = restored.joins;
+      if (!outer) {
+        store.commit = [];
+        store.rollback.splice(0).forEach((fn) => fn());
+      }
       throw e;
     }
   });
 
-  return { tables, query, transaction, connection, metadata, trx, increments, locks };
+  return { tables, query, transaction, inTransaction, connection, metadata, trx, increments, locks };
 }

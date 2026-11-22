@@ -174,6 +174,7 @@ export function setupCommerce(
     db: {
       query: db.query,
       transaction: db.transaction,
+      inTransaction: db.inTransaction,
       connection: (table: string) => db.connection(table),
       getConnection: (table: string) => db.connection(table),
       metadata: db.metadata,

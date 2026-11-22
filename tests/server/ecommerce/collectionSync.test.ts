@@ -75,7 +75,13 @@ function setup() {
     EcommerceImageService: { removeFiles: vi.fn(async () => undefined) },
   };
   const strapi: any = {
-    db: { query: db.query, transaction: db.transaction, connection: db.connection, metadata: db.metadata },
+    db: {
+      query: db.query,
+      transaction: db.transaction,
+      inTransaction: db.inTransaction,
+      connection: db.connection,
+      metadata: db.metadata,
+    },
     config: { get: () => ({ uuid: { modules: { ecommerce: UIDS } } }) },
     log: { warn: vi.fn() },
     plugin: (id: string) =>
@@ -192,6 +198,74 @@ describe('automated collections — kept up to date', () => {
       actor: 'system',
     });
     expect(await members(s, collectionId)).toEqual([]);
+  });
+
+  it('inside a caller transaction the sync waits for the commit (one sync per product), never during it', async () => {
+    const s = setup();
+    const { id } = await s.products.create(
+      productInput('Mug', [variant('M-1', { stock: 1 }), variant('M-2', { stock: 1 })])
+    );
+    const { id: collectionId } = await s.collections.create(
+      automated('Sold out', [{ field: 'INVENTORY', operator: 'lte', value: 0 }])
+    );
+    const [v1, v2] = (await s.products.get(id)).variants;
+    const sync = vi.spyOn(s.collections, 'syncProducts');
+    await s.strapi.db.transaction(async () => {
+      for (const [i, v] of [v1, v2].entries()) {
+        await s.stock().move({
+          variantId: v.id,
+          quantity: -1,
+          type: 'ORDER_DEDUCT',
+          operationKey: `order:3:deduct:${i}`,
+          orderId: 3,
+          actor: 'system',
+          requireStock: true,
+        });
+      }
+      expect(sync).not.toHaveBeenCalled();
+      expect(await members(s, collectionId)).toEqual([]);
+    });
+    await vi.waitFor(async () => expect(await members(s, collectionId)).toEqual([id]));
+    expect(sync).toHaveBeenCalledTimes(1);
+    expect(sync).toHaveBeenCalledWith([id]);
+  });
+
+  it('a rolled-back caller transaction schedules no sync', async () => {
+    const s = setup();
+    const { id } = await s.products.create(productInput('Mug', [variant('M-1', { stock: 1 })]));
+    await s.collections.create(automated('Sold out', [{ field: 'INVENTORY', operator: 'lte', value: 0 }]));
+    const v = await variantOf(s, id);
+    const sync = vi.spyOn(s.collections, 'syncProducts');
+    await expect(
+      s.strapi.db.transaction(async () => {
+        await s.stock().move({
+          variantId: v.id,
+          quantity: -1,
+          type: 'ORDER_DEDUCT',
+          operationKey: 'order:4:deduct:1',
+          orderId: 4,
+          actor: 'system',
+        });
+        throw new Error('order failed');
+      })
+    ).rejects.toThrow('order failed');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sync).not.toHaveBeenCalled();
+    expect((await s.q(UIDS.variant).findOne({ where: { id: v.id } })).stock).toBe(1);
+  });
+
+  it('a product save with a stock adjustment syncs once, after its commit', async () => {
+    const s = setup();
+    const { id } = await s.products.create(productInput('Mug', [variant('M-1', { stock: 1 })]));
+    const v = await variantOf(s, id);
+    const sync = vi.spyOn(s.collections, 'syncProducts');
+    await s.products.update(
+      id,
+      productInput('Mug', [variant('M-1', { id: v.id, stock: 1, stockAdjustment: -1, stockAdjustmentKey: 'k1', stockExpected: 1 })])
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sync).toHaveBeenCalledTimes(1);
+    expect(sync).toHaveBeenCalledWith([id]);
   });
 
   it('a collection sync failure after a stock move is logged by name and never undoes the move', async () => {
