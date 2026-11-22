@@ -63,7 +63,9 @@ export type FieldError = {
     | 'compare_at_not_above_price'
     | 'too_long'
     | 'unknown'
-    | 'automated_collection';
+    | 'automated_collection'
+    | 'invalid'
+    | 'too_many';
 };
 
 export function slugify(text: string): string {
@@ -194,6 +196,8 @@ export function validateProductInput(input: ProductInput, defaultLocale: string)
   return errors;
 }
 
+const MAX_ORGANIZATION_LIST = 100;
+
 const isPositiveInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v > 0;
 
 /** Shape checks of vendor, category, type, tags and collections (existence is checked by the service). */
@@ -202,7 +206,7 @@ function validateOrganizationFields(input: ProductInput): FieldError[] {
   const tooLong = (value: unknown) => typeof value === 'string' && value.trim().length > MAX_STRING_LENGTH;
 
   if (input.vendor !== undefined && input.vendor !== null) {
-    if (typeof input.vendor !== 'string') errors.push({ path: 'vendor', code: 'invalid_number' });
+    if (typeof input.vendor !== 'string') errors.push({ path: 'vendor', code: 'invalid' });
     else if (tooLong(input.vendor)) errors.push({ path: 'vendor', code: 'too_long' });
   }
   for (const field of ['categoryId', 'productTypeId'] as const) {
@@ -219,12 +223,17 @@ function validateOrganizationFields(input: ProductInput): FieldError[] {
       errors.push({ path: field, code: 'unknown' });
       continue;
     }
+    if (value.length > MAX_ORGANIZATION_LIST) {
+      errors.push({ path: field, code: 'too_many' });
+      continue;
+    }
     value.forEach((id, i) => {
       if (!isPositiveInt(id)) errors.push({ path: `${field}.${i}`, code: 'unknown' });
     });
   }
   if (input.tagNames !== undefined && input.tagNames !== null) {
     if (!Array.isArray(input.tagNames)) errors.push({ path: 'tagNames', code: 'required' });
+    else if (input.tagNames.length > MAX_ORGANIZATION_LIST) errors.push({ path: 'tagNames', code: 'too_many' });
     else
       input.tagNames.forEach((name, i) => {
         if (tooLong(name)) errors.push({ path: `tagNames.${i}`, code: 'too_long' });

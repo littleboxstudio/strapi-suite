@@ -337,6 +337,18 @@ describe('EcommerceCollectionService — manual members', () => {
     expect(s.db.tables[UIDS.collectionProduct]).toHaveLength(0);
   });
 
+  it('ignores an unknown or malformed locale when sorting by title', async () => {
+    const s = setup();
+    const a = await s.product('Banana', 300);
+    const b = await s.product('apple', 100);
+    const { id } = await s.service.create(manual('Fruit', { sortOrder: 'TITLE_ASC' }));
+    await s.service.addProducts(id, [a, b]);
+    for (const locale of ['not a locale!!', 'xx', '']) {
+      const r = await s.service.listProducts(id, { page: 1, locale });
+      expect(r.results.map((e: any) => e.name)).toEqual(['apple', 'Banana']);
+    }
+  });
+
   it('lists members in the collection sort, paginated, with name and thumbnail', async () => {
     const s = setup();
     const a = await s.product('Banana', 300);

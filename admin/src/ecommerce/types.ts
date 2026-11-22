@@ -65,7 +65,9 @@ export type FieldError = {
     | 'compare_at_not_above_price'
     | 'too_long'
     | 'unknown'
-    | 'automated_collection';
+    | 'automated_collection'
+    | 'invalid'
+    | 'too_many';
 };
 
 export type ImageRecord = {

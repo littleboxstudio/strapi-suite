@@ -1,11 +1,17 @@
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID } from '../../../config';
 import { handleDomainError } from './errors';
+import { EcommerceNotFoundError } from '../../../services/modules/ecommerce/errors';
 
 /** Admin API for categories, product types, tags and vendor suggestions. */
 const EcommerceOrganizationController = ({ strapi }: { strapi: Core.Strapi }) => {
   const organization = (): any => strapi.plugin(PLUGIN_ID).service('EcommerceOrganizationService');
-  const toId = (ctx: any) => Number(ctx.params.id);
+  /** The `:id` param; anything but a positive integer is a not-found. */
+  const toId = (ctx: any) => {
+    const id = Number(ctx.params.id);
+    if (!Number.isInteger(id) || id < 1) throw new EcommerceNotFoundError('Not found');
+    return id;
+  };
   const text = (v: unknown) => (typeof v === 'string' ? v : undefined);
 
   const labels = {

@@ -594,7 +594,8 @@ const EcommerceCollectionService = ({ strapi }: { strapi: Core.Strapi }) => {
       const collection = await findCollection(id);
       const page = pageOf(params.page);
       const defaultLocale = await getDefaultLocale();
-      const locale = params.locale || defaultLocale;
+      const known = await localeCodes();
+      const locale = typeof params.locale === 'string' && known.includes(params.locale) ? params.locale : defaultLocale;
       // Every member, with only what sorting needs; images are read for the page alone.
       const rows: any[] = await strapi.db.query(uids().collectionProduct).findMany({
         where: { collection: { id } },

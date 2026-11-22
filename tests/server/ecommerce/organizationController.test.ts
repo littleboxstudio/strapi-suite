@@ -73,6 +73,26 @@ describe('EcommerceOrganizationController', () => {
     expect(ctx2.notFound).toHaveBeenCalled();
   });
 
+  it.each([
+    'getCategory',
+    'updateCategory',
+    'moveCategory',
+    'deleteCategory',
+    'updateProductType',
+    'deleteProductType',
+    'updateTag',
+    'deleteTag',
+  ])('%s answers 404 for a non-positive-integer id', async (action) => {
+    const service: Record<string, any> = { [action]: vi.fn() };
+    const controller = setup(service) as any;
+    for (const id of ['abc', '0', '-1', '1.5', '']) {
+      const ctx = ctxOf({ params: { id } });
+      await controller[action](ctx);
+      expect(ctx.notFound).toHaveBeenCalled();
+    }
+    expect(service[action]).not.toHaveBeenCalled();
+  });
+
   it('createProductType 201, updateProductType 204', async () => {
     const controller = setup({
       createProductType: vi.fn().mockResolvedValue({ id: 2 }),

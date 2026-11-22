@@ -101,6 +101,8 @@
   "littlebox-strapi-suite.ecommerce.product.organization.tags.remove": "Remover a tag {name}",
   "littlebox-strapi-suite.ecommerce.product.organization.tags.new": "nova",
   "littlebox-strapi-suite.ecommerce.product.errors.compare_at_not_above_price": "O preço de comparação tem de ser superior ao preço.",
+  "littlebox-strapi-suite.ecommerce.product.errors.invalid": "Valor inválido.",
+  "littlebox-strapi-suite.ecommerce.product.errors.too_many": "Demasiadas entradas (no máximo 100).",
   "littlebox-strapi-suite.ecommerce.product.errors.too_long": "Demasiado longo (no máximo 255 caracteres).",
   "littlebox-strapi-suite.ecommerce.product.errors.unknown": "Não encontrado. Pode ter sido eliminado; recarregue a página.",
   "littlebox-strapi-suite.ecommerce.product.errors.automated_collection": "As coleções automáticas não podem ser escolhidas manualmente.",

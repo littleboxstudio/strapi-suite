@@ -108,6 +108,10 @@ export function parseConditions(
         errors.push({ path: `${base}.value`, code: 'required' });
         return;
       }
+      if (text.length > 255) {
+        errors.push({ path: `${base}.value`, code: 'too_long' });
+        return;
+      }
       conditions.push({ field, operator, value: text });
       return;
     }

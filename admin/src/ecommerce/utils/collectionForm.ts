@@ -14,6 +14,7 @@ import type { Mark, Translate } from './promotionForm';
 
 /** Mirrors the server (domain/collections.ts). */
 export const MAX_COLLECTION_CONDITIONS = 60;
+const MAX_CONDITION_TEXT_LENGTH = 255;
 
 export const COLLECTION_FIELDS: CollectionField[] = [
   'TITLE',
@@ -174,7 +175,9 @@ function parseValue(c: CollectionConditionForm): string | number | null {
 }
 
 function valueError(c: CollectionConditionForm): string | null {
-  if (!(c.value ?? '').trim()) return 'required';
+  const raw = (c.value ?? '').trim();
+  if (!raw) return 'required';
+  if (isTextField(c.field) && raw.length > MAX_CONDITION_TEXT_LENGTH) return 'too_long';
   return parseValue(c) === null ? 'invalid' : null;
 }
 

@@ -180,6 +180,21 @@ describe('productMatches', () => {
 });
 
 describe('parseConditions', () => {
+  it('caps title and vendor values at 255 characters', () => {
+    const r = parseConditions(
+      [
+        { field: 'TITLE', operator: 'contains', value: 'a'.repeat(256) },
+        { field: 'VENDOR', operator: 'eq', value: 'b'.repeat(256) },
+        { field: 'TITLE', operator: 'eq', value: ` ${'a'.repeat(255)} ` },
+      ],
+      'ALL',
+    );
+    expect(r.errors).toEqual([
+      { path: 'conditions.0.value', code: 'too_long' },
+      { path: 'conditions.1.value', code: 'too_long' },
+    ]);
+  });
+
   it('accepts a valid list and normalises values', () => {
     const r = parseConditions(
       [

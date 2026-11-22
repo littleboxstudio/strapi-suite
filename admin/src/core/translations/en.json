@@ -317,6 +317,8 @@
   "littlebox-strapi-suite.ecommerce.product.organization.tags.remove": "Remove the tag {name}",
   "littlebox-strapi-suite.ecommerce.product.organization.tags.new": "new",
   "littlebox-strapi-suite.ecommerce.product.errors.compare_at_not_above_price": "The compare-at price must be above the price.",
+  "littlebox-strapi-suite.ecommerce.product.errors.invalid": "Invalid value.",
+  "littlebox-strapi-suite.ecommerce.product.errors.too_many": "Too many entries (at most 100).",
   "littlebox-strapi-suite.ecommerce.product.errors.too_long": "Too long (at most 255 characters).",
   "littlebox-strapi-suite.ecommerce.product.errors.unknown": "Not found. It may have been deleted; reload the page.",
   "littlebox-strapi-suite.ecommerce.product.errors.automated_collection": "Automated collections cannot be chosen by hand.",

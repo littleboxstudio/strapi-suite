@@ -209,6 +209,11 @@ describe('validateCollectionForm (paths as the server)', () => {
     expect(validateCollectionForm(automated([]), 'en')).toEqual({ conditions: 'required' });
   });
 
+  it('refuses a title or vendor value over 255 characters', () => {
+    const form = automated([cond('TITLE', 'eq', 'x'), cond('VENDOR', 'contains', 'a'.repeat(256))]);
+    expect(validateCollectionForm(form, 'en')).toEqual({ 'conditions.1.value': 'too_long' });
+  });
+
   it('refuses more than the maximum of conditions', () => {
     const many = Array.from({ length: MAX_COLLECTION_CONDITIONS + 1 }, () => cond('TITLE', 'eq', 'x'));
     expect(validateCollectionForm(automated(many), 'en')).toEqual({ conditions: 'too_many' });

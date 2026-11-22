@@ -197,6 +197,19 @@ describe('validateProductInput — organization fields', () => {
     expect(validateProductInput(product({ vendor: null }), 'en')).toEqual([]);
   });
 
+  it('reports a non-string vendor as invalid', () => {
+    expect(codesAt(product({ vendor: 5 as any }), 'vendor')).toEqual(['invalid']);
+    expect(codesAt(product({ vendor: {} as any }), 'vendor')).toEqual(['invalid']);
+  });
+
+  it('refuses more than 100 tag ids, tag names or collection ids', () => {
+    const many = (n: number) => Array.from({ length: n }, (_, i) => i + 1);
+    expect(codesAt(product({ tagIds: many(101) }), 'tagIds')).toEqual(['too_many']);
+    expect(codesAt(product({ collectionIds: many(101) }), 'collectionIds')).toEqual(['too_many']);
+    expect(codesAt(product({ tagNames: many(101).map(String) }), 'tagNames')).toEqual(['too_many']);
+    expect(validateProductInput(product({ tagIds: many(100), collectionIds: many(100) }), 'en')).toEqual([]);
+  });
+
   it('refuses malformed organization ids as unknown', () => {
     expect(codesAt(product({ categoryId: 0 }), 'categoryId')).toEqual(['unknown']);
     expect(codesAt(product({ productTypeId: 'x' as any }), 'productTypeId')).toEqual(['unknown']);
