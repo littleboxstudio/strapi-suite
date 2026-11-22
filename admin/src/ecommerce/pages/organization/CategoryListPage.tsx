@@ -229,7 +229,7 @@ const CategoryListPage = () => {
                         <IconButton
                           label={t(`${p}.moveUp`)}
                           variant="ghost"
-                          disabled={busy || index === 0}
+                          disabled={busy || loading || index === 0}
                           onClick={() => move(node, node.parentId, index - 1)}
                         >
                           <ArrowUp />
@@ -237,7 +237,7 @@ const CategoryListPage = () => {
                         <IconButton
                           label={t(`${p}.moveDown`)}
                           variant="ghost"
-                          disabled={busy || index === siblingCount - 1}
+                          disabled={busy || loading || index === siblingCount - 1}
                           onClick={() => move(node, node.parentId, index + 1)}
                         >
                           <ArrowDown />

@@ -29,6 +29,7 @@ import FetchCategoryTree from '../../usecases/organization/fetchCategoryTree';
 import SaveCategory from '../../usecases/organization/saveCategory';
 import DeleteCategory from '../../usecases/organization/deleteCategory';
 import { parentOptions } from '../../utils/categoryTree';
+import { validateCategoryTexts } from '../../utils/categoryForm';
 import {
   organizationErrorMessage,
   organizationFieldErrors,
@@ -224,8 +225,11 @@ const CategoryEditPage = () => {
 
   const save = async () => {
     if (saving) return;
-    if (!form.translations[defaultLocale]?.name.trim()) {
-      showErrors({ [`translations.${defaultLocale}.name`]: 'required' });
+    const local = validateCategoryTexts(form.translations, defaultLocale);
+    if (Object.keys(local).length) {
+      // The default locale's error first, so its tab is shown.
+      const defaultPath = `translations.${defaultLocale}.name`;
+      showErrors(local[defaultPath] ? { [defaultPath]: local[defaultPath], ...local } : local);
       return;
     }
     setSaving(true);
