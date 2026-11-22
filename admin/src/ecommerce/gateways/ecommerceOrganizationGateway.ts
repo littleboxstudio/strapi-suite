@@ -22,7 +22,7 @@ import type {
 } from '../organizationTypes';
 
 /**
- * Product organization admin API: categories, product types, tags, vendors (routes
+ * Product organization admin API: categories, product types, tags (routes
  * admin-organization) and collections plus bulk product actions (routes admin-collections).
  * Reads need products.read, changes products.manage.
  */
@@ -44,8 +44,6 @@ export default interface EcommerceOrganizationGateway {
   createTag(input: NamedInput): Promise<{ id: number }>;
   updateTag(id: number, input: NamedInput): Promise<void>;
   deleteTag(id: number): Promise<void>;
-  // vendors (suggestions, at most 20)
-  searchVendors(search?: string): Promise<string[]>;
   // collections
   fetchCollections(params: CollectionListParams): Promise<Paginated<CollectionListItem>>;
   fetchCollection(id: number): Promise<CollectionDetail>;
@@ -131,12 +129,6 @@ export class EcommerceOrganizationGatewayHttp implements EcommerceOrganizationGa
 
   async deleteTag(id: number): Promise<void> {
     await this.httpClient.delete(`${this.base}/tags/${id}`);
-  }
-
-  // ---------------------------------------------------------------- vendors
-
-  async searchVendors(search?: string): Promise<string[]> {
-    return this.httpClient.get(`${this.base}/vendors${objectToQueryString({ search })}`);
   }
 
   // ---------------------------------------------------------------- collections

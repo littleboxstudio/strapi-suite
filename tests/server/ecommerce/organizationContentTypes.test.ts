@@ -127,7 +127,6 @@ describe('ecommerce product organization content-types', () => {
 
   it('product and variant gain fields', () => {
     const p = get('product').attributes;
-    expect(p.vendor).toMatchObject({ type: 'string', maxLength: 255 });
     expect(p.category).toMatchObject({ relation: 'manyToOne', target: `${P}product-category`, inversedBy: 'products' });
     expect(p.productType).toMatchObject({ relation: 'manyToOne', target: `${P}product-type`, inversedBy: 'products' });
     expect(p.tags).toBeDefined();

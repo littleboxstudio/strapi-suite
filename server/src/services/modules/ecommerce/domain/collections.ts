@@ -5,7 +5,6 @@ export type CollectionField =
   | 'CATEGORY'
   | 'PRODUCT_TYPE'
   | 'TAG'
-  | 'VENDOR'
   | 'PRICE'
   | 'COMPARE_AT_PRICE'
   | 'INVENTORY';
@@ -39,12 +38,11 @@ const FIELDS: CollectionField[] = [
   'CATEGORY',
   'PRODUCT_TYPE',
   'TAG',
-  'VENDOR',
   'PRICE',
   'COMPARE_AT_PRICE',
   'INVENTORY',
 ];
-const TEXT_FIELDS: CollectionField[] = ['TITLE', 'VENDOR'];
+const TEXT_FIELDS: CollectionField[] = ['TITLE'];
 const ID_FIELDS: CollectionField[] = ['CATEGORY', 'PRODUCT_TYPE', 'TAG'];
 
 const TEXT_OPERATORS: CollectionOperator[] = ['eq', 'neq', 'contains', 'not_contains', 'starts_with', 'ends_with'];
@@ -131,7 +129,6 @@ export type EvaluableProduct = {
   id: number;
   active: boolean;
   names: string[];
-  vendor: string | null;
   categorySubtreeOf: (categoryId: number) => boolean;
   productTypeId: number | null;
   tagIds: number[];
@@ -185,10 +182,6 @@ const conditionMatches = (p: EvaluableProduct, c: CollectionCondition): boolean 
     case 'TITLE': {
       const value = String(c.value);
       const hit = p.names.some((name) => textTest(c.operator, name, value));
-      return isNegative(c.operator) ? !hit : hit;
-    }
-    case 'VENDOR': {
-      const hit = textTest(c.operator, p.vendor ?? '', String(c.value));
       return isNegative(c.operator) ? !hit : hit;
     }
     case 'CATEGORY':

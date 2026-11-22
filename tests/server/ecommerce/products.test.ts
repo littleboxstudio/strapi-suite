@@ -681,11 +681,10 @@ describe('EcommerceProductService — organization', () => {
     return err.errors;
   };
 
-  it('persists vendor, category, type, tags and compare-at price; get() returns them', async () => {
+  it('persists category, type, tags and compare-at price; get() returns them', async () => {
     const s = await setupOrg();
     const { id } = await s.service.create(
       input('Linen shirt', [variant('LS-1', { compareAtPrice: 1500 })], {
-        vendor: '  ACME  ',
         categoryId: s.linen,
         productTypeId: s.shirtType,
         tagIds: [s.summer, s.sale, s.summer],
@@ -693,7 +692,6 @@ describe('EcommerceProductService — organization', () => {
     );
     const detail = await s.service.get(id);
     expect(detail).toMatchObject({
-      vendor: 'ACME',
       categoryId: s.linen,
       categoryPath: [
         { id: s.clothing, name: 'Clothing' },
@@ -715,7 +713,6 @@ describe('EcommerceProductService — organization', () => {
     const s = await setupOrg();
     const { id } = await s.service.create(input());
     expect(await s.service.get(id)).toMatchObject({
-      vendor: null,
       categoryId: null,
       categoryPath: [],
       productTypeId: null,
@@ -729,22 +726,20 @@ describe('EcommerceProductService — organization', () => {
   it('omitted fields keep the stored values on update; null clears them', async () => {
     const s = await setupOrg();
     const { id } = await s.service.create(
-      input('A', [variant('A-1')], { vendor: 'ACME', categoryId: s.shirts, productTypeId: s.shirtType, tagIds: [s.sale] })
+      input('A', [variant('A-1')], { categoryId: s.shirts, productTypeId: s.shirtType, tagIds: [s.sale] })
     );
     const v = (await s.service.get(id)).variants[0];
     await s.service.update(id, input('A', [variant('A-1', { id: v.id })]));
     expect(await s.service.get(id)).toMatchObject({
-      vendor: 'ACME',
       categoryId: s.shirts,
       productTypeId: s.shirtType,
       tags: [{ id: s.sale, name: 'Sale' }],
     });
     await s.service.update(
       id,
-      input('A', [variant('A-1', { id: v.id })], { vendor: null, categoryId: null, productTypeId: null, tagIds: [] })
+      input('A', [variant('A-1', { id: v.id })], { categoryId: null, productTypeId: null, tagIds: [] })
     );
     expect(await s.service.get(id)).toMatchObject({
-      vendor: null,
       categoryId: null,
       productTypeId: null,
       tags: [],
@@ -860,16 +855,16 @@ describe('EcommerceProductService — organization', () => {
     expect(s.tables[UIDS.collectionProduct]).toHaveLength(0);
   });
 
-  it('list filters by category subtree, type, tag, vendor (exact, case-insensitive) and collection', async () => {
+  it('list filters by category subtree, type, tag and collection', async () => {
     const s = await setupOrg();
     const col = await s.addCollection('Summer', 'MANUAL');
     const { id: a } = await s.service.create(
-      input('A', [variant('A-1')], { categoryId: s.linen, vendor: 'acme', tagIds: [s.summer], collectionIds: [col] })
+      input('A', [variant('A-1')], { categoryId: s.linen, tagIds: [s.summer], collectionIds: [col] })
     );
     const { id: b } = await s.service.create(
-      input('B', [variant('B-1')], { categoryId: s.shirts, vendor: 'ACME Corp', productTypeId: s.shirtType })
+      input('B', [variant('B-1')], { categoryId: s.shirts, productTypeId: s.shirtType })
     );
-    const { id: c } = await s.service.create(input('C', [variant('C-1')], { vendor: 'Other', tagIds: [s.sale] }));
+    const { id: c } = await s.service.create(input('C', [variant('C-1')], { tagIds: [s.sale] }));
     const ids = async (filters: any) => (await s.service.list({ page: 1, ...filters })).results.map((r: any) => r.id);
 
     expect(await ids({ categoryId: s.clothing })).toEqual([b, a]);
@@ -877,21 +872,19 @@ describe('EcommerceProductService — organization', () => {
     expect(await ids({ productTypeId: s.shirtType })).toEqual([b]);
     expect(await ids({ tagId: s.summer })).toEqual([a]);
     expect(await ids({ tagId: s.sale })).toEqual([c]);
-    expect(await ids({ vendor: 'ACME' })).toEqual([a]);
-    expect(await ids({ vendor: ' other ' })).toEqual([c]);
     expect(await ids({ collectionId: col })).toEqual([a]);
-    expect(await ids({ categoryId: s.clothing, vendor: 'acme corp' })).toEqual([b]);
-    const vendorPage = await s.service.list({ page: 1, vendor: 'ACME' });
-    expect(vendorPage.pagination.total).toBe(1);
+    expect(await ids({ categoryId: s.clothing, productTypeId: s.shirtType })).toEqual([b]);
+    const typePage = await s.service.list({ page: 1, productTypeId: s.shirtType });
+    expect(typePage.pagination.total).toBe(1);
   });
 
-  it('list vendor filter keeps pagination correct', async () => {
+  it('list filter keeps pagination correct', async () => {
     const s = await setupOrg();
     for (let i = 0; i < 60; i += 1) {
-      await s.service.create(input(`P${i}`, [variant(`S-${i}`)], { vendor: i % 2 ? 'ACME' : 'ACME Corp' }));
+      await s.service.create(input(`P${i}`, [variant(`S-${i}`)], { tagIds: i % 2 ? [s.sale] : [s.summer] }));
     }
-    const p1 = await s.service.list({ page: 1, vendor: 'acme' });
-    const p2 = await s.service.list({ page: 2, vendor: 'acme' });
+    const p1 = await s.service.list({ page: 1, tagId: s.sale });
+    const p2 = await s.service.list({ page: 2, tagId: s.sale });
     expect(p1.pagination).toEqual({ page: 1, pageSize: 50, total: 30, pageCount: 1 });
     expect(p1.results).toHaveLength(30);
     expect(p2.results).toHaveLength(0);

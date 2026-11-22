@@ -19,7 +19,6 @@ const product = (over: Partial<EvaluableProduct> = {}): EvaluableProduct => ({
   id: 1,
   active: true,
   names: ['Linen Shirt', 'Camisa de Linho'],
-  vendor: 'Acme',
   categorySubtreeOf: (id) => id === 5,
   productTypeId: 7,
   tagIds: [3, 4],
@@ -37,7 +36,6 @@ const matches = (c: CollectionCondition, p = product()) => productMatches(p, [c]
 describe('operatorsForField', () => {
   it('lists operators per field kind', () => {
     expect(operatorsForField('TITLE')).toEqual(['eq', 'neq', 'contains', 'not_contains', 'starts_with', 'ends_with']);
-    expect(operatorsForField('VENDOR')).toEqual(operatorsForField('TITLE'));
     for (const f of ['CATEGORY', 'PRODUCT_TYPE', 'TAG'] as const) expect(operatorsForField(f)).toEqual(['eq', 'neq']);
     for (const f of ['PRICE', 'COMPARE_AT_PRICE', 'INVENTORY'] as const)
       expect(operatorsForField(f)).toEqual(['eq', 'neq', 'gt', 'lt', 'gte', 'lte']);
@@ -58,25 +56,6 @@ describe('productMatches', () => {
     expect(matches(cond('TITLE', 'starts_with', 'shirt'))).toBe(false);
     expect(matches(cond('TITLE', 'ends_with', 'SHIRT'))).toBe(true);
     expect(matches(cond('TITLE', 'ends_with', 'linen'))).toBe(false);
-  });
-
-  it('VENDOR operators; null behaves as empty', () => {
-    expect(matches(cond('VENDOR', 'eq', 'acme'))).toBe(true);
-    expect(matches(cond('VENDOR', 'eq', 'other'))).toBe(false);
-    expect(matches(cond('VENDOR', 'neq', 'other'))).toBe(true);
-    expect(matches(cond('VENDOR', 'neq', 'ACME'))).toBe(false);
-    expect(matches(cond('VENDOR', 'contains', 'cm'))).toBe(true);
-    expect(matches(cond('VENDOR', 'contains', 'zz'))).toBe(false);
-    expect(matches(cond('VENDOR', 'not_contains', 'zz'))).toBe(true);
-    expect(matches(cond('VENDOR', 'not_contains', 'cm'))).toBe(false);
-    expect(matches(cond('VENDOR', 'starts_with', 'ac'))).toBe(true);
-    expect(matches(cond('VENDOR', 'starts_with', 'me'))).toBe(false);
-    expect(matches(cond('VENDOR', 'ends_with', 'me'))).toBe(true);
-    expect(matches(cond('VENDOR', 'ends_with', 'ac'))).toBe(false);
-    const none = product({ vendor: null });
-    expect(matches(cond('VENDOR', 'neq', 'acme'), none)).toBe(true);
-    expect(matches(cond('VENDOR', 'contains', 'a'), none)).toBe(false);
-    expect(matches(cond('VENDOR', 'not_contains', 'a'), none)).toBe(true);
   });
 
   it('CATEGORY / PRODUCT_TYPE / TAG eq and neq', () => {
@@ -156,7 +135,7 @@ describe('productMatches', () => {
 
   it('ALL vs ANY', () => {
     const yes = cond('TITLE', 'contains', 'linen');
-    const no = cond('VENDOR', 'eq', 'other');
+    const no = cond('TITLE', 'eq', 'other');
     expect(productMatches(product(), [yes, no], 'ALL')).toBe(false);
     expect(productMatches(product(), [yes, no], 'ANY')).toBe(true);
     expect(productMatches(product(), [yes, yes], 'ALL')).toBe(true);
@@ -180,18 +159,16 @@ describe('productMatches', () => {
 });
 
 describe('parseConditions', () => {
-  it('caps title and vendor values at 255 characters', () => {
+  it('caps title values at 255 characters', () => {
     const r = parseConditions(
       [
         { field: 'TITLE', operator: 'contains', value: 'a'.repeat(256) },
-        { field: 'VENDOR', operator: 'eq', value: 'b'.repeat(256) },
         { field: 'TITLE', operator: 'eq', value: ` ${'a'.repeat(255)} ` },
       ],
       'ALL',
     );
     expect(r.errors).toEqual([
       { path: 'conditions.0.value', code: 'too_long' },
-      { path: 'conditions.1.value', code: 'too_long' },
     ]);
   });
 

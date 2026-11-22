@@ -34,7 +34,6 @@ export type ProductInput = {
   >;
   variants: VariantInput[];
   // Organization fields: omitted = unchanged on update (empty on create); null clears.
-  vendor?: string | null;
   categoryId?: number | null;
   productTypeId?: number | null;
   /** Used only when `productTypeId` is absent: reuses the type with the same name key, else creates it. */
@@ -64,7 +63,6 @@ export type FieldError = {
     | 'too_long'
     | 'unknown'
     | 'automated_collection'
-    | 'invalid'
     | 'too_many';
 };
 
@@ -200,15 +198,11 @@ const MAX_ORGANIZATION_LIST = 100;
 
 const isPositiveInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v > 0;
 
-/** Shape checks of vendor, category, type, tags and collections (existence is checked by the service). */
+/** Shape checks of category, type, tags and collections (existence is checked by the service). */
 function validateOrganizationFields(input: ProductInput): FieldError[] {
   const errors: FieldError[] = [];
   const tooLong = (value: unknown) => typeof value === 'string' && value.trim().length > MAX_STRING_LENGTH;
 
-  if (input.vendor !== undefined && input.vendor !== null) {
-    if (typeof input.vendor !== 'string') errors.push({ path: 'vendor', code: 'invalid' });
-    else if (tooLong(input.vendor)) errors.push({ path: 'vendor', code: 'too_long' });
-  }
   for (const field of ['categoryId', 'productTypeId'] as const) {
     const value = input[field];
     if (value !== undefined && value !== null && !isPositiveInt(value)) errors.push({ path: field, code: 'unknown' });

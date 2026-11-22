@@ -415,7 +415,6 @@ const EcommerceCollectionService = ({ strapi }: { strapi: Core.Strapi }) => {
       id: p.id,
       active: p.active !== false,
       names: (p.translations ?? []).map((t: any) => t.name).filter((n: unknown) => typeof n === 'string'),
-      vendor: typeof p.vendor === 'string' ? p.vendor : null,
       categorySubtreeOf: (categoryId) => inCategory(categoryId, productCategoryId),
       productTypeId: p.productType?.id ?? null,
       tagIds: (p.tags ?? []).map((t: any) => t.id),
@@ -434,7 +433,7 @@ const EcommerceCollectionService = ({ strapi }: { strapi: Core.Strapi }) => {
     for (;;) {
       const batch: any[] = await strapi.db.query(uids().product).findMany({
         where: { id: { $gt: lastId } },
-        select: ['id', 'active', 'vendor'],
+        select: ['id', 'active'],
         populate: EVALUATION_POPULATE,
         orderBy: { id: 'asc' },
         limit: EVALUATION_BATCH,
@@ -794,7 +793,7 @@ const EcommerceCollectionService = ({ strapi }: { strapi: Core.Strapi }) => {
       await strapi.db.transaction(async () => {
         const products: any[] = await strapi.db.query(u.product).findMany({
           where: { id: { $in: ids } },
-          select: ['id', 'active', 'vendor'],
+          select: ['id', 'active'],
           populate: EVALUATION_POPULATE,
         });
         const inCategory = await categoryTester();

@@ -1,16 +1,18 @@
-# Product organization — categories, types, collections, tags, vendor, compare-at price
+# Product organization — categories, types, collections, tags, compare-at price
 
 Status: draft for the store owner's approval (2026-11-22); reviewed by a builder check; deletion of
 referenced entities decided by the owner. Based on the owner's written request in chat
-plus their answers: vendor and compare-at price are created; names and texts the shopper sees are
+plus their answers: compare-at price is created; names and texts the shopper sees are
 translated; categories are the store's own tree for navigation (no external taxonomy, no Shopify).
+
+Vendor removed by the owner on 2026-11-22.
 
 ## Intent
 
 The catalogue today has products (active flag, translations: name, slug, short/long description,
 images) and variants (SKU, price, VAT, stock, dimensions, position, translations, images). There is no
 way to organize products for the storefront. This adds four independent ways to organize them, plus
-two catalogue fields the automated collections need:
+one catalogue field the automated collections need:
 
 | Concept | What it is for | Per product |
 |---|---|---|
@@ -18,7 +20,6 @@ two catalogue fields the automated collections need:
 | **Product type** | A flat, merchant-defined kind (e.g. "Shirt", "Gift card") used for search, filters and rules | 0 or 1 |
 | **Collection** | A cross-cutting group for the storefront ("New in", "Sale", "Summer"), manual or automated | 0..n |
 | **Tag** | Free labels for search, filters and rules | 0..n |
-| **Vendor** | The brand / supplier of a product (text) | 0 or 1 |
 | **Compare-at price** | The "was" price of a variant, shown struck through | per variant, optional |
 
 The storefront (headless, through the existing Storefront API) uses categories for navigation and
@@ -101,7 +102,6 @@ Stored on the collection as JSON (like promotion conditions), validated by the s
 | Category | equals, not equals | category id (equals includes its subcategories) |
 | Product type | equals, not equals | type id |
 | Tag | equals (has tag), not equals (does not have tag) | tag id |
-| Vendor | equals, not equals, contains, does not contain, starts with, ends with | text, case-insensitive |
 | Price | =, ≠, >, <, ≥, ≤ | cents |
 | Compare-at price | =, ≠, >, <, ≥, ≤ | cents |
 | Inventory quantity | =, ≠, >, <, ≥, ≤ | integer |
@@ -117,9 +117,7 @@ Stored on the collection as JSON (like promotion conditions), validated by the s
   condition **cannot be deleted**; the refusal lists those collections. This avoids a dangling
   "not equals" silently matching every product.
 
-### Vendor and compare-at price
-- Product: `vendor` (string, optional, trimmed, max 255). Shown in the admin product page and the
-  storefront product answers.
+### Compare-at price
 - Variant: `compareAtPrice` (integer cents, optional; when set it must be greater than `price`: a save
   that leaves it equal or below — by changing either field — is refused). Promotions never change it. Shown in the variant editor and the storefront product answers (`compareAtPrice`).
 
@@ -130,7 +128,7 @@ catalogue is small (hundreds to a few thousand products); a collection-wide re-e
 of 200 within one request is acceptable. Bulk product actions take at most 100 product ids per call.
 
 - **A product changes** (create, update, delete; variant price / compare-at / stock / active;
-  category, type, tags, vendor, name): that one product is re-evaluated against every automated
+  category, type, tags, name): that one product is re-evaluated against every automated
   collection; memberships are added or removed. Stock changes from orders (stock movements) trigger
   the same check for the products involved.
 - **A collection's conditions or match change**: that collection is re-evaluated over the catalogue
@@ -181,7 +179,6 @@ New entries in the products area: **Categories**, **Collections**, and a page fo
 - **Category**: picker with search by name and tree browsing; shows the full path
   ("Clothing > Shirts > Linen"); Change / Remove.
 - **Product type**: select with search; typing a new name offers "Create “…”".
-- **Vendor**: text field with suggestions of existing vendors.
 - **Collections**: multi-select of **manual** collections; automated collections the product is in are
   listed read-only (badge "Automated").
 - **Tags**: multi-value input with autocomplete of existing tags; new tags created on save.
@@ -195,8 +192,8 @@ New entries in the products area: **Categories**, **Collections**, and a page fo
 - Collections: list (search, paginated), get, create, update, delete, products (paginated),
   add / remove / reorder products (manual), preview conditions, recalculate.
 - Products: the product create / update body gains `categoryId`, `typeId` (or `typeName` to create),
-  `tagIds` / `tagNames`, `vendor`, `collectionIds` (manual only); variants gain `compareAtPrice`.
-- Product list filters: category (with subcategories), type, tag, vendor, collection.
+  `tagIds` / `tagNames`, `collectionIds` (manual only); variants gain `compareAtPrice`.
+- Product list filters: category (with subcategories), type, tag, collection.
 - Bulk: add / remove a tag, set category, set type, add to / remove from a manual collection, for a
   list of product ids.
 
@@ -206,16 +203,15 @@ New entries in the products area: **Categories**, **Collections**, and a page fo
 - `GET /categories/:slug?locale=` — one category with its path (breadcrumb).
 - `GET /collections?locale=&page=&pageSize=` — active collections, by title (paginated).
 - `GET /collections/:handle?locale=` — title, handle, description, image, SEO.
-- `GET /products?...&category=<slug>&collection=<handle>&type=<id>&tag=<id,id>&vendor=` — the
+- `GET /products?...&category=<slug>&collection=<handle>&type=<id>&tag=<id,id>` — the
   existing list gains these filters, combined with AND:
   - `category` / `collection`: slug / handle in the request locale, falling back to the default
     locale; unknown or inactive → 404.
   - `type`: one type id. `tag`: comma-separated tag ids, a product with **any** of them matches.
     Types and tags have no slug; product answers carry their ids and names.
-  - `vendor`: exact, case-insensitive.
   - With `collection`, the collection's sort applies unless `sort` is given.
   - Sorts added: `name_desc`, `best_selling`, `oldest`.
-- Product answers gain `vendor`, `category` (id, name, slug, path), `type` (name), `tags` (names),
+- Product answers gain `category` (id, name, slug, path), `type` (name), `tags` (names),
   and `compareAtPrice` on variants / price summaries.
 - An inactive category hides its whole subtree from the tree and answers 404 (as do its
   descendants); inactive collections answer 404. Their products remain reachable by other routes. Automated-collection conditions and admin data are never exposed.
@@ -228,13 +224,13 @@ New entries in the products area: **Categories**, **Collections**, and a page fo
 - Category depth limit, cycle refusal, delete refused with subcategories, products kept.
 - Manual collection: add, remove, reorder.
 - Automated: ALL / ANY; each field and operator; variant rule; members added / removed when a
-  product, variant price / compare-at / stock, category, type, tag or vendor changes; when conditions
+  product, variant price / compare-at / stock, category, type or tag changes; when conditions
   change; when a referenced category / type / tag is deleted.
 - Each sort order, including best selling eligibility.
 - Deleting category / type / tag / collection never deletes products.
 - Permissions: read vs manage.
 - Storefront: category tree, collection by handle, filtered and sorted lists, inactive → 404, no
-  conditions exposed, compare-at and vendor exposed.
+  conditions exposed, compare-at exposed.
 
 ## Left to the builder
 

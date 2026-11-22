@@ -98,7 +98,6 @@ export type CollectionField =
   | 'CATEGORY'
   | 'PRODUCT_TYPE'
   | 'TAG'
-  | 'VENDOR'
   | 'PRICE'
   | 'COMPARE_AT_PRICE'
   | 'INVENTORY';

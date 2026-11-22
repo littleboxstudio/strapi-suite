@@ -18,7 +18,6 @@ const expected: [string, string, string, string][] = [
   ['POST', '/admin/ecommerce/tags', 'createTag', P.productsManage],
   ['PUT', '/admin/ecommerce/tags/:id', 'updateTag', P.productsManage],
   ['DELETE', '/admin/ecommerce/tags/:id', 'deleteTag', P.productsManage],
-  ['GET', '/admin/ecommerce/vendors', 'listVendors', P.productsRead],
 ];
 
 describe('ecommerce organization routes', () => {

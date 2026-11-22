@@ -375,6 +375,30 @@ describe('automated collections — kept up to date', () => {
     expect(await s.collections.recalculate(id)).toEqual({ added: 0, removed: 0 });
   });
 
+  it('a stored rule with a field no longer offered evaluates as no conditions, without failing', async () => {
+    const s = setup();
+    const { id } = await s.products.create(productInput('Shirt', [variant('S-1')]));
+    const c = await s.q(UIDS.collection).create({
+      data: {
+        type: 'AUTOMATED',
+        match: 'ALL',
+        sortOrder: 'NEWEST',
+        active: true,
+        conditions: [
+          { field: 'PRICE', operator: 'lt', value: 1000 },
+          { field: 'BRAND', operator: 'eq', value: 'Acme' },
+        ],
+      },
+    });
+    await s.q(UIDS.collectionProduct).create({ data: { collection: c.id, product: id, position: 0 } });
+    expect(await s.collections.recalculate(c.id)).toEqual({ added: 0, removed: 1 });
+    await s.collections.syncProducts([id]);
+    const v = await variantOf(s, id);
+    await s.products.update(id, productInput('Shirt', [variant('S-1', { id: v.id })]));
+    expect(await members(s, c.id)).toEqual([]);
+    expect((await s.collections.get(c.id)).conditions).toEqual([{ field: 'PRICE', operator: 'lt', value: 1000 }]);
+  });
+
   it('a category moved under the condition category joins via recalculateWhere (sub-subcategories included)', async () => {
     const s = setup();
     const { id: clothing } = await s.organization.createCategory({

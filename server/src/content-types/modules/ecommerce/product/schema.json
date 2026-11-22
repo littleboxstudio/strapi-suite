@@ -34,10 +34,6 @@
       "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-image",
       "mappedBy": "product"
     },
-    "vendor": {
-      "type": "string",
-      "maxLength": 255
-    },
     "category": {
       "type": "relation",
       "relation": "manyToOne",

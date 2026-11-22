@@ -32,5 +32,4 @@ export default [
   route('POST', '/admin/ecommerce/tags', 'createTag', manage),
   route('PUT', '/admin/ecommerce/tags/:id', 'updateTag', manage),
   route('DELETE', '/admin/ecommerce/tags/:id', 'deleteTag', manage),
-  route('GET', '/admin/ecommerce/vendors', 'listVendors', read),
 ];

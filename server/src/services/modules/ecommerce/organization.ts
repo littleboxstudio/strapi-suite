@@ -6,7 +6,6 @@ import { CategoryNode, moveError, nameKey } from './domain/organization';
 import { EcommerceNotFoundError, EcommerceValidationError, ValidationIssue } from './errors';
 
 const PAGE_SIZE = 50 as const;
-const MAX_VENDORS = 20 as const;
 /** `string` attributes are varchar(255). */
 const MAX_STRING = 255 as const;
 
@@ -612,23 +611,6 @@ const EcommerceOrganizationService = ({ strapi }: { strapi: Core.Strapi }) => {
         if (!ids.includes(id)) ids.push(id);
       }
       return ids;
-    },
-
-    // ---------------------------------------------------------------- vendors
-
-    /** Distinct non-empty product vendors, sorted, at most 20 (suggestions for the product form). */
-    async listVendors(search?: string): Promise<string[]> {
-      const term = typeof search === 'string' ? search.trim() : '';
-      const rows: any[] = await strapi.db.query(uids().product).findMany({
-        where: { vendor: term ? { $containsi: term } : { $ne: '' } },
-        select: ['vendor'],
-      });
-      const values = new Set<string>();
-      for (const r of rows) {
-        const v = typeof r.vendor === 'string' ? r.vendor.trim() : '';
-        if (v) values.add(v);
-      }
-      return [...values].sort((a, b) => a.localeCompare(b)).slice(0, MAX_VENDORS);
     },
   };
 };

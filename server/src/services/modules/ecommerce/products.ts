@@ -41,20 +41,17 @@ export type ProductListFilters = {
   categoryId?: number;
   productTypeId?: number;
   tagId?: number;
-  /** Exact, case-insensitive (surrounding spaces ignored). */
-  vendor?: string;
   collectionId?: number;
 };
 
 export type ProductDetail = Omit<
   ProductInput,
-  'variants' | 'vendor' | 'categoryId' | 'productTypeId' | 'productTypeName' | 'tagIds' | 'tagNames' | 'collectionIds'
+  'variants' | 'categoryId' | 'productTypeId' | 'productTypeName' | 'tagIds' | 'tagNames' | 'collectionIds'
 > & {
   id: number;
   images: ImageRecord[];
   /** False once any order (in any state) has a line with this product: it can only be deactivated. */
   deletable: boolean;
-  vendor: string | null;
   categoryId: number | null;
   /** Root first, names in the default locale. */
   categoryPath: { id: number; name: string }[];
@@ -76,9 +73,6 @@ const isPositiveInt = (v: unknown): v is number => typeof v === 'number' && Numb
 /** Text in the default locale, else any. */
 const pickText = (translations: any[] = [], defaultLocale: string, field = 'name'): string =>
   translations.find((t) => t.locale === defaultLocale)?.[field] ?? translations[0]?.[field] ?? '';
-
-const cleanVendor = (vendor: string | null | undefined): string | null =>
-  typeof vendor === 'string' && vendor.trim() ? vendor.trim() : null;
 
 const toImage = (r: any, coverId: number | null): ImageRecord => ({
   id: r.id,
@@ -187,7 +181,6 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
    */
   const organizationData = async (input: ProductInput, creating: boolean): Promise<Record<string, unknown>> => {
     const data: Record<string, unknown> = {};
-    if (creating || input.vendor !== undefined) data.vendor = cleanVendor(input.vendor);
     if (creating || input.categoryId !== undefined) data.category = input.categoryId ?? null;
 
     if (input.productTypeId !== undefined) {
@@ -569,18 +562,6 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
       if (isPositiveInt(params.collectionId)) {
         where.collectionMembers = { collection: { id: params.collectionId } };
       }
-      const vendor = typeof params.vendor === 'string' ? params.vendor.trim().toLowerCase() : '';
-      if (vendor) {
-        // Exact and case-insensitive: narrowed in the database, compared exactly here, then the
-        // page itself is read by id so the pagination stays in the database.
-        const candidates: { id: number; vendor: string | null }[] = await strapi.db.query(u.product).findMany({
-          where: { vendor: { $containsi: vendor } },
-          select: ['id', 'vendor'],
-        });
-        where.id = {
-          $in: candidates.filter((r) => (r.vendor ?? '').trim().toLowerCase() === vendor).map((r) => r.id),
-        };
-      }
       const defaultLocale = await getDefaultLocale();
       const locale = params.locale || defaultLocale;
 
@@ -679,7 +660,6 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
         active: !!p.active,
         deletable: !usage.product,
         translations,
-        vendor: cleanVendor(p.vendor),
         categoryId,
         categoryPath: path,
         productTypeId: p.productType?.id ?? null,

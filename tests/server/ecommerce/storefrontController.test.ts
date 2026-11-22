@@ -833,7 +833,7 @@ describe('EcommerceStorefrontController', () => {
       const list = vi
         .spyOn(t.catalog, 'listProducts')
         .mockResolvedValue({ results: [], pagination: { page: 1, pageSize: 24, total: 0, pageCount: 0 } });
-      const query = { category: 'shoes', collection: 'sale', type: '3', tag: '1,2', vendor: 'Acme', sort: 'best_selling', locale: 'pt' };
+      const query = { category: 'shoes', collection: 'sale', type: '3', tag: '1,2', sort: 'best_selling', locale: 'pt' };
       const ctx = await t.call('listProducts', { query });
       expect(ctx.status).toBe(200);
       expect(list).toHaveBeenCalledWith({
@@ -845,7 +845,6 @@ describe('EcommerceStorefrontController', () => {
         collection: 'sale',
         type: '3',
         tag: '1,2',
-        vendor: 'Acme',
         locale: 'pt',
       });
     });
@@ -874,7 +873,7 @@ describe('EcommerceStorefrontController', () => {
         active: true,
         image: null,
         match: 'ALL',
-        conditions: [{ field: 'VENDOR', operator: 'eq', value: 'x' }],
+        conditions: [{ field: 'TITLE', operator: 'eq', value: 'x' }],
       });
       tables[UIDS.collectionTranslation].push({ id: 1, collection: 1, locale: 'en', title: 'Sale', handle: 'sale' });
       const tree = await t.call('listCategories', { query: { locale: 'pt' } });

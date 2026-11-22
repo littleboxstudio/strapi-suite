@@ -400,18 +400,3 @@ describe('EcommerceOrganizationService — product types and tags', () => {
     await expect(service.deleteProductType(5)).rejects.toBeInstanceOf(EcommerceNotFoundError);
   });
 });
-
-describe('EcommerceOrganizationService — vendors', () => {
-  it('lists distinct non-empty vendors, sorted, filtered by search', async () => {
-    const { service, db } = setup();
-    for (const vendor of ['Zeta', 'Acme', 'Acme', '', null, 'acme co']) await addProduct(db, { vendor });
-    expect(await service.listVendors()).toEqual(['Acme', 'acme co', 'Zeta']);
-    expect(await service.listVendors('ACM')).toEqual(['Acme', 'acme co']);
-  });
-
-  it('returns at most 20 vendors', async () => {
-    const { service, db } = setup();
-    for (let i = 0; i < 25; i += 1) await addProduct(db, { vendor: `V${String(i).padStart(2, '0')}` });
-    expect(await service.listVendors()).toHaveLength(20);
-  });
-});

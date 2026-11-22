@@ -209,7 +209,7 @@ function setup(opts: { duplicateRows?: boolean } = {}) {
       active: o.active ?? true,
       image: o.image ?? null,
       match: 'ALL',
-      conditions: [{ field: 'VENDOR', operator: 'eq', value: 'secret-vendor' }],
+      conditions: [{ field: 'TITLE', operator: 'eq', value: 'secret-rule' }],
     });
     for (const [locale, t] of Object.entries(o.texts))
       tables[UIDS.collectionTranslation].push({ id: next(), collection: id, locale, ...t });
@@ -220,12 +220,11 @@ function setup(opts: { duplicateRows?: boolean } = {}) {
   };
   const organize = async (
     pid: number,
-    o: { category?: number; productType?: number; vendor?: string; tags?: number[] }
+    o: { category?: number; productType?: number; tags?: number[] }
   ) => {
     const row = tables[UIDS.product].find((p: any) => p.id === pid);
     if (o.category !== undefined) row.category = o.category;
     if (o.productType !== undefined) row.productType = o.productType;
-    if (o.vendor !== undefined) row.vendor = o.vendor;
     if (o.tags) await fake.query(UIDS.product).update({ where: { id: pid }, data: { tags: { set: o.tags } } });
   };
   return { service, addProduct, tables, sold, addCategory, addType, addTag, addCollection, organize };
@@ -497,7 +496,7 @@ describe('EcommerceStorefrontCatalogService', () => {
       expect(p2.pagination).toEqual({ page: 2, pageSize: 1, total: 2, pageCount: 2 });
       const json = JSON.stringify(all);
       expect(json).not.toContain('conditions');
-      expect(json).not.toContain('secret-vendor');
+      expect(json).not.toContain('secret-rule');
       expect(json).not.toContain('AUTOMATED');
       expect((await service.listCollections({ locale: 'en', pageSize: 51 }).catch((e: any) => e)).errors).toEqual([
         { path: 'pageSize', code: 'invalid_number' },
@@ -524,7 +523,7 @@ describe('EcommerceStorefrontCatalogService', () => {
         seoTitle: 'Sale!',
         seoDescription: 'All on sale',
       });
-      expect(JSON.stringify(c)).not.toMatch(/conditions|match|secret-vendor|AUTOMATED|sortOrder/);
+      expect(JSON.stringify(c)).not.toMatch(/conditions|match|secret-rule|AUTOMATED|sortOrder/);
       expect((await service.getCollection('promocoes', 'pt')).id).toBe(id);
       await expect(service.getCollection('promocoes', 'en')).rejects.toBeInstanceOf(EcommerceNotFoundError);
       await expect(service.getCollection('off', 'en')).rejects.toBeInstanceOf(EcommerceNotFoundError);
@@ -555,7 +554,7 @@ describe('EcommerceStorefrontCatalogService', () => {
   });
 
   describe('product filters and sorts', () => {
-    it('type, tag (any of), vendor (exact, case-insensitive, trimmed), combined with AND', async () => {
+    it('type and tag (any of), combined with AND', async () => {
       const { service, addProduct, addType, addTag, organize } = setup();
       const shirt = addType({ en: 'Shirt' });
       const mug = addType({ en: 'Mug' });
@@ -565,15 +564,15 @@ describe('EcommerceStorefrontCatalogService', () => {
       const a = addProduct({ name: 'A', variants: [v('A1')] });
       const b = addProduct({ name: 'B', variants: [v('B1')] });
       const c = addProduct({ name: 'C', variants: [v('C1')] });
-      await organize(a, { productType: shirt, tags: [red], vendor: 'Acme' });
-      await organize(b, { productType: shirt, tags: [blue, green], vendor: 'Acme Co' });
-      await organize(c, { productType: mug, tags: [red, blue], vendor: 'acme' });
+      await organize(a, { productType: shirt, tags: [red] });
+      await organize(b, { productType: shirt, tags: [blue, green] });
+      await organize(c, { productType: mug, tags: [red, blue] });
       const ids = async (q: any) => (await service.listProducts({ locale: 'en', ...q })).results.map((r) => r.id);
       expect(await ids({ type: String(shirt) })).toEqual([b, a]);
       expect(await ids({ tag: String(red) })).toEqual([c, a]);
       expect(await ids({ tag: `${red},${green}` })).toEqual([c, b, a]);
-      expect(await ids({ vendor: '  ACME ' })).toEqual([c, a]);
-      expect(await ids({ type: String(shirt), tag: `${red},${blue}`, vendor: 'acme' })).toEqual([a]);
+      expect(await ids({ type: String(shirt), tag: `${red},${green}` })).toEqual([b, a]);
+      expect(await ids({ type: String(mug), tag: `${green}` })).toEqual([]);
       expect(await ids({ type: '999999' })).toEqual([]);
       expect(await ids({ tag: '999999' })).toEqual([]);
       const err = async (q: any) => (await service.listProducts({ locale: 'en', ...q }).catch((e: any) => e)).errors;
@@ -598,7 +597,7 @@ describe('EcommerceStorefrontCatalogService', () => {
       expect(await ids('name_desc')).toEqual([d, c, b, a]);
     });
 
-    it('compareAtPrice only when above the price; vendor, category, type and tags on the answers', async () => {
+    it('compareAtPrice only when above the price; category, type and tags on the answers', async () => {
       const { service, addProduct, addCategory, addType, addTag, organize } = setup();
       const root = addCategory({ texts: { en: { name: 'Home', slug: 'home' }, pt: { name: 'Casa', slug: 'casa' } } });
       const kid = addCategory({ texts: { en: { name: 'Mugs', slug: 'mugs' } }, parent: root });
@@ -615,7 +614,7 @@ describe('EcommerceStorefrontCatalogService', () => {
         ],
       });
       const q = addProduct({ name: 'Plain', variants: [v('Q1', 500, { compareAtPrice: 900 }), v('Q2', 600)] });
-      await organize(p, { category: kid, productType: type, tags: [red, big], vendor: 'Acme' });
+      await organize(p, { category: kid, productType: type, tags: [red, big] });
       const list = await service.listProducts({ locale: 'pt', sort: 'name_asc' });
       const cup = list.results.find((r) => r.id === p)!;
       const plain = list.results.find((r) => r.id === q)!;
@@ -632,7 +631,6 @@ describe('EcommerceStorefrontCatalogService', () => {
         ],
       };
       expect(cup).toMatchObject({
-        vendor: 'Acme',
         category,
         productType: { id: type, name: 'Caneca' },
         tags: [
@@ -640,7 +638,7 @@ describe('EcommerceStorefrontCatalogService', () => {
           { id: red, name: 'Vermelho' },
         ],
       });
-      expect(plain).toMatchObject({ vendor: null, category: null, productType: null, tags: [] });
+      expect(plain).toMatchObject({ category: null, productType: null, tags: [] });
       const detail = await service.getProduct('cup', 'pt');
       expect(detail.variants.map((x) => [x.sku, x.compareAtPrice])).toEqual([
         ['C1', 1500],
@@ -648,7 +646,6 @@ describe('EcommerceStorefrontCatalogService', () => {
         ['C3', 1200],
       ]);
       expect(detail).toMatchObject({
-        vendor: 'Acme',
         category,
         productType: { id: type, name: 'Caneca' },
         tags: [

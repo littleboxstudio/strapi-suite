@@ -50,7 +50,6 @@ const detail = (over: Partial<CollectionDetail> = {}): CollectionDetail => ({
     { field: 'CATEGORY', operator: 'eq', value: 3 },
     { field: 'PRODUCT_TYPE', operator: 'neq', value: 4 },
     { field: 'TAG', operator: 'eq', value: 5 },
-    { field: 'VENDOR', operator: 'starts_with', value: 'Acme' },
   ],
   translations: {
     en: { title: 'Sale', handle: 'sale', description: 'Cheap', seoTitle: null, seoDescription: 'SEO' },
@@ -71,10 +70,8 @@ const automated = (conditions: CollectionForm['conditions'], over: Partial<Colle
 const cond = (field: any, operator: any, value: string) => ({ ...emptyCollectionCondition(field), operator, value });
 
 describe('operatorsForField (mirrors the server)', () => {
-  it('text fields take the six text operators', () => {
-    for (const field of ['TITLE', 'VENDOR'] as const) {
-      expect(operatorsForField(field)).toEqual(['eq', 'neq', 'contains', 'not_contains', 'starts_with', 'ends_with']);
-    }
+  it('the title takes the six text operators', () => {
+    expect(operatorsForField('TITLE')).toEqual(['eq', 'neq', 'contains', 'not_contains', 'starts_with', 'ends_with']);
   });
 
   it('category, type and tag take equals / not equals', () => {
@@ -95,7 +92,6 @@ describe('operatorsForField (mirrors the server)', () => {
       'CATEGORY',
       'PRODUCT_TYPE',
       'TAG',
-      'VENDOR',
       'PRICE',
       'COMPARE_AT_PRICE',
       'INVENTORY',
@@ -106,7 +102,7 @@ describe('operatorsForField (mirrors the server)', () => {
 describe('conditions editing', () => {
   it('changing the field keeps a valid operator and clears the value', () => {
     const c = cond('TITLE', 'eq', 'x');
-    expect(setConditionField(c, 'VENDOR')).toMatchObject({ field: 'VENDOR', operator: 'eq', value: '' });
+    expect(setConditionField(c, 'CATEGORY')).toMatchObject({ field: 'CATEGORY', operator: 'eq', value: '' });
     expect(setConditionField(cond('TITLE', 'contains', 'x'), 'PRICE')).toMatchObject({
       field: 'PRICE',
       operator: 'eq',
@@ -146,7 +142,7 @@ describe('type and sorting', () => {
 describe('form <-> input', () => {
   it('round-trips an automated collection (money in cents)', () => {
     const form = collectionFormFromDetail(detail(), LOCALES, 'en');
-    expect(form.conditions.map((c) => c.value)).toEqual(['linen', '49.99', '0.00', '-2', '3', '4', '5', 'Acme']);
+    expect(form.conditions.map((c) => c.value)).toEqual(['linen', '49.99', '0.00', '-2', '3', '4', '5']);
     expect(form.translations.pt).toEqual({ title: '', handle: '', description: '', seoTitle: '', seoDescription: '' });
     expect(buildCollectionInput(form)).toEqual({
       type: 'AUTOMATED',
@@ -183,8 +179,8 @@ describe('form <-> input', () => {
   });
 
   it('trims text values', () => {
-    const input = buildCollectionInput(automated([cond('VENDOR', 'eq', '  Acme ')]));
-    expect(input.conditions).toEqual([{ field: 'VENDOR', operator: 'eq', value: 'Acme' }]);
+    const input = buildCollectionInput(automated([cond('TITLE', 'eq', '  Acme ')]));
+    expect(input.conditions).toEqual([{ field: 'TITLE', operator: 'eq', value: 'Acme' }]);
   });
 });
 
@@ -209,8 +205,8 @@ describe('validateCollectionForm (paths as the server)', () => {
     expect(validateCollectionForm(automated([]), 'en')).toEqual({ conditions: 'required' });
   });
 
-  it('refuses a title or vendor value over 255 characters', () => {
-    const form = automated([cond('TITLE', 'eq', 'x'), cond('VENDOR', 'contains', 'a'.repeat(256))]);
+  it('refuses a title value over 255 characters', () => {
+    const form = automated([cond('TITLE', 'eq', 'x'), cond('TITLE', 'contains', 'a'.repeat(256))]);
     expect(validateCollectionForm(form, 'en')).toEqual({ 'conditions.1.value': 'too_long' });
   });
 
@@ -302,14 +298,14 @@ describe('describeCollectionConditions', () => {
 
   it('joins with "or" for any condition', () => {
     const text = describeCollectionConditions(
-      automated([cond('PRODUCT_TYPE', 'eq', '4'), cond('INVENTORY', 'gt', '0'), cond('VENDOR', 'neq', 'Acme')], {
+      automated([cond('PRODUCT_TYPE', 'eq', '4'), cond('INVENTORY', 'gt', '0'), cond('TITLE', 'neq', 'Acme')], {
         match: 'ANY',
       }),
       tEn,
       { ...labels, money: (c) => formatCents(c, 'en') }
     );
     expect(text).toBe(
-      'Active products where its type is Gift card or an active variant’s inventory is greater than 0 or the vendor is not “Acme”.'
+      'Active products where its type is Gift card or an active variant’s inventory is greater than 0 or the title is not “Acme”.'
     );
   });
 

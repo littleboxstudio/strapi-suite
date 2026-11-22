@@ -89,7 +89,7 @@ a 1-hour grace; nothing ever cancels an order.
 
 | Method | Path | S | Rule | Body / answer |
 |---|---|---|---|---|
-| GET | `/products?page=&pageSize=&search=&sort=&category=&collection=&type=&tag=&vendor=&locale=` | | `catalog` | `{ results, pagination }` (see *Catalogue* below) |
+| GET | `/products?page=&pageSize=&search=&sort=&category=&collection=&type=&tag=&locale=` | | `catalog` | `{ results, pagination }` (see *Catalogue* below) |
 | GET | `/products/:slug?locale=` | | `catalog` | `PublicProduct` |
 | GET | `/categories?locale=` | | `catalog` | `PublicCategory[]` (the active tree) |
 | GET | `/categories/:slug?locale=` | | `catalog` | `PublicCategoryDetail` |
@@ -157,28 +157,26 @@ counts, costs, audit or history, nor any backoffice URL.
 | `collection` | collection handle | the collection's members |
 | `type` | one product type id (positive integer) | products of that type |
 | `tag` | comma-separated tag ids (at most 50) | products with **any** of them |
-| `vendor` | text (≤ 255, trimmed) | exact vendor, case-insensitive |
 
 - `category` / `collection` are looked up in the request `locale`, then in the default locale (an
   `en` slug works on a `pt` request). An unknown slug / handle, an inactive collection, or a
   category that is inactive **or under an inactive ancestor** → `404 NOT_FOUND`.
 - Types and tags have no slug: use the ids the product answers carry. Unknown ids simply give an
   empty list. A malformed `type` or `tag` (not positive integers, empty items) → `400` with
-  `invalid` on `type` / `tag`; a repeated `category`, `collection` or `vendor` → `400 invalid`.
+  `invalid` on `type` / `tag`; a repeated `category` or `collection` → `400 invalid`.
 - `sort`: `newest` (default), `oldest`, `name_asc`, `name_desc`, `price_asc` (lowest active-variant
   price), `price_desc` (highest), `best_selling` (units sold in the last 90 days in paid orders,
   returns and gifts excluded). Ties by newest. With `collection` and no `sort`, the collection's own
   order applies (manual collections: the admin's order).
 
 **Answers.** `PublicProductListItem`: `{ id, slug, name, shortDescription, image, priceMin,
-priceMax, compareAtPriceMin, currency, available, vendor, category, productType, tags }`.
+priceMax, compareAtPriceMin, currency, available, category, productType, tags }`.
 `PublicProduct` has the same organization fields and `compareAtPriceMin`, and each variant has
 `compareAtPrice`.
 
 - `compareAtPrice` (variant): the "was" price in cents, only when **above** the variant's price,
   else `null`. `compareAtPriceMin`: the `compareAtPrice` of the lowest-priced active variant (the
   first by position on a tie), else `null`.
-- `vendor`: `string | null`.
 - `category`: `{ id, name, slug, path: [{ id, name, slug }] } | null` — `path` runs from the root
   to the category itself. `null` without a category, or when it or an ancestor is inactive.
 - `productType`: `{ id, name } | null`; `tags`: `[{ id, name }]` by name. Names in the request

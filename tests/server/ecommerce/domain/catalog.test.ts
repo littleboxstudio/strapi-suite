@@ -191,17 +191,6 @@ describe('validateProductInput — organization fields', () => {
     ).toEqual(['invalid_number']);
   });
 
-  it('refuses a vendor longer than 255 characters (after trimming)', () => {
-    expect(codesAt(product({ vendor: 'a'.repeat(256) }), 'vendor')).toEqual(['too_long']);
-    expect(validateProductInput(product({ vendor: ` ${'a'.repeat(255)} ` }), 'en')).toEqual([]);
-    expect(validateProductInput(product({ vendor: null }), 'en')).toEqual([]);
-  });
-
-  it('reports a non-string vendor as invalid', () => {
-    expect(codesAt(product({ vendor: 5 as any }), 'vendor')).toEqual(['invalid']);
-    expect(codesAt(product({ vendor: {} as any }), 'vendor')).toEqual(['invalid']);
-  });
-
   it('refuses more than 100 tag ids, tag names or collection ids', () => {
     const many = (n: number) => Array.from({ length: n }, (_, i) => i + 1);
     expect(codesAt(product({ tagIds: many(101) }), 'tagIds')).toEqual(['too_many']);

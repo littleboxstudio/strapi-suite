@@ -21,13 +21,12 @@ export const COLLECTION_FIELDS: CollectionField[] = [
   'CATEGORY',
   'PRODUCT_TYPE',
   'TAG',
-  'VENDOR',
   'PRICE',
   'COMPARE_AT_PRICE',
   'INVENTORY',
 ];
 
-const TEXT_FIELDS: CollectionField[] = ['TITLE', 'VENDOR'];
+const TEXT_FIELDS: CollectionField[] = ['TITLE'];
 const ID_FIELDS: CollectionField[] = ['CATEGORY', 'PRODUCT_TYPE', 'TAG'];
 const MONEY_FIELDS: CollectionField[] = ['PRICE', 'COMPARE_AT_PRICE'];
 const TEXT_OPERATORS: CollectionOperator[] = ['eq', 'neq', 'contains', 'not_contains', 'starts_with', 'ends_with'];
@@ -46,7 +45,7 @@ export function operatorsForField(field: CollectionField): CollectionOperator[] 
 }
 
 /**
- * One condition row as typed: `value` is the text (TITLE, VENDOR), euros as typed (PRICE,
+ * One condition row as typed: `value` is the text (TITLE), euros as typed (PRICE,
  * COMPARE_AT_PRICE), an integer (INVENTORY) or the chosen id ('' = none chosen).
  */
 export type CollectionConditionForm = {
@@ -281,7 +280,6 @@ function describeCondition(c: CollectionConditionForm, t: Translate, labels: Col
     value === null ? '…' : mark(names?.[value as number] ?? `#${value}`);
   switch (c.field) {
     case 'TITLE':
-    case 'VENDOR':
       return t(`${D}.fields.${c.field}`, { operator, value: value === null ? '…' : mark(`“${value}”`) });
     case 'PRICE':
     case 'COMPARE_AT_PRICE':

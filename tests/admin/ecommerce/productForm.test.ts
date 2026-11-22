@@ -58,7 +58,6 @@ describe('emptyProductForm', () => {
       },
       variants: [],
       organization: {
-        vendor: '',
         category: null,
         productType: null,
         tags: [],
@@ -77,7 +76,6 @@ describe('productFormFromDetail', () => {
       deletable: true,
       images: [],
       translations: { en: { name: 'Shirt', slug: 'shirt', description: '<p>x</p>' } },
-      vendor: null,
       categoryId: null,
       categoryPath: [],
       productTypeId: null,
@@ -131,7 +129,6 @@ describe('productFormFromDetail', () => {
       deletable: true,
       images: [],
       translations: { en: { name: 'Shirt', slug: 'shirt', description: '<p>x</p>' } },
-      vendor: 'Acme',
       categoryId: 3,
       categoryPath: [
         { id: 1, name: 'Clothing' },
@@ -151,7 +148,6 @@ describe('productFormFromDetail', () => {
       variants: [],
     } as ProductDetail;
     expect(productFormFromDetail(detail, LOCALES).organization).toEqual({
-      vendor: 'Acme',
       category: { id: 3, path: 'Clothing > Shirts > Linen' },
       productType: { id: 5, name: 'Shirt' },
       tags: [
@@ -196,7 +192,6 @@ describe('buildProductInput', () => {
   it('always sends every organization field explicitly (empty = cleared)', () => {
     const input = buildProductInput(form());
     expect(input).toMatchObject({
-      vendor: null,
       categoryId: null,
       productTypeId: null,
       tagIds: [],
@@ -210,7 +205,6 @@ describe('buildProductInput', () => {
     const input = buildProductInput(
       form({
         organization: {
-          vendor: '  Acme  ',
           category: { id: 3, path: 'A > B' },
           productType: { id: 5, name: 'Shirt' },
           tags: [{ id: 8, name: 'summer' }, { name: 'new one' }, { id: 9, name: 'linen' }],
@@ -220,7 +214,6 @@ describe('buildProductInput', () => {
       })
     );
     expect(input).toMatchObject({
-      vendor: 'Acme',
       categoryId: 3,
       productTypeId: 5,
       tagIds: [8, 9],
@@ -311,15 +304,6 @@ describe('tags', () => {
   });
 });
 
-describe('vendor', () => {
-  it('refuses a vendor longer than 255 characters', () => {
-    const f = form({ organization: { ...emptyOrganization(), vendor: 'x'.repeat(256) } });
-    expect(validateProductForm(f, 'en')).toEqual([{ path: 'vendor', code: 'too_long' }]);
-    const ok = form({ organization: { ...emptyOrganization(), vendor: ` ${'x'.repeat(255)} ` } });
-    expect(validateProductForm(ok, 'en')).toEqual([]);
-  });
-});
-
 describe('error mapping', () => {
   it('finds the error of an organization field, including per-item paths', () => {
     const map = toErrorMap([
@@ -331,7 +315,6 @@ describe('error mapping', () => {
     expect(organizationError(map, 'category')).toBe('unknown');
     expect(organizationError(map, 'tags')).toBe('unknown');
     expect(organizationError(map, 'collections')).toBe('automated_collection');
-    expect(organizationError(map, 'vendor')).toBeUndefined();
     expect(organizationError(map, 'productType')).toBeUndefined();
     expect(organizationError({ productTypeName: 'too_long' }, 'productType')).toBe('too_long');
     expect(organizationError({ 'tagNames.2': 'too_long' }, 'tags')).toBe('too_long');

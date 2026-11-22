@@ -1,4 +1,3 @@
-import { useEffect, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import {
   Box,
@@ -17,7 +16,6 @@ import { Trash } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import EmptyNote from '../orders/EmptyNote';
 import MarkedSentence from '../promotions/MarkedSentence';
-import SearchVendors from '../../usecases/organization/searchVendors';
 import {
   COLLECTION_FIELDS,
   describeCollectionConditions,
@@ -32,65 +30,11 @@ import {
 import { markValue } from '../../utils/promotionForm';
 import type { CollectionField, CollectionMatch, CollectionOperator } from '../../organizationTypes';
 
-const VENDOR_DEBOUNCE_MS = 300;
-
 export type ConditionOptions = {
   /** Every category, labelled with its full path, in tree order. */
   categories: { id: number; label: string }[];
   productTypes: { id: number; label: string }[];
   tags: { id: number; label: string }[];
-};
-
-/** A text field with the existing vendors as suggestions (any text can still be typed). */
-const VendorInput = ({
-  value,
-  onChange,
-  hasError,
-  disabled,
-  label,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  hasError?: boolean;
-  disabled?: boolean;
-  label: string;
-}) => {
-  const [suggestions, setSuggestions] = useState<string[]>([]);
-  const requestId = useRef(0);
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      const current = ++requestId.current;
-      new SearchVendors()
-        .execute(value.trim() || undefined)
-        .then((list) => {
-          if (current === requestId.current) setSuggestions(Array.isArray(list) ? list : []);
-        })
-        .catch(() => {
-          if (current === requestId.current) setSuggestions([]);
-        });
-    }, VENDOR_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
-  }, [value]);
-  return (
-    <Combobox
-      aria-label={label}
-      allowCustomValue
-      autocomplete="none"
-      value={value}
-      textValue={value}
-      hasError={hasError}
-      disabled={disabled}
-      onTextValueChange={(text: string) => onChange(text)}
-      onChange={(picked?: string) => onChange(picked ?? '')}
-      onClear={() => onChange('')}
-    >
-      {suggestions.map((s) => (
-        <ComboboxOption key={s} value={s}>
-          {s}
-        </ComboboxOption>
-      ))}
-    </Combobox>
-  );
 };
 
 type Props = {
@@ -151,21 +95,6 @@ const CollectionConditionsEditor = ({ match, conditions, onChange, errors, optio
               </ComboboxOption>
             ))}
           </Combobox>
-          <Field.Error />
-        </Field.Root>
-      );
-    }
-    if (c.field === 'VENDOR') {
-      return (
-        <Field.Root name={path} error={errorText(path)}>
-          <Field.Label>{t(`${p}.value`)}</Field.Label>
-          <VendorInput
-            value={c.value}
-            onChange={set}
-            hasError={!!errors[path]}
-            disabled={disabled}
-            label={t(`${p}.value`)}
-          />
           <Field.Error />
         </Field.Root>
       );

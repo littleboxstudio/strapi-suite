@@ -150,11 +150,11 @@ describe('EcommerceProductController', () => {
 });
 
 describe('EcommerceProductController.list filters', () => {
-  it('passes the organization filters as positive integers and the vendor as text', async () => {
+  it('passes the organization filters as positive integers', async () => {
     const list = vi.fn().mockResolvedValue({ results: [] });
     const controller = setup({ EcommerceProductService: { list } });
     const ctx: any = {
-      query: { page: '2', categoryId: '3', productTypeId: '4', tagId: '5', collectionId: '6', vendor: 'ACME' },
+      query: { page: '2', categoryId: '3', productTypeId: '4', tagId: '5', collectionId: '6' },
     };
     await controller.list(ctx);
     expect(list).toHaveBeenCalledWith({
@@ -165,14 +165,13 @@ describe('EcommerceProductController.list filters', () => {
       productTypeId: 4,
       tagId: 5,
       collectionId: 6,
-      vendor: 'ACME',
     });
   });
 
   it('drops malformed filters', async () => {
     const list = vi.fn().mockResolvedValue({ results: [] });
     const controller = setup({ EcommerceProductService: { list } });
-    await controller.list({ query: { categoryId: 'x', tagId: '-1', collectionId: '1.5', vendor: ['a'] } } as any);
+    await controller.list({ query: { categoryId: 'x', tagId: '-1', collectionId: '1.5' } } as any);
     expect(list).toHaveBeenCalledWith({ page: 1, search: undefined, locale: undefined });
   });
 });

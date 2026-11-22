@@ -25,7 +25,6 @@ export type PublicNamed = { id: number; name: string };
 
 /** Fields every product answer gains with the product organization. */
 type PublicOrganization = {
-  vendor: string | null;
   /** null without a category, or when it (or an ancestor) is inactive. */
   category: PublicProductCategory | null;
   productType: PublicNamed | null;
@@ -350,7 +349,6 @@ const EcommerceStorefrontCatalogService = ({ strapi }: { strapi: Core.Strapi }) 
       name: pickText(row.translations, locale, defaultLocale, 'name'),
     });
     return {
-      vendor: typeof p.vendor === 'string' && p.vendor.trim() ? p.vendor : null,
       category: productCategory(nodes, p.category?.id, locale, defaultLocale),
       productType: p.productType ? named(p.productType) : null,
       tags: (p.tags ?? [])
@@ -397,8 +395,6 @@ const EcommerceStorefrontCatalogService = ({ strapi }: { strapi: Core.Strapi }) 
       type?: unknown;
       /** Comma-separated tag ids: a product with any of them matches. */
       tag?: unknown;
-      /** Exact, case-insensitive. */
-      vendor?: unknown;
       locale: string;
     }): Promise<PublicProductPage> {
       const u = uids();
@@ -412,7 +408,6 @@ const EcommerceStorefrontCatalogService = ({ strapi }: { strapi: Core.Strapi }) 
       const collectionHandle = textParam(q.collection, 'collection');
       const typeId = idParam(q.type, 'type');
       const tagIds = idListParam(q.tag, 'tag');
-      const vendor = textParam(q.vendor, 'vendor');
       // `sanitizeSearchTerm` strips `%`, `_` and `\`, so an underscore typed in the search is
       // dropped: a SKU such as `AB_1` is found by `AB1`-style fragments, not by the underscore.
       const search = sanitizeSearchTerm(q.search);
@@ -438,7 +433,6 @@ const EcommerceStorefrontCatalogService = ({ strapi }: { strapi: Core.Strapi }) 
       if (collection) where.collectionMembers = { collection: { id: collection.id } };
       if (typeId !== null) where.productType = { id: typeId };
       if (tagIds) where.tags = { id: { $in: tagIds } };
-      if (vendor) where.vendor = { $eqi: vendor };
 
       // An explicit sort wins; with a collection, its own sort order; else newest.
       const order: CollectionSort = sort

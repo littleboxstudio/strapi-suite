@@ -27,7 +27,6 @@ export type FormCollection = { id: number; title: string };
 
 /** The "Product organization" section. */
 export type ProductOrganization = {
-  vendor: string;
   /** `path` is the full label ("Clothing > Shirts > Linen"). */
   category: { id: number; path: string } | null;
   /** Without an id: a new type, created by name on save. */
@@ -46,8 +45,6 @@ export type ProductForm = {
   organization: ProductOrganization;
 };
 
-export const MAX_VENDOR_LENGTH = 255;
-
 /** Field errors indexed by path (e.g. `variants.1.sku`). */
 export type ErrorMap = Record<string, FieldError['code']>;
 
@@ -61,7 +58,6 @@ const blankTranslation = (): ProductTranslation => ({
 
 export function emptyOrganization(): ProductOrganization {
   return {
-    vendor: '',
     category: null,
     productType: null,
     tags: [],
@@ -84,7 +80,6 @@ function organizationFromDetail(detail: ProductDetail): ProductOrganization {
   const pick = (type: 'MANUAL' | 'AUTOMATED') =>
     collections.filter((c) => c.type === type).map(({ id, title }) => ({ id, title }));
   return {
-    vendor: detail.vendor ?? '',
     category:
       detail.categoryId != null
         ? {
@@ -158,10 +153,8 @@ export function productFormFromDetail(detail: ProductDetail, localeCodes: string
  * names alone would replace the stored tags.
  */
 function organizationInput(org: ProductOrganization): Partial<ProductInput> {
-  const vendor = org.vendor.trim();
   const type = org.productType;
   return {
-    vendor: vendor === '' ? null : vendor,
     categoryId: org.category?.id ?? null,
     ...(type && type.id === undefined
       ? { productTypeName: type.name.trim() }
@@ -211,9 +204,6 @@ export function validateProductForm(form: ProductForm, defaultLocale: string): F
   if (form.variants.length === 0) {
     errors.push({ path: 'variants', code: 'min_variants' });
   }
-  if (form.organization.vendor.trim().length > MAX_VENDOR_LENGTH) {
-    errors.push({ path: 'vendor', code: 'too_long' });
-  }
   return errors;
 }
 
@@ -238,10 +228,9 @@ export function scopedErrors(map: ErrorMap, prefix: string): ErrorMap {
 }
 
 /** Server paths of each organization field (per-item paths like `tagIds.1` included). */
-export type OrganizationField = 'vendor' | 'category' | 'productType' | 'tags' | 'collections';
+export type OrganizationField = 'category' | 'productType' | 'tags' | 'collections';
 
 export const ORGANIZATION_ERROR_PATHS: Record<OrganizationField, string[]> = {
-  vendor: ['vendor'],
   category: ['categoryId'],
   productType: ['productTypeId', 'productTypeName'],
   tags: ['tagIds', 'tagNames'],

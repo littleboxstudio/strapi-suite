@@ -109,15 +109,12 @@ describe('EcommerceOrganizationController', () => {
 
   it('lists parse the query', async () => {
     const listTags = vi.fn().mockResolvedValue({ results: [] });
-    const listVendors = vi.fn().mockResolvedValue(['Acme']);
     const listCategoryTree = vi.fn().mockResolvedValue([]);
-    const controller = setup({ listTags, listVendors, listCategoryTree });
+    const controller = setup({ listTags, listCategoryTree });
     await controller.listTags(ctxOf({ query: { page: '2', search: 'sa', locale: 'pt' } }));
     expect(listTags).toHaveBeenCalledWith({ page: 2, search: 'sa', locale: 'pt' });
-    const ctx = ctxOf({ query: { search: ['a', 'b'] } });
-    await controller.listVendors(ctx);
-    expect(listVendors).toHaveBeenCalledWith(undefined);
-    expect(ctx.body).toEqual(['Acme']);
+    await controller.listTags(ctxOf({ query: { search: ['a', 'b'] } }));
+    expect(listTags).toHaveBeenLastCalledWith({ page: 1, search: undefined, locale: undefined });
     await controller.listCategories(ctxOf({ query: { locale: 'pt' } }));
     expect(listCategoryTree).toHaveBeenCalledWith('pt');
   });

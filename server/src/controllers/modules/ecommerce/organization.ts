@@ -3,7 +3,7 @@ import { PLUGIN_ID } from '../../../config';
 import { handleDomainError } from './errors';
 import { EcommerceNotFoundError } from '../../../services/modules/ecommerce/errors';
 
-/** Admin API for categories, product types, tags and vendor suggestions. */
+/** Admin API for categories, product types and tags. */
 const EcommerceOrganizationController = ({ strapi }: { strapi: Core.Strapi }) => {
   const organization = (): any => strapi.plugin(PLUGIN_ID).service('EcommerceOrganizationService');
   /** The `:id` param; anything but a positive integer is a not-found. */
@@ -72,10 +72,6 @@ const EcommerceOrganizationController = ({ strapi }: { strapi: Core.Strapi }) =>
     createTag: created('tag', 'createTag'),
     updateTag: noContent('tag', 'updateTag'),
     deleteTag: noContent('tag', 'deleteTag', false),
-
-    async listVendors(ctx: any) {
-      ctx.body = await organization().listVendors(text(ctx.query?.search));
-    },
   };
 };
 

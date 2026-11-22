@@ -17,15 +17,9 @@ import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchCategoryTree from '../../usecases/organization/fetchCategoryTree';
 import FetchProductTypes from '../../usecases/organization/fetchProductTypes';
 import FetchTags from '../../usecases/organization/fetchTags';
-import SearchVendors from '../../usecases/organization/searchVendors';
 import FetchCollections from '../../usecases/organization/fetchCollections';
 import { flattenTree, pathLabel } from '../../utils/categoryTree';
-import {
-  MAX_VENDOR_LENGTH,
-  addTag,
-  type OrganizationField,
-  type ProductOrganization,
-} from '../../utils/productForm';
+import { addTag, type OrganizationField, type ProductOrganization } from '../../utils/productForm';
 import type { CategoryTreeNode } from '../../organizationTypes';
 import { ToneBadge } from '../orders/StatusBadges';
 import EmptyNote from '../orders/EmptyNote';
@@ -525,74 +519,6 @@ const ProductTypeField = ({
   );
 };
 
-// ------------------------------------------------------------------ vendor
-
-const VendorField = ({
-  value,
-  onChange,
-  error,
-  disabled,
-}: {
-  value: string;
-  onChange: (vendor: string) => void;
-  error?: string;
-  disabled?: boolean;
-}) => {
-  const { formatMessage } = useIntl();
-  const t = (id: string) => formatMessage({ id: getTranslation(id) });
-  const [open, setOpen] = useState(false);
-  const search = useRemoteOptions(open, value, (q) => new SearchVendors().execute(q || undefined));
-  const rows: OptionRow[] = search.results
-    .filter((name) => name !== value.trim())
-    .map((name) => ({
-      key: name,
-      content: <RowText>{name}</RowText>,
-      onPick: () => {
-        onChange(name);
-        setOpen(false);
-      },
-    }));
-  const highlight = useHighlight(rows);
-
-  return (
-    <Field.Root name="vendor" error={error} hint={t(`${P}.vendor.hint`)}>
-      <Field.Label>{t(`${P}.vendor`)}</Field.Label>
-      <OptionsPopover
-        open={open}
-        onClose={() => setOpen(false)}
-        rows={rows}
-        active={highlight.active}
-        loading={search.loading}
-        error={search.error}
-        anchor={
-          <TextInput
-            value={value}
-            maxLength={MAX_VENDOR_LENGTH}
-            autoComplete="off"
-            disabled={disabled}
-            aria-haspopup="listbox"
-            aria-expanded={open}
-            onChange={(e: any) => {
-              onChange(e.target.value);
-              setOpen(true);
-              highlight.setActive(-1);
-            }}
-            onFocus={() => setOpen(true)}
-            onBlur={() => setOpen(false)}
-            onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
-              if (e.key === 'Escape') setOpen(false);
-              else if (e.key === 'Enter' && highlight.active < 0) setOpen(false);
-              else highlight.onKeyDown(e);
-            }}
-          />
-        }
-      />
-      <Field.Error />
-      <Field.Hint />
-    </Field.Root>
-  );
-};
-
 // ------------------------------------------------------------------ collections
 
 const CollectionsField = ({
@@ -831,7 +757,7 @@ const TagsField = ({
 // ------------------------------------------------------------------ section body
 
 /**
- * The fields of "Product organization": category, type and vendor on the left; collections and
+ * The fields of "Product organization": category and type on the left; collections and
  * tags on the right (one column on small screens).
  */
 const ProductOrganizationSection = ({
@@ -868,12 +794,6 @@ const ProductOrganizationSection = ({
             onChange={(next) => set('productType', 'productType', next)}
             error={errors.productType}
             defaultLocale={defaultLocale}
-            disabled={disabled}
-          />
-          <VendorField
-            value={value.vendor}
-            onChange={(next) => set('vendor', 'vendor', next)}
-            error={errors.vendor}
             disabled={disabled}
           />
         </Flex>
