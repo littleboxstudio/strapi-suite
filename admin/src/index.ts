@@ -4,6 +4,7 @@ import Registry from './core/di/registry';
 import { StrapiAdapter } from './core/http/httpClient';
 import { Initializer } from './components/Initializer';
 import { PluginIcon } from './components/PluginIcon';
+import { EcommerceIcon } from './components/EcommerceIcon';
 import { mergeTranslations } from './core/utils/mergeTranslations';
 import { getTranslation } from './core/utils/getTranslation';
 import { SettingGatewayHttp } from './core/gateways/settingGateway';
@@ -42,6 +43,18 @@ export default {
       },
       position: 999,
       Component: () => import('./pages/App')
+    });
+
+    // A shortcut to the e-commerce module (its pages are routed by the link above). The module's
+    // root opens the products list; the link stays active on every e-commerce page.
+    app.addMenuLink({
+      to: `plugins/${config.pluginId}/ecommerce`,
+      icon: EcommerceIcon,
+      intlLabel: {
+        id: `${config.pluginId}.app.ecommerce.name`,
+        defaultMessage: 'Littlebox Strapi Ecommerce',
+      },
+      position: 1000,
     });
 
     app.customFields.register({

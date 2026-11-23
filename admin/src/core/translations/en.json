@@ -1,5 +1,6 @@
 {
   "littlebox-strapi-suite.app.name": "Littlebox Strapi Suite",
+  "littlebox-strapi-suite.app.ecommerce.name": "Littlebox Strapi Ecommerce",
   "littlebox-strapi-suite.app.empty": "You don't have any content yet...",
   "littlebox-strapi-suite.app.description": "Frontend integration made easy. Use the Littlebox Strapi Suite plugin to enhance the admin panel with powerful tools that simplify content management and frontend integration.",
   "littlebox-strapi-suite.app.free": "Free",

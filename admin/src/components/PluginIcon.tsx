@@ -8,11 +8,15 @@ const ICON_STYLES = `
   .ltb-plugin-icon .ltb-plugin-icon-shade { fill: none !important; }
   .ltb-plugin-icon .ltb-plugin-icon-mask { fill: black !important; }
   nav a:hover .ltb-plugin-icon .ltb-plugin-icon-bg,
-  nav a.active .ltb-plugin-icon .ltb-plugin-icon-bg { fill: #101828 !important; }
-  nav a:hover .ltb-plugin-icon .ltb-plugin-icon-fg,
-  nav a.active .ltb-plugin-icon .ltb-plugin-icon-fg { fill: url(#ltb-plugin-icon-bg) !important; }
-  nav a:hover .ltb-plugin-icon .ltb-plugin-icon-shade,
-  nav a.active .ltb-plugin-icon .ltb-plugin-icon-shade { display: none; }
+  nav a.active .ltb-plugin-icon .ltb-plugin-icon-bg { fill: #ffffff !important; }
+  /* The plugin link matches every plugin page, e-commerce included: there the e-commerce link is
+     the active one, so this one shows as not active (unless hovered). */
+  nav:has(a.active .ltb-ecommerce-icon) a.active:has(.ltb-plugin-icon):not(:hover) {
+    background: transparent !important;
+  }
+  nav:has(a.active .ltb-ecommerce-icon) a.active:not(:hover) .ltb-plugin-icon .ltb-plugin-icon-bg {
+    fill: url(#ltb-plugin-icon-bg) !important;
+  }
 `;
 
 /**
@@ -20,7 +24,7 @@ const ICON_STYLES = `
  *
  * The admin's main menu paints every path of a menu icon in one colour on hover and when the link
  * is active, which would turn this icon into a plain square. The colours are fixed here, and in the
- * menu the icon shows in negative (dark square, gradient letters) on hover and when active.
+ * menu the square turns white on hover and when active (the letters keep their colour).
  */
 const PluginIcon = () => (
   <svg
