@@ -83,7 +83,7 @@ const ParentCategorySelect = ({ value, options, onChange, hasError, disabled }: 
           <Typography textColor="neutral800" ellipsis>
             {current}
           </Typography>
-          <CaretDown width="1.2rem" height="1.2rem" aria-hidden />
+          <CaretDown width="1.2rem" height="1.2rem" fill="neutral500" aria-hidden />
         </Flex>
       </Popover.Trigger>
       <Popover.Content

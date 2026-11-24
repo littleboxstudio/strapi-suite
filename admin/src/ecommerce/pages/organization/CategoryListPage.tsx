@@ -20,12 +20,14 @@ import {
 } from '@strapi/design-system';
 import config from '../../../core/config';
 import { getTranslation } from '../../../core/utils/getTranslation';
+import ConfirmModal from '../../../components/ConfirmModal';
 import { HeaderActions } from '../../components/HeaderActions';
 import EmptyNote from '../../components/orders/EmptyNote';
 import NoticeBar from '../../components/orders/NoticeBar';
 import { ToneBadge } from '../../components/orders/StatusBadges';
 import FetchCategoryTree from '../../usecases/organization/fetchCategoryTree';
 import MoveCategory from '../../usecases/organization/moveCategory';
+import DeleteCategory from '../../usecases/organization/deleteCategory';
 import { flattenTree, parentOptions } from '../../utils/categoryTree';
 import { organizationErrorMessage } from '../../utils/organizationErrors';
 import { ParentCategorySelect } from '../../components/organization/ParentCategorySelect';
@@ -46,8 +48,9 @@ const CategoryListPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [busy, setBusy] = useState(false);
-  /** A refused move: the server's reason. */
+  /** A refused delete or move: the server's reason. */
   const [notice, setNotice] = useState<string | null>(null);
+  const [toDelete, setToDelete] = useState<CategoryTreeNode | null>(null);
   const [toMove, setToMove] = useState<CategoryTreeNode | null>(null);
   const [moveParent, setMoveParent] = useState<number | null>(null);
   const requestId = useRef(0);
@@ -113,6 +116,23 @@ const CategoryListPage = () => {
     const siblings =
       parentId === null ? tree : (rows.find((r) => r.node.id === parentId)?.node.children ?? []);
     await move(node, parentId, siblings.length);
+  };
+
+  const remove = async () => {
+    const node = toDelete;
+    setToDelete(null);
+    if (!node || busy) return;
+    setBusy(true);
+    setNotice(null);
+    try {
+      await new DeleteCategory().execute(node.id);
+      toggleNotification({ type: 'success', message: t(`${p}.deleted`) });
+      load();
+    } catch (err) {
+      showError(err, `${p}.deleteError`);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const create = () => navigate(`${basePath}/new`);
@@ -201,11 +221,14 @@ const CategoryListPage = () => {
                     </Td>
                     <Td>
                       <Flex gap={2} justifyContent="flex-end">
+                        <Button variant="secondary" size="S" onClick={() => navigate(`${basePath}/${node.id}`)}>
+                          {t(`${p}.edit`)}
+                        </Button>
                         <Button variant="secondary" size="S" disabled={busy} onClick={() => openMoveTo(node)}>
                           {t(`${p}.moveTo`)}
                         </Button>
-                        <Button variant="tertiary" size="S" onClick={() => navigate(`${basePath}/${node.id}`)}>
-                          {t(`${p}.edit`)}
+                        <Button variant="danger-light" size="S" disabled={busy} onClick={() => setToDelete(node)}>
+                          {t(`${p}.delete`)}
                         </Button>
                       </Flex>
                     </Td>
@@ -216,6 +239,14 @@ const CategoryListPage = () => {
           )}
         </Flex>
       </Box>
+
+      <ConfirmModal
+        open={!!toDelete}
+        title={t(`${p}.deleteTitle`)}
+        text={t(`${p}.deleteText`, { name: toDelete?.name ?? '' })}
+        confirm={{ variant: 'danger-light', button: t(`${p}.delete`), action: remove }}
+        cancel={{ button: t('ecommerce.organization.cancel'), action: () => setToDelete(null) }}
+      />
 
       {toMove && (
         <Modal.Root open onOpenChange={(next: boolean) => !next && setToMove(null)}>
