@@ -346,6 +346,26 @@ const CollectionEditPage = () => {
     );
   };
 
+  /** The order of the collection's products (shown at the top of Products / Conditions). */
+  const sortField = (
+    <Field.Root name="sortOrder" error={errorText('sortOrder')} hint={t(`${p}.sorting.hint`)}>
+      <Field.Label>{t(`${p}.sorting.label`)}</Field.Label>
+      <SingleSelect
+        value={form.sortOrder}
+        hasError={!!errors.sortOrder}
+        onChange={(value: string | number) => update({ sortOrder: String(value) as CollectionForm['sortOrder'] }, 'sortOrder')}
+      >
+        {sortOptions(form.type).map((sort) => (
+          <SingleSelectOption key={sort} value={sort}>
+            {t(`${p}.sorting.${sort}`)}
+          </SingleSelectOption>
+        ))}
+      </SingleSelect>
+      <Field.Error />
+      <Field.Hint />
+    </Field.Root>
+  );
+
   const localeSwitcher = (
     <LocaleSwitcher
       locales={locales}
@@ -470,6 +490,7 @@ const CollectionEditPage = () => {
 
       {!isAutomated && (
         <Section title={t(`${p}.sections.products`)}>
+          {sortField}
           {detail ? (
             <CollectionProducts collectionId={detail.id} manualSort={detail.sortOrder === 'MANUAL'} />
           ) : (
@@ -499,6 +520,7 @@ const CollectionEditPage = () => {
             </Flex>
           }
         >
+          {sortField}
           <CollectionConditionsEditor
             match={form.match}
             conditions={form.conditions}
@@ -515,25 +537,6 @@ const CollectionEditPage = () => {
           <CollectionPreview input={preview} />
         </Section>
       )}
-
-      <Section title={t(`${p}.sections.sorting`)}>
-        <Field.Root name="sortOrder" error={errorText('sortOrder')} hint={t(`${p}.sorting.hint`)}>
-          <Field.Label>{t(`${p}.sorting.label`)}</Field.Label>
-          <SingleSelect
-            value={form.sortOrder}
-            hasError={!!errors.sortOrder}
-            onChange={(value: string | number) => update({ sortOrder: String(value) as CollectionForm['sortOrder'] }, 'sortOrder')}
-          >
-            {sortOptions(form.type).map((sort) => (
-              <SingleSelectOption key={sort} value={sort}>
-                {t(`${p}.sorting.${sort}`)}
-              </SingleSelectOption>
-            ))}
-          </SingleSelect>
-          <Field.Error />
-          <Field.Hint />
-        </Field.Root>
-      </Section>
 
       <ConfirmModal
         open={confirmDelete}

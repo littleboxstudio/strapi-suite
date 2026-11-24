@@ -2620,7 +2620,6 @@
   "littlebox-strapi-suite.ecommerce.organization.collection.sections.type": "Type",
   "littlebox-strapi-suite.ecommerce.organization.collection.sections.products": "Products",
   "littlebox-strapi-suite.ecommerce.organization.collection.sections.conditions": "Conditions",
-  "littlebox-strapi-suite.ecommerce.organization.collection.sections.sorting": "Sorting",
   "littlebox-strapi-suite.ecommerce.organization.collection.title": "Title",
   "littlebox-strapi-suite.ecommerce.organization.collection.slug": "Slug",
   "littlebox-strapi-suite.ecommerce.organization.collection.slug.hint": "Used in the storefront address. Follows the title until edited; if another collection uses it, -2, -3… is added.",
