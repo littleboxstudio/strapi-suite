@@ -189,7 +189,7 @@ active roots: an inactive category hides its whole subtree. `PublicCategoryDetai
 `seoDescription` (`null` when empty) and `path` (breadcrumb, root first, the category last). Name,
 slug and texts are in the request locale, else the default locale.
 
-**Collections.** `PublicCollection`: `{ id, title, handle, description, image, seoTitle,
+**Collections.** `PublicCollection`: `{ id, title, handle, description, seoTitle,
 seoDescription }`. `GET /collections` answers the active collections by title (paginated like the
 products: `pageSize` 1–50, default 24). Never exposed: the collection's type (manual /
 automated), its conditions, match mode or sort order.

@@ -134,7 +134,6 @@ export type CollectionInput = {
   type: CollectionType;
   sortOrder?: CollectionSort;
   active: boolean;
-  image: string | null;
   match?: CollectionMatch;
   conditions?: CollectionCondition[];
   translations: Record<string, CollectionTranslationInput>;
@@ -156,7 +155,6 @@ export type CollectionDetail = {
   type: CollectionType;
   sortOrder: CollectionSort;
   active: boolean;
-  image: string | null;
   match: CollectionMatch;
   conditions: CollectionCondition[];
   translations: Record<string, CollectionTranslation>;

@@ -2626,8 +2626,6 @@
   "littlebox-strapi-suite.ecommerce.organization.collection.handle": "Handle",
   "littlebox-strapi-suite.ecommerce.organization.collection.handle.hint": "Used in the storefront address. Empty: made from the title.",
   "littlebox-strapi-suite.ecommerce.organization.collection.description": "Description",
-  "littlebox-strapi-suite.ecommerce.organization.collection.image": "Image URL",
-  "littlebox-strapi-suite.ecommerce.organization.collection.image.hint": "An http(s) address or a path starting with /.",
   "littlebox-strapi-suite.ecommerce.organization.collection.seoTitle": "SEO title",
   "littlebox-strapi-suite.ecommerce.organization.collection.seoDescription": "SEO description",
   "littlebox-strapi-suite.ecommerce.organization.collection.type.label": "Collection type",

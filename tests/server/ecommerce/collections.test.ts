@@ -81,7 +81,6 @@ type Setup = ReturnType<typeof setup>;
 const manual = (title: string, extra: any = {}) => ({
   type: 'MANUAL',
   active: true,
-  image: null,
   match: 'ALL',
   conditions: [],
   translations: { en: { title } },
@@ -91,7 +90,6 @@ const manual = (title: string, extra: any = {}) => ({
 const automated = (title: string, extra: any = {}) => ({
   type: 'AUTOMATED',
   active: true,
-  image: null,
   match: 'ALL',
   conditions: [{ field: 'PRICE', operator: 'gt', value: 500 }],
   translations: { en: { title } },
@@ -122,7 +120,6 @@ describe('EcommerceCollectionService — CRUD', () => {
       type: 'MANUAL',
       sortOrder: 'MANUAL',
       active: true,
-      image: null,
       match: 'ALL',
       conditions: [],
       productCount: 0,
@@ -162,14 +159,13 @@ describe('EcommerceCollectionService — CRUD', () => {
     expect((await s.service.get(id)).translations.en.handle).toBe('winter-sale');
   });
 
-  it('validates title, locale, image and fields', async () => {
+  it('validates title, locale and fields', async () => {
     const s = setup();
     const errors = await errorsOf(
       s.service.create(
         manual('', {
           type: 'OTHER',
           active: 'yes',
-          image: 'javascript:alert(1)',
           sortOrder: 'RANDOM',
           translations: { en: { title: ' ', seoTitle: 'x'.repeat(256) }, fr: { title: 'X' } },
         })
@@ -179,7 +175,6 @@ describe('EcommerceCollectionService — CRUD', () => {
       expect.arrayContaining([
         { path: 'type', code: 'invalid' },
         { path: 'active', code: 'invalid' },
-        { path: 'image', code: 'invalid_url' },
         { path: 'sortOrder', code: 'invalid' },
         { path: 'translations.en.seoTitle', code: 'too_long' },
         { path: 'translations.fr', code: 'invalid_locale' },

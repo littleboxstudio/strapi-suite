@@ -37,9 +37,6 @@
       "type": "boolean",
       "default": true
     },
-    "image": {
-      "type": "string"
-    },
     "match": {
       "type": "enumeration",
       "enum": [

@@ -67,7 +67,6 @@ export type CollectionForm = {
   type: CollectionType;
   sortOrder: CollectionSort;
   active: boolean;
-  image: string;
   match: CollectionMatch;
   conditions: CollectionConditionForm[];
   translations: Record<string, CollectionTextForm>;
@@ -93,7 +92,6 @@ export function emptyCollectionForm(localeCodes: string[]): CollectionForm {
     type: 'MANUAL',
     sortOrder: 'MANUAL',
     active: true,
-    image: '',
     match: 'ALL',
     conditions: [],
     translations: Object.fromEntries(localeCodes.map((code) => [code, emptyCollectionText()])),
@@ -118,7 +116,6 @@ export function collectionFormFromDetail(
     type: detail.type,
     sortOrder: detail.sortOrder,
     active: detail.active,
-    image: detail.image ?? '',
     match: detail.match === 'ANY' ? 'ANY' : 'ALL',
     conditions: (detail.conditions ?? []).map((c) => ({
       key: nextKey(),
@@ -206,7 +203,6 @@ export function buildCollectionInput(form: CollectionForm): CollectionInput {
     type: form.type,
     sortOrder: form.sortOrder,
     active: form.active,
-    image: form.image.trim() || null,
     translations: Object.fromEntries(
       Object.entries(form.translations).map(([code, tr]) => [
         code,

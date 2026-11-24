@@ -81,7 +81,7 @@ the store's configured locales and default-locale fallback apply as they do for 
 - `sortOrder`: `MANUAL` | `BEST_SELLING` | `TITLE_ASC` | `TITLE_DESC` | `PRICE_ASC` | `PRICE_DESC` |
   `NEWEST` | `OLDEST`. `MANUAL` is only allowed for manual collections.
 - `active` (published on the storefront or not).
-- Image (optional).
+- Collection image removed by the owner on 2026-11-24.
 - Translation: `title` (required in the default locale), `handle` (unique per locale, like the
   product slug), `description`, `seoTitle`, `seoDescription`.
 - Automated: `match` (`ALL` | `ANY`) and its conditions (below).
@@ -165,7 +165,7 @@ New entries in the products area: **Categories**, **Collections**, and a page fo
 - List: search (38px, full width), title, type badge (Manual / Automated), product count, active;
   Create collection in the header; pagination.
 - Edit page: header Delete / Save; sections:
-  - **General**: title, handle, description (per locale, locale switcher), active, image.
+  - **General**: title, handle, description (per locale, locale switcher), active.
   - **Type**: manual or automated (chosen at creation; not changeable afterwards).
   - **Products** (manual): search to add products (floating dropdown), table with drag handle,
     image, name, Remove; empty state.
@@ -202,7 +202,7 @@ New entries in the products area: **Categories**, **Collections**, and a page fo
 - `GET /categories?locale=` — the active category tree (id, name, slug, parent, position).
 - `GET /categories/:slug?locale=` — one category with its path (breadcrumb).
 - `GET /collections?locale=&page=&pageSize=` — active collections, by title (paginated).
-- `GET /collections/:handle?locale=` — title, handle, description, image, SEO.
+- `GET /collections/:handle?locale=` — title, handle, description, SEO.
 - `GET /products?...&category=<slug>&collection=<handle>&type=<id>&tag=<id,id>` — the
   existing list gains these filters, combined with AND:
   - `category` / `collection`: slug / handle in the request locale, falling back to the default

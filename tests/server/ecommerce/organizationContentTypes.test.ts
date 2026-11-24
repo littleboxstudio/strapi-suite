@@ -34,7 +34,7 @@ const names: Record<string, string[]> = {
   'product-type-translation': ['productType', 'locale', 'name'],
   'product-tag': ['key', 'translations', 'products'],
   'product-tag-translation': ['tag', 'locale', 'name'],
-  collection: ['type', 'sortOrder', 'active', 'image', 'match', 'conditions', 'translations', 'members'],
+  collection: ['type', 'sortOrder', 'active', 'match', 'conditions', 'translations', 'members'],
   'collection-translation': ['collection', 'locale', 'title', 'handle', 'description', 'seoTitle', 'seoDescription'],
   'collection-product': ['collection', 'product', 'position', 'uniqueKey'],
 };
@@ -112,6 +112,7 @@ describe('ecommerce product organization content-types', () => {
     expect(c.active).toMatchObject({ type: 'boolean', default: true });
     expect(c.image).toBeUndefined();
     const col = get('collection').attributes;
+    expect(col.image).toBeUndefined();
     expect(col.type).toMatchObject({ type: 'enumeration', enum: ['MANUAL', 'AUTOMATED'], required: true });
     expect(col.sortOrder.enum).toEqual(['MANUAL', 'BEST_SELLING', 'TITLE_ASC', 'TITLE_DESC', 'PRICE_ASC', 'PRICE_DESC', 'NEWEST', 'OLDEST']);
     expect(col.match).toMatchObject({ enum: ['ALL', 'ANY'], default: 'ALL' });

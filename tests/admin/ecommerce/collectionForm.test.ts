@@ -40,7 +40,6 @@ const detail = (over: Partial<CollectionDetail> = {}): CollectionDetail => ({
   type: 'AUTOMATED',
   sortOrder: 'PRICE_ASC',
   active: false,
-  image: 'https://cdn.example.com/sale.jpg',
   match: 'ANY',
   conditions: [
     { field: 'TITLE', operator: 'contains', value: 'linen' },
@@ -148,7 +147,6 @@ describe('form <-> input', () => {
       type: 'AUTOMATED',
       sortOrder: 'PRICE_ASC',
       active: false,
-      image: 'https://cdn.example.com/sale.jpg',
       match: 'ANY',
       conditions: detail().conditions,
       translations: {
@@ -165,12 +163,11 @@ describe('form <-> input', () => {
   });
 
   it('a manual collection sends no conditions', () => {
-    const input = buildCollectionInput(filled({ image: '  ', conditions: [cond('TITLE', 'eq', 'x')] }));
+    const input = buildCollectionInput(filled({ conditions: [cond('TITLE', 'eq', 'x')] }));
     expect(input).toEqual({
       type: 'MANUAL',
       sortOrder: 'MANUAL',
       active: true,
-      image: null,
       translations: {
         en: { title: 'Summer', handle: '', description: null, seoTitle: null, seoDescription: null },
         pt: { title: '', handle: '', description: null, seoTitle: null, seoDescription: null },

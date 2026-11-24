@@ -38,7 +38,6 @@ export type CollectionInput = {
   /** Defaults to MANUAL for a manual collection and NEWEST for an automated one. */
   sortOrder?: CollectionSort;
   active: boolean;
-  image: string | null;
   /** Automated collections only; ignored (stored empty) for manual ones. */
   match?: CollectionMatch;
   conditions?: CollectionCondition[];
@@ -59,7 +58,6 @@ export type CollectionDetail = {
   type: CollectionType;
   sortOrder: CollectionSort;
   active: boolean;
-  image: string | null;
   match: CollectionMatch;
   conditions: CollectionCondition[];
   translations: Record<string, Required<CollectionTranslationInput>>;
@@ -91,11 +89,6 @@ const invalid = (errors: ValidationIssue[], message = 'Invalid collection'): nev
 };
 
 const isPositiveInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v > 0;
-
-/** An image is an absolute http(s) URL or a site-relative path (never `javascript:` and the like). */
-const validImageUrl = (url: string) => /^https?:\/\/[^\s]+$/i.test(url) || /^\/(?!\/)[^\s]*$/.test(url);
-
-const cleanImage = (image: string | null | undefined) => (typeof image === 'string' && image.trim() ? image.trim() : null);
 
 const pageOf = (raw: unknown) => Math.max(1, Math.floor(Number(raw)) || 1);
 const paginate = (page: number, total: number): Pagination => ({
@@ -226,11 +219,6 @@ const EcommerceCollectionService = ({ strapi }: { strapi: Core.Strapi }) => {
     }
 
     if (typeof input.active !== 'boolean') errors.push({ path: 'active', code: 'invalid' });
-    if (input.image !== null && input.image !== undefined) {
-      if (typeof input.image !== 'string') errors.push({ path: 'image', code: 'invalid' });
-      else if (input.image.trim().length > MAX_STRING) errors.push({ path: 'image', code: 'too_long' });
-      else if (input.image.trim() && !validImageUrl(input.image.trim())) errors.push({ path: 'image', code: 'invalid_url' });
-    }
 
     const translations = input.translations && typeof input.translations === 'object' ? input.translations : {};
     const known = await localeCodes();
@@ -521,7 +509,6 @@ const EcommerceCollectionService = ({ strapi }: { strapi: Core.Strapi }) => {
         type: r.type,
         sortOrder: r.sortOrder ?? (r.type === 'AUTOMATED' ? 'NEWEST' : 'MANUAL'),
         active: r.active !== false,
-        image: r.image ?? null,
         match: parsed.match,
         conditions: parsed.conditions,
         translations,
@@ -538,7 +525,6 @@ const EcommerceCollectionService = ({ strapi }: { strapi: Core.Strapi }) => {
             type: input.type,
             sortOrder: n.sortOrder,
             active: input.active,
-            image: cleanImage(input.image),
             match: n.match,
             conditions: n.conditions,
           },
@@ -567,7 +553,6 @@ const EcommerceCollectionService = ({ strapi }: { strapi: Core.Strapi }) => {
           data: {
             sortOrder: n.sortOrder,
             active: input.active,
-            image: cleanImage(input.image),
             match: n.match,
             conditions: n.conditions,
           },

@@ -107,7 +107,6 @@ export type PublicCollection = {
   title: string;
   handle: string;
   description: string;
-  image: string | null;
   seoTitle: string | null;
   seoDescription: string | null;
 };
@@ -312,7 +311,6 @@ const EcommerceStorefrontCatalogService = ({ strapi }: { strapi: Core.Strapi }) 
     title: pickText(row.translations, locale, defaultLocale, 'title'),
     handle: pickHandle(row.translations, locale) || pickHandle(row.translations, defaultLocale),
     description: pickText(row.translations, locale, defaultLocale, 'description'),
-    image: typeof row.image === 'string' && row.image ? row.image : null,
     seoTitle: pickText(row.translations, locale, defaultLocale, 'seoTitle') || null,
     seoDescription: pickText(row.translations, locale, defaultLocale, 'seoDescription') || null,
   });
@@ -324,7 +322,7 @@ const EcommerceStorefrontCatalogService = ({ strapi }: { strapi: Core.Strapi }) 
     for (const l of locale === defaultLocale ? [locale] : [locale, defaultLocale]) {
       const row = await strapi.db.query(uids().collection).findOne({
         where: { active: true, translations: { locale: l, handle } },
-        select: ['id', 'sortOrder', 'image'],
+        select: ['id', 'sortOrder'],
         populate: { translations: true },
       });
       if (row) return row;
@@ -637,7 +635,7 @@ const EcommerceStorefrontCatalogService = ({ strapi }: { strapi: Core.Strapi }) 
       const defaultLocale: string = await locales().getDefaultLocale();
       const rows: any[] = await strapi.db.query(uids().collection).findMany({
         where: { active: true },
-        select: ['id', 'image'],
+        select: ['id'],
         populate: { translations: true },
       });
       const all = rows

@@ -2409,8 +2409,6 @@
   "littlebox-strapi-suite.ecommerce.organization.collection.handle": "Identificador",
   "littlebox-strapi-suite.ecommerce.organization.collection.handle.hint": "Usado no endereço da loja. Vazio: criado a partir do título.",
   "littlebox-strapi-suite.ecommerce.organization.collection.description": "Descrição",
-  "littlebox-strapi-suite.ecommerce.organization.collection.image": "URL da imagem",
-  "littlebox-strapi-suite.ecommerce.organization.collection.image.hint": "Um endereço http(s) ou um caminho começado por /.",
   "littlebox-strapi-suite.ecommerce.organization.collection.seoTitle": "Título SEO",
   "littlebox-strapi-suite.ecommerce.organization.collection.seoDescription": "Descrição SEO",
   "littlebox-strapi-suite.ecommerce.organization.collection.type.label": "Tipo de coleção",

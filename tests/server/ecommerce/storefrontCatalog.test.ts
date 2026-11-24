@@ -206,7 +206,6 @@ function setup(opts: { duplicateRows?: boolean } = {}) {
       type: 'AUTOMATED',
       sortOrder: o.sortOrder ?? 'MANUAL',
       active: o.active ?? true,
-      image: o.image ?? null,
       match: 'ALL',
       conditions: [{ field: 'TITLE', operator: 'eq', value: 'secret-rule' }],
     });
@@ -475,7 +474,7 @@ describe('EcommerceStorefrontCatalogService', () => {
     it('list: active only, by title in the locale, paginated; never conditions, match or type', async () => {
       const { service, addCollection } = setup();
       const sale = addCollection({ texts: { en: { title: 'Sale', handle: 'sale' }, pt: { title: 'Promoções', handle: 'promocoes' } } });
-      const news = addCollection({ texts: { en: { title: 'New in', handle: 'new-in' } }, image: 'https://cdn/n.png' });
+      const news = addCollection({ texts: { en: { title: 'New in', handle: 'new-in' } } });
       addCollection({ texts: { en: { title: 'Archive', handle: 'archive' } }, active: false });
       const all = await service.listCollections({ locale: 'pt' });
       expect(all.results.map((r) => r.id)).toEqual([news, sale]);
@@ -485,7 +484,6 @@ describe('EcommerceStorefrontCatalogService', () => {
         title: 'Promoções',
         handle: 'promocoes',
         description: '',
-        image: null,
         seoTitle: null,
         seoDescription: null,
       });
@@ -508,7 +506,6 @@ describe('EcommerceStorefrontCatalogService', () => {
           en: { title: 'Sale', handle: 'sale', description: 'Cheap', seoTitle: 'Sale!', seoDescription: 'All on sale' },
           pt: { title: 'Promoções', handle: 'promocoes' },
         },
-        image: 'https://cdn/s.png',
       });
       addCollection({ texts: { en: { title: 'Off', handle: 'off' } }, active: false });
       const c = await service.getCollection('sale', 'pt');
@@ -517,7 +514,6 @@ describe('EcommerceStorefrontCatalogService', () => {
         title: 'Promoções',
         handle: 'promocoes',
         description: 'Cheap',
-        image: 'https://cdn/s.png',
         seoTitle: 'Sale!',
         seoDescription: 'All on sale',
       });

@@ -871,7 +871,6 @@ describe('EcommerceStorefrontController', () => {
         type: 'AUTOMATED',
         sortOrder: 'NEWEST',
         active: true,
-        image: null,
         match: 'ALL',
         conditions: [{ field: 'TITLE', operator: 'eq', value: 'x' }],
       });

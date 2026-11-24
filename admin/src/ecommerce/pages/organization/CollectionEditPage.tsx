@@ -418,16 +418,6 @@ const CollectionEditPage = () => {
           <Textarea value={current.description} onChange={(e: any) => setText('description', e.target.value)} />
           <Field.Error />
         </Field.Root>
-        <Field.Root name="image" error={errorText('image')} hint={t(`${p}.image.hint`)}>
-          <Field.Label>{t(`${p}.image`)}</Field.Label>
-          <TextInput
-            value={form.image}
-            placeholder="https://"
-            onChange={(e: any) => update({ image: e.target.value }, 'image')}
-          />
-          <Field.Error />
-          <Field.Hint />
-        </Field.Root>
         {errors.active && (
           <Typography variant="pi" textColor="danger600" role="alert">
             {errorText('active')}
