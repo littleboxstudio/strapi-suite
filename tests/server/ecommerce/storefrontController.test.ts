@@ -861,7 +861,7 @@ describe('EcommerceStorefrontController', () => {
       expect(errorOf(ctx).details.errors).toEqual([{ path: 'tag', code: 'invalid' }]);
     });
 
-    it('GET /categories, /categories/:slug, /collections, /collections/:handle', async () => {
+    it('GET /categories, /categories/:slug, /collections, /collections/:slug', async () => {
       const t = setup();
       const tables = t.c.tables;
       tables[UIDS.category].push({ id: 1, parent: null, position: 0, active: true });
@@ -874,7 +874,7 @@ describe('EcommerceStorefrontController', () => {
         match: 'ALL',
         conditions: [{ field: 'TITLE', operator: 'eq', value: 'x' }],
       });
-      tables[UIDS.collectionTranslation].push({ id: 1, collection: 1, locale: 'en', title: 'Sale', handle: 'sale' });
+      tables[UIDS.collectionTranslation].push({ id: 1, collection: 1, locale: 'en', title: 'Sale', slug: 'sale' });
       const tree = await t.call('listCategories', { query: { locale: 'pt' } });
       expect(tree.status).toBe(200);
       expect(tree.body).toEqual([
@@ -885,13 +885,13 @@ describe('EcommerceStorefrontController', () => {
       expect(one.body.path).toEqual([{ id: 1, name: 'Shoes', slug: 'shoes' }]);
       const list = await t.call('listCollections', { query: { pageSize: '10' } });
       expect(list.status).toBe(200);
-      expect(list.body.results.map((r: any) => r.handle)).toEqual(['sale']);
-      const col = await t.call('getCollection', { params: { handle: 'sale' } });
+      expect(list.body.results.map((r: any) => r.slug)).toEqual(['sale']);
+      const col = await t.call('getCollection', { params: { slug: 'sale' } });
       expect(col.status).toBe(200);
       expect(col.body).not.toHaveProperty('conditions');
       for (const [handler, params] of [
         ['getCategory', { slug: 'nope' }],
-        ['getCollection', { handle: 'nope' }],
+        ['getCollection', { slug: 'nope' }],
       ] as const) {
         const ctx = await t.call(handler, { params });
         expect(ctx.status).toBe(404);

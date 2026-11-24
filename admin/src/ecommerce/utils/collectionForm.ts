@@ -57,7 +57,7 @@ export type CollectionConditionForm = {
 
 export type CollectionTextForm = {
   title: string;
-  handle: string;
+  slug: string;
   description: string;
   seoTitle: string;
   seoDescription: string;
@@ -77,7 +77,7 @@ const nextKey = () => `c${++keySeq}`;
 
 export const emptyCollectionText = (): CollectionTextForm => ({
   title: '',
-  handle: '',
+  slug: '',
   description: '',
   seoTitle: '',
   seoDescription: '',
@@ -131,7 +131,7 @@ export function collectionFormFromDetail(
           tr
             ? {
                 title: tr.title ?? '',
-                handle: tr.handle ?? '',
+                slug: tr.slug ?? '',
                 description: tr.description ?? '',
                 seoTitle: tr.seoTitle ?? '',
                 seoDescription: tr.seoDescription ?? '',
@@ -208,7 +208,7 @@ export function buildCollectionInput(form: CollectionForm): CollectionInput {
         code,
         {
           title: tr.title,
-          handle: tr.handle.trim(),
+          slug: tr.slug.trim(),
           description: tr.description || null,
           seoTitle: tr.seoTitle || null,
           seoDescription: tr.seoDescription || null,
@@ -226,7 +226,7 @@ export function buildCollectionInput(form: CollectionForm): CollectionInput {
   return input;
 }
 
-const OTHER_TEXTS = ['handle', 'description', 'seoTitle', 'seoDescription'] as const;
+const OTHER_TEXTS = ['slug', 'description', 'seoTitle', 'seoDescription'] as const;
 
 /**
  * Field errors (path -> code) before saving, with the server's paths. A non-default locale with

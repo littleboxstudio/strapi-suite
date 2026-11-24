@@ -12,7 +12,7 @@ const EXPECTED: [string, string, string][] = [
   ['GET', '/ecommerce/storefront/categories', 'listCategories'],
   ['GET', '/ecommerce/storefront/categories/:slug', 'getCategory'],
   ['GET', '/ecommerce/storefront/collections', 'listCollections'],
-  ['GET', '/ecommerce/storefront/collections/:handle', 'getCollection'],
+  ['GET', '/ecommerce/storefront/collections/:slug', 'getCollection'],
   ['POST', '/ecommerce/storefront/checkout/session', 'openSession'],
   ['GET', '/ecommerce/storefront/cart', 'getCart'],
   ['POST', '/ecommerce/storefront/cart/quote', 'quoteCart'],

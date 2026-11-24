@@ -94,7 +94,7 @@ a 1-hour grace; nothing ever cancels an order.
 | GET | `/categories?locale=` | | `catalog` | `PublicCategory[]` (the active tree) |
 | GET | `/categories/:slug?locale=` | | `catalog` | `PublicCategoryDetail` |
 | GET | `/collections?page=&pageSize=&locale=` | | `catalog` | `{ results: PublicCollection[], pagination }` |
-| GET | `/collections/:handle?locale=` | | `catalog` | `PublicCollection` |
+| GET | `/collections/:slug?locale=` | | `catalog` | `PublicCollection` |
 | POST | `/checkout/session` | optional | `session.create` | `201 { token, expiresAt }` or `200 { token: null, expiresAt, reused: true }` |
 | GET | `/cart` | S | `cart.quote` | the stored cart |
 | POST | `/cart/quote` | S | `cart.quote` | cart (0–100 lines; empty → empty quote) → `PublicQuote` |
@@ -154,12 +154,12 @@ counts, costs, audit or history, nor any backoffice URL.
 | Param | Value | Matches |
 |---|---|---|
 | `category` | category slug | products of that category **and its whole subtree** (any depth) |
-| `collection` | collection handle | the collection's members |
+| `collection` | collection slug | the collection's members |
 | `type` | one product type id (positive integer) | products of that type |
 | `tag` | comma-separated tag ids (at most 50) | products with **any** of them |
 
 - `category` / `collection` are looked up in the request `locale`, then in the default locale (an
-  `en` slug works on a `pt` request). An unknown slug / handle, an inactive collection, or a
+  `en` slug works on a `pt` request). An unknown slug, an inactive collection, or a
   category that is inactive **or under an inactive ancestor** → `404 NOT_FOUND`.
 - Types and tags have no slug: use the ids the product answers carry. Unknown ids simply give an
   empty list. A malformed `type` or `tag` (not positive integers, empty items) → `400` with
@@ -189,7 +189,7 @@ active roots: an inactive category hides its whole subtree. `PublicCategoryDetai
 `seoDescription` (`null` when empty) and `path` (breadcrumb, root first, the category last). Name,
 slug and texts are in the request locale, else the default locale.
 
-**Collections.** `PublicCollection`: `{ id, title, handle, description, seoTitle,
+**Collections.** `PublicCollection`: `{ id, title, slug, description, seoTitle,
 seoDescription }`. `GET /collections` answers the active collections by title (paginated like the
 products: `pageSize` 1–50, default 24). Never exposed: the collection's type (manual /
 automated), its conditions, match mode or sort order.

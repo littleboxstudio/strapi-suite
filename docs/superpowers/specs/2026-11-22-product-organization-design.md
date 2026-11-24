@@ -6,6 +6,7 @@ plus their answers: compare-at price is created; names and texts the shopper see
 translated; categories are the store's own tree for navigation (no external taxonomy, no Shopify).
 
 Vendor removed by the owner on 2026-11-22.
+Collection handle renamed to slug by the owner on 2026-11-24; it follows the title until edited and a taken slug gets -2, -3, …
 
 ## Intent
 
@@ -82,7 +83,7 @@ the store's configured locales and default-locale fallback apply as they do for 
   `NEWEST` | `OLDEST`. `MANUAL` is only allowed for manual collections.
 - `active` (published on the storefront or not).
 - Collection image removed by the owner on 2026-11-24.
-- Translation: `title` (required in the default locale), `handle` (unique per locale, like the
+- Translation: `title` (required in the default locale), `slug` (unique per locale, like the
   product slug), `description`, `seoTitle`, `seoDescription`.
 - Automated: `match` (`ALL` | `ANY`) and its conditions (below).
 - `createdAt` / `updatedAt` from Strapi.
@@ -165,7 +166,7 @@ New entries in the products area: **Categories**, **Collections**, and a page fo
 - List: search (38px, full width), title, type badge (Manual / Automated), product count, active;
   Create collection in the header; pagination.
 - Edit page: header Delete / Save; sections:
-  - **General**: title, handle, description (per locale, locale switcher), active.
+  - **General**: title, slug, description (per locale, locale switcher), active.
   - **Type**: manual or automated (chosen at creation; not changeable afterwards).
   - **Products** (manual): search to add products (floating dropdown), table with drag handle,
     image, name, Remove; empty state.
@@ -202,10 +203,10 @@ New entries in the products area: **Categories**, **Collections**, and a page fo
 - `GET /categories?locale=` — the active category tree (id, name, slug, parent, position).
 - `GET /categories/:slug?locale=` — one category with its path (breadcrumb).
 - `GET /collections?locale=&page=&pageSize=` — active collections, by title (paginated).
-- `GET /collections/:handle?locale=` — title, handle, description, SEO.
-- `GET /products?...&category=<slug>&collection=<handle>&type=<id>&tag=<id,id>` — the
+- `GET /collections/:slug?locale=` — title, slug, description, SEO.
+- `GET /products?...&category=<slug>&collection=<slug>&type=<id>&tag=<id,id>` — the
   existing list gains these filters, combined with AND:
-  - `category` / `collection`: slug / handle in the request locale, falling back to the default
+  - `category` / `collection`: slug in the request locale, falling back to the default
     locale; unknown or inactive → 404.
   - `type`: one type id. `tag`: comma-separated tag ids, a product with **any** of them matches.
     Types and tags have no slug; product answers carry their ids and names.
@@ -229,7 +230,7 @@ New entries in the products area: **Categories**, **Collections**, and a page fo
 - Each sort order, including best selling eligibility.
 - Deleting category / type / tag / collection never deletes products.
 - Permissions: read vs manage.
-- Storefront: category tree, collection by handle, filtered and sorted lists, inactive → 404, no
+- Storefront: category tree, collection by slug, filtered and sorted lists, inactive → 404, no
   conditions exposed, compare-at exposed.
 
 ## Left to the builder

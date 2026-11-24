@@ -54,6 +54,7 @@ import {
   type CollectionForm,
   type CollectionTextForm,
 } from '../../utils/collectionForm';
+import { followNameSlug } from '../../utils/slug';
 import {
   organizationErrorMessage,
   organizationFieldErrors,
@@ -95,6 +96,12 @@ async function allNames(fetchPage: (page: number) => Promise<NamedPage>): Promis
 const COLLECTION_TYPES: CollectionType[] = ['MANUAL', 'AUTOMATED'];
 
 type LoadState = 'loading' | 'ready' | 'error' | 'notFound';
+
+/** Sets one text; the slug follows the title until it is edited by hand. */
+const withText = (tr: CollectionTextForm, field: keyof CollectionTextForm, value: string): CollectionTextForm =>
+  field === 'title'
+    ? { ...tr, title: value, slug: followNameSlug(tr.title, tr.slug, value) }
+    : { ...tr, [field]: value };
 
 const CollectionEditPage = () => {
   const { formatMessage, locale } = useIntl();
@@ -236,7 +243,7 @@ const CollectionEditPage = () => {
             ...f,
             translations: {
               ...f.translations,
-              [activeLocale]: { ...(f.translations[activeLocale] ?? emptyCollectionText()), [field]: value },
+              [activeLocale]: withText(f.translations[activeLocale] ?? emptyCollectionText(), field, value),
             },
           }
         : f
@@ -374,6 +381,14 @@ const CollectionEditPage = () => {
             {t(`${p}.delete`)}
           </Button>
         )}
+        {/* As the category's Enable / Disable: red to disable, green to enable (stored on Save). */}
+        <Button
+          variant={form.active ? 'danger-light' : 'success-light'}
+          disabled={saving}
+          onClick={() => update({ active: !form.active }, 'active')}
+        >
+          {t(form.active ? `${p}.disable` : `${p}.enable`)}
+        </Button>
         <Button variant="secondary" onClick={save} loading={saving}>
           {t(`${p}.save`)}
         </Button>
@@ -391,20 +406,7 @@ const CollectionEditPage = () => {
         />
       )}
 
-      <Section
-        title={t(`${p}.sections.general`)}
-        actions={
-          // As the category's Enable / Disable: red to disable, green to enable (stored on Save).
-          <Button
-            size="S"
-            variant={form.active ? 'danger-light' : 'success-light'}
-            disabled={saving}
-            onClick={() => update({ active: !form.active }, 'active')}
-          >
-            {t(form.active ? `${p}.disable` : `${p}.enable`)}
-          </Button>
-        }
-      >
+      <Section title={t(`${p}.sections.general`)}>
         {localeSwitcher}
         {errors[`translations.${activeLocale}`] && (
           <Typography variant="pi" textColor="danger600" role="alert">
@@ -412,12 +414,14 @@ const CollectionEditPage = () => {
           </Typography>
         )}
         {textField('title', { required: isDefault, hint: fallbackHint })}
-        {textField('handle', { hint: t(`${p}.handle.hint`) })}
+        {textField('slug', { hint: t(`${p}.slug.hint`) })}
         <Field.Root name="description" error={errorText(`translations.${activeLocale}.description`)}>
           <Field.Label>{t(`${p}.description`)}</Field.Label>
           <Textarea value={current.description} onChange={(e: any) => setText('description', e.target.value)} />
           <Field.Error />
         </Field.Root>
+        {textField('seoTitle')}
+        {textField('seoDescription')}
         {errors.active && (
           <Typography variant="pi" textColor="danger600" role="alert">
             {errorText('active')}
@@ -529,12 +533,6 @@ const CollectionEditPage = () => {
           <Field.Error />
           <Field.Hint />
         </Field.Root>
-      </Section>
-
-      <Section title={t(`${p}.sections.seo`)}>
-        {localeSwitcher}
-        {textField('seoTitle')}
-        {textField('seoDescription')}
       </Section>
 
       <ConfirmModal

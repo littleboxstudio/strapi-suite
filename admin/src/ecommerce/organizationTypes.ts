@@ -115,7 +115,7 @@ export type CollectionCondition = { field: CollectionField; operator: Collection
 
 export type CollectionTranslation = {
   title: string;
-  handle: string;
+  slug: string;
   description: string | null;
   seoTitle: string | null;
   seoDescription: string | null;
@@ -123,7 +123,7 @@ export type CollectionTranslation = {
 
 export type CollectionTranslationInput = {
   title: string;
-  handle?: string;
+  slug?: string;
   description?: string | null;
   seoTitle?: string | null;
   seoDescription?: string | null;
@@ -142,7 +142,7 @@ export type CollectionInput = {
 export type CollectionListItem = {
   id: number;
   title: string;
-  handle: string;
+  slug: string;
   type: CollectionType;
   active: boolean;
   productCount: number;

@@ -553,7 +553,7 @@ const CollectionsField = ({
     .filter((c) => !chosen.has(c.id))
     .map((c) => ({
       key: `c-${c.id}`,
-      content: <RowText sub={c.handle}>{c.title}</RowText>,
+      content: <RowText sub={c.slug}>{c.title}</RowText>,
       onPick: () => {
         onChange([...value, { id: c.id, title: c.title }]);
         setTerm('');

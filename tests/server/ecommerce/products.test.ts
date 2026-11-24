@@ -663,7 +663,7 @@ describe('EcommerceProductService — organization', () => {
         data: { type, match: 'ALL', sortOrder: type === 'MANUAL' ? 'MANUAL' : 'NEWEST', active: true, conditions: [] },
       });
       await query(UIDS.collectionTranslation).create({
-        data: { collection: c.id, locale: 'en', title, handle: title.toLowerCase() },
+        data: { collection: c.id, locale: 'en', title, slug: title.toLowerCase() },
       });
       return c.id as number;
     };

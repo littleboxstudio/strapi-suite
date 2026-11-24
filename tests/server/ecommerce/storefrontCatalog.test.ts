@@ -473,16 +473,16 @@ describe('EcommerceStorefrontCatalogService', () => {
   describe('collections', () => {
     it('list: active only, by title in the locale, paginated; never conditions, match or type', async () => {
       const { service, addCollection } = setup();
-      const sale = addCollection({ texts: { en: { title: 'Sale', handle: 'sale' }, pt: { title: 'Promoções', handle: 'promocoes' } } });
-      const news = addCollection({ texts: { en: { title: 'New in', handle: 'new-in' } } });
-      addCollection({ texts: { en: { title: 'Archive', handle: 'archive' } }, active: false });
+      const sale = addCollection({ texts: { en: { title: 'Sale', slug: 'sale' }, pt: { title: 'Promoções', slug: 'promocoes' } } });
+      const news = addCollection({ texts: { en: { title: 'New in', slug: 'new-in' } } });
+      addCollection({ texts: { en: { title: 'Archive', slug: 'archive' } }, active: false });
       const all = await service.listCollections({ locale: 'pt' });
       expect(all.results.map((r) => r.id)).toEqual([news, sale]);
       expect(all.pagination).toEqual({ page: 1, pageSize: 24, total: 2, pageCount: 1 });
       expect(all.results[1]).toEqual({
         id: sale,
         title: 'Promoções',
-        handle: 'promocoes',
+        slug: 'promocoes',
         description: '',
         seoTitle: null,
         seoDescription: null,
@@ -499,20 +499,20 @@ describe('EcommerceStorefrontCatalogService', () => {
       ]);
     });
 
-    it('by handle: request locale then default locale; inactive or unknown → 404; no conditions', async () => {
+    it('by slug: request locale then default locale; inactive or unknown → 404; no conditions', async () => {
       const { service, addCollection } = setup();
       const id = addCollection({
         texts: {
-          en: { title: 'Sale', handle: 'sale', description: 'Cheap', seoTitle: 'Sale!', seoDescription: 'All on sale' },
-          pt: { title: 'Promoções', handle: 'promocoes' },
+          en: { title: 'Sale', slug: 'sale', description: 'Cheap', seoTitle: 'Sale!', seoDescription: 'All on sale' },
+          pt: { title: 'Promoções', slug: 'promocoes' },
         },
       });
-      addCollection({ texts: { en: { title: 'Off', handle: 'off' } }, active: false });
+      addCollection({ texts: { en: { title: 'Off', slug: 'off' } }, active: false });
       const c = await service.getCollection('sale', 'pt');
       expect(c).toEqual({
         id,
         title: 'Promoções',
-        handle: 'promocoes',
+        slug: 'promocoes',
         description: 'Cheap',
         seoTitle: 'Sale!',
         seoDescription: 'All on sale',
@@ -533,9 +533,9 @@ describe('EcommerceStorefrontCatalogService', () => {
       const b = addProduct({ name: 'B', variants: [v('B1', 100)] });
       const c = addProduct({ name: 'C', variants: [v('C1', 200)] });
       addProduct({ name: 'Outside', variants: [v('O1')] });
-      addCollection({ texts: { en: { title: 'Manual', handle: 'manual' } }, members: [b, a, c] });
-      addCollection({ texts: { en: { title: 'Best', handle: 'best' } }, sortOrder: 'BEST_SELLING', members: [a, b, c] });
-      addCollection({ texts: { en: { title: 'Cheap', handle: 'cheap' } }, sortOrder: 'PRICE_ASC', members: [a, b, c] });
+      addCollection({ texts: { en: { title: 'Manual', slug: 'manual' } }, members: [b, a, c] });
+      addCollection({ texts: { en: { title: 'Best', slug: 'best' } }, sortOrder: 'BEST_SELLING', members: [a, b, c] });
+      addCollection({ texts: { en: { title: 'Cheap', slug: 'cheap' } }, sortOrder: 'PRICE_ASC', members: [a, b, c] });
       const ids = async (q: any) => (await service.listProducts({ locale: 'en', ...q })).results.map((r) => r.id);
       expect(await ids({ collection: 'manual' })).toEqual([b, a, c]);
       expect(await ids({ collection: 'manual', sort: 'name_desc' })).toEqual([c, b, a]);

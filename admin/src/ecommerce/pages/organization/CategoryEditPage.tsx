@@ -28,7 +28,8 @@ import SaveCategory from '../../usecases/organization/saveCategory';
 import DeleteCategory from '../../usecases/organization/deleteCategory';
 import { parentOptions } from '../../utils/categoryTree';
 import { ParentCategorySelect } from '../../components/organization/ParentCategorySelect';
-import { followNameSlug, validateCategoryTexts } from '../../utils/categoryForm';
+import { validateCategoryTexts } from '../../utils/categoryForm';
+import { followNameSlug } from '../../utils/slug';
 import {
   organizationErrorMessage,
   organizationFieldErrors,

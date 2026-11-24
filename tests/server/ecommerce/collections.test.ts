@@ -111,7 +111,7 @@ const members = async (s: Setup, collectionId: number) =>
     .map((r: any) => r.product);
 
 describe('EcommerceCollectionService — CRUD', () => {
-  it('creates a manual collection with a handle generated from the title, MANUAL sort by default', async () => {
+  it('creates a manual collection with a slug generated from the title, MANUAL sort by default', async () => {
     const s = setup();
     const { id } = await s.service.create(manual('Summer Sale'));
     const detail = await s.service.get(id);
@@ -126,37 +126,39 @@ describe('EcommerceCollectionService — CRUD', () => {
     });
     expect(detail.translations.en).toEqual({
       title: 'Summer Sale',
-      handle: 'summer-sale',
+      slug: 'summer-sale',
       description: null,
       seoTitle: null,
       seoDescription: null,
     });
   });
 
-  it('handles are unique per locale: a clash gets a suffix, another locale may reuse it', async () => {
+  it('slugs are unique per locale: a clash gets a suffix, another locale may reuse it', async () => {
     const s = setup();
     await s.service.create(manual('Summer'));
     const { id } = await s.service.create(manual('Summer', { translations: { en: { title: 'Summer' }, pt: { title: 'Summer' } } }));
     const detail = await s.service.get(id);
-    expect(detail.translations.en.handle).toBe('summer-2');
-    expect(detail.translations.pt.handle).toBe('summer');
+    expect(detail.translations.en.slug).toBe('summer-2');
+    expect(detail.translations.pt.slug).toBe('summer');
   });
 
-  it('refuses a requested handle already used in that locale', async () => {
+  it('adds -2, -3, … to a requested slug already used in that locale', async () => {
     const s = setup();
     await s.service.create(manual('Summer'));
-    const errors = await errorsOf(s.service.create(manual('Other', { translations: { en: { title: 'Other', handle: 'Summer' } } })));
-    expect(errors).toEqual([{ path: 'translations.en.handle', code: 'duplicate_slug' }]);
-    expect(s.db.tables[UIDS.collection]).toHaveLength(1);
+    const b = await s.service.create(manual('Other', { translations: { en: { title: 'Other', slug: 'Summer' } } }));
+    expect((await s.service.get(b.id)).translations.en.slug).toBe('summer-2');
+    const c = await s.service.create(manual('Third', { translations: { en: { title: 'Third', slug: 'summer' } } }));
+    expect((await s.service.get(c.id)).translations.en.slug).toBe('summer-3');
+    expect(s.db.tables[UIDS.collection]).toHaveLength(3);
   });
 
-  it('keeps the handle stable on update unless one is given', async () => {
+  it('keeps the slug stable on update unless one is given', async () => {
     const s = setup();
     const { id } = await s.service.create(manual('Summer'));
     await s.service.update(id, manual('Winter'));
-    expect((await s.service.get(id)).translations.en).toMatchObject({ title: 'Winter', handle: 'summer' });
-    await s.service.update(id, manual('Winter', { translations: { en: { title: 'Winter', handle: 'Winter Sale' } } }));
-    expect((await s.service.get(id)).translations.en.handle).toBe('winter-sale');
+    expect((await s.service.get(id)).translations.en).toMatchObject({ title: 'Winter', slug: 'summer' });
+    await s.service.update(id, manual('Winter', { translations: { en: { title: 'Winter', slug: 'Winter Sale' } } }));
+    expect((await s.service.get(id)).translations.en.slug).toBe('winter-sale');
   });
 
   it('validates title, locale and fields', async () => {
@@ -240,7 +242,7 @@ describe('EcommerceCollectionService — CRUD', () => {
     expect(all.results.find((r: any) => r.id === summer)).toEqual({
       id: summer,
       title: 'Verão',
-      handle: 'verao',
+      slug: 'verao',
       type: 'MANUAL',
       active: true,
       productCount: 1,

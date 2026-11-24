@@ -104,7 +104,7 @@ const addAutomatedCollection = async (db: any, title: string, conditions: any[])
     data: { type: 'AUTOMATED', match: 'ALL', sortOrder: 'NEWEST', active: true, conditions },
   });
   await db.query(UIDS.collectionTranslation).create({
-    data: { collection: c.id, locale: 'en', title, handle: title.toLowerCase() },
+    data: { collection: c.id, locale: 'en', title, slug: title.toLowerCase() },
   });
   return c;
 };

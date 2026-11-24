@@ -27,7 +27,7 @@ export type CollectionType = 'MANUAL' | 'AUTOMATED';
 
 export type CollectionTranslationInput = {
   title: string;
-  handle?: string;
+  slug?: string;
   description?: string | null;
   seoTitle?: string | null;
   seoDescription?: string | null;
@@ -47,7 +47,7 @@ export type CollectionInput = {
 export type CollectionListItem = {
   id: number;
   title: string;
-  handle: string;
+  slug: string;
   type: CollectionType;
   active: boolean;
   productCount: number;
@@ -228,7 +228,7 @@ const EcommerceCollectionService = ({ strapi }: { strapi: Core.Strapi }) => {
         errors.push({ path: base, code: 'invalid_locale' });
         continue;
       }
-      for (const field of ['title', 'handle', 'seoTitle', 'seoDescription'] as const) {
+      for (const field of ['title', 'slug', 'seoTitle', 'seoDescription'] as const) {
         const v = (t as any)?.[field];
         if (v === null || v === undefined) continue;
         if (typeof v !== 'string') errors.push({ path: `${base}.${field}`, code: 'invalid' });
@@ -251,7 +251,6 @@ const EcommerceCollectionService = ({ strapi }: { strapi: Core.Strapi }) => {
   /** Upserts the translations. A blank non-default title removes that translation. */
   const saveTranslations = async (collectionId: number, translations: CollectionInput['translations']) => {
     const q = strapi.db.query(uids().collectionTranslation);
-    const errors: ValidationIssue[] = [];
     for (const [locale, t] of Object.entries(translations ?? {})) {
       if (isBlank(t?.title as any)) {
         await q.deleteMany({ where: { collection: collectionId, locale } });
@@ -266,27 +265,23 @@ const EcommerceCollectionService = ({ strapi }: { strapi: Core.Strapi }) => {
         collection: collectionId,
       };
       const existing = await q.findOne({ where: { collection: collectionId, locale } });
-      const requested = typeof t.handle === 'string' ? slugify(t.handle) : '';
+      const requested = typeof t.slug === 'string' ? slugify(t.slug) : '';
       const taken: string[] = (
-        await q.findMany({ where: { locale, collection: { id: { $ne: collectionId } } }, select: ['handle'] })
-      ).map((r: any) => r.handle);
-      let handle: string;
+        await q.findMany({ where: { locale, collection: { id: { $ne: collectionId } } }, select: ['slug'] })
+      ).map((r: any) => r.slug);
+      let slug: string;
       if (requested) {
-        if (taken.includes(requested)) {
-          errors.push({ path: `translations.${locale}.handle`, code: 'duplicate_slug' });
-          continue;
-        }
-        handle = requested;
-      } else if (existing?.handle) {
+        // Taken by another collection in this locale: "-2", "-3", … is added.
+        slug = resolveUniqueSlug(requested, taken);
+      } else if (existing?.slug) {
         // Stable once set.
-        handle = existing.handle;
+        slug = existing.slug;
       } else {
-        handle = resolveUniqueSlug(slugify(t.title) || 'collection', taken);
+        slug = resolveUniqueSlug(slugify(t.title) || 'collection', taken);
       }
-      if (existing) await q.update({ where: { id: existing.id }, data: { ...data, handle } });
-      else await q.create({ data: { ...data, handle } });
+      if (existing) await q.update({ where: { id: existing.id }, data: { ...data, slug } });
+      else await q.create({ data: { ...data, slug } });
     }
-    if (errors.length) invalid(errors);
   };
 
   /** Appends products (not yet members) at the end of a collection: position max + 1. */
@@ -461,7 +456,7 @@ const EcommerceCollectionService = ({ strapi }: { strapi: Core.Strapi }) => {
         ? {
             $or: [
               { translations: { title: { $containsi: search } } },
-              { translations: { handle: { $containsi: search } } },
+              { translations: { slug: { $containsi: search } } },
             ],
           }
         : {};
@@ -481,7 +476,7 @@ const EcommerceCollectionService = ({ strapi }: { strapi: Core.Strapi }) => {
         results.push({
           id: r.id,
           title: pick(r.translations, locale, defaultLocale, 'title'),
-          handle: pick(r.translations, locale, defaultLocale, 'handle'),
+          slug: pick(r.translations, locale, defaultLocale, 'slug'),
           type: r.type,
           active: r.active !== false,
           productCount: await memberCount(r.id),
@@ -497,7 +492,7 @@ const EcommerceCollectionService = ({ strapi }: { strapi: Core.Strapi }) => {
       for (const t of r.translations ?? []) {
         translations[t.locale] = {
           title: t.title,
-          handle: t.handle,
+          slug: t.slug,
           description: t.description ?? null,
           seoTitle: t.seoTitle ?? null,
           seoDescription: t.seoDescription ?? null,

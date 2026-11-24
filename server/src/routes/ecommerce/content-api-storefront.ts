@@ -23,7 +23,7 @@ export default [
   route('GET', '/categories', 'listCategories'),
   route('GET', '/categories/:slug', 'getCategory'),
   route('GET', '/collections', 'listCollections'),
-  route('GET', '/collections/:handle', 'getCollection'),
+  route('GET', '/collections/:slug', 'getCollection'),
   route('POST', '/checkout/session', 'openSession'),
   route('GET', '/cart', 'getCart'),
   route('POST', '/cart/quote', 'quoteCart'),

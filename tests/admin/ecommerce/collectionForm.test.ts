@@ -51,7 +51,7 @@ const detail = (over: Partial<CollectionDetail> = {}): CollectionDetail => ({
     { field: 'TAG', operator: 'eq', value: 5 },
   ],
   translations: {
-    en: { title: 'Sale', handle: 'sale', description: 'Cheap', seoTitle: null, seoDescription: 'SEO' },
+    en: { title: 'Sale', slug: 'sale', description: 'Cheap', seoTitle: null, seoDescription: 'SEO' },
   },
   productCount: 12,
   ...over,
@@ -142,7 +142,7 @@ describe('form <-> input', () => {
   it('round-trips an automated collection (money in cents)', () => {
     const form = collectionFormFromDetail(detail(), LOCALES, 'en');
     expect(form.conditions.map((c) => c.value)).toEqual(['linen', '49.99', '0.00', '-2', '3', '4', '5']);
-    expect(form.translations.pt).toEqual({ title: '', handle: '', description: '', seoTitle: '', seoDescription: '' });
+    expect(form.translations.pt).toEqual({ title: '', slug: '', description: '', seoTitle: '', seoDescription: '' });
     expect(buildCollectionInput(form)).toEqual({
       type: 'AUTOMATED',
       sortOrder: 'PRICE_ASC',
@@ -150,8 +150,8 @@ describe('form <-> input', () => {
       match: 'ANY',
       conditions: detail().conditions,
       translations: {
-        en: { title: 'Sale', handle: 'sale', description: 'Cheap', seoTitle: null, seoDescription: 'SEO' },
-        pt: { title: '', handle: '', description: null, seoTitle: null, seoDescription: null },
+        en: { title: 'Sale', slug: 'sale', description: 'Cheap', seoTitle: null, seoDescription: 'SEO' },
+        pt: { title: '', slug: '', description: null, seoTitle: null, seoDescription: null },
       },
     });
   });
@@ -169,8 +169,8 @@ describe('form <-> input', () => {
       sortOrder: 'MANUAL',
       active: true,
       translations: {
-        en: { title: 'Summer', handle: '', description: null, seoTitle: null, seoDescription: null },
-        pt: { title: '', handle: '', description: null, seoTitle: null, seoDescription: null },
+        en: { title: 'Summer', slug: '', description: null, seoTitle: null, seoDescription: null },
+        pt: { title: '', slug: '', description: null, seoTitle: null, seoDescription: null },
       },
     });
   });

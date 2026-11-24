@@ -301,13 +301,13 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
       }));
     },
 
-    /** GET /collections/:handle?locale= */
+    /** GET /collections/:slug?locale= */
     async getCollection(ctx: any) {
       if (limited(ctx, 'catalog', { sessionId: null })) return;
-      const handle = ctx.params?.handle;
+      const slug = ctx.params?.slug;
       return respond(ctx, { notFound: 'NOT_FOUND' }, async () => ({
         body: await catalog().getCollection(
-          typeof handle === 'string' ? handle : '',
+          typeof slug === 'string' ? slug : '',
           await resolveLocale(ctx.query?.locale)
         ),
       }));

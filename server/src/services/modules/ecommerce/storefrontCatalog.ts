@@ -105,7 +105,7 @@ export type PublicCategoryDetail = Omit<PublicCategory, 'children'> & {
 export type PublicCollection = {
   id: number;
   title: string;
-  handle: string;
+  slug: string;
   description: string;
   seoTitle: string | null;
   seoDescription: string | null;
@@ -309,19 +309,17 @@ const EcommerceStorefrontCatalogService = ({ strapi }: { strapi: Core.Strapi }) 
   const toCollection = (row: any, locale: string, defaultLocale: string): PublicCollection => ({
     id: row.id,
     title: pickText(row.translations, locale, defaultLocale, 'title'),
-    handle: pickHandle(row.translations, locale) || pickHandle(row.translations, defaultLocale),
+    slug: pickSlug(row.translations, locale) || pickSlug(row.translations, defaultLocale),
     description: pickText(row.translations, locale, defaultLocale, 'description'),
     seoTitle: pickText(row.translations, locale, defaultLocale, 'seoTitle') || null,
     seoDescription: pickText(row.translations, locale, defaultLocale, 'seoDescription') || null,
   });
-  const pickHandle = (rows: any[] | undefined, locale: string): string =>
-    (rows ?? []).find((t) => t.locale === locale && t.handle)?.handle ?? '';
 
-  /** Active collection by handle in the request locale, then the default locale; else 404. */
-  const findCollection = async (handle: string, locale: string, defaultLocale: string): Promise<any> => {
+  /** Active collection by slug in the request locale, then the default locale; else 404. */
+  const findCollection = async (slug: string, locale: string, defaultLocale: string): Promise<any> => {
     for (const l of locale === defaultLocale ? [locale] : [locale, defaultLocale]) {
       const row = await strapi.db.query(uids().collection).findOne({
-        where: { active: true, translations: { locale: l, handle } },
+        where: { active: true, translations: { locale: l, slug } },
         select: ['id', 'sortOrder'],
         populate: { translations: true },
       });
@@ -383,7 +381,7 @@ const EcommerceStorefrontCatalogService = ({ strapi }: { strapi: Core.Strapi }) 
       sort?: unknown;
       /** Category slug: the category and its whole subtree. */
       category?: unknown;
-      /** Collection handle. */
+      /** Collection slug. */
       collection?: unknown;
       /** Product type id. */
       type?: unknown;
@@ -399,7 +397,7 @@ const EcommerceStorefrontCatalogService = ({ strapi }: { strapi: Core.Strapi }) 
         bad('sort', 'invalid_sort');
       }
       const categorySlug = textParam(q.category, 'category');
-      const collectionHandle = textParam(q.collection, 'collection');
+      const collectionSlug = textParam(q.collection, 'collection');
       const typeId = idParam(q.type, 'type');
       const tagIds = idListParam(q.tag, 'tag');
       // `sanitizeSearchTerm` strips `%`, `_` and `\`, so an underscore typed in the search is
@@ -421,8 +419,8 @@ const EcommerceStorefrontCatalogService = ({ strapi }: { strapi: Core.Strapi }) 
         // The whole subtree, whatever the subcategories' activity (as the collection conditions).
         where.category = { id: { $in: subtreeIds(nodes, category.id) } };
       }
-      const collection = collectionHandle
-        ? await findCollection(collectionHandle, q.locale, defaultLocale)
+      const collection = collectionSlug
+        ? await findCollection(collectionSlug, q.locale, defaultLocale)
         : null;
       if (collection) where.collectionMembers = { collection: { id: collection.id } };
       if (typeId !== null) where.productType = { id: typeId };
@@ -647,11 +645,11 @@ const EcommerceStorefrontCatalogService = ({ strapi }: { strapi: Core.Strapi }) 
       };
     },
 
-    /** Handle in the request locale, then the default locale; unknown or inactive -> 404. */
-    async getCollection(handle: string, locale: string): Promise<PublicCollection> {
+    /** Slug in the request locale, then the default locale; unknown or inactive -> 404. */
+    async getCollection(slug: string, locale: string): Promise<PublicCollection> {
       const defaultLocale: string = await locales().getDefaultLocale();
-      if (typeof handle !== 'string' || !handle) throw new EcommerceNotFoundError('Collection not found');
-      return toCollection(await findCollection(handle, locale, defaultLocale), locale, defaultLocale);
+      if (typeof slug !== 'string' || !slug) throw new EcommerceNotFoundError('Collection not found');
+      return toCollection(await findCollection(slug, locale, defaultLocale), locale, defaultLocale);
     },
   };
 };

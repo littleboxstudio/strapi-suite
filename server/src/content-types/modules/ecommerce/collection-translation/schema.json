@@ -26,7 +26,7 @@
       "type": "string",
       "required": true
     },
-    "handle": {
+    "slug": {
       "type": "string",
       "required": true
     },
@@ -53,10 +53,10 @@
   },
   "indexes": [
     {
-      "name": "ecommerce_collection_tr_locale_handle_unique",
+      "name": "ecommerce_collection_tr_locale_slug_unique",
       "columns": [
         "locale",
-        "handle"
+        "slug"
       ],
       "type": "unique"
     }
