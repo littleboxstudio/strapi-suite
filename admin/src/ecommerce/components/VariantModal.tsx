@@ -208,18 +208,18 @@ const VariantModal = ({
                       hint: t('ecommerce.product.variant.currentStock.hint'),
                     })}
               </Grid.Item>
-              <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
+              <Grid.Item col={4} s={12} direction="column" alignItems="stretch">
                 {textField('price', {
                   required: true,
                   hint: t('ecommerce.product.variant.price.hint'),
                 })}
               </Grid.Item>
-              <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
+              <Grid.Item col={4} s={12} direction="column" alignItems="stretch">
                 {textField('compareAtPrice', {
                   hint: t('ecommerce.product.variant.compareAtPrice.hint'),
                 })}
               </Grid.Item>
-              <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
+              <Grid.Item col={4} s={12} direction="column" alignItems="stretch">
                 <Field.Root name="tax" error={taxError} required>
                   <Field.Label>{t('ecommerce.product.variant.tax')}</Field.Label>
                   <Flex gap={2} alignItems="flex-start">
