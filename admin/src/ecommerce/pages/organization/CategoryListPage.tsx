@@ -22,7 +22,6 @@ import config from '../../../core/config';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import ConfirmModal from '../../../components/ConfirmModal';
 import { HeaderActions } from '../../components/HeaderActions';
-import EmptyNote from '../../components/orders/EmptyNote';
 import NoticeBar from '../../components/orders/NoticeBar';
 import { ToneBadge } from '../../components/orders/StatusBadges';
 import FetchCategoryTree from '../../usecases/organization/fetchCategoryTree';
@@ -30,6 +29,7 @@ import MoveCategory from '../../usecases/organization/moveCategory';
 import DeleteCategory from '../../usecases/organization/deleteCategory';
 import { flattenTree, parentOptions } from '../../utils/categoryTree';
 import { organizationErrorMessage } from '../../utils/organizationErrors';
+import EmptySection from '../../illustrations/EmptySection';
 import { ParentCategorySelect } from '../../components/organization/ParentCategorySelect';
 import type { CategoryTreeNode } from '../../organizationTypes';
 
@@ -136,6 +136,7 @@ const CategoryListPage = () => {
   };
 
   const create = () => navigate(`${basePath}/new`);
+  const isEmpty = !loading && !error && rows.length === 0;
 
   return (
     <Flex direction="column" alignItems="stretch" gap={4}>
@@ -157,88 +158,107 @@ const CategoryListPage = () => {
         />
       )}
 
-      <Box background="neutral0" shadow="tableShadow" hasRadius padding={6}>
-        <Flex direction="column" alignItems="stretch" gap={5}>
-          <Typography variant="delta" tag="h2">
-            {t(`${p}.title`)}
+      {isEmpty ? (
+        // As the collections list: illustration, message and the add button, centred.
+        <Flex
+          direction="column"
+          alignItems="center"
+          gap={3}
+          padding={10}
+          background="neutral0"
+          shadow="tableShadow"
+          hasRadius
+        >
+          <EmptySection />
+          <Typography variant="omega" textColor="neutral600">
+            {t(`${p}.empty`)}
           </Typography>
-
-          {error && <Typography textColor="danger600">{t('ecommerce.organization.loadError')}</Typography>}
-
-          {loading && rows.length === 0 && !error && (
-            <Flex justifyContent="center" padding={8}>
-              <Loader />
-            </Flex>
-          )}
-
-          {!loading && !error && rows.length === 0 && <EmptyNote>{t(`${p}.empty`)}</EmptyNote>}
-
-          {rows.length > 0 && (
-            <Table colCount={5} rowCount={rows.length}>
-              <Thead>
-                <Tr>
-                  {(['name', 'slug', 'products', 'status'] as const).map((column) => (
-                    <Th key={column}>
-                      <Typography variant="sigma">{t(`${p}.table.${column}`)}</Typography>
-                    </Th>
-                  ))}
-                  <Th>
-                    <VisuallyHidden>{t(`${p}.table.actions`)}</VisuallyHidden>
-                  </Th>
-                </Tr>
-              </Thead>
-              <Tbody>
-                {rows.map(({ node, depth }) => (
-                  <Tr key={node.id} style={{ opacity: loading || busy ? 0.5 : 1 }}>
-                    <Td>
-                      <Box style={{ paddingLeft: depth * INDENT }}>
-                        <Flex gap={2} alignItems="center">
-                          {depth > 0 && (
-                            <Typography textColor="neutral400" aria-hidden>
-                              └
-                            </Typography>
-                          )}
-                          <Typography textColor="neutral800" fontWeight={depth === 0 ? 'semiBold' : undefined}>
-                            {node.name || `#${node.id}`}
-                          </Typography>
-                        </Flex>
-                      </Box>
-                    </Td>
-                    <Td>
-                      <Typography textColor="neutral600" style={{ fontFamily: 'monospace' }}>
-                        {node.slug}
-                      </Typography>
-                    </Td>
-                    <Td>
-                      <Typography textColor="neutral800">{node.productCount}</Typography>
-                    </Td>
-                    <Td>
-                      {node.active ? (
-                        <ToneBadge variant="success">{t(`${p}.status.active`)}</ToneBadge>
-                      ) : (
-                        <ToneBadge>{t(`${p}.status.inactive`)}</ToneBadge>
-                      )}
-                    </Td>
-                    <Td>
-                      <Flex gap={2} justifyContent="flex-end">
-                        <Button variant="secondary" size="S" onClick={() => navigate(`${basePath}/${node.id}`)}>
-                          {t(`${p}.edit`)}
-                        </Button>
-                        <Button variant="secondary" size="S" disabled={busy} onClick={() => openMoveTo(node)}>
-                          {t(`${p}.moveTo`)}
-                        </Button>
-                        <Button variant="danger-light" size="S" disabled={busy} onClick={() => setToDelete(node)}>
-                          {t(`${p}.delete`)}
-                        </Button>
-                      </Flex>
-                    </Td>
-                  </Tr>
-                ))}
-              </Tbody>
-            </Table>
-          )}
+          <Button variant="secondary" onClick={create}>
+            {t(`${p}.add`)}
+          </Button>
         </Flex>
-      </Box>
+      ) : (
+        <Box background="neutral0" shadow="tableShadow" hasRadius padding={6}>
+          <Flex direction="column" alignItems="stretch" gap={5}>
+            <Typography variant="delta" tag="h2">
+              {t(`${p}.title`)}
+            </Typography>
+
+            {error && <Typography textColor="danger600">{t('ecommerce.organization.loadError')}</Typography>}
+
+            {loading && rows.length === 0 && !error && (
+              <Flex justifyContent="center" padding={8}>
+                <Loader />
+              </Flex>
+            )}
+
+            {rows.length > 0 && (
+              <Table colCount={5} rowCount={rows.length}>
+                <Thead>
+                  <Tr>
+                    {(['name', 'slug', 'products', 'status'] as const).map((column) => (
+                      <Th key={column}>
+                        <Typography variant="sigma">{t(`${p}.table.${column}`)}</Typography>
+                      </Th>
+                    ))}
+                    <Th>
+                      <VisuallyHidden>{t(`${p}.table.actions`)}</VisuallyHidden>
+                    </Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {rows.map(({ node, depth }) => (
+                    <Tr key={node.id} style={{ opacity: loading || busy ? 0.5 : 1 }}>
+                      <Td>
+                        <Box style={{ paddingLeft: depth * INDENT }}>
+                          <Flex gap={2} alignItems="center">
+                            {depth > 0 && (
+                              <Typography textColor="neutral400" aria-hidden>
+                                └
+                              </Typography>
+                            )}
+                            <Typography textColor="neutral800" fontWeight={depth === 0 ? 'semiBold' : undefined}>
+                              {node.name || `#${node.id}`}
+                            </Typography>
+                          </Flex>
+                        </Box>
+                      </Td>
+                      <Td>
+                        <Typography textColor="neutral600" style={{ fontFamily: 'monospace' }}>
+                          {node.slug}
+                        </Typography>
+                      </Td>
+                      <Td>
+                        <Typography textColor="neutral800">{node.productCount}</Typography>
+                      </Td>
+                      <Td>
+                        {node.active ? (
+                          <ToneBadge variant="success">{t(`${p}.status.active`)}</ToneBadge>
+                        ) : (
+                          <ToneBadge>{t(`${p}.status.inactive`)}</ToneBadge>
+                        )}
+                      </Td>
+                      <Td>
+                        <Flex gap={2} justifyContent="flex-end">
+                          <Button variant="secondary" size="S" onClick={() => navigate(`${basePath}/${node.id}`)}>
+                            {t(`${p}.edit`)}
+                          </Button>
+                          <Button variant="secondary" size="S" disabled={busy} onClick={() => openMoveTo(node)}>
+                            {t(`${p}.moveTo`)}
+                          </Button>
+                          <Button variant="danger-light" size="S" disabled={busy} onClick={() => setToDelete(node)}>
+                            {t(`${p}.delete`)}
+                          </Button>
+                        </Flex>
+                      </Td>
+                    </Tr>
+                  ))}
+                </Tbody>
+              </Table>
+            )}
+          </Flex>
+        </Box>
+      )}
 
       <ConfirmModal
         open={!!toDelete}
