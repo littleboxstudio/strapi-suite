@@ -828,7 +828,7 @@ describe('EcommerceStorefrontController', () => {
       expect(errorOf(ctx).details).toEqual({ code: 'NOT_FOUND' });
     });
 
-    it('GET /products forwards the catalogue filters and the resolved locale', async () => {
+    it('GET /products forwards the catalogue filters and the resolved locale (a retired `type` is dropped)', async () => {
       const t = setup();
       const list = vi
         .spyOn(t.catalog, 'listProducts')
@@ -843,7 +843,6 @@ describe('EcommerceStorefrontController', () => {
         sort: 'best_selling',
         category: 'shoes',
         collection: 'sale',
-        type: '3',
         tag: '1,2',
         locale: 'pt',
       });

@@ -12,8 +12,6 @@ const UIDS = {
   productTranslation: `${P}product-translation`,
   category: `${P}product-category`,
   categoryTranslation: `${P}product-category-translation`,
-  productType: `${P}product-type`,
-  productTypeTranslation: `${P}product-type-translation`,
   tag: `${P}product-tag`,
   tagTranslation: `${P}product-tag-translation`,
   collection: `${P}collection`,
@@ -24,7 +22,6 @@ const RELATIONS: FakeRelations = {
   [UIDS.product]: {
     translations: [UIDS.productTranslation, 'product'],
     category: [UIDS.category, 'category', 'manyToOne'],
-    productType: [UIDS.productType, 'productType', 'manyToOne'],
     tags: [UIDS.tag, 'product_tags', 'manyToMany'],
   },
   [UIDS.category]: {
@@ -32,10 +29,6 @@ const RELATIONS: FakeRelations = {
     children: [UIDS.category, 'parent'],
     translations: [UIDS.categoryTranslation, 'category'],
     products: [UIDS.product, 'category'],
-  },
-  [UIDS.productType]: {
-    translations: [UIDS.productTypeTranslation, 'productType'],
-    products: [UIDS.product, 'productType'],
   },
   [UIDS.tag]: {
     translations: [UIDS.tagTranslation, 'tag'],
@@ -46,7 +39,7 @@ const RELATIONS: FakeRelations = {
 
 function setup() {
   const db = createFakeDb(Object.values(UIDS), RELATIONS, {
-    enforceUnique: [UIDS.productType, UIDS.tag],
+    enforceUnique: [UIDS.tag],
   });
   const recalculateWhere = vi.fn(async () => undefined);
   const strapi: any = {
@@ -293,20 +286,20 @@ describe('EcommerceOrganizationService — categories', () => {
   });
 });
 
-describe('EcommerceOrganizationService — product types and tags', () => {
-  it('ensureProductType reuses a type whose name differs only in case or spaces', async () => {
+describe('EcommerceOrganizationService — tags', () => {
+  it('ensureTags reuses a tag whose name differs only in case or spaces', async () => {
     const { service, db } = setup();
-    const first = await service.ensureProductType('Shirt');
-    const again = await service.ensureProductType('  shirt ');
+    const [first] = await service.ensureTags(['Shirt']);
+    const [again] = await service.ensureTags(['  shirt ']);
     expect(again).toBe(first);
-    expect(db.tables[UIDS.productType]).toHaveLength(1);
-    expect(db.tables[UIDS.productTypeTranslation][0]).toMatchObject({ locale: 'en', name: 'Shirt' });
+    expect(db.tables[UIDS.tag]).toHaveLength(1);
+    expect(db.tables[UIDS.tagTranslation][0]).toMatchObject({ locale: 'en', name: 'Shirt' });
   });
 
-  it('creating a type with a taken name is refused', async () => {
+  it('creating a tag with a taken name is refused', async () => {
     const { service } = setup();
-    await service.createProductType({ translations: { en: { name: 'Shirt' } } });
-    await expectIssue(service.createProductType({ translations: { en: { name: ' SHIRT' } } }), 'translations.en.name', 'NAME_TAKEN');
+    await service.createTag({ translations: { en: { name: 'Shirt' } } });
+    await expectIssue(service.createTag({ translations: { en: { name: ' SHIRT' } } }), 'translations.en.name', 'NAME_TAKEN');
   });
 
   it('renaming a tag to a name differing only in case or spaces is refused (Review Focus 4)', async () => {
@@ -320,11 +313,11 @@ describe('EcommerceOrganizationService — product types and tags', () => {
     expect(results.find((t: any) => t.id === other.id)).toMatchObject({ name: 'Novo', translations: { en: { name: 'NEW' }, pt: { name: 'Novo' } } });
   });
 
-  it('renaming a type into another type name is refused', async () => {
+  it('renaming a tag into another tag name (extra inner spaces) is refused', async () => {
     const { service } = setup();
-    await service.createProductType({ translations: { en: { name: 'Gift card' } } });
-    const t = await service.createProductType({ translations: { en: { name: 'Shirt' } } });
-    await expectIssue(service.updateProductType(t.id, { translations: { en: { name: 'gift   CARD' } } }), 'translations.en.name', 'NAME_TAKEN');
+    await service.createTag({ translations: { en: { name: 'Gift card' } } });
+    const t = await service.createTag({ translations: { en: { name: 'Shirt' } } });
+    await expectIssue(service.updateTag(t.id, { translations: { en: { name: 'gift   CARD' } } }), 'translations.en.name', 'NAME_TAKEN');
   });
 
   it('ensureTags dedupes, skips blanks and returns ids in order', async () => {
@@ -336,15 +329,15 @@ describe('EcommerceOrganizationService — product types and tags', () => {
     expect(db.tables[UIDS.tag]).toHaveLength(2);
   });
 
-  it('lists types with search, pagination and product counts', async () => {
+  it('lists tags with search, pagination and product counts', async () => {
     const { service, db } = setup();
-    const shirt = await service.ensureProductType('Shirt');
-    await service.ensureProductType('Gift card');
-    await addProduct(db, { productType: shirt });
-    await addProduct(db, { productType: shirt });
-    const all = await service.listProductTypes({ page: 1 });
+    const [shirt] = await service.ensureTags(['Shirt']);
+    await service.ensureTags(['Gift card']);
+    await addProduct(db, { tags: { connect: [shirt] } });
+    await addProduct(db, { tags: { connect: [shirt] } });
+    const all = await service.listTags({ page: 1 });
     expect(all.pagination).toEqual({ page: 1, pageSize: 50, total: 2, pageCount: 1 });
-    const found = await service.listProductTypes({ page: 1, search: 'shi' });
+    const found = await service.listTags({ page: 1, search: 'shi' });
     expect(found.results).toEqual([
       expect.objectContaining({ id: shirt, name: 'Shirt', productCount: 2 }),
     ]);
@@ -362,23 +355,10 @@ describe('EcommerceOrganizationService — product types and tags', () => {
     expect(db.tables[UIDS.tagTranslation].some((t: any) => t.tag === sale.id)).toBe(false);
   });
 
-  it('deleting a type clears it on products, which remain', async () => {
+  it('refuses to delete a tag used by an automated collection', async () => {
     const { service, db } = setup();
-    const shirt = await service.ensureProductType('Shirt');
-    await addProduct(db, { productType: shirt });
-    await service.deleteProductType(shirt);
-    expect(db.tables[UIDS.product]).toHaveLength(1);
-    expect(db.tables[UIDS.product][0].productType ?? null).toBeNull();
-    expect(db.tables[UIDS.productType]).toHaveLength(0);
-  });
-
-  it('refuses to delete a type or tag used by an automated collection', async () => {
-    const { service, db } = setup();
-    const shirt = await service.ensureProductType('Shirt');
     const [sale] = await service.ensureTags(['Sale']);
-    await addAutomatedCollection(db, 'Shirts', [{ field: 'PRODUCT_TYPE', operator: 'eq', value: shirt }]);
     await addAutomatedCollection(db, 'Deals', [{ field: 'TAG', operator: 'eq', value: String(sale) }]);
-    await expectIssue(service.deleteProductType(shirt), 'collections', 'IN_USE_BY_COLLECTIONS');
     const err = await expectIssue(service.deleteTag(sale), 'collections', 'IN_USE_BY_COLLECTIONS');
     expect(err.errors.map((e: any) => e.detail)).toEqual(['Deals']);
   });
@@ -396,6 +376,6 @@ describe('EcommerceOrganizationService — product types and tags', () => {
   it('unknown ids are not found', async () => {
     const { service } = setup();
     await expect(service.updateTag(5, { translations: { en: { name: 'X' } } })).rejects.toBeInstanceOf(EcommerceNotFoundError);
-    await expect(service.deleteProductType(5)).rejects.toBeInstanceOf(EcommerceNotFoundError);
+    await expect(service.deleteTag(5)).rejects.toBeInstanceOf(EcommerceNotFoundError);
   });
 });

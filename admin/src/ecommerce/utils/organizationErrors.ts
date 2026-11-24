@@ -1,6 +1,6 @@
 import type { OrganizationIssue } from '../organizationTypes';
 
-/** State conflicts (409) of categories, types, tags and collections: shown as a message. */
+/** State conflicts (409) of categories, tags and collections: shown as a message. */
 export const ORGANIZATION_CONFLICT_CODES = [
   'NAME_TAKEN',
   'CATEGORY_HAS_CHILDREN',

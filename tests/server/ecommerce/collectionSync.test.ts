@@ -18,8 +18,6 @@ const UIDS = {
   orderLine: `${P}order-line`,
   category: `${P}product-category`,
   categoryTranslation: `${P}product-category-translation`,
-  productType: `${P}product-type`,
-  productTypeTranslation: `${P}product-type-translation`,
   tag: `${P}product-tag`,
   tagTranslation: `${P}product-tag-translation`,
   collection: `${P}collection`,
@@ -33,7 +31,6 @@ const RELATIONS: FakeRelations = {
     variants: [UIDS.variant, 'product'],
     images: [UIDS.image, 'product'],
     category: [UIDS.category, 'category', 'manyToOne'],
-    productType: [UIDS.productType, 'productType', 'manyToOne'],
     tags: [UIDS.tag, 'product_tags', 'manyToMany'],
     collectionMembers: [UIDS.collectionProduct, 'product'],
   },
@@ -48,10 +45,6 @@ const RELATIONS: FakeRelations = {
     children: [UIDS.category, 'parent'],
     translations: [UIDS.categoryTranslation, 'category'],
     products: [UIDS.product, 'category'],
-  },
-  [UIDS.productType]: {
-    translations: [UIDS.productTypeTranslation, 'productType'],
-    products: [UIDS.product, 'productType'],
   },
   [UIDS.tag]: {
     translations: [UIDS.tagTranslation, 'tag'],
@@ -69,7 +62,7 @@ const RELATIONS: FakeRelations = {
 
 function setup() {
   const db = createFakeDb(Object.values(UIDS), RELATIONS, {
-    enforceUnique: [UIDS.stockMovement, UIDS.variant, UIDS.productType, UIDS.tag, UIDS.collectionProduct],
+    enforceUnique: [UIDS.stockMovement, UIDS.variant, UIDS.tag, UIDS.collectionProduct],
   });
   const services: Record<string, any> = {
     EcommerceImageService: { removeFiles: vi.fn(async () => undefined) },

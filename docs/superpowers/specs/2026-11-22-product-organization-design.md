@@ -1,4 +1,4 @@
-# Product organization — categories, types, collections, tags, compare-at price
+# Product organization — categories, collections, tags, compare-at price
 
 Status: draft for the store owner's approval (2026-11-22); reviewed by a builder check; deletion of
 referenced entities decided by the owner. Based on the owner's written request in chat
@@ -7,18 +7,18 @@ translated; categories are the store's own tree for navigation (no external taxo
 
 Vendor removed by the owner on 2026-11-22.
 Collection handle renamed to slug by the owner on 2026-11-24; it follows the title until edited and a taken slug gets -2, -3, …
+Product type removed by the owner on 2026-11-24 (categories are enough); tags kept.
 
 ## Intent
 
 The catalogue today has products (active flag, translations: name, slug, short/long description,
 images) and variants (SKU, price, VAT, stock, dimensions, position, translations, images). There is no
-way to organize products for the storefront. This adds four independent ways to organize them, plus
+way to organize products for the storefront. This adds three independent ways to organize them, plus
 one catalogue field the automated collections need:
 
 | Concept | What it is for | Per product |
 |---|---|---|
 | **Category** | The store's navigation tree (Clothing > Shirts > Linen) | 0 or 1 |
-| **Product type** | A flat, merchant-defined kind (e.g. "Shirt", "Gift card") used for search, filters and rules | 0 or 1 |
 | **Collection** | A cross-cutting group for the storefront ("New in", "Sale", "Summer"), manual or automated | 0..n |
 | **Tag** | Free labels for search, filters and rules | 0..n |
 | **Compare-at price** | The "was" price of a variant, shown struck through | per variant, optional |
@@ -32,7 +32,7 @@ collections for curated pages; both are listed with pagination and sorting.
 - E-commerce module only; nothing outside it changes. Existing storefront answers keep their shape
   (fields are only added).
 - Money is integer cents, VAT included (as every price in the module).
-- Deleting a category, type, collection or tag never deletes products.
+- Deleting a category, collection or tag never deletes products.
 - Admin pages follow the existing e-commerce admin: Strapi design system v2, sections with the title
   row and actions on the right, tables with an empty state in the darker box, search bars 38px,
   floating search dropdowns with `neutral150` separators, header actions (Delete / Save), notices in
@@ -64,18 +64,12 @@ the store's configured locales and default-locale fallback apply as they do for 
 - A JSON `attributes` placeholder is **not** added; per-category attributes, if ever needed, get their
   own content type later.
 
-### Product type (`product-type`)
-- Translation: `name`. A normalized key (`trim`, collapsed spaces, lower case, of the default-locale
-  name) is unique: creating "  shirt " when "Shirt" exists reuses "Shirt".
-- Product → type: many-to-one, optional.
-- Deleting a type clears it on its products.
-- A rename whose normalized key collides with another type is refused (no automatic merge).
-
 ### Tag (`product-tag`)
-- Translation: `name`. Same normalized unique key as product type.
+- Translation: `name`. A normalized key (`trim`, collapsed spaces, lower case, of the default-locale
+  name) is unique: creating "  sale " when "Sale" exists reuses "Sale".
 - Product ↔ tag: many-to-many (no duplicates).
 - Deleting a tag removes it from products.
-- A rename that collides with another tag is refused, as for types.
+- A rename whose normalized key collides with another tag is refused (no automatic merge).
 
 ### Collection (`collection`)
 - `type`: `MANUAL` | `AUTOMATED`.
@@ -101,7 +95,6 @@ Stored on the collection as JSON (like promotion conditions), validated by the s
 |---|---|---|
 | Title | equals, not equals, contains, does not contain, starts with, ends with | text (matched against the product name in any locale, case-insensitive) |
 | Category | equals, not equals | category id (equals includes its subcategories) |
-| Product type | equals, not equals | type id |
 | Tag | equals (has tag), not equals (does not have tag) | tag id |
 | Price | =, ≠, >, <, ≥, ≤ | cents |
 | Compare-at price | =, ≠, >, <, ≥, ≤ | cents |
@@ -114,7 +107,7 @@ Stored on the collection as JSON (like promotion conditions), validated by the s
 - Inventory quantity is the variant's stored `stock` (it may be negative; every variant tracks stock).
 - A category condition matches the category's whole subtree whether those categories are active or
   not (membership does not depend on category visibility).
-- **Referenced entities (decided by the owner):** a category, type or tag used by an automated collection's
+- **Referenced entities (decided by the owner):** a category or tag used by an automated collection's
   condition **cannot be deleted**; the refusal lists those collections. This avoids a dangling
   "not equals" silently matching every product.
 
@@ -129,7 +122,7 @@ catalogue is small (hundreds to a few thousand products); a collection-wide re-e
 of 200 within one request is acceptable. Bulk product actions take at most 100 product ids per call.
 
 - **A product changes** (create, update, delete; variant price / compare-at / stock / active;
-  category, type, tags, name): that one product is re-evaluated against every automated
+  category, tags, name): that one product is re-evaluated against every automated
   collection; memberships are added or removed. Stock changes from orders (stock movements) trigger
   the same check for the products involved.
 - **A collection's conditions or match change**: that collection is re-evaluated over the catalogue
@@ -153,8 +146,8 @@ of 200 within one request is acceptable. Bulk product actions take at most 100 p
 ## Admin
 
 ### Products menu
-New entries in the products area: **Categories**, **Collections**, and a page for **Types & tags**
-(two tables, rename / delete, with product counts). Permissions: the existing
+New entries in the products area: **Categories**, **Collections**, and a page for **Tags**
+(one table, rename / delete, with product counts). Permissions: the existing
 `ecommerce.products.read` to view and `ecommerce.products.manage` to change — no new permissions.
 
 ### Categories page
@@ -171,7 +164,7 @@ New entries in the products area: **Categories**, **Collections**, and a page fo
   - **Products** (manual): search to add products (floating dropdown), table with drag handle,
     image, name, Remove; empty state.
   - **Conditions** (automated): "all conditions" / "any condition", condition rows (field, operator,
-    value with pickers for category / type / tag), a plain-words sentence like the promotion
+    value with pickers for category / tag), a plain-words sentence like the promotion
     conditions, and a live **preview** of the matching products (paginated table, count).
   - **Sorting**: the sort order select.
   - **SEO**: title and description per locale.
@@ -179,7 +172,6 @@ New entries in the products area: **Categories**, **Collections**, and a page fo
 ### Product page — new section "Product organization"
 - **Category**: picker with search by name and tree browsing; shows the full path
   ("Clothing > Shirts > Linen"); Change / Remove.
-- **Product type**: select with search; typing a new name offers "Create “…”".
 - **Collections**: multi-select of **manual** collections; automated collections the product is in are
   listed read-only (badge "Automated").
 - **Tags**: multi-value input with autocomplete of existing tags; new tags created on save.
@@ -188,14 +180,13 @@ New entries in the products area: **Categories**, **Collections**, and a page fo
 ## Admin API (under the existing e-commerce admin routes, products permissions)
 
 - Categories: list (tree), get, create, update, delete, move.
-- Product types: list (search, paginated), create, rename, delete.
 - Tags: list (search, paginated), create, rename, delete.
 - Collections: list (search, paginated), get, create, update, delete, products (paginated),
   add / remove / reorder products (manual), preview conditions, recalculate.
-- Products: the product create / update body gains `categoryId`, `typeId` (or `typeName` to create),
+- Products: the product create / update body gains `categoryId`,
   `tagIds` / `tagNames`, `collectionIds` (manual only); variants gain `compareAtPrice`.
-- Product list filters: category (with subcategories), type, tag, collection.
-- Bulk: add / remove a tag, set category, set type, add to / remove from a manual collection, for a
+- Product list filters: category (with subcategories), tag, collection.
+- Bulk: add / remove a tag, set category, add to / remove from a manual collection, for a
   list of product ids.
 
 ## Storefront API (documented in `docs/ecommerce/storefront-api.md`)
@@ -204,15 +195,15 @@ New entries in the products area: **Categories**, **Collections**, and a page fo
 - `GET /categories/:slug?locale=` — one category with its path (breadcrumb).
 - `GET /collections?locale=&page=&pageSize=` — active collections, by title (paginated).
 - `GET /collections/:slug?locale=` — title, slug, description, SEO.
-- `GET /products?...&category=<slug>&collection=<slug>&type=<id>&tag=<id,id>` — the
+- `GET /products?...&category=<slug>&collection=<slug>&tag=<id,id>` — the
   existing list gains these filters, combined with AND:
   - `category` / `collection`: slug in the request locale, falling back to the default
     locale; unknown or inactive → 404.
-  - `type`: one type id. `tag`: comma-separated tag ids, a product with **any** of them matches.
-    Types and tags have no slug; product answers carry their ids and names.
+  - `tag`: comma-separated tag ids, a product with **any** of them matches.
+    Tags have no slug; product answers carry their ids and names.
   - With `collection`, the collection's sort applies unless `sort` is given.
   - Sorts added: `name_desc`, `best_selling`, `oldest`.
-- Product answers gain `category` (id, name, slug, path), `type` (name), `tags` (names),
+- Product answers gain `category` (id, name, slug, path), `tags` (names),
   and `compareAtPrice` on variants / price summaries.
 - An inactive category hides its whole subtree from the tree and answers 404 (as do its
   descendants); inactive collections answer 404. Their products remain reachable by other routes. Automated-collection conditions and admin data are never exposed.
@@ -220,15 +211,15 @@ New entries in the products area: **Categories**, **Collections**, and a page fo
 
 ## Tests (acceptance)
 
-- One category / one type per product; many collections and tags; no duplicate links.
-- Type / tag dedupe ignoring case and spaces.
+- One category per product; many collections and tags; no duplicate links.
+- Tag dedupe ignoring case and spaces.
 - Category depth limit, cycle refusal, delete refused with subcategories, products kept.
 - Manual collection: add, remove, reorder.
 - Automated: ALL / ANY; each field and operator; variant rule; members added / removed when a
-  product, variant price / compare-at / stock, category, type or tag changes; when conditions
-  change; when a referenced category / type / tag is deleted.
+  product, variant price / compare-at / stock, category or tag changes; when conditions
+  change; when a referenced category / tag is deleted.
 - Each sort order, including best selling eligibility.
-- Deleting category / type / tag / collection never deletes products.
+- Deleting category / tag / collection never deletes products.
 - Permissions: read vs manage.
 - Storefront: category tree, collection by slug, filtered and sorted lists, inactive → 404, no
   conditions exposed, compare-at exposed.

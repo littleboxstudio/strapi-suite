@@ -39,14 +39,13 @@ export type ProductListItem = {
 export type ProductListFilters = {
   /** The category or any of its subcategories. */
   categoryId?: number;
-  productTypeId?: number;
   tagId?: number;
   collectionId?: number;
 };
 
 export type ProductDetail = Omit<
   ProductInput,
-  'variants' | 'categoryId' | 'productTypeId' | 'productTypeName' | 'tagIds' | 'tagNames' | 'collectionIds'
+  'variants' | 'categoryId' | 'tagIds' | 'tagNames' | 'collectionIds'
 > & {
   id: number;
   images: ImageRecord[];
@@ -55,8 +54,6 @@ export type ProductDetail = Omit<
   categoryId: number | null;
   /** Root first, names in the default locale. */
   categoryPath: { id: number; name: string }[];
-  productTypeId: number | null;
-  productTypeName: string | null;
   tags: { id: number; name: string }[];
   /** Manual and automated collections the product is in. */
   collections: { id: number; title: string; type: 'MANUAL' | 'AUTOMATED' }[];
@@ -102,7 +99,6 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
   const stock = (): { move(input: StockMoveInput): Promise<{ applied: boolean }> } =>
     strapi.plugin(PLUGIN_ID).service('EcommerceStockService');
   const organization = (): {
-    ensureProductType(name: string): Promise<number>;
     ensureTags(names: string[]): Promise<number[]>;
   } => strapi.plugin(PLUGIN_ID).service('EcommerceOrganizationService');
 
@@ -144,15 +140,12 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
     return new Set(ids.filter((id) => !present.has(id)));
   };
 
-  /** Existence of the referenced category, type, tags and (manual) collections. */
+  /** Existence of the referenced category, tags and (manual) collections. */
   const organizationErrors = async (input: ProductInput): Promise<FieldError[]> => {
     const u = uids();
     const errors: FieldError[] = [];
     if (isPositiveInt(input.categoryId) && (await missingIds(u.category, [input.categoryId])).size) {
       errors.push({ path: 'categoryId', code: 'unknown' });
-    }
-    if (isPositiveInt(input.productTypeId) && (await missingIds(u.productType, [input.productTypeId])).size) {
-      errors.push({ path: 'productTypeId', code: 'unknown' });
     }
     if (Array.isArray(input.tagIds)) {
       const missing = await missingIds(u.tag, input.tagIds.filter(isPositiveInt));
@@ -182,14 +175,6 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
   const organizationData = async (input: ProductInput, creating: boolean): Promise<Record<string, unknown>> => {
     const data: Record<string, unknown> = {};
     if (creating || input.categoryId !== undefined) data.category = input.categoryId ?? null;
-
-    if (input.productTypeId !== undefined) {
-      data.productType = input.productTypeId ?? null;
-    } else if (typeof input.productTypeName === 'string' && input.productTypeName.trim()) {
-      data.productType = await organization().ensureProductType(input.productTypeName);
-    } else if (creating || input.productTypeName === null) {
-      data.productType = null;
-    }
 
     const tagNames = Array.isArray(input.tagNames) ? input.tagNames.filter((n) => typeof n === 'string') : [];
     if (creating || input.tagIds !== undefined || tagNames.length) {
@@ -320,7 +305,7 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
       });
     }
 
-    if (!errorList.some((e) => /^(categoryId|productTypeId|tagIds|collectionIds)(\.|$)/.test(e.path))) {
+    if (!errorList.some((e) => /^(categoryId|tagIds|collectionIds)(\.|$)/.test(e.path))) {
       errorList.push(...(await organizationErrors(input)));
     }
 
@@ -557,7 +542,6 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
         const nodes = await loadCategoryNodes();
         where.category = { id: { $in: subtreeIds(nodes, params.categoryId) } };
       }
-      if (isPositiveInt(params.productTypeId)) where.productType = { id: params.productTypeId };
       if (isPositiveInt(params.tagId)) where.tags = { id: params.tagId };
       if (isPositiveInt(params.collectionId)) {
         where.collectionMembers = { collection: { id: params.collectionId } };
@@ -617,7 +601,6 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
           images: true,
           variants: { populate: { translations: true, images: true } },
           category: true,
-          productType: { populate: { translations: true } },
           tags: { populate: { translations: true } },
           collectionMembers: { populate: { collection: { populate: { translations: true } } } },
         },
@@ -662,8 +645,6 @@ const EcommerceProductService = ({ strapi }: { strapi: Core.Strapi }) => {
         translations,
         categoryId,
         categoryPath: path,
-        productTypeId: p.productType?.id ?? null,
-        productTypeName: p.productType ? pickText(p.productType.translations, defaultLocale) : null,
         tags: [...(p.tags ?? [])]
           .sort((a: any, b: any) => a.id - b.id)
           .map((t: any) => ({ id: t.id, name: pickText(t.translations, defaultLocale) })),

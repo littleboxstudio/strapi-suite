@@ -59,7 +59,7 @@ export type CategoryDetail = {
 /** `position` among the new siblings (the category itself left out). */
 export type CategoryMoveInput = { parentId: number | null; position: number };
 
-// ------------------------------------------------------------------ product types and tags
+// ------------------------------------------------------------------ tags
 
 export type NamedTranslations = Record<string, { name: string }>;
 
@@ -94,7 +94,6 @@ export type CollectionSort = (typeof COLLECTION_SORTS)[number];
 export type CollectionField =
   | 'TITLE'
   | 'CATEGORY'
-  | 'PRODUCT_TYPE'
   | 'TAG'
   | 'PRICE'
   | 'COMPARE_AT_PRICE'
@@ -110,7 +109,7 @@ export type CollectionOperator =
   | 'lt'
   | 'gte'
   | 'lte';
-/** Prices in cents; CATEGORY / PRODUCT_TYPE / TAG values are ids. */
+/** Prices in cents; CATEGORY / TAG values are ids. */
 export type CollectionCondition = { field: CollectionField; operator: CollectionOperator; value: string | number };
 
 export type CollectionTranslation = {
@@ -181,9 +180,8 @@ export type BulkProductAction =
   | 'addTag'
   | 'removeTag'
   | 'setCategory'
-  | 'setProductType'
   | 'addToCollection'
   | 'removeFromCollection';
 
-/** At most 100 product ids; `value` is the tag/category/type/collection id (null clears a category or type). */
+/** At most 100 product ids; `value` is the tag/category/collection id (null clears a category). */
 export type BulkProductsInput = { productIds: number[]; action: BulkProductAction; value: number | null };

@@ -201,17 +201,15 @@ describe('validateProductInput — organization fields', () => {
 
   it('refuses malformed organization ids as unknown', () => {
     expect(codesAt(product({ categoryId: 0 }), 'categoryId')).toEqual(['unknown']);
-    expect(codesAt(product({ productTypeId: 'x' as any }), 'productTypeId')).toEqual(['unknown']);
     expect(codesAt(product({ tagIds: [1, -2] }), 'tagIds.1')).toEqual(['unknown']);
     expect(codesAt(product({ collectionIds: [1.5] }), 'collectionIds.0')).toEqual(['unknown']);
     expect(codesAt(product({ tagIds: 'x' as any }), 'tagIds')).toEqual(['unknown']);
     expect(
-      validateProductInput(product({ categoryId: null, productTypeId: null, tagIds: [], collectionIds: [] }), 'en')
+      validateProductInput(product({ categoryId: null, tagIds: [], collectionIds: [] }), 'en')
     ).toEqual([]);
   });
 
-  it('refuses type and tag names longer than 255 characters', () => {
-    expect(codesAt(product({ productTypeName: 'a'.repeat(256) }), 'productTypeName')).toEqual(['too_long']);
+  it('refuses tag names longer than 255 characters', () => {
     expect(codesAt(product({ tagNames: ['ok', 'a'.repeat(256)] }), 'tagNames.1')).toEqual(['too_long']);
   });
 });

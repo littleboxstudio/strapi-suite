@@ -17,8 +17,6 @@ const UIDS = {
   orderLine: `${P}order-line`,
   category: `${P}product-category`,
   categoryTranslation: `${P}product-category-translation`,
-  productType: `${P}product-type`,
-  productTypeTranslation: `${P}product-type-translation`,
   tag: `${P}product-tag`,
   tagTranslation: `${P}product-tag-translation`,
   collection: `${P}collection`,
@@ -33,7 +31,6 @@ const RELATIONS: FakeRelations = {
     variants: [UIDS.variant, 'product'],
     images: [UIDS.image, 'product'],
     category: [UIDS.category, 'category', 'manyToOne'],
-    productType: [UIDS.productType, 'productType', 'manyToOne'],
     tags: [UIDS.tag, 'product_tags', 'manyToMany'],
     collectionMembers: [UIDS.collectionProduct, 'product'],
   },
@@ -48,10 +45,6 @@ const RELATIONS: FakeRelations = {
     children: [UIDS.category, 'parent'],
     translations: [UIDS.categoryTranslation, 'category'],
     products: [UIDS.product, 'category'],
-  },
-  [UIDS.productType]: {
-    translations: [UIDS.productTypeTranslation, 'productType'],
-    products: [UIDS.product, 'productType'],
   },
   [UIDS.tag]: {
     translations: [UIDS.tagTranslation, 'tag'],
@@ -71,7 +64,7 @@ function makeStrapi() {
   const { tables, query, transaction, connection, metadata } = createFakeDb(
     Object.values(UIDS),
     RELATIONS,
-    { enforceUnique: [UIDS.stockMovement, UIDS.variant, UIDS.productType, UIDS.tag, UIDS.collectionProduct] }
+    { enforceUnique: [UIDS.stockMovement, UIDS.variant, UIDS.tag, UIDS.collectionProduct] }
   );
 
   const imageService = { remove: vi.fn(), removeFiles: vi.fn(async (_rows: any[]) => undefined) };
@@ -670,9 +663,8 @@ describe('EcommerceProductService — organization', () => {
     const clothing = await addCategory('Clothing', null, 'Roupa');
     const shirts = await addCategory('Shirts', clothing);
     const linen = await addCategory('Linen', shirts);
-    const shirtType = await env.organizationService.ensureProductType('Shirt');
     const [summer, sale] = await env.organizationService.ensureTags(['Summer', 'Sale']);
-    return { ...env, addCategory, addCollection, clothing, shirts, linen, shirtType, summer, sale };
+    return { ...env, addCategory, addCollection, clothing, shirts, linen, summer, sale };
   };
 
   const errorsOf = async (p: Promise<unknown>) => {
@@ -681,12 +673,11 @@ describe('EcommerceProductService — organization', () => {
     return err.errors;
   };
 
-  it('persists category, type, tags and compare-at price; get() returns them', async () => {
+  it('persists category, tags and compare-at price; get() returns them', async () => {
     const s = await setupOrg();
     const { id } = await s.service.create(
       input('Linen shirt', [variant('LS-1', { compareAtPrice: 1500 })], {
         categoryId: s.linen,
-        productTypeId: s.shirtType,
         tagIds: [s.summer, s.sale, s.summer],
       })
     );
@@ -698,8 +689,6 @@ describe('EcommerceProductService — organization', () => {
         { id: s.shirts, name: 'Shirts' },
         { id: s.linen, name: 'Linen' },
       ],
-      productTypeId: s.shirtType,
-      productTypeName: 'Shirt',
       collections: [],
     });
     expect(detail.tags).toEqual([
@@ -715,8 +704,6 @@ describe('EcommerceProductService — organization', () => {
     expect(await s.service.get(id)).toMatchObject({
       categoryId: null,
       categoryPath: [],
-      productTypeId: null,
-      productTypeName: null,
       tags: [],
       collections: [],
     });
@@ -726,53 +713,42 @@ describe('EcommerceProductService — organization', () => {
   it('omitted fields keep the stored values on update; null clears them', async () => {
     const s = await setupOrg();
     const { id } = await s.service.create(
-      input('A', [variant('A-1')], { categoryId: s.shirts, productTypeId: s.shirtType, tagIds: [s.sale] })
+      input('A', [variant('A-1')], { categoryId: s.shirts, tagIds: [s.sale] })
     );
     const v = (await s.service.get(id)).variants[0];
     await s.service.update(id, input('A', [variant('A-1', { id: v.id })]));
     expect(await s.service.get(id)).toMatchObject({
       categoryId: s.shirts,
-      productTypeId: s.shirtType,
       tags: [{ id: s.sale, name: 'Sale' }],
     });
     await s.service.update(
       id,
-      input('A', [variant('A-1', { id: v.id })], { categoryId: null, productTypeId: null, tagIds: [] })
+      input('A', [variant('A-1', { id: v.id })], { categoryId: null, tagIds: [] })
     );
     expect(await s.service.get(id)).toMatchObject({
       categoryId: null,
-      productTypeId: null,
       tags: [],
     });
   });
 
-  it('resolves productTypeName and tagNames by name key, creating missing ones; the id wins over the name', async () => {
+  it('resolves tagNames by name key, creating missing ones, merged with tagIds', async () => {
     const s = await setupOrg();
     const { id } = await s.service.create(
-      input('A', [variant('A-1')], { productTypeName: '  shirt ', tagNames: ['SUMMER', 'New in', 'new  in'], tagIds: [s.sale] })
+      input('A', [variant('A-1')], { tagNames: ['SUMMER', 'New in', 'new  in'], tagIds: [s.sale] })
     );
     const d = await s.service.get(id);
-    expect(d.productTypeId).toBe(s.shirtType);
     expect(d.tags.map((t) => t.name).sort()).toEqual(['New in', 'Sale', 'Summer']);
     expect(s.tables[UIDS.tag]).toHaveLength(3);
-
-    const other = await s.organizationService.ensureProductType('Gift card');
-    const { id: id2 } = await s.service.create(
-      input('B', [variant('B-1')], { productTypeId: other, productTypeName: 'Mug' })
-    );
-    expect((await s.service.get(id2)).productTypeId).toBe(other);
-    expect(s.tables[UIDS.productType]).toHaveLength(2);
   });
 
-  it('refuses unknown category, type, tag and collection ids', async () => {
+  it('refuses unknown category, tag and collection ids', async () => {
     const s = await setupOrg();
     const errors = await errorsOf(
-      s.service.create(input('A', [variant('A-1')], { categoryId: 999, productTypeId: 998, tagIds: [s.sale, 997], collectionIds: [996] }))
+      s.service.create(input('A', [variant('A-1')], { categoryId: 999, tagIds: [s.sale, 997], collectionIds: [996] }))
     );
     expect(errors).toEqual(
       expect.arrayContaining([
         { path: 'categoryId', code: 'unknown' },
-        { path: 'productTypeId', code: 'unknown' },
         { path: 'tagIds.1', code: 'unknown' },
         { path: 'collectionIds.0', code: 'unknown' },
       ])
@@ -855,27 +831,26 @@ describe('EcommerceProductService — organization', () => {
     expect(s.tables[UIDS.collectionProduct]).toHaveLength(0);
   });
 
-  it('list filters by category subtree, type, tag and collection', async () => {
+  it('list filters by category subtree, tag and collection', async () => {
     const s = await setupOrg();
     const col = await s.addCollection('Summer', 'MANUAL');
     const { id: a } = await s.service.create(
       input('A', [variant('A-1')], { categoryId: s.linen, tagIds: [s.summer], collectionIds: [col] })
     );
     const { id: b } = await s.service.create(
-      input('B', [variant('B-1')], { categoryId: s.shirts, productTypeId: s.shirtType })
+      input('B', [variant('B-1')], { categoryId: s.shirts })
     );
     const { id: c } = await s.service.create(input('C', [variant('C-1')], { tagIds: [s.sale] }));
     const ids = async (filters: any) => (await s.service.list({ page: 1, ...filters })).results.map((r: any) => r.id);
 
     expect(await ids({ categoryId: s.clothing })).toEqual([b, a]);
     expect(await ids({ categoryId: s.linen })).toEqual([a]);
-    expect(await ids({ productTypeId: s.shirtType })).toEqual([b]);
     expect(await ids({ tagId: s.summer })).toEqual([a]);
     expect(await ids({ tagId: s.sale })).toEqual([c]);
     expect(await ids({ collectionId: col })).toEqual([a]);
-    expect(await ids({ categoryId: s.clothing, productTypeId: s.shirtType })).toEqual([b]);
-    const typePage = await s.service.list({ page: 1, productTypeId: s.shirtType });
-    expect(typePage.pagination.total).toBe(1);
+    expect(await ids({ categoryId: s.clothing, tagId: s.summer })).toEqual([a]);
+    const combinedPage = await s.service.list({ page: 1, categoryId: s.clothing, tagId: s.summer });
+    expect(combinedPage.pagination.total).toBe(1);
   });
 
   it('list filter keeps pagination correct', async () => {

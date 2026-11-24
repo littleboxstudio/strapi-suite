@@ -36,7 +36,6 @@ import SaveCollection from '../../usecases/organization/saveCollection';
 import DeleteCollection from '../../usecases/organization/deleteCollection';
 import RecalculateCollection from '../../usecases/organization/recalculateCollection';
 import FetchCategoryTree from '../../usecases/organization/fetchCategoryTree';
-import FetchProductTypes from '../../usecases/organization/fetchProductTypes';
 import FetchTags from '../../usecases/organization/fetchTags';
 import { parentOptions } from '../../utils/categoryTree';
 import { formatCents } from '../../utils/money';
@@ -76,10 +75,10 @@ const Section = ({ title, actions, children }: { title: string; actions?: ReactN
   </Box>
 );
 
-/** Pages of product types / tags read for the pickers (50 each). */
+/** Pages of tags read for the picker (50 each). */
 const MAX_NAME_PAGES = 20;
 
-/** Every product type or tag (id + name in the admin's language), for the condition pickers. */
+/** Every tag (id + name in the admin's language), for the condition pickers. */
 async function allNames(fetchPage: (page: number) => Promise<NamedPage>): Promise<{ id: number; label: string }[]> {
   const out: { id: number; label: string }[] = [];
   let page = 1;
@@ -120,7 +119,7 @@ const CollectionEditPage = () => {
   const [activeLocale, setActiveLocale] = useState('');
   const [detail, setDetail] = useState<CollectionDetail | null>(null);
   const [form, setForm] = useState<CollectionForm | null>(null);
-  const [options, setOptions] = useState<ConditionOptions>({ categories: [], productTypes: [], tags: [] });
+  const [options, setOptions] = useState<ConditionOptions>({ categories: [], tags: [] });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -162,19 +161,17 @@ const CollectionEditPage = () => {
     };
   }, [isNew, collectionId, reloadKey]);
 
-  // The condition pickers' lists (categories with their full path, types, tags); failures leave them empty.
+  // The condition pickers' lists (categories with their full path, tags); failures leave them empty.
   useEffect(() => {
     let cancelled = false;
     Promise.allSettled([
       new FetchCategoryTree().execute(),
-      allNames((page) => new FetchProductTypes().execute({ page })),
       allNames((page) => new FetchTags().execute({ page })),
-    ]).then(([tree, types, tags]) => {
+    ]).then(([tree, tags]) => {
       if (cancelled) return;
       setOptions({
         categories:
           tree.status === 'fulfilled' && Array.isArray(tree.value) ? parentOptions(tree.value) : [],
-        productTypes: types.status === 'fulfilled' ? types.value : [],
         tags: tags.status === 'fulfilled' ? tags.value : [],
       });
     });
@@ -193,7 +190,6 @@ const CollectionEditPage = () => {
   const labels = useMemo(
     () => ({
       categories: Object.fromEntries(options.categories.map((o) => [o.id, o.label])),
-      productTypes: Object.fromEntries(options.productTypes.map((o) => [o.id, o.label])),
       tags: Object.fromEntries(options.tags.map((o) => [o.id, o.label])),
       money: (cents: number) => formatCents(cents, locale),
     }),

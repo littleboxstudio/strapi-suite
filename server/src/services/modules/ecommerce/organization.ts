@@ -88,7 +88,7 @@ const EcommerceOrganizationService = ({ strapi }: { strapi: Core.Strapi }) => {
 
   /** Collections whose automated conditions reference one of the given ids, by title (default locale). */
   const collectionsReferencing = async (
-    kind: 'categoryIds' | 'productTypeIds' | 'tagIds',
+    kind: 'categoryIds' | 'tagIds',
     id: number
   ): Promise<ValidationIssue[]> => {
     const u = uids();
@@ -239,51 +239,16 @@ const EcommerceOrganizationService = ({ strapi }: { strapi: Core.Strapi }) => {
     }
   };
 
-  // ------------------------------------------------------------------ types and tags
+  // ------------------------------------------------------------------ tags
 
-  type NamedKind = {
-    label: string;
-    uid: () => string;
-    translationUid: () => string;
-    /** Foreign key on the translation row. */
-    owner: 'productType' | 'tag';
-    referenced: 'productTypeIds' | 'tagIds';
-    countWhere: (id: number) => any;
-    /** Unlinks every product from `id` (products are never deleted). */
-    unlinkProducts: (id: number) => Promise<void>;
+  /** Unlinks every product from tag `id` (products are never deleted). */
+  const unlinkTagProducts = async (id: number) => {
+    const q = strapi.db.query(uids().product);
+    const rows: any[] = await q.findMany({ where: { tags: { id } }, select: ['id'] });
+    for (const r of rows) await q.update({ where: { id: r.id }, data: { tags: { disconnect: [id] } } });
   };
 
-  const kinds: Record<'productType' | 'tag', NamedKind> = {
-    productType: {
-      label: 'product type',
-      uid: () => uids().productType,
-      translationUid: () => uids().productTypeTranslation,
-      owner: 'productType',
-      referenced: 'productTypeIds',
-      countWhere: (id) => ({ productType: { id } }),
-      unlinkProducts: async (id) => {
-        const q = strapi.db.query(uids().product);
-        const rows: any[] = await q.findMany({ where: { productType: { id } }, select: ['id'] });
-        for (const r of rows) await q.update({ where: { id: r.id }, data: { productType: null } });
-      },
-    },
-    tag: {
-      label: 'tag',
-      uid: () => uids().tag,
-      translationUid: () => uids().tagTranslation,
-      owner: 'tag',
-      referenced: 'tagIds',
-      countWhere: (id) => ({ tags: { id } }),
-      unlinkProducts: async (id) => {
-        const q = strapi.db.query(uids().product);
-        const rows: any[] = await q.findMany({ where: { tags: { id } }, select: ['id'] });
-        for (const r of rows) await q.update({ where: { id: r.id }, data: { tags: { disconnect: [id] } } });
-      },
-    },
-  };
-
-  const listNamed = async (
-    kind: NamedKind,
+  const listTags = async (
     params: { page?: number; search?: string; locale?: string } = {}
   ): Promise<NamedPage> => {
     const page = Math.max(1, Math.floor(Number(params.page)) || 1);
@@ -293,7 +258,7 @@ const EcommerceOrganizationService = ({ strapi }: { strapi: Core.Strapi }) => {
     const where = search
       ? { $or: [{ key: { $containsi: search } }, { translations: { name: { $containsi: search } } }] }
       : {};
-    const q = strapi.db.query(kind.uid());
+    const q = strapi.db.query(uids().tag);
     const [rows, total] = await Promise.all([
       q.findMany({
         where,
@@ -310,14 +275,13 @@ const EcommerceOrganizationService = ({ strapi }: { strapi: Core.Strapi }) => {
         id: r.id,
         name: pickName(r.translations, locale, defaultLocale),
         translations: Object.fromEntries((r.translations ?? []).map((t: any) => [t.locale, { name: t.name }])),
-        productCount: await strapi.db.query(uids().product).count({ where: kind.countWhere(r.id) }),
+        productCount: await strapi.db.query(uids().product).count({ where: { tags: { id: r.id } } }),
       });
     }
     return { results, pagination: { page, pageSize: PAGE_SIZE, total, pageCount: Math.ceil(total / PAGE_SIZE) } };
   };
 
-  const validateNamed = async (
-    kind: NamedKind,
+  const validateTag = async (
     id: number | null,
     input: NamedInput,
     defaultLocale: string
@@ -336,72 +300,72 @@ const EcommerceOrganizationService = ({ strapi }: { strapi: Core.Strapi }) => {
     const defaultName = translations[defaultLocale]?.name;
     const key = typeof defaultName === 'string' ? nameKey(defaultName) : '';
     if (!key) errors.push({ path: `translations.${defaultLocale}.name`, code: 'required' });
-    if (errors.length) invalid(errors, `Invalid ${kind.label}`);
-    const clash = await strapi.db.query(kind.uid()).findOne({ where: { key } });
+    if (errors.length) invalid(errors, 'Invalid tag');
+    const clash = await strapi.db.query(uids().tag).findOne({ where: { key } });
     if (clash && clash.id !== id) {
-      invalid([{ path: `translations.${defaultLocale}.name`, code: 'NAME_TAKEN' }], `Invalid ${kind.label}`);
+      invalid([{ path: `translations.${defaultLocale}.name`, code: 'NAME_TAKEN' }], 'Invalid tag');
     }
     return key;
   };
 
-  const saveNamedTranslations = async (kind: NamedKind, ownerId: number, translations: NamedInput['translations']) => {
-    const q = strapi.db.query(kind.translationUid());
+  const saveTagTranslations = async (ownerId: number, translations: NamedInput['translations']) => {
+    const q = strapi.db.query(uids().tagTranslation);
     for (const [locale, t] of Object.entries(translations ?? {})) {
       const name = cleanName(t?.name ?? '');
       if (!name) {
-        await q.deleteMany({ where: { [kind.owner]: ownerId, locale } });
+        await q.deleteMany({ where: { tag: ownerId, locale } });
         continue;
       }
-      const existing = await q.findOne({ where: { [kind.owner]: ownerId, locale } });
+      const existing = await q.findOne({ where: { tag: ownerId, locale } });
       if (existing) await q.update({ where: { id: existing.id }, data: { name } });
-      else await q.create({ data: { [kind.owner]: ownerId, locale, name } });
+      else await q.create({ data: { tag: ownerId, locale, name } });
     }
   };
 
-  const createNamed = async (kind: NamedKind, input: NamedInput): Promise<{ id: number }> => {
+  const createTag = async (input: NamedInput): Promise<{ id: number }> => {
     const defaultLocale = await getDefaultLocale();
-    const key = await validateNamed(kind, null, input, defaultLocale);
+    const key = await validateTag(null, input, defaultLocale);
     const id: number = await strapi.db.transaction(async () => {
-      const created = await strapi.db.query(kind.uid()).create({ data: { key } });
-      await saveNamedTranslations(kind, created.id, input.translations);
+      const created = await strapi.db.query(uids().tag).create({ data: { key } });
+      await saveTagTranslations(created.id, input.translations);
       return created.id;
     });
     return { id };
   };
 
-  const updateNamed = async (kind: NamedKind, id: number, input: NamedInput): Promise<void> => {
-    const found = await strapi.db.query(kind.uid()).findOne({ where: { id } });
-    if (!found) throw new EcommerceNotFoundError(`${kind.label} not found`);
+  const updateTag = async (id: number, input: NamedInput): Promise<void> => {
+    const found = await strapi.db.query(uids().tag).findOne({ where: { id } });
+    if (!found) throw new EcommerceNotFoundError('tag not found');
     const defaultLocale = await getDefaultLocale();
-    const key = await validateNamed(kind, id, input, defaultLocale);
+    const key = await validateTag(id, input, defaultLocale);
     await strapi.db.transaction(async () => {
-      if (key !== found.key) await strapi.db.query(kind.uid()).update({ where: { id }, data: { key } });
-      await saveNamedTranslations(kind, id, input.translations);
+      if (key !== found.key) await strapi.db.query(uids().tag).update({ where: { id }, data: { key } });
+      await saveTagTranslations(id, input.translations);
     });
   };
 
-  const deleteNamed = async (kind: NamedKind, id: number): Promise<void> => {
-    const found = await strapi.db.query(kind.uid()).findOne({ where: { id } });
-    if (!found) throw new EcommerceNotFoundError(`${kind.label} not found`);
-    const inUse = await collectionsReferencing(kind.referenced, id);
-    if (inUse.length) invalid(inUse, `Invalid ${kind.label}`);
+  const deleteTag = async (id: number): Promise<void> => {
+    const found = await strapi.db.query(uids().tag).findOne({ where: { id } });
+    if (!found) throw new EcommerceNotFoundError('tag not found');
+    const inUse = await collectionsReferencing('tagIds', id);
+    if (inUse.length) invalid(inUse, 'Invalid tag');
     await strapi.db.transaction(async () => {
-      await kind.unlinkProducts(id);
-      await strapi.db.query(kind.translationUid()).deleteMany({ where: { [kind.owner]: id } });
-      await strapi.db.query(kind.uid()).delete({ where: { id } });
+      await unlinkTagProducts(id);
+      await strapi.db.query(uids().tagTranslation).deleteMany({ where: { tag: id } });
+      await strapi.db.query(uids().tag).delete({ where: { id } });
     });
   };
 
   /** The id of the entity whose key matches `name`, creating it (default-locale name) when absent. */
-  const ensureNamed = async (kind: NamedKind, name: string): Promise<number> => {
+  const ensureTag = async (name: string): Promise<number> => {
     const key = nameKey(name);
-    if (!key) invalid([{ path: 'name', code: 'required' }], `Invalid ${kind.label}`);
-    const q = strapi.db.query(kind.uid());
+    if (!key) invalid([{ path: 'name', code: 'required' }], 'Invalid tag');
+    const q = strapi.db.query(uids().tag);
     const existing = await q.findOne({ where: { key } });
     if (existing) return existing.id;
     const defaultLocale = await getDefaultLocale();
     const created = await q.create({ data: { key } });
-    await saveNamedTranslations(kind, created.id, { [defaultLocale]: { name } });
+    await saveTagTranslations(created.id, { [defaultLocale]: { name } });
     return created.id;
   };
 
@@ -564,22 +528,12 @@ const EcommerceOrganizationService = ({ strapi }: { strapi: Core.Strapi }) => {
       if (unlinked > 0) await recalculateCategoryConditions();
     },
 
-    // ---------------------------------------------------------------- product types
-
-    listProductTypes: (params: { page?: number; search?: string; locale?: string } = {}) =>
-      listNamed(kinds.productType, params),
-    createProductType: (input: NamedInput) => createNamed(kinds.productType, input),
-    updateProductType: (id: number, input: NamedInput) => updateNamed(kinds.productType, id, input),
-    deleteProductType: (id: number) => deleteNamed(kinds.productType, id),
-    /** The type whose normalized name matches, created when absent ("  shirt " reuses "Shirt"). */
-    ensureProductType: (name: string) => ensureNamed(kinds.productType, name),
-
     // ---------------------------------------------------------------- tags
 
-    listTags: (params: { page?: number; search?: string; locale?: string } = {}) => listNamed(kinds.tag, params),
-    createTag: (input: NamedInput) => createNamed(kinds.tag, input),
-    updateTag: (id: number, input: NamedInput) => updateNamed(kinds.tag, id, input),
-    deleteTag: (id: number) => deleteNamed(kinds.tag, id),
+    listTags,
+    createTag,
+    updateTag,
+    deleteTag,
     /** Ids for these names in order, deduplicated by normalized name; blanks skipped; missing created. */
     async ensureTags(names: string[]): Promise<number[]> {
       const seen = new Set<string>();
@@ -588,7 +542,7 @@ const EcommerceOrganizationService = ({ strapi }: { strapi: Core.Strapi }) => {
         const key = typeof name === 'string' ? nameKey(name) : '';
         if (!key || seen.has(key)) continue;
         seen.add(key);
-        const id = await ensureNamed(kinds.tag, name);
+        const id = await ensureTag(name);
         if (!ids.includes(id)) ids.push(id);
       }
       return ids;

@@ -15,7 +15,6 @@ import {
 import { Cross, Search } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchCategoryTree from '../../usecases/organization/fetchCategoryTree';
-import FetchProductTypes from '../../usecases/organization/fetchProductTypes';
 import FetchTags from '../../usecases/organization/fetchTags';
 import FetchCollections from '../../usecases/organization/fetchCollections';
 import { flattenTree, pathLabel } from '../../utils/categoryTree';
@@ -34,7 +33,7 @@ type Props = {
   errors: Partial<Record<OrganizationField, string>>;
   /** A field was edited: its error can be cleared. */
   onFieldEdit: (field: OrganizationField) => void;
-  /** Names of categories and types are shown in the default locale (as the product detail). */
+  /** Names of categories, tags and collections are shown in the default locale (as the product detail). */
   defaultLocale: string;
   /** New product: automated collections are only known after the first save. */
   isNew: boolean;
@@ -400,125 +399,6 @@ const CategoryField = ({
   );
 };
 
-// ------------------------------------------------------------------ product type
-
-const ProductTypeField = ({
-  value,
-  onChange,
-  error,
-  defaultLocale,
-  disabled,
-}: {
-  value: ProductOrganization['productType'];
-  onChange: (type: ProductOrganization['productType']) => void;
-  error?: string;
-  defaultLocale: string;
-  disabled?: boolean;
-}) => {
-  const { formatMessage } = useIntl();
-  const t = (id: string, values?: Record<string, any>) =>
-    formatMessage({ id: getTranslation(id) }, values);
-  const [term, setTerm] = useState(value?.name ?? '');
-  const [open, setOpen] = useState(false);
-
-  // The page reloads the product after a save: show the stored name.
-  useEffect(() => setTerm(value?.name ?? ''), [value?.id, value?.name]);
-
-  const search = useRemoteOptions(open, term === value?.name ? '' : term, (q) =>
-    new FetchProductTypes()
-      .execute({ search: q || undefined, locale: defaultLocale })
-      .then((page) => page.results.map(({ id, name }) => ({ id, name })))
-  );
-
-  const pick = (type: ProductOrganization['productType']) => {
-    onChange(type);
-    setTerm(type?.name ?? '');
-    setOpen(false);
-  };
-
-  const typed = term.trim().replace(/\s+/g, ' ');
-  const exact = search.results.find((r) => sameName(r.name, typed));
-  const rows: OptionRow[] = search.results.map((r) => ({
-    key: `t-${r.id}`,
-    content: <RowText>{r.name}</RowText>,
-    onPick: () => pick({ id: r.id, name: r.name }),
-  }));
-  if (typed && !exact && !search.loading && typed !== value?.name) {
-    rows.push({
-      key: 'create',
-      content: <RowText>{t(`${P}.productType.create`, { name: typed })}</RowText>,
-      onPick: () => pick({ name: typed }),
-    });
-  }
-  const highlight = useHighlight(rows);
-
-  const close = () => {
-    setOpen(false);
-    // Leaving without picking keeps the chosen type.
-    setTerm(value?.name ?? '');
-  };
-
-  const isNewType = !!value && value.id === undefined;
-
-  return (
-    <Field.Root
-      name="productType"
-      error={error}
-      hint={isNewType ? t(`${P}.productType.new`) : undefined}
-    >
-      <Field.Label>{t(`${P}.productType`)}</Field.Label>
-      <OptionsPopover
-        open={open}
-        onClose={close}
-        rows={rows}
-        active={highlight.active}
-        loading={search.loading}
-        error={search.error}
-        emptyText={search.searched ? t(`${P}.productType.empty`) : undefined}
-        anchor={
-          <TextInput
-            value={term}
-            placeholder={t(`${P}.productType.placeholder`)}
-            autoComplete="off"
-            disabled={disabled}
-            aria-haspopup="listbox"
-            aria-expanded={open}
-            onChange={(e: any) => {
-              setTerm(e.target.value);
-              setOpen(true);
-              highlight.setActive(-1);
-            }}
-            onFocus={() => setOpen(true)}
-            onBlur={close}
-            onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
-              if (e.key === 'Escape') close();
-              else
-                highlight.onKeyDown(e, () => {
-                  if (!typed) pick(null);
-                  else if (exact) pick(exact);
-                  else if (typed !== value?.name) pick({ name: typed });
-                });
-            }}
-            endAction={
-              value ? (
-                <Field.Action
-                  label={t(`${P}.productType.clear`)}
-                  onClick={() => pick(null)}
-                  disabled={disabled}
-                >
-                  <Cross />
-                </Field.Action>
-              ) : undefined
-            }
-          />
-        }
-      />
-      <Field.Error />
-      <Field.Hint />
-    </Field.Root>
-  );
-};
-
 // ------------------------------------------------------------------ collections
 
 const CollectionsField = ({
@@ -757,8 +637,8 @@ const TagsField = ({
 // ------------------------------------------------------------------ section body
 
 /**
- * The fields of "Product organization": category and type on the left; collections and
- * tags on the right (one column on small screens).
+ * The fields of "Product organization": category on the left and tags on the right; collections
+ * below across the full width (one column on small screens).
  */
 const ProductOrganizationSection = ({
   value,
@@ -781,42 +661,33 @@ const ProductOrganizationSection = ({
   return (
     <Grid.Root gap={6}>
       <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
-        <Flex direction="column" alignItems="stretch" gap={5}>
-          <CategoryField
-            value={value.category}
-            onChange={(next) => set('category', 'category', next)}
-            error={errors.category}
-            defaultLocale={defaultLocale}
-            disabled={disabled}
-          />
-          <ProductTypeField
-            value={value.productType}
-            onChange={(next) => set('productType', 'productType', next)}
-            error={errors.productType}
-            defaultLocale={defaultLocale}
-            disabled={disabled}
-          />
-        </Flex>
+        <CategoryField
+          value={value.category}
+          onChange={(next) => set('category', 'category', next)}
+          error={errors.category}
+          defaultLocale={defaultLocale}
+          disabled={disabled}
+        />
       </Grid.Item>
       <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
-        <Flex direction="column" alignItems="stretch" gap={5}>
-          <CollectionsField
-            value={value.collections}
-            automated={value.automatedCollections}
-            onChange={(next) => set('collections', 'collections', next)}
-            error={errors.collections}
-            defaultLocale={defaultLocale}
-            isNew={isNew}
-            disabled={disabled}
-          />
-          <TagsField
-            value={value.tags}
-            onChange={(next) => set('tags', 'tags', next)}
-            error={errors.tags}
-            defaultLocale={defaultLocale}
-            disabled={disabled}
-          />
-        </Flex>
+        <TagsField
+          value={value.tags}
+          onChange={(next) => set('tags', 'tags', next)}
+          error={errors.tags}
+          defaultLocale={defaultLocale}
+          disabled={disabled}
+        />
+      </Grid.Item>
+      <Grid.Item col={12} direction="column" alignItems="stretch">
+        <CollectionsField
+          value={value.collections}
+          automated={value.automatedCollections}
+          onChange={(next) => set('collections', 'collections', next)}
+          error={errors.collections}
+          defaultLocale={defaultLocale}
+          isNew={isNew}
+          disabled={disabled}
+        />
       </Grid.Item>
     </Grid.Root>
   );

@@ -75,7 +75,6 @@ export const BULK_PRODUCT_ACTIONS = [
   'addTag',
   'removeTag',
   'setCategory',
-  'setProductType',
   'addToCollection',
   'removeFromCollection',
 ] as const;
@@ -384,7 +383,6 @@ const EcommerceCollectionService = ({ strapi }: { strapi: Core.Strapi }) => {
   const EVALUATION_POPULATE = {
     translations: { select: ['locale', 'name'] },
     category: { select: ['id'] },
-    productType: { select: ['id'] },
     tags: { select: ['id'] },
     variants: { select: ['active', 'price', 'compareAtPrice', 'stock'] },
   };
@@ -399,7 +397,6 @@ const EcommerceCollectionService = ({ strapi }: { strapi: Core.Strapi }) => {
       active: p.active !== false,
       names: (p.translations ?? []).map((t: any) => t.name).filter((n: unknown) => typeof n === 'string'),
       categorySubtreeOf: (categoryId) => inCategory(categoryId, productCategoryId),
-      productTypeId: p.productType?.id ?? null,
       tagIds: (p.tags ?? []).map((t: any) => t.id),
       variants: (p.variants ?? []).map((v: any) => ({
         active: v.active !== false,
@@ -680,7 +677,7 @@ const EcommerceCollectionService = ({ strapi }: { strapi: Core.Strapi }) => {
           throw e;
         }
       })();
-      const nullable = action === 'setCategory' || action === 'setProductType';
+      const nullable = action === 'setCategory';
       if (!(isPositiveInt(value) || (nullable && value === null))) {
         invalid([{ path: 'value', code: 'invalid' }], 'Invalid bulk action');
       }
@@ -689,9 +686,7 @@ const EcommerceCollectionService = ({ strapi }: { strapi: Core.Strapi }) => {
           ? u.tag
           : action === 'setCategory'
             ? u.category
-            : action === 'setProductType'
-              ? u.productType
-              : u.collection;
+            : u.collection;
       if (value !== null) {
         const target = await strapi.db.query(targetUid).findOne({ where: { id: value } });
         if (!target) invalid([{ path: 'value', code: 'unknown' }], 'Invalid bulk action');
@@ -724,17 +719,15 @@ const EcommerceCollectionService = ({ strapi }: { strapi: Core.Strapi }) => {
             }
             return todo;
           }
-          case 'setCategory':
-          case 'setProductType': {
-            const field = action === 'setCategory' ? 'category' : 'productType';
+          case 'setCategory': {
             const rows: any[] = await products.findMany({
               where: { id: { $in: ids } },
               select: ['id'],
-              populate: { [field]: { select: ['id'] } },
+              populate: { category: { select: ['id'] } },
             });
-            const current = new Map(rows.map((r) => [r.id, r[field]?.id ?? null]));
+            const current = new Map(rows.map((r) => [r.id, r.category?.id ?? null]));
             const todo = ids.filter((id) => current.get(id) !== value);
-            for (const id of todo) await products.update({ where: { id }, data: { [field]: value } });
+            for (const id of todo) await products.update({ where: { id }, data: { category: value } });
             return todo;
           }
           case 'addToCollection':

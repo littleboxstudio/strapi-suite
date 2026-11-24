@@ -61,7 +61,7 @@ export const CONFLICT_CODES = [
   'REFUND_AMOUNT_DIFFERS',
   'REFUND_ITEMS_INVALID',
   'REFUND_ELEMENTS_UNAVAILABLE',
-  // Product organization: categories, product types, tags
+  // Product organization: categories, tags
   'CATEGORY_HAS_CHILDREN',
   'IN_USE_BY_COLLECTIONS',
   'NAME_TAKEN',

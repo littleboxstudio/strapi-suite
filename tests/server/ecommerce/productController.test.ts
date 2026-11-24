@@ -154,7 +154,7 @@ describe('EcommerceProductController.list filters', () => {
     const list = vi.fn().mockResolvedValue({ results: [] });
     const controller = setup({ EcommerceProductService: { list } });
     const ctx: any = {
-      query: { page: '2', categoryId: '3', productTypeId: '4', tagId: '5', collectionId: '6' },
+      query: { page: '2', categoryId: '3', tagId: '5', collectionId: '6' },
     };
     await controller.list(ctx);
     expect(list).toHaveBeenCalledWith({
@@ -162,7 +162,6 @@ describe('EcommerceProductController.list filters', () => {
       search: undefined,
       locale: undefined,
       categoryId: 3,
-      productTypeId: 4,
       tagId: 5,
       collectionId: 6,
     });

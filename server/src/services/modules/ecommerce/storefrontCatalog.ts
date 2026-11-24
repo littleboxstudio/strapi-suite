@@ -27,7 +27,6 @@ export type PublicNamed = { id: number; name: string };
 type PublicOrganization = {
   /** null without a category, or when it (or an ancestor) is inactive. */
   category: PublicProductCategory | null;
-  productType: PublicNamed | null;
   tags: PublicNamed[];
 };
 
@@ -143,16 +142,6 @@ const intParam = (raw: unknown, path: string, def: number, min: number, max: num
 };
 
 const isBlank = (raw: unknown) => raw === undefined || raw === null || raw === '';
-
-/** A positive integer id, or null when absent. */
-const idParam = (raw: unknown, path: string): number | null => {
-  if (isBlank(raw)) return null;
-  const text = typeof raw === 'number' ? String(raw) : raw;
-  if (typeof text !== 'string' || !/^\d{1,9}$/.test(text.trim()) || Number(text) < 1) {
-    return bad(path, 'invalid');
-  }
-  return Number(text);
-};
 
 /** Comma-separated positive integer ids (deduplicated), or null when absent. */
 const idListParam = (raw: unknown, path: string): number[] | null => {
@@ -342,7 +331,6 @@ const EcommerceStorefrontCatalogService = ({ strapi }: { strapi: Core.Strapi }) 
     });
     return {
       category: productCategory(nodes, p.category?.id, locale, defaultLocale),
-      productType: p.productType ? named(p.productType) : null,
       tags: (p.tags ?? [])
         .map(named)
         .sort((a: PublicNamed, b: PublicNamed) => a.name.localeCompare(b.name, locale) || a.id - b.id),
@@ -350,7 +338,6 @@ const EcommerceStorefrontCatalogService = ({ strapi }: { strapi: Core.Strapi }) 
   };
   const ORGANIZATION_POPULATE = {
     category: { select: ['id'] },
-    productType: { select: ['id'], populate: { translations: { select: ['locale', 'name'] } } },
     tags: { select: ['id'], populate: { translations: { select: ['locale', 'name'] } } },
   };
 
@@ -383,8 +370,6 @@ const EcommerceStorefrontCatalogService = ({ strapi }: { strapi: Core.Strapi }) 
       category?: unknown;
       /** Collection slug. */
       collection?: unknown;
-      /** Product type id. */
-      type?: unknown;
       /** Comma-separated tag ids: a product with any of them matches. */
       tag?: unknown;
       locale: string;
@@ -398,7 +383,6 @@ const EcommerceStorefrontCatalogService = ({ strapi }: { strapi: Core.Strapi }) 
       }
       const categorySlug = textParam(q.category, 'category');
       const collectionSlug = textParam(q.collection, 'collection');
-      const typeId = idParam(q.type, 'type');
       const tagIds = idListParam(q.tag, 'tag');
       // `sanitizeSearchTerm` strips `%`, `_` and `\`, so an underscore typed in the search is
       // dropped: a SKU such as `AB_1` is found by `AB1`-style fragments, not by the underscore.
@@ -423,7 +407,6 @@ const EcommerceStorefrontCatalogService = ({ strapi }: { strapi: Core.Strapi }) 
         ? await findCollection(collectionSlug, q.locale, defaultLocale)
         : null;
       if (collection) where.collectionMembers = { collection: { id: collection.id } };
-      if (typeId !== null) where.productType = { id: typeId };
       if (tagIds) where.tags = { id: { $in: tagIds } };
 
       // An explicit sort wins; with a collection, its own sort order; else newest.

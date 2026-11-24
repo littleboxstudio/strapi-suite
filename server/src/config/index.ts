@@ -63,8 +63,6 @@ export interface LtbConfigs {
         paymentMethodSuggestion: UID.ContentType;
         category: UID.ContentType;
         categoryTranslation: UID.ContentType;
-        productType: UID.ContentType;
-        productTypeTranslation: UID.ContentType;
         tag: UID.ContentType;
         tagTranslation: UID.ContentType;
         collection: UID.ContentType;
@@ -130,8 +128,6 @@ export default {
           paymentMethodSuggestion: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-payment-method-suggestion`,
           category: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-product-category`,
           categoryTranslation: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-product-category-translation`,
-          productType: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-product-type`,
-          productTypeTranslation: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-product-type-translation`,
           tag: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-product-tag`,
           tagTranslation: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-product-tag-translation`,
           collection: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-collection`,

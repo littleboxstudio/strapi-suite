@@ -3,7 +3,7 @@ import { PLUGIN_ID } from '../../../config';
 import { handleDomainError } from './errors';
 import { EcommerceNotFoundError } from '../../../services/modules/ecommerce/errors';
 
-/** Admin API for categories, product types and tags. */
+/** Admin API for categories and tags. */
 const EcommerceOrganizationController = ({ strapi }: { strapi: Core.Strapi }) => {
   const organization = (): any => strapi.plugin(PLUGIN_ID).service('EcommerceOrganizationService');
   /** The `:id` param; anything but a positive integer is a not-found. */
@@ -16,7 +16,6 @@ const EcommerceOrganizationController = ({ strapi }: { strapi: Core.Strapi }) =>
 
   const labels = {
     category: { invalid: 'Invalid category', notFound: 'Category not found' },
-    productType: { invalid: 'Invalid product type', notFound: 'Product type not found' },
     tag: { invalid: 'Invalid tag', notFound: 'Tag not found' },
   };
   type Label = keyof typeof labels;
@@ -62,11 +61,6 @@ const EcommerceOrganizationController = ({ strapi }: { strapi: Core.Strapi }) =>
     updateCategory: noContent('category', 'updateCategory'),
     moveCategory: noContent('category', 'moveCategory'),
     deleteCategory: noContent('category', 'deleteCategory', false),
-
-    listProductTypes: page('productType', 'listProductTypes'),
-    createProductType: created('productType', 'createProductType'),
-    updateProductType: noContent('productType', 'updateProductType'),
-    deleteProductType: noContent('productType', 'deleteProductType', false),
 
     listTags: page('tag', 'listTags'),
     createTag: created('tag', 'createTag'),

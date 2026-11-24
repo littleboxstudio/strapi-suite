@@ -13,7 +13,6 @@ const UIDS = {
   variant: `${P}variant`,
   image: `${P}image`,
   category: `${P}product-category`,
-  productType: `${P}product-type`,
   tag: `${P}product-tag`,
   collection: `${P}collection`,
   collectionTranslation: `${P}collection-translation`,
@@ -28,7 +27,6 @@ const RELATIONS: FakeRelations = {
     variants: [UIDS.variant, 'product'],
     images: [UIDS.image, 'product'],
     category: [UIDS.category, 'category', 'manyToOne'],
-    productType: [UIDS.productType, 'productType', 'manyToOne'],
     tags: [UIDS.tag, 'product_tags', 'manyToMany'],
     collectionMembers: [UIDS.collectionProduct, 'product'],
   },
@@ -429,17 +427,14 @@ describe('EcommerceCollectionService — bulk product actions', () => {
     expect(first.tags).toEqual([]);
   });
 
-  it('sets and clears the category and the product type', async () => {
+  it('sets and clears the category', async () => {
     const s = setup();
     const ids = [await s.product('A'), await s.product('B')];
     const category = (await s.q(UIDS.category).create({ data: { position: 0, active: true } })).id;
-    const type = (await s.q(UIDS.productType).create({ data: { key: 'shirt' } })).id;
     expect(await s.service.bulkProducts({ productIds: ids, action: 'setCategory', value: category })).toEqual({ updated: 2 });
-    expect(await s.service.bulkProducts({ productIds: ids, action: 'setProductType', value: type })).toEqual({ updated: 2 });
-    expect(s.db.tables[UIDS.product].map((p: any) => [p.category, p.productType])).toEqual([
-      [category, type],
-      [category, type],
-    ]);
+    expect(s.db.tables[UIDS.product].map((p: any) => p.category)).toEqual([category, category]);
+    // Already set: nothing changes.
+    expect(await s.service.bulkProducts({ productIds: ids, action: 'setCategory', value: category })).toEqual({ updated: 0 });
     expect(await s.service.bulkProducts({ productIds: ids, action: 'setCategory', value: null })).toEqual({ updated: 2 });
     expect(s.db.tables[UIDS.product].map((p: any) => p.category ?? null)).toEqual([null, null]);
   });

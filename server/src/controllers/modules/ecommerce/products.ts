@@ -40,7 +40,7 @@ const EcommerceProductController = ({ strapi }: { strapi: Core.Strapi }) => {
     async list(ctx: any) {
       const { page, search, locale } = ctx.query || {};
       const filters: Record<string, number> = {};
-      for (const key of ['categoryId', 'productTypeId', 'tagId', 'collectionId']) {
+      for (const key of ['categoryId', 'tagId', 'collectionId']) {
         const raw = ctx.query?.[key];
         const n = typeof raw === 'string' && /^\d+$/.test(raw) ? Number(raw) : NaN;
         if (Number.isSafeInteger(n) && n > 0) filters[key] = n;

@@ -35,9 +35,6 @@ export type ProductInput = {
   variants: VariantInput[];
   // Organization fields: omitted = unchanged on update (empty on create); null clears.
   categoryId?: number | null;
-  productTypeId?: number | null;
-  /** Used only when `productTypeId` is absent: reuses the type with the same name key, else creates it. */
-  productTypeName?: string | null;
   tagIds?: number[];
   /** Reused by name key or created; merged with `tagIds`. */
   tagNames?: string[];
@@ -198,17 +195,14 @@ const MAX_ORGANIZATION_LIST = 100;
 
 const isPositiveInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v > 0;
 
-/** Shape checks of category, type, tags and collections (existence is checked by the service). */
+/** Shape checks of category, tags and collections (existence is checked by the service). */
 function validateOrganizationFields(input: ProductInput): FieldError[] {
   const errors: FieldError[] = [];
   const tooLong = (value: unknown) => typeof value === 'string' && value.trim().length > MAX_STRING_LENGTH;
 
-  for (const field of ['categoryId', 'productTypeId'] as const) {
-    const value = input[field];
-    if (value !== undefined && value !== null && !isPositiveInt(value)) errors.push({ path: field, code: 'unknown' });
-  }
-  if (input.productTypeName !== undefined && input.productTypeName !== null && tooLong(input.productTypeName)) {
-    errors.push({ path: 'productTypeName', code: 'too_long' });
+  const categoryId = input.categoryId;
+  if (categoryId !== undefined && categoryId !== null && !isPositiveInt(categoryId)) {
+    errors.push({ path: 'categoryId', code: 'unknown' });
   }
   for (const field of ['tagIds', 'collectionIds'] as const) {
     const value = input[field];

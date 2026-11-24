@@ -249,7 +249,7 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   return {
-    /** GET /products?page=&pageSize=&search=&sort=&category=&collection=&type=&tag=&locale= */
+    /** GET /products?page=&pageSize=&search=&sort=&category=&collection=&tag=&locale= */
     async listProducts(ctx: any) {
       if (limited(ctx, 'catalog', { sessionId: null })) return;
       const q = ctx.query ?? {};
@@ -261,7 +261,6 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
           sort: q.sort,
           category: q.category,
           collection: q.collection,
-          type: q.type,
           tag: q.tag,
           locale: await resolveLocale(q.locale),
         }),

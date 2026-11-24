@@ -19,7 +19,6 @@ const MAX_CONDITION_TEXT_LENGTH = 255;
 export const COLLECTION_FIELDS: CollectionField[] = [
   'TITLE',
   'CATEGORY',
-  'PRODUCT_TYPE',
   'TAG',
   'PRICE',
   'COMPARE_AT_PRICE',
@@ -27,7 +26,7 @@ export const COLLECTION_FIELDS: CollectionField[] = [
 ];
 
 const TEXT_FIELDS: CollectionField[] = ['TITLE'];
-const ID_FIELDS: CollectionField[] = ['CATEGORY', 'PRODUCT_TYPE', 'TAG'];
+const ID_FIELDS: CollectionField[] = ['CATEGORY', 'TAG'];
 const MONEY_FIELDS: CollectionField[] = ['PRICE', 'COMPARE_AT_PRICE'];
 const TEXT_OPERATORS: CollectionOperator[] = ['eq', 'neq', 'contains', 'not_contains', 'starts_with', 'ends_with'];
 const ID_OPERATORS: CollectionOperator[] = ['eq', 'neq'];
@@ -258,7 +257,6 @@ export function previewInput(form: CollectionForm): { match: CollectionMatch; co
 export type CollectionLabels = {
   /** Category id -> full path ("Clothing > Shirts"). */
   categories?: Record<number, string>;
-  productTypes?: Record<number, string>;
   tags?: Record<number, string>;
   /** Cents to a price text. */
   money: (cents: number) => string;
@@ -284,8 +282,6 @@ function describeCondition(c: CollectionConditionForm, t: Translate, labels: Col
       return t(`${D}.fields.${c.field}`, { operator, value: value === null ? '…' : mark(String(value)) });
     case 'CATEGORY':
       return t(`${D}.fields.CATEGORY.${c.operator === 'neq' ? 'neq' : 'eq'}`, { value: named(labels.categories) });
-    case 'PRODUCT_TYPE':
-      return t(`${D}.fields.PRODUCT_TYPE.${c.operator === 'neq' ? 'neq' : 'eq'}`, { value: named(labels.productTypes) });
     case 'TAG':
       return t(`${D}.fields.TAG.${c.operator === 'neq' ? 'neq' : 'eq'}`, { value: named(labels.tags) });
     default:

@@ -22,7 +22,7 @@ import type {
 } from '../organizationTypes';
 
 /**
- * Product organization admin API: categories, product types, tags (routes
+ * Product organization admin API: categories, tags (routes
  * admin-organization) and collections plus bulk product actions (routes admin-collections).
  * Reads need products.read, changes products.manage.
  */
@@ -34,11 +34,6 @@ export default interface EcommerceOrganizationGateway {
   updateCategory(id: number, input: CategoryInput): Promise<void>;
   moveCategory(id: number, input: CategoryMoveInput): Promise<void>;
   deleteCategory(id: number): Promise<void>;
-  // product types
-  fetchProductTypes(params: NamedListParams): Promise<NamedPage>;
-  createProductType(input: NamedInput): Promise<{ id: number }>;
-  updateProductType(id: number, input: NamedInput): Promise<void>;
-  deleteProductType(id: number): Promise<void>;
   // tags
   fetchTags(params: NamedListParams): Promise<NamedPage>;
   createTag(input: NamedInput): Promise<{ id: number }>;
@@ -93,24 +88,6 @@ export class EcommerceOrganizationGatewayHttp implements EcommerceOrganizationGa
 
   async deleteCategory(id: number): Promise<void> {
     await this.httpClient.delete(`${this.base}/categories/${id}`);
-  }
-
-  // ---------------------------------------------------------------- product types
-
-  async fetchProductTypes(params: NamedListParams): Promise<NamedPage> {
-    return this.httpClient.get(`${this.base}/product-types${objectToQueryString(params)}`);
-  }
-
-  async createProductType(input: NamedInput): Promise<{ id: number }> {
-    return this.httpClient.post(`${this.base}/product-types`, input);
-  }
-
-  async updateProductType(id: number, input: NamedInput): Promise<void> {
-    await this.httpClient.put(`${this.base}/product-types/${id}`, input);
-  }
-
-  async deleteProductType(id: number): Promise<void> {
-    await this.httpClient.delete(`${this.base}/product-types/${id}`);
   }
 
   // ---------------------------------------------------------------- tags

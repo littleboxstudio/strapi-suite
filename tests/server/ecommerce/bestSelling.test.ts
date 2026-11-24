@@ -9,7 +9,6 @@ const UIDS = {
   variant: `${P}variant`,
   image: `${P}image`,
   category: `${P}product-category`,
-  productType: `${P}product-type`,
   tag: `${P}product-tag`,
   collection: `${P}collection`,
   collectionTranslation: `${P}collection-translation`,

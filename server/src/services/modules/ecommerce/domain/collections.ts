@@ -3,7 +3,6 @@ export const MAX_COLLECTION_CONDITIONS = 60;
 export type CollectionField =
   | 'TITLE'
   | 'CATEGORY'
-  | 'PRODUCT_TYPE'
   | 'TAG'
   | 'PRICE'
   | 'COMPARE_AT_PRICE'
@@ -36,14 +35,13 @@ export type CollectionSort = (typeof COLLECTION_SORTS)[number];
 const FIELDS: CollectionField[] = [
   'TITLE',
   'CATEGORY',
-  'PRODUCT_TYPE',
   'TAG',
   'PRICE',
   'COMPARE_AT_PRICE',
   'INVENTORY',
 ];
 const TEXT_FIELDS: CollectionField[] = ['TITLE'];
-const ID_FIELDS: CollectionField[] = ['CATEGORY', 'PRODUCT_TYPE', 'TAG'];
+const ID_FIELDS: CollectionField[] = ['CATEGORY', 'TAG'];
 
 const TEXT_OPERATORS: CollectionOperator[] = ['eq', 'neq', 'contains', 'not_contains', 'starts_with', 'ends_with'];
 const ID_OPERATORS: CollectionOperator[] = ['eq', 'neq'];
@@ -130,7 +128,6 @@ export type EvaluableProduct = {
   active: boolean;
   names: string[];
   categorySubtreeOf: (categoryId: number) => boolean;
-  productTypeId: number | null;
   tagIds: number[];
   variants: { active: boolean; price: number; compareAtPrice: number | null; stock: number }[];
 };
@@ -186,10 +183,6 @@ const conditionMatches = (p: EvaluableProduct, c: CollectionCondition): boolean 
     }
     case 'CATEGORY':
       return c.operator === 'neq' ? !p.categorySubtreeOf(Number(c.value)) : p.categorySubtreeOf(Number(c.value));
-    case 'PRODUCT_TYPE': {
-      const same = p.productTypeId === Number(c.value);
-      return c.operator === 'neq' ? !same : same;
-    }
     case 'TAG': {
       const has = p.tagIds.includes(Number(c.value));
       return c.operator === 'neq' ? !has : has;
@@ -221,13 +214,12 @@ export function productMatches(p: EvaluableProduct, conditions: CollectionCondit
 
 export function referencedIds(conditions: CollectionCondition[]): {
   categoryIds: number[];
-  productTypeIds: number[];
   tagIds: number[];
 } {
   const collect = (field: CollectionField) => [
     ...new Set(conditions.filter((c) => c.field === field).map((c) => Number(c.value))),
   ];
-  return { categoryIds: collect('CATEGORY'), productTypeIds: collect('PRODUCT_TYPE'), tagIds: collect('TAG') };
+  return { categoryIds: collect('CATEGORY'), tagIds: collect('TAG') };
 }
 
 export type SortableEntry = {

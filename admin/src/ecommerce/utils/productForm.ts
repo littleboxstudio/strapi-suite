@@ -29,8 +29,6 @@ export type FormCollection = { id: number; title: string };
 export type ProductOrganization = {
   /** `path` is the full label ("Clothing > Shirts > Linen"). */
   category: { id: number; path: string } | null;
-  /** Without an id: a new type, created by name on save. */
-  productType: { id?: number; name: string } | null;
   tags: FormTag[];
   /** MANUAL collections: the full set is sent. */
   collections: FormCollection[];
@@ -59,7 +57,6 @@ const blankTranslation = (): ProductTranslation => ({
 export function emptyOrganization(): ProductOrganization {
   return {
     category: null,
-    productType: null,
     tags: [],
     collections: [],
     automatedCollections: [],
@@ -86,10 +83,6 @@ function organizationFromDetail(detail: ProductDetail): ProductOrganization {
             id: detail.categoryId,
             path: (detail.categoryPath ?? []).map((c) => c.name).join(' > '),
           }
-        : null,
-    productType:
-      detail.productTypeId != null
-        ? { id: detail.productTypeId, name: detail.productTypeName ?? '' }
         : null,
     tags: (detail.tags ?? []).map(({ id, name }) => ({ id, name })),
     collections: pick('MANUAL'),
@@ -153,12 +146,8 @@ export function productFormFromDetail(detail: ProductDetail, localeCodes: string
  * names alone would replace the stored tags.
  */
 function organizationInput(org: ProductOrganization): Partial<ProductInput> {
-  const type = org.productType;
   return {
     categoryId: org.category?.id ?? null,
-    ...(type && type.id === undefined
-      ? { productTypeName: type.name.trim() }
-      : { productTypeId: type?.id ?? null }),
     tagIds: org.tags.filter((tag) => tag.id !== undefined).map((tag) => tag.id as number),
     tagNames: org.tags.filter((tag) => tag.id === undefined).map((tag) => tag.name),
     collectionIds: org.collections.map((c) => c.id),
@@ -228,11 +217,10 @@ export function scopedErrors(map: ErrorMap, prefix: string): ErrorMap {
 }
 
 /** Server paths of each organization field (per-item paths like `tagIds.1` included). */
-export type OrganizationField = 'category' | 'productType' | 'tags' | 'collections';
+export type OrganizationField = 'category' | 'tags' | 'collections';
 
 export const ORGANIZATION_ERROR_PATHS: Record<OrganizationField, string[]> = {
   category: ['categoryId'],
-  productType: ['productTypeId', 'productTypeName'],
   tags: ['tagIds', 'tagNames'],
   collections: ['collectionIds'],
 };

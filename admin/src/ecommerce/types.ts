@@ -32,9 +32,6 @@ export type ProductInput = {
   variants: VariantInput[];
   // Organization fields: omitted = unchanged on update (empty on create); null clears.
   categoryId?: number | null;
-  productTypeId?: number | null;
-  /** Used only when `productTypeId` is absent: reused by name or created. */
-  productTypeName?: string | null;
   tagIds?: number[];
   /** Reused by name or created; merged with `tagIds`. */
   tagNames?: string[];
@@ -44,7 +41,6 @@ export type ProductInput = {
 
 export type ProductListFilters = {
   categoryId?: number;
-  productTypeId?: number;
   tagId?: number;
   collectionId?: number;
 };
@@ -94,7 +90,7 @@ export type ProductListItem = {
 
 export type ProductDetail = Omit<
   ProductInput,
-  'variants' | 'categoryId' | 'productTypeId' | 'productTypeName' | 'tagIds' | 'tagNames' | 'collectionIds'
+  'variants' | 'categoryId' | 'tagIds' | 'tagNames' | 'collectionIds'
 > & {
   id: number;
   images: ImageRecord[];
@@ -103,8 +99,6 @@ export type ProductDetail = Omit<
   categoryId: number | null;
   /** Root first, names in the default locale. */
   categoryPath: { id: number; name: string }[];
-  productTypeId: number | null;
-  productTypeName: string | null;
   tags: { id: number; name: string }[];
   /** Manual and automated collections the product is in. */
   collections: { id: number; title: string; type: 'MANUAL' | 'AUTOMATED' }[];

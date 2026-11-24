@@ -47,7 +47,6 @@ const detail = (over: Partial<CollectionDetail> = {}): CollectionDetail => ({
     { field: 'COMPARE_AT_PRICE', operator: 'gt', value: 0 },
     { field: 'INVENTORY', operator: 'lt', value: -2 },
     { field: 'CATEGORY', operator: 'eq', value: 3 },
-    { field: 'PRODUCT_TYPE', operator: 'neq', value: 4 },
     { field: 'TAG', operator: 'eq', value: 5 },
   ],
   translations: {
@@ -73,8 +72,8 @@ describe('operatorsForField (mirrors the server)', () => {
     expect(operatorsForField('TITLE')).toEqual(['eq', 'neq', 'contains', 'not_contains', 'starts_with', 'ends_with']);
   });
 
-  it('category, type and tag take equals / not equals', () => {
-    for (const field of ['CATEGORY', 'PRODUCT_TYPE', 'TAG'] as const) {
+  it('category and tag take equals / not equals', () => {
+    for (const field of ['CATEGORY', 'TAG'] as const) {
       expect(operatorsForField(field)).toEqual(['eq', 'neq']);
     }
   });
@@ -89,7 +88,6 @@ describe('operatorsForField (mirrors the server)', () => {
     expect(COLLECTION_FIELDS).toEqual([
       'TITLE',
       'CATEGORY',
-      'PRODUCT_TYPE',
       'TAG',
       'PRICE',
       'COMPARE_AT_PRICE',
@@ -141,7 +139,7 @@ describe('type and sorting', () => {
 describe('form <-> input', () => {
   it('round-trips an automated collection (money in cents)', () => {
     const form = collectionFormFromDetail(detail(), LOCALES, 'en');
-    expect(form.conditions.map((c) => c.value)).toEqual(['linen', '49.99', '0.00', '-2', '3', '4', '5']);
+    expect(form.conditions.map((c) => c.value)).toEqual(['linen', '49.99', '0.00', '-2', '3', '5']);
     expect(form.translations.pt).toEqual({ title: '', slug: '', description: '', seoTitle: '', seoDescription: '' });
     expect(buildCollectionInput(form)).toEqual({
       type: 'AUTOMATED',
@@ -270,7 +268,6 @@ describe('previewInput', () => {
 describe('describeCollectionConditions', () => {
   const labels = {
     categories: { 3: 'Clothing > Shirts' },
-    productTypes: { 4: 'Gift card' },
     tags: { 5: 'Summer' },
   };
   const all = automated([
@@ -295,14 +292,14 @@ describe('describeCollectionConditions', () => {
 
   it('joins with "or" for any condition', () => {
     const text = describeCollectionConditions(
-      automated([cond('PRODUCT_TYPE', 'eq', '4'), cond('INVENTORY', 'gt', '0'), cond('TITLE', 'neq', 'Acme')], {
+      automated([cond('TAG', 'eq', '5'), cond('INVENTORY', 'gt', '0'), cond('TITLE', 'neq', 'Acme')], {
         match: 'ANY',
       }),
       tEn,
       { ...labels, money: (c) => formatCents(c, 'en') }
     );
     expect(text).toBe(
-      'Active products where its type is Gift card or an active variant’s inventory is greater than 0 or the title is not “Acme”.'
+      'Active products where it has the tag Summer or an active variant’s inventory is greater than 0 or the title is not “Acme”.'
     );
   });
 

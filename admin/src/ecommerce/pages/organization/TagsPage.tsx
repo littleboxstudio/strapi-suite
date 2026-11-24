@@ -6,8 +6,6 @@ import {
   Button,
   Field,
   Flex,
-  Grid,
-  IconButton,
   Loader,
   Modal,
   Searchbar,
@@ -22,19 +20,15 @@ import {
   Typography,
   VisuallyHidden,
 } from '@strapi/design-system';
-import { Pencil, Trash } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import ConfirmModal from '../../../components/ConfirmModal';
 import ListPagination from '../../components/ListPagination';
 import SearchFieldHeight from '../../components/SearchFieldHeight';
 import { LocaleSwitcher } from '../../components/LocaleSwitcher';
+import { HeaderActions } from '../../components/HeaderActions';
 import EmptyNote from '../../components/orders/EmptyNote';
 import NoticeBar from '../../components/orders/NoticeBar';
 import FetchEcommerceLocales from '../../usecases/fetchEcommerceLocales';
-import FetchProductTypes from '../../usecases/organization/fetchProductTypes';
-import CreateProductType from '../../usecases/organization/createProductType';
-import UpdateProductType from '../../usecases/organization/updateProductType';
-import DeleteProductType from '../../usecases/organization/deleteProductType';
 import FetchTags from '../../usecases/organization/fetchTags';
 import CreateTag from '../../usecases/organization/createTag';
 import UpdateTag from '../../usecases/organization/updateTag';
@@ -44,47 +38,19 @@ import {
   organizationFieldErrors,
   organizationIssues,
 } from '../../utils/organizationErrors';
-import type { NamedInput, NamedListItem, NamedListParams, NamedPage } from '../../organizationTypes';
+import type { NamedInput, NamedListItem } from '../../organizationTypes';
 
 const SEARCH_DEBOUNCE_MS = 300;
-
-type Kind = 'types' | 'tags';
-
-/** The calls behind each section. */
-const API: Record<
-  Kind,
-  {
-    list: (params: NamedListParams) => Promise<NamedPage>;
-    create: (input: NamedInput) => Promise<{ id: number }>;
-    update: (id: number, input: NamedInput) => Promise<void>;
-    remove: (id: number) => Promise<void>;
-  }
-> = {
-  types: {
-    list: (params) => new FetchProductTypes().execute(params),
-    create: (input) => new CreateProductType().execute(input),
-    update: (id, input) => new UpdateProductType().execute(id, input),
-    remove: (id) => new DeleteProductType().execute(id),
-  },
-  tags: {
-    list: (params) => new FetchTags().execute(params),
-    create: (input) => new CreateTag().execute(input),
-    update: (id, input) => new UpdateTag().execute(id, input),
-    remove: (id) => new DeleteTag().execute(id),
-  },
-};
 
 type Locales = { defaultLocale: string; locales: { code: string; name: string }[] };
 
 /** Add / rename: one name per locale (the default locale's is required). */
 const NameModal = ({
-  kind,
   item,
   locales,
   onClose,
   onSaved,
 }: {
-  kind: Kind;
   /** Null to add. */
   item: NamedListItem | null;
   locales: Locales;
@@ -94,7 +60,7 @@ const NameModal = ({
   const { formatMessage } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) => formatMessage({ id: getTranslation(id) }, values);
-  const p = 'ecommerce.organization.typesTags';
+  const p = 'ecommerce.organization.tags';
   const { defaultLocale } = locales;
 
   const [names, setNames] = useState<Record<string, string>>(() =>
@@ -124,9 +90,9 @@ const NameModal = ({
       const input: NamedInput = {
         translations: Object.fromEntries(Object.entries(names).map(([code, name]) => [code, { name }])),
       };
-      if (item) await API[kind].update(item.id, input);
-      else await API[kind].create(input);
-      toggleNotification({ type: 'success', message: t(`${p}.${kind}.saved`) });
+      if (item) await new UpdateTag().execute(item.id, input);
+      else await new CreateTag().execute(input);
+      toggleNotification({ type: 'success', message: t(`${p}.saved`) });
       onSaved();
     } catch (err) {
       const issues = organizationIssues(err);
@@ -142,7 +108,7 @@ const NameModal = ({
     <Modal.Root open onOpenChange={(next: boolean) => !next && onClose()}>
       <Modal.Content>
         <Modal.Header>
-          <Modal.Title>{t(item ? `${p}.${kind}.renameTitle` : `${p}.${kind}.addTitle`)}</Modal.Title>
+          <Modal.Title>{t(item ? `${p}.renameTitle` : `${p}.addTitle`)}</Modal.Title>
         </Modal.Header>
         <Modal.Body>
           <form
@@ -202,12 +168,12 @@ const NameModal = ({
   );
 };
 
-/** One searchable, paginated table (product types or tags) in its own section. */
-const NamedSection = ({ kind, locales }: { kind: Kind; locales: Locales }) => {
+/** The searchable, paginated tags table. */
+const TagsSection = ({ locales }: { locales: Locales }) => {
   const { formatMessage } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string, values?: Record<string, any>) => formatMessage({ id: getTranslation(id) }, values);
-  const p = 'ecommerce.organization.typesTags';
+  const p = 'ecommerce.organization.tags';
 
   const [items, setItems] = useState<NamedListItem[]>([]);
   const [pagination, setPagination] = useState({ page: 1, pageCount: 1 });
@@ -237,8 +203,8 @@ const NamedSection = ({ kind, locales }: { kind: Kind; locales: Locales }) => {
   useEffect(() => {
     const current = ++requestId.current;
     setLoading(true);
-    API[kind]
-      .list({ page, search: search.trim() || undefined })
+    new FetchTags()
+      .execute({ page, search: search.trim() || undefined })
       .then((data) => {
         if (current !== requestId.current) return;
         setItems(data.results ?? []);
@@ -251,7 +217,7 @@ const NamedSection = ({ kind, locales }: { kind: Kind; locales: Locales }) => {
         setError(true);
         setLoading(false);
       });
-  }, [kind, page, search, reloadKey]);
+  }, [page, search, reloadKey]);
 
   const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
@@ -262,8 +228,8 @@ const NamedSection = ({ kind, locales }: { kind: Kind; locales: Locales }) => {
     setBusy(true);
     setNotice(null);
     try {
-      await API[kind].remove(item.id);
-      toggleNotification({ type: 'success', message: t(`${p}.${kind}.deleted`) });
+      await new DeleteTag().execute(item.id);
+      toggleNotification({ type: 'success', message: t(`${p}.deleted`) });
       // The last row of a page: back one page.
       if (items.length === 1 && page > 1) setPage(page - 1);
       else reload();
@@ -280,16 +246,16 @@ const NamedSection = ({ kind, locales }: { kind: Kind; locales: Locales }) => {
   const noSearch = search === '' && searchTerm === '';
 
   return (
-    <Box background="neutral0" shadow="tableShadow" hasRadius padding={6} style={{ height: '100%' }}>
+    <Box background="neutral0" shadow="tableShadow" hasRadius padding={6}>
+      <HeaderActions>
+        <Button variant="secondary" onClick={() => setEditing('new')}>
+          {t(`${p}.add`)}
+        </Button>
+      </HeaderActions>
       <Flex direction="column" alignItems="stretch" gap={5}>
-        <Flex justifyContent="space-between" alignItems="center" gap={3} wrap="wrap">
-          <Typography variant="delta" tag="h2">
-            {t(`${p}.${kind}.title`)}
-          </Typography>
-          <Button size="S" variant="secondary" onClick={() => setEditing('new')}>
-            {t(`${p}.${kind}.add`)}
-          </Button>
-        </Flex>
+        <Typography variant="delta" tag="h2">
+          {t(`${p}.title`)}
+        </Typography>
 
         {notice && (
           <NoticeBar
@@ -306,7 +272,7 @@ const NamedSection = ({ kind, locales }: { kind: Kind; locales: Locales }) => {
         <SearchFieldHeight>
           <SearchForm onSubmit={(e: FormEvent) => e.preventDefault()}>
             <Searchbar
-              name={`search-${kind}`}
+              name="search-tags"
               value={searchTerm}
               onClear={() => {
                 setSearchTerm('');
@@ -315,9 +281,9 @@ const NamedSection = ({ kind, locales }: { kind: Kind; locales: Locales }) => {
               }}
               onChange={(e: any) => setSearchTerm(e.target.value)}
               clearLabel={t(`${p}.search.clear`)}
-              placeholder={t(`${p}.${kind}.search`)}
+              placeholder={t(`${p}.search`)}
             >
-              {t(`${p}.${kind}.search`)}
+              {t(`${p}.search`)}
             </Searchbar>
           </SearchForm>
         </SearchFieldHeight>
@@ -330,7 +296,7 @@ const NamedSection = ({ kind, locales }: { kind: Kind; locales: Locales }) => {
           </Flex>
         )}
 
-        {isEmpty && <EmptyNote>{t(noSearch ? `${p}.${kind}.empty` : `${p}.noResults`)}</EmptyNote>}
+        {isEmpty && <EmptyNote>{t(noSearch ? `${p}.empty` : `${p}.noResults`)}</EmptyNote>}
 
         {items.length > 0 && (
           <>
@@ -358,18 +324,13 @@ const NamedSection = ({ kind, locales }: { kind: Kind; locales: Locales }) => {
                       <Typography textColor="neutral800">{item.productCount}</Typography>
                     </Td>
                     <Td>
-                      <Flex gap={1} justifyContent="flex-end">
-                        <IconButton label={t(`${p}.rename`)} variant="ghost" onClick={() => setEditing(item)}>
-                          <Pencil />
-                        </IconButton>
-                        <IconButton
-                          label={t(`${p}.delete`)}
-                          variant="ghost"
-                          disabled={busy}
-                          onClick={() => setToDelete(item)}
-                        >
-                          <Trash />
-                        </IconButton>
+                      <Flex gap={2} justifyContent="flex-end">
+                        <Button variant="secondary" size="S" onClick={() => setEditing(item)}>
+                          {t(`${p}.edit`)}
+                        </Button>
+                        <Button variant="danger-light" size="S" disabled={busy} onClick={() => setToDelete(item)}>
+                          {t(`${p}.delete`)}
+                        </Button>
                       </Flex>
                     </Td>
                   </Tr>
@@ -383,7 +344,6 @@ const NamedSection = ({ kind, locales }: { kind: Kind; locales: Locales }) => {
 
       {editing && (
         <NameModal
-          kind={kind}
           item={editing === 'new' ? null : editing}
           locales={locales}
           onClose={() => setEditing(null)}
@@ -396,8 +356,8 @@ const NamedSection = ({ kind, locales }: { kind: Kind; locales: Locales }) => {
 
       <ConfirmModal
         open={!!toDelete}
-        title={t(`${p}.${kind}.deleteTitle`)}
-        text={t(`${p}.${kind}.deleteText`, { name: toDelete?.name ?? '' })}
+        title={t(`${p}.deleteTitle`)}
+        text={t(`${p}.deleteText`, { name: toDelete?.name ?? '' })}
         confirm={{ variant: 'danger-light', button: t(`${p}.delete`), action: remove }}
         cancel={{ button: t('ecommerce.organization.cancel'), action: () => setToDelete(null) }}
       />
@@ -405,7 +365,7 @@ const NamedSection = ({ kind, locales }: { kind: Kind; locales: Locales }) => {
   );
 };
 
-const TypesTagsPage = () => {
+const TagsPage = () => {
   const { formatMessage } = useIntl();
   const [locales, setLocales] = useState<Locales | null>(null);
   const [error, setError] = useState(false);
@@ -440,17 +400,7 @@ const TypesTagsPage = () => {
     );
   }
 
-  // Side by side, half each (one under the other on narrow screens).
-  return (
-    <Grid.Root gap={6}>
-      <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
-        <NamedSection kind="types" locales={locales} />
-      </Grid.Item>
-      <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
-        <NamedSection kind="tags" locales={locales} />
-      </Grid.Item>
-    </Grid.Root>
-  );
+  return <TagsSection locales={locales} />;
 };
 
-export { TypesTagsPage };
+export { TagsPage };

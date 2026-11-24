@@ -30,7 +30,7 @@ describe('organization translations', () => {
     expect(pt[`${PREFIX}errors.${code}`]).toEqual(expect.any(String));
   });
 
-  it.each(['categories', 'collections', 'types-tags'])('menu entry %s is translated', (key) => {
+  it.each(['categories', 'collections', 'tags'])('menu entry %s is translated', (key) => {
     expect(en[`littlebox-strapi-suite.ecommerce.menu.${key}`]).toEqual(expect.any(String));
     expect(pt[`littlebox-strapi-suite.ecommerce.menu.${key}`]).toEqual(expect.any(String));
   });

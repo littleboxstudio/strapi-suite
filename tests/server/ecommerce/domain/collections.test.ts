@@ -20,7 +20,6 @@ const product = (over: Partial<EvaluableProduct> = {}): EvaluableProduct => ({
   active: true,
   names: ['Linen Shirt', 'Camisa de Linho'],
   categorySubtreeOf: (id) => id === 5,
-  productTypeId: 7,
   tagIds: [3, 4],
   variants: [{ active: true, price: 2000, compareAtPrice: 2500, stock: 5 }],
   ...over,
@@ -36,7 +35,7 @@ const matches = (c: CollectionCondition, p = product()) => productMatches(p, [c]
 describe('operatorsForField', () => {
   it('lists operators per field kind', () => {
     expect(operatorsForField('TITLE')).toEqual(['eq', 'neq', 'contains', 'not_contains', 'starts_with', 'ends_with']);
-    for (const f of ['CATEGORY', 'PRODUCT_TYPE', 'TAG'] as const) expect(operatorsForField(f)).toEqual(['eq', 'neq']);
+    for (const f of ['CATEGORY', 'TAG'] as const) expect(operatorsForField(f)).toEqual(['eq', 'neq']);
     for (const f of ['PRICE', 'COMPARE_AT_PRICE', 'INVENTORY'] as const)
       expect(operatorsForField(f)).toEqual(['eq', 'neq', 'gt', 'lt', 'gte', 'lte']);
   });
@@ -58,20 +57,16 @@ describe('productMatches', () => {
     expect(matches(cond('TITLE', 'ends_with', 'linen'))).toBe(false);
   });
 
-  it('CATEGORY / PRODUCT_TYPE / TAG eq and neq', () => {
+  it('CATEGORY / TAG eq and neq', () => {
     expect(matches(cond('CATEGORY', 'eq', 5))).toBe(true);
     expect(matches(cond('CATEGORY', 'eq', 6))).toBe(false);
     expect(matches(cond('CATEGORY', 'neq', 6))).toBe(true);
     expect(matches(cond('CATEGORY', 'neq', 5))).toBe(false);
-    expect(matches(cond('PRODUCT_TYPE', 'eq', 7))).toBe(true);
-    expect(matches(cond('PRODUCT_TYPE', 'eq', 8))).toBe(false);
-    expect(matches(cond('PRODUCT_TYPE', 'neq', 8))).toBe(true);
-    expect(matches(cond('PRODUCT_TYPE', 'neq', 7))).toBe(false);
     expect(matches(cond('TAG', 'eq', 3))).toBe(true);
     expect(matches(cond('TAG', 'eq', 9))).toBe(false);
     expect(matches(cond('TAG', 'neq', 9))).toBe(true);
     expect(matches(cond('TAG', 'neq', 3))).toBe(false);
-    expect(matches(cond('PRODUCT_TYPE', 'neq', 7), product({ productTypeId: null }))).toBe(true);
+    expect(matches(cond('TAG', 'neq', 3), product({ tagIds: [] }))).toBe(true);
   });
 
   it.each([
@@ -229,6 +224,12 @@ describe('parseConditions', () => {
     ]);
   });
 
+  it('the retired product type field is an unknown field', () => {
+    expect(parseConditions([{ field: 'PRODUCT_TYPE', operator: 'eq', value: 7 }], 'ALL').errors).toEqual([
+      { path: 'conditions.0.field', code: 'invalid_field' },
+    ]);
+  });
+
   it('match must be ALL or ANY; defaults to ALL when absent', () => {
     expect(parseConditions([], 'SOME').errors).toEqual([{ path: 'match', code: 'invalid' }]);
     expect(parseConditions([], undefined)).toMatchObject({ match: 'ALL', errors: [] });
@@ -242,12 +243,11 @@ describe('referencedIds', () => {
         cond('CATEGORY', 'eq', 2),
         cond('CATEGORY', 'neq', 2),
         cond('CATEGORY', 'eq', 3),
-        cond('PRODUCT_TYPE', 'eq', 7),
         cond('TAG', 'eq', 1),
         cond('TITLE', 'eq', 'x'),
         cond('PRICE', 'gt', 100),
       ]),
-    ).toEqual({ categoryIds: [2, 3], productTypeIds: [7], tagIds: [1] });
+    ).toEqual({ categoryIds: [2, 3], tagIds: [1] });
   });
 });
 

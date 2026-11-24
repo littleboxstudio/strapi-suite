@@ -59,7 +59,6 @@ describe('emptyProductForm', () => {
       variants: [],
       organization: {
         category: null,
-        productType: null,
         tags: [],
         collections: [],
         automatedCollections: [],
@@ -78,8 +77,6 @@ describe('productFormFromDetail', () => {
       translations: { en: { name: 'Shirt', slug: 'shirt', description: '<p>x</p>' } },
       categoryId: null,
       categoryPath: [],
-      productTypeId: null,
-      productTypeName: null,
       tags: [],
       collections: [],
       variants: [
@@ -135,8 +132,6 @@ describe('productFormFromDetail', () => {
         { id: 2, name: 'Shirts' },
         { id: 3, name: 'Linen' },
       ],
-      productTypeId: 5,
-      productTypeName: 'Shirt',
       tags: [
         { id: 8, name: 'summer' },
         { id: 9, name: 'linen' },
@@ -149,7 +144,6 @@ describe('productFormFromDetail', () => {
     } as ProductDetail;
     expect(productFormFromDetail(detail, LOCALES).organization).toEqual({
       category: { id: 3, path: 'Clothing > Shirts > Linen' },
-      productType: { id: 5, name: 'Shirt' },
       tags: [
         { id: 8, name: 'summer' },
         { id: 9, name: 'linen' },
@@ -193,12 +187,10 @@ describe('buildProductInput', () => {
     const input = buildProductInput(form());
     expect(input).toMatchObject({
       categoryId: null,
-      productTypeId: null,
       tagIds: [],
       tagNames: [],
       collectionIds: [],
     });
-    expect('productTypeName' in input).toBe(false);
   });
 
   it('sends chosen organization values, existing tags as ids and new ones as names', () => {
@@ -206,7 +198,6 @@ describe('buildProductInput', () => {
       form({
         organization: {
           category: { id: 3, path: 'A > B' },
-          productType: { id: 5, name: 'Shirt' },
           tags: [{ id: 8, name: 'summer' }, { name: 'new one' }, { id: 9, name: 'linen' }],
           collections: [{ id: 11, title: 'Featured' }],
           automatedCollections: [{ id: 12, title: 'On sale' }],
@@ -215,21 +206,11 @@ describe('buildProductInput', () => {
     );
     expect(input).toMatchObject({
       categoryId: 3,
-      productTypeId: 5,
       tagIds: [8, 9],
       tagNames: ['new one'],
       // Automated memberships are computed by the server, never sent.
       collectionIds: [11],
     });
-    expect('productTypeName' in input).toBe(false);
-  });
-
-  it('sends a new product type by name, without an id', () => {
-    const input = buildProductInput(
-      form({ organization: { ...emptyOrganization(), productType: { name: ' Poster ' } } })
-    );
-    expect(input.productTypeName).toBe('Poster');
-    expect('productTypeId' in input).toBe(false);
   });
 
   it('keeps the compare-at price of the variants', () => {
@@ -315,8 +296,6 @@ describe('error mapping', () => {
     expect(organizationError(map, 'category')).toBe('unknown');
     expect(organizationError(map, 'tags')).toBe('unknown');
     expect(organizationError(map, 'collections')).toBe('automated_collection');
-    expect(organizationError(map, 'productType')).toBeUndefined();
-    expect(organizationError({ productTypeName: 'too_long' }, 'productType')).toBe('too_long');
     expect(organizationError({ 'tagNames.2': 'too_long' }, 'tags')).toBe('too_long');
   });
 

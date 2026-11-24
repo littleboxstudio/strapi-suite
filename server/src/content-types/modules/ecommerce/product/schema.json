@@ -40,12 +40,6 @@
       "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-product-category",
       "inversedBy": "products"
     },
-    "productType": {
-      "type": "relation",
-      "relation": "manyToOne",
-      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-product-type",
-      "inversedBy": "products"
-    },
     "tags": {
       "type": "relation",
       "relation": "manyToMany",

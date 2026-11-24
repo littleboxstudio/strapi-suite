@@ -8,8 +8,6 @@ const get = (n: string): any => (contentTypes as any)[`ltb-st-module-ecommerce-$
 const collections: Record<string, string> = {
   'product-category': 'ltb_st_module_ecommerce_product_categories',
   'product-category-translation': 'ltb_st_module_ecommerce_product_category_translations',
-  'product-type': 'ltb_st_module_ecommerce_product_types',
-  'product-type-translation': 'ltb_st_module_ecommerce_product_type_translations',
   'product-tag': 'ltb_st_module_ecommerce_product_tags',
   'product-tag-translation': 'ltb_st_module_ecommerce_product_tag_translations',
   collection: 'ltb_st_module_ecommerce_collections',
@@ -19,8 +17,6 @@ const collections: Record<string, string> = {
 const configKeys: Record<string, string> = {
   category: 'product-category',
   categoryTranslation: 'product-category-translation',
-  productType: 'product-type',
-  productTypeTranslation: 'product-type-translation',
   tag: 'product-tag',
   tagTranslation: 'product-tag-translation',
   collection: 'collection',
@@ -30,8 +26,6 @@ const configKeys: Record<string, string> = {
 const names: Record<string, string[]> = {
   'product-category': ['parent', 'children', 'position', 'active', 'translations', 'products'],
   'product-category-translation': ['category', 'locale', 'name', 'slug', 'description', 'seoTitle', 'seoDescription'],
-  'product-type': ['key', 'translations', 'products'],
-  'product-type-translation': ['productType', 'locale', 'name'],
   'product-tag': ['key', 'translations', 'products'],
   'product-tag-translation': ['tag', 'locale', 'name'],
   collection: ['type', 'sortOrder', 'active', 'match', 'conditions', 'translations', 'members'],
@@ -66,8 +60,6 @@ describe('ecommerce product organization content-types', () => {
       ['product-category', 'translations', 'product-category-translation', 'category'],
       ['product-category', 'children', 'product-category', 'parent'],
       ['product-category', 'products', 'product', 'category'],
-      ['product-type', 'translations', 'product-type-translation', 'productType'],
-      ['product-type', 'products', 'product', 'productType'],
       ['product-tag', 'translations', 'product-tag-translation', 'tag'],
       ['collection', 'translations', 'collection-translation', 'collection'],
       ['collection', 'members', 'collection-product', 'collection'],
@@ -96,12 +88,10 @@ describe('ecommerce product organization content-types', () => {
     const idx = (n: string, name: string, columns: string[]) =>
       expect(get(n).indexes).toContainEqual({ name, columns, type: 'unique' });
     idx('product-category-translation', 'ecommerce_category_tr_locale_slug_unique', ['locale', 'slug']);
-    idx('product-type', 'ecommerce_product_type_key_unique', ['key']);
     idx('product-tag', 'ecommerce_product_tag_key_unique', ['key']);
     idx('collection-translation', 'ecommerce_collection_tr_locale_slug_unique', ['locale', 'slug']);
     idx('collection-product', 'ecommerce_collection_product_unique_key_unique', ['unique_key']);
     expect(get('collection-product').attributes.uniqueKey).toMatchObject({ type: 'string', required: true, unique: true });
-    expect(get('product-type').attributes.key).toMatchObject({ type: 'string', required: true, unique: true });
     expect(get('product-tag').attributes.key).toMatchObject({ type: 'string', required: true, unique: true });
   });
 
@@ -128,7 +118,7 @@ describe('ecommerce product organization content-types', () => {
   it('product and variant gain fields', () => {
     const p = get('product').attributes;
     expect(p.category).toMatchObject({ relation: 'manyToOne', target: `${P}product-category`, inversedBy: 'products' });
-    expect(p.productType).toMatchObject({ relation: 'manyToOne', target: `${P}product-type`, inversedBy: 'products' });
+    expect(p.productType).toBeUndefined();
     expect(p.tags).toBeDefined();
     expect(p.collectionMembers).toBeDefined();
     const v = get('variant').attributes.compareAtPrice;

@@ -28,7 +28,7 @@ const MENU = [
   { key: 'products' },
   { key: 'categories' },
   { key: 'collections' },
-  { key: 'types-tags' },
+  { key: 'tags' },
   { key: 'orders' },
   { key: 'customers' },
   { key: 'promotions' },

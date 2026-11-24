@@ -78,8 +78,6 @@ describe('EcommerceOrganizationController', () => {
     'updateCategory',
     'moveCategory',
     'deleteCategory',
-    'updateProductType',
-    'deleteProductType',
     'updateTag',
     'deleteTag',
   ])('%s answers 404 for a non-positive-integer id', async (action) => {
@@ -93,17 +91,17 @@ describe('EcommerceOrganizationController', () => {
     expect(service[action]).not.toHaveBeenCalled();
   });
 
-  it('createProductType 201, updateProductType 204', async () => {
+  it('createTag 201, updateTag 204', async () => {
     const controller = setup({
-      createProductType: vi.fn().mockResolvedValue({ id: 2 }),
-      updateProductType: vi.fn().mockResolvedValue(undefined),
+      createTag: vi.fn().mockResolvedValue({ id: 2 }),
+      updateTag: vi.fn().mockResolvedValue(undefined),
     });
-    const ctx = ctxOf({ body: { translations: { en: { name: 'Shirt' } } } });
-    await controller.createProductType(ctx);
+    const ctx = ctxOf({ body: { translations: { en: { name: 'Sale' } } } });
+    await controller.createTag(ctx);
     expect(ctx.status).toBe(201);
     expect(ctx.body).toEqual({ id: 2 });
-    const ctx2 = ctxOf({ params: { id: '2' }, body: { translations: { en: { name: 'Shirts' } } } });
-    await controller.updateProductType(ctx2);
+    const ctx2 = ctxOf({ params: { id: '2' }, body: { translations: { en: { name: 'Sales' } } } });
+    await controller.updateTag(ctx2);
     expect(ctx2.status).toBe(204);
   });
 

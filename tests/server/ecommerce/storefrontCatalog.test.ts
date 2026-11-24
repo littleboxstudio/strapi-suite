@@ -15,8 +15,6 @@ const UIDS = {
   image: `${P}image`,
   category: `${P}product-category`,
   categoryTranslation: `${P}product-category-translation`,
-  productType: `${P}product-type`,
-  productTypeTranslation: `${P}product-type-translation`,
   tag: `${P}product-tag`,
   tagTranslation: `${P}product-tag-translation`,
   collection: `${P}collection`,
@@ -29,7 +27,6 @@ const RELATIONS: FakeRelations = {
     variants: [UIDS.variant, 'product'],
     images: [UIDS.image, 'product'],
     category: [UIDS.category, 'category', 'manyToOne'],
-    productType: [UIDS.productType, 'productType', 'manyToOne'],
     tags: [UIDS.tag, 'product_tags', 'manyToMany'],
     collectionMembers: [UIDS.collectionProduct, 'product'],
   },
@@ -41,7 +38,6 @@ const RELATIONS: FakeRelations = {
     parent: [UIDS.category, 'parent', 'manyToOne'],
     translations: [UIDS.categoryTranslation, 'category'],
   },
-  [UIDS.productType]: { translations: [UIDS.productTypeTranslation, 'productType'] },
   [UIDS.tag]: {
     translations: [UIDS.tagTranslation, 'tag'],
     products: [UIDS.product, 'product_tags', 'manyToMany'],
@@ -179,13 +175,6 @@ function setup(opts: { duplicateRows?: boolean } = {}) {
       tables[UIDS.categoryTranslation].push({ id: next(), category: id, locale, ...t });
     return id;
   };
-  const addType = (names: Record<string, string>) => {
-    const id = next();
-    tables[UIDS.productType].push({ id, key: names.en.toLowerCase() });
-    for (const [locale, name] of Object.entries(names))
-      tables[UIDS.productTypeTranslation].push({ id: next(), productType: id, locale, name });
-    return id;
-  };
   const addTag = (names: Record<string, string>) => {
     const id = next();
     tables[UIDS.tag].push({ id, key: names.en.toLowerCase() });
@@ -218,14 +207,13 @@ function setup(opts: { duplicateRows?: boolean } = {}) {
   };
   const organize = async (
     pid: number,
-    o: { category?: number; productType?: number; tags?: number[] }
+    o: { category?: number; tags?: number[] }
   ) => {
     const row = tables[UIDS.product].find((p: any) => p.id === pid);
     if (o.category !== undefined) row.category = o.category;
-    if (o.productType !== undefined) row.productType = o.productType;
     if (o.tags) await fake.query(UIDS.product).update({ where: { id: pid }, data: { tags: { set: o.tags } } });
   };
-  return { service, addProduct, tables, sold, addCategory, addType, addTag, addCollection, organize };
+  return { service, addProduct, tables, sold, addCategory, addTag, addCollection, organize };
 }
 
 const v = (sku: string, price = 1000, extra: any = {}) => ({ sku, price, ...extra });
@@ -548,30 +536,26 @@ describe('EcommerceStorefrontCatalogService', () => {
   });
 
   describe('product filters and sorts', () => {
-    it('type and tag (any of), combined with AND', async () => {
-      const { service, addProduct, addType, addTag, organize } = setup();
-      const shirt = addType({ en: 'Shirt' });
-      const mug = addType({ en: 'Mug' });
+    it('tag (any of), combined with the category by AND', async () => {
+      const { service, addProduct, addCategory, addTag, organize } = setup();
+      const shirts = addCategory({ texts: { en: { name: 'Shirts', slug: 'shirts' } } });
+      const mugs = addCategory({ texts: { en: { name: 'Mugs', slug: 'mugs' } } });
       const red = addTag({ en: 'Red' });
       const blue = addTag({ en: 'Blue' });
       const green = addTag({ en: 'Green' });
       const a = addProduct({ name: 'A', variants: [v('A1')] });
       const b = addProduct({ name: 'B', variants: [v('B1')] });
       const c = addProduct({ name: 'C', variants: [v('C1')] });
-      await organize(a, { productType: shirt, tags: [red] });
-      await organize(b, { productType: shirt, tags: [blue, green] });
-      await organize(c, { productType: mug, tags: [red, blue] });
+      await organize(a, { category: shirts, tags: [red] });
+      await organize(b, { category: shirts, tags: [blue, green] });
+      await organize(c, { category: mugs, tags: [red, blue] });
       const ids = async (q: any) => (await service.listProducts({ locale: 'en', ...q })).results.map((r) => r.id);
-      expect(await ids({ type: String(shirt) })).toEqual([b, a]);
       expect(await ids({ tag: String(red) })).toEqual([c, a]);
       expect(await ids({ tag: `${red},${green}` })).toEqual([c, b, a]);
-      expect(await ids({ type: String(shirt), tag: `${red},${green}` })).toEqual([b, a]);
-      expect(await ids({ type: String(mug), tag: `${green}` })).toEqual([]);
-      expect(await ids({ type: '999999' })).toEqual([]);
+      expect(await ids({ category: 'shirts', tag: `${red},${green}` })).toEqual([b, a]);
+      expect(await ids({ category: 'mugs', tag: `${green}` })).toEqual([]);
       expect(await ids({ tag: '999999' })).toEqual([]);
       const err = async (q: any) => (await service.listProducts({ locale: 'en', ...q }).catch((e: any) => e)).errors;
-      expect(await err({ type: 'x' })).toEqual([{ path: 'type', code: 'invalid' }]);
-      expect(await err({ type: '0' })).toEqual([{ path: 'type', code: 'invalid' }]);
       expect(await err({ tag: `${red},x` })).toEqual([{ path: 'tag', code: 'invalid' }]);
       expect(await err({ tag: `${red},,${blue}` })).toEqual([{ path: 'tag', code: 'invalid' }]);
       expect(await err({ category: ['a', 'b'] })).toEqual([{ path: 'category', code: 'invalid' }]);
@@ -591,11 +575,10 @@ describe('EcommerceStorefrontCatalogService', () => {
       expect(await ids('name_desc')).toEqual([d, c, b, a]);
     });
 
-    it('compareAtPrice only when above the price; category, type and tags on the answers', async () => {
-      const { service, addProduct, addCategory, addType, addTag, organize } = setup();
+    it('compareAtPrice only when above the price; category and tags on the answers', async () => {
+      const { service, addProduct, addCategory, addTag, organize } = setup();
       const root = addCategory({ texts: { en: { name: 'Home', slug: 'home' }, pt: { name: 'Casa', slug: 'casa' } } });
       const kid = addCategory({ texts: { en: { name: 'Mugs', slug: 'mugs' } }, parent: root });
-      const type = addType({ en: 'Mug', pt: 'Caneca' });
       const red = addTag({ en: 'Red', pt: 'Vermelho' });
       const big = addTag({ en: 'Big' });
       const p = addProduct({
@@ -608,7 +591,7 @@ describe('EcommerceStorefrontCatalogService', () => {
         ],
       });
       const q = addProduct({ name: 'Plain', variants: [v('Q1', 500, { compareAtPrice: 900 }), v('Q2', 600)] });
-      await organize(p, { category: kid, productType: type, tags: [red, big] });
+      await organize(p, { category: kid, tags: [red, big] });
       const list = await service.listProducts({ locale: 'pt', sort: 'name_asc' });
       const cup = list.results.find((r) => r.id === p)!;
       const plain = list.results.find((r) => r.id === q)!;
@@ -626,13 +609,12 @@ describe('EcommerceStorefrontCatalogService', () => {
       };
       expect(cup).toMatchObject({
         category,
-        productType: { id: type, name: 'Caneca' },
         tags: [
           { id: big, name: 'Big' },
           { id: red, name: 'Vermelho' },
         ],
       });
-      expect(plain).toMatchObject({ category: null, productType: null, tags: [] });
+      expect(plain).toMatchObject({ category: null, tags: [] });
       const detail = await service.getProduct('cup', 'pt');
       expect(detail.variants.map((x) => [x.sku, x.compareAtPrice])).toEqual([
         ['C1', 1500],
@@ -641,7 +623,6 @@ describe('EcommerceStorefrontCatalogService', () => {
       ]);
       expect(detail).toMatchObject({
         category,
-        productType: { id: type, name: 'Caneca' },
         tags: [
           { id: big, name: 'Big' },
           { id: red, name: 'Vermelho' },

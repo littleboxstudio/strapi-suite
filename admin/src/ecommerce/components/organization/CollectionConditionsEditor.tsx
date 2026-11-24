@@ -33,7 +33,6 @@ import type { CollectionField, CollectionMatch, CollectionOperator } from '../..
 export type ConditionOptions = {
   /** Every category, labelled with its full path, in tree order. */
   categories: { id: number; label: string }[];
-  productTypes: { id: number; label: string }[];
   tags: { id: number; label: string }[];
 };
 
@@ -50,7 +49,7 @@ type Props = {
 
 /**
  * An automated collection's conditions: "all" / "any", one row per condition (field, operator,
- * value with a picker for category, type and tag) and the plain-words sentence.
+ * value with a picker for category and tag) and the plain-words sentence.
  */
 const CollectionConditionsEditor = ({ match, conditions, onChange, errors, options, labels, disabled }: Props) => {
   const { formatMessage } = useIntl();
@@ -69,7 +68,7 @@ const CollectionConditionsEditor = ({ match, conditions, onChange, errors, optio
     onChange({ conditions: conditions.map((c, i) => (i === index ? row : c)) });
 
   const idOptions = (field: CollectionField) =>
-    field === 'CATEGORY' ? options.categories : field === 'PRODUCT_TYPE' ? options.productTypes : options.tags;
+    field === 'CATEGORY' ? options.categories : options.tags;
 
   const valueInput = (c: CollectionConditionForm, index: number) => {
     const path = `conditions.${index}.value`;
