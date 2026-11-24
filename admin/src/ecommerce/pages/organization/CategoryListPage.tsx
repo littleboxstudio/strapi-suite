@@ -7,11 +7,8 @@ import {
   Button,
   Field,
   Flex,
-  IconButton,
   Loader,
   Modal,
-  SingleSelect,
-  SingleSelectOption,
   Table,
   Tbody,
   Td,
@@ -21,25 +18,21 @@ import {
   Typography,
   VisuallyHidden,
 } from '@strapi/design-system';
-import { ArrowDown, ArrowUp, Folder, Pencil, Trash } from '@strapi/icons';
 import config from '../../../core/config';
 import { getTranslation } from '../../../core/utils/getTranslation';
-import ConfirmModal from '../../../components/ConfirmModal';
 import { HeaderActions } from '../../components/HeaderActions';
 import EmptyNote from '../../components/orders/EmptyNote';
 import NoticeBar from '../../components/orders/NoticeBar';
 import { ToneBadge } from '../../components/orders/StatusBadges';
 import FetchCategoryTree from '../../usecases/organization/fetchCategoryTree';
 import MoveCategory from '../../usecases/organization/moveCategory';
-import DeleteCategory from '../../usecases/organization/deleteCategory';
 import { flattenTree, parentOptions } from '../../utils/categoryTree';
 import { organizationErrorMessage } from '../../utils/organizationErrors';
+import { ParentCategorySelect } from '../../components/organization/ParentCategorySelect';
 import type { CategoryTreeNode } from '../../organizationTypes';
 
 /** Indentation per tree level, in px. */
 const INDENT = 24;
-/** The parent select's value for "no parent". */
-const ROOT = 'root';
 
 const CategoryListPage = () => {
   const { formatMessage } = useIntl();
@@ -53,11 +46,10 @@ const CategoryListPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [busy, setBusy] = useState(false);
-  /** A refused delete or move: the server's reason. */
+  /** A refused move: the server's reason. */
   const [notice, setNotice] = useState<string | null>(null);
-  const [toDelete, setToDelete] = useState<CategoryTreeNode | null>(null);
   const [toMove, setToMove] = useState<CategoryTreeNode | null>(null);
-  const [moveParent, setMoveParent] = useState<string>(ROOT);
+  const [moveParent, setMoveParent] = useState<number | null>(null);
   const requestId = useRef(0);
 
   const load = useCallback(() => {
@@ -107,7 +99,7 @@ const CategoryListPage = () => {
   };
 
   const openMoveTo = (node: CategoryTreeNode) => {
-    setMoveParent(node.parentId === null ? ROOT : String(node.parentId));
+    setMoveParent(node.parentId);
     setToMove(node);
   };
 
@@ -116,28 +108,11 @@ const CategoryListPage = () => {
     const node = toMove;
     setToMove(null);
     if (!node) return;
-    const parentId = moveParent === ROOT ? null : Number(moveParent);
+    const parentId = moveParent;
     if (parentId === node.parentId) return;
     const siblings =
       parentId === null ? tree : (rows.find((r) => r.node.id === parentId)?.node.children ?? []);
     await move(node, parentId, siblings.length);
-  };
-
-  const remove = async () => {
-    const node = toDelete;
-    setToDelete(null);
-    if (!node || busy) return;
-    setBusy(true);
-    setNotice(null);
-    try {
-      await new DeleteCategory().execute(node.id);
-      toggleNotification({ type: 'success', message: t(`${p}.deleted`) });
-      load();
-    } catch (err) {
-      showError(err, `${p}.deleteError`);
-    } finally {
-      setBusy(false);
-    }
   };
 
   const create = () => navigate(`${basePath}/new`);
@@ -193,7 +168,7 @@ const CategoryListPage = () => {
                 </Tr>
               </Thead>
               <Tbody>
-                {rows.map(({ node, depth, index, siblingCount }) => (
+                {rows.map(({ node, depth }) => (
                   <Tr key={node.id} style={{ opacity: loading || busy ? 0.5 : 1 }}>
                     <Td>
                       <Box style={{ paddingLeft: depth * INDENT }}>
@@ -225,46 +200,13 @@ const CategoryListPage = () => {
                       )}
                     </Td>
                     <Td>
-                      <Flex gap={1} justifyContent="flex-end">
-                        <IconButton
-                          label={t(`${p}.moveUp`)}
-                          variant="ghost"
-                          disabled={busy || loading || index === 0}
-                          onClick={() => move(node, node.parentId, index - 1)}
-                        >
-                          <ArrowUp />
-                        </IconButton>
-                        <IconButton
-                          label={t(`${p}.moveDown`)}
-                          variant="ghost"
-                          disabled={busy || loading || index === siblingCount - 1}
-                          onClick={() => move(node, node.parentId, index + 1)}
-                        >
-                          <ArrowDown />
-                        </IconButton>
-                        <IconButton
-                          label={t(`${p}.moveTo`)}
-                          variant="ghost"
-                          disabled={busy}
-                          onClick={() => openMoveTo(node)}
-                        >
-                          <Folder />
-                        </IconButton>
-                        <IconButton
-                          label={t(`${p}.edit`)}
-                          variant="ghost"
-                          onClick={() => navigate(`${basePath}/${node.id}`)}
-                        >
-                          <Pencil />
-                        </IconButton>
-                        <IconButton
-                          label={t(`${p}.delete`)}
-                          variant="ghost"
-                          disabled={busy}
-                          onClick={() => setToDelete(node)}
-                        >
-                          <Trash />
-                        </IconButton>
+                      <Flex gap={2} justifyContent="flex-end">
+                        <Button variant="secondary" size="S" disabled={busy} onClick={() => openMoveTo(node)}>
+                          {t(`${p}.moveTo`)}
+                        </Button>
+                        <Button variant="tertiary" size="S" onClick={() => navigate(`${basePath}/${node.id}`)}>
+                          {t(`${p}.edit`)}
+                        </Button>
                       </Flex>
                     </Td>
                   </Tr>
@@ -275,14 +217,6 @@ const CategoryListPage = () => {
         </Flex>
       </Box>
 
-      <ConfirmModal
-        open={!!toDelete}
-        title={t(`${p}.deleteTitle`)}
-        text={t(`${p}.deleteText`, { name: toDelete?.name ?? '' })}
-        confirm={{ variant: 'danger-light', button: t(`${p}.delete`), action: remove }}
-        cancel={{ button: t('ecommerce.organization.cancel'), action: () => setToDelete(null) }}
-      />
-
       {toMove && (
         <Modal.Root open onOpenChange={(next: boolean) => !next && setToMove(null)}>
           <Modal.Content>
@@ -292,14 +226,11 @@ const CategoryListPage = () => {
             <Modal.Body>
               <Field.Root name="parentId" hint={t(`${p}.moveHint`)}>
                 <Field.Label>{t('ecommerce.organization.category.parent')}</Field.Label>
-                <SingleSelect value={moveParent} onChange={(value: string | number) => setMoveParent(String(value))}>
-                  <SingleSelectOption value={ROOT}>{t('ecommerce.organization.category.root')}</SingleSelectOption>
-                  {parentOptions(tree, toMove.id).map((option) => (
-                    <SingleSelectOption key={option.id} value={String(option.id)}>
-                      {option.label}
-                    </SingleSelectOption>
-                  ))}
-                </SingleSelect>
+                <ParentCategorySelect
+                  value={moveParent}
+                  options={parentOptions(tree, toMove.id)}
+                  onChange={setMoveParent}
+                />
                 <Field.Hint />
               </Field.Root>
             </Modal.Body>

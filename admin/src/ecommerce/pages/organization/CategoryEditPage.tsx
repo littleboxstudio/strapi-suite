@@ -9,8 +9,6 @@ import {
   Flex,
   IconButton,
   Loader,
-  SingleSelect,
-  SingleSelectOption,
   Textarea,
   TextInput,
   Typography,
@@ -29,6 +27,7 @@ import FetchCategoryTree from '../../usecases/organization/fetchCategoryTree';
 import SaveCategory from '../../usecases/organization/saveCategory';
 import DeleteCategory from '../../usecases/organization/deleteCategory';
 import { parentOptions } from '../../utils/categoryTree';
+import { ParentCategorySelect } from '../../components/organization/ParentCategorySelect';
 import { followNameSlug, validateCategoryTexts } from '../../utils/categoryForm';
 import {
   organizationErrorMessage,
@@ -36,8 +35,6 @@ import {
   organizationIssues,
 } from '../../utils/organizationErrors';
 import type { CategoryDetail, CategoryInput, CategoryTreeNode } from '../../organizationTypes';
-
-const ROOT = 'root';
 
 const TEXT_FIELDS = ['name', 'slug', 'description', 'seoTitle', 'seoDescription'] as const;
 type TextField = (typeof TEXT_FIELDS)[number];
@@ -343,20 +340,13 @@ const CategoryEditPage = () => {
           {textField('slug', { hint: t(`${p}.slug.hint`) })}
           <Field.Root name="parentId" error={errorText('parentId')} hint={t(`${p}.parent.hint`)}>
             <Field.Label>{t(`${p}.parent`)}</Field.Label>
-            <SingleSelect
-              value={form.parentId === null ? ROOT : String(form.parentId)}
+            <ParentCategorySelect
+              value={form.parentId}
+              options={parentOptions(tree, detail?.id)}
               hasError={!!errors.parentId}
-              onChange={(value: string | number) =>
-                update({ parentId: String(value) === ROOT ? null : Number(value) }, 'parentId')
-              }
-            >
-              <SingleSelectOption value={ROOT}>{t(`${p}.root`)}</SingleSelectOption>
-              {parentOptions(tree, detail?.id).map((option) => (
-                <SingleSelectOption key={option.id} value={String(option.id)}>
-                  {option.label}
-                </SingleSelectOption>
-              ))}
-            </SingleSelect>
+              disabled={saving}
+              onChange={(parentId) => update({ parentId }, 'parentId')}
+            />
             <Field.Error />
             <Field.Hint />
           </Field.Root>
