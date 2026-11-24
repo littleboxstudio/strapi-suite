@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useNotification } from '@strapi/strapi/admin';
@@ -29,7 +29,7 @@ import FetchCategoryTree from '../../usecases/organization/fetchCategoryTree';
 import SaveCategory from '../../usecases/organization/saveCategory';
 import DeleteCategory from '../../usecases/organization/deleteCategory';
 import { parentOptions } from '../../utils/categoryTree';
-import { validateCategoryTexts } from '../../utils/categoryForm';
+import { followNameSlug, validateCategoryTexts } from '../../utils/categoryForm';
 import {
   organizationErrorMessage,
   organizationFieldErrors,
@@ -37,21 +37,8 @@ import {
 } from '../../utils/organizationErrors';
 import type { CategoryDetail, CategoryInput, CategoryTreeNode } from '../../organizationTypes';
 
-const Section = ({ title, actions, children }: { title: string; actions?: ReactNode; children: ReactNode }) => (
-  <Box background="neutral0" shadow="tableShadow" hasRadius padding={6}>
-    <Flex direction="column" alignItems="stretch" gap={5}>
-      <Flex justifyContent="space-between" alignItems="center" gap={3} wrap="wrap">
-        <Typography variant="delta" tag="h2">
-          {title}
-        </Typography>
-        {actions}
-      </Flex>
-      {children}
-    </Flex>
-  </Box>
-);
-
 const ROOT = 'root';
+
 const TEXT_FIELDS = ['name', 'slug', 'description', 'seoTitle', 'seoDescription'] as const;
 type TextField = (typeof TEXT_FIELDS)[number];
 type TranslationForm = Record<TextField, string>;
@@ -60,6 +47,12 @@ type CategoryForm = {
   active: boolean;
   translations: Record<string, TranslationForm>;
 };
+
+/** Sets one text; the slug follows the name until it is edited by hand. */
+const withText = (tr: TranslationForm, field: TextField, value: string): TranslationForm =>
+  field === 'name'
+    ? { ...tr, name: value, slug: followNameSlug(tr.name, tr.slug, value) }
+    : { ...tr, [field]: value };
 
 const emptyTranslation = (): TranslationForm => ({
   name: '',
@@ -205,7 +198,7 @@ const CategoryEditPage = () => {
             ...f,
             translations: {
               ...f.translations,
-              [activeLocale]: { ...(f.translations[activeLocale] ?? emptyTranslation()), [field]: value },
+              [activeLocale]: withText(f.translations[activeLocale] ?? emptyTranslation(), field, value),
             },
           }
         : f
@@ -306,6 +299,14 @@ const CategoryEditPage = () => {
             {t(`${p}.delete`)}
           </Button>
         )}
+        {/* As the product's Enable / Disable: red to disable, green to enable (stored on Save). */}
+        <Button
+          variant={form.active ? 'danger-light' : 'success-light'}
+          disabled={saving}
+          onClick={() => update({ active: !form.active }, 'active')}
+        >
+          {t(form.active ? `${p}.disable` : `${p}.enable`)}
+        </Button>
         <Button variant="secondary" onClick={save} loading={saving}>
           {t(`${p}.save`)}
         </Button>
@@ -323,71 +324,56 @@ const CategoryEditPage = () => {
         />
       )}
 
-      <Section
-        title={t(`${p}.sections.general`)}
-        actions={
-          // As the product's Enable / Disable: red to disable, green to enable (stored on Save).
-          <Button
-            size="S"
-            variant={form.active ? 'danger-light' : 'success-light'}
-            disabled={saving}
-            onClick={() => update({ active: !form.active }, 'active')}
-          >
-            {t(form.active ? `${p}.disable` : `${p}.enable`)}
-          </Button>
-        }
-      >
-        <Field.Root name="parentId" error={errorText('parentId')} hint={t(`${p}.parent.hint`)}>
-          <Field.Label>{t(`${p}.parent`)}</Field.Label>
-          <SingleSelect
-            value={form.parentId === null ? ROOT : String(form.parentId)}
-            hasError={!!errors.parentId}
-            onChange={(value: string | number) =>
-              update({ parentId: String(value) === ROOT ? null : Number(value) }, 'parentId')
-            }
-          >
-            <SingleSelectOption value={ROOT}>{t(`${p}.root`)}</SingleSelectOption>
-            {parentOptions(tree, detail?.id).map((option) => (
-              <SingleSelectOption key={option.id} value={String(option.id)}>
-                {option.label}
-              </SingleSelectOption>
-            ))}
-          </SingleSelect>
-          <Field.Error />
-          <Field.Hint />
-        </Field.Root>
-
-        {errors.active && (
-          <Typography variant="pi" textColor="danger600" role="alert">
-            {errorText('active')}
-          </Typography>
-        )}
-      </Section>
-
-      <Section title={t(`${p}.sections.texts`)}>
-        <LocaleSwitcher
-          locales={locales}
-          defaultLocale={defaultLocale}
-          value={activeLocale}
-          onChange={setActiveLocale}
-          isFilled={(code) => !!form.translations[code]?.name.trim()}
-          label={t('ecommerce.organization.locale')}
-        />
-        {errors[`translations.${activeLocale}`] && (
-          <Typography variant="pi" textColor="danger600" role="alert">
-            {errorText(`translations.${activeLocale}`)}
-          </Typography>
-        )}
-        {textField('name', { required: isDefault, hint: fallbackHint })}
-        {textField('slug', { hint: t(`${p}.slug.hint`) })}
-        <Field.Root name="description" error={errorText(`translations.${activeLocale}.description`)}>
-          <Field.Label>{t(`${p}.description`)}</Field.Label>
-          <Textarea value={current.description} onChange={(e: any) => setText('description', e.target.value)} />
-          <Field.Error />
-        </Field.Root>
-        {textField('seoTitle')}
-        {textField('seoDescription')}
-      </Section>
+      <Box background="neutral0" shadow="tableShadow" hasRadius padding={6}>
+        <Flex direction="column" alignItems="stretch" gap={5}>
+          <LocaleSwitcher
+            locales={locales}
+            defaultLocale={defaultLocale}
+            value={activeLocale}
+            onChange={setActiveLocale}
+            isFilled={(code) => !!form.translations[code]?.name.trim()}
+            label={t('ecommerce.organization.locale')}
+          />
+          {errors[`translations.${activeLocale}`] && (
+            <Typography variant="pi" textColor="danger600" role="alert">
+              {errorText(`translations.${activeLocale}`)}
+            </Typography>
+          )}
+          {textField('name', { required: isDefault, hint: fallbackHint })}
+          {textField('slug', { hint: t(`${p}.slug.hint`) })}
+          <Field.Root name="parentId" error={errorText('parentId')} hint={t(`${p}.parent.hint`)}>
+            <Field.Label>{t(`${p}.parent`)}</Field.Label>
+            <SingleSelect
+              value={form.parentId === null ? ROOT : String(form.parentId)}
+              hasError={!!errors.parentId}
+              onChange={(value: string | number) =>
+                update({ parentId: String(value) === ROOT ? null : Number(value) }, 'parentId')
+              }
+            >
+              <SingleSelectOption value={ROOT}>{t(`${p}.root`)}</SingleSelectOption>
+              {parentOptions(tree, detail?.id).map((option) => (
+                <SingleSelectOption key={option.id} value={String(option.id)}>
+                  {option.label}
+                </SingleSelectOption>
+              ))}
+            </SingleSelect>
+            <Field.Error />
+            <Field.Hint />
+          </Field.Root>
+          <Field.Root name="description" error={errorText(`translations.${activeLocale}.description`)}>
+            <Field.Label>{t(`${p}.description`)}</Field.Label>
+            <Textarea value={current.description} onChange={(e: any) => setText('description', e.target.value)} />
+            <Field.Error />
+          </Field.Root>
+          {textField('seoTitle')}
+          {textField('seoDescription')}
+          {errors.active && (
+            <Typography variant="pi" textColor="danger600" role="alert">
+              {errorText('active')}
+            </Typography>
+          )}
+        </Flex>
+      </Box>
 
       <ConfirmModal
         open={confirmDelete}

@@ -148,14 +148,20 @@ describe('EcommerceOrganizationService — categories', () => {
     expect(detail.translations.en).toMatchObject({ name: 'Linen shirts', slug: 'linen' });
   });
 
-  it('refuses an explicit slug taken by another category in the same locale', async () => {
+  it('adds -2, -3, … to an explicit slug taken by another category in the same locale', async () => {
     const { service } = setup();
     await service.createCategory(cat('Linen'));
-    await expectIssue(
-      service.createCategory(cat('Other', null, { translations: { en: { name: 'Other', slug: 'linen' } } })),
-      'translations.en.slug',
-      'duplicate_slug'
+    const b = await service.createCategory(
+      cat('Other', null, { translations: { en: { name: 'Other', slug: 'linen' } } })
     );
+    expect((await service.getCategory(b.id)).translations.en.slug).toBe('linen-2');
+    const c = await service.createCategory(
+      cat('Third', null, { translations: { en: { name: 'Third', slug: 'linen' } } })
+    );
+    expect((await service.getCategory(c.id)).translations.en.slug).toBe('linen-3');
+    // Its own slug is not "taken": saving it unchanged keeps it.
+    await service.updateCategory(b.id, cat('Other', null, { translations: { en: { name: 'Other', slug: 'linen-2' } } }));
+    expect((await service.getCategory(b.id)).translations.en.slug).toBe('linen-2');
   });
 
   it('refuses an unknown parent', async () => {

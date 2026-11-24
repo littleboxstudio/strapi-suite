@@ -206,7 +206,6 @@ const EcommerceOrganizationService = ({ strapi }: { strapi: Core.Strapi }) => {
   const saveCategoryTranslations = async (categoryId: number, translations: Translations<CategoryTranslationInput>) => {
     const u = uids();
     const q = strapi.db.query(u.categoryTranslation);
-    const errors: ValidationIssue[] = [];
     for (const [locale, t] of Object.entries(translations ?? {})) {
       if (isBlank(t?.name as any)) {
         await q.deleteMany({ where: { category: categoryId, locale } });
@@ -227,11 +226,8 @@ const EcommerceOrganizationService = ({ strapi }: { strapi: Core.Strapi }) => {
       ).map((r: any) => r.slug);
       let slug: string;
       if (requested) {
-        if (taken.includes(requested)) {
-          errors.push({ path: `translations.${locale}.slug`, code: 'duplicate_slug' });
-          continue;
-        }
-        slug = requested;
+        // Taken by another category in this locale: "-2", "-3", … is added.
+        slug = resolveUniqueSlug(requested, taken);
       } else if (existing?.slug) {
         // Stable once set.
         slug = existing.slug;
@@ -241,7 +237,6 @@ const EcommerceOrganizationService = ({ strapi }: { strapi: Core.Strapi }) => {
       if (existing) await q.update({ where: { id: existing.id }, data: { ...data, slug } });
       else await q.create({ data: { ...data, slug } });
     }
-    if (errors.length) invalid(errors, 'Invalid category');
   };
 
   // ------------------------------------------------------------------ types and tags
