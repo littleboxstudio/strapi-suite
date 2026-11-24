@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNavigate } from 'react-router-dom';
 import { useNotification } from '@strapi/strapi/admin';
@@ -8,6 +8,8 @@ import {
   Field,
   Flex,
   Loader,
+  Searchbar,
+  SearchForm,
   Modal,
   Table,
   Tbody,
@@ -27,7 +29,8 @@ import { ToneBadge } from '../../components/orders/StatusBadges';
 import FetchCategoryTree from '../../usecases/organization/fetchCategoryTree';
 import MoveCategory from '../../usecases/organization/moveCategory';
 import DeleteCategory from '../../usecases/organization/deleteCategory';
-import { flattenTree, parentOptions } from '../../utils/categoryTree';
+import { flattenTree, parentOptions, pathLabel } from '../../utils/categoryTree';
+import SearchFieldHeight from '../../components/SearchFieldHeight';
 import { organizationErrorMessage } from '../../utils/organizationErrors';
 import EmptySection from '../../illustrations/EmptySection';
 import { ParentCategorySelect } from '../../components/organization/ParentCategorySelect';
@@ -78,6 +81,15 @@ const CategoryListPage = () => {
   }, [load]);
 
   const rows = useMemo(() => flattenTree(tree), [tree]);
+  const [searchTerm, setSearchTerm] = useState('');
+  /** Searching: the categories whose name or slug matches, flat, each with its full path. */
+  const shown = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return rows.map((r) => ({ node: r.node, depth: r.depth, label: r.node.name }));
+    return rows
+      .filter((r) => r.node.name.toLowerCase().includes(q) || r.node.slug.toLowerCase().includes(q))
+      .map((r) => ({ node: r.node, depth: 0, label: pathLabel(tree, r.node.id) }));
+  }, [rows, tree, searchTerm]);
 
   /** Shows the server's reason for a refusal, or a generic toast. */
   const showError = (err: unknown, fallback: string) => {
@@ -184,6 +196,23 @@ const CategoryListPage = () => {
               {t(`${p}.title`)}
             </Typography>
 
+            {rows.length > 0 && (
+              <SearchFieldHeight>
+                <SearchForm onSubmit={(e: FormEvent) => e.preventDefault()}>
+                  <Searchbar
+                    name="searchbar"
+                    value={searchTerm}
+                    onClear={() => setSearchTerm('')}
+                    onChange={(e: any) => setSearchTerm(e.target.value)}
+                    clearLabel={t(`${p}.search.clear`)}
+                    placeholder={t(`${p}.search.placeholder`)}
+                  >
+                    {t(`${p}.search.label`)}
+                  </Searchbar>
+                </SearchForm>
+              </SearchFieldHeight>
+            )}
+
             {error && <Typography textColor="danger600">{t('ecommerce.organization.loadError')}</Typography>}
 
             {loading && rows.length === 0 && !error && (
@@ -192,8 +221,16 @@ const CategoryListPage = () => {
               </Flex>
             )}
 
-            {rows.length > 0 && (
-              <Table colCount={5} rowCount={rows.length}>
+            {rows.length > 0 && shown.length === 0 && (
+              <Flex justifyContent="center" padding={8}>
+                <Typography variant="omega" textColor="neutral600">
+                  {t(`${p}.noResults`)}
+                </Typography>
+              </Flex>
+            )}
+
+            {shown.length > 0 && (
+              <Table colCount={5} rowCount={shown.length}>
                 <Thead>
                   <Tr>
                     {(['name', 'slug', 'products', 'status'] as const).map((column) => (
@@ -207,7 +244,7 @@ const CategoryListPage = () => {
                   </Tr>
                 </Thead>
                 <Tbody>
-                  {rows.map(({ node, depth }) => (
+                  {shown.map(({ node, depth, label }) => (
                     <Tr key={node.id} style={{ opacity: loading || busy ? 0.5 : 1 }}>
                       <Td>
                         <Box style={{ paddingLeft: depth * INDENT }}>
@@ -218,7 +255,7 @@ const CategoryListPage = () => {
                               </Typography>
                             )}
                             <Typography textColor="neutral800" fontWeight={depth === 0 ? 'semiBold' : undefined}>
-                              {node.name || `#${node.id}`}
+                              {label || `#${node.id}`}
                             </Typography>
                           </Flex>
                         </Box>
