@@ -12,7 +12,7 @@ import {
   TextInput,
   Typography,
 } from '@strapi/design-system';
-import { Cross, Search } from '@strapi/icons';
+import { CaretDown, Cross, Search } from '@strapi/icons';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchCategoryTree from '../../usecases/organization/fetchCategoryTree';
 import FetchTags from '../../usecases/organization/fetchTags';
@@ -244,6 +244,7 @@ const CategoryField = ({
   const [tree, setTree] = useState<CategoryTreeNode[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   const load = () => {
     if (loading) return;
@@ -275,125 +276,151 @@ const CategoryField = ({
       .map((r) => ({ node: r.node, depth: 0, label: pathLabel(tree, r.node.id) }));
   }, [tree, term]);
 
-  const choose = (node: CategoryTreeNode) => {
-    onChange({ id: node.id, path: tree ? pathLabel(tree, node.id) : node.name });
+  const choose = (node: CategoryTreeNode | null) => {
+    onChange(node ? { id: node.id, path: tree ? pathLabel(tree, node.id) : node.name } : null);
     setOpen(false);
+    triggerRef.current?.focus();
   };
 
+  const searching = term.trim() !== '';
+
   return (
-    <Field.Root name="category" error={error}>
+    <Field.Root name="category" error={error} hint={t(`${P}.category.hint`)}>
       <Field.Label>{t(`${P}.category`)}</Field.Label>
-      <Flex
-        gap={2}
-        alignItems="center"
-        justifyContent="space-between"
-        paddingLeft={4}
-        paddingRight={2}
-        hasRadius
-        borderColor={error ? 'danger600' : 'neutral200'}
-        background="neutral0"
-        style={{ minHeight: 40, borderStyle: 'solid', borderWidth: 1 }}
-      >
-        <Typography
-          textColor={value ? 'neutral800' : 'neutral500'}
-          style={{ minWidth: 0, wordBreak: 'break-word', paddingTop: 6, paddingBottom: 6 }}
+      <Popover.Root open={open} onOpenChange={(next: boolean) => !disabled && openPicker(next)}>
+        <Popover.Trigger>
+          <Flex
+            ref={triggerRef}
+            tag="button"
+            type="button"
+            disabled={disabled}
+            aria-haspopup="listbox"
+            aria-expanded={open}
+            justifyContent="space-between"
+            alignItems="center"
+            gap={2}
+            paddingLeft={4}
+            paddingRight={3}
+            hasRadius
+            background={disabled ? 'neutral150' : 'neutral0'}
+            borderColor={error ? 'danger600' : 'neutral200'}
+            style={{
+              width: '100%',
+              height: 38,
+              borderStyle: 'solid',
+              borderWidth: 1,
+              cursor: disabled ? 'not-allowed' : 'pointer',
+              textAlign: 'left',
+            }}
+          >
+            <Typography textColor={value ? 'neutral800' : 'neutral500'} ellipsis>
+              {value ? value.path || `#${value.id}` : t(`${P}.category.none`)}
+            </Typography>
+            <CaretDown width="1.2rem" height="1.2rem" fill="neutral500" aria-hidden />
+          </Flex>
+        </Popover.Trigger>
+        <Popover.Content
+          align="start"
+          sideOffset={4}
+          style={{ width: 'var(--radix-popover-trigger-width)', minWidth: 280 }}
         >
-          {value ? value.path || `#${value.id}` : t(`${P}.category.none`)}
-        </Typography>
-        <Flex gap={1} shrink={0}>
-          <Popover.Root open={open} onOpenChange={openPicker}>
-            <Popover.Trigger>
-              <Button size="S" variant="tertiary" disabled={disabled}>
-                {t(value ? `${P}.category.change` : `${P}.category.choose`)}
-              </Button>
-            </Popover.Trigger>
-            <Popover.Content align="end" sideOffset={4} style={{ width: 360, maxWidth: '90vw' }}>
-              <Box padding={2}>
-                <TextInput
-                  aria-label={t(`${P}.category.search`)}
-                  placeholder={t(`${P}.category.search`)}
-                  startAction={<Search />}
-                  value={term}
-                  autoComplete="off"
-                  autoFocus
-                  style={{ height: 38 }}
-                  onChange={(e: any) => setTerm(e.target.value)}
-                  onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
-                    // Enter picks the only match.
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      if (term.trim() && rows.length === 1) choose(rows[0].node);
-                    }
+          <Box padding={2}>
+            <TextInput
+              aria-label={t(`${P}.category.search`)}
+              placeholder={t(`${P}.category.search`)}
+              startAction={<Search />}
+              value={term}
+              autoComplete="off"
+              autoFocus
+              style={{ height: 38 }}
+              onChange={(e: any) => setTerm(e.target.value)}
+              onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
+                // Enter picks the only match.
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  if (searching && rows.length === 1) choose(rows[0].node);
+                }
+              }}
+            />
+          </Box>
+          <Box style={{ maxHeight: 320, overflowY: 'auto' }} role="listbox">
+            {loading && !tree && (
+              <Flex justifyContent="center" padding={3}>
+                <Loader small />
+              </Flex>
+            )}
+            {loadError && (
+              <Box padding={3}>
+                <Typography textColor="danger600">
+                  {t('ecommerce.organization.loadError')}
+                </Typography>
+              </Box>
+            )}
+            {tree && !searching && (
+              <Box
+                role="option"
+                aria-selected={!value}
+                paddingTop={2}
+                paddingBottom={2}
+                paddingRight={3}
+                paddingLeft={3}
+                background={!value ? 'primary100' : undefined}
+                onClick={() => choose(null)}
+                style={{ cursor: 'pointer' }}
+              >
+                <Typography textColor={!value ? 'primary600' : 'neutral600'}>
+                  {t(`${P}.category.none`)}
+                </Typography>
+              </Box>
+            )}
+            {tree && rows.length === 0 && (
+              <Box
+                padding={3}
+                borderColor="neutral150"
+                style={{ borderStyle: 'solid', borderWidth: '1px 0 0 0' }}
+              >
+                <Typography variant="omega" textColor="neutral600">
+                  {t(tree.length === 0 ? `${P}.category.empty` : `${P}.noResults`)}
+                </Typography>
+              </Box>
+            )}
+            {rows.map((row, i) => {
+              const selected = row.node.id === value?.id;
+              return (
+                <Box
+                  key={row.node.id}
+                  role="option"
+                  aria-selected={selected}
+                  paddingTop={2}
+                  paddingBottom={2}
+                  paddingRight={3}
+                  paddingLeft={3}
+                  background={selected ? 'primary100' : undefined}
+                  borderColor="neutral150"
+                  onClick={() => choose(row.node)}
+                  style={{
+                    cursor: 'pointer',
+                    borderStyle: 'solid',
+                    borderWidth: i > 0 || !searching ? '1px 0 0 0' : 0,
                   }}
-                />
-              </Box>
-              <Box style={{ maxHeight: 320, overflowY: 'auto' }} role="listbox">
-                {loading && !tree && (
-                  <Flex justifyContent="center" padding={3}>
-                    <Loader small />
+                >
+                  <Flex gap={2} style={{ paddingLeft: row.depth * 20 }}>
+                    <Typography
+                      textColor={selected ? 'primary600' : 'neutral800'}
+                      fontWeight={row.depth === 0 && !searching ? 'semiBold' : undefined}
+                      style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}
+                    >
+                      {row.label}
+                    </Typography>
+                    {!row.node.active && <ToneBadge>{t(`${P}.category.inactive`)}</ToneBadge>}
                   </Flex>
-                )}
-                {loadError && (
-                  <Box padding={3}>
-                    <Typography textColor="danger600">
-                      {t('ecommerce.organization.loadError')}
-                    </Typography>
-                  </Box>
-                )}
-                {tree && rows.length === 0 && (
-                  <Box padding={3}>
-                    <Typography variant="omega" textColor="neutral600">
-                      {t(tree.length === 0 ? `${P}.category.empty` : `${P}.noResults`)}
-                    </Typography>
-                  </Box>
-                )}
-                {rows.map((row, i) => (
-                  <Box
-                    key={row.node.id}
-                    role="option"
-                    aria-selected={row.node.id === value?.id}
-                    paddingTop={2}
-                    paddingBottom={2}
-                    paddingRight={3}
-                    paddingLeft={3}
-                    background={row.node.id === value?.id ? 'primary100' : undefined}
-                    borderColor="neutral150"
-                    onClick={() => choose(row.node)}
-                    style={{
-                      cursor: 'pointer',
-                      borderStyle: 'solid',
-                      borderWidth: i > 0 ? '1px 0 0 0' : 0,
-                    }}
-                  >
-                    <Flex gap={2} style={{ paddingLeft: row.depth * 20 }}>
-                      <Typography
-                        textColor="neutral800"
-                        fontWeight={row.depth === 0 && !term.trim() ? 'semiBold' : undefined}
-                        style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}
-                      >
-                        {row.label}
-                      </Typography>
-                      {!row.node.active && (
-                        <ToneBadge>{t(`${P}.category.inactive`)}</ToneBadge>
-                      )}
-                    </Flex>
-                  </Box>
-                ))}
-              </Box>
-            </Popover.Content>
-          </Popover.Root>
-          {value && (
-            <Button
-              size="S"
-              variant="danger-light"
-              disabled={disabled}
-              onClick={() => onChange(null)}
-            >
-              {t(`${P}.remove`)}
-            </Button>
-          )}
-        </Flex>
-      </Flex>
+                </Box>
+              );
+            })}
+          </Box>
+        </Popover.Content>
+      </Popover.Root>
+      <Field.Hint />
       <Field.Error />
     </Field.Root>
   );
