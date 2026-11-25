@@ -49,14 +49,7 @@ type Props = {
 };
 
 type TextField =
-  | 'sku'
-  | 'stock'
-  | 'price'
-  | 'compareAtPrice'
-  | 'weight'
-  | 'width'
-  | 'height'
-  | 'depth';
+  'sku' | 'stock' | 'price' | 'compareAtPrice' | 'weight' | 'width' | 'height' | 'depth';
 
 const VariantModal = ({
   variant,
@@ -102,7 +95,11 @@ const VariantModal = ({
       onActiveChange(draft.id, active);
       toggleNotification({
         type: 'success',
-        message: t(active ? 'ecommerce.product.variant.enabledNotice' : 'ecommerce.product.variant.disabledNotice'),
+        message: t(
+          active
+            ? 'ecommerce.product.variant.enabledNotice'
+            : 'ecommerce.product.variant.disabledNotice'
+        ),
       });
     } catch {
       toggleNotification({ type: 'danger', message: t('ecommerce.product.variant.toggleError') });
@@ -166,36 +163,36 @@ const VariantModal = ({
         </Modal.Header>
         <Modal.Body>
           <Flex direction="column" alignItems="stretch" gap={5}>
-            <Flex direction="column" alignItems="stretch" gap={6}>
-              <LocaleSwitcher
-                locales={locales}
-                defaultLocale={defaultLocale}
-                value={locale}
-                onChange={setLocale}
-                isFilled={(code) => !!draft.options[code]?.trim()}
-                label={t('ecommerce.product.locale')}
-              />
-              <Field.Root
-                name="option"
-                error={errorText(optionPath(locale))}
-                required={locale === defaultLocale}
-                hint={t('ecommerce.product.variant.option.hint')}
-              >
-                <Field.Label>{t('ecommerce.product.variant.option')}</Field.Label>
-                <TextInput
-                  value={draft.options[locale] ?? ''}
-                  onChange={(e: any) => {
-                    const value = e.target.value;
-                    setDraft((d) => ({ ...d, options: { ...d.options, [locale]: value } }));
-                    clearError(optionPath(locale));
-                  }}
-                />
-                <Field.Error />
-                <Field.Hint />
-              </Field.Root>
-            </Flex>
+            <LocaleSwitcher
+              locales={locales}
+              defaultLocale={defaultLocale}
+              value={locale}
+              onChange={setLocale}
+              isFilled={(code) => !!draft.options[code]?.trim()}
+              label={t('ecommerce.product.locale')}
+            />
 
             <Grid.Root gap={4}>
+              <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
+                <Field.Root
+                  name="option"
+                  error={errorText(optionPath(locale))}
+                  required={locale === defaultLocale}
+                  hint={t('ecommerce.product.variant.option.hint')}
+                >
+                  <Field.Label>{t('ecommerce.product.variant.option')}</Field.Label>
+                  <TextInput
+                    value={draft.options[locale] ?? ''}
+                    onChange={(e: any) => {
+                      const value = e.target.value;
+                      setDraft((d) => ({ ...d, options: { ...d.options, [locale]: value } }));
+                      clearError(optionPath(locale));
+                    }}
+                  />
+                  <Field.Error />
+                  <Field.Hint />
+                </Field.Root>
+              </Grid.Item>
               <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
                 {textField('sku', { required: true })}
               </Grid.Item>
@@ -208,18 +205,7 @@ const VariantModal = ({
                       hint: t('ecommerce.product.variant.currentStock.hint'),
                     })}
               </Grid.Item>
-              <Grid.Item col={4} s={12} direction="column" alignItems="stretch">
-                {textField('price', {
-                  required: true,
-                  hint: t('ecommerce.product.variant.price.hint'),
-                })}
-              </Grid.Item>
-              <Grid.Item col={4} s={12} direction="column" alignItems="stretch">
-                {textField('compareAtPrice', {
-                  hint: t('ecommerce.product.variant.compareAtPrice.hint'),
-                })}
-              </Grid.Item>
-              <Grid.Item col={4} s={12} direction="column" alignItems="stretch">
+              <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
                 <Field.Root name="tax" error={taxError} required>
                   <Field.Label>{t('ecommerce.product.variant.tax')}</Field.Label>
                   <Flex gap={2} alignItems="flex-start">
@@ -260,6 +246,17 @@ const VariantModal = ({
                   </Flex>
                   <Field.Error />
                 </Field.Root>
+              </Grid.Item>
+              <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
+                {textField('price', {
+                  required: true,
+                  hint: t('ecommerce.product.variant.price.hint'),
+                })}
+              </Grid.Item>
+              <Grid.Item col={6} s={12} direction="column" alignItems="stretch">
+                {textField('compareAtPrice', {
+                  hint: t('ecommerce.product.variant.compareAtPrice.hint'),
+                })}
               </Grid.Item>
               <Grid.Item col={3} s={6} direction="column" alignItems="stretch">
                 {textField('weight')}
@@ -311,10 +308,16 @@ const VariantModal = ({
               onClick={() => setConfirmToggle(true)}
               loading={toggling}
             >
-              {t(draft.active ? 'ecommerce.product.variant.disable' : 'ecommerce.product.variant.enable')}
+              {t(
+                draft.active
+                  ? 'ecommerce.product.variant.disable'
+                  : 'ecommerce.product.variant.enable'
+              )}
             </Button>
           </Flex>
-          <Button variant="secondary" onClick={confirm}>{t('ecommerce.product.variant.confirm')}</Button>
+          <Button variant="secondary" onClick={confirm}>
+            {t('ecommerce.product.variant.confirm')}
+          </Button>
         </Modal.Footer>
       </Modal.Content>
       <ActionConfirmModal
