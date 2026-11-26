@@ -56,7 +56,7 @@
     "@strapi/icons": "^2.0.0-rc.16",
     "@types/koa": "^2.15.0",
     "@uiw/react-codemirror": "^4.22.2",
-    "jose": "^6.2.18",
+    "jose": "^5.10.0",
     "lucide-react": "^0.486.0",
     "react-hook-form": "^7.55.0",
     "react-intl": "^7.1.6",

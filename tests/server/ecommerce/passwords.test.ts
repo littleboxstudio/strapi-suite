@@ -104,4 +104,16 @@ describe('EcommercePasswordService', () => {
     await expect(svc.verify(null, 'x')).rejects.toBeInstanceOf(EcommerceAccountsUnavailableError);
     await expect(svc.randomGuestHash()).rejects.toBeInstanceOf(EcommerceAccountsUnavailableError);
   });
+
+  it('reports unavailable when the argon2 native module cannot load, logging once with a code', async () => {
+    const loadArgon2 = vi.fn(() => Promise.reject(new Error('Cannot find native binding')));
+    const svc = EcommercePasswordService({ strapi: { log: { warn } } } as never, { loadArgon2 });
+    await expect(svc.hash('correct horse battery')).rejects.toBeInstanceOf(EcommerceAccountsUnavailableError);
+    await expect(svc.verify(null, 'whatever password')).rejects.toBeInstanceOf(EcommerceAccountsUnavailableError);
+    await expect(svc.randomGuestHash()).rejects.toBeInstanceOf(EcommerceAccountsUnavailableError);
+    expect(svc.available()).toBe(false);
+    expect(loadArgon2).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith('[ecommerce:accounts] ARGON2_UNAVAILABLE');
+  });
 });
