@@ -1,6 +1,7 @@
 import crypto from 'crypto';
+import type { Core } from '@strapi/strapi';
 import { hash as argonHash, verify as argonVerify, Algorithm } from '@node-rs/argon2';
-import { readPeppers } from './domain/accounts/peppers';
+import { countInvalidPeppers, readPeppers } from './domain/accounts/peppers';
 import { createSemaphore } from './domain/accounts/semaphore';
 import { EcommerceAccountsUnavailableError } from './errors';
 
@@ -18,13 +19,24 @@ const hasCurrentParams = (phc: string): boolean => {
   return !!m && Number(m[1]) === MEMORY_COST && Number(m[2]) === TIME_COST && Number(m[3]) === PARALLELISM;
 };
 
-const EcommercePasswordService = (_deps?: unknown) => {
+const EcommercePasswordService = ({ strapi }: { strapi: Core.Strapi }) => {
   const semaphore = createSemaphore(CONCURRENCY, QUEUE);
-  const dummies = new Map<number, string>();
+  const dummies = new Map<number, Promise<string>>();
+  let invalidLogged = false;
 
   const peppers = () => {
-    const p = readPeppers(process.env);
+    const env = process.env;
+    const p = readPeppers(env);
+    if (!invalidLogged) {
+      const invalid = p ? p.invalid : countInvalidPeppers(env);
+      if (invalid > 0) {
+        invalidLogged = true;
+        strapi.log.warn(`[ecommerce:accounts] PEPPER_INVALID count=${invalid}`);
+      }
+    }
     if (!p) throw new EcommerceAccountsUnavailableError();
+    // Start the dummy hash early so the first unknown-account check is not slower.
+    dummyHash(p.current, p.byVersion.get(p.current)!).catch(() => undefined);
     return p;
   };
 
@@ -39,18 +51,19 @@ const EcommercePasswordService = (_deps?: unknown) => {
       })
     );
 
-  const hash = async (password: string): Promise<PasswordHash> => {
-    const p = peppers();
-    return { hash: await hashWith(password, p.byVersion.get(p.current)!), pepperVersion: p.current };
-  };
-
-  const dummyHash = async (version: number, secret: Buffer): Promise<string> => {
+  const dummyHash = (version: number, secret: Buffer): Promise<string> => {
     let d = dummies.get(version);
     if (!d) {
-      d = await hashWith(crypto.randomBytes(24).toString('base64url'), secret);
+      d = hashWith(crypto.randomBytes(24).toString('base64url'), secret);
+      d.catch(() => dummies.delete(version));
       dummies.set(version, d);
     }
     return d;
+  };
+
+  const hash = async (password: string): Promise<PasswordHash> => {
+    const p = peppers();
+    return { hash: await hashWith(password, p.byVersion.get(p.current)!), pepperVersion: p.current };
   };
 
   return {
@@ -64,24 +77,30 @@ const EcommercePasswordService = (_deps?: unknown) => {
     ): Promise<{ ok: boolean; rehash: PasswordHash | null }> {
       const p = peppers();
       const currentSecret = p.byVersion.get(p.current)!;
+      const pw = password.normalize('NFC');
 
-      if (!stored || !stored.hash || stored.pepperVersion == null) {
+      const dummyCheck = async () => {
         // Same work as a real check, so timing does not reveal whether the account exists.
         const d = await dummyHash(p.current, currentSecret);
-        await semaphore.run(() => argonVerify(d, password.normalize('NFC'), { secret: currentSecret }).catch(() => false));
+        await semaphore.run(() => argonVerify(d, pw, { secret: currentSecret }).catch(() => false));
+      };
+
+      if (!stored || !stored.hash || stored.pepperVersion == null) {
+        await dummyCheck();
         return { ok: false, rehash: null };
       }
 
       const secret = p.byVersion.get(stored.pepperVersion);
       if (!secret) {
-        // The pepper this hash was made with is gone: it can no longer be checked.
-        const d = await dummyHash(p.current, currentSecret);
-        await semaphore.run(() => argonVerify(d, password.normalize('NFC'), { secret: currentSecret }).catch(() => false));
-        return { ok: false, rehash: null };
+        // The pepper this hash was made with is gone: the account cannot be checked, which is an
+        // operator problem (503), never "invalid credentials".
+        await dummyCheck();
+        strapi.log.warn(`[ecommerce:accounts] PEPPER_VERSION_MISSING v=${stored.pepperVersion}`);
+        throw new EcommerceAccountsUnavailableError();
       }
 
       const ok = await semaphore.run(() =>
-        argonVerify(stored.hash as string, password.normalize('NFC'), { secret }).catch(() => false)
+        argonVerify(stored.hash as string, pw, { secret }).catch(() => false)
       );
       if (!ok) return { ok: false, rehash: null };
       const stale = stored.pepperVersion !== p.current || !hasCurrentParams(stored.hash);

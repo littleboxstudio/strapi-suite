@@ -10,7 +10,7 @@ export const checkPasswordPolicy = (password: unknown, email: string): PasswordP
   const length = Array.from(normalized).length;
   if (length < PASSWORD_MIN) return { ok: false, reason: 'TOO_SHORT' };
   if (length > PASSWORD_MAX) return { ok: false, reason: 'TOO_LONG' };
-  if (normalized.trim().toLowerCase() === String(email ?? '').trim().toLowerCase()) {
+  if (normalized.trim().toLowerCase() === String(email ?? '').normalize('NFC').trim().toLowerCase()) {
     return { ok: false, reason: 'EQUALS_EMAIL' };
   }
   return { ok: true };

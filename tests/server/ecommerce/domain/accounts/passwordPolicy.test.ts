@@ -21,4 +21,7 @@ describe('checkPasswordPolicy', () => {
   it('rejects the e-mail in any case', () => {
     expect(checkPasswordPolicy('Foo@Bar.com', 'foo@bar.COM')).toEqual({ ok: false, reason: 'EQUALS_EMAIL' });
   });
+  it('compares the e-mail after NFC too', () => {
+    expect(checkPasswordPolicy('caf\u00e9@x.com', 'cafe\u0301@x.com')).toEqual({ ok: false, reason: 'EQUALS_EMAIL' });
+  });
 });
