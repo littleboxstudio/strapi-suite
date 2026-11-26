@@ -1,4 +1,5 @@
 import type { Core } from '@strapi/strapi';
+import { readPeppers } from './domain/accounts/peppers';
 import { isValidEmailFormat } from './domain/email';
 import { PLUGIN_ID, LtbConfigs } from '../../../config';
 import {
@@ -92,15 +93,6 @@ export type AccountsReadiness = { pepperConfigured: boolean; keyConfigured: bool
 /** A storefront path: starts with `/`, no query, fragment, scheme or whitespace, at most 200 characters. */
 const isAccountPath = (v: unknown): v is string =>
   typeof v === 'string' && v.length <= 200 && v.startsWith('/') && !/[?#\s]|:\/\//.test(v);
-
-/** True when some `LTB_ECOMMERCE_PASSWORD_PEPPER_V<n>` holds at least 32 bytes (base64). */
-const pepperConfigured = (): boolean =>
-  Object.entries(process.env).some(
-    ([k, v]) =>
-      /^LTB_ECOMMERCE_PASSWORD_PEPPER_V\d+$/.test(k) &&
-      typeof v === 'string' &&
-      Buffer.from(v.trim(), 'base64').length >= 32
-  );
 
 export type StoreSettings = {
   storeName: string;
@@ -969,7 +961,7 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
     /** Which env a registered-customer mode still needs; flags only, never values. */
     async accountsReadiness(): Promise<AccountsReadiness> {
       return {
-        pepperConfigured: pepperConfigured(),
+        pepperConfigured: readPeppers(process.env) !== null,
         keyConfigured: resolveEncryptionKeySource(strapi) !== null,
       };
     },

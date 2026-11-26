@@ -116,3 +116,21 @@ export class EcommerceBillingError extends Error {
     super(message);
   }
 }
+
+/** Too many concurrent requests for a costly operation; the caller may retry after `retryAfterSec`. */
+export class EcommerceRateLimitError extends Error {
+  name = 'EcommerceRateLimitError';
+
+  constructor(public retryAfterSec: number = 1) {
+    super('RATE_LIMITED');
+  }
+}
+
+/** Customer accounts cannot work because the password pepper is not configured. */
+export class EcommerceAccountsUnavailableError extends Error {
+  name = 'EcommerceAccountsUnavailableError';
+
+  constructor() {
+    super('ACCOUNTS_UNAVAILABLE');
+  }
+}
