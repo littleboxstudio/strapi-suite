@@ -32,7 +32,7 @@ export const pt = {
       button('loginUrl', 'Ir para a loja'),
       paragraph('Esqueceu-se da palavra-passe? Pode escolher uma nova na página de reposição.'),
       button('resetUrl', 'Repor palavra-passe'),
-      note('Se não foi você, contacte a loja. Não foi feita nenhuma alteração à sua conta.'),
+      note('Se não fez este pedido, contacte a loja. Não foi feita nenhuma alteração à sua conta.'),
     ].join('\n'),
     'pt'
   ),

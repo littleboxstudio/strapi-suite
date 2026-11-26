@@ -14,13 +14,13 @@ import { createFakeDb } from './helpers/fakeDb';
 const P = 'plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-';
 const UIDS = { emailTemplate: `${P}email-template`, emailTemplateVersion: `${P}email-template-version` };
 
-const make = (active = true) => {
+const make = (active = true, storefrontUrl: string | null = 'https://acme.example/') => {
   const db = createFakeDb(Object.values(UIDS));
   const settings = {
     getStoreSettings: vi.fn(async () => ({
       ...STORE_SETTINGS_DEFAULTS,
       storeName: 'Acme',
-      storefrontUrl: 'https://acme.example/',
+      storefrontUrl,
     })),
     getRuntime: vi.fn(async () => (active ? { active: true, apiKey: 'k' } : null)),
   };
@@ -47,6 +47,16 @@ const lastMsg = () => {
 
 describe('EcommerceAccountMailer', () => {
   beforeEach(() => send.mockClear());
+
+  it('a missing or blank storefront URL throws EMAIL_NOT_CONFIGURED and sends nothing', async () => {
+    for (const url of [null, '   ']) {
+      const m = make(true, url);
+      await expect(m.sendAccountVerification('a@x.pt', 'en', { firstName: 'Ana', raw: 'R' })).rejects.toBeInstanceOf(
+        EcommerceEmailError
+      );
+    }
+    expect(send).not.toHaveBeenCalled();
+  });
 
   it('verification: link in the html, to, idempotency key without the raw token', async () => {
     const m = make();

@@ -24,7 +24,7 @@ export const pt = {
       heading('O seu email foi alterado'),
       greeting('pt'),
       paragraph('O email da sua conta em {{store.name}} foi alterado para {{newEmail}} em {{changedAt}}.'),
-      note('Se não foi você, contacte a loja de imediato para protegermos a sua conta.'),
+      note('Se não fez esta alteração, contacte a loja de imediato para protegermos a sua conta.'),
     ].join('\n'),
     'pt'
   ),

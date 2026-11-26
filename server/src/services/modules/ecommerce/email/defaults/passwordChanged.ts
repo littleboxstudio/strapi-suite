@@ -22,7 +22,7 @@ export const pt = {
       heading('A sua palavra-passe foi alterada'),
       greeting('pt'),
       paragraph('A palavra-passe da sua conta em {{store.name}} foi alterada em {{changedAt}}.'),
-      note('Se não foi você, contacte a loja de imediato para protegermos a sua conta.'),
+      note('Se não fez esta alteração, contacte a loja de imediato para protegermos a sua conta.'),
     ].join('\n'),
     'pt'
   ),

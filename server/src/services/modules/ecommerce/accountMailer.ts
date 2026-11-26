@@ -56,10 +56,11 @@ const EcommerceAccountMailer = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   const linkBase = (store: StoreSettings): string => {
-    if (!store.storefrontUrl) {
+    const url = typeof store.storefrontUrl === 'string' ? store.storefrontUrl.trim() : '';
+    if (!url) {
       throw new EcommerceEmailError('EMAIL_NOT_CONFIGURED', 'The storefront URL is not set.');
     }
-    return store.storefrontUrl;
+    return url;
   };
 
   return {

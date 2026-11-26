@@ -16,7 +16,7 @@ export type Lang = 'en' | 'pt';
 
 const COPY: Record<Lang, { hi: string; thanks: string; team: string; questions: string }> = {
   en: { hi: 'Hi', thanks: 'Thank you,', team: 'The {{store.name}} team', questions: 'Questions? Contact us at' },
-  pt: { hi: 'Olá', thanks: 'Obrigado,', team: 'A equipa {{store.name}}', questions: 'Dúvidas? Contacte-nos em' },
+  pt: { hi: 'Olá', thanks: 'Com os melhores cumprimentos,', team: 'A equipa {{store.name}}', questions: 'Dúvidas? Contacte-nos em' },
 };
 
 export const greeting = (lang: Lang = 'en'): string =>
