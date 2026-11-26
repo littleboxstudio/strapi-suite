@@ -54,7 +54,8 @@
       "private": true
     },
     "passwordPepperVersion": {
-      "type": "integer"
+      "type": "integer",
+      "private": true
     },
     "passwordChangedAt": {
       "type": "datetime"

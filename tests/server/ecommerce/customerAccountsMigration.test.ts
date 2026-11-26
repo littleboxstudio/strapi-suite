@@ -48,7 +48,7 @@ describe('migrateCustomerAccounts', () => {
     expect(db.tables[CUSTOMER]).toHaveLength(3);
 
     expect(await migrateCustomerAccounts(strapi)).toEqual({ normalized: 0, relinked: 0 });
-    expect(JSON.stringify(log)).not.toContain('@');
+    expect(JSON.stringify(Object.values(log).map((fn: any) => fn.mock?.calls ?? []))).not.toContain('@');
   });
 
   it('keeps existing account types', async () => {

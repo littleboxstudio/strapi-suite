@@ -92,6 +92,8 @@ export async function fillGuestHashes(
       if (batch.length === 0) break;
       for (const row of batch) {
         const { hash, pepperVersion } = await passwords.randomGuestHash();
+        // A row that would stay in the filter would make this loop spin forever.
+        if (typeof hash !== 'string' || !hash) throw new Error('EMPTY_HASH');
         await customers.update({
           where: { id: row.id },
           data: { passwordHash: hash, passwordPepperVersion: pepperVersion },
