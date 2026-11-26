@@ -133,6 +133,24 @@ describe('store form', () => {
     expect(input.markets).toEqual(['PT', 'ES', 'PT-ISL']);
   });
 
+  it('carries the customer accounts mode and paths, and validates them', () => {
+    const form = storeFormFromSettings({ ...SETTINGS, customerAccountsMode: 'BOTH' });
+    expect(buildStoreSettingsInput(form).customerAccountsMode).toBe('BOTH');
+    expect(buildStoreSettingsInput(form).accountPaths.verifyEmail).toBe('/account/verify-email');
+    expect(validateStoreForm(form)).toEqual([]);
+    const bad: StoreForm = {
+      ...form,
+      storefrontUrl: '',
+      accountPaths: { ...form.accountPaths, resetPassword: 'x?y' },
+    };
+    expect(validateStoreForm(bad)).toEqual(
+      expect.arrayContaining([
+        { path: 'customerAccountsMode', code: 'storefront_url_required' },
+        { path: 'accountPaths.resetPassword', code: 'invalid_path' },
+      ])
+    );
+  });
+
   it('keeps the session lifetime of the loaded settings', () => {
     const loaded: StoreSettings = { ...SETTINGS, checkoutSessionTtlHours: 24 };
     const input = buildStoreSettingsInput(storeFormFromSettings(loaded));
@@ -162,6 +180,8 @@ describe('store form', () => {
       supportEmail: 'nope',
       timezone: '',
       markets: [],
+      customerAccountsMode: 'GUEST_ONLY',
+      accountPaths: { verifyEmail: '/a', resetPassword: '/b', confirmEmail: '/c' },
     };
     expect(validateStoreForm(form)).toEqual([
       { path: 'storeName', code: 'required' },

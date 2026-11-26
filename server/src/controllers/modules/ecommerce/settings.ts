@@ -69,7 +69,11 @@ const EcommerceSettingsController = ({ strapi }: { strapi: Core.Strapi }) => {
       return respond(ctx, () => settings().regenerateStorefrontToken(userId(ctx)));
     },
 
-    getStore: (ctx: any) => respond(ctx, () => settings().getStoreSettings()),
+    getStore: (ctx: any) =>
+      respond(ctx, async () => ({
+        ...(await settings().getStoreSettings()),
+        accountsReadiness: await settings().accountsReadiness(),
+      })),
     updateStore: (ctx: any) =>
       respond(ctx, () => settings().updateStoreSettings(body(ctx), userId(ctx))),
 

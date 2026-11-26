@@ -1,4 +1,11 @@
-import type { SettingsErrorCode, SettingsFieldError, StoreSettings, StoreSettingsInput } from '../settingsTypes';
+import type {
+  AccountPaths,
+  CustomerAccountsMode,
+  SettingsErrorCode,
+  SettingsFieldError,
+  StoreSettings,
+  StoreSettingsInput,
+} from '../settingsTypes';
 
 /** ISO 3166-1 alpha-2 country codes. */
 export const COUNTRY_CODES = [
@@ -35,7 +42,20 @@ export type StoreForm = {
   markets: string[];
   /** Carried through untouched so saving another section never loses the session lifetime. */
   checkoutSessionTtlHours?: number;
+  customerAccountsMode: CustomerAccountsMode;
+  accountPaths: AccountPaths;
 };
+
+export const DEFAULT_ACCOUNT_PATHS: AccountPaths = {
+  verifyEmail: '/account/verify-email',
+  resetPassword: '/account/reset-password',
+  confirmEmail: '/account/confirm-email',
+};
+
+/** Same rule as the server: starts with `/`, no `?`, `#`, `://` or whitespace, at most 200 characters. */
+export function isValidAccountPath(value: string): boolean {
+  return value.length <= 200 && value.startsWith('/') && !/[?#\s]|:\/\//.test(value);
+}
 
 export function isValidHttpUrl(value: string): boolean {
   try {
@@ -113,6 +133,8 @@ export function storeFormFromSettings(settings: StoreSettings): StoreForm {
     supportEmail: settings.supportEmail ?? '',
     timezone: settings.timezone,
     markets: [...settings.markets],
+    customerAccountsMode: settings.customerAccountsMode ?? 'GUEST_ONLY',
+    accountPaths: { ...DEFAULT_ACCOUNT_PATHS, ...settings.accountPaths },
     ...(settings.checkoutSessionTtlHours !== undefined && {
       checkoutSessionTtlHours: settings.checkoutSessionTtlHours,
     }),
@@ -128,6 +150,12 @@ export function buildStoreSettingsInput(form: StoreForm): StoreSettingsInput {
     supportEmail: optional(form.supportEmail),
     timezone: form.timezone,
     markets: normalizeMarkets(form.markets),
+    customerAccountsMode: form.customerAccountsMode,
+    accountPaths: {
+      verifyEmail: form.accountPaths.verifyEmail.trim(),
+      resetPassword: form.accountPaths.resetPassword.trim(),
+      confirmEmail: form.accountPaths.confirmEmail.trim(),
+    },
     ...(form.checkoutSessionTtlHours !== undefined && {
       checkoutSessionTtlHours: form.checkoutSessionTtlHours,
     }),
@@ -150,6 +178,11 @@ export function validateStoreForm(form: StoreForm): SettingsFieldError[] {
   if (email !== '' && !isEmail(email)) push('supportEmail', 'invalid_email');
   if (form.timezone === '' || !isTimezone(form.timezone)) push('timezone', 'invalid_timezone');
   if (normalizeMarkets(form.markets).length === 0) push('markets', 'required');
+  if (form.customerAccountsMode !== 'GUEST_ONLY' && form.storefrontUrl.trim() === '')
+    push('customerAccountsMode', 'storefront_url_required');
+  (['verifyEmail', 'resetPassword', 'confirmEmail'] as const).forEach((key) => {
+    if (!isValidAccountPath(form.accountPaths[key].trim())) push(`accountPaths.${key}`, 'invalid_path');
+  });
   return errors;
 }
 

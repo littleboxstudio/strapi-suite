@@ -9,6 +9,7 @@ import {
   Flex,
   Grid,
   Loader,
+  Radio,
   SingleSelect,
   SingleSelectOption,
   TextInput,
@@ -35,17 +36,36 @@ import {
   validateStoreForm,
   type StoreForm,
 } from '../../utils/settingsForm';
-import type { SettingsFieldError, StoreSettings } from '../../settingsTypes';
+import type {
+  AccountPaths,
+  AccountsReadiness,
+  CustomerAccountsMode,
+  SettingsFieldError,
+  StoreSettings,
+} from '../../settingsTypes';
 
-type TextField = Exclude<keyof StoreForm, 'markets' | 'timezone'>;
+type TextField = Exclude<
+  keyof StoreForm,
+  'markets' | 'timezone' | 'customerAccountsMode' | 'accountPaths' | 'checkoutSessionTtlHours'
+>;
 
-/** First error code per top-level field (`markets.2` → `markets`). */
-type ErrorMap = Partial<Record<keyof StoreForm, string>>;
+const ACCOUNT_MODES: CustomerAccountsMode[] = ['GUEST_ONLY', 'REGISTERED_ONLY', 'BOTH'];
+const ACCOUNT_PATH_FIELDS: (keyof AccountPaths)[] = ['verifyEmail', 'resetPassword', 'confirmEmail'];
+
+/** First error code per field (`markets.2` → `markets`; `accountPaths.*` keep their key). */
+type ErrorMap = Partial<Record<string, string>>;
+
+/** The path inputs are 38px tall, like the other single-line fields of the module. */
+const PathInput = styled.div`
+  input {
+    height: 38px;
+  }
+`;
 
 const toErrorMap = (errors: SettingsFieldError[]): ErrorMap => {
   const map: ErrorMap = {};
   errors.forEach(({ path, code }) => {
-    const field = path.split('.')[0] as keyof StoreForm;
+    const field = path.startsWith('accountPaths.') ? path : path.split('.')[0];
     if (!(field in map)) map[field] = code;
   });
   return map;
@@ -111,6 +131,7 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
 
   const [form, setForm] = useState<StoreForm | null>(null);
   const [keyConfigured, setKeyConfigured] = useState(true);
+  const [readiness, setReadiness] = useState<AccountsReadiness | null>(null);
   const [errors, setErrors] = useState<ErrorMap>({});
   const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -136,6 +157,7 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
       }
       setForm(storeFormFromSettings(store.value));
       setLogo(store.value.logo);
+      setReadiness(store.value.accountsReadiness ?? null);
       // Every integration carries the same flag; without the list, assume the key is there.
       if (integrations.status === 'fulfilled' && integrations.value.length > 0) {
         setKeyConfigured(integrations.value[0].encryptionKeyConfigured);
@@ -168,7 +190,18 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
     });
   };
 
-  const errorText = (field: keyof StoreForm) =>
+  const updatePath = (key: keyof AccountPaths, value: string) => {
+    setForm((f) => (f ? { ...f, accountPaths: { ...f.accountPaths, [key]: value } } : f));
+    setErrors((map) => {
+      const id = `accountPaths.${key}`;
+      if (!(id in map)) return map;
+      const next = { ...map };
+      delete next[id];
+      return next;
+    });
+  };
+
+  const errorText = (field: string) =>
     errors[field]
       ? t(`ecommerce.settings.errors.${errors[field]}`, { methods: marketUsers.join(', ') })
       : undefined;
@@ -191,6 +224,7 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
       const saved = await new UpdateStoreSettings().execute(buildStoreSettingsInput(form));
       setForm(storeFormFromSettings(saved));
       setLogo(saved.logo);
+      setReadiness(saved.accountsReadiness ?? readiness);
       setErrors({});
       toggleNotification({ type: 'success', message: t('ecommerce.settings.saved') });
     } catch (err) {
@@ -320,6 +354,83 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
             })}
           </Grid.Item>
         </Grid.Root>
+      </Section>
+
+      <Section title={t('ecommerce.settings.accounts.title')}>
+        <Flex direction="column" alignItems="stretch" gap={5}>
+          <Field.Root name="customerAccountsMode" error={errorText('customerAccountsMode')}>
+            <Field.Label>{t('ecommerce.settings.accounts.mode')}</Field.Label>
+            <Radio.Group
+              value={form.customerAccountsMode}
+              disabled={readOnly}
+              aria-label={t('ecommerce.settings.accounts.mode')}
+              onValueChange={(value: string) =>
+                update('customerAccountsMode', value as CustomerAccountsMode)
+              }
+            >
+              <Flex direction="column" alignItems="flex-start" gap={2}>
+                {ACCOUNT_MODES.map((mode) => (
+                  <Radio.Item key={mode} value={mode}>
+                    {t(`ecommerce.settings.accounts.mode.${mode}`)}
+                  </Radio.Item>
+                ))}
+              </Flex>
+            </Radio.Group>
+            <Field.Error />
+          </Field.Root>
+
+          {form.customerAccountsMode !== 'GUEST_ONLY' && readiness && (!readiness.pepperConfigured || !readiness.keyConfigured) && (
+            <Box role="status" background="warning100" borderColor="warning200" hasRadius padding={4}>
+              <Flex gap={3} alignItems="flex-start">
+                <Box color="warning600" paddingTop={1}>
+                  <WarningCircle aria-hidden fill="currentColor" />
+                </Box>
+                <Flex direction="column" alignItems="flex-start" gap={1}>
+                  <Typography fontWeight="bold" textColor="neutral800">
+                    {t('ecommerce.settings.accounts.notReady.title')}
+                  </Typography>
+                  {!readiness.pepperConfigured && (
+                    <Typography textColor="neutral800">
+                      {t('ecommerce.settings.accounts.notReady.pepper', {
+                        variable: <code key="pepper">LTB_ECOMMERCE_PASSWORD_PEPPER_V1</code>,
+                      })}
+                    </Typography>
+                  )}
+                  {!readiness.keyConfigured && (
+                    <Typography textColor="neutral800">
+                      {t('ecommerce.settings.accounts.notReady.key', {
+                        variable: <code key="key">LTB_ECOMMERCE_ENCRYPTION_KEY</code>,
+                      })}
+                    </Typography>
+                  )}
+                </Flex>
+              </Flex>
+            </Box>
+          )}
+
+          <Grid.Root gap={5}>
+            {ACCOUNT_PATH_FIELDS.map((key) => {
+              const id = `accountPaths.${key}`;
+              return (
+                <Grid.Item key={key} col={4} s={12} direction="column" alignItems="stretch">
+                  <Field.Root name={id} error={errorText(id)} hint={t(`ecommerce.settings.accounts.paths.${key}.hint`)}>
+                    <Field.Label>{t(`ecommerce.settings.accounts.paths.${key}`)}</Field.Label>
+                    <PathInput>
+                      <TextInput
+                        value={form.accountPaths[key]}
+                        placeholder={`/account/${key === 'verifyEmail' ? 'verify-email' : key === 'resetPassword' ? 'reset-password' : 'confirm-email'}`}
+                        disabled={readOnly}
+                        onChange={(e: any) => updatePath(key, e.target.value)}
+                      />
+                    </PathInput>
+                    <Field.Error />
+                    <Field.Hint />
+                  </Field.Root>
+                </Grid.Item>
+              );
+            })}
+          </Grid.Root>
+        </Flex>
       </Section>
 
       <Section>

@@ -485,7 +485,64 @@ describe('EcommerceSettingsService — store settings', () => {
       supportEmail: null,
       storefrontApiTokenId: null,
       checkoutSessionTtlHours: 168,
+      customerAccountsMode: 'GUEST_ONLY',
+      accountPaths: {
+        verifyEmail: '/account/verify-email',
+        resetPassword: '/account/reset-password',
+        confirmEmail: '/account/confirm-email',
+      },
     });
+  });
+
+  it('validates the customer accounts mode and link paths', async () => {
+    const { service } = makeStrapi();
+    await expect(service.updateStoreSettings({ customerAccountsMode: 'BOTH' })).rejects.toMatchObject({
+      errors: [{ path: 'customerAccountsMode', code: 'storefront_url_required' }],
+    });
+    await expect(service.updateStoreSettings({ customerAccountsMode: 'NOPE' } as any)).rejects.toMatchObject({
+      errors: [{ path: 'customerAccountsMode', code: 'invalid' }],
+    });
+    const bad = ['account', '/a?x=1', '/a#x', 'https://x.com/a', '/a b', '/' + 'a'.repeat(200), 5];
+    for (const verifyEmail of bad) {
+      await expect(
+        service.updateStoreSettings({ accountPaths: { verifyEmail } } as any)
+      ).rejects.toMatchObject({ errors: [{ path: 'accountPaths.verifyEmail', code: 'invalid_path' }] });
+    }
+    const res = await service.updateStoreSettings({
+      storefrontUrl: 'https://shop.example.com',
+      customerAccountsMode: 'REGISTERED_ONLY',
+      accountPaths: { resetPassword: '/reset' },
+    });
+    expect(res.customerAccountsMode).toBe('REGISTERED_ONLY');
+    expect(res.accountPaths).toEqual({
+      verifyEmail: '/account/verify-email',
+      resetPassword: '/reset',
+      confirmEmail: '/account/confirm-email',
+    });
+    // The URL is already stored: the mode alone is valid now, and removing the URL is refused.
+    expect((await service.updateStoreSettings({ customerAccountsMode: 'BOTH' })).customerAccountsMode).toBe('BOTH');
+    await expect(service.updateStoreSettings({ storefrontUrl: null })).rejects.toMatchObject({
+      errors: [{ path: 'customerAccountsMode', code: 'storefront_url_required' }],
+    });
+  });
+
+  it('reports the accounts readiness without values', async () => {
+    const { service } = makeStrapi({ encryptionKey: null });
+    const saved = { ...process.env };
+    try {
+      delete process.env.LTB_ECOMMERCE_ENCRYPTION_KEY;
+      for (const k of Object.keys(process.env)) if (k.startsWith('LTB_ECOMMERCE_PASSWORD_PEPPER_V')) delete process.env[k];
+      expect(await service.accountsReadiness()).toEqual({ pepperConfigured: false, keyConfigured: false });
+      process.env.LTB_ECOMMERCE_PASSWORD_PEPPER_V1 = Buffer.alloc(16, 1).toString('base64');
+      expect((await service.accountsReadiness()).pepperConfigured).toBe(false);
+      process.env.LTB_ECOMMERCE_PASSWORD_PEPPER_V2 = Buffer.alloc(32, 1).toString('base64');
+      expect(await service.accountsReadiness()).toEqual({ pepperConfigured: true, keyConfigured: false });
+      process.env.LTB_ECOMMERCE_ENCRYPTION_KEY = 'k';
+      expect(await service.accountsReadiness()).toEqual({ pepperConfigured: true, keyConfigured: true });
+    } finally {
+      for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
+      Object.assign(process.env, saved);
+    }
   });
 
   it('validates checkoutSessionTtlHours', async () => {

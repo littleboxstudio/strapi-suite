@@ -19,6 +19,7 @@ import {
   isMaskedEcho,
   maskSecret,
   resolveEncryptionKey,
+  resolveEncryptionKeySource,
 } from './secrets';
 import {
   EcommerceNotFoundError,
@@ -75,6 +76,32 @@ export type IntegrationInput = {
 /** The stored store logo (a file in the upload provider). */
 export type StoreLogo = StoreLogoFile;
 
+export type CustomerAccountsMode = 'GUEST_ONLY' | 'REGISTERED_ONLY' | 'BOTH';
+export const CUSTOMER_ACCOUNTS_MODES: readonly CustomerAccountsMode[] = ['GUEST_ONLY', 'REGISTERED_ONLY', 'BOTH'];
+
+export type AccountPaths = { verifyEmail: string; resetPassword: string; confirmEmail: string };
+const ACCOUNT_PATH_KEYS = ['verifyEmail', 'resetPassword', 'confirmEmail'] as const;
+export const ACCOUNT_PATHS_DEFAULTS: AccountPaths = {
+  verifyEmail: '/account/verify-email',
+  resetPassword: '/account/reset-password',
+  confirmEmail: '/account/confirm-email',
+};
+
+export type AccountsReadiness = { pepperConfigured: boolean; keyConfigured: boolean };
+
+/** A storefront path: starts with `/`, no query, fragment, scheme or whitespace, at most 200 characters. */
+const isAccountPath = (v: unknown): v is string =>
+  typeof v === 'string' && v.length <= 200 && v.startsWith('/') && !/[?#\s]|:\/\//.test(v);
+
+/** True when some `LTB_ECOMMERCE_PASSWORD_PEPPER_V<n>` holds at least 32 bytes (base64). */
+const pepperConfigured = (): boolean =>
+  Object.entries(process.env).some(
+    ([k, v]) =>
+      /^LTB_ECOMMERCE_PASSWORD_PEPPER_V\d+$/.test(k) &&
+      typeof v === 'string' &&
+      Buffer.from(v.trim(), 'base64').length >= 32
+  );
+
 export type StoreSettings = {
   storeName: string;
   logo: StoreLogo | null;
@@ -86,6 +113,10 @@ export type StoreSettings = {
   supportEmail: string | null;
   storefrontApiTokenId: number | null;
   checkoutSessionTtlHours: number;
+  /** Who may buy: guests only (default), registered customers only, or both. */
+  customerAccountsMode: CustomerAccountsMode;
+  /** Storefront paths (under `storefrontUrl`) the e-mail links point to; the token is appended. */
+  accountPaths: AccountPaths;
 };
 
 export const STORE_SETTINGS_DEFAULTS: StoreSettings = {
@@ -98,6 +129,8 @@ export const STORE_SETTINGS_DEFAULTS: StoreSettings = {
   supportEmail: null,
   storefrontApiTokenId: null,
   checkoutSessionTtlHours: 168,
+  customerAccountsMode: 'GUEST_ONLY',
+  accountPaths: { ...ACCOUNT_PATHS_DEFAULTS },
 };
 
 /** The storefront (BFF) API token as the admin sees it: never its value. */
@@ -264,6 +297,28 @@ function normalizeStorePatch(patch: Record<string, unknown>): {
     if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > 720)
       errors.push({ path: 'checkoutSessionTtlHours', code: 'invalid_number' });
     else values.checkoutSessionTtlHours = v;
+  }
+  if (has('customerAccountsMode')) {
+    const v = patch.customerAccountsMode;
+    if (!CUSTOMER_ACCOUNTS_MODES.includes(v as CustomerAccountsMode))
+      errors.push({ path: 'customerAccountsMode', code: 'invalid' });
+    else values.customerAccountsMode = v;
+  }
+  if (has('accountPaths')) {
+    const input = patch.accountPaths;
+    if (!input || typeof input !== 'object' || Array.isArray(input)) {
+      errors.push({ path: 'accountPaths', code: 'invalid' });
+    } else {
+      const paths: Partial<AccountPaths> = {};
+      for (const key of ACCOUNT_PATH_KEYS) {
+        if (!Object.prototype.hasOwnProperty.call(input, key)) continue;
+        const raw = (input as Record<string, unknown>)[key];
+        const v = str(raw);
+        if (isAccountPath(v)) paths[key] = v;
+        else errors.push({ path: `accountPaths.${key}`, code: 'invalid_path' });
+      }
+      values.accountPaths = paths;
+    }
   }
   return { values: values as Partial<StoreSettings>, errors };
 }
@@ -510,6 +565,14 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
       const value = unwrapStoreValue(r.value);
       if (value !== undefined) settings[r.key] = value;
     }
+    const stored = settings.accountPaths as Partial<AccountPaths> | null;
+    settings.accountPaths = { ...ACCOUNT_PATHS_DEFAULTS };
+    for (const key of ACCOUNT_PATH_KEYS) {
+      const v = stored?.[key];
+      if (isAccountPath(v)) (settings.accountPaths as AccountPaths)[key] = v;
+    }
+    if (!CUSTOMER_ACCOUNTS_MODES.includes(settings.customerAccountsMode as CustomerAccountsMode))
+      settings.customerAccountsMode = STORE_SETTINGS_DEFAULTS.customerAccountsMode;
     return settings as StoreSettings;
   };
 
@@ -903,7 +966,18 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
 
     getStoreSettings,
 
-    async updateStoreSettings(patch: Partial<StoreSettings>, userId?: string | number): Promise<StoreSettings> {
+    /** Which env a registered-customer mode still needs; flags only, never values. */
+    async accountsReadiness(): Promise<AccountsReadiness> {
+      return {
+        pepperConfigured: pepperConfigured(),
+        keyConfigured: resolveEncryptionKeySource(strapi) !== null,
+      };
+    },
+
+    async updateStoreSettings(
+      patch: Partial<Omit<StoreSettings, 'accountPaths'>> & { accountPaths?: Partial<AccountPaths> },
+      userId?: string | number
+    ): Promise<StoreSettings> {
       const { values, errors } = normalizeStorePatch((patch ?? {}) as Record<string, unknown>);
       if (errors.length) throw new EcommerceValidationError('Invalid settings', errors);
 
@@ -940,6 +1014,18 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
           }
           if (inUse.length) throw new EcommerceValidationError('Invalid settings', inUse);
         }
+      }
+
+      if (values.accountPaths || 'customerAccountsMode' in values || 'storefrontUrl' in values) {
+        const current = await getStoreSettings();
+        const mode = values.customerAccountsMode ?? current.customerAccountsMode;
+        const url = 'storefrontUrl' in values ? values.storefrontUrl : current.storefrontUrl;
+        if (mode !== 'GUEST_ONLY' && !url) {
+          throw new EcommerceValidationError('Invalid settings', [
+            { path: 'customerAccountsMode', code: 'storefront_url_required' },
+          ]);
+        }
+        if (values.accountPaths) values.accountPaths = { ...current.accountPaths, ...values.accountPaths };
       }
 
       const changedFields = await writeStoreValues(values as Record<string, unknown>);
