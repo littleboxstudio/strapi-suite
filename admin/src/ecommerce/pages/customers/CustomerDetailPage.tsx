@@ -92,6 +92,7 @@ const CustomerDetailPage = () => {
     }
     let cancelled = false;
     setForm(null);
+    setAccount(null);
     setLoadError(false);
     new FetchCustomer()
       .execute(customerId)
