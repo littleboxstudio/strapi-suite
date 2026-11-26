@@ -10,6 +10,9 @@ const customers: [string, string, string, string][] = [
   ['GET', C, 'list', P.customersRead],
   ['GET', `${C}/:id`, 'get', P.customersRead],
   ['PUT', `${C}/:id`, 'update', P.customersManage],
+  ['POST', `${C}/:id/block`, 'block', P.customersBlock],
+  ['POST', `${C}/:id/unblock`, 'unblock', P.customersBlock],
+  ['PUT', `${C}/:id/password`, 'setPassword', P.customersPassword],
   ['GET', `${C}/:id/orders`, 'listOrders', P.customersRead],
   ['GET', `${C}/:id/last-addresses`, 'lastAddresses', P.ordersManage],
 ];

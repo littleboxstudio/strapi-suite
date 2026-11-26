@@ -15,12 +15,15 @@ const route = (method: string, path: string, handler: string, action: string) =>
   },
 });
 
-const { customersRead, customersManage, ordersManage } = ECOMMERCE_PERMISSIONS;
+const { customersRead, customersManage, customersBlock, customersPassword, ordersManage } = ECOMMERCE_PERMISSIONS;
 
 export default [
   route('GET', '', 'list', customersRead),
   route('GET', '/:id', 'get', customersRead),
   route('PUT', '/:id', 'update', customersManage),
+  route('POST', '/:id/block', 'block', customersBlock),
+  route('POST', '/:id/unblock', 'unblock', customersBlock),
+  route('PUT', '/:id/password', 'setPassword', customersPassword),
   route('GET', '/:id/orders', 'listOrders', customersRead),
   route('GET', '/:id/last-addresses', 'lastAddresses', ordersManage),
 ];

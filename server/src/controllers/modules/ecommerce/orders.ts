@@ -1,5 +1,6 @@
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID } from '../../../config';
+import { EcommerceAccountError, EcommerceValidationError } from '../../../services/modules/ecommerce/errors';
 import { handleDomainError as handleSharedDomainError } from './errors';
 import { MAX_KEY, asObject, fail, optionalString, promotionFields, requiredString } from './validation';
 
@@ -14,12 +15,17 @@ const EcommerceOrderController = ({ strapi }: { strapi: Core.Strapi }) => {
   const body = (ctx: any) => ctx.request?.body ?? {};
   const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
 
-  const handleDomainError = (ctx: any, err: unknown, withCode = false) =>
-    handleSharedDomainError(ctx, err, {
+  const handleDomainError = (ctx: any, err: unknown, withCode = false) => {
+    // A blocked customer's e-mail is a validation problem of the order form (Task 7's guard).
+    if (err instanceof EcommerceAccountError && err.code === 'CUSTOMER_BLOCKED') {
+      err = new EcommerceValidationError('Invalid order', [{ path: 'customer.email', code: 'customer_blocked' }]);
+    }
+    return handleSharedDomainError(ctx, err, {
       invalid: 'Invalid order',
       notFound: 'Order not found',
       withCode,
     });
+  };
 
   /** `withCode`: validation errors also carry the first code as `details.code`. */
   const respond = async (

@@ -2,6 +2,7 @@ import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID, LtbConfigs } from '../../../config';
 import {
   EcommerceAccountError,
+  EcommerceAccountsUnavailableError,
   EcommerceNotFoundError,
   EcommerceValidationError,
   type ValidationIssue,
@@ -10,9 +11,22 @@ import { isEmail } from './settings';
 import type { AuditEntry } from './audit';
 import { normalizeEmail } from './domain/email';
 import { findLocale, resolveLocale } from './locales';
+import { checkPasswordPolicy } from './domain/accounts/passwordPolicy';
 
 const AREA = 'customers';
 const PAGE_SIZE = 50;
+const LOG_PREFIX = '[ecommerce:customers]';
+/** Longer passwords are refused before any hashing (denial-of-service guard). */
+const PASSWORD_INPUT_MAX = 1024;
+const BLOCK_NOTE_MAX = 1000;
+const ACCOUNT_TYPES = ['GUEST', 'REGISTERED'];
+type AdminUserRow = {
+  id: number | string;
+  firstname?: string | null;
+  lastname?: string | null;
+  username?: string | null;
+  email?: string | null;
+};
 
 export const isValidEmail = (email: unknown): boolean =>
   typeof email === 'string' && isEmail(email.trim());
@@ -49,6 +63,45 @@ const EcommerceCustomerService = ({ strapi }: { strapi: Core.Strapi }) => {
   };
   const audit = (entry: AuditEntry): Promise<void> =>
     strapi.plugin(PLUGIN_ID).service('EcommerceAuditService').log(entry);
+
+  const svc = (name: string): any => strapi.plugin(PLUGIN_ID).service(name);
+
+  /** Fire and forget: never awaited by the caller, failures logged as codes only. */
+  const fire = (send: () => Promise<unknown>): void => {
+    void Promise.resolve()
+      .then(send)
+      .catch((err: unknown) => {
+        const e = err as { code?: unknown; name?: unknown };
+        const code = typeof e?.code === 'string' ? e.code : 'EMAIL_SEND_FAILED';
+        const name = typeof e?.name === 'string' ? e.name : 'Error';
+        strapi.log.warn(`${LOG_PREFIX} ${code} ${name}`);
+      });
+  };
+
+  /** Admin user ids to display names (first and last name, else username); unknown ids are omitted. */
+  const adminNames = async (ids: unknown[]): Promise<Map<number, string>> => {
+    const unique = [...new Set(ids.filter((i): i is number => typeof i === 'number'))];
+    const names = new Map<number, string>();
+    if (!unique.length) return names;
+    const users: AdminUserRow[] = await strapi.db.query('admin::user').findMany({
+      where: { id: { $in: unique } },
+      select: ['id', 'firstname', 'lastname', 'username'],
+    });
+    for (const u of users) {
+      const name = [u.firstname, u.lastname].filter(Boolean).join(' ').trim() || u.username;
+      if (name) names.set(Number(u.id), name);
+    }
+    return names;
+  };
+
+  const accountFields = (c: any, names: Map<number, string>) => ({
+    accountType: c.accountType === 'REGISTERED' ? 'REGISTERED' : 'GUEST',
+    emailVerified: c.emailVerified === true,
+    blocked: c.blocked === true,
+    blockedAt: c.blocked === true ? (c.blockedAt ?? null) : null,
+    blockedNote: c.blocked === true ? (c.blockedNote ?? null) : null,
+    blockedBy: c.blocked === true && typeof c.blockedById === 'number' ? (names.get(c.blockedById) ?? null) : null,
+  });
 
   const pagination = (page: number, total: number) => ({
     page,
@@ -125,11 +178,21 @@ const EcommerceCustomerService = ({ strapi }: { strapi: Core.Strapi }) => {
       return !!row;
     },
 
-    async list({ page, search }: { page?: number; search?: string } = {}) {
+    async list(
+      {
+        page,
+        search,
+        accountType,
+        blocked,
+      }: { page?: number; search?: string; accountType?: string; blocked?: boolean } = {}
+    ) {
       const q = strapi.db.query(uids().customer);
       const p = toPage(page);
       const term = normalizeEmail(search ?? '');
-      const where = term ? { emailNormalized: { $containsi: term } } : {};
+      const where: Record<string, unknown> = term ? { emailNormalized: { $containsi: term } } : {};
+      if (typeof accountType === 'string' && ACCOUNT_TYPES.includes(accountType)) where.accountType = accountType;
+      if (blocked === true) where.blocked = true;
+      else if (blocked === false) where.blocked = { $ne: true };
       const [total, rows] = await Promise.all([
         q.count({ where }),
         q.findMany({
@@ -141,6 +204,7 @@ const EcommerceCustomerService = ({ strapi }: { strapi: Core.Strapi }) => {
           populate: { orders: { select: ['id'] } },
         }),
       ]);
+      const names = await adminNames(rows.map((c: any) => c.blockedById));
       return {
         results: rows.map((c: any) => ({
           id: c.id,
@@ -148,6 +212,7 @@ const EcommerceCustomerService = ({ strapi }: { strapi: Core.Strapi }) => {
           lastName: c.lastName,
           email: c.email,
           locale: c.locale ?? null,
+          ...accountFields(c, names),
           ordersCount: Array.isArray(c.orders) ? c.orders.length : 0,
         })),
         pagination: pagination(p, total),
@@ -164,6 +229,7 @@ const EcommerceCustomerService = ({ strapi }: { strapi: Core.Strapi }) => {
         email: c.email,
         phone: c.phone ?? null,
         locale: c.locale ?? null,
+        ...accountFields(c, await adminNames([c.blockedById])),
         createdAt: c.createdAt,
         updatedAt: c.updatedAt,
       };
@@ -176,10 +242,7 @@ const EcommerceCustomerService = ({ strapi }: { strapi: Core.Strapi }) => {
 
       const { values, errors } = validate(input);
       const emailNormalized = normalizeEmail(values.email);
-      if (!errors.length) {
-        const clash = await q.findOne({ where: { emailNormalized, id: { $ne: id } } });
-        if (clash) errors.push({ path: 'email', code: 'duplicate_email' });
-      }
+      const emailChanged = !errors.length && emailNormalized !== (current.emailNormalized ?? normalizeEmail(current.email ?? ''));
       // The language is optional here: absent keeps the current one; present must be a locale the
       // backend has (stored with its own case), never silently replaced by the default.
       const wantedLocale = (input as { locale?: unknown })?.locale;
@@ -193,10 +256,50 @@ const EcommerceCustomerService = ({ strapi }: { strapi: Core.Strapi }) => {
         ),
         ...(locale && locale !== current.locale ? (['locale'] as const) : []),
       ];
-      await q.update({
-        where: { id },
-        data: { ...values, emailNormalized, ...(locale ? { locale } : {}) },
+      // An account's new e-mail is unproven: unverified, old sessions gone, and the credits and
+      // promotion usage keyed by the old e-mail move with it.
+      const reverify = emailChanged && current.accountType === 'REGISTERED';
+      const taken = () =>
+        new EcommerceValidationError('Invalid customer', [{ path: 'email', code: 'taken' }]);
+      await strapi.db.transaction(async () => {
+        if (emailChanged) {
+          // Re-checked in the transaction that writes it (the e-mail has no unique index).
+          const [owner] = await q.findMany({ where: { emailNormalized, id: { $ne: id } }, select: ['id'], limit: 1 });
+          if (owner) throw taken();
+          const [pending] = await q.findMany({
+            where: { pendingEmailNormalized: emailNormalized, id: { $ne: id } },
+            select: ['id'],
+            limit: 1,
+          });
+          if (pending) throw taken();
+        }
+        await q.update({
+          where: { id },
+          data: {
+            ...values,
+            emailNormalized,
+            ...(locale ? { locale } : {}),
+            ...(reverify
+              ? { emailVerified: false, emailVerifiedAt: null, pendingEmail: null, pendingEmailNormalized: null }
+              : {}),
+          },
+        });
+        if (reverify) {
+          const oldNormalized = String(current.emailNormalized ?? '');
+          await svc('EcommerceStoreCreditService').rekeyCustomerEmail(oldNormalized, emailNormalized);
+          await svc('EcommercePromotionService').rekeyCustomerEmail(oldNormalized, emailNormalized);
+        }
       });
+      if (reverify) {
+        await svc('EcommerceCustomerSessionService').revokeAll(id, 'EMAIL_CHANGED');
+        fire(async () => {
+          const { raw } = await svc('EcommerceCustomerTokenService').issue(id, 'VERIFY_EMAIL', values.email);
+          await svc('EcommerceAccountMailer').sendAccountVerification(values.email, locale ?? current.locale ?? null, {
+            firstName: values.firstName,
+            raw,
+          });
+        });
+      }
       if (changedFields.length) {
         await audit({
           area: AREA,
@@ -207,6 +310,69 @@ const EcommerceCustomerService = ({ strapi }: { strapi: Core.Strapi }) => {
         });
       }
       return this.get(id);
+    },
+
+    /** Blocks a customer: flags and note saved, every login session revoked. */
+    async block(id: number, input: { note?: string | null } = {}, actor: { userId: number }) {
+      const q = strapi.db.query(uids().customer);
+      const current = await q.findOne({ where: { id }, select: ['id'] });
+      if (!current) throw new EcommerceNotFoundError('Customer not found');
+      const raw = input?.note;
+      if (raw !== undefined && raw !== null && typeof raw !== 'string') {
+        throw new EcommerceValidationError('Invalid customer', [{ path: 'note', code: 'invalid' }]);
+      }
+      const note = typeof raw === 'string' ? raw.trim() : '';
+      if (note.length > BLOCK_NOTE_MAX) {
+        throw new EcommerceValidationError('Invalid customer', [{ path: 'note', code: 'too_long' }]);
+      }
+      await q.update({
+        where: { id },
+        data: { blocked: true, blockedAt: new Date(), blockedNote: note || null, blockedById: actor.userId },
+      });
+      await svc('EcommerceCustomerSessionService').revokeAll(id, 'BLOCKED');
+      await audit({ area: AREA, action: 'customer.block', targetId: String(id), userId: `user:${actor.userId}` });
+      return this.get(id);
+    },
+
+    /** Unblocks a customer and clears the note. Sessions stay revoked: the customer logs in again. */
+    async unblock(id: number, actor: { userId: number }) {
+      const q = strapi.db.query(uids().customer);
+      const current = await q.findOne({ where: { id }, select: ['id'] });
+      if (!current) throw new EcommerceNotFoundError('Customer not found');
+      await q.update({
+        where: { id },
+        data: { blocked: false, blockedAt: null, blockedNote: null, blockedById: null },
+      });
+      await audit({ area: AREA, action: 'customer.unblock', targetId: String(id), userId: `user:${actor.userId}` });
+      return this.get(id);
+    },
+
+    /** An admin sets a registered, unblocked customer's password; every session is revoked. */
+    async setPassword(id: number, input: { password?: unknown }, actor: { userId: number }): Promise<void> {
+      const q = strapi.db.query(uids().customer);
+      const current = await q.findOne({ where: { id } });
+      if (!current) throw new EcommerceNotFoundError('Customer not found');
+      const issue = (code: string) =>
+        new EcommerceValidationError('Invalid password', [{ path: 'password', code }]);
+      if (current.accountType !== 'REGISTERED' || current.blocked === true) throw issue('not_allowed');
+      const password = input?.password;
+      if (typeof password === 'string' && password.length > PASSWORD_INPUT_MAX) throw issue('TOO_LONG');
+      const policy = checkPasswordPolicy(password, String(current.email ?? ''));
+      if (policy.ok === false) throw issue(policy.reason);
+      const passwords = svc('EcommercePasswordService');
+      if (!passwords.available()) throw new EcommerceAccountsUnavailableError();
+      const { hash, pepperVersion } = await passwords.hash(password as string);
+      await q.update({
+        where: { id },
+        data: { passwordHash: hash, passwordPepperVersion: pepperVersion, passwordChangedAt: new Date() },
+      });
+      await svc('EcommerceCustomerSessionService').revokeAll(id, 'ADMIN_PASSWORD');
+      await audit({ area: AREA, action: 'customer.password_set', targetId: String(id), userId: `user:${actor.userId}` });
+      fire(() =>
+        svc('EcommerceAccountMailer').sendPasswordChanged(String(current.email), current.locale ?? null, {
+          firstName: String(current.firstName ?? ''),
+        })
+      );
     },
 
     /** Order history; `search` is an order reference (`1001` or `#1001`), anything else matches nothing. */

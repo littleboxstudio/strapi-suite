@@ -56,7 +56,7 @@ describe('registerEcommercePermissions', () => {
 
     expect(registerMany).toHaveBeenCalledTimes(1);
     const actions = registerMany.mock.calls[0][0];
-    expect(actions).toHaveLength(13);
+    expect(actions).toHaveLength(15);
     expect(actions).toEqual([
       expect.objectContaining({
         section: 'plugins',
@@ -114,6 +114,8 @@ describe('registerEcommercePermissions', () => {
         uid: 'ecommerce.customers.manage',
         displayName: 'Manage customers',
       }),
+      expect.objectContaining({ uid: 'ecommerce.customers.block', displayName: 'Block and unblock customers' }),
+      expect.objectContaining({ uid: 'ecommerce.customers.password', displayName: 'Change customer passwords' }),
       expect.objectContaining({
         uid: 'ecommerce.refunds.manage',
         displayName: 'Manage refunds and store credit',
