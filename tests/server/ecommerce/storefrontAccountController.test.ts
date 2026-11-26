@@ -255,6 +255,17 @@ describe('access through the storefront controller', () => {
     expect(t.guestSessions.requestEmailVerification).not.toHaveBeenCalled();
   });
 
+  it('M5: refused for a login session before the e-mail key is counted', async () => {
+    const t = setup('BOTH');
+    // email.send allows 5 per e-mail per hour; 6 refusals with a login session spend none of it.
+    for (let i = 0; i < 6; i++) {
+      const s = { 'X-Customer-Token': 'good' };
+      t.customerSessions.resolve.mockResolvedValueOnce({ sessionId: 100 + i, customer: CUSTOMER });
+      expect((await t.sf('requestEmailVerification', { headers: s, body: { email: EMAIL } })).status).toBe(409);
+    }
+    expect((await t.sf('requestEmailVerification', { headers: G, body: { email: EMAIL } })).status).toBe(202);
+  });
+
   it('CUSTOMER_BLOCKED from the checkout e-mail verification and from createOrder → 403', async () => {
     const t = setup('BOTH');
     t.guestSessions.requestEmailVerification.mockRejectedValueOnce(new EcommerceAccountError('CUSTOMER_BLOCKED', 403));
@@ -325,9 +336,25 @@ describe('account routes: access', () => {
 });
 
 describe('account routes: handlers', () => {
-  it('register: rebuilds the body from known fields and answers 202', async () => {
+  it('register and password reset need a guest session', async () => {
+    const t = setup();
+    const reg = await t.acc('register', { body: { email: EMAIL, password: PASSWORD, firstName: 'A', lastName: 'B' } });
+    expect([reg.status, details(reg)]).toEqual([401, { code: 'SESSION_INVALID' }]);
+    const loginOnly = await t.acc('register', {
+      headers: C,
+      body: { email: EMAIL, password: PASSWORD, firstName: 'A', lastName: 'B' },
+    });
+    expect(details(loginOnly)).toEqual({ code: 'SESSION_INVALID' });
+    const reset = await t.acc('resetPassword', { body: { token: 't', password: PASSWORD } });
+    expect([reset.status, details(reset)]).toEqual([401, { code: 'SESSION_INVALID' }]);
+    expect(t.accounts.register).not.toHaveBeenCalled();
+    expect(t.accounts.resetPassword).not.toHaveBeenCalled();
+  });
+
+  it('register: rebuilds the body from known fields and answers 202 VERIFICATION_SENT', async () => {
     const t = setup();
     const ctx = await t.acc('register', {
+      headers: G,
       body: {
         email: EMAIL,
         password: PASSWORD,
@@ -341,7 +368,7 @@ describe('account routes: handlers', () => {
       },
     });
     expect(ctx.status).toBe(202);
-    expect(ctx.body).toEqual({ accepted: true });
+    expect(ctx.body).toEqual({ status: 'VERIFICATION_SENT' });
     expect(t.accounts.register).toHaveBeenCalledWith({
       email: EMAIL,
       password: PASSWORD,
@@ -355,8 +382,8 @@ describe('account routes: handlers', () => {
   it('register: an existing verified e-mail answers exactly like a new one', async () => {
     const t = setup();
     const body = { email: EMAIL, password: PASSWORD, firstName: 'Ana', lastName: 'Silva' };
-    const a = await t.acc('register', { body });
-    const b = await t.acc('register', { body }); // the service is silent on an existing account
+    const a = await t.acc('register', { headers: G, body });
+    const b = await t.acc('register', { headers: G, body }); // the service is silent on an existing account
     expect([b.status, b.body, b.responseHeaders]).toEqual([a.status, a.body, a.responseHeaders]);
   });
 
@@ -368,7 +395,7 @@ describe('account routes: handlers', () => {
       { email: EMAIL, password: PASSWORD, firstName: ['A'], lastName: 'B' },
       'not-an-object',
     ]) {
-      const ctx = await t.acc('register', { body });
+      const ctx = await t.acc('register', { headers: G, body });
       expect(ctx.status).toBe(400);
     }
     expect(t.accounts.register).not.toHaveBeenCalled();
@@ -377,8 +404,8 @@ describe('account routes: handlers', () => {
   it('register: 5 per hour per e-mail', async () => {
     const t = setup();
     const body = { email: EMAIL, password: PASSWORD, firstName: 'Ana', lastName: 'Silva' };
-    for (let i = 0; i < 5; i++) expect((await t.acc('register', { body })).status).toBe(202);
-    const ctx = await t.acc('register', { body: { ...body, email: ' ana@EXAMPLE.pt ' } });
+    for (let i = 0; i < 5; i++) expect((await t.acc('register', { headers: G, body })).status).toBe(202);
+    const ctx = await t.acc('register', { headers: G, body: { ...body, email: ' ana@EXAMPLE.pt ' } });
     expect(ctx.status).toBe(429);
     expect(details(ctx).code).toBe('RATE_LIMITED');
     expect(ctx.responseHeaders['Retry-After']).toBeDefined();
@@ -413,20 +440,22 @@ describe('account routes: handlers', () => {
   it('login: the e-mail key counts failures only (5 per 15 min)', async () => {
     const t = setup();
     const body = { email: EMAIL, password: PASSWORD };
+    let n = 0;
+    const H = () => ({ ...G, 'X-Storefront-Client-IP': `198.51.100.${++n}` }); // one IP each: only the e-mail key matters
     // Successes never spend the e-mail budget.
-    for (let i = 0; i < 8; i++) expect((await t.acc('login', { headers: G, body })).status).toBe(200);
+    for (let i = 0; i < 8; i++) expect((await t.acc('login', { headers: H(), body })).status).toBe(200);
     t.accounts.login.mockRejectedValue(new EcommerceAccountError('INVALID_CREDENTIALS', 401));
     for (let i = 0; i < 5; i++) {
-      const ctx = await t.acc('login', { headers: G, body });
+      const ctx = await t.acc('login', { headers: H(), body });
       expect(ctx.status).toBe(401);
       expect(details(ctx)).toEqual({ code: 'INVALID_CREDENTIALS' });
     }
     t.accounts.login.mockResolvedValue(LOGIN);
-    const ctx = await t.acc('login', { headers: G, body: { ...body, email: 'ana@example.PT' } });
+    const ctx = await t.acc('login', { headers: H(), body: { ...body, email: 'ana@example.PT' } });
     expect(ctx.status).toBe(429);
     expect(t.accounts.login).toHaveBeenCalledTimes(13);
     // Another e-mail is not affected.
-    expect((await t.acc('login', { headers: G, body: { ...body, email: 'bea@example.pt' } })).status).toBe(200);
+    expect((await t.acc('login', { headers: H(), body: { ...body, email: 'bea@example.pt' } })).status).toBe(200);
   });
 
   it('login: 10 per minute per IP', async () => {
@@ -434,6 +463,13 @@ describe('account routes: handlers', () => {
     const body = { email: EMAIL, password: PASSWORD };
     for (let i = 0; i < 10; i++) expect((await t.acc('login', { headers: { ...G, ...IP }, body })).status).toBe(200);
     expect((await t.acc('login', { headers: { ...G, ...IP }, body })).status).toBe(429);
+  });
+
+  it('login without X-Storefront-Client-IP: one shared bucket, still 10 per minute', async () => {
+    const t = setup();
+    const body = { email: EMAIL, password: PASSWORD };
+    for (let i = 0; i < 10; i++) expect((await t.acc('login', { headers: G, body })).status).toBe(200);
+    expect((await t.acc('login', { headers: G, body })).status).toBe(429);
   });
 
   it('login: EMAIL_NOT_VERIFIED → 403, ACCOUNTS_UNAVAILABLE → 503, hash queue full → 429 Retry-After', async () => {
@@ -453,11 +489,13 @@ describe('account routes: handlers', () => {
     ]);
   });
 
-  it('resend and forgot answer 202 with only the e-mail passed on', async () => {
+  it('resend and forgot answer 202 { status: ACCEPTED } with only the e-mail passed on', async () => {
     const t = setup();
-    expect((await t.acc('resendVerification', { body: { email: EMAIL, x: 1 } })).status).toBe(202);
+    const resend = await t.acc('resendVerification', { body: { email: EMAIL, x: 1 } });
+    expect([resend.status, resend.body]).toEqual([202, { status: 'ACCEPTED' }]);
     expect(t.accounts.resendVerification).toHaveBeenCalledWith(EMAIL);
-    expect((await t.acc('forgotPassword', { body: { email: EMAIL } })).status).toBe(202);
+    const forgot = await t.acc('forgotPassword', { body: { email: EMAIL } });
+    expect([forgot.status, forgot.body]).toEqual([202, { status: 'ACCEPTED' }]);
     expect(t.accounts.forgotPassword).toHaveBeenCalledWith(EMAIL);
   });
 
@@ -469,17 +507,17 @@ describe('account routes: handlers', () => {
 
   it('resetPassword: 204; WEAK_PASSWORD carries the reason', async () => {
     const t = setup();
-    const ok = await t.acc('resetPassword', { body: { token: 'tok', password: PASSWORD, other: 1 } });
+    const ok = await t.acc('resetPassword', { headers: G, body: { token: 'tok', password: PASSWORD, other: 1 } });
     expect(ok.status).toBe(204);
     expect(t.accounts.resetPassword).toHaveBeenCalledWith({ token: 'tok', password: PASSWORD });
     t.accounts.resetPassword.mockRejectedValueOnce(
       new EcommerceAccountError('WEAK_PASSWORD', 400, { reason: 'TOO_SHORT', leak: 'no' })
     );
-    const weak = await t.acc('resetPassword', { body: { token: 'tok', password: 'short' } });
+    const weak = await t.acc('resetPassword', { headers: G, body: { token: 'tok', password: 'short' } });
     expect(weak.status).toBe(400);
     expect(details(weak)).toEqual({ code: 'WEAK_PASSWORD', reason: 'TOO_SHORT' });
     t.accounts.resetPassword.mockRejectedValueOnce(new EcommerceAccountError('TOKEN_INVALID', 400));
-    expect(details(await t.acc('resetPassword', { body: { token: 'x', password: PASSWORD } }))).toEqual({
+    expect(details(await t.acc('resetPassword', { headers: G, body: { token: 'x', password: PASSWORD } }))).toEqual({
       code: 'TOKEN_INVALID',
     });
   });
@@ -487,9 +525,13 @@ describe('account routes: handlers', () => {
   it('token routes: 20 per hour per IP', async () => {
     const t = setup();
     for (let i = 0; i < 20; i++) {
-      expect((await t.acc('resetPassword', { headers: IP, body: { token: 't', password: PASSWORD } })).status).toBe(204);
+      expect((await t.acc('resetPassword', { headers: { ...G, ...IP }, body: { token: 't', password: PASSWORD } })).status).toBe(
+        204
+      );
     }
-    expect((await t.acc('resetPassword', { headers: IP, body: { token: 't', password: PASSWORD } })).status).toBe(429);
+    expect((await t.acc('resetPassword', { headers: { ...G, ...IP }, body: { token: 't', password: PASSWORD } })).status).toBe(
+      429
+    );
   });
 
   it('logout: 204, the current session of the current customer', async () => {
@@ -590,13 +632,12 @@ describe('account routes: handlers', () => {
     expect(t.customerSessions.revokeAll).toHaveBeenCalledWith(41, 'REVOKED_BY_CUSTOMER', 7);
   });
 
-  it('confirmEmailChange: needs a guest or login session; 204', async () => {
+  it('confirmEmailChange: needs a guest or login session; 204; a login session is offered to be kept', async () => {
     const t = setup();
     expect(details(await t.acc('confirmEmailChange', { body: { token: 't' } }))).toEqual({ code: 'SESSION_INVALID' });
     expect((await t.acc('confirmEmailChange', { headers: G, body: { token: 't' } })).status).toBe(204);
     expect((await t.acc('confirmEmailChange', { headers: C, body: { token: 't' } })).status).toBe(204);
-    expect(t.accounts.confirmEmailChange).toHaveBeenCalledTimes(2);
-    expect(t.accounts.confirmEmailChange).toHaveBeenCalledWith('t');
+    expect(t.accounts.confirmEmailChange.mock.calls).toEqual([['t'], ['t', 7]]);
   });
 
   it('a validation error from a service keeps the storefront error shape', async () => {
@@ -604,7 +645,10 @@ describe('account routes: handlers', () => {
     t.accounts.register.mockRejectedValueOnce(
       new EcommerceValidationError('Invalid registration', [{ path: 'email', code: 'invalid_email' }])
     );
-    const ctx = await t.acc('register', { body: { email: 'x', password: PASSWORD, firstName: 'A', lastName: 'B' } });
+    const ctx = await t.acc('register', {
+      headers: G,
+      body: { email: 'x', password: PASSWORD, firstName: 'A', lastName: 'B' },
+    });
     expect(ctx.status).toBe(400);
     expect(details(ctx)).toEqual({ code: 'invalid_email', errors: [{ path: 'email', code: 'invalid_email' }] });
   });

@@ -7,8 +7,8 @@
  *   even read (owner's decision).
  * - `public-session`: open a guest session, pickup points. Any session.
  * - `account-public`: register, verify, resend, login, forgot / reset, confirm e-mail change.
- *   Routes that also need a session (verify and login need a guest one; confirm needs any) check
- *   that on top of this decision.
+ *   Routes that also need a session check that on top of this decision: register, verify,
+ *   login and reset need a guest session (SESSION_INVALID otherwise); confirm needs any.
  * - `account-private`: the private area. Login only.
  * - `checkout`: cart, quote, discounts, store credit, checkout e-mail verification, create order.
  * - `order-existing`: payment link and order status of an existing order (by `publicId`).

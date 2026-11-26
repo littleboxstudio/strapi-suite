@@ -52,6 +52,8 @@ export type GateOptions = {
   email?: unknown;
   /** Count the e-mail key without a session too (account routes); default: only with one. */
   emailWithoutSession?: boolean;
+  /** Count the e-mail key only for a guest session (checkout e-mail verification). */
+  emailForGuestOnly?: boolean;
   notFound?: StorefrontErrorOptions['notFound'];
 };
 
@@ -188,7 +190,8 @@ export const createStorefrontGate = ({ strapi, limiter }: { strapi: Core.Strapi;
           : as === 'guest' && guest
             ? { kind: 'guest' as const, id: guest.id }
             : null;
-    const email = typeof opts.email === 'string' && (session || opts.emailWithoutSession) ? opts.email : null;
+    const emailCounts = opts.emailForGuestOnly ? session?.kind === 'guest' : !!session || !!opts.emailWithoutSession;
+    const email = typeof opts.email === 'string' && emailCounts ? opts.email : null;
     if (limited(ctx, opts.rule, { session, email })) return;
     if (denied) {
       warn(denied.code);

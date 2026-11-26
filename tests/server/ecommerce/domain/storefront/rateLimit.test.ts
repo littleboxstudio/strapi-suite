@@ -96,6 +96,15 @@ describe('rateKeys: login sessions', () => {
   });
 });
 
+describe('rateKeys: account rules without a client IP', () => {
+  it('login, register, e-mail and token rules count in the shared unknown bucket', () => {
+    for (const rule of ['account.login', 'account.register', 'account.email', 'account.token'] as const) {
+      expect(rateKeys(rule, { sessionId: null, ip: null }).map((k) => k.key)).toEqual([`${rule}:ip:unknown`]);
+    }
+    expect(rateKeys('account.private', { sessionId: null, ip: null })).toEqual([]);
+  });
+});
+
 describe('createRateLimiter: check', () => {
   it('reports without counting', () => {
     let t = 0;

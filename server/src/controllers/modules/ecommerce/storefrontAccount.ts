@@ -1,6 +1,11 @@
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID } from '../../../config';
-import { createRateLimiter, rateKeys, type RateRuleName } from '../../../services/modules/ecommerce/domain/storefront';
+import {
+  STOREFRONT_RATE_RULES,
+  createRateLimiter,
+  rateKeys,
+  type RateRuleName,
+} from '../../../services/modules/ecommerce/domain/storefront';
 import { MAX_EMAIL_LENGTH } from '../../../services/modules/ecommerce/domain/storefront/limits';
 import {
   EcommerceAccountError,
@@ -19,7 +24,9 @@ const ID = /^[1-9]\d{0,15}$/;
 const MAX_TOKEN = 512;
 const MAX_LOCALE = 20;
 const MAX_PAGE_PARAM = 10;
-const ACCEPTED = { status: 202, body: { accepted: true } };
+/** 202 bodies are never null (Koa would answer 204). */
+const VERIFICATION_SENT = { status: 202, body: { status: 'VERIFICATION_SENT' } };
+const ACCEPTED = { status: 202, body: { status: 'ACCEPTED' } };
 const NO_CONTENT = { status: 204, body: null };
 
 /** A string (any length: the services cap passwords) or absent; any other type is a 400. */
@@ -81,9 +88,9 @@ const EcommerceStorefrontAccountController = ({ strapi }: { strapi: Core.Strapi 
   const emailFromBody = (ctx: any): unknown => asObject(ctx.request?.body).email;
 
   return {
-    /** POST /account/register → 202 whatever the e-mail's state. */
+    /** POST /account/register (guest session) → 202 whatever the e-mail's state. */
     register: (ctx: any) =>
-      publicRoute(ctx, 'account.register', { email: emailFromBody(ctx) }, async () => {
+      publicRoute(ctx, 'account.register', { needs: 'guest', email: emailFromBody(ctx) }, async () => {
         const b = body(ctx);
         await accounts().register(
           pick({
@@ -95,7 +102,7 @@ const EcommerceStorefrontAccountController = ({ strapi }: { strapi: Core.Strapi 
             locale: text('locale', b.locale, MAX_LOCALE),
           })
         );
-        return ACCEPTED;
+        return VERIFICATION_SENT;
       }),
 
     /** POST /account/verify-email (guest session) → 200 { token, expiresAt, customer }. */
@@ -119,8 +126,14 @@ const EcommerceStorefrontAccountController = ({ strapi }: { strapi: Core.Strapi 
       publicRoute(ctx, 'account.login', { needs: 'guest' }, async (access) => {
         const b = body(ctx);
         const input = { email: emailOf('email', b.email), password: passwordOf('password', b.password) };
+        // Only the e-mail key (without an IP, the rule would add its shared unknown-IP key).
+        const emailRule = STOREFRONT_RATE_RULES['account.login'].email;
         const emailKeys =
-          typeof input.email === 'string' ? rateKeys('account.login', { sessionId: null, ip: null, email: input.email }) : [];
+          typeof input.email === 'string'
+            ? rateKeys('account.login', { sessionId: null, ip: null, email: input.email }).filter(
+                (k) => k.rule === emailRule
+              )
+            : [];
         const allowed = limiter.check(emailKeys);
         if (!allowed.allowed) {
           gate.warn('RATE_LIMITED account.login');
@@ -143,18 +156,23 @@ const EcommerceStorefrontAccountController = ({ strapi }: { strapi: Core.Strapi 
         return ACCEPTED;
       }),
 
-    /** POST /account/password/reset → 204. */
+    /** POST /account/password/reset (guest session) → 204. */
     resetPassword: (ctx: any) =>
-      publicRoute(ctx, 'account.token', {}, async () => {
+      publicRoute(ctx, 'account.token', { needs: 'guest' }, async () => {
         const b = body(ctx);
         await accounts().resetPassword({ token: tokenOf(b.token), password: passwordOf('password', b.password) });
         return NO_CONTENT;
       }),
 
-    /** POST /account/email/confirm (guest or login session) → 204. */
+    /**
+     * POST /account/email/confirm (guest or login session) → 204. A login session is offered to
+     * be kept; the service keeps it only when it is the token's customer's.
+     */
     confirmEmailChange: (ctx: any) =>
-      publicRoute(ctx, 'account.token', { needs: 'session' }, async () => {
-        await accounts().confirmEmailChange(tokenOf(body(ctx).token));
+      publicRoute(ctx, 'account.token', { needs: 'session' }, async (access) => {
+        const token = tokenOf(body(ctx).token);
+        if (access.login) await accounts().confirmEmailChange(token, access.login.sessionId);
+        else await accounts().confirmEmailChange(token);
         return NO_CONTENT;
       }),
 

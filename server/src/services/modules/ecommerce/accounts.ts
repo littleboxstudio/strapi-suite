@@ -495,10 +495,11 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
 
     /**
      * Swaps the e-mail and, in the same transaction, moves the store credits and promotion usage
-     * keyed by the old normalized e-mail. The confirm runs by token (maybe on another device),
-     * so there is no "current" session: all of them are revoked.
+     * keyed by the old normalized e-mail. The confirm runs by token (maybe on another device):
+     * every session is revoked, except `exceptSessionId` when it is a live session of the token's
+     * customer (the login session the link was confirmed from).
      */
-    async confirmEmailChange(token: unknown): Promise<void> {
+    async confirmEmailChange(token: unknown, exceptSessionId?: number): Promise<void> {
       const consumed = await tokens().consume(token, 'CHANGE_EMAIL');
       if (!consumed) throw tokenInvalid();
       const customer: CustomerRow | null = await customers().findOne({ where: { id: consumed.customerId } });
@@ -533,7 +534,11 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
         await svc('EcommerceStoreCreditService').rekeyCustomerEmail(oldNormalized, newNormalized);
         await svc('EcommercePromotionService').rekeyCustomerEmail(oldNormalized, newNormalized);
       });
-      await sessions().revokeAll(customer.id, 'EMAIL_CHANGED');
+      const keep =
+        typeof exceptSessionId === 'number' &&
+        ((await sessions().list(customer.id, exceptSessionId)) as { id: number }[]).some((s) => s.id === exceptSessionId);
+      if (keep) await sessions().revokeAll(customer.id, 'EMAIL_CHANGED', exceptSessionId);
+      else await sessions().revokeAll(customer.id, 'EMAIL_CHANGED');
       audit('customer.email_change', customer.id);
       fire(() =>
         mailer().sendEmailChanged(oldEmail, customer.locale ?? null, {

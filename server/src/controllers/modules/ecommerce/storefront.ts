@@ -131,10 +131,10 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
     ctx: any,
     routeClass: RouteClass,
     rule: RateRuleName,
-    opts: { notFound?: StorefrontErrorOptions['notFound']; email?: unknown },
+    opts: { notFound?: StorefrontErrorOptions['notFound']; email?: unknown; emailForGuestOnly?: boolean },
     fn: (owner: CartOwner, errorOpts: StorefrontErrorOptions, access: Access) => Promise<Result>
   ): Promise<void> =>
-    gate.run(ctx, { routeClass, rule, notFound: opts.notFound, email: opts.email }, (access, errorOpts) => {
+    gate.run(ctx, { routeClass, rule, ...opts }, (access, errorOpts) => {
       if (access.owner?.kind === 'guest') errorOpts.lockedRetryAfterSec = lockSeconds(access.owner.session);
       return fn(access.owner as CartOwner, errorOpts, access);
     });
@@ -355,7 +355,8 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
 
     /** POST /checkout/email-verification → 202 */
     requestEmailVerification: (ctx: any) =>
-      withOwner(ctx, 'checkout', 'email.send', { email: body(ctx).email }, async (owner) => {
+      // With a login session it does not apply (409): the e-mail key is not spent on it.
+      withOwner(ctx, 'checkout', 'email.send', { email: body(ctx).email, emailForGuestOnly: true }, async (owner) => {
         const s = guestSessionOf(owner);
         const b = body(ctx);
         const email = emailOf('email', b.email);
@@ -368,7 +369,7 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
 
     /** POST /checkout/email-verification/confirm */
     confirmEmailVerification: (ctx: any) =>
-      withOwner(ctx, 'checkout', 'email.confirm', { email: body(ctx).email }, async (owner) => {
+      withOwner(ctx, 'checkout', 'email.confirm', { email: body(ctx).email, emailForGuestOnly: true }, async (owner) => {
         const s = guestSessionOf(owner);
         const b = body(ctx);
         const email = emailOf('email', b.email);

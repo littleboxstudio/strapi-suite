@@ -32,7 +32,8 @@ const setup = () => {
     consume: vi.fn(async (): Promise<any> => null),
   };
   const sessions = {
-    revokeAll: vi.fn(async () => 0),
+    revokeAll: vi.fn(async (..._a: any[]) => 0),
+    list: vi.fn(async (..._a: any[]): Promise<any[]> => []),
     reissue: vi.fn(async (): Promise<any> => ({ token: 'NEW-JWT', expiresAt: '2027-01-01T00:00:00.000Z' })),
   };
   const mailer = {
@@ -303,6 +304,25 @@ describe('e-mail change', () => {
       firstName: 'Ana',
       newEmail: 'New@X.pt',
     });
+  });
+
+  it('confirmed from a login session of the same customer: that session is kept', async () => {
+    const t = setup();
+    const r = await t.add({ pendingEmail: 'new@x.pt', pendingEmailNormalized: 'new@x.pt' });
+    t.sessions.list.mockResolvedValueOnce([{ id: 3, current: false }, { id: 9, current: true }]);
+    t.tokens.consume.mockResolvedValueOnce({ customerId: r.id, email: 'new@x.pt' });
+    await t.svc.confirmEmailChange('raw', 9);
+    expect(t.sessions.list).toHaveBeenCalledWith(r.id, 9);
+    expect(t.sessions.revokeAll).toHaveBeenCalledWith(r.id, 'EMAIL_CHANGED', 9);
+  });
+
+  it("confirmed from another customer's login session: every session of the token's customer goes", async () => {
+    const t = setup();
+    const r = await t.add({ pendingEmail: 'new@x.pt', pendingEmailNormalized: 'new@x.pt' });
+    t.sessions.list.mockResolvedValueOnce([{ id: 3, current: false }]); // 77 is not this customer's
+    t.tokens.consume.mockResolvedValueOnce({ customerId: r.id, email: 'new@x.pt' });
+    await t.svc.confirmEmailChange('raw', 77);
+    expect(t.sessions.revokeAll).toHaveBeenCalledWith(r.id, 'EMAIL_CHANGED');
   });
 
   it('a usage counter already kept for the new e-mail absorbs the old one', async () => {

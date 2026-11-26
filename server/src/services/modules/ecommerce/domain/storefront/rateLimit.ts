@@ -187,9 +187,18 @@ export const ipRateKeyPart = (ip: string | null): string | null => {
   return `${h.slice(0, 4).map((x) => x.toString(16)).join(':')}::/64`;
 };
 
-/** Shared bucket for the rules that must stay limited when the BFF sends no valid client IP. */
+/**
+ * Shared bucket for the rules that must stay limited when the BFF sends no valid client IP:
+ * creating sessions and the public account routes (password guessing, mail and token abuse).
+ */
 const UNKNOWN_IP = 'unknown';
-const RULES_WITH_UNKNOWN_IP_BUCKET: ReadonlySet<RateRuleName> = new Set(['session.create']);
+const RULES_WITH_UNKNOWN_IP_BUCKET: ReadonlySet<RateRuleName> = new Set([
+  'session.create',
+  'account.login',
+  'account.register',
+  'account.email',
+  'account.token',
+]);
 
 const emailKeyPart = (email: string): string =>
   createHash('sha256').update(normalizeEmail(email)).digest('hex');
@@ -199,8 +208,9 @@ const emailKeyPart = (email: string): string =>
  * session; a login session is `<rule>:c:<sessionId>`, its ids being another table's),
  * `<rule>:ip:<ip>` (see ipRateKeyPart) and `<rule>:e:<sha256(normalized e-mail)>` (never the
  * e-mail in clear). Without a valid client IP there is no IP key (the BFF's own IP must never
- * limit the whole store), except for `session.create`, which then counts in one shared
- * `ip:unknown` bucket, so a BFF that forgets the header cannot create unlimited sessions.
+ * limit the whole store), except for `session.create` and the public account rules, which then
+ * count in one shared `ip:unknown` bucket, so a BFF that forgets the header cannot create
+ * unlimited sessions or guess passwords without an IP limit.
  *
  * Never log these keys: the e-mail part is an unsalted SHA-256 that links to a known address
  * (security logs carry only the rule name).
