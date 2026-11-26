@@ -1,0 +1,64 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_customer_tokens",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-customer-token",
+    "pluralName": "ltb-st-module-ecommerce-customer-tokens",
+    "displayName": "Littlebox Strapi Suite - E-commerce Customer Token",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Customer Token"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "customer": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-customer"
+    },
+    "purpose": {
+      "type": "enumeration",
+      "enum": [
+        "VERIFY_EMAIL",
+        "RESET_PASSWORD",
+        "CHANGE_EMAIL"
+      ]
+    },
+    "tokenHash": {
+      "type": "string",
+      "required": true,
+      "unique": true
+    },
+    "email": {
+      "type": "string"
+    },
+    "expiresAt": {
+      "type": "datetime",
+      "required": true
+    },
+    "usedAt": {
+      "type": "datetime"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_customer_token_hash_unique",
+      "columns": [
+        "token_hash"
+      ],
+      "type": "unique"
+    }
+  ]
+}

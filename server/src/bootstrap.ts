@@ -13,6 +13,7 @@ import {
 import { registerEcommercePermissions } from './services/modules/ecommerce/permissions';
 import { migrateOrderEditingData } from './services/modules/ecommerce/orderEditingMigration';
 import { migratePromotionEligibility } from './services/modules/ecommerce/promotionEligibilityMigration';
+import { migrateCustomerAccounts, fillGuestHashes } from './services/modules/ecommerce/customerAccountsMigration';
 import { subscribeNotifications } from './services/modules/ecommerce/notifications';
 import { subscribeStripeSessionRetirement } from './services/modules/ecommerce/stripePayments';
 
@@ -138,6 +139,14 @@ const bootstrap = async ({ strapi }: { strapi: Core.Strapi }) => {
   } catch (e) {
     strapi.log?.warn?.('[ecommerce] promotion eligibility migration failed: ' + (e instanceof Error ? e.name : typeof e));
   }
+
+  try {
+    await migrateCustomerAccounts(strapi);
+  } catch (e) {
+    strapi.log?.warn?.('[ecommerce] customer accounts migration failed: ' + (e instanceof Error ? e.name : typeof e));
+  }
+  // Slow (Argon2id) and not needed to serve requests: runs in the background.
+  void fillGuestHashes(strapi);
 
   // Customer e-mails on domain events (each event checks that the e-commerce module is active).
   subscribeNotifications(strapi);

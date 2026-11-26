@@ -1,0 +1,68 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_customer_sessions",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-customer-session",
+    "pluralName": "ltb-st-module-ecommerce-customer-sessions",
+    "displayName": "Littlebox Strapi Suite - E-commerce Customer Session",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Customer Session"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "customer": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-customer"
+    },
+    "expiresAt": {
+      "type": "datetime",
+      "required": true
+    },
+    "lastUsedAt": {
+      "type": "datetime"
+    },
+    "revokedAt": {
+      "type": "datetime"
+    },
+    "revokeReason": {
+      "type": "enumeration",
+      "enum": [
+        "LOGOUT",
+        "REVOKED_BY_CUSTOMER",
+        "PASSWORD_CHANGED",
+        "EMAIL_CHANGED",
+        "BLOCKED",
+        "ADMIN_PASSWORD",
+        "PASSWORD_RESET"
+      ]
+    },
+    "userAgent": {
+      "type": "string"
+    },
+    "ipPrefix": {
+      "type": "string"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_customer_session_expires_idx",
+      "columns": [
+        "expires_at"
+      ]
+    }
+  ]
+}

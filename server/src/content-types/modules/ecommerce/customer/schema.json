@@ -34,6 +34,53 @@
     "locale": {
       "type": "string"
     },
+    "accountType": {
+      "type": "enumeration",
+      "enum": [
+        "GUEST",
+        "REGISTERED"
+      ],
+      "default": "GUEST"
+    },
+    "emailVerified": {
+      "type": "boolean",
+      "default": false
+    },
+    "emailVerifiedAt": {
+      "type": "datetime"
+    },
+    "passwordHash": {
+      "type": "string",
+      "private": true
+    },
+    "passwordPepperVersion": {
+      "type": "integer"
+    },
+    "passwordChangedAt": {
+      "type": "datetime"
+    },
+    "pendingEmail": {
+      "type": "string"
+    },
+    "pendingEmailNormalized": {
+      "type": "string"
+    },
+    "blocked": {
+      "type": "boolean",
+      "default": false
+    },
+    "blockedAt": {
+      "type": "datetime"
+    },
+    "blockedNote": {
+      "type": "text"
+    },
+    "blockedById": {
+      "type": "integer"
+    },
+    "cart": {
+      "type": "json"
+    },
     "orders": {
       "type": "relation",
       "relation": "oneToMany",
@@ -57,6 +104,19 @@
       "name": "ecommerce_customer_email_idx",
       "columns": [
         "email_normalized"
+      ]
+    },
+    {
+      "name": "ecommerce_customer_pending_email_idx",
+      "columns": [
+        "pending_email_normalized"
+      ]
+    },
+    {
+      "name": "ecommerce_customer_blocked_type_idx",
+      "columns": [
+        "blocked",
+        "account_type"
       ]
     }
   ]

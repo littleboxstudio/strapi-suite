@@ -60,6 +60,8 @@ export interface LtbConfigs {
         promotionRedemption: UID.ContentType;
         promotionCustomerUsage: UID.ContentType;
         checkoutSession: UID.ContentType;
+        customerSession: UID.ContentType;
+        customerToken: UID.ContentType;
         paymentMethodSuggestion: UID.ContentType;
         category: UID.ContentType;
         categoryTranslation: UID.ContentType;
@@ -129,6 +131,8 @@ export default {
           promotionRedemption: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-promotion-redemption`,
           promotionCustomerUsage: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-promotion-customer-usage`,
           checkoutSession: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-checkout-session`,
+          customerSession: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-customer-session`,
+          customerToken: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-customer-token`,
           paymentMethodSuggestion: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-payment-method-suggestion`,
           category: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-product-category`,
           categoryTranslation: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-product-category-translation`,
