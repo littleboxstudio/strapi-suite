@@ -127,15 +127,16 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
     return { token: opened.token, expiresAt: opened.expiresAt, customer: profile(customer) };
   };
 
+  /** Token and mail both run after the answer, so the response time never depends on them. */
   const sendVerification = async (customer: CustomerRow, localeFallback?: string): Promise<void> => {
-    const { raw } = await tokens().issue(customer.id, 'VERIFY_EMAIL', String(customer.email));
     const locale = customer.locale ?? localeFallback ?? null;
-    fire(() =>
-      mailer().sendAccountVerification(String(customer.email), locale, {
+    fire(async () => {
+      const { raw } = await tokens().issue(customer.id, 'VERIFY_EMAIL', String(customer.email));
+      await mailer().sendAccountVerification(String(customer.email), locale, {
         firstName: String(customer.firstName ?? ''),
         raw,
-      })
-    );
+      });
+    });
   };
 
   return {
@@ -297,13 +298,13 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
       if (!valid) return;
       const customer = await oldestByEmail(normalizeEmail(valid));
       if (!customer || customer.blocked === true || customer.accountType !== 'REGISTERED') return;
-      const { raw } = await tokens().issue(customer.id, 'RESET_PASSWORD', String(customer.email));
-      fire(() =>
-        mailer().sendPasswordReset(String(customer.email), customer.locale ?? null, {
+      fire(async () => {
+        const { raw } = await tokens().issue(customer.id, 'RESET_PASSWORD', String(customer.email));
+        await mailer().sendPasswordReset(String(customer.email), customer.locale ?? null, {
           firstName: String(customer.firstName ?? ''),
           raw,
-        })
-      );
+        });
+      });
     },
 
     async resetPassword(input: { token: unknown; password: unknown }): Promise<void> {
