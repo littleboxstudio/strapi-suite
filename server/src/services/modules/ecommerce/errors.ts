@@ -134,3 +134,25 @@ export class EcommerceAccountsUnavailableError extends Error {
     super('ACCOUNTS_UNAVAILABLE');
   }
 }
+
+/** A customer-account flow refused the request; `code` and `status` are the storefront contract. */
+export class EcommerceAccountError extends Error {
+  name = 'EcommerceAccountError';
+
+  constructor(
+    public code:
+      | 'INVALID_CREDENTIALS'
+      | 'EMAIL_NOT_VERIFIED'
+      | 'TOKEN_INVALID'
+      | 'EMAIL_IN_USE'
+      | 'CUSTOMER_BLOCKED'
+      | 'WEAK_PASSWORD'
+      | 'ACCOUNTS_DISABLED'
+      | 'LOGIN_REQUIRED'
+      | 'CUSTOMER_SESSION_INVALID',
+    public status: number,
+    public extra?: Record<string, unknown>
+  ) {
+    super(code);
+  }
+}

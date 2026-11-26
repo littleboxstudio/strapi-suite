@@ -75,7 +75,7 @@ const scrubbed = () => ({
 });
 
 /** Missing or mistyped fields fall back to the empty cart's (the column is written only here). */
-const toStoredCart = (raw: unknown): StoredCart => {
+export const toStoredCart = (raw: unknown): StoredCart => {
   const c = isRecord(raw) ? raw : {};
   const base = emptyCart();
   return {
@@ -95,7 +95,6 @@ const toStoredCart = (raw: unknown): StoredCart => {
   };
 };
 
-/** Pending code stored in `emailVerification` (only the HMAC of the code, never the code). */
 /**
  * Pending code stored in `emailVerification` (only the HMAC of the code, never the code).
  * `verificationAttempts` is a counter that never goes down (it also works as the row's version
@@ -294,6 +293,17 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
       email: current.email,
       destination: current.destination,
       locale: current.locale,
+    });
+  };
+
+  /**
+   * Ends a checkout session that was handed over to a login: marked EXPIRED, personal data
+   * scrubbed. The row stays, because orders may point at it.
+   */
+  const expireAndScrub = async (sessionId: number): Promise<void> => {
+    await sessionsQuery().update({
+      where: { id: sessionId },
+      data: { status: 'EXPIRED', expiresAt: new Date(), ...scrubbed() },
     });
   };
 
@@ -532,6 +542,7 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
     purgeExpired,
     saveCart,
     clearCart,
+    expireAndScrub,
     isEmailVerified,
     findOwnedOrder,
     requestEmailVerification,
@@ -540,3 +551,6 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
 };
 
 export default EcommerceStorefrontSessionService;
+
+/** Malformed input gives the empty cart. */
+export const readStoredCart = toStoredCart;

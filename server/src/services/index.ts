@@ -39,6 +39,7 @@ import EcommercePasswordService from './modules/ecommerce/passwords';
 import EcommerceCustomerSessionService from './modules/ecommerce/customerSessions';
 import EcommerceCustomerTokenService from './modules/ecommerce/customerTokens';
 import EcommerceAccountMailer from './modules/ecommerce/accountMailer';
+import EcommerceAccountService from './modules/ecommerce/accounts';
 import ImageFieldModuleService from './modules/image-field';
 
 export default {
@@ -83,5 +84,6 @@ export default {
   EcommerceCustomerSessionService,
   EcommerceCustomerTokenService,
   EcommerceAccountMailer,
+  EcommerceAccountService,
   ImageFieldModuleService,
 };
