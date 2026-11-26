@@ -507,10 +507,12 @@ authority for every value not repeated here).
   - `getProfile(c: AccountCustomer): Promise<AccountProfile>`.
   - `updateProfile(c, input: { firstName?; lastName?; phone?; locale? }): Promise<AccountProfile>`.
     It ignores any other field.
-  - `changePassword(c, sessionId, { currentPassword, newPassword }): Promise<void>`.
+  - `changePassword(c, sessionId, { currentPassword, newPassword }): Promise<{ token: string; expiresAt: string }>`.
     - A wrong current password → `INVALID_CREDENTIALS` with status 400.
-    - Success calls `revokeAll(.., 'PASSWORD_CHANGED', sessionId)` and sends the
-      password-changed mail.
+    - Success sets `passwordChangedAt`, calls `revokeAll(.., 'PASSWORD_CHANGED', sessionId)`,
+      sends the password-changed mail, and returns
+      `customerSessions.reissue(c.id, sessionId)`. Setting `passwordChangedAt` invalidates the
+      current token's `iat`, so the BFF must replace its cookie with the new token.
   - `requestEmailChange(c, { currentPassword, newEmail }): Promise<void>`.
     - It answers `EMAIL_IN_USE` when the new e-mail matches any `emailNormalized` or another
       customer's `pendingEmailNormalized`.
@@ -628,8 +630,8 @@ authority for every value not repeated here).
   - `verifyEmail` and `login` need a guest session (`SESSION_INVALID` otherwise).
   - Success statuses:
     - 202: register, resend and forgot;
-    - 204: reset, logout, change password, request e-mail change, confirm, revoke session and
-      revoke others;
+    - 204: reset, logout, request e-mail change, confirm, revoke session and revoke others;
+    - 200 `{ token, expiresAt }`: change password, because the current session gets a new token;
     - 200: everything else.
 - Existing routes map to classes:
   - `catalog`: list and get products, categories and collections;

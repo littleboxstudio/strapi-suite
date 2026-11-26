@@ -127,7 +127,7 @@ const EcommerceCustomerSessionService = ({ strapi }: { strapi: Core.Strapi }) =>
     const key = secret();
     try {
       await purgeExpired();
-    } catch (e) {
+    } catch {
       strapi.log.error(`${LOG_PREFIX} SESSION_PURGE_FAILED`);
     }
     const now = Date.now();
@@ -141,7 +141,12 @@ const EcommerceCustomerSessionService = ({ strapi }: { strapi: Core.Strapi }) =>
         ipPrefix: ipPrefix(client.ip),
       },
     });
-    const token = await new SignJWT({ sid: String(row.id) })
+    const token = await sign(key, customerId, row.id, now, expiresAt);
+    return { token, expiresAt: expiresAt.toISOString(), sessionId: row.id };
+  };
+
+  const sign = (key: Uint8Array, customerId: number, sessionId: number, now: number, expiresAt: Date) =>
+    new SignJWT({ sid: String(sessionId) })
       .setProtectedHeader({ alg: 'HS256' })
       .setSubject(String(customerId))
       .setIssuer(ISSUER)
@@ -149,7 +154,26 @@ const EcommerceCustomerSessionService = ({ strapi }: { strapi: Core.Strapi }) =>
       .setIssuedAt(Math.floor(now / 1000))
       .setExpirationTime(expiresAt)
       .sign(key);
-    return { token, expiresAt: expiresAt.toISOString(), sessionId: row.id };
+
+  /**
+   * A fresh token for a live session of this customer (same row, same absolute expiry, new
+   * `iat`). Used after the customer's own password change, which sets `passwordChangedAt` and
+   * would otherwise reject the session that is meant to survive. Null when the session is not
+   * the customer's, is revoked or has expired.
+   */
+  const reissue = async (
+    customerId: number,
+    sessionId: number
+  ): Promise<{ token: string; expiresAt: string } | null> => {
+    const key = secret();
+    const row = await sessionsQuery().findOne({
+      where: { id: sessionId, customer: { id: customerId }, revokedAt: { $null: true } },
+    });
+    const now = Date.now();
+    if (!row || !(time(row.expiresAt) > now)) return null;
+    const expiresAt = new Date(time(row.expiresAt));
+    // iat (seconds) equals passwordChangedAt's second when both happen now, which resolve accepts.
+    return { token: await sign(key, customerId, row.id, now, expiresAt), expiresAt: expiresAt.toISOString() };
   };
 
   /** Any failure (bad token, row state, customer state) is `null`; only a missing key throws. */
@@ -166,7 +190,6 @@ const EcommerceCustomerSessionService = ({ strapi }: { strapi: Core.Strapi }) =>
         algorithms: ['HS256'],
         issuer: ISSUER,
         audience: AUDIENCE,
-        currentDate: new Date(Date.now()),
         requiredClaims: ['sub', 'sid', 'iat', 'exp'],
       });
       ({ sub, sid, iat } = payload as Record<string, unknown>);
@@ -191,7 +214,7 @@ const EcommerceCustomerSessionService = ({ strapi }: { strapi: Core.Strapi }) =>
     if (customer.passwordChangedAt) {
       const changedAt = time(customer.passwordChangedAt);
       // iat has one-second resolution, so compare at that resolution.
-      if (!Number.isNaN(changedAt) && iat < Math.floor(changedAt / 1000)) return null;
+      if (Number.isNaN(changedAt) || iat < Math.floor(changedAt / 1000)) return null;
     }
     if (!(now - lastUsed <= LAST_USED_RESOLUTION_MS)) {
       await sessionsQuery().update({ where: { id: row.id }, data: { lastUsedAt: new Date(now) } });
@@ -253,7 +276,7 @@ const EcommerceCustomerSessionService = ({ strapi }: { strapi: Core.Strapi }) =>
       }));
   };
 
-  return { open, resolve, revoke, revokeAll, list, purgeExpired };
+  return { open, resolve, reissue, revoke, revokeAll, list, purgeExpired };
 };
 
 export default EcommerceCustomerSessionService;

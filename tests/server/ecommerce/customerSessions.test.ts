@@ -169,6 +169,40 @@ describe('EcommerceCustomerSessionService', () => {
     });
   });
 
+  it('a token whose sid is another customer session resolves to null', async () => {
+    const { svc, addCustomer } = setup();
+    const a = await addCustomer();
+    const b = await addCustomer({ emailNormalized: 'b@example.pt' });
+    const ob = await svc.open(b.id, client);
+    const forged = await sign({ sub: String(a.id), sid: String(ob.sessionId) });
+    expect(await svc.resolve(forged)).toBeNull();
+  });
+
+  it('a malformed passwordChangedAt fails closed', async () => {
+    const { svc, addCustomer, db } = setup();
+    const c = await addCustomer();
+    const o = await svc.open(c.id, client);
+    await db.query(CUSTOMER).update({ where: { id: c.id }, data: { passwordChangedAt: 'not a date' } });
+    expect(await svc.resolve(o.token)).toBeNull();
+  });
+
+  it('reissue gives the current session a token that survives its own password change', async () => {
+    const { svc, addCustomer, db } = setup();
+    const c = await addCustomer();
+    const o = await svc.open(c.id, client);
+    vi.setSystemTime(NOW.getTime() + 10_000);
+    await db.query(CUSTOMER).update({ where: { id: c.id }, data: { passwordChangedAt: new Date() } });
+    expect(await svc.resolve(o.token)).toBeNull();
+    const fresh = await svc.reissue(c.id, o.sessionId);
+    expect(fresh).not.toBeNull();
+    expect(fresh!.expiresAt).toBe(o.expiresAt);
+    expect((await svc.resolve(fresh!.token))?.sessionId).toBe(o.sessionId);
+    const other = await addCustomer({ emailNormalized: 'b@example.pt' });
+    expect(await svc.reissue(other.id, o.sessionId)).toBeNull();
+    await svc.revoke(c.id, o.sessionId, 'LOGOUT');
+    expect(await svc.reissue(c.id, o.sessionId)).toBeNull();
+  });
+
   it('refreshes lastUsedAt only when older than 60s', async () => {
     const { svc, addCustomer, rows } = setup();
     const o = await svc.open((await addCustomer()).id, client);
