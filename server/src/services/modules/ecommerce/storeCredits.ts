@@ -622,7 +622,30 @@ const EcommerceStoreCreditService = ({ strapi }: { strapi: Core.Strapi }) => {
     return toStoreCreditView(await strapi.db.query(u.storeCredit).findOne({ where: { id } }));
   };
 
-  return { issue, consume, restore, listForCustomer, get, list, void: voidCredit, update };
+  /**
+   * A customer's e-mail change: every credit of the old normalized e-mail (a customer may hold
+   * several) moves to the new one, so the balance follows the customer. Joins the caller's
+   * transaction.
+   */
+  const rekeyCustomerEmail = async (oldNormalized: string, newNormalized: string): Promise<void> => {
+    if (!oldNormalized || !newNormalized || oldNormalized === newNormalized) return;
+    await strapi.db.query(uids().storeCredit).updateMany({
+      where: { emailNormalized: oldNormalized },
+      data: { emailNormalized: newNormalized },
+    });
+  };
+
+  return {
+    issue,
+    consume,
+    restore,
+    listForCustomer,
+    get,
+    list,
+    void: voidCredit,
+    update,
+    rekeyCustomerEmail,
+  };
 };
 
 export default EcommerceStoreCreditService;

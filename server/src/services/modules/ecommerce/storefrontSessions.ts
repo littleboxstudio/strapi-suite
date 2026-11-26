@@ -4,6 +4,7 @@ import { randomBytes, randomInt } from 'node:crypto';
 import { PLUGIN_ID, LtbConfigs } from '../../../config';
 import { isValidEmailFormat, normalizeEmail } from './domain/email';
 import { isRecord } from './orderPricingHelpers';
+import { MAX_LINE_QUANTITY } from './domain/storefront/limits';
 import {
   VERIFICATION_CODE_TTL_MS,
   VERIFICATION_MAX_ATTEMPTS,
@@ -16,7 +17,7 @@ import {
   verificationCodeHash,
   verificationCodeMatches,
 } from './domain/storefront/session';
-import { EcommerceEmailError, EcommerceValidationError } from './errors';
+import { EcommerceAccountError, EcommerceEmailError, EcommerceValidationError } from './errors';
 import { resolveEncryptionKeySource } from './secrets';
 import { sendWithResend } from './providers/email/resendSender';
 
@@ -74,14 +75,27 @@ const scrubbed = () => ({
   verificationAttempts: 0,
 });
 
-/** Missing or mistyped fields fall back to the empty cart's (the column is written only here). */
+const isCartLine = (l: unknown): l is StoredCart['lines'][number] =>
+  isRecord(l) &&
+  Number.isSafeInteger(l.variantId) &&
+  (l.variantId as number) >= 1 &&
+  Number.isSafeInteger(l.quantity) &&
+  (l.quantity as number) >= 1 &&
+  (l.quantity as number) <= MAX_LINE_QUANTITY;
+
+/**
+ * Missing or mistyped fields fall back to the empty cart's, and malformed lines or codes are
+ * dropped: a stored cart (a session's, or a customer's json column) is never trusted as is.
+ */
 export const toStoredCart = (raw: unknown): StoredCart => {
   const c = isRecord(raw) ? raw : {};
   const base = emptyCart();
   return {
-    lines: Array.isArray(c.lines) ? (c.lines as StoredCart['lines']) : base.lines,
+    lines: Array.isArray(c.lines)
+      ? c.lines.filter(isCartLine).map((l) => ({ variantId: l.variantId, quantity: l.quantity }))
+      : base.lines,
     promotionCodes: Array.isArray(c.promotionCodes)
-      ? (c.promotionCodes as string[])
+      ? c.promotionCodes.filter((x): x is string => typeof x === 'string')
       : base.promotionCodes,
     giftChoices: isRecord(c.giftChoices)
       ? (c.giftChoices as Record<string, GiftChoice>)
@@ -414,8 +428,9 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
    * Sends a 6-digit code to `email` directly through Resend (never through the notification
    * queue, so the code is never stored). Only its HMAC is kept on the session. While a pending
    * code is locked and unexpired, every request (any e-mail) is refused with nothing written
-   * or sent; the lock lifts at that code's expiry. A new code for the same e-mail while the
-   * previous one is valid keeps its attempts. The counter never goes down.
+   * or sent; the lock lifts at that code's expiry. A blocked customer's e-mail is refused the
+   * same way (`CUSTOMER_BLOCKED`). A new code for the same e-mail while the previous one is
+   * valid keeps its attempts. The counter never goes down.
    */
   const requestEmailVerification = async (
     s: CheckoutSession,
@@ -426,6 +441,10 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
       throw new EcommerceValidationError('Invalid e-mail', [
         { path: 'email', code: 'invalid_email' },
       ]);
+    }
+    // A blocked customer's e-mail can never check out as a guest: refused before any write or send.
+    if (await strapi.plugin(PLUGIN_ID).service('EcommerceCustomerService').isBlockedEmail(email)) {
+      throw new EcommerceAccountError('CUSTOMER_BLOCKED', 403);
     }
     const rt = await settings().getRuntime('resend');
     const secret = verificationSecret();

@@ -1,3 +1,4 @@
+import type { CartOwner } from '../../../../server/src/services/modules/ecommerce/storefrontCheckout';
 import { vi } from 'vitest';
 
 import EcommerceOrderService from '../../../../server/src/services/modules/ecommerce/orders';
@@ -359,3 +360,6 @@ export const testIssueAll = async (c: Commerce, orderId: number, key: string, ac
     actor
   );
 };
+
+/** The storefront checkout's owner for an anonymous checkout session. */
+export const asGuest = (session: any): CartOwner => ({ kind: 'guest', session });

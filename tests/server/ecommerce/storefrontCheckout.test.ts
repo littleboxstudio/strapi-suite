@@ -17,7 +17,7 @@ vi.mock(
   })
 );
 
-import { setupCommerce, UIDS, type Commerce } from './helpers/commerceSetup';
+import { asGuest, setupCommerce, UIDS, type Commerce } from './helpers/commerceSetup';
 import { __resetEventHandlersForTests } from '../../../server/src/services/modules/ecommerce/events';
 import {
   EcommerceNotFoundError,
@@ -178,7 +178,7 @@ describe('EcommerceStorefrontCheckoutService', () => {
       const t = setup();
       const { token, s } = await t.open();
       const input = t.cart({ email: 'ana@example.pt', promotionCodes: ['verao20'] });
-      const q = await t.checkout.quote(s, input);
+      const q = await t.checkout.quote(asGuest(s), input);
       expect(q.totals.subtotal).toBe(4000);
       const again = await t.sessions.resolve(token);
       expect(again.cart).toMatchObject({
@@ -195,7 +195,7 @@ describe('EcommerceStorefrontCheckoutService', () => {
       const t = setup();
       const { token, s } = await t.open();
       await expect(
-        t.checkout.quote(s, t.cart({ lines: [{ variantId: 999, quantity: 1 }] }))
+        t.checkout.quote(asGuest(s), t.cart({ lines: [{ variantId: 999, quantity: 1 }] }))
       ).rejects.toBeInstanceOf(EcommerceValidationError);
       expect(t.storedCart(token).lines).toEqual([{ variantId: 999, quantity: 1 }]);
     });
@@ -204,20 +204,20 @@ describe('EcommerceStorefrontCheckoutService', () => {
       const t = setup();
       const { token, s } = await t.open();
       const lines = Array.from({ length: 101 }, (_, i) => ({ variantId: i + 1, quantity: 1 }));
-      expect(await failure(t.checkout.quote(s, t.cart({ lines })))).toEqual([
+      expect(await failure(t.checkout.quote(asGuest(s), t.cart({ lines })))).toEqual([
         { path: 'lines', code: 'too_many' },
       ]);
       expect(
-        await failure(t.checkout.quote(s, t.cart({ lines: [{ variantId: 10, quantity: 1.5 }] })))
+        await failure(t.checkout.quote(asGuest(s), t.cart({ lines: [{ variantId: 10, quantity: 1.5 }] })))
       ).toEqual([{ path: 'lines.0.quantity', code: 'invalid' }]);
       expect(
         await failure(
-          t.checkout.quote(s, t.cart({ promotionCodes: ['A', 'B', 'C', 'D', 'E', 'F'] }))
+          t.checkout.quote(asGuest(s), t.cart({ promotionCodes: ['A', 'B', 'C', 'D', 'E', 'F'] }))
         )
       ).toEqual([{ path: 'promotionCodes', code: 'too_many' }]);
       // A gift choice is a variant id or a list of them (one per gift); anything else is refused.
       for (const bad of [0, '5', [], [5, 0], Array(21).fill(5)]) {
-        expect(await failure(t.checkout.quote(s, t.cart({ giftChoices: { '3': bad } })))).toEqual([
+        expect(await failure(t.checkout.quote(asGuest(s), t.cart({ giftChoices: { '3': bad } })))).toEqual([
           { path: 'giftChoices.3', code: 'invalid' },
         ]);
       }
@@ -227,7 +227,7 @@ describe('EcommerceStorefrontCheckoutService', () => {
     it('keeps a per-gift list of gift choices in the stored cart', async () => {
       const t = setup();
       const { token, s } = await t.open();
-      await t.checkout.quote(s, t.cart({ giftChoices: { '3': [11, 12] } }));
+      await t.checkout.quote(asGuest(s), t.cart({ giftChoices: { '3': [11, 12] } }));
       expect(t.storedCart(token).giftChoices).toEqual({ '3': [11, 12] });
     });
 
@@ -235,7 +235,7 @@ describe('EcommerceStorefrontCheckoutService', () => {
       const t = setup();
       const { s } = await t.open();
       const q = await t.checkout.quote(
-        s,
+        asGuest(s),
         t.cart({ destination: { country: 'PT', postalCode: '1000-001' } })
       );
       expect(q.shippingOptions).toEqual([
@@ -261,7 +261,7 @@ describe('EcommerceStorefrontCheckoutService', () => {
         ],
         failures: [],
       });
-      const q = await t.checkout.quote(s, t.cart({ destination: { country: 'PT', postalCode: '1000-001' } }));
+      const q = await t.checkout.quote(asGuest(s), t.cart({ destination: { country: 'PT', postalCode: '1000-001' } }));
       expect(q.shippingOptions).toEqual([
         { providerId: 'store-pickup', serviceId: 'STORE', name: 'Store', price: 0, estimatedDays: null, requiresPickupPoint: true, pickupPoints: [point] },
       ]);
@@ -271,7 +271,7 @@ describe('EcommerceStorefrontCheckoutService', () => {
       const t = setup();
       const { s } = await t.open();
       const q = await t.checkout.quote(
-        s,
+        asGuest(s),
         t.cart({
           destination: { country: 'PT' },
           shippingMethod: { providerId: 'manual', serviceId: '1' },
@@ -328,13 +328,13 @@ describe('EcommerceStorefrontCheckoutService', () => {
         tax: 23,
       }));
 
-      const q = await t.checkout.quote(s, t.cart({ destination: { country: 'PT', postalCode: '1000-001' } }));
+      const q = await t.checkout.quote(asGuest(s), t.cart({ destination: { country: 'PT', postalCode: '1000-001' } }));
       expect(q.shippingOptions?.map((o) => o.price)).toEqual([900, 1350]);
 
       for (const serviceId of ['1', '2']) {
         const listed = q.shippingOptions!.find((o) => o.serviceId === serviceId)!.price;
         const chosen = await t.checkout.quote(
-          s,
+          asGuest(s),
           t.cart({
             destination: { country: 'PT', postalCode: '1000-001' },
             shippingMethod: { providerId: 'manual', serviceId },
@@ -351,7 +351,7 @@ describe('EcommerceStorefrontCheckoutService', () => {
       }
 
       const placed = await t.checkout.placeOrder(
-        s,
+        asGuest(s),
         t.orderInput({ shippingMethod: { providerId: 'manual', serviceId: '2' }, expectedTotal: 3600 + 1350 }),
         'key-gift-0001'
       );
@@ -363,7 +363,7 @@ describe('EcommerceStorefrontCheckoutService', () => {
     it('without a destination: shippingOptions null and no carrier quote', async () => {
       const t = setup();
       const { s } = await t.open();
-      const q = await t.checkout.quote(s, t.cart());
+      const q = await t.checkout.quote(asGuest(s), t.cart());
       expect(q.shippingOptions).toBeNull();
       expect(t.c.services.EcommerceShippingService.quote).not.toHaveBeenCalled();
     });
@@ -372,7 +372,7 @@ describe('EcommerceStorefrontCheckoutService', () => {
       const t = setup();
       const { token, s } = await t.open();
       const spy = vi.spyOn(t.c.orders, 'quote');
-      const q = await t.checkout.quote(s, t.cart({ lines: [], destination: { country: 'PT' } }));
+      const q = await t.checkout.quote(asGuest(s), t.cart({ lines: [], destination: { country: 'PT' } }));
       expect(spy).not.toHaveBeenCalled();
       expect(q).toMatchObject({
         lines: [],
@@ -408,7 +408,7 @@ describe('EcommerceStorefrontCheckoutService', () => {
       const { token } = await t.open();
       const s = await t.verify(token, 'ana@example.pt');
       const q = await t.checkout.quote(
-        s,
+        asGuest(s),
         t.cart({ email: 'Ana@Example.pt', promotionCodes: ['once'] })
       );
       expect(q.codes).toEqual([
@@ -446,11 +446,11 @@ describe('EcommerceStorefrontCheckoutService', () => {
       });
       const { s } = await t.open();
       const bought = await t.checkout.quote(
-        s,
+        asGuest(s),
         t.cart({ email: 'ana@example.pt', promotionCodes: ['ONCE'] })
       );
       const never = await t.checkout.quote(
-        s,
+        asGuest(s),
         t.cart({ email: 'rui@example.pt', promotionCodes: ['ONCE'] })
       );
       expect(bought.codes).toEqual(never.codes);
@@ -461,12 +461,12 @@ describe('EcommerceStorefrontCheckoutService', () => {
       const t = setup();
       const { s } = await t.open();
       const spy = vi.spyOn(t.c.orders, 'quote');
-      await t.checkout.quote(s, {
+      await t.checkout.quote(asGuest(s), {
         ...t.cart({ email: 'ana@example.pt' }),
         emailVerified: true,
       } as any);
       expect(spy.mock.calls[0][0]).toMatchObject({ emailVerified: false });
-      await t.checkout.quote(s, t.cart());
+      await t.checkout.quote(asGuest(s), t.cart());
       expect(spy.mock.calls[1][0]).toMatchObject({ emailVerified: false });
     });
   });
@@ -481,7 +481,7 @@ describe('EcommerceStorefrontCheckoutService', () => {
         benefits: { items: [{ type: 'ORDER_PERCENT', percent: 20 }] },
       });
       const { token, s } = await t.open();
-      const r = await t.checkout.applyDiscount(s, { ...t.cart(), code: ' verao20 ' });
+      const r = await t.checkout.applyDiscount(asGuest(s), { ...t.cart(), code: ' verao20 ' });
       expect(r).toMatchObject({
         code: 'VERAO20',
         status: 'APPLIED',
@@ -511,11 +511,11 @@ describe('EcommerceStorefrontCheckoutService', () => {
       const { token, s } = await t.open();
       const saveCart = vi.spyOn(t.sessions, 'saveCart');
 
-      const unknown = await t.checkout.applyDiscount(s, { ...t.cart(), code: 'GHOST' });
+      const unknown = await t.checkout.applyDiscount(asGuest(s), { ...t.cart(), code: 'GHOST' });
       expect(unknown).toMatchObject({ code: 'GHOST', status: 'NOT_FOUND', applied: false });
       expect(unknown.message).toBe('This code does not exist.');
 
-      const notMet = await t.checkout.applyDiscount(s, { ...t.cart(), code: 'big' });
+      const notMet = await t.checkout.applyDiscount(asGuest(s), { ...t.cart(), code: 'big' });
       expect(notMet).toMatchObject({ code: 'BIG', status: 'CONDITIONS_NOT_MET', applied: false });
 
       expect(saveCart).not.toHaveBeenCalled();
@@ -526,7 +526,7 @@ describe('EcommerceStorefrontCheckoutService', () => {
       const t = setup();
       t.addPromotion(1, { method: 'CODE', code: 'VERAO20' });
       const { token, s } = await t.open();
-      const r = await t.checkout.applyDiscount(s, {
+      const r = await t.checkout.applyDiscount(asGuest(s), {
         ...t.cart({ promotionCodes: ['OUTRO'] }),
         code: 'VERAO20',
       });
@@ -534,16 +534,16 @@ describe('EcommerceStorefrontCheckoutService', () => {
       expect(t.storedCart(token).promotionCodes).toEqual(['OUTRO', 'VERAO20']);
       expect(
         await failure(
-          t.checkout.applyDiscount(s, {
+          t.checkout.applyDiscount(asGuest(s), {
             ...t.cart({ promotionCodes: ['A', 'B', 'C', 'D', 'E'] }),
             code: 'VERAO20',
           })
         )
       ).toEqual([{ path: 'promotionCodes', code: 'too_many' }]);
-      expect(await failure(t.checkout.applyDiscount(s, { ...t.cart(), code: 42 }))).toEqual([
+      expect(await failure(t.checkout.applyDiscount(asGuest(s), { ...t.cart(), code: 42 }))).toEqual([
         { path: 'code', code: 'invalid' },
       ]);
-      expect(await failure(t.checkout.applyDiscount(s, { ...t.cart(), code: '   ' }))).toEqual([
+      expect(await failure(t.checkout.applyDiscount(asGuest(s), { ...t.cart(), code: '   ' }))).toEqual([
         { path: 'code', code: 'required' },
       ]);
     });
@@ -553,7 +553,7 @@ describe('EcommerceStorefrontCheckoutService', () => {
       t.addPromotion(1, { method: 'CODE', code: 'VERAO20' });
       const { token, s } = await t.open();
       const spy = vi.spyOn(t.c.orders, 'quote');
-      const r = await t.checkout.applyDiscount(s, { ...t.cart({ lines: [] }), code: 'VERAO20' });
+      const r = await t.checkout.applyDiscount(asGuest(s), { ...t.cart({ lines: [] }), code: 'VERAO20' });
       expect(spy).not.toHaveBeenCalled();
       expect(r.applied).toBe(false);
       expect(r.quote.lines).toEqual([]);
@@ -574,7 +574,7 @@ describe('EcommerceStorefrontCheckoutService', () => {
         benefits: { items: [{ type: 'ORDER_FIXED', amount: 500 }] },
       });
       const { token, s } = await t.open();
-      const before = await t.checkout.applyDiscount(s, {
+      const before = await t.checkout.applyDiscount(asGuest(s), {
         ...t.cart({ email: 'ana@example.pt' }),
         code: 'VIP',
       });
@@ -600,14 +600,14 @@ describe('EcommerceStorefrontCheckoutService', () => {
       await t.sessions.confirmEmailVerification(s, { email: 'Ana@Example.pt', code });
       const verified = await t.sessions.resolve(token);
 
-      const after = await t.checkout.applyDiscount(verified, {
+      const after = await t.checkout.applyDiscount(asGuest(verified), {
         ...t.cart({ email: 'ana@example.pt' }),
         code: 'VIP',
       });
       expect(after).toMatchObject({ status: 'APPLIED', applied: true });
 
       const placed = await t.checkout.placeOrder(
-        verified,
+        asGuest(verified),
         t.orderInput({ promotionCodes: ['VIP'], expectedTotal: 4000 }),
         'key-vip-0001'
       );
@@ -661,15 +661,15 @@ describe('EcommerceStorefrontCheckoutService', () => {
     it('Review Focus 1: the same key twice in one session → one order; in another session → its own order', async () => {
       const t = setup();
       const a = await t.open();
-      const first = await t.checkout.placeOrder(a.s, t.orderInput(), 'dup-key-0001');
-      const again = await t.checkout.placeOrder(a.s, t.orderInput(), 'dup-key-0001');
+      const first = await t.checkout.placeOrder(asGuest(a.s), t.orderInput(), 'dup-key-0001');
+      const again = await t.checkout.placeOrder(asGuest(a.s), t.orderInput(), 'dup-key-0001');
       expect(again).toEqual(first);
       expect(t.c.tables[UIDS.order]).toHaveLength(1);
       expect(deductions(t.c)).toHaveLength(1);
       expect(t.c.tables[UIDS.order][0].idempotencyKey).toBe(`sf:${a.s.id}:dup-key-0001`);
 
       const b = await t.open();
-      const other = await t.checkout.placeOrder(b.s, t.orderInput(), 'dup-key-0001');
+      const other = await t.checkout.placeOrder(asGuest(b.s), t.orderInput(), 'dup-key-0001');
       expect(other.publicId).not.toBe(first.publicId);
       expect(JSON.stringify(other)).not.toContain(first.publicId);
       expect(t.c.tables[UIDS.order]).toHaveLength(2);
@@ -680,10 +680,10 @@ describe('EcommerceStorefrontCheckoutService', () => {
       const t = setup();
       const { token, s } = await t.open();
       await t.checkout.quote(
-        s,
+        asGuest(s),
         t.cart({ email: 'ana@example.pt', destination: { country: 'PT' }, promotionCodes: ['X'] })
       );
-      const r = await t.checkout.placeOrder(s, t.orderInput(), 'key-0000001');
+      const r = await t.checkout.placeOrder(asGuest(s), t.orderInput(), 'key-0000001');
       expect(r).toEqual({
         publicId: expect.stringMatching(/^[0-9a-f-]{36}$/),
         reference: '#1001',
@@ -706,7 +706,7 @@ describe('EcommerceStorefrontCheckoutService', () => {
       const t = setup();
       const { s } = await t.open();
       vi.spyOn(t.sessions, 'clearCart').mockRejectedValue(new Error('db down'));
-      const r = await t.checkout.placeOrder(s, t.orderInput(), 'key-0000002');
+      const r = await t.checkout.placeOrder(asGuest(s), t.orderInput(), 'key-0000002');
       expect(r.reference).toBe('#1001');
       expect(t.c.log.error).toHaveBeenCalledWith(
         '[ecommerce:storefront] cart clear failed after order: db down'
@@ -718,12 +718,12 @@ describe('EcommerceStorefrontCheckoutService', () => {
       const { token, s } = await t.open();
       const row = t.c.tables[UIDS.checkoutSession].find((r) => r.tokenHash === sha(token));
       row.expiresAt = new Date(Date.now() - 1000);
-      expect(await failure(t.checkout.placeOrder(s, t.orderInput(), 'key-0000003'))).toEqual([
+      expect(await failure(t.checkout.placeOrder(asGuest(s), t.orderInput(), 'key-0000003'))).toEqual([
         { path: 'session', code: 'SESSION_INVALID' },
       ]);
       row.expiresAt = new Date(Date.now() + 3_600_000);
       row.status = 'EXPIRED';
-      expect(await failure(t.checkout.placeOrder(s, t.orderInput(), 'key-0000003'))).toEqual([
+      expect(await failure(t.checkout.placeOrder(asGuest(s), t.orderInput(), 'key-0000003'))).toEqual([
         { path: 'session', code: 'SESSION_INVALID' },
       ]);
       expect(t.c.tables[UIDS.order]).toHaveLength(0);
@@ -732,15 +732,15 @@ describe('EcommerceStorefrontCheckoutService', () => {
     it('validates the Idempotency-Key and expectedTotal', async () => {
       const t = setup();
       const { s } = await t.open();
-      expect(await failure(t.checkout.placeOrder(s, t.orderInput(), ''))).toEqual([
+      expect(await failure(t.checkout.placeOrder(asGuest(s), t.orderInput(), ''))).toEqual([
         { path: 'idempotencyKey', code: 'required' },
       ]);
-      expect(await failure(t.checkout.placeOrder(s, t.orderInput(), 'k'.repeat(151)))).toEqual([
+      expect(await failure(t.checkout.placeOrder(asGuest(s), t.orderInput(), 'k'.repeat(151)))).toEqual([
         { path: 'idempotencyKey', code: 'too_long' },
       ]);
       expect(
         await failure(
-          t.checkout.placeOrder(s, t.orderInput({ expectedTotal: undefined }), 'key-0000004')
+          t.checkout.placeOrder(asGuest(s), t.orderInput({ expectedTotal: undefined }), 'key-0000004')
         )
       ).toEqual([{ path: 'expectedTotal', code: 'required' }]);
       expect(t.c.tables[UIDS.order]).toHaveLength(0);
@@ -750,7 +750,7 @@ describe('EcommerceStorefrontCheckoutService', () => {
       const t = setup();
       const { s } = await t.open();
       const errors = await failure(
-        t.checkout.placeOrder(s, t.orderInput({ expectedTotal: 4400 }), 'key-0000005')
+        t.checkout.placeOrder(asGuest(s), t.orderInput({ expectedTotal: 4400 }), 'key-0000005')
       );
       expect(errors.map((e: any) => e.code)).toEqual(['TOTAL_CHANGED']);
       expect(t.c.tables[UIDS.order]).toHaveLength(0);
@@ -763,7 +763,7 @@ describe('EcommerceStorefrontCheckoutService', () => {
       const s = await t.verify(token, 'ana@example.pt');
       const spy = vi.spyOn(t.c.orders, 'create');
       await t.checkout.placeOrder(
-        s,
+        asGuest(s),
         { ...t.orderInput(), emailVerified: false } as any,
         'key-0000006'
       );
@@ -774,7 +774,7 @@ describe('EcommerceStorefrontCheckoutService', () => {
         checkoutSessionId: s.id,
       });
       await t.checkout.placeOrder(
-        s,
+        asGuest(s),
         t.orderInput({ customer: { firstName: 'Rui', lastName: 'S', email: 'rui@example.pt' } }),
         'key-0000007'
       );
@@ -787,7 +787,7 @@ describe('EcommerceStorefrontCheckoutService', () => {
       const { s } = await t.open();
       expect(
         await failure(
-          t.checkout.placeOrder(s, t.orderInput({ storeCreditCode: issued.code }), 'key-0000008')
+          t.checkout.placeOrder(asGuest(s), t.orderInput({ storeCreditCode: issued.code }), 'key-0000008')
         )
       ).toEqual([{ path: 'storeCreditCode', code: 'STORE_CREDIT_NOT_FOUND' }]);
       expect(t.c.tables[UIDS.order]).toHaveLength(0);
@@ -800,7 +800,7 @@ describe('EcommerceStorefrontCheckoutService', () => {
       const issued = await t.issueCredit('ana@example.pt', 1000);
       const { s } = await t.open();
       const r = await t.checkout.placeOrder(
-        s,
+        asGuest(s),
         t.orderInput({ storeCreditCode: issued.code }),
         'key-0000009'
       );
@@ -815,12 +815,12 @@ describe('EcommerceStorefrontCheckoutService', () => {
       const issued = await t.issueCredit('ana@example.pt', 8000);
       const { s } = await t.open();
       const r = await t.checkout.placeOrder(
-        s,
+        asGuest(s),
         t.orderInput({ storeCreditCode: issued.code }),
         'key-0000010'
       );
       expect(r).toMatchObject({ total: 4500, due: 0, paymentStatus: 'PAID' });
-      const err = await t.checkout.paymentLink(s, r.publicId).catch((e: unknown) => e);
+      const err = await t.checkout.paymentLink(asGuest(s), r.publicId).catch((e: unknown) => e);
       expect(err).toBeInstanceOf(EcommercePaymentError);
       expect(err.code).toBe('NOTHING_DUE');
       expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
@@ -830,14 +830,14 @@ describe('EcommerceStorefrontCheckoutService', () => {
       const t = setup();
       const a = await t.open();
       const first = await t.checkout.placeOrder(
-        a.s,
+        asGuest(a.s),
         t.orderInput({
           customer: { firstName: 'Ana', lastName: 'Silva', email: ' ANA@example.PT ' },
         }),
         'key-0000011'
       );
       const b = await t.open();
-      const second = await t.checkout.placeOrder(b.s, t.orderInput(), 'key-0000012');
+      const second = await t.checkout.placeOrder(asGuest(b.s), t.orderInput(), 'key-0000012');
       const customers = t.c.tables[UIDS.customer];
       expect(customers).toHaveLength(1);
       expect(customers[0].emailNormalized).toBe('ana@example.pt');
@@ -854,7 +854,7 @@ describe('EcommerceStorefrontCheckoutService', () => {
       t.addPromotion(1, { method: 'CODE', code: 'VERAO20', usageLimit: 10 });
       const { token, s } = await t.open();
       const r = await t.checkout.placeOrder(
-        s,
+        asGuest(s),
         t.orderInput({ promotionCodes: ['VERAO20'], expectedTotal: 4100 }),
         'key-0000013'
       );
@@ -874,8 +874,8 @@ describe('EcommerceStorefrontCheckoutService', () => {
     it('twice → the same Stripe URL, reused on the second; only the four public fields', async () => {
       const t = setup();
       const { s } = await t.open();
-      const r = await t.checkout.placeOrder(s, t.orderInput(), 'key-0000020');
-      const first = await t.checkout.paymentLink(s, r.publicId);
+      const r = await t.checkout.placeOrder(asGuest(s), t.orderInput(), 'key-0000020');
+      const first = await t.checkout.paymentLink(asGuest(s), r.publicId);
       // The reused session is confirmed with the current Stripe keys.
       stripe.retrieveCheckoutSession.mockResolvedValueOnce({
         id: 'cs_1',
@@ -885,7 +885,7 @@ describe('EcommerceStorefrontCheckoutService', () => {
         amountTotal: 4500,
         metadata: {},
       });
-      const second = await t.checkout.paymentLink(s, r.publicId);
+      const second = await t.checkout.paymentLink(asGuest(s), r.publicId);
       expect(first).toEqual({
         url: 'https://checkout.stripe.com/c/pay/cs_1',
         expiresAt: expect.any(String),
@@ -901,18 +901,18 @@ describe('EcommerceStorefrontCheckoutService', () => {
       const t = setup();
       const a = await t.open();
       const b = await t.open();
-      const r = await t.checkout.placeOrder(a.s, t.orderInput(), 'key-0000021');
-      await expect(t.checkout.paymentLink(b.s, r.publicId)).rejects.toBeInstanceOf(
+      const r = await t.checkout.placeOrder(asGuest(a.s), t.orderInput(), 'key-0000021');
+      await expect(t.checkout.paymentLink(asGuest(b.s), r.publicId)).rejects.toBeInstanceOf(
         EcommerceNotFoundError
       );
-      await expect(t.checkout.orderStatus(b.s, r.publicId)).rejects.toBeInstanceOf(
+      await expect(t.checkout.orderStatus(asGuest(b.s), r.publicId)).rejects.toBeInstanceOf(
         EcommerceNotFoundError
       );
       await expect(
-        t.checkout.orderStatus(b.s, '00000000-0000-4000-8000-000000000000')
+        t.checkout.orderStatus(asGuest(b.s), '00000000-0000-4000-8000-000000000000')
       ).rejects.toBeInstanceOf(EcommerceNotFoundError);
       await expect(
-        t.checkout.paymentLink(b.s, '00000000-0000-4000-8000-000000000000')
+        t.checkout.paymentLink(asGuest(b.s), '00000000-0000-4000-8000-000000000000')
       ).rejects.toBeInstanceOf(EcommerceNotFoundError);
       expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
       expect(t.c.log.warn).toHaveBeenCalledWith('[ecommerce:storefront] ORDER_ACCESS_DENIED');
@@ -923,11 +923,11 @@ describe('EcommerceStorefrontCheckoutService', () => {
     it('UNPAID with an OPEN session, PROCESSING once the session is COMPLETE and the payment PENDING', async () => {
       const t = setup();
       const { s } = await t.open();
-      const r = await t.checkout.placeOrder(s, t.orderInput(), 'key-0000030');
-      await t.checkout.paymentLink(s, r.publicId);
-      expect((await t.checkout.orderStatus(s, r.publicId)).paymentResult).toBe('UNPAID');
+      const r = await t.checkout.placeOrder(asGuest(s), t.orderInput(), 'key-0000030');
+      await t.checkout.paymentLink(asGuest(s), r.publicId);
+      expect((await t.checkout.orderStatus(asGuest(s), r.publicId)).paymentResult).toBe('UNPAID');
       t.c.tables[UIDS.stripeSession][0].status = 'COMPLETE';
-      const st = await t.checkout.orderStatus(s, r.publicId);
+      const st = await t.checkout.orderStatus(asGuest(s), r.publicId);
       expect(st.paymentResult).toBe('PROCESSING');
       for (const key of [
         'shipments',
@@ -952,11 +952,11 @@ describe('EcommerceStorefrontCheckoutService', () => {
       });
       const { s } = await t.open();
       const r = await t.checkout.placeOrder(
-        s,
+        asGuest(s),
         t.orderInput({ locale: 'pt', expectedTotal: 4000 }),
         'key-0000031'
       );
-      const link = await t.checkout.paymentLink(s, r.publicId);
+      const link = await t.checkout.paymentLink(asGuest(s), r.publicId);
       const order = t.c.tables[UIDS.order][0];
       const payment = t.c.tables[UIDS.payment].find((p) => p.method === 'STRIPE');
       const { raw, signature } = signed({
@@ -984,7 +984,7 @@ describe('EcommerceStorefrontCheckoutService', () => {
         status: 'PROCESSED',
       });
 
-      const st = await t.checkout.orderStatus(s, r.publicId);
+      const st = await t.checkout.orderStatus(asGuest(s), r.publicId);
       expect(st).toMatchObject({
         publicId: r.publicId,
         reference: '#1001',
@@ -1015,9 +1015,9 @@ describe('EcommerceStorefrontCheckoutService', () => {
     it('does not load shipments, returns, invoices or notifications (no get())', async () => {
       const t = setup();
       const { s } = await t.open();
-      const r = await t.checkout.placeOrder(s, t.orderInput(), 'key-0000032');
+      const r = await t.checkout.placeOrder(asGuest(s), t.orderInput(), 'key-0000032');
       const get = vi.spyOn(t.c.orders, 'get');
-      await t.checkout.orderStatus(s, r.publicId);
+      await t.checkout.orderStatus(asGuest(s), r.publicId);
       expect(get).not.toHaveBeenCalled();
     });
   });
@@ -1029,7 +1029,7 @@ describe('EcommerceStorefrontCheckoutService', () => {
       expect(
         await failure(
           t.checkout.placeOrder(
-            s,
+            asGuest(s),
             t.orderInput({ lines: [{ variantId: 10, quantity: 1001 }] }),
             'key-0000050'
           )
@@ -1042,12 +1042,12 @@ describe('EcommerceStorefrontCheckoutService', () => {
       const t = setup();
       const { s } = await t.open();
       const quoted = await t.checkout.quote(
-        s,
+        asGuest(s),
         t.cart({ lines: [{ variantId: 10, quantity: 2, discountPercent: 50 }] })
       );
       expect(quoted.totals).toMatchObject({ subtotal: 4000 });
       const r = await t.checkout.placeOrder(
-        s,
+        asGuest(s),
         t.orderInput({ lines: [{ variantId: 10, quantity: 2, discountPercent: 50 }] }),
         'key-0000060'
       );
@@ -1060,13 +1060,13 @@ describe('EcommerceStorefrontCheckoutService', () => {
     it('F2: a replay never clears the cart rebuilt since the order', async () => {
       const t = setup();
       const { token, s } = await t.open();
-      const first = await t.checkout.placeOrder(s, t.orderInput(), 'key-0000051');
+      const first = await t.checkout.placeOrder(asGuest(s), t.orderInput(), 'key-0000051');
       await t.checkout.quote(
-        s,
+        asGuest(s),
         t.cart({ lines: [{ variantId: 10, quantity: 1 }], promotionCodes: ['X'] })
       );
       const clearCart = vi.spyOn(t.sessions, 'clearCart');
-      const again = await t.checkout.placeOrder(s, t.orderInput(), 'key-0000051');
+      const again = await t.checkout.placeOrder(asGuest(s), t.orderInput(), 'key-0000051');
       expect(again).toEqual(first);
       expect(clearCart).not.toHaveBeenCalled();
       expect(t.storedCart(token)).toMatchObject({
@@ -1083,7 +1083,7 @@ describe('EcommerceStorefrontCheckoutService', () => {
         benefits: { items: [{ type: 'SHIPPING_FREE', maxAmount: null }] },
       });
       const { token, s } = await t.open();
-      const r = await t.checkout.applyDiscount(s, { ...t.cart(), code: 'portes' });
+      const r = await t.checkout.applyDiscount(asGuest(s), { ...t.cart(), code: 'portes' });
       expect(r).toMatchObject({ code: 'PORTES', status: 'AWAITING_SHIPPING', applied: false });
       expect(t.storedCart(token).promotionCodes).toEqual(['PORTES']);
     });
@@ -1091,10 +1091,10 @@ describe('EcommerceStorefrontCheckoutService', () => {
     it('F5: createdAt is an ISO string, or null when missing', async () => {
       const t = setup();
       const { s } = await t.open();
-      const r = await t.checkout.placeOrder(s, t.orderInput(), 'key-0000052');
-      expect((await t.checkout.orderStatus(s, r.publicId)).createdAt).toBeNull();
+      const r = await t.checkout.placeOrder(asGuest(s), t.orderInput(), 'key-0000052');
+      expect((await t.checkout.orderStatus(asGuest(s), r.publicId)).createdAt).toBeNull();
       t.c.tables[UIDS.order][0].createdAt = new Date('2026-11-11T10:00:00.000Z');
-      expect((await t.checkout.orderStatus(s, r.publicId)).createdAt).toBe(
+      expect((await t.checkout.orderStatus(asGuest(s), r.publicId)).createdAt).toBe(
         '2026-11-11T10:00:00.000Z'
       );
     });
@@ -1104,11 +1104,11 @@ describe('EcommerceStorefrontCheckoutService', () => {
     it('true only for a COMPLETE session whose STRIPE payment is PENDING', async () => {
       const t = setup();
       const { s } = await t.open();
-      const r = await t.checkout.placeOrder(s, t.orderInput(), 'key-0000040');
+      const r = await t.checkout.placeOrder(asGuest(s), t.orderInput(), 'key-0000040');
       const svc = t.c.services.EcommerceStripePaymentService;
       const orderId = t.c.tables[UIDS.order][0].id;
       expect(await svc.hasPendingCompletedStripeSession(orderId)).toBe(false);
-      await t.checkout.paymentLink(s, r.publicId);
+      await t.checkout.paymentLink(asGuest(s), r.publicId);
       expect(await svc.hasPendingCompletedStripeSession(orderId)).toBe(false);
       const session = t.c.tables[UIDS.stripeSession][0];
       session.status = 'COMPLETE';

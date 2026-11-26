@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import EcommerceCustomerService from '../../../server/src/services/modules/ecommerce/customers';
 import {
+  EcommerceAccountError,
   EcommerceNotFoundError,
   EcommerceValidationError,
 } from '../../../server/src/services/modules/ecommerce/errors';
@@ -88,6 +89,57 @@ describe('EcommerceCustomerService', () => {
     expect(tables[UIDS.customer][1]).toMatchObject({ firstName: 'B', locale: 'pt-PT' });
     await service.findOrCreate(input('b@x.pt'), { locale: 'en' });
     expect(tables[UIDS.customer][1].locale).toBe('pt-PT');
+  });
+
+  it('findOrCreate refuses a blocked customer by normalized e-mail (CUSTOMER_BLOCKED, 403)', async () => {
+    const { service, tables } = setup();
+    tables[UIDS.customer].push({
+      id: 1, firstName: 'F', lastName: 'B', email: 'foo@bar.com', emailNormalized: 'foo@bar.com', locale: 'en', blocked: true,
+    });
+    const err: any = await service.findOrCreate(input('  Foo@Bar.com ')).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(EcommerceAccountError);
+    expect({ code: err.code, status: err.status }).toEqual({ code: 'CUSTOMER_BLOCKED', status: 403 });
+    expect(tables[UIDS.customer]).toHaveLength(1);
+  });
+
+  it('findOrCreate creates a GUEST, unverified customer with the precomputed guest hash', async () => {
+    const { service, tables } = setup();
+    await service.findOrCreate(input('a@x.pt'), { guestPassword: { hash: 'GUEST-HASH', pepperVersion: 3 } });
+    expect(tables[UIDS.customer][0]).toMatchObject({
+      accountType: 'GUEST',
+      emailVerified: false,
+      blocked: false,
+      passwordHash: 'GUEST-HASH',
+      passwordPepperVersion: 3,
+    });
+  });
+
+  it('findOrCreate without a guest hash creates the GUEST customer without one', async () => {
+    const { service, tables } = setup();
+    await service.findOrCreate(input('a@x.pt'), { guestPassword: null });
+    expect(tables[UIDS.customer][0]).toMatchObject({ accountType: 'GUEST', emailVerified: false });
+    expect(tables[UIDS.customer][0].passwordHash ?? null).toBeNull();
+  });
+
+  it('findOrCreate leaves an existing customer as is (the guest hash is unused)', async () => {
+    const { service, tables } = setup();
+    tables[UIDS.customer].push({
+      id: 1, firstName: 'A', lastName: 'A', email: 'a@x.pt', emailNormalized: 'a@x.pt', locale: 'en',
+      accountType: 'REGISTERED', passwordHash: 'REAL',
+    });
+    await service.findOrCreate(input('a@x.pt'), { guestPassword: { hash: 'GUEST-HASH', pepperVersion: 3 } });
+    expect(tables[UIDS.customer][0]).toMatchObject({ accountType: 'REGISTERED', passwordHash: 'REAL' });
+  });
+
+  it('isBlockedEmail matches by normalized e-mail', async () => {
+    const { service, tables } = setup();
+    tables[UIDS.customer].push(
+      { id: 1, firstName: 'F', lastName: 'B', email: 'Foo@Bar.com', emailNormalized: 'foo@bar.com', blocked: true },
+      { id: 2, firstName: 'A', lastName: 'A', email: 'a@x.pt', emailNormalized: 'a@x.pt', blocked: false }
+    );
+    expect(await service.isBlockedEmail('  FOO@bar.com ')).toBe(true);
+    expect(await service.isBlockedEmail('a@x.pt')).toBe(false);
+    expect(await service.isBlockedEmail('nobody@x.pt')).toBe(false);
   });
 
   it('get and list expose the customer locale', async () => {

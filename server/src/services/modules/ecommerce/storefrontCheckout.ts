@@ -38,7 +38,18 @@ import {
 } from './domain/storefront/limits';
 import type { ShippingOption } from './shipping';
 import { normalizeStoreCreditCode } from './storeCredits';
-import type { CheckoutSession, StoredCart } from './storefrontSessions';
+import { emptyCart, readStoredCart, type CheckoutSession, type StoredCart } from './storefrontSessions';
+import type { AccountCustomer } from './customerSessions';
+
+/**
+ * Who the cart belongs to: an anonymous checkout session (its cart is the session's) or a
+ * logged-in customer (its cart is `customer.cart`, last write wins per request).
+ */
+export type CartOwner =
+  | { kind: 'guest'; session: CheckoutSession }
+  | { kind: 'customer'; customer: AccountCustomer; sessionId: number };
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The cart as the BFF sends it (the controller validates the shape, Task 10). */
 export type StorefrontCartInput = {
@@ -282,16 +293,62 @@ const EcommerceStorefrontCheckoutService = ({ strapi }: { strapi: Core.Strapi })
     ): Promise<{ options: ShippingOption[] }>;
     create(
       input: Record<string, unknown>,
-      ctx: { actor: string; source: 'storefront'; checkoutSessionId: number }
+      ctx: { actor: string; source: 'storefront'; checkoutSessionId?: number }
     ): Promise<CreatedOrder>;
     computeOrderState(orderId: number): Promise<OrderState>;
   } => service('EcommerceOrderService');
   const sessions = () => service('EcommerceStorefrontSessionService');
+  const customers = () => strapi.db.query(uids().customer);
+
+  /** The stored cart; a missing or malformed `customer.cart` reads as the empty cart. */
+  const getCart = async (owner: CartOwner): Promise<StoredCart> => {
+    if (owner.kind === 'guest') return owner.session.cart;
+    const row = await customers().findOne({ where: { id: owner.customer.id }, select: ['id', 'cart'] });
+    return readStoredCart(row?.cart);
+  };
+
+  const saveCart = async (owner: CartOwner, cart: StoredCart): Promise<void> => {
+    if (owner.kind === 'guest') {
+      await sessions().saveCart(owner.session.id, cart);
+      return;
+    }
+    // Read-modify-write per request: concurrent writers of one account cart, last write wins.
+    await customers().update({ where: { id: owner.customer.id }, data: { cart: readStoredCart(cart) } });
+  };
+
+  /** After an order, as the session cart: lines, codes, gift choices and method go. */
+  const clearCart = async (owner: CartOwner): Promise<void> => {
+    if (owner.kind === 'guest') {
+      await sessions().clearCart(owner.session.id);
+      return;
+    }
+    const current = await getCart(owner);
+    await saveCart(owner, {
+      ...emptyCart(),
+      email: current.email,
+      destination: current.destination,
+      locale: current.locale,
+    });
+  };
+
+  /** A logged-in customer's cart always carries the account e-mail (never the request's). */
+  const ownCart = (owner: CartOwner, cart: StoredCart): StoredCart =>
+    owner.kind === 'customer' ? { ...cart, email: owner.customer.email } : cart;
+
+  /**
+   * Only the session says whether a guest's e-mail is verified, never the request; a login
+   * session proves the account e-mail.
+   */
+  const emailVerifiedFor = (owner: CartOwner, email: string | null | undefined): boolean => {
+    if (owner.kind === 'customer') return true;
+    return typeof email === 'string' && email ? sessions().isEmailVerified(owner.session, email) : false;
+  };
+
   const getDefaultLocale = async (): Promise<string> =>
     strapi.plugin('i18n').service('locales').getDefaultLocale();
 
   /** Prices a validated cart without writing anything. An empty cart never reaches the order service. */
-  const price = async (s: CheckoutSession, cart: StoredCart): Promise<PublicQuote> => {
+  const price = async (owner: CartOwner, cart: StoredCart): Promise<PublicQuote> => {
     const locale = cart.locale as string;
     const defaultLocale = await getDefaultLocale();
     if (cart.lines.length === 0) {
@@ -310,8 +367,7 @@ const EcommerceStorefrontCheckoutService = ({ strapi }: { strapi: Core.Strapi })
       promotionCodes: cart.promotionCodes,
       giftChoices: cart.giftChoices,
       shipping: destination && shippingMethod ? { ...destination, ...shippingMethod } : null,
-      // Only the session says whether the e-mail is verified, never the request.
-      emailVerified: email ? sessions().isEmailVerified(s, email) : false,
+      emailVerified: emailVerifiedFor(owner, email),
     });
     // Options priced on the quote's parcel (its automatic gifts weigh) and subtotal, as `create`
     // prices the chosen one: a listed price is the one the order is charged.
@@ -337,10 +393,10 @@ const EcommerceStorefrontCheckoutService = ({ strapi }: { strapi: Core.Strapi })
   };
 
   /** Saves the cart first (the BFF reads it back with GET /cart even if pricing fails), then prices it. */
-  const quote = async (s: CheckoutSession, input: StorefrontCartInput): Promise<PublicQuote> => {
-    const cart = toCart(input);
-    await sessions().saveCart(s.id, cart);
-    return price(s, cart);
+  const quote = async (owner: CartOwner, input: StorefrontCartInput): Promise<PublicQuote> => {
+    const cart = ownCart(owner, toCart(input));
+    await saveCart(owner, cart);
+    return price(owner, cart);
   };
 
   /**
@@ -348,7 +404,7 @@ const EcommerceStorefrontCheckoutService = ({ strapi }: { strapi: Core.Strapi })
    * reserving anything. The cart (with the code) is saved only when the code applied.
    */
   const applyDiscount = async (
-    s: CheckoutSession,
+    owner: CartOwner,
     input: StorefrontCartInput & { code: unknown }
   ): Promise<ApplyDiscountResult> => {
     if (typeof input?.code !== 'string') throw invalid([{ path: 'code', code: 'invalid' }]);
@@ -363,7 +419,7 @@ const EcommerceStorefrontCheckoutService = ({ strapi }: { strapi: Core.Strapi })
     if (promotionCodes.length > MAX_PROMOTION_CODES) {
       throw invalid([{ path: 'promotionCodes', code: 'too_many' }]);
     }
-    const cart: StoredCart = { ...base, promotionCodes };
+    const cart: StoredCart = ownCart(owner, { ...base, promotionCodes });
     const locale = cart.locale as string;
 
     if (cart.lines.length === 0) {
@@ -374,16 +430,16 @@ const EcommerceStorefrontCheckoutService = ({ strapi }: { strapi: Core.Strapi })
         status,
         message: codeStatusMessage(status, locale),
         applied: false,
-        quote: await price(s, cart),
+        quote: await price(owner, cart),
       };
     }
 
-    const priced = await price(s, cart);
+    const priced = await price(owner, cart);
     const status: PublicCodeStatus =
       priced.codes.find((c) => normalizePromotionCode(c.code) === code)?.status ?? 'NOT_FOUND';
     const applied = status === 'APPLIED';
     // A shipping code waits for a delivery method: keep it so it applies once one is chosen.
-    if (applied || status === 'AWAITING_SHIPPING') await sessions().saveCart(s.id, cart);
+    if (applied || status === 'AWAITING_SHIPPING') await saveCart(owner, cart);
     return { code, status, message: codeStatusMessage(status, locale), applied, quote: priced };
   };
 
@@ -500,7 +556,7 @@ const EcommerceStorefrontCheckoutService = ({ strapi }: { strapi: Core.Strapi })
   };
 
   const placeOrder = async (
-    s: CheckoutSession,
+    owner: CartOwner,
     input: StorefrontOrderInput,
     idempotencyKey: string
   ): Promise<PlacedOrder> => {
@@ -515,15 +571,26 @@ const EcommerceStorefrontCheckoutService = ({ strapi }: { strapi: Core.Strapi })
     const lineErrors: ValidationIssue[] = [];
     const lines = cartLines(input.lines, lineErrors);
     if (lineErrors.length) throw invalid(lineErrors);
-    await assertSessionLive(s);
+    // A guest's session must still be live; a login session was checked when it was resolved.
+    if (owner.kind === 'guest') await assertSessionLive(owner.session);
 
-    const email = input.customer?.email;
-    const emailVerified = typeof email === 'string' ? sessions().isEmailVerified(s, email) : false;
+    // Logged in: the account e-mail (never the body's), the body's name and phone for the
+    // order snapshot only (the account is never updated from it).
+    const customer =
+      owner.kind === 'guest'
+        ? input.customer
+        : {
+            firstName: input.customer?.firstName,
+            lastName: input.customer?.lastName,
+            email: owner.customer.email,
+            ...(input.customer?.phone !== undefined ? { phone: input.customer.phone } : {}),
+          };
+    const emailVerified = emailVerifiedFor(owner, customer?.email);
     let created: CreatedOrder;
     try {
       created = await orders().create(
         {
-          customer: input.customer,
+          customer,
           shippingAddress: input.shippingAddress,
           billingAddress: input.billingAddress ?? input.shippingAddress,
           locale: input.locale,
@@ -536,11 +603,14 @@ const EcommerceStorefrontCheckoutService = ({ strapi }: { strapi: Core.Strapi })
           storeCreditCode: input.storeCreditCode,
           pickupPointId: input.pickupPointId,
           pickupPostalCode: input.pickupPostalCode,
-          idempotencyKey: `sf:${s.id}:${key}`,
+          idempotencyKey:
+            owner.kind === 'guest' ? `sf:${owner.session.id}:${key}` : `sfc:${owner.customer.id}:${key}`,
           // A store credit needs no verified e-mail: its code is the secret (Global Constraints).
           emailVerified,
         },
-        { actor: 'storefront', source: 'storefront', checkoutSessionId: s.id }
+        owner.kind === 'guest'
+          ? { actor: 'storefront', source: 'storefront', checkoutSessionId: owner.session.id }
+          : { actor: 'storefront', source: 'storefront' }
       );
     } catch (err) {
       if (err instanceof EcommerceValidationError) {
@@ -555,7 +625,7 @@ const EcommerceStorefrontCheckoutService = ({ strapi }: { strapi: Core.Strapi })
     // A replay never clears the cart: it may have been rebuilt since the order.
     if (!created.replayed) {
       try {
-        await sessions().clearCart(s.id);
+        await clearCart(owner);
       } catch (err) {
         strapi.log.error(
           `${LOG_PREFIX} cart clear failed after order: ${(err as Error)?.message ?? 'unknown error'}`
@@ -573,27 +643,52 @@ const EcommerceStorefrontCheckoutService = ({ strapi }: { strapi: Core.Strapi })
     };
   };
 
-  const ownedOrderId = async (s: CheckoutSession, publicId: unknown): Promise<number> => {
-    const owned = await sessions().findOwnedOrder(s, publicId);
+  /**
+   * A logged-in customer owns the orders of its customer relation. Another customer's order and
+   * an unknown publicId are indistinguishable; the log line carries neither id.
+   */
+  const findCustomerOrder = async (
+    customerId: number,
+    publicId: unknown
+  ): Promise<{ id: number; publicId: string } | null> => {
+    if (typeof publicId !== 'string' || !UUID.test(publicId)) return null;
+    const order = await strapi.db.query(uids().order).findOne({
+      where: { publicId: publicId.toLowerCase(), customer: { id: customerId } },
+      select: ['id', 'publicId'],
+    });
+    if (!order) {
+      strapi.log.warn(`${LOG_PREFIX} ORDER_ACCESS_DENIED`);
+      return null;
+    }
+    return { id: order.id, publicId: order.publicId };
+  };
+
+  const ownedOrderId = async (owner: CartOwner, publicId: unknown): Promise<number> => {
+    const owned =
+      owner.kind === 'guest'
+        ? await sessions().findOwnedOrder(owner.session, publicId)
+        : await findCustomerOrder(owner.customer.id, publicId);
     if (!owned) throw new EcommerceNotFoundError('Order not found');
     return owned.id;
   };
 
   /** A Stripe Checkout link for what is due; the amount always comes from the order. */
   const paymentLink = async (
-    s: CheckoutSession,
+    owner: CartOwner,
     publicId: unknown
   ): Promise<StorefrontPaymentLink> => {
-    const orderId = await ownedOrderId(s, publicId);
+    const orderId = await ownedOrderId(owner, publicId);
     const link = await service('EcommerceStripePaymentService').getOrCreatePaymentLink(orderId, {
       actor: 'storefront',
     });
     return { url: link.url, expiresAt: link.expiresAt, amount: link.amount, reused: link.reused };
   };
 
-  /** Built from the order state and its lines (never `get()`: shipments, invoices, history stay out). */
-  const orderStatus = async (s: CheckoutSession, publicId: unknown): Promise<PublicOrderStatus> => {
-    const orderId = await ownedOrderId(s, publicId);
+  /**
+   * The public view of an order whose ownership the caller has checked. Built from the order
+   * state and its lines (never `get()`: shipments, invoices, history stay out).
+   */
+  const orderView = async (orderId: number): Promise<PublicOrderStatus> => {
     const state = await orders().computeOrderState(orderId);
     const { order } = state;
     const createdAt = isoOrNull(order.createdAt);
@@ -626,7 +721,20 @@ const EcommerceStorefrontCheckoutService = ({ strapi }: { strapi: Core.Strapi })
     });
   };
 
-  return { quote, applyDiscount, checkStoreCredit, placeOrder, paymentLink, orderStatus };
+  const orderStatus = async (owner: CartOwner, publicId: unknown): Promise<PublicOrderStatus> =>
+    orderView(await ownedOrderId(owner, publicId));
+
+  return {
+    getCart,
+    quote,
+    applyDiscount,
+    checkStoreCredit,
+    placeOrder,
+    paymentLink,
+    orderStatus,
+    orderView,
+    findCustomerOrder,
+  };
 };
 
 export default EcommerceStorefrontCheckoutService;

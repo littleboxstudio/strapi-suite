@@ -19,6 +19,7 @@ import {
 } from '../../../services/modules/ecommerce/domain/storefront/limits';
 import { VERIFICATION_CODE_TTL_MS } from '../../../services/modules/ecommerce/domain/storefront/session';
 import type { CheckoutSession } from '../../../services/modules/ecommerce/storefrontSessions';
+import type { CartOwner } from '../../../services/modules/ecommerce/storefrontCheckout';
 import {
   LOG_PREFIX,
   handleStorefrontError,
@@ -162,6 +163,8 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
     const left = Number.isFinite(exp) ? (exp - Date.now()) / 1000 : NaN;
     return left > 0 ? left : VERIFICATION_CODE_TTL_MS / 1000;
   };
+
+  const guest = (session: CheckoutSession): CartOwner => ({ kind: 'guest', session });
 
   /** Routes that need `X-Checkout-Session`: resolved first, then limited, then run. */
   const withSession = async (
@@ -351,7 +354,7 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
     /** POST /cart/quote */
     quoteCart: (ctx: any) =>
       withSession(ctx, 'cart.quote', {}, async (s) => ({
-        body: await checkout().quote(s, await cartInput(body(ctx))),
+        body: await checkout().quote(guest(s), await cartInput(body(ctx))),
       })),
 
     /** GET /shipping/pickup-points?postalCode=&country= → `{ points }` (spec 5.1). */
@@ -371,7 +374,7 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
         const b = body(ctx);
         const code = optionalString(INVALID, 'code', b.code, MAX_PROMOTION_CODE_LENGTH);
         if (!code) return fail(INVALID, 'code', 'required');
-        return { body: await checkout().applyDiscount(s, { ...(await cartInput(b)), code }) };
+        return { body: await checkout().applyDiscount(guest(s), { ...(await cartInput(b)), code }) };
       }),
 
     /** POST /store-credit/check */
@@ -413,19 +416,19 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
         }
         const input = await orderInput(body(ctx));
         errorOpts.promotionCodes = input.promotionCodes ?? [];
-        return { status: 201, body: await checkout().placeOrder(s, input, key) };
+        return { status: 201, body: await checkout().placeOrder(guest(s), input, key) };
       }),
 
     /** POST /orders/:publicId/payment */
     paymentLink: (ctx: any) =>
       withSession(ctx, 'order.read', {}, async (s) => ({
-        body: await checkout().paymentLink(s, publicIdOf(ctx)),
+        body: await checkout().paymentLink(guest(s), publicIdOf(ctx)),
       })),
 
     /** GET /orders/:publicId/status */
     orderStatus: (ctx: any) =>
       withSession(ctx, 'order.read', {}, async (s) => ({
-        body: await checkout().orderStatus(s, publicIdOf(ctx)),
+        body: await checkout().orderStatus(guest(s), publicIdOf(ctx)),
       })),
   };
 };

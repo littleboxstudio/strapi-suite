@@ -16,7 +16,7 @@ vi.mock(
   })
 );
 
-import { setupCommerce, UIDS } from './helpers/commerceSetup';
+import { asGuest, setupCommerce, UIDS } from './helpers/commerceSetup';
 import { __resetEventHandlersForTests } from '../../../server/src/services/modules/ecommerce/events';
 import createController from '../../../server/src/controllers/modules/ecommerce/storefront';
 import {
@@ -195,7 +195,7 @@ describe('storefront checkout with DPD Pickup (spec 5.2)', () => {
     const t = setup();
     t.c.tables[UIDS.promotion].push(promotion(1));
     const { s } = await t.open();
-    const errors = await issuesOf(t.checkout.placeOrder(s, t.orderInput({ pickupPointId: undefined }), 'key-pk-001'));
+    const errors = await issuesOf(t.checkout.placeOrder(asGuest(s), t.orderInput({ pickupPointId: undefined }), 'key-pk-001'));
     expect(errors).toEqual([{ path: 'pickupPointId', code: 'PICKUP_POINT_REQUIRED' }]);
     expect(t.findPoint).not.toHaveBeenCalled();
     t.expectNothingConsumed();
@@ -205,7 +205,7 @@ describe('storefront checkout with DPD Pickup (spec 5.2)', () => {
     const t = setup();
     t.c.tables[UIDS.promotion].push(promotion(1));
     const { s } = await t.open();
-    const errors = await issuesOf(t.checkout.placeOrder(s, t.orderInput({ pickupPointId: '  ' }), 'key-pk-002'));
+    const errors = await issuesOf(t.checkout.placeOrder(asGuest(s), t.orderInput({ pickupPointId: '  ' }), 'key-pk-002'));
     expect(errors).toEqual([{ path: 'pickupPointId', code: 'PICKUP_POINT_REQUIRED' }]);
     t.expectNothingConsumed();
   });
@@ -214,7 +214,7 @@ describe('storefront checkout with DPD Pickup (spec 5.2)', () => {
     const t = setup();
     t.c.tables[UIDS.promotion].push(promotion(1));
     const { s } = await t.open();
-    const errors = await issuesOf(t.checkout.placeOrder(s, t.orderInput({ pickupPointId: 'NOPE' }), 'key-pk-003'));
+    const errors = await issuesOf(t.checkout.placeOrder(asGuest(s), t.orderInput({ pickupPointId: 'NOPE' }), 'key-pk-003'));
     expect(errors).toEqual([{ path: 'pickupPointId', code: 'PICKUP_POINT_INVALID' }]);
     expect(t.findPoint).toHaveBeenCalledWith('4000-100', 'NOPE');
     t.expectNothingConsumed();
@@ -225,7 +225,7 @@ describe('storefront checkout with DPD Pickup (spec 5.2)', () => {
     t.c.tables[UIDS.promotion].push(promotion(1));
     t.findPoint.mockRejectedValueOnce(new EcommerceCarrierError('PICKUP_SEARCH_FAILED' as any));
     const { s } = await t.open();
-    await expect(t.checkout.placeOrder(s, t.orderInput(), 'key-pk-004')).rejects.toMatchObject({
+    await expect(t.checkout.placeOrder(asGuest(s), t.orderInput(), 'key-pk-004')).rejects.toMatchObject({
       code: 'PICKUP_SEARCH_FAILED',
     });
     t.expectNothingConsumed();
@@ -239,7 +239,7 @@ describe('storefront checkout with DPD Pickup (spec 5.2)', () => {
     );
     const { s } = await t.open();
     const errors = await issuesOf(
-      t.checkout.placeOrder(s, t.orderInput({ pickupPostalCode: '12' }), 'key-pk-005')
+      t.checkout.placeOrder(asGuest(s), t.orderInput({ pickupPostalCode: '12' }), 'key-pk-005')
     );
     expect(errors).toEqual([{ path: 'pickupPostalCode', code: 'INVALID_POSTAL_CODE' }]);
     t.expectNothingConsumed();
@@ -248,7 +248,7 @@ describe('storefront checkout with DPD Pickup (spec 5.2)', () => {
   it('a valid id: the point is the delivery address, billing is the customer address, pickupPoint stored', async () => {
     const t = setup();
     const { s } = await t.open();
-    const placed = await t.checkout.placeOrder(s, t.orderInput(), 'key-pk-006');
+    const placed = await t.checkout.placeOrder(asGuest(s), t.orderInput(), 'key-pk-006');
     expect(placed.total).toBe(PICKUP_TOTAL);
     const order = t.c.tables[UIDS.order][0];
     expect(order.shippingAddress).toEqual({
@@ -284,14 +284,14 @@ describe('storefront checkout with DPD Pickup (spec 5.2)', () => {
   it('a sent billingAddress is kept', async () => {
     const t = setup();
     const { s } = await t.open();
-    await t.checkout.placeOrder(s, t.orderInput({ billingAddress: billing }), 'key-pk-007');
+    await t.checkout.placeOrder(asGuest(s), t.orderInput({ billingAddress: billing }), 'key-pk-007');
     expect(t.c.tables[UIDS.order][0].billingAddress).toMatchObject({ line1: 'Av. Fatura 9', nif: '509999999' });
   });
 
   it('pickupPostalCode is the code searched when present', async () => {
     const t = setup();
     const { s } = await t.open();
-    await t.checkout.placeOrder(s, t.orderInput({ pickupPostalCode: '4000-200' }), 'key-pk-008');
+    await t.checkout.placeOrder(asGuest(s), t.orderInput({ pickupPostalCode: '4000-200' }), 'key-pk-008');
     expect(t.findPoint).toHaveBeenCalledWith('4000-200', 'PT12345');
   });
 
@@ -299,7 +299,7 @@ describe('storefront checkout with DPD Pickup (spec 5.2)', () => {
     const t = setup();
     const { s } = await t.open();
     await t.checkout.placeOrder(
-      s,
+      asGuest(s),
       t.orderInput({ shippingMethod: { providerId: 'manual', serviceId: '1' }, expectedTotal: 4500 }),
       'key-pk-009'
     );
@@ -312,9 +312,9 @@ describe('storefront checkout with DPD Pickup (spec 5.2)', () => {
   it('a replay returns the stored order without a new search', async () => {
     const t = setup();
     const { s } = await t.open();
-    const a = await t.checkout.placeOrder(s, t.orderInput(), 'key-pk-010');
+    const a = await t.checkout.placeOrder(asGuest(s), t.orderInput(), 'key-pk-010');
     t.findPoint.mockRejectedValue(new EcommerceCarrierError('PICKUP_SEARCH_FAILED' as any));
-    const b = await t.checkout.placeOrder(s, t.orderInput(), 'key-pk-010');
+    const b = await t.checkout.placeOrder(asGuest(s), t.orderInput(), 'key-pk-010');
     expect(b.publicId).toBe(a.publicId);
     expect(t.findPoint).toHaveBeenCalledTimes(1);
   });
@@ -322,10 +322,10 @@ describe('storefront checkout with DPD Pickup (spec 5.2)', () => {
   it('the admin order view has the full pickupPoint; the storefront status has no customer address', async () => {
     const t = setup();
     const { s } = await t.open();
-    const placed = await t.checkout.placeOrder(s, t.orderInput(), 'key-pk-011');
+    const placed = await t.checkout.placeOrder(asGuest(s), t.orderInput(), 'key-pk-011');
     const view = await t.c.orders.get(t.c.tables[UIDS.order][0].id);
     expect(view.pickupPoint).toMatchObject({ id: 'PT12345', customerAddress: { line1: 'Rua do Cliente 5' } });
-    const status = await t.checkout.orderStatus(s, placed.publicId);
+    const status = await t.checkout.orderStatus(asGuest(s), placed.publicId);
     const raw = JSON.stringify(status);
     expect(raw).not.toContain('Rua do Cliente 5');
     expect(raw).not.toContain('customerAddress');
@@ -335,7 +335,7 @@ describe('storefront checkout with DPD Pickup (spec 5.2)', () => {
     const t = setup();
     const { s } = await t.open();
     await t.checkout.placeOrder(
-      s,
+      asGuest(s),
       t.orderInput({ shippingMethod: { providerId: 'manual', serviceId: '1' }, expectedTotal: 4500 }),
       'key-pk-012'
     );
@@ -346,7 +346,7 @@ describe('storefront checkout with DPD Pickup (spec 5.2)', () => {
   it('the quote lists PICKUP with requiresPickupPoint', async () => {
     const t = setup();
     const { s } = await t.open();
-    const quote = await t.checkout.quote(s, {
+    const quote = await t.checkout.quote(asGuest(s), {
       lines: [{ variantId: 10, quantity: 2 }],
       locale: 'en',
       destination: { country: 'PT', postalCode: '4000-100' },
@@ -412,7 +412,7 @@ describe('storefront checkout with Store pickup (store pickup spec 5)', () => {
     t.c.tables[UIDS.promotion].push(promotion(1));
     const { s } = await t.open();
     const errors = await issuesOf(
-      t.checkout.placeOrder(s, t.storeInput({ pickupPointId: undefined }), 'key-st-001')
+      t.checkout.placeOrder(asGuest(s), t.storeInput({ pickupPointId: undefined }), 'key-st-001')
     );
     expect(errors).toEqual([{ path: 'pickupPointId', code: 'PICKUP_POINT_REQUIRED' }]);
     expect(t.findStore).not.toHaveBeenCalled();
@@ -424,7 +424,7 @@ describe('storefront checkout with Store pickup (store pickup spec 5)', () => {
     const t = storeSetup();
     const { s } = await t.open();
     // pickupPostalCode is ignored for store pickup.
-    const placed = await t.checkout.placeOrder(s, t.storeInput({ pickupPostalCode: '9000-100' }), 'key-st-002');
+    const placed = await t.checkout.placeOrder(asGuest(s), t.storeInput({ pickupPostalCode: '9000-100' }), 'key-st-002');
     expect(placed.total).toBe(4000);
     expect(t.findStore).toHaveBeenCalledWith('PT', STORE_LISBOA.id);
     expect(t.findPoint).not.toHaveBeenCalled();
@@ -452,7 +452,7 @@ describe('storefront checkout with Store pickup (store pickup spec 5)', () => {
     t.c.tables[UIDS.promotion].push(promotion(1));
     const { s } = await t.open();
     const errors = await issuesOf(
-      t.checkout.placeOrder(s, t.storeInput({ pickupPointId: STORE_FUNCHAL.id }), 'key-st-003')
+      t.checkout.placeOrder(asGuest(s), t.storeInput({ pickupPointId: STORE_FUNCHAL.id }), 'key-st-003')
     );
     expect(errors).toEqual([{ path: 'pickupPointId', code: 'PICKUP_POINT_INVALID' }]);
     expect(t.findStore).toHaveBeenCalledWith('PT', STORE_FUNCHAL.id);
@@ -464,7 +464,7 @@ describe('storefront checkout with Store pickup (store pickup spec 5)', () => {
     const { s } = await t.open();
     const islandAddress = { ...customerAddress, postalCode: '9000-200', city: 'Funchal' };
     await t.checkout.placeOrder(
-      s,
+      asGuest(s),
       t.storeInput({ shippingAddress: islandAddress, pickupPointId: STORE_FUNCHAL.id }),
       'key-st-004'
     );
@@ -476,7 +476,7 @@ describe('storefront checkout with Store pickup (store pickup spec 5)', () => {
     const t = storeSetup();
     const { s } = await t.open();
     const errors = await issuesOf(
-      t.checkout.placeOrder(s, t.storeInput({ pickupPointId: POINT.id }), 'key-st-005')
+      t.checkout.placeOrder(asGuest(s), t.storeInput({ pickupPointId: POINT.id }), 'key-st-005')
     );
     expect(errors).toEqual([{ path: 'pickupPointId', code: 'PICKUP_POINT_INVALID' }]);
     expect(t.findPoint).not.toHaveBeenCalled();
@@ -486,7 +486,7 @@ describe('storefront checkout with Store pickup (store pickup spec 5)', () => {
   it('DPD pickup still searches DPD', async () => {
     const t = storeSetup();
     const { s } = await t.open();
-    await t.checkout.placeOrder(s, t.orderInput(), 'key-st-006');
+    await t.checkout.placeOrder(asGuest(s), t.orderInput(), 'key-st-006');
     expect(t.findPoint).toHaveBeenCalledWith('4000-100', POINT.id);
     expect(t.findStore).not.toHaveBeenCalled();
     expect(t.c.tables[UIDS.order][0].pickupPoint).toMatchObject({ id: POINT.id });

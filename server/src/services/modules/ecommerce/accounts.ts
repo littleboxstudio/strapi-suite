@@ -7,10 +7,14 @@ import { MAX_EMAIL_LENGTH, MAX_LINE_QUANTITY } from './domain/storefront/limits'
 import {
   EcommerceAccountError,
   EcommerceAccountsUnavailableError,
+  EcommerceNotFoundError,
   EcommerceValidationError,
   type ValidationIssue,
 } from './errors';
-import { resolveLocale } from './locales';
+import { isUniqueViolation } from './dbErrors';
+import { findLocale, resolveLocale } from './locales';
+import type { AccountCustomer } from './customerSessions';
+import type { PublicOrderStatus } from './domain/storefront/publicViews';
 import {
   readStoredCart,
   type CheckoutSession,
@@ -21,6 +25,8 @@ const LOG_PREFIX = '[ecommerce:accounts]';
 const PASSWORD_INPUT_MAX = 1024;
 const NAME_MAX = 100;
 const PHONE_MAX = 40;
+const ORDERS_PAGE_SIZE = 10;
+const ORDERS_PAGE_SIZE_MAX = 50;
 
 export type ClientInfo = { ip: string | null; userAgent: string | null };
 
@@ -36,6 +42,15 @@ export type AccountProfile = {
 };
 
 export type LoginResult = { token: string; expiresAt: string; customer: AccountProfile };
+
+export type ProfileInput = { firstName?: unknown; lastName?: unknown; phone?: unknown; locale?: unknown };
+
+export type AccountOrder = PublicOrderStatus & { createdAt: string | null; total: number };
+
+const pageNumber = (v: unknown, fallback: number, max = Number.MAX_SAFE_INTEGER): number => {
+  const n = Math.floor(Number(v));
+  return Number.isFinite(n) && n >= 1 ? Math.min(n, max) : fallback;
+};
 
 export type RegisterInput = {
   email: unknown;
@@ -59,10 +74,11 @@ const readEmail = (raw: unknown): string | null => {
 type CustomerRow = Record<string, any> & { id: number };
 
 const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
-  const uid = () => {
+  const uids = () => {
     const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
-    return config.uuid.modules.ecommerce.customer;
+    return config.uuid.modules.ecommerce;
   };
+  const uid = () => uids().customer;
   const customers = () => strapi.db.query(uid());
   const svc = (name: string) => strapi.plugin(PLUGIN_ID).service(name);
   const passwords = () => svc('EcommercePasswordService');
@@ -70,6 +86,7 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
   const sessions = () => svc('EcommerceCustomerSessionService');
   const checkout = () => svc('EcommerceStorefrontSessionService');
   const mailer = () => svc('EcommerceAccountMailer');
+  const storefront = () => svc('EcommerceStorefrontCheckoutService');
 
   /** Fire and forget: never awaited by the caller, failures logged as codes only. */
   const fire = (send: () => Promise<unknown>): void => {
@@ -104,6 +121,48 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
   });
 
   const tokenInvalid = () => new EcommerceAccountError('TOKEN_INVALID', 400);
+  const emailInUse = () => new EcommerceAccountError('EMAIL_IN_USE', 409);
+  const sessionInvalid = () => new EcommerceAccountError('CUSTOMER_SESSION_INVALID', 401);
+
+  /** The customer's current row; gone means the login session no longer stands for anyone. */
+  const currentRow = async (id: number): Promise<CustomerRow> => {
+    const row: CustomerRow | null = await customers().findOne({ where: { id } });
+    if (!row) throw sessionInvalid();
+    return row;
+  };
+
+  /**
+   * The current password of a logged-in customer (password and e-mail changes): one
+   * verification, and a wrong or unusable one is `INVALID_CREDENTIALS` with status 400.
+   */
+  const checkCurrentPassword = async (row: CustomerRow, password: unknown): Promise<void> => {
+    const wrong = () => new EcommerceAccountError('INVALID_CREDENTIALS', 400);
+    if (typeof password !== 'string' || password === '' || password.length > PASSWORD_INPUT_MAX) throw wrong();
+    if (!passwords().available()) throw new EcommerceAccountsUnavailableError();
+    const check = await passwords().verify(
+      { hash: row.passwordHash ?? null, pepperVersion: row.passwordPepperVersion ?? null },
+      password
+    );
+    if (!check.ok) throw wrong();
+  };
+
+  /** No customer has it as e-mail, nor (another customer) as pending e-mail. */
+  const emailTaken = async (emailNormalized: string, selfId: number): Promise<boolean> => {
+    const [owner] = await customers().findMany({ where: { emailNormalized }, select: ['id'], limit: 1 });
+    if (owner) return true;
+    const [pending] = await customers().findMany({
+      where: { pendingEmailNormalized: emailNormalized, id: { $ne: selfId } },
+      select: ['id'],
+      limit: 1,
+    });
+    return !!pending;
+  };
+
+  /** Audit entries of the customer's own changes: field names only, never a secret. */
+  const audit = (action: string, customerId: number): void =>
+    fire(() =>
+      svc('EcommerceAuditService').log({ area: 'customers', action, targetId: String(customerId) })
+    );
   const invalidCredentials = () => new EcommerceAccountError('INVALID_CREDENTIALS', 401);
 
   const weakPassword = (password: unknown, email: string): void => {
@@ -337,11 +396,191 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
         },
       });
       await sessions().revokeAll(customer.id, 'PASSWORD_RESET');
+      audit('customer.password_reset', customer.id);
       fire(() =>
         mailer().sendPasswordChanged(String(customer.email), customer.locale ?? null, {
           firstName: String(customer.firstName ?? ''),
         })
       );
+    },
+
+    async getProfile(c: AccountCustomer): Promise<AccountProfile> {
+      return profile(await currentRow(c.id));
+    },
+
+    /** First and last name, phone and locale only; anything else in the input is ignored. */
+    async updateProfile(c: AccountCustomer, input: ProfileInput): Promise<AccountProfile> {
+      const errors: ValidationIssue[] = [];
+      const data: Record<string, unknown> = {};
+      const i = input ?? {};
+      for (const field of ['firstName', 'lastName'] as const) {
+        if (i[field] === undefined) continue;
+        const v = clean(i[field]);
+        if (!v || v.length > NAME_MAX) errors.push({ path: field, code: 'required' });
+        else data[field] = v;
+      }
+      if (i.phone !== undefined) {
+        const phone = i.phone === null ? '' : clean(i.phone);
+        if ((i.phone !== null && typeof i.phone !== 'string') || phone.length > PHONE_MAX) {
+          errors.push({ path: 'phone', code: 'invalid' });
+        } else data.phone = phone || null;
+      }
+      if (i.locale !== undefined) {
+        const locale = await findLocale(strapi, i.locale);
+        if (!locale) errors.push({ path: 'locale', code: 'invalid_locale' });
+        else data.locale = locale;
+      }
+      if (errors.length) throw new EcommerceValidationError('Invalid profile', errors);
+      if (Object.keys(data).length) await customers().update({ where: { id: c.id }, data });
+      return profile(await currentRow(c.id));
+    },
+
+    /**
+     * Revokes the customer's other sessions and answers the current session's fresh token:
+     * `passwordChangedAt` invalidates the old token's `iat`, so the BFF replaces its cookie.
+     */
+    async changePassword(
+      c: AccountCustomer,
+      sessionId: number,
+      input: { currentPassword: unknown; newPassword: unknown }
+    ): Promise<{ token: string; expiresAt: string }> {
+      const row = await currentRow(c.id);
+      // Policy first: a weak new password costs no hash.
+      weakPassword(input?.newPassword, String(row.email ?? ''));
+      await checkCurrentPassword(row, input?.currentPassword);
+      const { hash, pepperVersion } = await passwords().hash(input.newPassword as string);
+      await customers().update({
+        where: { id: c.id },
+        data: { passwordHash: hash, passwordPepperVersion: pepperVersion, passwordChangedAt: new Date() },
+      });
+      await sessions().revokeAll(c.id, 'PASSWORD_CHANGED', sessionId);
+      audit('customer.password_change', c.id);
+      fire(() =>
+        mailer().sendPasswordChanged(String(row.email), row.locale ?? null, {
+          firstName: String(row.firstName ?? ''),
+        })
+      );
+      const reissued = await sessions().reissue(c.id, sessionId);
+      if (!reissued) throw sessionInvalid();
+      return { token: reissued.token, expiresAt: reissued.expiresAt };
+    },
+
+    /** Stores the new e-mail as pending (replacing an earlier one) and mails the link to it. */
+    async requestEmailChange(
+      c: AccountCustomer,
+      input: { currentPassword: unknown; newEmail: unknown }
+    ): Promise<void> {
+      const email = readEmail(input?.newEmail);
+      if (!email) throw new EcommerceValidationError('Invalid e-mail', [{ path: 'newEmail', code: 'invalid_email' }]);
+      const row = await currentRow(c.id);
+      await checkCurrentPassword(row, input?.currentPassword);
+      const emailNormalized = normalizeEmail(email);
+      if (await emailTaken(emailNormalized, row.id)) throw emailInUse();
+      await customers().update({
+        where: { id: row.id },
+        data: { pendingEmail: email, pendingEmailNormalized: emailNormalized },
+      });
+      fire(async () => {
+        const { raw } = await tokens().issue(row.id, 'CHANGE_EMAIL', email);
+        await mailer().sendEmailChangeVerification(email, row.locale ?? null, {
+          firstName: String(row.firstName ?? ''),
+          newEmail: email,
+          raw,
+        });
+      });
+    },
+
+    /**
+     * Swaps the e-mail and, in the same transaction, moves the store credits and promotion usage
+     * keyed by the old normalized e-mail. The confirm runs by token (maybe on another device),
+     * so there is no "current" session: all of them are revoked.
+     */
+    async confirmEmailChange(token: unknown): Promise<void> {
+      const consumed = await tokens().consume(token, 'CHANGE_EMAIL');
+      if (!consumed) throw tokenInvalid();
+      const customer: CustomerRow | null = await customers().findOne({ where: { id: consumed.customerId } });
+      const newNormalized = normalizeEmail(consumed.email);
+      if (
+        !customer ||
+        customer.blocked === true ||
+        customer.accountType !== 'REGISTERED' ||
+        !customer.pendingEmailNormalized ||
+        customer.pendingEmailNormalized !== newNormalized
+      ) {
+        throw tokenInvalid();
+      }
+      if (await emailTaken(newNormalized, customer.id)) throw emailInUse();
+      const oldEmail = String(customer.email ?? '');
+      const oldNormalized = String(customer.emailNormalized ?? '');
+      const newEmail = String(customer.pendingEmail || consumed.email);
+      try {
+        await strapi.db.transaction(async () => {
+          await customers().update({
+            where: { id: customer.id },
+            data: {
+              email: newEmail,
+              emailNormalized: newNormalized,
+              pendingEmail: null,
+              pendingEmailNormalized: null,
+              // The link proved the new address.
+              emailVerified: true,
+              emailVerifiedAt: new Date(),
+            },
+          });
+          await svc('EcommerceStoreCreditService').rekeyCustomerEmail(oldNormalized, newNormalized);
+          await svc('EcommercePromotionService').rekeyCustomerEmail(oldNormalized, newNormalized);
+        });
+      } catch (err) {
+        // Taken by a concurrent write since the check (unique e-mail index).
+        if (isUniqueViolation(err)) throw emailInUse();
+        throw err;
+      }
+      await sessions().revokeAll(customer.id, 'EMAIL_CHANGED');
+      audit('customer.email_change', customer.id);
+      fire(() =>
+        mailer().sendEmailChanged(oldEmail, customer.locale ?? null, {
+          firstName: String(customer.firstName ?? ''),
+          newEmail,
+        })
+      );
+    },
+
+    /** The customer's orders, newest first, each in the storefront order-status shape. */
+    async listOrders(
+      c: AccountCustomer,
+      opts: { page?: unknown; pageSize?: unknown } = {}
+    ): Promise<{
+      results: AccountOrder[];
+      pagination: { page: number; pageSize: number; total: number; pageCount: number };
+    }> {
+      const page = pageNumber(opts?.page, 1);
+      const pageSize = pageNumber(opts?.pageSize, ORDERS_PAGE_SIZE, ORDERS_PAGE_SIZE_MAX);
+      const q = strapi.db.query(uids().order);
+      const where = { customer: { id: c.id } };
+      const [total, rows] = await Promise.all([
+        q.count({ where }),
+        q.findMany({
+          where,
+          select: ['id'],
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          offset: (page - 1) * pageSize,
+          limit: pageSize,
+        }),
+      ]);
+      const results: AccountOrder[] = [];
+      for (const r of rows as { id: number }[]) {
+        const view: PublicOrderStatus = await storefront().orderView(r.id);
+        results.push({ ...view, createdAt: view.createdAt, total: view.totals.total });
+      }
+      return { results, pagination: { page, pageSize, total, pageCount: Math.ceil(total / pageSize) } };
+    },
+
+    /** One of the customer's orders; another customer's or an unknown one is a 404. */
+    async getOrder(c: AccountCustomer, publicId: string): Promise<AccountOrder> {
+      const owned = await storefront().findCustomerOrder(c.id, publicId);
+      if (!owned) throw new EcommerceNotFoundError('Order not found');
+      const view: PublicOrderStatus = await storefront().orderView(owned.id);
+      return { ...view, createdAt: view.createdAt, total: view.totals.total };
     },
   };
 };

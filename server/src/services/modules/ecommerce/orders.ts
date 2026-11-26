@@ -72,7 +72,7 @@ import type { InvoiceView } from './invoices';
 import type { ShippingOption, ShippingQuoteRequest } from './shipping';
 import type { StockMoveInput } from './stock';
 import type { OrderHistoryEntry } from './orderHistory';
-import type { CustomerInput } from './customers';
+import type { CustomerInput, GuestPassword } from './customers';
 import { normalizeEmail } from './domain/email';
 import { marketCountry, marketOf } from './domain/markets';
 import type { PickupStore } from './domain/storePickup';
@@ -607,9 +607,33 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
   const customers = (): {
     findOrCreate(
       input: CustomerInput,
-      opts?: { locale?: unknown }
+      opts?: { locale?: unknown; guestPassword?: GuestPassword | null }
     ): Promise<{ id: number; created: boolean }>;
   } => service('EcommerceCustomerService');
+
+  /**
+   * The hash of a random password for the customer the order may create, computed before the
+   * order transaction (an Argon2id hash must not hold it open). Skipped when the e-mail already
+   * has a customer or the password service is unavailable; a failure never fails the order
+   * (the customer is created without one and the background fill adds it later).
+   */
+  const guestPasswordFor = async (email: string): Promise<GuestPassword | null> => {
+    try {
+      const passwords = service('EcommercePasswordService');
+      if (!passwords || !passwords.available()) return null;
+      const [existing] = await strapi.db.query(uids().customer).findMany({
+        where: { emailNormalized: normalizeEmail(email) },
+        select: ['id'],
+        limit: 1,
+      });
+      if (existing) return null;
+      return await passwords.randomGuestHash();
+    } catch (err) {
+      const code = (err as { code?: unknown })?.code;
+      strapi.log?.warn?.(`[ecommerce:orders] GUEST_HASH_SKIPPED ${typeof code === 'string' ? code : 'ERROR'}`);
+      return null;
+    }
+  };
   const shipping = (): {
     findOption(
       req: ShippingQuoteRequest,
@@ -1072,13 +1096,15 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     const units = v.lines.reduce((s, l) => s + l.quantity, 0);
     const deductions = quantitiesByVariant(evaluation.lines);
 
+    const guestPassword = await guestPasswordFor(v.customer.email);
+
     const attempt = async (): Promise<CreatedOrder> => {
       const collector = events().collector();
       const operationId = randomUUID();
       const result = await strapi.db.transaction(async () => {
         const u = uids();
         // A new customer gets the order's (resolved) language; an existing one is never changed.
-        const customer = await customers().findOrCreate(v.customer, { locale: v.locale });
+        const customer = await customers().findOrCreate(v.customer, { locale: v.locale, guestPassword });
         const reference = await nextReference();
         const publicId = randomUUID();
 

@@ -9,6 +9,7 @@ import {
   verificationCodeHash,
 } from '../../../server/src/services/modules/ecommerce/domain/storefront/session';
 import {
+  EcommerceAccountError,
   EcommerceEmailError,
   EcommerceValidationError,
 } from '../../../server/src/services/modules/ecommerce/errors';
@@ -598,6 +599,20 @@ describe('EcommerceStorefrontSessionService', () => {
           code: 'invalid_email',
         });
       }
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(row().emailVerification).toEqual({});
+    });
+
+    it('a blocked customer e-mail → CUSTOMER_BLOCKED and nothing sent or stored', async () => {
+      const { c, s, fetchMock, row } = await setup();
+      c.tables[UIDS.customer].push({
+        id: 1, firstName: 'F', lastName: 'B', email: 'foo@bar.com', emailNormalized: 'foo@bar.com', blocked: true,
+      });
+      const err: any = await svc(c)
+        .requestEmailVerification(s, { email: '  Foo@Bar.com ', locale: 'en' })
+        .catch((e) => e);
+      expect(err).toBeInstanceOf(EcommerceAccountError);
+      expect({ code: err.code, status: err.status }).toEqual({ code: 'CUSTOMER_BLOCKED', status: 403 });
       expect(fetchMock).not.toHaveBeenCalled();
       expect(row().emailVerification).toEqual({});
     });

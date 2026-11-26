@@ -1,6 +1,11 @@
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID, LtbConfigs } from '../../../config';
-import { EcommerceNotFoundError, EcommerceValidationError, type ValidationIssue } from './errors';
+import {
+  EcommerceAccountError,
+  EcommerceNotFoundError,
+  EcommerceValidationError,
+  type ValidationIssue,
+} from './errors';
 import { isEmail } from './settings';
 import type { AuditEntry } from './audit';
 import { normalizeEmail } from './domain/email';
@@ -13,6 +18,9 @@ export const isValidEmail = (email: unknown): boolean =>
   typeof email === 'string' && isEmail(email.trim());
 
 export type CustomerInput = { firstName: string; lastName: string; email: string; phone?: string | null };
+
+/** The random-password hash of a new guest customer, computed before the order transaction. */
+export type GuestPassword = { hash: string; pepperVersion: number };
 
 const clean = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
 
@@ -55,10 +63,15 @@ const EcommerceCustomerService = ({ strapi }: { strapi: Core.Strapi }) => {
      * with one exception: a customer saved before customers had a locale (legacy row, no `locale`)
      * gets it once, from the first order that finds it. `opts.locale` (the order's language) is
      * checked against the i18n locales: an unknown or missing one saves the default locale.
+     *
+     * A blocked customer is refused (`CUSTOMER_BLOCKED`, compared by normalized e-mail). A new
+     * customer is a `GUEST`, not verified, with `opts.guestPassword` (the hash of a random
+     * password nobody knows) when the caller could compute one; without it the background fill
+     * adds it later. Unused when an existing customer is found.
      */
     async findOrCreate(
       input: CustomerInput,
-      opts: { locale?: unknown } = {}
+      opts: { locale?: unknown; guestPassword?: GuestPassword | null } = {}
     ): Promise<{ id: number; created: boolean }> {
       const { values, errors } = validate(input);
       if (errors.length) throw new EcommerceValidationError('Invalid customer', errors);
@@ -66,6 +79,7 @@ const EcommerceCustomerService = ({ strapi }: { strapi: Core.Strapi }) => {
       const emailNormalized = normalizeEmail(values.email);
       const [existing] = await q.findMany({ where: { emailNormalized }, orderBy: { id: 'asc' }, limit: 1 });
       if (existing) {
+        if (existing.blocked === true) throw new EcommerceAccountError('CUSTOMER_BLOCKED', 403);
         if (!existing.locale) {
           const locale = await resolveLocale(strapi, opts.locale);
           await q.update({ where: { id: existing.id }, data: { locale } });
@@ -73,8 +87,29 @@ const EcommerceCustomerService = ({ strapi }: { strapi: Core.Strapi }) => {
         return { id: existing.id, created: false };
       }
       const locale = await resolveLocale(strapi, opts.locale);
-      const created = await q.create({ data: { ...values, emailNormalized, locale } });
+      const guest = opts.guestPassword;
+      const created = await q.create({
+        data: {
+          ...values,
+          emailNormalized,
+          locale,
+          accountType: 'GUEST',
+          emailVerified: false,
+          blocked: false,
+          ...(guest ? { passwordHash: guest.hash, passwordPepperVersion: guest.pepperVersion } : {}),
+        },
+      });
       return { id: created.id, created: true };
+    },
+
+    /** True when a blocked customer has this e-mail (compared normalized). */
+    async isBlockedEmail(email: string): Promise<boolean> {
+      const emailNormalized = normalizeEmail(typeof email === 'string' ? email : '');
+      if (!emailNormalized) return false;
+      const row = await strapi.db
+        .query(uids().customer)
+        .findOne({ where: { emailNormalized, blocked: true }, select: ['id'] });
+      return !!row;
     },
 
     async list({ page, search }: { page?: number; search?: string } = {}) {

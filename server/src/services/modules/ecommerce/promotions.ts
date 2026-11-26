@@ -969,7 +969,41 @@ const EcommercePromotionService = ({ strapi }: { strapi: Core.Strapi }) => {
     return out;
   };
 
+  /**
+   * A customer's e-mail change: the per-customer usage counters (keyed by the hash of the
+   * normalized e-mail) and the redemptions' e-mail move to the new e-mail, so the limits follow
+   * the customer and a later release finds its counter. A counter already present for the new
+   * e-mail absorbs the old one's uses. Joins the caller's transaction.
+   */
+  const rekeyCustomerEmail = async (oldNormalized: string, newNormalized: string): Promise<void> => {
+    if (!oldNormalized || !newNormalized || oldNormalized === newNormalized) return;
+    const u = uids();
+    const usage = strapi.db.query(u.promotionCustomerUsage);
+    const rows: any[] = await usage.findMany({
+      where: { emailNormalized: oldNormalized },
+      populate: { promotion: { select: ['id'] } },
+      orderBy: { id: 'asc' },
+    });
+    for (const r of rows) {
+      const promotionId = idOf(r.promotion);
+      if (promotionId === null) continue;
+      const uniqueKey = promotionUsageKey(promotionId, newNormalized);
+      const target = await usage.findOne({ where: { uniqueKey }, select: ['id', 'uses'] });
+      if (target) {
+        await usage.update({ where: { id: target.id }, data: { uses: num(target.uses) + num(r.uses) } });
+        await usage.delete({ where: { id: r.id } });
+      } else {
+        await usage.update({ where: { id: r.id }, data: { emailNormalized: newNormalized, uniqueKey } });
+      }
+    }
+    await strapi.db.query(u.promotionRedemption).updateMany({
+      where: { emailNormalized: oldNormalized },
+      data: { emailNormalized: newNormalized },
+    });
+  };
+
   return {
+    rekeyCustomerEmail,
     list,
     get,
     create,
