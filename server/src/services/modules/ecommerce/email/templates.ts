@@ -8,7 +8,7 @@ import {
   getVariableCatalog,
 } from './catalog';
 import { TemplateIssue, TemplateSyntaxError, renderTemplate, validateTemplate } from './templateEngine';
-import { DEFAULT_TEMPLATES } from './defaults';
+import { defaultTemplate } from './defaults';
 import { sendWithResend } from '../providers/email/resendSender';
 import {
   EcommerceEmailError,
@@ -158,8 +158,12 @@ const EcommerceEmailTemplateService = ({ strapi }: { strapi: Core.Strapi }) => {
     return (latest?.version ?? 0) + 1;
   };
 
-  const currentContent = (type: EmailTemplateType, row: TemplateRow | null): TemplateContent =>
-    row ? { subject: row.subject ?? '', html: row.html ?? '' } : DEFAULT_TEMPLATES[type];
+  const currentContent = (
+    type: EmailTemplateType,
+    locale: string,
+    row: TemplateRow | null
+  ): TemplateContent =>
+    row ? { subject: row.subject ?? '', html: row.html ?? '' } : defaultTemplate(type, locale);
 
   const validateContent = (type: EmailTemplateType, input: TemplateContent): TemplateContent => {
     const subject = typeof input?.subject === 'string' ? input.subject : '';
@@ -188,7 +192,7 @@ const EcommerceEmailTemplateService = ({ strapi }: { strapi: Core.Strapi }) => {
     strapi.db.transaction(async () => {
       const row = await findCustom(type, locale);
       const version = await currentVersion(type, locale, row);
-      const previous = currentContent(type, row);
+      const previous = currentContent(type, locale, row);
       // The snapshot is attributed to whoever wrote that content (null for the built-in default).
       await versions().create({
         data: { type, locale, ...previous, version, authorId: row?.editorId ?? null },
@@ -248,7 +252,7 @@ const EcommerceEmailTemplateService = ({ strapi }: { strapi: Core.Strapi }) => {
       return {
         type: t,
         locale,
-        ...currentContent(t, row),
+        ...currentContent(t, locale, row),
         isCustom: row !== null,
         version: await currentVersion(t, locale, row),
         variables: getVariableCatalog(t),
@@ -363,7 +367,7 @@ const EcommerceEmailTemplateService = ({ strapi }: { strapi: Core.Strapi }) => {
       const t = requireType(type);
       const defaultLocale = await getDefaultLocale();
       const row = (await findCustom(t, locale)) ?? (await findCustom(t, defaultLocale));
-      const source = currentContent(t, row);
+      const source = currentContent(t, locale, row);
       const full = { ...data, store: storeVariables(await settings().getStoreSettings(), strapi.config.get('server.url') as string | undefined) };
       return strictRender(source, full);
     },

@@ -37,6 +37,8 @@ import EcommerceOrganizationService from './modules/ecommerce/organization';
 import EcommerceCollectionService from './modules/ecommerce/collections';
 import EcommercePasswordService from './modules/ecommerce/passwords';
 import EcommerceCustomerSessionService from './modules/ecommerce/customerSessions';
+import EcommerceCustomerTokenService from './modules/ecommerce/customerTokens';
+import EcommerceAccountMailer from './modules/ecommerce/accountMailer';
 import ImageFieldModuleService from './modules/image-field';
 
 export default {
@@ -79,5 +81,7 @@ export default {
   EcommerceCollectionService,
   EcommercePasswordService,
   EcommerceCustomerSessionService,
+  EcommerceCustomerTokenService,
+  EcommerceAccountMailer,
   ImageFieldModuleService,
 };

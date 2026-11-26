@@ -21,6 +21,12 @@ export const EMAIL_TEMPLATE_TYPES = [
   'STORE_CREDIT_ISSUED',
   'STORE_CREDIT_UPDATED',
   'EMAIL_VERIFICATION',
+  'ACCOUNT_VERIFICATION',
+  'PASSWORD_RESET',
+  'PASSWORD_CHANGED',
+  'EMAIL_CHANGE_VERIFICATION',
+  'EMAIL_CHANGED',
+  'REGISTRATION_ATTEMPT',
 ] as const;
 
 export type EmailTemplateType = (typeof EMAIL_TEMPLATE_TYPES)[number];
@@ -71,8 +77,16 @@ const COMMON: VariableDef[] = [
 ];
 
 /** Types sent before there is an order or a customer name: only the store and the address. */
+const ACCOUNT_BASE: VariableDef[] = [...STORE, value('customer.firstName', 'Customer first name')];
+
 const BASE: Partial<Record<EmailTemplateType, VariableDef[]>> = {
   EMAIL_VERIFICATION: [...STORE, CUSTOMER_EMAIL],
+  ACCOUNT_VERIFICATION: ACCOUNT_BASE,
+  PASSWORD_RESET: ACCOUNT_BASE,
+  PASSWORD_CHANGED: ACCOUNT_BASE,
+  EMAIL_CHANGE_VERIFICATION: ACCOUNT_BASE,
+  EMAIL_CHANGED: ACCOUNT_BASE,
+  REGISTRATION_ATTEMPT: ACCOUNT_BASE,
 };
 
 const PAYMENT_REQUEST: VariableDef[] = [
@@ -176,6 +190,28 @@ const SPECIFIC: Record<EmailTemplateType, VariableDef[]> = {
     value('verification.code', 'Verification code'),
     value('verification.validMinutes', 'Minutes the code stays valid'),
   ],
+  ACCOUNT_VERIFICATION: [
+    value('verificationUrl', 'Link that verifies the e-mail address'),
+    value('expiresInHours', 'Hours the link stays valid'),
+  ],
+  PASSWORD_RESET: [
+    value('resetUrl', 'Link that sets a new password'),
+    value('expiresInMinutes', 'Minutes the link stays valid'),
+  ],
+  PASSWORD_CHANGED: [value('changedAt', 'Date and time of the change')],
+  EMAIL_CHANGE_VERIFICATION: [
+    value('confirmationUrl', 'Link that confirms the new e-mail address'),
+    value('newEmail', 'The new e-mail address'),
+    value('expiresInHours', 'Hours the link stays valid'),
+  ],
+  EMAIL_CHANGED: [
+    value('newEmail', 'The new e-mail address (partly hidden)'),
+    value('changedAt', 'Date and time of the change'),
+  ],
+  REGISTRATION_ATTEMPT: [
+    value('loginUrl', 'Link to the store'),
+    value('resetUrl', 'Link to the page that resets the password'),
+  ],
 };
 
 const SAMPLE_VALUES: Record<string, unknown> = {
@@ -272,6 +308,14 @@ const SAMPLE_VALUES: Record<string, unknown> = {
   'credit.conditions': 'Valid for one purchase on the online store.',
   'verification.code': '482913',
   'verification.validMinutes': '10',
+  verificationUrl: 'https://shop.example.com/account/verify-email?token=sample',
+  resetUrl: 'https://shop.example.com/account/reset-password',
+  confirmationUrl: 'https://shop.example.com/account/confirm-email?token=sample',
+  loginUrl: 'https://shop.example.com',
+  newEmail: 'j***@example.com',
+  changedAt: '26/11/2026 10:30',
+  expiresInHours: '24',
+  expiresInMinutes: '60',
 };
 
 export function getVariableCatalog(type: EmailTemplateType): VariableDef[] {

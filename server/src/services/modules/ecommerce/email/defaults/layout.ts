@@ -12,8 +12,15 @@ const TEXT = `${FONT};font-size:15px;line-height:24px;color:#374151`;
 const MUTED = `${FONT};font-size:13px;line-height:20px;color:#6b7280`;
 const CELL = `${FONT};font-size:14px;line-height:20px;color:#374151;padding:10px 0;border-bottom:1px solid #e5e7eb`;
 
-export const greeting = (): string =>
-  `<p style="margin:0 0 16px;${TEXT}">Hi {{customer.firstName}},</p>`;
+export type Lang = 'en' | 'pt';
+
+const COPY: Record<Lang, { hi: string; thanks: string; team: string; questions: string }> = {
+  en: { hi: 'Hi', thanks: 'Thank you,', team: 'The {{store.name}} team', questions: 'Questions? Contact us at' },
+  pt: { hi: 'Olá', thanks: 'Obrigado,', team: 'A equipa {{store.name}}', questions: 'Dúvidas? Contacte-nos em' },
+};
+
+export const greeting = (lang: Lang = 'en'): string =>
+  `<p style="margin:0 0 16px;${TEXT}">${COPY[lang].hi} {{customer.firstName}},</p>`;
 
 export const heading = (text: string): string =>
   `<h1 style="margin:0 0 20px;${FONT};font-size:22px;line-height:30px;font-weight:700;color:#111827">${text}</h1>`;
@@ -70,9 +77,9 @@ export const itemList = (listPath: string, title: string): string =>
 </table>`;
 
 /** Full e-mail wrapper: header with logo (or store name), white card, footer. */
-export const layout = (preheader: string, body: string): string =>
+export const layout = (preheader: string, body: string, lang: Lang = 'en'): string =>
   `<!DOCTYPE html>
-<html lang="en">
+<html lang="${lang}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -101,12 +108,12 @@ export const layout = (preheader: string, body: string): string =>
         <tr>
           <td class="ltb-pad" bgcolor="#ffffff" style="padding:40px;background-color:#ffffff;border-radius:8px;border-top:4px solid {{store.brandColor}}">
 ${body}
-            <p style="margin:24px 0 0;${TEXT}">Thank you,<br>The {{store.name}} team</p>
+            <p style="margin:24px 0 0;${TEXT}">${COPY[lang].thanks}<br>${COPY[lang].team}</p>
           </td>
         </tr>
         <tr>
           <td align="center" class="ltb-pad" style="padding:24px 40px 0;${MUTED}">
-            {{#if store.supportEmail}}<p style="margin:0 0 8px;${MUTED}">Questions? Contact us at <a href="mailto:{{store.supportEmail}}" style="color:#6b7280;text-decoration:underline">{{store.supportEmail}}</a>.</p>{{/if}}
+            {{#if store.supportEmail}}<p style="margin:0 0 8px;${MUTED}">${COPY[lang].questions} <a href="mailto:{{store.supportEmail}}" style="color:#6b7280;text-decoration:underline">{{store.supportEmail}}</a>.</p>{{/if}}
             <p style="margin:0;${MUTED}">{{#if store.url}}<a href="{{store.url}}" target="_blank" style="color:#6b7280;text-decoration:underline">{{store.name}}</a>{{else}}{{store.name}}{{/if}}</p>
           </td>
         </tr>

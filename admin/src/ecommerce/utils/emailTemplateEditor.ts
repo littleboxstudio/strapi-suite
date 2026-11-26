@@ -19,6 +19,12 @@ export const EMAIL_TEMPLATE_TYPES: EmailTemplateType[] = [
   'STORE_CREDIT_ISSUED',
   'STORE_CREDIT_UPDATED',
   'EMAIL_VERIFICATION',
+  'ACCOUNT_VERIFICATION',
+  'PASSWORD_RESET',
+  'PASSWORD_CHANGED',
+  'EMAIL_CHANGE_VERIFICATION',
+  'EMAIL_CHANGED',
+  'REGISTRATION_ATTEMPT',
 ];
 
 export const isEmailTemplateType = (value: string | undefined): value is EmailTemplateType =>

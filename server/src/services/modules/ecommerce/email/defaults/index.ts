@@ -16,6 +16,12 @@ import creditNoteIssued from './creditNoteIssued';
 import storeCreditIssued from './storeCreditIssued';
 import storeCreditUpdated from './storeCreditUpdated';
 import emailVerification from './emailVerification';
+import * as accountVerification from './accountVerification';
+import * as passwordReset from './passwordReset';
+import * as passwordChanged from './passwordChanged';
+import * as emailChangeVerification from './emailChangeVerification';
+import * as emailChanged from './emailChanged';
+import * as registrationAttempt from './registrationAttempt';
 
 export type DefaultTemplate = { subject: string; html: string };
 
@@ -38,4 +44,24 @@ export const DEFAULT_TEMPLATES: Record<EmailTemplateType, DefaultTemplate> = {
   STORE_CREDIT_ISSUED: storeCreditIssued,
   STORE_CREDIT_UPDATED: storeCreditUpdated,
   EMAIL_VERIFICATION: emailVerification,
+  ACCOUNT_VERIFICATION: accountVerification.en,
+  PASSWORD_RESET: passwordReset.en,
+  PASSWORD_CHANGED: passwordChanged.en,
+  EMAIL_CHANGE_VERIFICATION: emailChangeVerification.en,
+  EMAIL_CHANGED: emailChanged.en,
+  REGISTRATION_ATTEMPT: registrationAttempt.en,
 };
+
+/** Built-in Portuguese (pt-PT) templates; types without one fall back to English. */
+const PT_TEMPLATES: Partial<Record<EmailTemplateType, DefaultTemplate>> = {
+  ACCOUNT_VERIFICATION: accountVerification.pt,
+  PASSWORD_RESET: passwordReset.pt,
+  PASSWORD_CHANGED: passwordChanged.pt,
+  EMAIL_CHANGE_VERIFICATION: emailChangeVerification.pt,
+  EMAIL_CHANGED: emailChanged.pt,
+  REGISTRATION_ATTEMPT: registrationAttempt.pt,
+};
+
+/** The built-in template for a locale code (`pt`, `pt-PT`…): Portuguese when available, else English. */
+export const defaultTemplate = (type: EmailTemplateType, locale: string | null | undefined): DefaultTemplate =>
+  (/^pt(-|_|$)/i.test(locale ?? '') ? PT_TEMPLATES[type] : undefined) ?? DEFAULT_TEMPLATES[type];

@@ -193,7 +193,13 @@ export type EmailTemplateType =
   | 'CREDIT_NOTE_ISSUED'
   | 'STORE_CREDIT_ISSUED'
   | 'STORE_CREDIT_UPDATED'
-  | 'EMAIL_VERIFICATION';
+  | 'EMAIL_VERIFICATION'
+  | 'ACCOUNT_VERIFICATION'
+  | 'PASSWORD_RESET'
+  | 'PASSWORD_CHANGED'
+  | 'EMAIL_CHANGE_VERIFICATION'
+  | 'EMAIL_CHANGED'
+  | 'REGISTRATION_ATTEMPT';
 
 export type EmailTemplateSummary = { type: EmailTemplateType; customLocales: string[] };
 

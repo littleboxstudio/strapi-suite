@@ -96,10 +96,25 @@ const SPECIFIC: Record<string, string[]> = {
   STORE_CREDIT_ISSUED: ['credit.amount', 'credit.code', 'credit.expiresAt', 'credit.conditions'],
   STORE_CREDIT_UPDATED: ['credit.balance', 'credit.amount', 'credit.code', 'credit.expiresAt', 'credit.conditions'],
   EMAIL_VERIFICATION: ['verification.code', 'verification.validMinutes'],
+  ACCOUNT_VERIFICATION: ['verificationUrl', 'expiresInHours'],
+  PASSWORD_RESET: ['resetUrl', 'expiresInMinutes'],
+  PASSWORD_CHANGED: ['changedAt'],
+  EMAIL_CHANGE_VERIFICATION: ['confirmationUrl', 'newEmail', 'expiresInHours'],
+  EMAIL_CHANGED: ['newEmail', 'changedAt'],
+  REGISTRATION_ATTEMPT: ['loginUrl', 'resetUrl'],
 };
 
 /** EMAIL_VERIFICATION has no order or customer name: only the store and the e-mail address. */
-const BASE: Record<string, string[]> = { EMAIL_VERIFICATION: [...STORE, 'customer.email'] };
+const ACCOUNT_BASE = [...STORE, 'customer.firstName'];
+const BASE: Record<string, string[]> = {
+  EMAIL_VERIFICATION: [...STORE, 'customer.email'],
+  ACCOUNT_VERIFICATION: ACCOUNT_BASE,
+  PASSWORD_RESET: ACCOUNT_BASE,
+  PASSWORD_CHANGED: ACCOUNT_BASE,
+  EMAIL_CHANGE_VERIFICATION: ACCOUNT_BASE,
+  EMAIL_CHANGED: ACCOUNT_BASE,
+  REGISTRATION_ATTEMPT: ACCOUNT_BASE,
+};
 const baseOf = (type: string) => BASE[type] ?? COMMON;
 
 const resolve = (data: unknown, path: string) =>
@@ -108,8 +123,8 @@ const resolve = (data: unknown, path: string) =>
     .reduce<unknown>((acc, key) => (acc as Record<string, unknown> | undefined)?.[key], data);
 
 describe('email variable catalog', () => {
-  it('exports the seventeen template types', () => {
-    expect(EMAIL_TEMPLATE_TYPES).toHaveLength(17);
+  it('exports the twenty-three template types', () => {
+    expect(EMAIL_TEMPLATE_TYPES).toHaveLength(23);
     expect([...EMAIL_TEMPLATE_TYPES].sort()).toEqual(Object.keys(SPECIFIC).sort());
   });
 
@@ -165,6 +180,44 @@ describe('email variable catalog', () => {
     // The only links are the layout footer's (support mailto and storefront URL).
     const body = html.slice(html.indexOf('<h1'), html.indexOf('Thank you,'));
     expect(body).not.toContain('<a ');
+  });
+
+  const ACCOUNT_TYPES = [
+    'ACCOUNT_VERIFICATION',
+    'PASSWORD_RESET',
+    'PASSWORD_CHANGED',
+    'EMAIL_CHANGE_VERIFICATION',
+    'EMAIL_CHANGED',
+    'REGISTRATION_ATTEMPT',
+  ] as const;
+
+  it.each(ACCOUNT_TYPES)('%s: en and pt defaults pass the validator and render with sample data', async (type) => {
+    const { DEFAULT_TEMPLATES, defaultTemplate } = await import(
+      '../../../../server/src/services/modules/ecommerce/email/defaults'
+    );
+    const { validateTemplate } = await import(
+      '../../../../server/src/services/modules/ecommerce/email/templateEngine'
+    );
+    const data = getSampleData(type);
+    for (const t of [DEFAULT_TEMPLATES[type], defaultTemplate(type, 'pt'), defaultTemplate(type, 'pt-PT')]) {
+      expect(validateTemplate(type, t.subject, t.html)).toEqual([]);
+      expect(renderTemplate(t.subject, data)).not.toContain('{{');
+      expect(renderTemplate(t.html, data)).not.toContain('{{');
+    }
+    expect(defaultTemplate(type, 'pt').html).not.toBe(DEFAULT_TEMPLATES[type].html);
+    expect(defaultTemplate(type, 'fr')).toBe(DEFAULT_TEMPLATES[type]);
+  });
+
+  it('ACCOUNT_VERIFICATION carries the ignore sentence in en and pt', async () => {
+    const { DEFAULT_TEMPLATES, defaultTemplate } = await import(
+      '../../../../server/src/services/modules/ecommerce/email/defaults'
+    );
+    expect(DEFAULT_TEMPLATES.ACCOUNT_VERIFICATION.html).toContain(
+      'If you did not create this account, ignore this e-mail'
+    );
+    expect(defaultTemplate('ACCOUNT_VERIFICATION', 'pt').html).toContain(
+      'Se não criou esta conta, ignore este email'
+    );
   });
 
   it('declares list item fields', () => {
