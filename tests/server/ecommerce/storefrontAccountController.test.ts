@@ -287,6 +287,24 @@ describe('access through the storefront controller', () => {
     expect(details(o)).toEqual({ code: 'CUSTOMER_BLOCKED' });
   });
 
+  it('EMAIL_VERIFICATION_REQUIRED from createOrder → 409 with the code', async () => {
+    const t = setup('BOTH');
+    t.checkout.placeOrder.mockRejectedValueOnce(new EcommerceAccountError('EMAIL_VERIFICATION_REQUIRED', 409));
+    const o = await t.sf('createOrder', {
+      headers: { ...G, 'Idempotency-Key': 'order-key-1234' },
+      body: {
+        customer: { firstName: 'Ana', lastName: 'Silva', email: EMAIL },
+        shippingAddress: { line1: 'R', city: 'L', postalCode: '1000-001', country: 'PT' },
+        lines: [{ variantId: 1, quantity: 1 }],
+        shippingMethod: { providerId: 'manual', serviceId: '1' },
+        expectedTotal: 100,
+      },
+    });
+    expect(o.status).toBe(409);
+    expect(o.body.error).toMatchObject({ message: 'E-mail verification required' });
+    expect(details(o)).toEqual({ code: 'EMAIL_VERIFICATION_REQUIRED' });
+  });
+
   it('store credit with a login session checks against the account e-mail', async () => {
     const t = setup('BOTH');
     await t.sf('checkStoreCredit', { headers: C, body: { code: 'SC-1', email: 'other@x.pt' } });

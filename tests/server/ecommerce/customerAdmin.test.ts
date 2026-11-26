@@ -182,6 +182,40 @@ describe('customer admin: e-mail edit rules', () => {
     void inTransaction;
   });
 
+  it('a registered e-mail change keeps emailVerifiedAt (the account was verified once)', async () => {
+    const { service, add, tables } = setup();
+    add(ana({ emailVerifiedAt: '2026-01-01T00:00:00.000Z' }));
+    await service.update(1, input('new@x.pt'), 'user:3');
+    expect(tables[UIDS.customer][0]).toMatchObject({ emailVerified: false, emailVerifiedAt: '2026-01-01T00:00:00.000Z' });
+  });
+
+  it('a blocked customer\'s e-mail change sends no verification', async () => {
+    const { service, add, revokeAll, issue, sendAccountVerification } = setup();
+    add(ana({ blocked: true }));
+    await service.update(1, input('new@x.pt'), 'user:3');
+    await flush();
+    expect(revokeAll).toHaveBeenCalledWith(1, 'EMAIL_CHANGED');
+    expect(issue).not.toHaveBeenCalled();
+    expect(sendAccountVerification).not.toHaveBeenCalled();
+  });
+
+  it('re-reads the e-mail in the transaction, so a concurrent confirm is re-keyed from its new address', async () => {
+    const { service, add, tables, transaction, rekeyCredits, rekeyPromos } = setup() as any;
+    add(ana({ pendingEmail: 'mid@x.pt', pendingEmailNormalized: 'mid@x.pt' }));
+    const original = transaction.getMockImplementation();
+    transaction.mockImplementationOnce(async (cb: any) => {
+      // The customer's own confirm commits between the admin's first read and the transaction.
+      Object.assign(tables[UIDS.customer][0], {
+        email: 'mid@x.pt', emailNormalized: 'mid@x.pt', pendingEmail: null, pendingEmailNormalized: null,
+      });
+      return original(cb);
+    });
+    await service.update(1, input('final@x.pt'), 'user:3');
+    expect(rekeyCredits).toHaveBeenCalledWith('mid@x.pt', 'final@x.pt');
+    expect(rekeyPromos).toHaveBeenCalledWith('mid@x.pt', 'final@x.pt');
+    expect(tables[UIDS.customer][0]).toMatchObject({ emailNormalized: 'final@x.pt' });
+  });
+
   it('a guest e-mail change touches no account state', async () => {
     const { service, add, revokeAll, issue } = setup();
     add({ id: 1, firstName: 'Ana', lastName: 'Silva', email: 'g@x.pt', emailNormalized: 'g@x.pt' });

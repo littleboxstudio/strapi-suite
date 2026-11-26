@@ -612,7 +612,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
   const customers = (): {
     findOrCreate(
       input: CustomerInput,
-      opts?: { locale?: unknown; guestPassword?: GuestPassword | null }
+      opts?: { locale?: unknown; guestPassword?: GuestPassword | null; emailVerified?: boolean }
     ): Promise<{ id: number; created: boolean }>;
     accountForOrder(id: number): Promise<{ id: number; created: false }>;
   } => service('EcommerceCustomerService');
@@ -1118,7 +1118,12 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         const customer =
           v.customerId !== undefined
             ? await customers().accountForOrder(v.customerId)
-            : await customers().findOrCreate(v.customer, { locale: v.locale, guestPassword });
+            : await customers().findOrCreate(v.customer, {
+                locale: v.locale,
+                guestPassword,
+                // A storefront guest without a proven e-mail never lands on a registered account.
+                emailVerified: ctx.source === 'storefront' ? v.emailVerified : undefined,
+              });
         const reference = await nextReference();
         const publicId = randomUUID();
 

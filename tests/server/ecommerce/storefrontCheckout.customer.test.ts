@@ -247,6 +247,37 @@ describe('storefront checkout with a customer owner', () => {
     expect(t.c.tables[UIDS.order]).toHaveLength(0);
   });
 
+  it("a registered account's e-mail in guest checkout without a verified e-mail → EMAIL_VERIFICATION_REQUIRED, no order", async () => {
+    const t = setup();
+    await t.addCustomer();
+    const { token } = await t.sessions.open(null);
+    const s = await t.sessions.resolve(token);
+    const err: any = await t.checkout
+      .placeOrder(
+        { kind: 'guest', session: s },
+        t.orderInput({ customer: { firstName: 'Eve', lastName: 'X', email: ' ana@EXAMPLE.pt' } }),
+        'key-unverified-01'
+      )
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(EcommerceAccountError);
+    expect({ code: err.code, status: err.status }).toEqual({ code: 'EMAIL_VERIFICATION_REQUIRED', status: 409 });
+    expect(t.c.tables[UIDS.order]).toHaveLength(0);
+  });
+
+  it("a GUEST account's e-mail in guest checkout without a verified e-mail still places the order", async () => {
+    const t = setup();
+    const g = await t.addCustomer({ accountType: 'GUEST', emailVerified: false });
+    const { token } = await t.sessions.open(null);
+    const s = await t.sessions.resolve(token);
+    await t.checkout.placeOrder(
+      { kind: 'guest', session: s },
+      t.orderInput({ customer: { firstName: 'Ana', lastName: 'Silva', email: 'ana@example.pt' } }),
+      'key-guest-row-01'
+    );
+    expect(t.c.tables[UIDS.order]).toHaveLength(1);
+    expect(t.c.tables[UIDS.order][0].customer).toBe(g.id);
+  });
+
   describe('guest customers created by an order', () => {
     const guestOrder = async (t: ReturnType<typeof setup>, key: string) => {
       const { token } = await t.sessions.open(null);

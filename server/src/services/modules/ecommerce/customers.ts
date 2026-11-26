@@ -38,6 +38,18 @@ export type GuestPassword = { hash: string; pepperVersion: number };
 
 const clean = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
 
+/**
+ * True when any customer row with this normalized e-mail is blocked. The e-mail has no unique
+ * index, so a duplicate row may carry the block while the oldest (the one used) does not.
+ */
+export const anyBlockedEmail = async (
+  query: { findOne: (p: any) => Promise<any> },
+  emailNormalized: string
+): Promise<boolean> => {
+  if (!emailNormalized) return false;
+  return !!(await query.findOne({ where: { emailNormalized, blocked: true }, select: ['id'] }));
+};
+
 function validate(input: CustomerInput): { values: Required<CustomerInput>; errors: ValidationIssue[] } {
   const errors: ValidationIssue[] = [];
   const firstName = clean(input?.firstName);
@@ -121,10 +133,14 @@ const EcommerceCustomerService = ({ strapi }: { strapi: Core.Strapi }) => {
      * customer is a `GUEST`, not verified, with `opts.guestPassword` (the hash of a random
      * password nobody knows) when the caller could compute one; without it the background fill
      * adds it later. Unused when an existing customer is found.
+     *
+     * `opts.emailVerified === false` (a storefront guest whose e-mail the session has not proven)
+     * never lands an order on a registered account: `EMAIL_VERIFICATION_REQUIRED` (409). Absent
+     * means trusted (admin).
      */
     async findOrCreate(
       input: CustomerInput,
-      opts: { locale?: unknown; guestPassword?: GuestPassword | null } = {}
+      opts: { locale?: unknown; guestPassword?: GuestPassword | null; emailVerified?: boolean } = {}
     ): Promise<{ id: number; created: boolean }> {
       const { values, errors } = validate(input);
       if (errors.length) throw new EcommerceValidationError('Invalid customer', errors);
@@ -132,7 +148,12 @@ const EcommerceCustomerService = ({ strapi }: { strapi: Core.Strapi }) => {
       const emailNormalized = normalizeEmail(values.email);
       const [existing] = await q.findMany({ where: { emailNormalized }, orderBy: { id: 'asc' }, limit: 1 });
       if (existing) {
-        if (existing.blocked === true) throw new EcommerceAccountError('CUSTOMER_BLOCKED', 403);
+        if (existing.blocked === true || (await anyBlockedEmail(q, emailNormalized))) {
+          throw new EcommerceAccountError('CUSTOMER_BLOCKED', 403);
+        }
+        if (existing.accountType === 'REGISTERED' && opts.emailVerified === false) {
+          throw new EcommerceAccountError('EMAIL_VERIFICATION_REQUIRED', 409);
+        }
         if (!existing.locale) {
           const locale = await resolveLocale(strapi, opts.locale);
           await q.update({ where: { id: existing.id }, data: { locale } });
@@ -171,11 +192,7 @@ const EcommerceCustomerService = ({ strapi }: { strapi: Core.Strapi }) => {
     /** True when a blocked customer has this e-mail (compared normalized). */
     async isBlockedEmail(email: string): Promise<boolean> {
       const emailNormalized = normalizeEmail(typeof email === 'string' ? email : '');
-      if (!emailNormalized) return false;
-      const row = await strapi.db
-        .query(uids().customer)
-        .findOne({ where: { emailNormalized, blocked: true }, select: ['id'] });
-      return !!row;
+      return anyBlockedEmail(strapi.db.query(uids().customer), emailNormalized);
     },
 
     async list(
@@ -242,7 +259,7 @@ const EcommerceCustomerService = ({ strapi }: { strapi: Core.Strapi }) => {
 
       const { values, errors } = validate(input);
       const emailNormalized = normalizeEmail(values.email);
-      const emailChanged = !errors.length && emailNormalized !== (current.emailNormalized ?? normalizeEmail(current.email ?? ''));
+      const currentNormalized = (row: any): string => row.emailNormalized ?? normalizeEmail(row.email ?? '');
       // The language is optional here: absent keeps the current one; present must be a locale the
       // backend has (stored with its own case), never silently replaced by the default.
       const wantedLocale = (input as { locale?: unknown })?.locale;
@@ -257,11 +274,19 @@ const EcommerceCustomerService = ({ strapi }: { strapi: Core.Strapi }) => {
         ...(locale && locale !== current.locale ? (['locale'] as const) : []),
       ];
       // An account's new e-mail is unproven: unverified, old sessions gone, and the credits and
-      // promotion usage keyed by the old e-mail move with it.
-      const reverify = emailChanged && current.accountType === 'REGISTERED';
+      // promotion usage keyed by the old e-mail move with it. `emailVerifiedAt` stays: it marks
+      // that the account was verified once, so a registration with the new address can never
+      // take the "unverified account, replace the password" path.
+      let reverify = false;
+      let blocked = current.blocked === true;
       const taken = () =>
         new EcommerceValidationError('Invalid customer', [{ path: 'email', code: 'duplicate_email' }]);
       await strapi.db.transaction(async () => {
+        // Re-read in the transaction: a concurrent e-mail confirm may have changed the address.
+        const fresh = (await q.findOne({ where: { id } })) ?? current;
+        const emailChanged = emailNormalized !== currentNormalized(fresh);
+        reverify = emailChanged && fresh.accountType === 'REGISTERED';
+        blocked = fresh.blocked === true;
         if (emailChanged) {
           // Re-checked in the transaction that writes it (the e-mail has no unique index).
           const [owner] = await q.findMany({ where: { emailNormalized, id: { $ne: id } }, select: ['id'], limit: 1 });
@@ -280,19 +305,20 @@ const EcommerceCustomerService = ({ strapi }: { strapi: Core.Strapi }) => {
             emailNormalized,
             ...(locale ? { locale } : {}),
             ...(reverify
-              ? { emailVerified: false, emailVerifiedAt: null, pendingEmail: null, pendingEmailNormalized: null }
+              ? { emailVerified: false, pendingEmail: null, pendingEmailNormalized: null }
               : {}),
           },
         });
         if (reverify) {
-          const oldNormalized = String(current.emailNormalized ?? '');
+          const oldNormalized = String(fresh.emailNormalized ?? '');
           await svc('EcommerceStoreCreditService').rekeyCustomerEmail(oldNormalized, emailNormalized);
           await svc('EcommercePromotionService').rekeyCustomerEmail(oldNormalized, emailNormalized);
         }
       });
       if (reverify) {
         await svc('EcommerceCustomerSessionService').revokeAll(id, 'EMAIL_CHANGED');
-        fire(async () => {
+        // A blocked customer gets no verification mail (it could not be used anyway).
+        if (!blocked) fire(async () => {
           const { raw } = await svc('EcommerceCustomerTokenService').issue(id, 'VERIFY_EMAIL', values.email);
           await svc('EcommerceAccountMailer').sendAccountVerification(values.email, locale ?? current.locale ?? null, {
             firstName: values.firstName,

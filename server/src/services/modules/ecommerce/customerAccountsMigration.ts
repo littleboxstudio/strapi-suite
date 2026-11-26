@@ -94,11 +94,12 @@ export async function fillGuestHashes(
         const { hash, pepperVersion } = await passwords.randomGuestHash();
         // A row that would stay in the filter would make this loop spin forever.
         if (typeof hash !== 'string' || !hash) throw new Error('EMPTY_HASH');
-        await customers.update({
-          where: { id: row.id },
+        // Conditional: a register that ran meanwhile (REGISTERED, real hash) is never overwritten.
+        const { count } = await customers.updateMany({
+          where: { id: row.id, accountType: 'GUEST', passwordHash: { $null: true } },
           data: { passwordHash: hash, passwordPepperVersion: pepperVersion },
         });
-        filled += 1;
+        if (count === 1) filled += 1;
       }
     }
   } catch (e) {

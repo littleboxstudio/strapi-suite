@@ -84,4 +84,21 @@ describe('fillGuestHashes', () => {
     expect(await fillGuestHashes(s2.strapi)).toBe(0);
     expect(s2.log.warn).toHaveBeenCalled();
   });
+
+  it('leaves a row that a concurrent register filled between the fetch and the update', async () => {
+    let db: any;
+    const passwords = {
+      available: () => true,
+      randomGuestHash: async () => {
+        // A registration lands while the guest hash is being computed.
+        Object.assign(db.tables[CUSTOMER][0], { accountType: 'REGISTERED', passwordHash: 'REAL', passwordPepperVersion: 2 });
+        return { hash: 'h', pepperVersion: 1 };
+      },
+    };
+    const s = setup(passwords);
+    db = s.db;
+    await db.query(CUSTOMER).create({ data: { emailNormalized: 'g', accountType: 'GUEST' } });
+    expect(await fillGuestHashes(s.strapi)).toBe(0);
+    expect(db.tables[CUSTOMER][0]).toMatchObject({ accountType: 'REGISTERED', passwordHash: 'REAL', passwordPepperVersion: 2 });
+  });
 });

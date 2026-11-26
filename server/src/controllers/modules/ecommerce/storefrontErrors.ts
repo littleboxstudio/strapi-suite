@@ -82,6 +82,7 @@ const ACCOUNT_MESSAGES: Record<EcommerceAccountError['code'], string> = {
   ACCOUNTS_DISABLED: ACCESS_MESSAGES.ACCOUNTS_DISABLED,
   LOGIN_REQUIRED: ACCESS_MESSAGES.LOGIN_REQUIRED,
   CUSTOMER_SESSION_INVALID: ACCESS_MESSAGES.CUSTOMER_SESSION_INVALID,
+  EMAIL_VERIFICATION_REQUIRED: 'E-mail verification required',
 };
 
 /** Storefront-only conflicts on top of the shared ones. */

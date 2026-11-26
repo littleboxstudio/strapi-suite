@@ -131,6 +131,40 @@ describe('EcommerceCustomerService', () => {
     expect(tables[UIDS.customer][0]).toMatchObject({ accountType: 'REGISTERED', passwordHash: 'REAL' });
   });
 
+  it('findOrCreate refuses an unverified storefront e-mail on a registered account (EMAIL_VERIFICATION_REQUIRED, 409)', async () => {
+    const { service, tables } = setup();
+    tables[UIDS.customer].push({
+      id: 1, firstName: 'A', lastName: 'A', email: 'a@x.pt', emailNormalized: 'a@x.pt', locale: 'en',
+      accountType: 'REGISTERED', emailVerified: true, passwordHash: 'REAL',
+    });
+    const err: any = await service.findOrCreate(input(' A@x.pt'), { emailVerified: false }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(EcommerceAccountError);
+    expect({ code: err.code, status: err.status }).toEqual({ code: 'EMAIL_VERIFICATION_REQUIRED', status: 409 });
+    // Verified by the session, or trusted (admin, undefined): the account is used.
+    expect(await service.findOrCreate(input('a@x.pt'), { emailVerified: true })).toEqual({ id: 1, created: false });
+    expect(await service.findOrCreate(input('a@x.pt'))).toEqual({ id: 1, created: false });
+    expect(tables[UIDS.customer]).toHaveLength(1);
+  });
+
+  it('findOrCreate keeps guest behaviour for an unverified storefront e-mail (GUEST row or new)', async () => {
+    const { service, tables } = setup();
+    tables[UIDS.customer].push({
+      id: 1, firstName: 'G', lastName: 'G', email: 'g@x.pt', emailNormalized: 'g@x.pt', locale: 'en', accountType: 'GUEST',
+    });
+    expect(await service.findOrCreate(input('g@x.pt'), { emailVerified: false })).toEqual({ id: 1, created: false });
+    expect(await service.findOrCreate(input('new@x.pt'), { emailVerified: false })).toMatchObject({ created: true });
+  });
+
+  it('findOrCreate refuses when any duplicate row is blocked, even if only the newer one is', async () => {
+    const { service, tables } = setup();
+    tables[UIDS.customer].push(
+      { id: 1, firstName: 'A', lastName: 'A', email: 'a@x.pt', emailNormalized: 'a@x.pt', locale: 'en', blocked: false },
+      { id: 2, firstName: 'A', lastName: 'A', email: 'A@x.pt', emailNormalized: 'a@x.pt', locale: 'en', blocked: true }
+    );
+    const err: any = await service.findOrCreate(input('a@x.pt')).catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: 'CUSTOMER_BLOCKED', status: 403 });
+  });
+
   it('isBlockedEmail matches by normalized e-mail', async () => {
     const { service, tables } = setup();
     tables[UIDS.customer].push(

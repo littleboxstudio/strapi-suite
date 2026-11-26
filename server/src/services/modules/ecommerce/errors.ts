@@ -149,7 +149,8 @@ export class EcommerceAccountError extends Error {
       | 'WEAK_PASSWORD'
       | 'ACCOUNTS_DISABLED'
       | 'LOGIN_REQUIRED'
-      | 'CUSTOMER_SESSION_INVALID',
+      | 'CUSTOMER_SESSION_INVALID'
+      | 'EMAIL_VERIFICATION_REQUIRED',
     public status: number,
     public extra?: Record<string, unknown>
   ) {

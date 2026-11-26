@@ -12,6 +12,7 @@ import {
   type ValidationIssue,
 } from './errors';
 import { findLocale, resolveLocale } from './locales';
+import { anyBlockedEmail } from './customers';
 import type { AccountCustomer } from './customerSessions';
 import type { PublicOrderStatus } from './domain/storefront/publicViews';
 import {
@@ -99,13 +100,21 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
       });
   };
 
+  /**
+   * The oldest customer with this e-mail (the account used), reported blocked when any row with
+   * the e-mail is blocked (duplicates are possible: the e-mail has no unique index).
+   */
   const oldestByEmail = async (emailNormalized: string): Promise<CustomerRow | null> => {
     const [row] = await customers().findMany({
       where: { emailNormalized },
       orderBy: { id: 'asc' },
       limit: 1,
     });
-    return row ?? null;
+    if (!row) return null;
+    if (row.blocked !== true && (await anyBlockedEmail(customers(), emailNormalized))) {
+      return { ...row, blocked: true };
+    }
+    return row;
   };
 
   const profile = (c: CustomerRow): AccountProfile => ({
@@ -172,16 +181,19 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
     if (policy.ok === false) throw new EcommerceAccountError('WEAK_PASSWORD', 400, { reason: policy.reason });
   };
 
-  /** Merges the guest cart into the account's, opens the login session and retires the guest session. */
+  /**
+   * Merges the guest cart into the account's and retires the guest session, then opens the login
+   * session last, so a failure on the way never leaves a session behind.
+   */
   const startSession = async (
     customer: CustomerRow,
     guest: CheckoutSession,
     client: ClientInfo
   ): Promise<LoginResult> => {
-    const opened = await sessions().open(customer.id, client);
     const merged = mergeCarts(readStoredCart(customer.cart), readStoredCart(guest.cart), MAX_LINE_QUANTITY);
     await customers().update({ where: { id: customer.id }, data: { cart: merged } });
     await checkout().expireAndScrub(guest.id);
+    const opened = await sessions().open(customer.id, client);
     return { token: opened.token, expiresAt: opened.expiresAt, customer: profile(customer) };
   };
 
@@ -252,7 +264,12 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
       }
 
       if (existing.blocked === true) return;
-      if (existing.accountType === 'REGISTERED' && existing.emailVerified === true) {
+      // Verified now, or verified once (an admin e-mail change re-verifies the account but keeps
+      // `emailVerifiedAt`): nothing changes, the owner is told about the attempt.
+      if (
+        existing.accountType === 'REGISTERED' &&
+        (existing.emailVerified === true || existing.emailVerifiedAt != null)
+      ) {
         const row = existing;
         fire(() =>
           mailer().sendRegistrationAttempt(String(row.email), row.locale ?? null, {

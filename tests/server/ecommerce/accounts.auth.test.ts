@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFakeDb } from './helpers/fakeDb';
 import EcommerceAccountService from '../../../server/src/services/modules/ecommerce/accounts';
+import EcommerceCustomerService from '../../../server/src/services/modules/ecommerce/customers';
 import {
   EcommerceAccountError,
   EcommerceAccountsUnavailableError,
@@ -86,7 +87,7 @@ const setup = () => {
     verificationAttempts: 0,
   });
   const flush = () => new Promise((r) => setTimeout(r, 0));
-  return { db, svc, passwords, tokens, sessions, checkout, mailer, strapi, rows, add, guest, flush };
+  return { db, svc, passwords, tokens, sessions, checkout, mailer, strapi, rows, add, guest, flush, services };
 };
 
 const reg = (over: Record<string, unknown> = {}) => ({
@@ -468,5 +469,97 @@ describe('resetPassword', () => {
     });
     expect(t.rows()[0].passwordHash).toBe('H(correct-horse)');
     expect(t.sessions.revokeAll).not.toHaveBeenCalled();
+  });
+});
+
+describe('final review fixes', () => {
+  let t: ReturnType<typeof setup>;
+  beforeEach(() => {
+    t = setup();
+  });
+
+  it('an admin e-mail change of a verified account keeps it out of the register takeover branch', async () => {
+    const c = await t.add();
+    Object.assign(t.services, {
+      EcommerceStoreCreditService: { rekeyCustomerEmail: vi.fn(async () => undefined) },
+      EcommercePromotionService: { rekeyCustomerEmail: vi.fn(async () => undefined) },
+      EcommerceAuditService: { log: vi.fn(async () => undefined) },
+    });
+    await t.db.query(CUSTOMER).update({ where: { id: c.id }, data: { emailVerifiedAt: new Date('2026-01-01') } });
+    const customers = EcommerceCustomerService({ strapi: t.strapi } as never);
+    await customers.update(c.id, { firstName: 'Ana', lastName: 'Silva', email: 'new@example.pt' }, 'user:1');
+    await t.flush();
+    expect(t.rows()[0]).toMatchObject({ emailNormalized: 'new@example.pt', emailVerified: false });
+    expect(t.rows()[0].emailVerifiedAt).toBeTruthy();
+    t.mailer.sendAccountVerification.mockClear();
+    t.tokens.issue.mockClear();
+
+    await t.svc.register(reg({ email: 'new@example.pt', password: 'attacker-password', firstName: 'Evil' }));
+    await t.flush();
+    expect(t.rows()).toHaveLength(1);
+    expect(t.rows()[0]).toMatchObject({ passwordHash: 'H(correct-horse)', firstName: 'Ana', emailVerified: false });
+    expect(t.mailer.sendRegistrationAttempt).toHaveBeenCalledTimes(1);
+    expect(t.mailer.sendAccountVerification).not.toHaveBeenCalled();
+
+    // Login, resend and verify keep working for the re-verifying account.
+    expect(
+      await code(t.svc.login({ email: 'new@example.pt', password: 'correct-horse' }, t.guest(), client))
+    ).toMatchObject({ code: 'EMAIL_NOT_VERIFIED' });
+    await t.svc.resendVerification('new@example.pt');
+    await t.flush();
+    expect(t.mailer.sendAccountVerification).toHaveBeenCalledTimes(1);
+    t.tokens.consume.mockResolvedValueOnce({ customerId: c.id, email: 'new@example.pt' });
+    await t.svc.verifyEmail('RAW', t.guest(), client);
+    expect(t.rows()[0].emailVerified).toBe(true);
+  });
+
+  it('opens the login session last: a failing cart write or guest expiry leaves no session', async () => {
+    await t.add();
+    t.checkout.expireAndScrub.mockRejectedValueOnce(new Error('db down'));
+    await expect(
+      t.svc.login({ email: 'ana@example.pt', password: 'correct-horse' }, t.guest(), client)
+    ).rejects.toThrow('db down');
+    expect(t.sessions.open).not.toHaveBeenCalled();
+    const r = await t.svc.login({ email: 'ana@example.pt', password: 'correct-horse' }, t.guest(), client);
+    expect(r.token).toBe('JWT');
+    expect(t.checkout.expireAndScrub.mock.invocationCallOrder.at(-1)!).toBeLessThan(
+      t.sessions.open.mock.invocationCallOrder[0]
+    );
+  });
+
+  it('treats the e-mail as blocked when any duplicate row is blocked (only the newer one here)', async () => {
+    await t.add({ emailVerified: false });
+    await t.add({ blocked: true });
+    const before = JSON.stringify(t.rows());
+    await t.svc.register(reg());
+    await t.svc.resendVerification('ana@example.pt');
+    await t.svc.forgotPassword('ana@example.pt');
+    await t.flush();
+    expect(JSON.stringify(t.rows())).toBe(before);
+    for (const m of Object.values(t.mailer)) expect(m).not.toHaveBeenCalled();
+    t.rows()[0].emailVerified = true;
+    expect(
+      await code(t.svc.login({ email: 'ana@example.pt', password: 'correct-horse' }, t.guest(), client))
+    ).toMatchObject({ code: 'INVALID_CREDENTIALS' });
+    expect(t.sessions.open).not.toHaveBeenCalled();
+  });
+
+  it('reset with a token whose e-mail no longer matches the customer is TOKEN_INVALID', async () => {
+    const c = await t.add();
+    t.tokens.consume.mockResolvedValueOnce({ customerId: c.id, email: 'old@example.pt' });
+    expect(await code(t.svc.resetPassword({ token: 'RAW', password: 'brand-new-password' }))).toMatchObject({
+      code: 'TOKEN_INVALID',
+      status: 400,
+    });
+    expect(t.rows()[0].passwordHash).toBe('H(correct-horse)');
+    expect(t.sessions.revokeAll).not.toHaveBeenCalled();
+  });
+
+  it('verifyEmail on a GUEST row is TOKEN_INVALID', async () => {
+    const c = await t.add({ accountType: 'GUEST', emailVerified: false });
+    t.tokens.consume.mockResolvedValueOnce({ customerId: c.id, email: 'Ana@Example.pt' });
+    expect(await code(t.svc.verifyEmail('RAW', t.guest(), client))).toMatchObject({ code: 'TOKEN_INVALID', status: 400 });
+    expect(t.rows()[0].emailVerified).toBe(false);
+    expect(t.sessions.open).not.toHaveBeenCalled();
   });
 });
