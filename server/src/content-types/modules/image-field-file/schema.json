@@ -1,0 +1,39 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_image_field_files",
+  "info": {
+    "singularName": "ltb-st-module-image-field-file",
+    "pluralName": "ltb-st-module-image-field-files",
+    "displayName": "Littlebox Strapi Suite - Image Field File",
+    "description": "Media Library files created by the Littlebox image field (only these are ever cleaned up)"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "fileId": {
+      "type": "integer",
+      "required": true,
+      "unique": true
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  },
+  "indexes": [
+    {
+      "name": "image_field_file_file_id_unique",
+      "columns": ["file_id"],
+      "type": "unique"
+    }
+  ]
+}

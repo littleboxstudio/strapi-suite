@@ -113,6 +113,153 @@ export default {
       }
     });
 
+    // Image (single or gallery), cropped with zoom and stored as a WebP file in the Media Library.
+    // Option names match what the server reads (server/src/services/modules/image-field/domain/values.ts).
+    const imageTrad = (key: string) => getTranslation(`image.field.ctb.${key}`);
+    const imageSize = yup
+      .number()
+      .transform((v: number, original: unknown) => (original === '' ? undefined : v))
+      .nullable()
+      .integer({
+        id: imageTrad('size.error'),
+        defaultMessage: 'Enter a whole number from 1 to 6000',
+      })
+      .min(1, {
+        id: imageTrad('size.error'),
+        defaultMessage: 'Enter a whole number from 1 to 6000',
+      })
+      .max(6000, {
+        id: imageTrad('size.error'),
+        defaultMessage: 'Enter a whole number from 1 to 6000',
+      });
+    // A locked size needs both dimensions.
+    const lockedSize = (schema: typeof imageSize) =>
+      schema.when('lockSize', {
+        is: true,
+        then: (s) =>
+          s.required({
+            id: imageTrad('lockSize.required'),
+            defaultMessage: 'Required when the size is locked',
+          }),
+      });
+    app.customFields.register({
+      name: 'ltbimage',
+      pluginId: config.pluginId,
+      type: 'json',
+      intlLabel: { id: imageTrad('label'), defaultMessage: 'Littlebox Image' },
+      intlDescription: {
+        id: imageTrad('description'),
+        defaultMessage: 'Single image or gallery, cropped with zoom and saved as WebP',
+      },
+      icon: PluginIcon,
+      components: {
+        Input: async () =>
+          import(
+            /* webpackChunkName: "input-image-field" */ './components/imageField/ImageFieldInput'
+          ),
+      },
+      options: {
+        base: [
+          {
+            intlLabel: { id: imageTrad('mode'), defaultMessage: 'Mode' },
+            name: 'options.mode',
+            type: 'select',
+            defaultValue: 'single',
+            options: [
+              {
+                key: 'single',
+                value: 'single',
+                metadatas: {
+                  intlLabel: { id: imageTrad('mode.single'), defaultMessage: 'Single image' },
+                },
+              },
+              {
+                key: 'gallery',
+                value: 'gallery',
+                metadatas: {
+                  intlLabel: { id: imageTrad('mode.gallery'), defaultMessage: 'Gallery' },
+                },
+              },
+            ],
+          },
+          {
+            intlLabel: { id: imageTrad('width'), defaultMessage: 'Width (px)' },
+            name: 'options.width',
+            type: 'number',
+            description: {
+              id: imageTrad('width.description'),
+              defaultMessage: 'Optional, 1 to 6000. Suggested output width.',
+            },
+          },
+          {
+            intlLabel: { id: imageTrad('height'), defaultMessage: 'Height (px)' },
+            name: 'options.height',
+            type: 'number',
+            description: {
+              id: imageTrad('height.description'),
+              defaultMessage: 'Optional, 1 to 6000. Suggested output height.',
+            },
+          },
+          {
+            intlLabel: { id: imageTrad('lockSize'), defaultMessage: 'Lock this size' },
+            name: 'options.lockSize',
+            type: 'checkbox',
+            description: {
+              id: imageTrad('lockSize.description'),
+              defaultMessage:
+                'Only when both width and height are set: every image is saved at exactly this size.',
+            },
+          },
+        ],
+        advanced: [
+          {
+            sectionTitle: { id: 'global.settings', defaultMessage: 'Settings' },
+            items: [
+              {
+                name: 'required',
+                type: 'checkbox',
+                intlLabel: {
+                  id: 'content-type-builder.form.attribute.item.requiredField',
+                  defaultMessage: 'Required field',
+                },
+                description: {
+                  id: 'content-type-builder.form.attribute.item.requiredField.description',
+                  defaultMessage: "You won't be able to create an entry if this field is empty",
+                },
+              },
+              {
+                intlLabel: { id: imageTrad('maxImages'), defaultMessage: 'Maximum images' },
+                name: 'options.maxImages',
+                type: 'number',
+                description: {
+                  id: imageTrad('maxImages.description'),
+                  defaultMessage:
+                    'Gallery only (ignored for a single image). Leave empty for no limit.',
+                },
+              },
+            ],
+          },
+        ],
+        validator: () => ({
+          mode: yup.string().oneOf(['single', 'gallery']).nullable(),
+          width: lockedSize(imageSize),
+          height: lockedSize(imageSize),
+          maxImages: yup
+            .number()
+            .transform((v: number, original: unknown) => (original === '' ? undefined : v))
+            .nullable()
+            .integer({
+              id: imageTrad('maxImages.error'),
+              defaultMessage: 'Enter a whole number of at least 1',
+            })
+            .min(1, {
+              id: imageTrad('maxImages.error'),
+              defaultMessage: 'Enter a whole number of at least 1',
+            }),
+        }),
+      },
+    });
+
     app.addFields([
       { type: TABS_BAR_FIELD_TYPE, Component: TabsBar },
       { type: TABS_SECTION_FIELD_TYPE, Component: TabSection },

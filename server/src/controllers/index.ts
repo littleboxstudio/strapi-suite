@@ -23,6 +23,7 @@ import EcommerceStripeWebhookController from './modules/ecommerce/stripeWebhook'
 import EcommerceStorefrontController from './modules/ecommerce/storefront';
 import EcommerceOrganizationController from './modules/ecommerce/organization';
 import EcommerceCollectionController from './modules/ecommerce/collections';
+import ImageFieldModuleController from './modules/image-field';
 
 export default {
   SettingAppController,
@@ -50,4 +51,5 @@ export default {
   EcommerceStorefrontController,
   EcommerceOrganizationController,
   EcommerceCollectionController,
+  ImageFieldModuleController,
 };

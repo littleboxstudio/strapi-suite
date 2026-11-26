@@ -1,4 +1,4 @@
-import type { Rect } from './cropMath';
+import type { Rect } from '../../core/utils/imageCrop';
 
 /** Same limits the server enforces on POST /admin/ecommerce/images. */
 export const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
@@ -31,7 +31,11 @@ export function imageErrorCode(err: unknown): string | null {
   return typeof code === 'string' ? code : null;
 }
 
-export function buildUploadForm(file: File, transform: ImageTransform, owner: ImageOwner): FormData {
+export function buildUploadForm(
+  file: File,
+  transform: ImageTransform,
+  owner: ImageOwner
+): FormData {
   const form = new FormData();
   form.append('file', file);
   form.append('transform', JSON.stringify(transform));

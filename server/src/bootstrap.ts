@@ -164,6 +164,12 @@ const bootstrap = async ({ strapi }: { strapi: Core.Strapi }) => {
     }
     return next();
   });
+
+  // Image field: validates values and deletes the field's files that no value uses any more.
+  const imageField = strapi.plugin(PLUGIN_ID).service('ImageFieldModuleService');
+  strapi.documents.use(imageField.documentMiddleware());
+  // Orphan files (uploaded, never saved) are collected in the background, never blocking start.
+  imageField.collectOrphansThrottled();
   
   strapi.db.lifecycles.subscribe({
     async beforeCreate(event: any) {

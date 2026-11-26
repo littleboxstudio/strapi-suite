@@ -46,6 +46,7 @@ import EcommerceProductTagTranslationSchema from './modules/ecommerce/product-ta
 import EcommerceCollectionSchema from './modules/ecommerce/collection';
 import EcommerceCollectionTranslationSchema from './modules/ecommerce/collection-translation';
 import EcommerceCollectionProductSchema from './modules/ecommerce/collection-product';
+import ImageFieldFileSchema from './modules/image-field-file';
 
 export default {
   "ltb-st-app-setting": SettingsAppSchema,
@@ -95,5 +96,6 @@ export default {
   "ltb-st-module-ecommerce-product-tag-translation": EcommerceProductTagTranslationSchema,
   "ltb-st-module-ecommerce-collection": EcommerceCollectionSchema,
   "ltb-st-module-ecommerce-collection-translation": EcommerceCollectionTranslationSchema,
-  "ltb-st-module-ecommerce-collection-product": EcommerceCollectionProductSchema
+  "ltb-st-module-ecommerce-collection-product": EcommerceCollectionProductSchema,
+  "ltb-st-module-image-field-file": ImageFieldFileSchema
 };

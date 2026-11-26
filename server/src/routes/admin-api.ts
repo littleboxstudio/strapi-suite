@@ -8,6 +8,7 @@ import ecommerceInvoiceRoutes from './ecommerce/admin-invoices';
 import ecommercePromotionRoutes from './ecommerce/admin-promotions';
 import ecommerceOrganizationRoutes from './ecommerce/admin-organization';
 import ecommerceCollectionRoutes from './ecommerce/admin-collections';
+import imageFieldRoutes from './image-field/admin-image-field';
 
 export default [
   {
@@ -236,4 +237,5 @@ export default [
   ...ecommercePromotionRoutes,
   ...ecommerceOrganizationRoutes,
   ...ecommerceCollectionRoutes,
+  ...imageFieldRoutes,
 ];

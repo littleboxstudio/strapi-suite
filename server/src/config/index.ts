@@ -69,9 +69,13 @@ export interface LtbConfigs {
         collectionTranslation: UID.ContentType;
         collectionProduct: UID.ContentType;
       },
+      imageField: {
+        file: UID.ContentType;
+      },
     },
     customFields: {
       slug: string;
+      image: string;
     }
   }
 } 
@@ -134,9 +138,13 @@ export default {
           collectionTranslation: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-collection-translation`,
           collectionProduct: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-collection-product`,
         },
+        imageField: {
+          file: `plugin::${PLUGIN_ID}.ltb-st-module-image-field-file`,
+        },
       },
       customFields: {
-        slug: `plugin::${PLUGIN_ID}.ltbslug`
+        slug: `plugin::${PLUGIN_ID}.ltbslug`,
+        image: `plugin::${PLUGIN_ID}.ltbimage`,
       }
     }
   },

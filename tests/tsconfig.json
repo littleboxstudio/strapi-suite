@@ -1,6 +1,6 @@
 {
   "extends": "../server/tsconfig.json",
-  "include": ["./server/ecommerce/**/*.ts", "./admin/ecommerce/**/*.ts"],
+  "include": ["./server/ecommerce/**/*.ts", "./server/imageField/**/*.ts", "./admin/ecommerce/**/*.ts"],
   "compilerOptions": {
     "rootDir": "../",
     "baseUrl": "../server",

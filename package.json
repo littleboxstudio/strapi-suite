@@ -56,7 +56,6 @@
     "@types/koa": "^2.15.0",
     "@uiw/react-codemirror": "^4.22.2",
     "lucide-react": "^0.486.0",
-    "react-easy-crop": "^5.0.8",
     "react-hook-form": "^7.55.0",
     "react-intl": "^7.1.6",
     "reflect-metadata": "^0.2.2",
