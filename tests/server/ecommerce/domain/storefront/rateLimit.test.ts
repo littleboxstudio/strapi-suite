@@ -28,6 +28,12 @@ describe('STOREFRONT_RATE_RULES', () => {
       },
       'order.create': { session: { limit: 5, windowMs: 10 * MIN }, ip: { limit: 20, windowMs: 60 * MIN } },
       'order.read': { session: { limit: 120, windowMs: 10 * MIN } },
+      'account.register': { ip: { limit: 20, windowMs: 60 * MIN }, email: { limit: 5, windowMs: 60 * MIN } },
+      'account.email': { ip: { limit: 20, windowMs: 60 * MIN }, email: { limit: 3, windowMs: 60 * MIN } },
+      'account.login': { ip: { limit: 10, windowMs: MIN }, email: { limit: 5, windowMs: 15 * MIN } },
+      'account.token': { ip: { limit: 20, windowMs: 60 * MIN } },
+      'account.private': { session: { limit: 120, windowMs: 10 * MIN } },
+      'account.password': { session: { limit: 5, windowMs: 15 * MIN } },
     });
   });
 });
@@ -76,6 +82,33 @@ describe('rateKeys', () => {
       'order.read:s:3',
     ]);
     expect(rateKeys('email.send', { sessionId: null, ip: null, email: '  ' })).toEqual([]);
+  });
+});
+
+describe('rateKeys: login sessions', () => {
+  it('a login session is keyed apart from a guest session with the same id', () => {
+    expect(rateKeys('cart.quote', { sessionId: 4, sessionKind: 'customer', ip: null }).map((k) => k.key)).toEqual([
+      'cart.quote:c:4',
+    ]);
+    expect(rateKeys('cart.quote', { sessionId: 4, sessionKind: 'guest', ip: null }).map((k) => k.key)).toEqual([
+      'cart.quote:s:4',
+    ]);
+  });
+});
+
+describe('createRateLimiter: check', () => {
+  it('reports without counting', () => {
+    let t = 0;
+    const limiter = createRateLimiter({ now: () => t });
+    const rule = { limit: 2, windowMs: MIN };
+    const keys = [{ key: 'k', rule }];
+    expect(limiter.check(keys)).toEqual({ allowed: true, retryAfterSec: 0 });
+    expect(limiter.size()).toBe(0);
+    limiter.hit('k', rule);
+    limiter.hit('k', rule);
+    expect(limiter.check(keys)).toEqual({ allowed: false, retryAfterSec: 60 });
+    t = MIN;
+    expect(limiter.check(keys).allowed).toBe(true);
   });
 });
 

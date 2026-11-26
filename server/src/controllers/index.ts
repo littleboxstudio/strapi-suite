@@ -21,6 +21,7 @@ import EcommerceInvoiceController from './modules/ecommerce/invoices';
 import EcommercePromotionController from './modules/ecommerce/promotions';
 import EcommerceStripeWebhookController from './modules/ecommerce/stripeWebhook';
 import EcommerceStorefrontController from './modules/ecommerce/storefront';
+import EcommerceStorefrontAccountController from './modules/ecommerce/storefrontAccount';
 import EcommerceOrganizationController from './modules/ecommerce/organization';
 import EcommerceCollectionController from './modules/ecommerce/collections';
 import ImageFieldModuleController from './modules/image-field';
@@ -49,6 +50,7 @@ export default {
   EcommercePromotionController,
   EcommerceStripeWebhookController,
   EcommerceStorefrontController,
+  EcommerceStorefrontAccountController,
   EcommerceOrganizationController,
   EcommerceCollectionController,
   ImageFieldModuleController,

@@ -32,6 +32,7 @@ const storefront = (search: any, resolve: any = async (t: string) => (t === 'tok
     strapi: strapiWith({
       EcommercePickupPointService: { search },
       EcommerceStorefrontSessionService: { resolve },
+      EcommerceSettingsService: { getStoreSettings: async () => ({ customerAccountsMode: 'GUEST_ONLY' }) },
     }),
   });
 

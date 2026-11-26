@@ -6,7 +6,10 @@ import policies from '../../../server/src/policies';
 
 const MIDDLEWARE = 'plugin::littlebox-strapi-suite.check-module-is-active';
 
-const EXPECTED: [string, string, string][] = [
+type Expected = [string, string, string] | [string, string, string, string];
+const ACCOUNT = 'EcommerceStorefrontAccountController';
+
+const EXPECTED: Expected[] = [
   ['GET', '/ecommerce/storefront/products', 'listProducts'],
   ['GET', '/ecommerce/storefront/products/:slug', 'getProduct'],
   ['GET', '/ecommerce/storefront/categories', 'listCategories'],
@@ -24,13 +27,32 @@ const EXPECTED: [string, string, string][] = [
   ['POST', '/ecommerce/storefront/orders', 'createOrder'],
   ['POST', '/ecommerce/storefront/orders/:publicId/payment', 'paymentLink'],
   ['GET', '/ecommerce/storefront/orders/:publicId/status', 'orderStatus'],
+  ['POST', '/ecommerce/storefront/account/register', 'register', ACCOUNT],
+  ['POST', '/ecommerce/storefront/account/verify-email', 'verifyEmail', ACCOUNT],
+  ['POST', '/ecommerce/storefront/account/verify-email/resend', 'resendVerification', ACCOUNT],
+  ['POST', '/ecommerce/storefront/account/login', 'login', ACCOUNT],
+  ['POST', '/ecommerce/storefront/account/password/forgot', 'forgotPassword', ACCOUNT],
+  ['POST', '/ecommerce/storefront/account/password/reset', 'resetPassword', ACCOUNT],
+  ['POST', '/ecommerce/storefront/account/logout', 'logout', ACCOUNT],
+  ['GET', '/ecommerce/storefront/account/me', 'me', ACCOUNT],
+  ['PUT', '/ecommerce/storefront/account/me', 'updateMe', ACCOUNT],
+  ['POST', '/ecommerce/storefront/account/password', 'changePassword', ACCOUNT],
+  ['POST', '/ecommerce/storefront/account/email', 'requestEmailChange', ACCOUNT],
+  ['GET', '/ecommerce/storefront/account/orders', 'orders', ACCOUNT],
+  ['GET', '/ecommerce/storefront/account/orders/:publicId', 'order', ACCOUNT],
+  ['GET', '/ecommerce/storefront/account/sessions', 'sessions', ACCOUNT],
+  ['DELETE', '/ecommerce/storefront/account/sessions/:id', 'revokeSession', ACCOUNT],
+  ['POST', '/ecommerce/storefront/account/sessions/revoke-others', 'revokeOtherSessions', ACCOUNT],
+  ['POST', '/ecommerce/storefront/account/email/confirm', 'confirmEmailChange', ACCOUNT],
 ];
+const TOTAL = EXPECTED.length; // 17 + 17 account routes
 
 describe('storefront content-api routes', () => {
-  it('declares the 17 routes with the handler, auth: false, the BFF policy and the module middleware', () => {
-    expect(storefrontRoutes).toHaveLength(17);
+  it('declares the 34 routes with the handler, auth: false, the BFF policy and the module middleware', () => {
+    expect(TOTAL).toBe(34);
+    expect(storefrontRoutes).toHaveLength(TOTAL);
     expect(storefrontRoutes.map((r: any) => [r.method, r.path, r.handler])).toEqual(
-      EXPECTED.map(([m, p, h]) => [m, p, `EcommerceStorefrontController.${h}`])
+      EXPECTED.map(([m, p, h, c]) => [m, p, `${c ?? 'EcommerceStorefrontController'}.${h}`])
     );
     for (const r of storefrontRoutes as any[]) {
       expect(r.config).toEqual({
@@ -42,10 +64,14 @@ describe('storefront content-api routes', () => {
   });
 
   it('every handler exists on the registered controller and the policy is registered', () => {
-    const controller = (controllers as any).EcommerceStorefrontController({
-      strapi: { plugin: () => ({ service: () => ({}) }), log: { warn() {} } },
-    });
-    for (const [, , h] of EXPECTED) expect(typeof controller[h]).toBe('function');
+    const strapi = { plugin: () => ({ service: () => ({}) }), log: { warn() {} } };
+    const built: Record<string, any> = {
+      EcommerceStorefrontController: (controllers as any).EcommerceStorefrontController({ strapi }),
+      [ACCOUNT]: (controllers as any)[ACCOUNT]({ strapi }),
+    };
+    for (const [, , h, c] of EXPECTED) {
+      expect(typeof built[c ?? 'EcommerceStorefrontController'][h]).toBe('function');
+    }
     expect(policies['check-storefront-token']).toBeTypeOf('function');
   });
 
@@ -71,8 +97,10 @@ describe('storefront content-api routes', () => {
       expect(r.config.policies).toEqual(['check-api-token']);
       expect(r.config.auth).toBe(false);
     }
-    // Legacy (6) + Stripe webhook (1) + storefront (17).
-    expect(contentApiRoutes).toHaveLength(24);
-    expect((contentApiRoutes as any[]).filter((r) => r.config.policies.includes('check-storefront-token'))).toHaveLength(17);
+    // Legacy (6) + Stripe webhook (1) + storefront (34).
+    expect(contentApiRoutes).toHaveLength(41);
+    expect((contentApiRoutes as any[]).filter((r) => r.config.policies.includes('check-storefront-token'))).toHaveLength(
+      TOTAL
+    );
   });
 });

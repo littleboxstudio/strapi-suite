@@ -17,7 +17,13 @@ export type RateRuleName =
   | 'email.send'
   | 'email.confirm'
   | 'order.create'
-  | 'order.read';
+  | 'order.read'
+  | 'account.register'
+  | 'account.email'
+  | 'account.login'
+  | 'account.token'
+  | 'account.private'
+  | 'account.password';
 
 export type RateRuleSet = { session?: RateRule; ip?: RateRule; email?: RateRule };
 
@@ -34,6 +40,17 @@ export const STOREFRONT_RATE_RULES: Record<RateRuleName, RateRuleSet> = {
   'email.confirm': { session: r(10, 15), ip: r(30, 60), email: r(5, 60) },
   'order.create': { session: r(5, 10), ip: r(20, 60) },
   'order.read': { session: r(120, 10) },
+  'account.register': { email: r(5, 60), ip: r(20, 60) },
+  /** Resend verification and forgot password. */
+  'account.email': { email: r(3, 60), ip: r(20, 60) },
+  /** The e-mail key counts failed logins only (the controller hits it after a failure). */
+  'account.login': { ip: r(10, 1), email: r(5, 15) },
+  /** Verify e-mail, reset password and confirm e-mail change. */
+  'account.token': { ip: r(20, 60) },
+  /** Login-session routes without a rule of their own. */
+  'account.private': { session: r(120, 10) },
+  /** Password change and e-mail change. */
+  'account.password': { session: r(5, 15) },
 };
 
 export const DEFAULT_RATE_LIMIT_MAX_KEYS = 50_000;
@@ -48,6 +65,8 @@ export type RateLimiter = {
    * refused by one dimension never spends the budget of the others.
    */
   hitAll(keys: { key: string; rule: RateRule }[]): RateLimitResult;
+  /** Whether every key would accept a hit (and the longest wait), counting nothing. */
+  check(keys: { key: string; rule: RateRule }[]): RateLimitResult;
   size(): number;
 };
 
@@ -115,12 +134,18 @@ export const createRateLimiter = (
     return Math.max(1, Math.ceil((w.resetAt - t) / 1000));
   };
 
+  const check = (keys: { key: string; rule: RateRule }[]): RateLimitResult => {
+    const t = now();
+    const retryAfterSec = keys.reduce((max, k) => Math.max(max, waitFor(k.key, k.rule, t)), 0);
+    return retryAfterSec > 0 ? { allowed: false, retryAfterSec } : { allowed: true, retryAfterSec: 0 };
+  };
+
   return {
     hit,
+    check,
     hitAll(keys) {
-      const t = now();
-      const retryAfterSec = keys.reduce((max, k) => Math.max(max, waitFor(k.key, k.rule, t)), 0);
-      if (retryAfterSec > 0) return { allowed: false, retryAfterSec };
+      const checked = check(keys);
+      if (!checked.allowed) return checked;
       for (const k of keys) hit(k.key, k.rule);
       return { allowed: true, retryAfterSec: 0 };
     },
@@ -170,7 +195,8 @@ const emailKeyPart = (email: string): string =>
   createHash('sha256').update(normalizeEmail(email)).digest('hex');
 
 /**
- * The limiter keys of a rule for the known dimensions: `<rule>:s:<sessionId>`,
+ * The limiter keys of a rule for the known dimensions: `<rule>:s:<sessionId>` (a guest
+ * session; a login session is `<rule>:c:<sessionId>`, its ids being another table's),
  * `<rule>:ip:<ip>` (see ipRateKeyPart) and `<rule>:e:<sha256(normalized e-mail)>` (never the
  * e-mail in clear). Without a valid client IP there is no IP key (the BFF's own IP must never
  * limit the whole store), except for `session.create`, which then counts in one shared
@@ -181,12 +207,18 @@ const emailKeyPart = (email: string): string =>
  */
 export const rateKeys = (
   rule: RateRuleName,
-  ctx: { sessionId: number | null; ip: string | null; email?: string | null }
+  ctx: {
+    sessionId: number | null;
+    sessionKind?: 'guest' | 'customer';
+    ip: string | null;
+    email?: string | null;
+  }
 ): { key: string; rule: RateRule }[] => {
   const set = STOREFRONT_RATE_RULES[rule];
   const keys: { key: string; rule: RateRule }[] = [];
   if (set.session && ctx.sessionId !== null) {
-    keys.push({ key: `${rule}:s:${ctx.sessionId}`, rule: set.session });
+    const kind = ctx.sessionKind === 'customer' ? 'c' : 's';
+    keys.push({ key: `${rule}:${kind}:${ctx.sessionId}`, rule: set.session });
   }
   if (set.ip) {
     const ip = ipRateKeyPart(ctx.ip) ?? (RULES_WITH_UNKNOWN_IP_BUCKET.has(rule) ? UNKNOWN_IP : null);

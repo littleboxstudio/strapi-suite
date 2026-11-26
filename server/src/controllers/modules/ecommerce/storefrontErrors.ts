@@ -1,8 +1,11 @@
 import {
+  EcommerceAccountError,
+  EcommerceAccountsUnavailableError,
   EcommerceCarrierError,
   EcommerceEmailError,
   EcommerceNotFoundError,
   EcommercePaymentError,
+  EcommerceRateLimitError,
   EcommerceValidationError,
 } from '../../../services/modules/ecommerce/errors';
 import { normalizePromotionCode, type CodeStatus } from '../../../services/modules/ecommerce/domain/promotions';
@@ -26,6 +29,7 @@ export const LOG_PREFIX = '[ecommerce:storefront]';
 const NAMES: Record<number, string> = {
   400: 'BadRequestError',
   401: 'UnauthorizedError',
+  403: 'ForbiddenError',
   404: 'NotFoundError',
   409: 'ConflictError',
   429: 'TooManyRequestsError',
@@ -55,6 +59,30 @@ export const sendTooManyRequests = (
 
 export const sendSessionInvalid = (ctx: any): void =>
   sendError(ctx, 401, 'Invalid session', { code: 'SESSION_INVALID' });
+
+/** Access refusals of the customer-accounts matrix (domain/accounts/access.ts). */
+const ACCESS_MESSAGES: Record<string, string> = {
+  SESSION_INVALID: 'Invalid session',
+  LOGIN_REQUIRED: 'Login required',
+  CUSTOMER_SESSION_INVALID: 'Invalid customer session',
+  ACCOUNTS_DISABLED: 'Customer accounts are disabled',
+};
+
+export const sendAccessDenied = (ctx: any, status: number, code: string): void =>
+  sendError(ctx, status, ACCESS_MESSAGES[code] ?? 'Access denied', { code });
+
+/** Messages of the account errors; the code in `details` is the contract. */
+const ACCOUNT_MESSAGES: Record<EcommerceAccountError['code'], string> = {
+  INVALID_CREDENTIALS: 'Invalid credentials',
+  EMAIL_NOT_VERIFIED: 'E-mail not verified',
+  TOKEN_INVALID: 'Invalid or expired link',
+  EMAIL_IN_USE: 'E-mail already in use',
+  CUSTOMER_BLOCKED: 'Customer blocked',
+  WEAK_PASSWORD: 'Weak password',
+  ACCOUNTS_DISABLED: ACCESS_MESSAGES.ACCOUNTS_DISABLED,
+  LOGIN_REQUIRED: ACCESS_MESSAGES.LOGIN_REQUIRED,
+  CUSTOMER_SESSION_INVALID: ACCESS_MESSAGES.CUSTOMER_SESSION_INVALID,
+};
 
 /** Storefront-only conflicts on top of the shared ones. */
 const STOREFRONT_CONFLICT_CODES = [...CONFLICT_CODES, 'ACTION_NOT_AVAILABLE', 'VERIFICATION_CONFLICT'];
@@ -174,6 +202,20 @@ export const handleStorefrontError = (ctx: any, err: unknown, opts: StorefrontEr
   }
   if (err instanceof EcommerceCarrierError) {
     return sendError(ctx, 502, MESSAGES[502], { code: err.code });
+  }
+  if (err instanceof EcommerceAccountError) {
+    // Only the failed rule leaves with the code (WEAK_PASSWORD); nothing else of `extra`.
+    const reason = err.code === 'WEAK_PASSWORD' && typeof err.extra?.reason === 'string' ? err.extra.reason : null;
+    return sendError(ctx, err.status, ACCOUNT_MESSAGES[err.code] ?? 'Request refused', {
+      code: err.code,
+      ...(reason ? { reason } : {}),
+    });
+  }
+  if (err instanceof EcommerceAccountsUnavailableError) {
+    return sendError(ctx, 503, MESSAGES[503], { code: 'ACCOUNTS_UNAVAILABLE' });
+  }
+  if (err instanceof EcommerceRateLimitError) {
+    return sendTooManyRequests(ctx, 'RATE_LIMITED', err.retryAfterSec);
   }
   throw err;
 };

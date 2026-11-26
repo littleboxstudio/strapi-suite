@@ -1,12 +1,10 @@
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID } from '../../../config';
 import {
-  CLIENT_IP_HEADER,
-  clientIpFrom,
   createRateLimiter,
-  rateKeys,
   type RateRuleName,
 } from '../../../services/modules/ecommerce/domain/storefront';
+import type { RouteClass } from '../../../services/modules/ecommerce/domain/accounts/access';
 import {
   MAX_CART_LINES,
   MAX_EMAIL_LENGTH,
@@ -20,17 +18,11 @@ import {
 import { VERIFICATION_CODE_TTL_MS } from '../../../services/modules/ecommerce/domain/storefront/session';
 import type { CheckoutSession } from '../../../services/modules/ecommerce/storefrontSessions';
 import type { CartOwner } from '../../../services/modules/ecommerce/storefrontCheckout';
-import {
-  LOG_PREFIX,
-  handleStorefrontError,
-  sendSessionInvalid,
-  sendTooManyRequests,
-  type StorefrontErrorOptions,
-} from './storefrontErrors';
+import { sendAccessDenied, type StorefrontErrorOptions } from './storefrontErrors';
 import { MAX_SHORT, asObject, fail, optionalString, promotionFields } from './validation';
+import { SESSION_HEADER, createStorefrontGate, headerOf, type Access, type Result } from './storefrontGate';
 
 const INVALID = 'Invalid request';
-const SESSION_HEADER = 'x-checkout-session';
 const IDEMPOTENCY_HEADER = 'idempotency-key';
 /** Client part of the order key (the service caps the stored key; this is stricter). */
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9_:-]{8,100}$/;
@@ -40,13 +32,6 @@ const MAX_NOTES = 1000;
 const ADDRESS_FIELDS = ['firstName', 'lastName', 'company', 'nif', 'line1', 'line2', 'city', 'phone'];
 
 type Lines = { variantId: number; quantity: number }[];
-type Result = { status?: number; body: unknown };
-
-const headerOf = (ctx: any, name: string): string => {
-  const v = ctx.request?.headers?.[name] ?? ctx.request?.header?.[name];
-  if (typeof v === 'string') return v;
-  return Array.isArray(v) ? v.join(',') : '';
-};
 
 const isId = (v: unknown, max = Number.MAX_SAFE_INTEGER): v is number =>
   typeof v === 'number' && Number.isSafeInteger(v) && v >= 1 && v <= max;
@@ -108,54 +93,26 @@ const addressOf = (path: string, v: unknown) => {
  * Storefront API for the BFF (plan 7, Task 10). Every request is rate limited in memory (one
  * limiter per process: valid with a single Strapi instance) by session, client IP (only from
  * `X-Storefront-Client-IP`; `X-Forwarded-For` is never read) and, for the e-mail verification
- * routes, e-mail. Input is validated and rebuilt from known fields only: prices, discounts,
+ * routes, e-mail. Who may call a route is decided per customer-accounts mode by the access
+ * matrix (domain/accounts/access.ts, through storefrontGate.ts): the guest session travels in
+ * `X-Checkout-Session`, the login session in `X-Customer-Token`; catalog routes read neither.
+ * Input is validated and rebuilt from known fields only: prices, discounts,
  * statuses, stock or `emailVerified` sent by the client never reach the services.
  */
 const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
   const limiter = createRateLimiter();
+  const gate = createStorefrontGate({ strapi, limiter });
   const service = (name: string): any => strapi.plugin(PLUGIN_ID).service(name);
   const catalog = () => service('EcommerceStorefrontCatalogService');
   const sessions = () => service('EcommerceStorefrontSessionService');
   const checkout = () => service('EcommerceStorefrontCheckoutService');
   const pickup = () => service('EcommercePickupPointService');
-  const warn = (message: string) => strapi.log.warn(`${LOG_PREFIX} ${message}`);
 
   const body = (ctx: any) => asObject(ctx.request?.body);
-  const ipOf = (ctx: any) => clientIpFrom(headerOf(ctx, CLIENT_IP_HEADER));
 
-  /**
-   * True (and a 429 sent) when any key of the rule is over its limit; the keys are counted only
-   * when all of them allow the request (check-then-hit). The per-e-mail key counts only with a
-   * valid session, so a caller without one cannot spend a customer's e-mail budget.
-   */
-  const limited = (
-    ctx: any,
-    rule: RateRuleName,
-    dims: { sessionId: number | null; email?: unknown }
-  ): boolean => {
-    const email = dims.sessionId !== null && typeof dims.email === 'string' ? dims.email : null;
-    const r = limiter.hitAll(rateKeys(rule, { sessionId: dims.sessionId, ip: ipOf(ctx), email }));
-    if (r.allowed) return false;
-    const retryAfter = r.retryAfterSec;
-    // The rule name only: keys carry the session id, the IP or the e-mail hash.
-    warn(`RATE_LIMITED ${rule}`);
-    sendTooManyRequests(ctx, 'RATE_LIMITED', retryAfter);
-    return true;
-  };
-
-  const respond = async (
-    ctx: any,
-    opts: StorefrontErrorOptions,
-    fn: () => Promise<Result>
-  ): Promise<void> => {
-    try {
-      const r = await fn();
-      ctx.status = r.status ?? 200;
-      ctx.body = r.body;
-    } catch (err) {
-      handleStorefrontError(ctx, err, { ...opts, log: strapi.log });
-    }
-  };
+  /** Catalog only: by client IP, no session (the session headers are never read there). */
+  const limited = (ctx: any, rule: RateRuleName): boolean => gate.limited(ctx, rule, { session: null });
+  const respond = gate.respond;
 
   /** Seconds until the session's pending verification code expires (its lock lifts then). */
   const lockSeconds = (s: CheckoutSession): number => {
@@ -164,28 +121,27 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
     return left > 0 ? left : VERIFICATION_CODE_TTL_MS / 1000;
   };
 
-  const guest = (session: CheckoutSession): CartOwner => ({ kind: 'guest', session });
-
-  /** Routes that need `X-Checkout-Session`: resolved first, then limited, then run. */
-  const withSession = async (
+  /**
+   * Non-catalog routes: both session headers resolved, the access matrix applied for the route
+   * class, then limited, then run with the `CartOwner` (guest session or login session). The
+   * per-e-mail key counts only with a valid session, so a caller without one cannot spend a
+   * customer's e-mail budget.
+   */
+  const withOwner = (
     ctx: any,
+    routeClass: RouteClass,
     rule: RateRuleName,
     opts: { notFound?: StorefrontErrorOptions['notFound']; email?: unknown },
-    fn: (s: CheckoutSession, errorOpts: StorefrontErrorOptions) => Promise<Result>
-  ): Promise<void> => {
-    const token = headerOf(ctx, SESSION_HEADER);
-    const s: CheckoutSession | null = token ? await sessions().resolve(token) : null;
-    if (limited(ctx, rule, { sessionId: s?.id ?? null, email: opts.email })) return;
-    if (!s) {
-      warn('SESSION_INVALID');
-      return sendSessionInvalid(ctx);
-    }
-    const errorOpts: StorefrontErrorOptions = {
-      notFound: opts.notFound ?? 'ORDER_NOT_FOUND',
-      lockedRetryAfterSec: lockSeconds(s),
-    };
-    return respond(ctx, errorOpts, () => fn(s, errorOpts));
-  };
+    fn: (owner: CartOwner, errorOpts: StorefrontErrorOptions, access: Access) => Promise<Result>
+  ): Promise<void> =>
+    gate.run(ctx, { routeClass, rule, notFound: opts.notFound, email: opts.email }, (access, errorOpts) => {
+      if (access.owner?.kind === 'guest') errorOpts.lockedRetryAfterSec = lockSeconds(access.owner.session);
+      return fn(access.owner as CartOwner, errorOpts, access);
+    });
+
+  /** The guest session of a checkout e-mail verification; with a login session it does not apply. */
+  const guestSessionOf = (owner: CartOwner): CheckoutSession =>
+    owner.kind === 'guest' ? owner.session : fail(INVALID, 'email', 'ACTION_NOT_AVAILABLE');
 
   const resolveLocale = (raw: unknown): Promise<string> => catalog().resolveLocale(raw);
 
@@ -254,7 +210,7 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
   return {
     /** GET /products?page=&pageSize=&search=&sort=&category=&collection=&tag=&locale= */
     async listProducts(ctx: any) {
-      if (limited(ctx, 'catalog', { sessionId: null })) return;
+      if (limited(ctx, 'catalog')) return;
       const q = ctx.query ?? {};
       return respond(ctx, { notFound: 'NOT_FOUND' }, async () => ({
         body: await catalog().listProducts({
@@ -272,7 +228,7 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
 
     /** GET /categories?locale= */
     async listCategories(ctx: any) {
-      if (limited(ctx, 'catalog', { sessionId: null })) return;
+      if (limited(ctx, 'catalog')) return;
       return respond(ctx, { notFound: 'NOT_FOUND' }, async () => ({
         body: await catalog().listCategories(await resolveLocale(ctx.query?.locale)),
       }));
@@ -280,7 +236,7 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
 
     /** GET /categories/:slug?locale= */
     async getCategory(ctx: any) {
-      if (limited(ctx, 'catalog', { sessionId: null })) return;
+      if (limited(ctx, 'catalog')) return;
       const slug = ctx.params?.slug;
       return respond(ctx, { notFound: 'NOT_FOUND' }, async () => ({
         body: await catalog().getCategory(
@@ -292,7 +248,7 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
 
     /** GET /collections?locale=&page=&pageSize= */
     async listCollections(ctx: any) {
-      if (limited(ctx, 'catalog', { sessionId: null })) return;
+      if (limited(ctx, 'catalog')) return;
       const q = ctx.query ?? {};
       return respond(ctx, { notFound: 'NOT_FOUND' }, async () => ({
         body: await catalog().listCollections({
@@ -305,7 +261,7 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
 
     /** GET /collections/:slug?locale= */
     async getCollection(ctx: any) {
-      if (limited(ctx, 'catalog', { sessionId: null })) return;
+      if (limited(ctx, 'catalog')) return;
       const slug = ctx.params?.slug;
       return respond(ctx, { notFound: 'NOT_FOUND' }, async () => ({
         body: await catalog().getCollection(
@@ -317,7 +273,7 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
 
     /** GET /products/:slug?locale= */
     async getProduct(ctx: any) {
-      if (limited(ctx, 'catalog', { sessionId: null })) return;
+      if (limited(ctx, 'catalog')) return;
       const slug = ctx.params?.slug;
       return respond(ctx, { notFound: 'NOT_FOUND' }, async () => ({
         body: await catalog().getProduct(
@@ -332,6 +288,15 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
      * counting against `session.create`; only a new session counts.
      */
     async openSession(ctx: any) {
+      // A guest session opens in every mode; a sent login token must still be valid.
+      try {
+        if ((await gate.modeOf()) !== 'GUEST_ONLY' && (await gate.resolveLogin(ctx)) === 'invalid') {
+          gate.warn('CUSTOMER_SESSION_INVALID');
+          return sendAccessDenied(ctx, 401, 'CUSTOMER_SESSION_INVALID');
+        }
+      } catch (err) {
+        return gate.fail(ctx, err, { notFound: 'NOT_FOUND' });
+      }
       const token = headerOf(ctx, SESSION_HEADER);
       const current: CheckoutSession | null = token ? await sessions().resolve(token) : null;
       if (current) {
@@ -339,7 +304,7 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
         ctx.body = { token: null, expiresAt: current.expiresAt, reused: true };
         return;
       }
-      if (limited(ctx, 'session.create', { sessionId: null })) return;
+      if (limited(ctx, 'session.create')) return;
       return respond(ctx, { notFound: 'NOT_FOUND' }, async () => {
         const opened = await sessions().open(null);
         return opened.reused
@@ -349,17 +314,18 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
     },
 
     /** GET /cart */
-    getCart: (ctx: any) => withSession(ctx, 'cart.quote', {}, async (s) => ({ body: s.cart })),
+    getCart: (ctx: any) =>
+      withOwner(ctx, 'checkout', 'cart.quote', {}, async (owner) => ({ body: await checkout().getCart(owner) })),
 
     /** POST /cart/quote */
     quoteCart: (ctx: any) =>
-      withSession(ctx, 'cart.quote', {}, async (s) => ({
-        body: await checkout().quote(guest(s), await cartInput(body(ctx))),
+      withOwner(ctx, 'checkout', 'cart.quote', {}, async (owner) => ({
+        body: await checkout().quote(owner, await cartInput(body(ctx))),
       })),
 
     /** GET /shipping/pickup-points?postalCode=&country= → `{ points }` (spec 5.1). */
     pickupPoints: (ctx: any) =>
-      withSession(ctx, 'cart.quote', {}, async () => {
+      withOwner(ctx, 'public-session', 'cart.quote', {}, async () => {
         const q = ctx.query ?? {};
         const postalCode = optionalString(INVALID, 'postalCode', q.postalCode, MAX_POSTAL_CODE_LENGTH);
         const country = optionalString(INVALID, 'country', q.country, 2);
@@ -370,25 +336,27 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
 
     /** POST /discounts/apply */
     applyDiscount: (ctx: any) =>
-      withSession(ctx, 'discount.apply', {}, async (s) => {
+      withOwner(ctx, 'checkout', 'discount.apply', {}, async (owner) => {
         const b = body(ctx);
         const code = optionalString(INVALID, 'code', b.code, MAX_PROMOTION_CODE_LENGTH);
         if (!code) return fail(INVALID, 'code', 'required');
-        return { body: await checkout().applyDiscount(guest(s), { ...(await cartInput(b)), code }) };
+        return { body: await checkout().applyDiscount(owner, { ...(await cartInput(b)), code }) };
       }),
 
     /** POST /store-credit/check */
     checkStoreCredit: (ctx: any) =>
-      withSession(ctx, 'storeCredit.check', {}, async () => {
+      withOwner(ctx, 'checkout', 'storeCredit.check', {}, async (owner) => {
         const b = body(ctx);
         const code = optionalString(INVALID, 'code', b.code, MAX_STORE_CREDIT_CODE_LENGTH);
-        const email = emailOf('email', b.email);
+        // A logged-in customer checks against the account e-mail, never the request's.
+        const email = owner.kind === 'customer' ? owner.customer.email : emailOf('email', b.email);
         return { body: await checkout().checkStoreCredit({ code, email }) };
       }),
 
     /** POST /checkout/email-verification → 202 */
     requestEmailVerification: (ctx: any) =>
-      withSession(ctx, 'email.send', { email: body(ctx).email }, async (s) => {
+      withOwner(ctx, 'checkout', 'email.send', { email: body(ctx).email }, async (owner) => {
+        const s = guestSessionOf(owner);
         const b = body(ctx);
         const email = emailOf('email', b.email);
         const locale = await resolveLocale(b.locale);
@@ -400,7 +368,8 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
 
     /** POST /checkout/email-verification/confirm */
     confirmEmailVerification: (ctx: any) =>
-      withSession(ctx, 'email.confirm', { email: body(ctx).email }, async (s) => {
+      withOwner(ctx, 'checkout', 'email.confirm', { email: body(ctx).email }, async (owner) => {
+        const s = guestSessionOf(owner);
         const b = body(ctx);
         const email = emailOf('email', b.email);
         const code = optionalString(INVALID, 'code', b.code, 6);
@@ -409,26 +378,26 @@ const EcommerceStorefrontController = ({ strapi }: { strapi: Core.Strapi }) => {
 
     /** POST /orders (Idempotency-Key) → 201 */
     createOrder: (ctx: any) =>
-      withSession(ctx, 'order.create', {}, async (s, errorOpts) => {
+      withOwner(ctx, 'checkout', 'order.create', {}, async (owner, errorOpts) => {
         const key = headerOf(ctx, IDEMPOTENCY_HEADER);
         if (!IDEMPOTENCY_KEY.test(key)) {
           return fail(INVALID, 'idempotencyKey', 'invalid_idempotency_key');
         }
         const input = await orderInput(body(ctx));
         errorOpts.promotionCodes = input.promotionCodes ?? [];
-        return { status: 201, body: await checkout().placeOrder(guest(s), input, key) };
+        return { status: 201, body: await checkout().placeOrder(owner, input, key) };
       }),
 
     /** POST /orders/:publicId/payment */
     paymentLink: (ctx: any) =>
-      withSession(ctx, 'order.read', {}, async (s) => ({
-        body: await checkout().paymentLink(guest(s), publicIdOf(ctx)),
+      withOwner(ctx, 'order-existing', 'order.read', {}, async (owner) => ({
+        body: await checkout().paymentLink(owner, publicIdOf(ctx)),
       })),
 
     /** GET /orders/:publicId/status */
     orderStatus: (ctx: any) =>
-      withSession(ctx, 'order.read', {}, async (s) => ({
-        body: await checkout().orderStatus(guest(s), publicIdOf(ctx)),
+      withOwner(ctx, 'order-existing', 'order.read', {}, async (owner) => ({
+        body: await checkout().orderStatus(owner, publicIdOf(ctx)),
       })),
   };
 };
