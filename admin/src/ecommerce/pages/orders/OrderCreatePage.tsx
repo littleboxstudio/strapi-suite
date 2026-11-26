@@ -176,6 +176,8 @@ const OrderCreatePage = () => {
   const [errors, setErrors] = useState<OrderErrorMap>({});
   const [locales, setLocales] = useState<OrderLocales['locales']>([]);
   const [submitting, setSubmitting] = useState(false);
+  // The chosen customer is known to be blocked (customer lookup): no order can be created.
+  const [customerBlocked, setCustomerBlocked] = useState(false);
   // Promotions: the server's quote of the cart (codes, gifts, discounts and totals).
   const [defaultLocale, setDefaultLocale] = useState<string | null>(null);
   const [giftChoices, setGiftChoices] = useState<Record<number, number>>({});
@@ -259,6 +261,7 @@ const OrderCreatePage = () => {
             phone: c.phone ?? '',
           },
         }));
+        setCustomerBlocked(!!c.blocked);
         fillLastAddresses(customerId);
       })
       .catch(() => {
@@ -466,7 +469,13 @@ const OrderCreatePage = () => {
 
   // --- Customer and addresses ---------------------------------------------------------------
 
-  const saveCustomer = (customer: OrderForm['customer'], pickedId: number | null, locale: string) => {
+  const saveCustomer = (
+    customer: OrderForm['customer'],
+    pickedId: number | null,
+    locale: string,
+    blocked = false
+  ) => {
+    setCustomerBlocked(blocked);
     setForm((f) => ({ ...f, customer, locale }));
     clearErrors((p) => under('customer')(p) || p === 'locale');
     if (pickedId) fillLastAddresses(pickedId);
@@ -652,7 +661,7 @@ const OrderCreatePage = () => {
   };
 
   const submit = async () => {
-    if (submitting || !canManage) return;
+    if (submitting || !canManage || customerBlocked) return;
     const local = validateOrderForm(form);
     if (local.length) {
       showErrors(local);
@@ -849,7 +858,7 @@ const OrderCreatePage = () => {
             variant="secondary"
             onClick={submit}
             loading={submitting}
-            disabled={permissionsLoading || loadingDuplicate}
+            disabled={permissionsLoading || loadingDuplicate || customerBlocked}
           >
             {t('ecommerce.orders.create')}
           </Button>
@@ -866,6 +875,10 @@ const OrderCreatePage = () => {
 
       <TotalsBar tiles={tiles} note={totalsNote} />
 
+      {customerBlocked && (
+        <Typography textColor="danger600">{t('ecommerce.orders.new.customerBlocked')}</Typography>
+      )}
+
       <CustomerSection
         customer={form.customer}
         locale={form.locale}
@@ -877,6 +890,7 @@ const OrderCreatePage = () => {
         onSave={saveCustomer}
         onRemove={() => {
           cancelAddressFill();
+          setCustomerBlocked(false);
           setForm((f) => ({ ...f, customer: EMPTY_CUSTOMER }));
           clearErrors(under('customer'));
         }}

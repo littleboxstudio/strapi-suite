@@ -75,6 +75,9 @@ export default interface EcommerceOrdersGateway {
   fetchCustomers(params: CustomerListParams): Promise<Paginated<CustomerListItem>>;
   fetchCustomer(id: number): Promise<Customer>;
   updateCustomer(id: number, input: CustomerInput): Promise<Customer>;
+  blockCustomer(id: number, note: string | null): Promise<Customer>;
+  unblockCustomer(id: number): Promise<Customer>;
+  setCustomerPassword(id: number, password: string): Promise<void>;
   fetchCustomerOrders(
     id: number,
     params: CustomerOrderListParams
@@ -215,6 +218,18 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
 
   async updateCustomer(id: number, input: CustomerInput): Promise<Customer> {
     return this.httpClient.put(`${this.customers}/${id}`, input);
+  }
+
+  async blockCustomer(id: number, note: string | null): Promise<Customer> {
+    return this.httpClient.post(`${this.customers}/${id}/block`, { note });
+  }
+
+  async unblockCustomer(id: number): Promise<Customer> {
+    return this.httpClient.post(`${this.customers}/${id}/unblock`, {});
+  }
+
+  async setCustomerPassword(id: number, password: string): Promise<void> {
+    await this.httpClient.put(`${this.customers}/${id}/password`, { password });
   }
 
   async fetchCustomerOrders(

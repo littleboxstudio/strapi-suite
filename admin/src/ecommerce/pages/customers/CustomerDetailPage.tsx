@@ -37,8 +37,15 @@ import {
 import { useCustomerPermissions } from '../../hooks/useCustomerPermissions';
 import { useOrderPermissions } from '../../hooks/useOrderPermissions';
 import { usePaymentPermissions } from '../../hooks/usePaymentPermissions';
+import { BlockCustomerDialog } from '../../components/customers/BlockCustomerDialog';
+import { ChangePasswordModal } from '../../components/customers/ChangePasswordModal';
+import { ActionConfirmModal } from '../../components/ActionConfirmModal';
+import { ToneBadge } from '../../components/orders/StatusBadges';
+import BlockCustomer from '../../usecases/orders/blockCustomer';
+import UnblockCustomer from '../../usecases/orders/unblockCustomer';
+import { customerBadges, type CustomerBadge } from '../../utils/customerAccounts';
 import CustomerStoreCredits from '../../components/customers/CustomerStoreCredits';
-import type { FieldError, OrderLocales } from '../../orderTypes';
+import type { Customer, FieldError, OrderLocales } from '../../orderTypes';
 import CustomerOrdersSection from './CustomerOrdersSection';
 
 const FIELDS: { field: CustomerField; required: boolean; type: string }[] = [
@@ -58,7 +65,7 @@ const CustomerDetailPage = () => {
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
 
-  const { canManage } = useCustomerPermissions();
+  const { canManage, canBlock, canSetPassword } = useCustomerPermissions();
   const { canManage: canManageOrders } = useOrderPermissions();
   const { canRefund } = usePaymentPermissions();
 
@@ -73,6 +80,10 @@ const CustomerDetailPage = () => {
   const [errors, setErrors] = useState<CustomerErrorMap>({});
   const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
+  // The account state (type, verification, block) of the saved customer.
+  const [account, setAccount] = useState<Customer | null>(null);
+  const [dialog, setDialog] = useState<'block' | 'unblock' | 'password' | null>(null);
+  const [blockBusy, setBlockBusy] = useState(false);
 
   useEffect(() => {
     if (!Number.isInteger(customerId) || customerId < 1) {
@@ -90,6 +101,7 @@ const CustomerDetailPage = () => {
         setTitle(customerName(customer));
         setEmail(customer.email);
         setLocale(customer.locale ?? null);
+        setAccount(customer);
       })
       .catch(() => {
         if (!cancelled) setLoadError(true);
@@ -177,6 +189,7 @@ const CustomerDetailPage = () => {
       setTitle(customerName(saved));
       setEmail(saved.email);
       setLocale(saved.locale ?? null);
+      setAccount(saved);
       setErrors({});
       setLocaleError(null);
       toggleNotification({ type: 'success', message: t('ecommerce.customers.saved') });
@@ -190,6 +203,35 @@ const CustomerDetailPage = () => {
       setSaving(false);
     }
   };
+
+  const runBlock = async (action: () => Promise<Customer>, okId: string) => {
+    if (blockBusy) return;
+    setBlockBusy(true);
+    try {
+      const updated = await action();
+      setAccount(updated);
+      setDialog(null);
+      toggleNotification({ type: 'success', message: t(okId) });
+    } catch {
+      toggleNotification({ type: 'danger', message: t('ecommerce.customers.block.error') });
+    } finally {
+      setBlockBusy(false);
+    }
+  };
+
+  const blocked = !!account?.blocked;
+  const registered = account?.accountType === 'REGISTERED';
+  const badges = account ? customerBadges(account) : [];
+  const BADGE_VARIANT: Record<CustomerBadge, 'neutral' | 'primary' | 'success' | 'warning' | 'danger'> = {
+    guest: 'neutral',
+    registered: 'primary',
+    emailVerified: 'success',
+    emailNotVerified: 'warning',
+    blocked: 'danger',
+  };
+  const showBlock = canBlock && !blocked;
+  const showUnblock = canBlock && blocked;
+  const showPassword = canSetPassword && registered && !blocked;
 
   const textField = (field: CustomerField, required: boolean, type: string) => (
     <Field.Root name={field} required={required} error={errorText(field)}>
@@ -213,15 +255,73 @@ const CustomerDetailPage = () => {
             {title || t('ecommerce.customers.untitled')}
           </Typography>
         </Flex>
-        {canManage && (
+        {(canManage || showBlock || showUnblock || showPassword) && (
           // In the page header, top right (as the other pages' save).
           <HeaderActions>
-            <Button variant="secondary" onClick={save} loading={saving}>
-              {t('ecommerce.customers.save')}
-            </Button>
+            {showPassword && (
+              <Button variant="tertiary" onClick={() => setDialog('password')}>
+                {t('ecommerce.customers.password.open')}
+              </Button>
+            )}
+            {showBlock && (
+              <Button variant="danger-light" onClick={() => setDialog('block')}>
+                {t('ecommerce.customers.block.open')}
+              </Button>
+            )}
+            {showUnblock && (
+              <Button variant="tertiary" onClick={() => setDialog('unblock')}>
+                {t('ecommerce.customers.unblock.open')}
+              </Button>
+            )}
+            {canManage && (
+              <Button variant="secondary" onClick={save} loading={saving}>
+                {t('ecommerce.customers.save')}
+              </Button>
+            )}
           </HeaderActions>
         )}
       </Flex>
+
+      {badges.length > 0 && (
+        <Flex gap={2} wrap="wrap">
+          {badges.map((badge) => (
+            <ToneBadge key={badge} variant={BADGE_VARIANT[badge]}>
+              {t(`ecommerce.customers.badges.${badge}`)}
+            </ToneBadge>
+          ))}
+        </Flex>
+      )}
+
+      {blocked && (
+        <Box background="danger100" borderColor="danger200" hasRadius padding={4}>
+          <Flex direction="column" alignItems="stretch" gap={1}>
+            <Typography fontWeight="bold" textColor="danger700">
+              {t('ecommerce.customers.block.banner')}
+            </Typography>
+            {(account?.blockedBy || account?.blockedAt) && (
+              <Typography variant="pi" textColor="neutral700">
+                {formatMessage(
+                  { id: getTranslation('ecommerce.customers.block.bannerBy') },
+                  {
+                    admin: account?.blockedBy ?? '—',
+                    date: account?.blockedAt
+                      ? formatMessage(
+                          { id: getTranslation('ecommerce.customers.block.dateValue') },
+                          { date: new Date(account.blockedAt) }
+                        )
+                      : '—',
+                  }
+                )}
+              </Typography>
+            )}
+            {account?.blockedNote && (
+              <Typography variant="pi" textColor="neutral700" style={{ whiteSpace: 'pre-wrap' }}>
+                {account.blockedNote}
+              </Typography>
+            )}
+          </Flex>
+        </Box>
+      )}
 
       <Box background="neutral0" shadow="tableShadow" hasRadius padding={6}>
         <Flex direction="column" alignItems="stretch" gap={5}>
@@ -286,6 +386,30 @@ const CustomerDetailPage = () => {
           </Grid.Root>
         </Flex>
       </Box>
+
+      <BlockCustomerDialog
+        open={dialog === 'block'}
+        busy={blockBusy}
+        onCancel={() => setDialog(null)}
+        onConfirm={(note) =>
+          runBlock(() => new BlockCustomer().execute(customerId, note), 'ecommerce.customers.block.done')
+        }
+      />
+      <ActionConfirmModal
+        open={dialog === 'unblock'}
+        title={t('ecommerce.customers.unblock.title')}
+        text={t('ecommerce.customers.unblock.text')}
+        confirmLabel={t('ecommerce.customers.unblock.confirm')}
+        cancelLabel={t('ecommerce.customers.unblock.cancel')}
+        confirmVariant="default"
+        onCancel={() => setDialog(null)}
+        onConfirm={() =>
+          runBlock(() => new UnblockCustomer().execute(customerId), 'ecommerce.customers.unblock.done')
+        }
+      />
+      {dialog === 'password' && (
+        <ChangePasswordModal customerId={customerId} email={email} onClose={() => setDialog(null)} />
+      )}
 
       <CustomerStoreCredits key={`credits-${customerId}`} customerId={customerId} email={email} canManage={canRefund} />
 

@@ -33,7 +33,7 @@ type Props = {
   codeText: (code: string) => string;
   disabled?: boolean;
   /** The customer, whether one was picked in the search, and the order's language. */
-  onSave: (customer: Customer, customerId: number | null, locale: string) => void;
+  onSave: (customer: Customer, customerId: number | null, locale: string, blocked?: boolean) => void;
   onRemove: () => void;
 };
 

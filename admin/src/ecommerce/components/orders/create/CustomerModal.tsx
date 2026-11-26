@@ -50,7 +50,7 @@ type Props = {
    * `customerId`: an existing customer was picked in the search (their addresses fill the tables).
    * `locale`: the order's language (a new customer is saved with it).
    */
-  onSave: (customer: Customer, customerId: number | null, locale: string) => void;
+  onSave: (customer: Customer, customerId: number | null, locale: string, blocked?: boolean) => void;
 };
 
 /**
@@ -75,6 +75,8 @@ const CustomerModal = ({
   const [form, setForm] = useState<Customer>(initial);
   const [errors, setErrors] = useState<Record<string, string>>(initialErrors);
   const [pickedId, setPickedId] = useState<number | null>(null);
+  // The picked customer is blocked (the lookup says so): no order can be created for them.
+  const [pickedBlocked, setPickedBlocked] = useState(false);
   const [lang, setLang] = useState(locale);
   const [langError, setLangError] = useState(localeError);
   const [term, setTerm] = useState('');
@@ -147,6 +149,7 @@ const CustomerModal = ({
       setPicking(false);
     }
     setPickedId(c.id);
+    setPickedBlocked(!!c.blocked);
     setErrors({});
   };
 
@@ -165,7 +168,8 @@ const CustomerModal = ({
         phone: form.phone.trim(),
       },
       pickedId,
-      lang
+      lang,
+      pickedBlocked
     );
     onClose();
   };
@@ -303,7 +307,10 @@ const CustomerModal = ({
                           setForm((f) => ({ ...f, [field]: value }));
                           setErrors(({ [field]: _gone, ...rest }) => rest);
                           // Another e-mail is another customer: no last addresses are filled.
-                          if (field === 'email') setPickedId(null);
+                          if (field === 'email') {
+                            setPickedId(null);
+                            setPickedBlocked(false);
+                          }
                         }}
                       />
                       <Field.Error />

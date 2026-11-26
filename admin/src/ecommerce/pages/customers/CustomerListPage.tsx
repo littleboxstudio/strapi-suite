@@ -1,12 +1,15 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNavigate } from 'react-router-dom';
+import styled from 'styled-components';
 import {
   Box,
   Button,
   Flex,
   Loader,
   Searchbar,
+  SingleSelect,
+  SingleSelectOption,
   SearchForm,
   Table,
   Tbody,
@@ -23,8 +26,21 @@ import FetchCustomers from '../../usecases/orders/fetchCustomers';
 import EmptyCustomers from '../../illustrations/EmptyCustomers';
 import ListPagination from '../../components/ListPagination';
 import SearchFieldHeight from '../../components/SearchFieldHeight';
+import { ToneBadge } from '../../components/orders/StatusBadges';
 import { customerName } from '../../utils/customerForm';
 import type { CustomerListItem } from '../../orderTypes';
+
+type TypeFilter = 'all' | 'GUEST' | 'REGISTERED';
+type BlockedFilter = 'all' | 'true' | 'false';
+
+/** Filter selects are 38px tall, like the other single-line fields of the module. */
+const SelectHeight = styled.div`
+  min-width: 200px;
+  [role='combobox'] {
+    min-height: 38px;
+    height: 38px;
+  }
+`;
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -41,6 +57,8 @@ const CustomerListPage = () => {
   const [page, setPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
   const [search, setSearch] = useState('');
+  const [accountType, setAccountType] = useState<TypeFilter>('all');
+  const [blockedFilter, setBlockedFilter] = useState<BlockedFilter>('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const requestId = useRef(0);
@@ -59,7 +77,12 @@ const CustomerListPage = () => {
     const current = ++requestId.current;
     setLoading(true);
     new FetchCustomers()
-      .execute({ page, search: search.trim() || undefined })
+      .execute({
+        page,
+        search: search.trim() || undefined,
+        accountType: accountType === 'all' ? undefined : accountType,
+        blocked: blockedFilter === 'all' ? undefined : blockedFilter === 'true',
+      })
       .then((data) => {
         if (current !== requestId.current) return;
         setItems(data.results);
@@ -75,11 +98,11 @@ const CustomerListPage = () => {
         setError(true);
         setLoading(false);
       });
-  }, [page, search]);
+  }, [page, search, accountType, blockedFilter]);
 
   const goToEdit = (id: number) => navigate(`${basePath}/${id}`);
   const isEmpty = !loading && !error && items.length === 0;
-  const noSearch = search === '' && searchTerm === '';
+  const noSearch = search === '' && searchTerm === '' && accountType === 'all' && blockedFilter === 'all';
 
   return (
     <Flex direction="column" alignItems="stretch" gap={4}>
@@ -101,6 +124,37 @@ const CustomerListPage = () => {
           </Searchbar>
         </SearchForm>
       </SearchFieldHeight>
+
+      <Flex gap={3} wrap="wrap">
+        <SelectHeight>
+          <SingleSelect
+            aria-label={t('ecommerce.customers.filters.accountType')}
+            value={accountType}
+            onChange={(value: string | number) => {
+              setAccountType(String(value) as TypeFilter);
+              setPage(1);
+            }}
+          >
+            <SingleSelectOption value="all">{t('ecommerce.customers.filters.accountTypeAll')}</SingleSelectOption>
+            <SingleSelectOption value="GUEST">{t('ecommerce.customers.badges.guest')}</SingleSelectOption>
+            <SingleSelectOption value="REGISTERED">{t('ecommerce.customers.badges.registered')}</SingleSelectOption>
+          </SingleSelect>
+        </SelectHeight>
+        <SelectHeight>
+          <SingleSelect
+            aria-label={t('ecommerce.customers.filters.blocked')}
+            value={blockedFilter}
+            onChange={(value: string | number) => {
+              setBlockedFilter(String(value) as BlockedFilter);
+              setPage(1);
+            }}
+          >
+            <SingleSelectOption value="all">{t('ecommerce.customers.filters.blockedAll')}</SingleSelectOption>
+            <SingleSelectOption value="true">{t('ecommerce.customers.filters.blockedYes')}</SingleSelectOption>
+            <SingleSelectOption value="false">{t('ecommerce.customers.filters.blockedNo')}</SingleSelectOption>
+          </SingleSelect>
+        </SelectHeight>
+      </Flex>
 
       {error && <Typography textColor="danger600">{t('ecommerce.customers.error')}</Typography>}
 
@@ -155,7 +209,12 @@ const CustomerListPage = () => {
               {items.map((item) => (
                 <Tr key={item.id} style={{ opacity: loading ? 0.5 : 1 }}>
                   <Td>
-                    <Typography textColor="neutral800">{customerName(item)}</Typography>
+                    <Flex gap={2} alignItems="center">
+                      <Typography textColor="neutral800">{customerName(item)}</Typography>
+                      {item.blocked && (
+                        <ToneBadge variant="danger">{t('ecommerce.customers.badges.blocked')}</ToneBadge>
+                      )}
+                    </Flex>
                   </Td>
                   <Td>
                     <Typography textColor="neutral800">{item.email}</Typography>

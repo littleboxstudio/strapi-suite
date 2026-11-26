@@ -77,7 +77,23 @@ export type PickupPointInput = { pickupPointId?: string; pickupPostalCode?: stri
 // Customers
 // ---------------------------------------------------------------------------
 
-export type CustomerListParams = { page?: number; search?: string };
+export type CustomerListParams = {
+  page?: number;
+  search?: string;
+  accountType?: 'GUEST' | 'REGISTERED';
+  blocked?: boolean;
+};
+
+/** The customer account fields of the admin view (customer accounts). */
+export type CustomerAccountFields = {
+  accountType?: 'GUEST' | 'REGISTERED';
+  emailVerified?: boolean;
+  blocked?: boolean;
+  blockedAt?: string | null;
+  blockedNote?: string | null;
+  /** Display name of the admin who blocked the customer. */
+  blockedBy?: string | null;
+};
 
 export type CustomerListItem = {
   id: number;
@@ -87,7 +103,7 @@ export type CustomerListItem = {
   /** The customer's language (i18n locale code); null for customers saved before it existed. */
   locale?: string | null;
   ordersCount: number;
-};
+} & CustomerAccountFields;
 
 export type Customer = {
   id: number;
@@ -99,7 +115,7 @@ export type Customer = {
   locale?: string | null;
   createdAt: string;
   updatedAt: string;
-};
+} & CustomerAccountFields;
 
 export type CustomerInput = {
   firstName: string;

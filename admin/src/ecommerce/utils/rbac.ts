@@ -15,6 +15,8 @@ export function rbacKey(action: string): string {
 
 export const CUSTOMERS_READ_ACTION = 'plugin::littlebox-strapi-suite.ecommerce.customers.read';
 export const CUSTOMERS_MANAGE_ACTION = 'plugin::littlebox-strapi-suite.ecommerce.customers.manage';
+export const CUSTOMERS_BLOCK_ACTION = 'plugin::littlebox-strapi-suite.ecommerce.customers.block';
+export const CUSTOMERS_PASSWORD_ACTION = 'plugin::littlebox-strapi-suite.ecommerce.customers.password';
 export const ORDERS_READ_ACTION = 'plugin::littlebox-strapi-suite.ecommerce.orders.read';
 export const ORDERS_MANAGE_ACTION = 'plugin::littlebox-strapi-suite.ecommerce.orders.manage';
 export const REFUNDS_MANAGE_ACTION = 'plugin::littlebox-strapi-suite.ecommerce.refunds.manage';
