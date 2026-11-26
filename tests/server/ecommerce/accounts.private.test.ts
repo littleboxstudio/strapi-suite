@@ -144,6 +144,13 @@ describe('profile', () => {
     await expect(t.svc.updateProfile(t.account(r), { locale: 'xx' })).rejects.toBeInstanceOf(
       EcommerceValidationError
     );
+    const long: any = await t.svc
+      .updateProfile(t.account(r), { firstName: 'x'.repeat(101), lastName: '' })
+      .catch((e: unknown) => e);
+    expect(long.errors).toEqual([
+      { path: 'firstName', code: 'too_long' },
+      { path: 'lastName', code: 'required' },
+    ]);
   });
 });
 
@@ -212,6 +219,17 @@ describe('e-mail change', () => {
     expect(
       await code(t.svc.requestEmailChange(t.account(r), { currentPassword: 'nope-nope', newEmail: 'free@x.pt' }))
     ).toEqual({ code: 'INVALID_CREDENTIALS', status: 400 });
+  });
+
+  it('requestEmailChange to the current e-mail → validation error same_email, nothing stored', async () => {
+    const t = setup();
+    const r = await t.add();
+    const err: any = await t.svc
+      .requestEmailChange(t.account(r), { currentPassword: 'correct-horse', newEmail: ' ANA@example.pt ' })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(EcommerceValidationError);
+    expect(err.errors).toEqual([{ path: 'newEmail', code: 'same_email' }]);
+    expect(t.row(r.id).pendingEmail ?? null).toBeNull();
   });
 
   it('requestEmailChange stores the pending e-mail and mails the link to the new address', async () => {
@@ -307,7 +325,11 @@ describe('e-mail change', () => {
     const r = await t.add({ pendingEmail: 'New@X.pt', pendingEmailNormalized: 'new@x.pt' });
     await t.add({ email: 'new@x.pt', emailNormalized: 'new@x.pt', accountType: 'GUEST' });
     t.tokens.consume.mockResolvedValueOnce({ customerId: r.id, email: 'New@X.pt' });
+    const trx = t.c.strapi.db.transaction as any;
+    const before = trx.mock.calls.length;
     expect(await code(t.svc.confirmEmailChange('raw-token'))).toEqual({ code: 'EMAIL_IN_USE', status: 409 });
+    // Checked inside the transaction that would swap the e-mail.
+    expect(trx.mock.calls.length).toBe(before + 1);
     expect(t.row(r.id).emailNormalized).toBe('ana@example.pt');
     expect(t.sessions.revokeAll).not.toHaveBeenCalled();
   });

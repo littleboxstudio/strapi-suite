@@ -102,6 +102,19 @@ const EcommerceCustomerService = ({ strapi }: { strapi: Core.Strapi }) => {
       return { id: created.id, created: true };
     },
 
+    /**
+     * The logged-in customer an order goes to (storefront with a login session): the account row
+     * itself, never an e-mail lookup. A blocked one is refused (`CUSTOMER_BLOCKED`).
+     */
+    async accountForOrder(id: number): Promise<{ id: number; created: false }> {
+      const row = await strapi.db
+        .query(uids().customer)
+        .findOne({ where: { id }, select: ['id', 'blocked'] });
+      if (!row) throw new EcommerceValidationError('Invalid customer', [{ path: 'customer', code: 'customer_not_found' }]);
+      if (row.blocked === true) throw new EcommerceAccountError('CUSTOMER_BLOCKED', 403);
+      return { id: row.id, created: false };
+    },
+
     /** True when a blocked customer has this e-mail (compared normalized). */
     async isBlockedEmail(email: string): Promise<boolean> {
       const emailNormalized = normalizeEmail(typeof email === 'string' ? email : '');

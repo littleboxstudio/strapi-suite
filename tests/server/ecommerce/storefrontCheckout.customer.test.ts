@@ -166,6 +166,7 @@ describe('storefront checkout with a customer owner', () => {
     expect(spy.mock.calls[0][0]).toMatchObject({
       customer: { firstName: 'Rita', lastName: 'Costa', email: 'Ana@Example.pt', phone: '912345678' },
       emailVerified: true,
+      customerId: customer.id,
       idempotencyKey: `sfc:${customer.id}:key-cust-0001`,
     });
     expect(spy.mock.calls[0][1]).toEqual({ actor: 'storefront', source: 'storefront' });
@@ -178,6 +179,41 @@ describe('storefront checkout with a customer owner', () => {
     expect(cleared.lines).toEqual([]);
     expect(cleared.promotionCodes).toEqual([]);
     expect(cleared.destination).toEqual({ country: 'PT' });
+  });
+
+  it('the order lands on the account row, never on an e-mail match', async () => {
+    const t = setup();
+    // An older row with the same normalized e-mail (e.g. legacy duplicate data).
+    const older = await t.addCustomer({ accountType: 'GUEST', emailVerified: false });
+    const account = await t.addCustomer();
+    await t.checkout.placeOrder(t.owner(account), t.orderInput(), 'key-cust-0003');
+    expect(older.id).toBeLessThan(account.id);
+    expect(t.c.tables[UIDS.order][0].customer).toBe(account.id);
+  });
+
+  it('a blocked customer owner → CUSTOMER_BLOCKED, no order', async () => {
+    const t = setup();
+    const customer = await t.addCustomer();
+    const owner = t.owner(customer);
+    t.row(customer.id).blocked = true;
+    const err: any = await t.checkout.placeOrder(owner, t.orderInput(), 'key-cust-0004').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(EcommerceAccountError);
+    expect({ code: err.code, status: err.status }).toEqual({ code: 'CUSTOMER_BLOCKED', status: 403 });
+    expect(t.c.tables[UIDS.order]).toHaveLength(0);
+  });
+
+  it('a replay with the same idempotency key returns the order and leaves customer.cart untouched', async () => {
+    const t = setup();
+    const customer = await t.addCustomer();
+    const first = await t.checkout.placeOrder(t.owner(customer), t.orderInput(), 'key-cust-0005');
+    await t.checkout.quote(t.owner(customer), t.cart({ lines: [{ variantId: 10, quantity: 1 }] }));
+    const rebuilt = structuredClone(t.row(customer.id).cart);
+    const spy = vi.spyOn(t.c.orders, 'create');
+    const again = await t.checkout.placeOrder(t.owner(customer), t.orderInput(), 'key-cust-0005');
+    expect(again.publicId).toBe(first.publicId);
+    expect(await spy.mock.results[0].value).toMatchObject({ replayed: true });
+    expect(t.c.tables[UIDS.order]).toHaveLength(1);
+    expect(t.row(customer.id).cart).toEqual(rebuilt);
   });
 
   it('orderStatus and paymentLink only see the customer own orders', async () => {

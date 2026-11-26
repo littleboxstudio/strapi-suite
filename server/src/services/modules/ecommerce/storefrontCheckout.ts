@@ -607,6 +607,8 @@ const EcommerceStorefrontCheckoutService = ({ strapi }: { strapi: Core.Strapi })
             owner.kind === 'guest' ? `sf:${owner.session.id}:${key}` : `sfc:${owner.customer.id}:${key}`,
           // A store credit needs no verified e-mail: its code is the secret (Global Constraints).
           emailVerified,
+          // Logged in: the order goes to the account row itself, never an e-mail lookup.
+          ...(owner.kind === 'customer' ? { customerId: owner.customer.id } : {}),
         },
         owner.kind === 'guest'
           ? { actor: 'storefront', source: 'storefront', checkoutSessionId: owner.session.id }

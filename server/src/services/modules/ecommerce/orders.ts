@@ -182,6 +182,11 @@ export type CreateOrderInput = {
   /** Absent = trusted (admin); `false` = storefront without a verified e-mail. */
   emailVerified?: boolean;
   /**
+   * Storefront only (ignored otherwise): the logged-in customer the order goes to, instead of
+   * finding or creating one by e-mail. A blocked one is refused (`CUSTOMER_BLOCKED`).
+   */
+  customerId?: number;
+  /**
    * A store credit of the order's e-mail (≤ 64 characters), applied inside the creation
    * transaction: any refusal (`STORE_CREDIT_*`) creates nothing.
    */
@@ -609,6 +614,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       input: CustomerInput,
       opts?: { locale?: unknown; guestPassword?: GuestPassword | null }
     ): Promise<{ id: number; created: boolean }>;
+    accountForOrder(id: number): Promise<{ id: number; created: false }>;
   } => service('EcommerceCustomerService');
 
   /**
@@ -846,8 +852,13 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       ]);
     }
     const emailVerified = typeof input?.emailVerified === 'boolean' ? input.emailVerified : undefined;
+    const customerId =
+      source === 'storefront' && Number.isSafeInteger(input?.customerId) && (input.customerId as number) >= 1
+        ? (input.customerId as number)
+        : undefined;
     return {
       customer,
+      customerId,
       shippingAddress,
       billingAddress,
       locale,
@@ -1096,7 +1107,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
     const units = v.lines.reduce((s, l) => s + l.quantity, 0);
     const deductions = quantitiesByVariant(evaluation.lines);
 
-    const guestPassword = await guestPasswordFor(v.customer.email);
+    const guestPassword = v.customerId === undefined ? await guestPasswordFor(v.customer.email) : null;
 
     const attempt = async (): Promise<CreatedOrder> => {
       const collector = events().collector();
@@ -1104,7 +1115,10 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       const result = await strapi.db.transaction(async () => {
         const u = uids();
         // A new customer gets the order's (resolved) language; an existing one is never changed.
-        const customer = await customers().findOrCreate(v.customer, { locale: v.locale, guestPassword });
+        const customer =
+          v.customerId !== undefined
+            ? await customers().accountForOrder(v.customerId)
+            : await customers().findOrCreate(v.customer, { locale: v.locale, guestPassword });
         const reference = await nextReference();
         const publicId = randomUUID();
 

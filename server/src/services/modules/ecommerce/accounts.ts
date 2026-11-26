@@ -11,7 +11,6 @@ import {
   EcommerceValidationError,
   type ValidationIssue,
 } from './errors';
-import { isUniqueViolation } from './dbErrors';
 import { findLocale, resolveLocale } from './locales';
 import type { AccountCustomer } from './customerSessions';
 import type { PublicOrderStatus } from './domain/storefront/publicViews';
@@ -416,7 +415,8 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
       for (const field of ['firstName', 'lastName'] as const) {
         if (i[field] === undefined) continue;
         const v = clean(i[field]);
-        if (!v || v.length > NAME_MAX) errors.push({ path: field, code: 'required' });
+        if (!v) errors.push({ path: field, code: 'required' });
+        else if (v.length > NAME_MAX) errors.push({ path: field, code: 'too_long' });
         else data[field] = v;
       }
       if (i.phone !== undefined) {
@@ -473,8 +473,11 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
       const email = readEmail(input?.newEmail);
       if (!email) throw new EcommerceValidationError('Invalid e-mail', [{ path: 'newEmail', code: 'invalid_email' }]);
       const row = await currentRow(c.id);
-      await checkCurrentPassword(row, input?.currentPassword);
       const emailNormalized = normalizeEmail(email);
+      if (emailNormalized === row.emailNormalized) {
+        throw new EcommerceValidationError('Same e-mail', [{ path: 'newEmail', code: 'same_email' }]);
+      }
+      await checkCurrentPassword(row, input?.currentPassword);
       if (await emailTaken(emailNormalized, row.id)) throw emailInUse();
       await customers().update({
         where: { id: row.id },
@@ -509,32 +512,27 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
       ) {
         throw tokenInvalid();
       }
-      if (await emailTaken(newNormalized, customer.id)) throw emailInUse();
       const oldEmail = String(customer.email ?? '');
       const oldNormalized = String(customer.emailNormalized ?? '');
       const newEmail = String(customer.pendingEmail || consumed.email);
-      try {
-        await strapi.db.transaction(async () => {
-          await customers().update({
-            where: { id: customer.id },
-            data: {
-              email: newEmail,
-              emailNormalized: newNormalized,
-              pendingEmail: null,
-              pendingEmailNormalized: null,
-              // The link proved the new address.
-              emailVerified: true,
-              emailVerifiedAt: new Date(),
-            },
-          });
-          await svc('EcommerceStoreCreditService').rekeyCustomerEmail(oldNormalized, newNormalized);
-          await svc('EcommercePromotionService').rekeyCustomerEmail(oldNormalized, newNormalized);
+      await strapi.db.transaction(async () => {
+        // Re-checked in the transaction that swaps it (the customer e-mail has no unique index).
+        if (await emailTaken(newNormalized, customer.id)) throw emailInUse();
+        await customers().update({
+          where: { id: customer.id },
+          data: {
+            email: newEmail,
+            emailNormalized: newNormalized,
+            pendingEmail: null,
+            pendingEmailNormalized: null,
+            // The link proved the new address.
+            emailVerified: true,
+            emailVerifiedAt: new Date(),
+          },
         });
-      } catch (err) {
-        // Taken by a concurrent write since the check (unique e-mail index).
-        if (isUniqueViolation(err)) throw emailInUse();
-        throw err;
-      }
+        await svc('EcommerceStoreCreditService').rekeyCustomerEmail(oldNormalized, newNormalized);
+        await svc('EcommercePromotionService').rekeyCustomerEmail(oldNormalized, newNormalized);
+      });
       await sessions().revokeAll(customer.id, 'EMAIL_CHANGED');
       audit('customer.email_change', customer.id);
       fire(() =>
