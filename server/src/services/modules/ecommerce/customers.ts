@@ -260,7 +260,7 @@ const EcommerceCustomerService = ({ strapi }: { strapi: Core.Strapi }) => {
       // promotion usage keyed by the old e-mail move with it.
       const reverify = emailChanged && current.accountType === 'REGISTERED';
       const taken = () =>
-        new EcommerceValidationError('Invalid customer', [{ path: 'email', code: 'taken' }]);
+        new EcommerceValidationError('Invalid customer', [{ path: 'email', code: 'duplicate_email' }]);
       await strapi.db.transaction(async () => {
         if (emailChanged) {
           // Re-checked in the transaction that writes it (the e-mail has no unique index).

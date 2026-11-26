@@ -168,7 +168,7 @@ describe('EcommerceCustomerService', () => {
     const a = await service.findOrCreate(input('a@x.pt'));
     const b = await service.findOrCreate(input('b@x.pt'));
     await expect(service.update(b.id, input(' A@x.pt'), 'user:1')).rejects.toMatchObject({
-      errors: [{ path: 'email', code: 'taken' }],
+      errors: [{ path: 'email', code: 'duplicate_email' }],
     });
     // own e-mail (different case) is fine
     const res = await service.update(a.id, input('A@X.pt', { lastName: 'Costa' }), 'user:1');

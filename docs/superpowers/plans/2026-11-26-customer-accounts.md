@@ -699,7 +699,7 @@ authority for every value not repeated here).
   - Success sets `passwordChangedAt`, calls `revokeAll(id, 'ADMIN_PASSWORD')` and sends the
     password-changed mail with `void`.
 - `update` with a new e-mail:
-  - it is refused (path `email`, code `taken`) when the e-mail matches another customer's
+  - it is refused (path `email`, code `duplicate_email`, the existing code) when the e-mail matches another customer's
     `emailNormalized` or `pendingEmailNormalized`;
   - for a `REGISTERED` customer it sets `emailVerified: false`, calls `revokeAll(id, 'EMAIL_CHANGED')`,
     re-keys store credits and promotion usage, issues a VERIFY_EMAIL token and sends

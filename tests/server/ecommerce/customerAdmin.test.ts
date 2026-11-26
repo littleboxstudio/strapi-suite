@@ -155,10 +155,10 @@ describe('customer admin: e-mail edit rules', () => {
     add(ana());
     add(ana({ id: 2, email: 'b@x.pt', emailNormalized: 'b@x.pt', pendingEmail: 'new@x.pt', pendingEmailNormalized: 'new@x.pt' }));
     await expect(service.update(1, input(' NEW@x.pt '), 'user:3')).rejects.toMatchObject({
-      errors: [{ path: 'email', code: 'taken' }],
+      errors: [{ path: 'email', code: 'duplicate_email' }],
     });
     await expect(service.update(1, input('b@x.pt'), 'user:3')).rejects.toMatchObject({
-      errors: [{ path: 'email', code: 'taken' }],
+      errors: [{ path: 'email', code: 'duplicate_email' }],
     });
   });
 
