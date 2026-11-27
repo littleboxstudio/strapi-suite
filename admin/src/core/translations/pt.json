@@ -2659,6 +2659,7 @@
   "littlebox-strapi-suite.ecommerce.customers.block.error": "Não foi possível alterar o bloqueio. Tente novamente.",
   "littlebox-strapi-suite.ecommerce.customers.block.banner": "Este cliente está bloqueado.",
   "littlebox-strapi-suite.ecommerce.customers.block.bannerBy": "Bloqueado por {admin} em {date}.",
+  "littlebox-strapi-suite.ecommerce.customers.block.noNote": "Este cliente foi bloqueado pela administração sem nenhuma nota.",
   "littlebox-strapi-suite.ecommerce.customers.block.dateValue": "{date, date, medium}",
   "littlebox-strapi-suite.ecommerce.customers.unblock.open": "Desbloquear cliente",
   "littlebox-strapi-suite.ecommerce.customers.unblock.title": "Desbloquear este cliente?",

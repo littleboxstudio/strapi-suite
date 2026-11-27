@@ -48,6 +48,7 @@ import CustomerStoreCredits from '../../components/customers/CustomerStoreCredit
 import type { Customer, FieldError, OrderLocales } from '../../orderTypes';
 import CustomerOrdersSection from './CustomerOrdersSection';
 import CustomerEventsSection from './CustomerEventsSection';
+import { NOTICE_BACKGROUND, NOTICE_TEXT } from '../../components/orders/NoticeBar';
 
 const FIELDS: { field: CustomerField; required: boolean; type: string }[] = [
   { field: 'firstName', required: true, type: 'text' },
@@ -310,32 +311,31 @@ const CustomerDetailPage = () => {
       )}
 
       {blocked && (
-        <Box background="danger100" borderColor="danger200" hasRadius padding={4}>
-          <Flex direction="column" alignItems="stretch" gap={1}>
-            <Typography fontWeight="bold" textColor="danger700">
-              {t('ecommerce.customers.block.banner')}
+        <Box hasRadius padding={4} style={{ background: NOTICE_BACKGROUND }}>
+          <Flex direction="column" alignItems="stretch" gap={2}>
+            <Typography variant="omega" style={{ color: NOTICE_TEXT }}>
+              <strong>{t('ecommerce.customers.block.banner')}</strong>
+              {(account?.blockedBy || account?.blockedAt) && (
+                <>
+                  {' '}
+                  {formatMessage(
+                    { id: getTranslation('ecommerce.customers.block.bannerBy') },
+                    {
+                      admin: account?.blockedBy ?? '—',
+                      date: account?.blockedAt
+                        ? formatMessage(
+                            { id: getTranslation('ecommerce.customers.block.dateValue') },
+                            { date: new Date(account.blockedAt) }
+                          )
+                        : '—',
+                    }
+                  )}
+                </>
+              )}
             </Typography>
-            {(account?.blockedBy || account?.blockedAt) && (
-              <Typography variant="pi" textColor="neutral700">
-                {formatMessage(
-                  { id: getTranslation('ecommerce.customers.block.bannerBy') },
-                  {
-                    admin: account?.blockedBy ?? '—',
-                    date: account?.blockedAt
-                      ? formatMessage(
-                          { id: getTranslation('ecommerce.customers.block.dateValue') },
-                          { date: new Date(account.blockedAt) }
-                        )
-                      : '—',
-                  }
-                )}
-              </Typography>
-            )}
-            {account?.blockedNote && (
-              <Typography variant="pi" textColor="neutral700" style={{ whiteSpace: 'pre-wrap' }}>
-                {account.blockedNote}
-              </Typography>
-            )}
+            <Typography variant="omega" style={{ color: NOTICE_TEXT, whiteSpace: 'pre-wrap' }}>
+              {account?.blockedNote || t('ecommerce.customers.block.noNote')}
+            </Typography>
           </Flex>
         </Box>
       )}

@@ -2876,6 +2876,7 @@
   "littlebox-strapi-suite.ecommerce.customers.block.error": "Could not change the block. Try again.",
   "littlebox-strapi-suite.ecommerce.customers.block.banner": "This customer is blocked.",
   "littlebox-strapi-suite.ecommerce.customers.block.bannerBy": "Blocked by {admin} on {date}.",
+  "littlebox-strapi-suite.ecommerce.customers.block.noNote": "This customer was blocked by the administration without a note.",
   "littlebox-strapi-suite.ecommerce.customers.block.dateValue": "{date, date, medium}",
   "littlebox-strapi-suite.ecommerce.customers.unblock.open": "Unblock customer",
   "littlebox-strapi-suite.ecommerce.customers.unblock.title": "Unblock this customer?",
