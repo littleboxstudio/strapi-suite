@@ -47,6 +47,7 @@ export default [
   route('PUT', '/carriers/dpd-portugal/services', 'saveDpdServices', manage),
   route('GET', '/carriers/store-pickup/config', 'getStorePickup', read),
   route('PUT', '/carriers/store-pickup/config', 'saveStorePickup', manage),
+  route('GET', '/cron-runs', 'listCronRuns', read),
   route('GET', '/email-templates', 'listEmailTemplates', read),
   // AI translation of a template's texts (same engine and payload as the products').
   route('POST', '/email-templates/translate', 'translateEmailTemplate', manage),

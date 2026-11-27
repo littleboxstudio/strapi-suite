@@ -62,6 +62,7 @@ export interface LtbConfigs {
         checkoutSession: UID.ContentType;
         customerSession: UID.ContentType;
         customerToken: UID.ContentType;
+        cronRun: UID.ContentType;
         paymentMethodSuggestion: UID.ContentType;
         category: UID.ContentType;
         categoryTranslation: UID.ContentType;
@@ -133,6 +134,7 @@ export default {
           checkoutSession: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-checkout-session`,
           customerSession: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-customer-session`,
           customerToken: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-customer-token`,
+          cronRun: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-cron-run`,
           paymentMethodSuggestion: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-payment-method-suggestion`,
           category: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-product-category`,
           categoryTranslation: `plugin::${PLUGIN_ID}.ltb-st-module-ecommerce-product-category-translation`,

@@ -3,6 +3,7 @@ import Registry from '../../core/di/registry';
 import config from '../../core/config';
 import type {
   ConnectionResult,
+  CronRun,
   EmailPreview,
   EmailTemplateSummary,
   EmailTemplateType,
@@ -55,6 +56,7 @@ export default interface EcommerceSettingsGateway {
   /** Replaces the Store pickup config; the integration is turned off when no market is served. */
   saveStorePickup(config: StorePickupInput): Promise<StorePickupSaveResult>;
 
+  fetchCronRuns(): Promise<CronRun[]>;
   fetchEmailTemplates(): Promise<EmailTemplateSummary[]>;
   fetchEmailTemplate(type: EmailTemplateType, locale: string): Promise<EmailTemplateView>;
   saveEmailTemplate(
@@ -179,6 +181,10 @@ export class EcommerceSettingsGatewayHttp implements EcommerceSettingsGateway {
 
   async saveStorePickup(config: StorePickupInput): Promise<StorePickupSaveResult> {
     return this.httpClient.put(`${this.base}/carriers/store-pickup/config`, config);
+  }
+
+  async fetchCronRuns(): Promise<CronRun[]> {
+    return this.httpClient.get(`${this.base}/cron-runs`);
   }
 
   async fetchEmailTemplates(): Promise<EmailTemplateSummary[]> {

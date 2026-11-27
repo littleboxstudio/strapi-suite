@@ -1,0 +1,63 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_cron_runs",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-cron-run",
+    "pluralName": "ltb-st-module-ecommerce-cron-runs",
+    "displayName": "Littlebox Strapi Suite - E-commerce Cron Run",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Cron Run"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "job": {
+      "type": "string",
+      "required": true
+    },
+    "status": {
+      "type": "enumeration",
+      "enum": [
+        "RUNNING",
+        "SUCCESS",
+        "FAILED",
+        "TIMEOUT",
+        "INTERRUPTED"
+      ],
+      "default": "RUNNING"
+    },
+    "startedAt": {
+      "type": "datetime",
+      "required": true
+    },
+    "finishedAt": {
+      "type": "datetime"
+    },
+    "results": {
+      "type": "json"
+    },
+    "failures": {
+      "type": "json"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_cron_run_started",
+      "columns": [
+        "started_at"
+      ]
+    }
+  ]
+}

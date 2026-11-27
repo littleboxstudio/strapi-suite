@@ -199,6 +199,19 @@ export type EmailTemplateType =
   | 'EMAIL_CHANGED'
   | 'REGISTRATION_ATTEMPT';
 
+export type CronRunStatus = 'RUNNING' | 'SUCCESS' | 'FAILED' | 'TIMEOUT' | 'INTERRUPTED';
+/** One run of a scheduled job, as the cron log keeps it (newest 50). */
+export type CronRun = {
+  id: number;
+  job: string;
+  status: CronRunStatus;
+  startedAt: string;
+  finishedAt: string | null;
+  /** Rows deleted per task: guestSessions, customerSessions, linkTokens. */
+  results: Record<string, number>;
+  failures: { task: string; error: string }[];
+};
+
 export type EmailTemplateSummary = { type: EmailTemplateType; customLocales: string[] };
 
 export type VariableDef = {

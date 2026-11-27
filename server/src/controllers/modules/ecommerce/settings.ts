@@ -144,6 +144,8 @@ const EcommerceSettingsController = ({ strapi }: { strapi: Core.Strapi }) => {
     getStorePickup: (ctx: any) => respond(ctx, () => settings().getStorePickup()),
     saveStorePickup: (ctx: any) => respond(ctx, () => settings().saveStorePickup(body(ctx), userId(ctx))),
 
+    /** The cron log: the newest 50 runs of the scheduled jobs. */
+    listCronRuns: (ctx: any) => respond(ctx, () => service('EcommerceCronRunService').list()),
     listEmailTemplates: (ctx: any) => respond(ctx, () => templates().list()),
     getEmailTemplate: (ctx: any) =>
       respond(ctx, () => templates().get(ctx.params.type, ctx.params.locale)),

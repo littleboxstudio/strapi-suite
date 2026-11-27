@@ -38,6 +38,7 @@ import EcommerceCollectionService from './modules/ecommerce/collections';
 import EcommercePasswordService from './modules/ecommerce/passwords';
 import EcommerceCustomerSessionService from './modules/ecommerce/customerSessions';
 import EcommerceCustomerTokenService from './modules/ecommerce/customerTokens';
+import EcommerceCronRunService from './modules/ecommerce/cronRuns';
 import EcommerceAccountMailer from './modules/ecommerce/accountMailer';
 import EcommerceAccountService from './modules/ecommerce/accounts';
 import ImageFieldModuleService from './modules/image-field';
@@ -83,6 +84,7 @@ export default {
   EcommercePasswordService,
   EcommerceCustomerSessionService,
   EcommerceCustomerTokenService,
+  EcommerceCronRunService,
   EcommerceAccountMailer,
   EcommerceAccountService,
   ImageFieldModuleService,

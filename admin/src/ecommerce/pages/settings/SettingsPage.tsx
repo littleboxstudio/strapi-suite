@@ -9,6 +9,7 @@ import { GeneralSettings } from './GeneralSettings';
 import { IntegrationsSection } from './IntegrationsSection';
 import { ShippingSettings } from './ShippingSettings';
 import { EmailTemplatesSection } from './EmailTemplatesSection';
+import { CronSection } from './CronSection';
 import { SETTINGS_SECTIONS, type SettingsSection } from '../../utils/settingsSections';
 import { StorefrontSettings } from './StorefrontSettings';
 import StickyTabs from '../../components/StickyTabs';
@@ -80,6 +81,7 @@ const SettingsPage = () => {
             <IntegrationsSection key={category} category={category} readOnly={!canUpdate} />
           )}
           {section === 'email-templates' && <EmailTemplatesSection />}
+          {section === 'cron' && <CronSection />}
         </>
       )}
     </Flex>

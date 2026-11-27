@@ -6,6 +6,7 @@ export const SETTINGS_SECTIONS = [
   'shipping',
   'email-service',
   'email-templates',
+  'cron',
 ] as const;
 
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];

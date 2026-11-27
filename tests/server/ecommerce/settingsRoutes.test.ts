@@ -28,6 +28,7 @@ const expected: [string, string, string, string][] = [
   ['PUT', `${B}/carriers/dpd-portugal/services`, 'saveDpdServices', P.settingsManage],
   ['GET', `${B}/carriers/store-pickup/config`, 'getStorePickup', P.settingsRead],
   ['PUT', `${B}/carriers/store-pickup/config`, 'saveStorePickup', P.settingsManage],
+  ['GET', `${B}/cron-runs`, 'listCronRuns', P.settingsRead],
   ['GET', `${B}/email-templates`, 'listEmailTemplates', P.settingsRead],
   ['POST', `${B}/email-templates/translate`, 'translateEmailTemplate', P.settingsManage],
   ['GET', T, 'getEmailTemplate', P.settingsRead],
