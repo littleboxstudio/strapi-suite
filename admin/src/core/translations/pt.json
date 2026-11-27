@@ -714,6 +714,7 @@
   "littlebox-strapi-suite.ecommerce.customers.events.newEmail": "Novo e-mail: {email}",
   "littlebox-strapi-suite.ecommerce.customers.events.note": "Nota: {note}",
   "littlebox-strapi-suite.ecommerce.customers.events.actor.CUSTOMER": "Cliente",
+  "littlebox-strapi-suite.ecommerce.customers.events.actor.ANONYMOUS": "Sem sessão iniciada",
   "littlebox-strapi-suite.ecommerce.customers.events.actor.ADMIN": "Backoffice",
   "littlebox-strapi-suite.ecommerce.customers.events.actor.SYSTEM": "Sistema",
   "littlebox-strapi-suite.ecommerce.customers.events.reason.INVALID_PASSWORD": "Palavra-passe errada",

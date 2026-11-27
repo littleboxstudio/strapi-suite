@@ -221,7 +221,8 @@ describe('events from the backoffice', () => {
     await drainEvents();
     const placed = events().filter((e: any) => e.type === 'ORDER_PLACED');
     expect(placed).toHaveLength(1);
-    expect(placed[0]).toMatchObject({ actorType: 'CUSTOMER', ip: '203.0.113.7' });
+    // A guest checkout: nobody proved who it was, so no name.
+    expect(placed[0]).toMatchObject({ actorType: 'ANONYMOUS', actorId: null, actorName: null, ip: '203.0.113.7' });
   });
 });
 
@@ -279,6 +280,11 @@ describe('events from the customer account', () => {
         .map((e: any) => e.details.reason)
     ).toEqual(['INVALID_PASSWORD', 'EMAIL_NOT_VERIFIED', 'BLOCKED', 'NOT_REGISTERED']);
     expect(events()).toHaveLength(6);
+    // Attempts are never shown under the customer's name; login and logout are.
+    for (const e of events()) {
+      if (e.type === 'LOGIN_FAILED') expect(e).toMatchObject({ actorType: 'ANONYMOUS', actorId: null, actorName: null });
+      else expect(e).toMatchObject({ actorType: 'CUSTOMER', actorName: 'Ana Silva' });
+    }
   });
 
   it('profile changes keep old and new values; password and e-mail changes never hold a password', async () => {
@@ -320,6 +326,31 @@ describe('events from the customer account', () => {
       'LOGIN',
       'PASSWORD_RESET_REQUESTED',
       'PASSWORD_RESET',
+    ]);
+  });
+
+  it('registering over an unverified account logs the replaced values and that the password changed', async () => {
+    const { c, svc, events } = accountSetup();
+    const ana = await addCustomer(c, { emailVerified: false, emailVerifiedAt: null, phone: '911111111' });
+    await svc.register({ email: 'ana@example.pt', password: 'a-long-password', firstName: 'Anna', lastName: 'Silva' });
+    await drainEvents();
+    const rows = events().filter((e: any) => e.customerId === ana.id);
+    expect(rows.map((e: any) => e.type)).toEqual(['ACCOUNT_REGISTERED', 'PASSWORD_CHANGED']);
+    expect(rows[0]).toMatchObject({ actorType: 'ANONYMOUS', actorName: null });
+    expect(rows[0].details.changes).toEqual([
+      { field: 'firstName', from: 'Ana', to: 'Anna' },
+      { field: 'phone', from: '911111111', to: null },
+    ]);
+    expect(JSON.stringify(rows)).not.toContain('a-long-password');
+  });
+
+  it('registering over a guest record logs no password change (its random one was never known)', async () => {
+    const { c, svc, events } = accountSetup();
+    const guest = await addCustomer(c, { accountType: 'GUEST', emailVerified: false, passwordHash: 'H(random)' });
+    await svc.register({ email: 'ana@example.pt', password: 'a-long-password', firstName: 'Ana', lastName: 'Silva' });
+    await drainEvents();
+    expect(events().filter((e: any) => e.customerId === guest.id).map((e: any) => e.type)).toEqual([
+      'ACCOUNT_REGISTERED',
     ]);
   });
 });

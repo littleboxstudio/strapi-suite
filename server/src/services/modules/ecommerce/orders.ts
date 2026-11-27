@@ -1327,7 +1327,11 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
       if (placedFor !== null) {
         try {
           strapi.plugin(PLUGIN_ID).service('EcommerceCustomerEventService').record(placedFor, 'ORDER_PLACED', {
-            actor: actorFromString(ctx.actor),
+            // A storefront order without a login is a guest checkout: nobody proved who it was.
+            actor:
+              ctx.actor === 'storefront' && v.customerId === undefined
+                ? { type: 'ANONYMOUS' }
+                : actorFromString(ctx.actor),
             details: { orderId: result.id, reference: result.reference },
           });
         } catch (err) {

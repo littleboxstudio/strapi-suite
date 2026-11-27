@@ -152,7 +152,7 @@ export type CustomerEvent = {
   id: number;
   type: CustomerEventType;
   createdAt: string | null;
-  actor: { type: 'CUSTOMER' | 'ADMIN' | 'SYSTEM'; id: number | null; name: string | null };
+  actor: { type: 'CUSTOMER' | 'ANONYMOUS' | 'ADMIN' | 'SYSTEM'; id: number | null; name: string | null };
   ip: string | null;
   userAgent: string | null;
   details: {

@@ -24,6 +24,7 @@
       "type": "enumeration",
       "enum": [
         "CUSTOMER",
+        "ANONYMOUS",
         "ADMIN",
         "SYSTEM"
       ],

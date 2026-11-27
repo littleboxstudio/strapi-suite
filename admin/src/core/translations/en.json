@@ -931,6 +931,7 @@
   "littlebox-strapi-suite.ecommerce.customers.events.newEmail": "New e-mail: {email}",
   "littlebox-strapi-suite.ecommerce.customers.events.note": "Note: {note}",
   "littlebox-strapi-suite.ecommerce.customers.events.actor.CUSTOMER": "Customer",
+  "littlebox-strapi-suite.ecommerce.customers.events.actor.ANONYMOUS": "Not signed in",
   "littlebox-strapi-suite.ecommerce.customers.events.actor.ADMIN": "Backoffice",
   "littlebox-strapi-suite.ecommerce.customers.events.actor.SYSTEM": "System",
   "littlebox-strapi-suite.ecommerce.customers.events.reason.INVALID_PASSWORD": "Wrong password",

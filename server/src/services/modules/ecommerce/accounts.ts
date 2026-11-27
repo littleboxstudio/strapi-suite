@@ -174,10 +174,21 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
     );
   const invalidCredentials = () => new EcommerceAccountError('INVALID_CREDENTIALS', 401);
 
-  /** Customer event log (the record shows it); never breaks the action. */
-  const event = (customerId: number, type: CustomerEventType, details?: CustomerEventDetails): void => {
+  /**
+   * Customer event log (the record shows it); never breaks the action. `anonymous`: nobody proved
+   * who sent the request (failed login, reset request, registration), so no name is stored.
+   */
+  const event = (
+    customerId: number,
+    type: CustomerEventType,
+    details?: CustomerEventDetails,
+    anonymous = false
+  ): void => {
     try {
-      svc('EcommerceCustomerEventService').record(customerId, type, { actor: { type: 'CUSTOMER' }, details });
+      svc('EcommerceCustomerEventService').record(customerId, type, {
+        actor: anonymous ? { type: 'ANONYMOUS' } : { type: 'CUSTOMER' },
+        details,
+      });
     } catch (err) {
       strapi.log.error(`${LOG_PREFIX} EVENT_FAILED ${err instanceof Error ? err.name : typeof err}`);
     }
@@ -266,7 +277,7 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
         })) as CustomerRow;
         const oldest = await oldestByEmail(emailNormalized);
         if (!oldest || oldest.id === created.id) {
-          event(created.id, 'ACCOUNT_REGISTERED');
+          event(created.id, 'ACCOUNT_REGISTERED', undefined, true);
           await sendVerification(created);
           return;
         }
@@ -305,7 +316,15 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
           ...credentials,
         },
       });
-      event(existing.id, 'ACCOUNT_REGISTERED');
+      const changes = diffFields(existing, { firstName, lastName, phone: phone || null }, [
+        'firstName',
+        'lastName',
+        'phone',
+      ]);
+      event(existing.id, 'ACCOUNT_REGISTERED', changes.length ? { changes } : undefined, true);
+      // An unverified registered account had a password: it is replaced (only the fact is logged).
+      // A guest's is a random one nobody knows, so nothing changes for anyone there.
+      if (existing.accountType === 'REGISTERED' && existing.passwordHash) event(existing.id, 'PASSWORD_CHANGED', undefined, true);
       await sendVerification({ ...existing, firstName, lastName, ...(locale ? { locale } : {}) });
     },
 
@@ -373,7 +392,7 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
               : customer.blocked === true
                 ? 'BLOCKED'
                 : 'INVALID_PASSWORD';
-          event(customer.id, 'LOGIN_FAILED', { reason });
+          event(customer.id, 'LOGIN_FAILED', { reason }, true);
         }
         throw invalidCredentials();
       }
@@ -384,7 +403,7 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
         });
       }
       if (customer.emailVerified !== true) {
-        event(customer.id, 'LOGIN_FAILED', { reason: 'EMAIL_NOT_VERIFIED' });
+        event(customer.id, 'LOGIN_FAILED', { reason: 'EMAIL_NOT_VERIFIED' }, true);
         throw new EcommerceAccountError('EMAIL_NOT_VERIFIED', 403);
       }
       return startSession(customer, guest, client);
@@ -401,7 +420,7 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
       if (!valid) return;
       const customer = await oldestByEmail(normalizeEmail(valid));
       if (!customer || customer.blocked === true || customer.accountType !== 'REGISTERED') return;
-      event(customer.id, 'PASSWORD_RESET_REQUESTED');
+      event(customer.id, 'PASSWORD_RESET_REQUESTED', undefined, true);
       fire(async () => {
         const { raw } = await tokens().issue(customer.id, 'RESET_PASSWORD', String(customer.email));
         await mailer().sendPasswordReset(String(customer.email), customer.locale ?? null, {

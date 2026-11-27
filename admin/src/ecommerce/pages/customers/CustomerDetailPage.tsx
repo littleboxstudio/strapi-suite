@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useNotification } from '@strapi/strapi/admin';
@@ -85,6 +85,19 @@ const CustomerDetailPage = () => {
   const [account, setAccount] = useState<Customer | null>(null);
   const [dialog, setDialog] = useState<'block' | 'unblock' | 'password' | null>(null);
   const [blockBusy, setBlockBusy] = useState(false);
+  /** Bumped after a change made here, so the activity log shows it (its write is in the background). */
+  const [eventsRefresh, setEventsRefresh] = useState(0);
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refreshEvents = () => {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => setEventsRefresh((n) => n + 1), 600);
+  };
+  useEffect(
+    () => () => {
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    },
+    []
+  );
 
   useEffect(() => {
     if (!Number.isInteger(customerId) || customerId < 1) {
@@ -195,6 +208,7 @@ const CustomerDetailPage = () => {
       setErrors({});
       setLocaleError(null);
       toggleNotification({ type: 'success', message: t('ecommerce.customers.saved') });
+      refreshEvents();
     } catch (err) {
       const fieldErrors = extractFieldErrors(err);
       const localeIssue = fieldErrors?.find((e) => e.path === 'locale');
@@ -214,6 +228,7 @@ const CustomerDetailPage = () => {
       setAccount(updated);
       setDialog(null);
       toggleNotification({ type: 'success', message: t(okId) });
+      refreshEvents();
     } catch {
       toggleNotification({ type: 'danger', message: t('ecommerce.customers.block.error') });
     } finally {
@@ -410,14 +425,19 @@ const CustomerDetailPage = () => {
         }
       />
       {dialog === 'password' && (
-        <ChangePasswordModal customerId={customerId} email={email} onClose={() => setDialog(null)} />
+        <ChangePasswordModal
+          customerId={customerId}
+          email={email}
+          onClose={() => setDialog(null)}
+          onSaved={refreshEvents}
+        />
       )}
 
       <CustomerStoreCredits key={`credits-${customerId}`} customerId={customerId} email={email} canManage={canRefund} />
 
       <CustomerOrdersSection key={customerId} customerId={customerId} canCreateOrder={canManageOrders} />
 
-      <CustomerEventsSection key={`events-${customerId}`} customerId={customerId} />
+      <CustomerEventsSection key={`events-${customerId}`} customerId={customerId} refreshKey={eventsRefresh} />
     </Flex>
   );
 };

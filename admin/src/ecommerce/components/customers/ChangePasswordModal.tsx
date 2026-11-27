@@ -15,10 +15,16 @@ const Inputs = styled.div`
   }
 `;
 
-type Props = { customerId: number; email: string; onClose: () => void };
+type Props = {
+  customerId: number;
+  email: string;
+  onClose: () => void;
+  /** Called once the password is saved, before `onClose`. */
+  onSaved?: () => void;
+};
 
 /** Sets a registered customer's password (the server ends their sessions). */
-const ChangePasswordModal = ({ customerId, email, onClose }: Props) => {
+const ChangePasswordModal = ({ customerId, email, onClose, onSaved }: Props) => {
   const { formatMessage } = useIntl();
   const { toggleNotification } = useNotification();
   const t = (id: string) => formatMessage({ id: getTranslation(id) });
@@ -44,6 +50,7 @@ const ChangePasswordModal = ({ customerId, email, onClose }: Props) => {
     try {
       await new SetCustomerPassword().execute(customerId, password);
       toggleNotification({ type: 'success', message: t('ecommerce.customers.password.saved') });
+      onSaved?.();
       onClose();
     } catch (err) {
       const found = extractFieldErrors(err)?.find((e) => e.path === 'password');

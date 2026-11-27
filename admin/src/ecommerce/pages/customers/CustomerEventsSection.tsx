@@ -52,10 +52,14 @@ const SelectHeight = styled.div`
   }
 `;
 
-type Props = { customerId: number };
+type Props = {
+  customerId: number;
+  /** Changing it reloads the current page (a change was just made on the record). */
+  refreshKey?: number;
+};
 
 /** The customer event log: last section of the record, 50 per page, newest first. */
-const CustomerEventsSection = ({ customerId }: Props) => {
+const CustomerEventsSection = ({ customerId, refreshKey = 0 }: Props) => {
   const { formatMessage, formatDate } = useIntl();
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
@@ -96,7 +100,7 @@ const CustomerEventsSection = ({ customerId }: Props) => {
         setError(true);
         setLoading(false);
       });
-  }, [customerId, page, search, type]);
+  }, [customerId, page, search, type, refreshKey]);
 
   const fieldLabel = (field: string) => t(`ecommerce.customers.events.field.${field}`);
   const empty = t('ecommerce.customers.events.emptyValue');
