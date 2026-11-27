@@ -191,7 +191,7 @@ const CustomerListPage = () => {
 
       {items.length > 0 && (
         <>
-          <Table colCount={3} rowCount={items.length}>
+          <Table colCount={4} rowCount={items.length}>
             <Thead>
               <Tr>
                 <Th>
@@ -199,6 +199,9 @@ const CustomerListPage = () => {
                 </Th>
                 <Th>
                   <Typography variant="sigma">{t('ecommerce.customers.table.email')}</Typography>
+                </Th>
+                <Th>
+                  <Typography variant="sigma">{t('ecommerce.customers.filters.accountType')}</Typography>
                 </Th>
                 <Th>
                   <VisuallyHidden>{t('ecommerce.customers.table.actions')}</VisuallyHidden>
@@ -218,6 +221,13 @@ const CustomerListPage = () => {
                   </Td>
                   <Td>
                     <Typography textColor="neutral800">{item.email}</Typography>
+                  </Td>
+                  <Td>
+                    {item.accountType === 'REGISTERED' ? (
+                      <ToneBadge variant="primary">{t('ecommerce.customers.badges.registered')}</ToneBadge>
+                    ) : (
+                      <ToneBadge variant="neutral">{t('ecommerce.customers.badges.guest')}</ToneBadge>
+                    )}
                   </Td>
                   <Td>
                     <Box style={{ textAlign: 'right' }}>
