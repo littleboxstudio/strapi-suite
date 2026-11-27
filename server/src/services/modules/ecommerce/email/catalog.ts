@@ -191,16 +191,16 @@ const SPECIFIC: Record<EmailTemplateType, VariableDef[]> = {
     value('verification.validMinutes', 'Minutes the code stays valid'),
   ],
   ACCOUNT_VERIFICATION: [
-    value('verificationUrl', 'Link that verifies the e-mail address'),
+    value('token', 'Verification token: the storefront page sends it back to the store'),
     value('expiresInHours', 'Hours the link stays valid'),
   ],
   PASSWORD_RESET: [
-    value('resetUrl', 'Link that sets a new password'),
+    value('token', 'Reset token: the storefront page sends it back with the new password'),
     value('expiresInMinutes', 'Minutes the link stays valid'),
   ],
   PASSWORD_CHANGED: [value('changedAt', 'Date and time of the change')],
   EMAIL_CHANGE_VERIFICATION: [
-    value('confirmationUrl', 'Link that confirms the new e-mail address'),
+    value('token', 'Confirmation token: the storefront page sends it back to the store'),
     value('newEmail', 'The new e-mail address'),
     value('expiresInHours', 'Hours the link stays valid'),
   ],
@@ -208,10 +208,7 @@ const SPECIFIC: Record<EmailTemplateType, VariableDef[]> = {
     value('newEmail', 'The new e-mail address (partly hidden)'),
     value('changedAt', 'Date and time of the change'),
   ],
-  REGISTRATION_ATTEMPT: [
-    value('loginUrl', 'Link to the store'),
-    value('resetUrl', 'Link to the page that resets the password'),
-  ],
+  REGISTRATION_ATTEMPT: [],
 };
 
 const SAMPLE_VALUES: Record<string, unknown> = {
@@ -308,10 +305,7 @@ const SAMPLE_VALUES: Record<string, unknown> = {
   'credit.conditions': 'Valid for one purchase on the online store.',
   'verification.code': '482913',
   'verification.validMinutes': '10',
-  verificationUrl: 'https://shop.example.com/account/verify-email?token=sample',
-  resetUrl: 'https://shop.example.com/account/reset-password',
-  confirmationUrl: 'https://shop.example.com/account/confirm-email?token=sample',
-  loginUrl: 'https://shop.example.com',
+  token: 'sample-token',
   newEmail: 'j***@example.com',
   changedAt: '26/11/2026 10:30',
   expiresInHours: '24',

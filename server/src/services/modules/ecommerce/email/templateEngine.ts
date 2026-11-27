@@ -249,7 +249,8 @@ const UNSAFE_PATTERNS: { re: RegExp; detail: string }[] = [
 
 // Escaping cannot protect an unquoted attribute value (a space starts a new attribute). HTML only:
 // subjects are plain text, where "Total = {{…}}" is harmless.
-const UNQUOTED_ATTRIBUTE = /=\s*\{\{/;
+/** `attr={{…}}`: an attribute name after whitespace, a quote or `/`. A query string (`?token={{token}}`) is not one. */
+const UNQUOTED_ATTRIBUTE = /(?:^|[\s"'/])[A-Za-z_:][-\w:.]*\s*=\s*\{\{/;
 
 /** Decodes numeric/named entities often used to obfuscate URL schemes, then strips whitespace/control chars. */
 function normaliseForSchemes(html: string): string {

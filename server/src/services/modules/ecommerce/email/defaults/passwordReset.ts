@@ -1,4 +1,4 @@
-import { button, greeting, heading, layout, note, paragraph } from './layout';
+import { linkButton, greeting, heading, layout, note, paragraph } from './layout';
 
 export const en = {
   subject: 'Reset your password - {{store.name}}',
@@ -8,7 +8,7 @@ export const en = {
       heading('Reset your password'),
       greeting('en'),
       paragraph('We received a request to reset the password of your account at {{store.name}}.'),
-      button('resetUrl', 'Choose a new password'),
+      linkButton('{{store.url}}/account/reset-password?token={{token}}', 'Choose a new password'),
       paragraph('This link expires in {{expiresInMinutes}} minutes and can be used once.'),
       note('If you did not ask for this, ignore this e-mail. Your password stays the same.'),
     ].join('\n'),
@@ -24,7 +24,7 @@ export const pt = {
       heading('Reponha a sua palavra-passe'),
       greeting('pt'),
       paragraph('Recebemos um pedido para repor a palavra-passe da sua conta em {{store.name}}.'),
-      button('resetUrl', 'Escolher nova palavra-passe'),
+      linkButton('{{store.url}}/account/reset-password?token={{token}}', 'Escolher nova palavra-passe'),
       paragraph('Esta ligação expira dentro de {{expiresInMinutes}} minutos e só pode ser usada uma vez.'),
       note('Se não fez este pedido, ignore este email. A sua palavra-passe mantém-se.'),
     ].join('\n'),

@@ -79,7 +79,8 @@ const storeVariables = (s: StoreSettings, backofficeUrl?: string | null): Record
   name: s.storeName,
   ...storeLogoVariables(s, backofficeUrl),
   brandColor: s.brandColor,
-  url: s.storefrontUrl ?? '',
+  // No trailing slash, so templates can append paths: `{{store.url}}/account/...`.
+  url: (s.storefrontUrl ?? '').trim().replace(/\/+$/, ''),
   supportEmail: s.supportEmail ?? '',
 });
 

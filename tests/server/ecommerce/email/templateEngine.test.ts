@@ -141,6 +141,8 @@ describe('validateTemplate', () => {
     '<a href={{store.url}}>shop</a>',
     '<img src = {{store.logoUrl}}>',
     '<td width=\n  {{order.reference}}>x</td>',
+    '<a/href={{store.url}}>shop</a>',
+    '<a href="x" title={{store.name}}>shop</a>',
   ])('flags unquoted attribute interpolation: %s', (html) => {
     const issues = validateTemplate('ORDER_CONFIRMATION', 'Subject', html);
     expect(issues).toContainEqual({ code: 'UNSAFE_HTML', detail: expect.stringContaining('quote') });
@@ -148,6 +150,12 @@ describe('validateTemplate', () => {
 
   it('does not apply the attribute rule to the plain-text subject', () => {
     expect(validateTemplate('ORDER_CONFIRMATION', 'Total = {{order.reference}}', '<p>x</p>')).toEqual([]);
+  });
+
+  it('allows a variable in a quoted query string', () => {
+    expect(
+      validateTemplate('ORDER_CONFIRMATION', 'Subject', `<a href="{{store.url}}/track?order={{order.reference}}">x</a>`)
+    ).toEqual([]);
   });
 
   it('allows quoted attribute interpolation', () => {

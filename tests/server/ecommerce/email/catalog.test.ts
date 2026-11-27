@@ -96,12 +96,12 @@ const SPECIFIC: Record<string, string[]> = {
   STORE_CREDIT_ISSUED: ['credit.amount', 'credit.code', 'credit.expiresAt', 'credit.conditions'],
   STORE_CREDIT_UPDATED: ['credit.balance', 'credit.amount', 'credit.code', 'credit.expiresAt', 'credit.conditions'],
   EMAIL_VERIFICATION: ['verification.code', 'verification.validMinutes'],
-  ACCOUNT_VERIFICATION: ['verificationUrl', 'expiresInHours'],
-  PASSWORD_RESET: ['resetUrl', 'expiresInMinutes'],
+  ACCOUNT_VERIFICATION: ['token', 'expiresInHours'],
+  PASSWORD_RESET: ['token', 'expiresInMinutes'],
   PASSWORD_CHANGED: ['changedAt'],
-  EMAIL_CHANGE_VERIFICATION: ['confirmationUrl', 'newEmail', 'expiresInHours'],
+  EMAIL_CHANGE_VERIFICATION: ['token', 'newEmail', 'expiresInHours'],
   EMAIL_CHANGED: ['newEmail', 'changedAt'],
-  REGISTRATION_ATTEMPT: ['loginUrl', 'resetUrl'],
+  REGISTRATION_ATTEMPT: [],
 };
 
 /** EMAIL_VERIFICATION has no order or customer name: only the store and the e-mail address. */

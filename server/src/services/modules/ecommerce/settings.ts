@@ -80,19 +80,7 @@ export type StoreLogo = StoreLogoFile;
 export type CustomerAccountsMode = 'GUEST_ONLY' | 'REGISTERED_ONLY' | 'BOTH';
 export const CUSTOMER_ACCOUNTS_MODES: readonly CustomerAccountsMode[] = ['GUEST_ONLY', 'REGISTERED_ONLY', 'BOTH'];
 
-export type AccountPaths = { verifyEmail: string; resetPassword: string; confirmEmail: string };
-const ACCOUNT_PATH_KEYS = ['verifyEmail', 'resetPassword', 'confirmEmail'] as const;
-export const ACCOUNT_PATHS_DEFAULTS: AccountPaths = {
-  verifyEmail: '/account/verify-email',
-  resetPassword: '/account/reset-password',
-  confirmEmail: '/account/confirm-email',
-};
-
 export type AccountsReadiness = { pepperConfigured: boolean; keyConfigured: boolean };
-
-/** A storefront path: starts with `/`, no query, fragment, scheme or whitespace, at most 200 characters. */
-const isAccountPath = (v: unknown): v is string =>
-  typeof v === 'string' && v.length <= 200 && v.startsWith('/') && !/[?#\s]|:\/\//.test(v);
 
 export type StoreSettings = {
   storeName: string;
@@ -107,8 +95,6 @@ export type StoreSettings = {
   checkoutSessionTtlHours: number;
   /** Who may buy: guests only (default), registered customers only, or both. */
   customerAccountsMode: CustomerAccountsMode;
-  /** Storefront paths (under `storefrontUrl`) the e-mail links point to; the token is appended. */
-  accountPaths: AccountPaths;
 };
 
 export const STORE_SETTINGS_DEFAULTS: StoreSettings = {
@@ -122,7 +108,6 @@ export const STORE_SETTINGS_DEFAULTS: StoreSettings = {
   storefrontApiTokenId: null,
   checkoutSessionTtlHours: 168,
   customerAccountsMode: 'GUEST_ONLY',
-  accountPaths: { ...ACCOUNT_PATHS_DEFAULTS },
 };
 
 /** The storefront (BFF) API token as the admin sees it: never its value. */
@@ -295,22 +280,6 @@ function normalizeStorePatch(patch: Record<string, unknown>): {
     if (!CUSTOMER_ACCOUNTS_MODES.includes(v as CustomerAccountsMode))
       errors.push({ path: 'customerAccountsMode', code: 'invalid' });
     else values.customerAccountsMode = v;
-  }
-  if (has('accountPaths')) {
-    const input = patch.accountPaths;
-    if (!input || typeof input !== 'object' || Array.isArray(input)) {
-      errors.push({ path: 'accountPaths', code: 'invalid' });
-    } else {
-      const paths: Partial<AccountPaths> = {};
-      for (const key of ACCOUNT_PATH_KEYS) {
-        if (!Object.prototype.hasOwnProperty.call(input, key)) continue;
-        const raw = (input as Record<string, unknown>)[key];
-        const v = str(raw);
-        if (isAccountPath(v)) paths[key] = v;
-        else errors.push({ path: `accountPaths.${key}`, code: 'invalid_path' });
-      }
-      values.accountPaths = paths;
-    }
   }
   return { values: values as Partial<StoreSettings>, errors };
 }
@@ -556,12 +525,6 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
       if (!(r.key in STORE_SETTINGS_DEFAULTS)) continue;
       const value = unwrapStoreValue(r.value);
       if (value !== undefined) settings[r.key] = value;
-    }
-    const stored = settings.accountPaths as Partial<AccountPaths> | null;
-    settings.accountPaths = { ...ACCOUNT_PATHS_DEFAULTS };
-    for (const key of ACCOUNT_PATH_KEYS) {
-      const v = stored?.[key];
-      if (isAccountPath(v)) (settings.accountPaths as AccountPaths)[key] = v;
     }
     if (!CUSTOMER_ACCOUNTS_MODES.includes(settings.customerAccountsMode as CustomerAccountsMode))
       settings.customerAccountsMode = STORE_SETTINGS_DEFAULTS.customerAccountsMode;
@@ -967,7 +930,7 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
     },
 
     async updateStoreSettings(
-      patch: Partial<Omit<StoreSettings, 'accountPaths'>> & { accountPaths?: Partial<AccountPaths> },
+      patch: Partial<StoreSettings>,
       userId?: string | number
     ): Promise<StoreSettings> {
       const { values, errors } = normalizeStorePatch((patch ?? {}) as Record<string, unknown>);
@@ -1008,7 +971,7 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
         }
       }
 
-      if (values.accountPaths || 'customerAccountsMode' in values || 'storefrontUrl' in values) {
+      if ('customerAccountsMode' in values || 'storefrontUrl' in values) {
         const current = await getStoreSettings();
         const mode = values.customerAccountsMode ?? current.customerAccountsMode;
         const url = 'storefrontUrl' in values ? values.storefrontUrl : current.storefrontUrl;
@@ -1017,7 +980,6 @@ const EcommerceSettingsService = ({ strapi }: { strapi: Core.Strapi }) => {
             { path: 'customerAccountsMode', code: 'storefront_url_required' },
           ]);
         }
-        if (values.accountPaths) values.accountPaths = { ...current.accountPaths, ...values.accountPaths };
       }
 
       const changedFields = await writeStoreValues(values as Record<string, unknown>);

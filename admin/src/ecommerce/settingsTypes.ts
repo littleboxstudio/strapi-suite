@@ -17,13 +17,11 @@ export type StoreSettings = {
   checkoutSessionTtlHours?: number;
   /** Optional here so older payloads and fixtures still type-check; the server always sends them. */
   customerAccountsMode?: CustomerAccountsMode;
-  accountPaths?: AccountPaths;
   /** Only on the GET: which server env the registered-customer modes still need (flags, no values). */
   accountsReadiness?: AccountsReadiness;
 };
 
 export type CustomerAccountsMode = 'GUEST_ONLY' | 'REGISTERED_ONLY' | 'BOTH';
-export type AccountPaths = { verifyEmail: string; resetPassword: string; confirmEmail: string };
 export type AccountsReadiness = { pepperConfigured: boolean; keyConfigured: boolean };
 
 /** What PUT /store accepts: the logo and the storefront token have their own endpoints. */

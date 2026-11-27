@@ -133,22 +133,15 @@ describe('store form', () => {
     expect(input.markets).toEqual(['PT', 'ES', 'PT-ISL']);
   });
 
-  it('carries the customer accounts mode and paths, and validates them', () => {
+  it('carries the customer accounts mode and validates it', () => {
     const form = storeFormFromSettings({ ...SETTINGS, customerAccountsMode: 'BOTH' });
-    expect(buildStoreSettingsInput(form).customerAccountsMode).toBe('BOTH');
-    expect(buildStoreSettingsInput(form).accountPaths.verifyEmail).toBe('/account/verify-email');
+    const input = buildStoreSettingsInput(form);
+    expect(input.customerAccountsMode).toBe('BOTH');
+    expect('accountPaths' in input).toBe(false);
     expect(validateStoreForm(form)).toEqual([]);
-    const bad: StoreForm = {
-      ...form,
-      storefrontUrl: '',
-      accountPaths: { ...form.accountPaths, resetPassword: 'x?y' },
-    };
-    expect(validateStoreForm(bad)).toEqual(
-      expect.arrayContaining([
-        { path: 'customerAccountsMode', code: 'storefront_url_required' },
-        { path: 'accountPaths.resetPassword', code: 'invalid_path' },
-      ])
-    );
+    expect(validateStoreForm({ ...form, storefrontUrl: '' })).toEqual([
+      { path: 'customerAccountsMode', code: 'storefront_url_required' },
+    ]);
   });
 
   it('keeps the session lifetime of the loaded settings', () => {
@@ -181,7 +174,6 @@ describe('store form', () => {
       timezone: '',
       markets: [],
       customerAccountsMode: 'GUEST_ONLY',
-      accountPaths: { verifyEmail: '/a', resetPassword: '/b', confirmEmail: '/c' },
     };
     expect(validateStoreForm(form)).toEqual([
       { path: 'storeName', code: 'required' },

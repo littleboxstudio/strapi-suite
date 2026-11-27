@@ -361,8 +361,7 @@ Migration (bootstrap, idempotent):
 - Customers list: a Blocked badge beside the name, and a filter by account type and blocked.
 - Settings → General → "Customer accounts":
   - a three-way choice of mode;
-  - the storefront paths used in the e-mail links, with defaults `/account/verify-email`,
-    `/account/reset-password` and `/account/confirm-email`;
+  - a hint that the e-mail links are written in the templates (no path settings);
   - a warning when the pepper or the encryption key source is missing and the mode is not
     `GUEST_ONLY`.
   Saving a mode other than `GUEST_ONLY` without `storefrontUrl` is refused.
@@ -374,16 +373,18 @@ existing style:
 
 | Type | To | Variables (besides store / customer basics) |
 |---|---|---|
-| `ACCOUNT_VERIFICATION` | the account e-mail | `verificationUrl`, `expiresInHours` |
-| `PASSWORD_RESET` | the account e-mail | `resetUrl`, `expiresInMinutes` |
+| `ACCOUNT_VERIFICATION` | the account e-mail | `token`, `expiresInHours` |
+| `PASSWORD_RESET` | the account e-mail | `token`, `expiresInMinutes` |
 | `PASSWORD_CHANGED` | the account e-mail | `changedAt` |
-| `EMAIL_CHANGE_VERIFICATION` | the new e-mail | `confirmationUrl`, `newEmail`, `expiresInHours` |
+| `EMAIL_CHANGE_VERIFICATION` | the new e-mail | `token`, `newEmail`, `expiresInHours` |
 | `EMAIL_CHANGED` | the old e-mail | `newEmail` (masked), `changedAt` |
-| `REGISTRATION_ATTEMPT` | the account e-mail | `loginUrl`, `resetUrl` (start of a reset is the frontend's) |
+| `REGISTRATION_ATTEMPT` | the account e-mail | none: the links are `{{store.url}}` and its reset page |
 
-Every link is `storefrontUrl` + the configured path + `?token=<raw token>`. The link never
-points at Strapi. The variable holding the full link and the path setting are what the owner
-asked for: the path lives in the settings and the template uses the variable. These e-mails go
+The links are written in the templates, so the owner edits the storefront path there: the
+defaults are `{{store.url}}/account/verify-email?token={{token}}`, `/account/reset-password` and
+`/account/confirm-email` (owner's ruling, 2026-11-27: the paths are not backend settings).
+`store.url` has no trailing slash and `token` is URL-encoded. The link never points at Strapi.
+Sending still requires `storefrontUrl`. These e-mails go
 out immediately, not through the order notification events. They are never stored with the raw
 token.
 

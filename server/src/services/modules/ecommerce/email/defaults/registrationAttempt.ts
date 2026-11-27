@@ -1,4 +1,4 @@
-import { button, greeting, heading, layout, note, paragraph } from './layout';
+import { linkButton, greeting, heading, layout, note, paragraph } from './layout';
 
 export const en = {
   subject: 'Someone tried to register with your e-mail address - {{store.name}}',
@@ -10,9 +10,9 @@ export const en = {
       paragraph(
         'Someone tried to create an account at {{store.name}} with this e-mail address, but an account already exists. You can sign in, or reset your password if you forgot it.'
       ),
-      button('loginUrl', 'Go to the store'),
+      linkButton('{{store.url}}', 'Go to the store'),
       paragraph('Forgot your password? You can choose a new one on the reset page.'),
-      button('resetUrl', 'Reset password'),
+      linkButton('{{store.url}}/account/reset-password', 'Reset password'),
       note('If this was not you, contact the store. No changes were made to your account.'),
     ].join('\n'),
     'en'
@@ -29,9 +29,9 @@ export const pt = {
       paragraph(
         'Alguém tentou criar uma conta em {{store.name}} com este email, mas já existe uma conta. Pode iniciar sessão ou repor a palavra-passe se se esqueceu dela.'
       ),
-      button('loginUrl', 'Ir para a loja'),
+      linkButton('{{store.url}}', 'Ir para a loja'),
       paragraph('Esqueceu-se da palavra-passe? Pode escolher uma nova na página de reposição.'),
-      button('resetUrl', 'Repor palavra-passe'),
+      linkButton('{{store.url}}/account/reset-password', 'Repor palavra-passe'),
       note('Se não fez este pedido, contacte a loja. Não foi feita nenhuma alteração à sua conta.'),
     ].join('\n'),
     'pt'

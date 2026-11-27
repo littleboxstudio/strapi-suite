@@ -29,17 +29,23 @@ export const paragraph = (text: string): string => `<p style="margin:0 0 16px;${
 
 export const note = (text: string): string => `<p style="margin:0 0 16px;${MUTED}">${text}</p>`;
 
+const buttonTable = (href: string, label: string): string =>
+  `<table role="presentation" class="ltb-btn" border="0" cellpadding="0" cellspacing="0" style="margin:8px 0 24px">
+  <tr>
+    <td align="center" bgcolor="{{store.brandColor}}" style="border-radius:6px;background-color:{{store.brandColor}}">
+      <a href="${href}" target="_blank" style="display:inline-block;padding:14px 28px;${FONT};font-size:16px;line-height:20px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:6px">${label}</a>
+    </td>
+  </tr>
+</table>`;
+
 /** Brand-coloured call-to-action, shown only when `linkPath` has a value. */
 export const button = (linkPath: string, label: string): string =>
   `{{#if ${linkPath}}}
-<table role="presentation" class="ltb-btn" border="0" cellpadding="0" cellspacing="0" style="margin:8px 0 24px">
-  <tr>
-    <td align="center" bgcolor="{{store.brandColor}}" style="border-radius:6px;background-color:{{store.brandColor}}">
-      <a href="{{${linkPath}}}" target="_blank" style="display:inline-block;padding:14px 28px;${FONT};font-size:16px;line-height:20px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:6px">${label}</a>
-    </td>
-  </tr>
-</table>
+${buttonTable(`{{${linkPath}}}`, label)}
 {{/if}}`;
+
+/** Brand-coloured call-to-action to a storefront page: `href` is template text, e.g. `{{store.url}}/account?token={{token}}`. */
+export const linkButton = (href: string, label: string): string => buttonTable(href, label);
 
 /** Highlighted box (payment instructions, credit code…). */
 export const callout = (content: string): string =>

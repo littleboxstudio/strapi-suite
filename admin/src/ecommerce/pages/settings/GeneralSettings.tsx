@@ -37,7 +37,6 @@ import {
   type StoreForm,
 } from '../../utils/settingsForm';
 import type {
-  AccountPaths,
   AccountsReadiness,
   CustomerAccountsMode,
   SettingsFieldError,
@@ -46,26 +45,18 @@ import type {
 
 type TextField = Exclude<
   keyof StoreForm,
-  'markets' | 'timezone' | 'customerAccountsMode' | 'accountPaths' | 'checkoutSessionTtlHours'
+  'markets' | 'timezone' | 'customerAccountsMode' | 'checkoutSessionTtlHours'
 >;
 
 const ACCOUNT_MODES: CustomerAccountsMode[] = ['GUEST_ONLY', 'REGISTERED_ONLY', 'BOTH'];
-const ACCOUNT_PATH_FIELDS: (keyof AccountPaths)[] = ['verifyEmail', 'resetPassword', 'confirmEmail'];
 
-/** First error code per field (`markets.2` → `markets`; `accountPaths.*` keep their key). */
+/** First error code per field (`markets.2` → `markets`). */
 type ErrorMap = Partial<Record<string, string>>;
-
-/** The path inputs are 38px tall, like the other single-line fields of the module. */
-const PathInput = styled.div`
-  input {
-    height: 38px;
-  }
-`;
 
 const toErrorMap = (errors: SettingsFieldError[]): ErrorMap => {
   const map: ErrorMap = {};
   errors.forEach(({ path, code }) => {
-    const field = path.startsWith('accountPaths.') ? path : path.split('.')[0];
+    const field = path.split('.')[0];
     if (!(field in map)) map[field] = code;
   });
   return map;
@@ -190,17 +181,6 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
     });
   };
 
-  const updatePath = (key: keyof AccountPaths, value: string) => {
-    setForm((f) => (f ? { ...f, accountPaths: { ...f.accountPaths, [key]: value } } : f));
-    setErrors((map) => {
-      const id = `accountPaths.${key}`;
-      if (!(id in map)) return map;
-      const next = { ...map };
-      delete next[id];
-      return next;
-    });
-  };
-
   const errorText = (field: string) =>
     errors[field]
       ? t(`ecommerce.settings.errors.${errors[field]}`, { methods: marketUsers.join(', ') })
@@ -298,6 +278,10 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
       )}
 
       <ModuleStatusSection readOnly={readOnly} />
+
+      <Section>
+        <StoreLogoField logo={logo} readOnly={readOnly} onChange={(saved) => setLogo(saved.logo)} />
+      </Section>
 
       <Section title={t('ecommerce.settings.store.title')}>
         <Grid.Root gap={5}>
@@ -408,33 +392,13 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
             </Box>
           )}
 
-          <Grid.Root gap={5}>
-            {ACCOUNT_PATH_FIELDS.map((key) => {
-              const id = `accountPaths.${key}`;
-              return (
-                <Grid.Item key={key} col={4} s={12} direction="column" alignItems="stretch">
-                  <Field.Root name={id} error={errorText(id)} hint={t(`ecommerce.settings.accounts.paths.${key}.hint`)}>
-                    <Field.Label>{t(`ecommerce.settings.accounts.paths.${key}`)}</Field.Label>
-                    <PathInput>
-                      <TextInput
-                        value={form.accountPaths[key]}
-                        placeholder={`/account/${key === 'verifyEmail' ? 'verify-email' : key === 'resetPassword' ? 'reset-password' : 'confirm-email'}`}
-                        disabled={readOnly}
-                        onChange={(e: any) => updatePath(key, e.target.value)}
-                      />
-                    </PathInput>
-                    <Field.Error />
-                    <Field.Hint />
-                  </Field.Root>
-                </Grid.Item>
-              );
+          <Typography variant="pi" textColor="neutral600">
+            {t('ecommerce.settings.accounts.linksHint', {
+              url: <code key="url">{'{{store.url}}'}</code>,
+              token: <code key="token">{'{{token}}'}</code>,
             })}
-          </Grid.Root>
+          </Typography>
         </Flex>
-      </Section>
-
-      <Section>
-        <StoreLogoField logo={logo} readOnly={readOnly} onChange={(saved) => setLogo(saved.logo)} />
       </Section>
 
       <Section title={t('ecommerce.settings.markets.title')}>
