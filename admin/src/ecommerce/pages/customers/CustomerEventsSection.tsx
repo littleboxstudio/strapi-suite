@@ -60,7 +60,7 @@ type Props = {
 
 /** The customer event log: last section of the record, 50 per page, newest first. */
 const CustomerEventsSection = ({ customerId, refreshKey = 0 }: Props) => {
-  const { formatMessage, formatDate } = useIntl();
+  const { formatMessage, formatDate, locale } = useIntl();
   const t = (id: string, values?: Record<string, any>) =>
     formatMessage({ id: getTranslation(id) }, values);
 
@@ -137,6 +137,11 @@ const CustomerEventsSection = ({ customerId, refreshKey = 0 }: Props) => {
     return e.actor.name ? `${kind}: ${e.actor.name}` : kind;
   };
 
+  /** The filter's event types, alphabetical by their label in the admin's language. */
+  const sortedTypes = [...CUSTOMER_EVENT_TYPES]
+    .map((key) => ({ key, label: t(`ecommerce.customers.events.type.${key}`) }))
+    .sort((a, b) => a.label.localeCompare(b.label, locale, { sensitivity: 'base' }));
+
   const noFilters = search === '' && searchTerm === '' && type === '';
   /** Search and filter only once there is something to search: hidden while the log is empty. */
   const showControls = !noFilters || items.length > 0;
@@ -182,9 +187,9 @@ const CustomerEventsSection = ({ customerId, refreshKey = 0 }: Props) => {
                 <SingleSelectOption value="all">
                   {t('ecommerce.customers.events.filter.all')}
                 </SingleSelectOption>
-                {CUSTOMER_EVENT_TYPES.map((key) => (
+                {sortedTypes.map(({ key, label }) => (
                   <SingleSelectOption key={key} value={key}>
-                    {t(`ecommerce.customers.events.type.${key}`)}
+                    {label}
                   </SingleSelectOption>
                 ))}
               </SingleSelect>
