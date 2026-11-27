@@ -51,6 +51,7 @@ import EcommerceCollectionSchema from './modules/ecommerce/collection';
 import EcommerceCollectionTranslationSchema from './modules/ecommerce/collection-translation';
 import EcommerceCollectionProductSchema from './modules/ecommerce/collection-product';
 import ImageFieldFileSchema from './modules/image-field-file';
+import DuplicateRunSchema from './modules/duplicate/run';
 
 export default {
   "ltb-st-app-setting": SettingsAppSchema,
@@ -105,5 +106,6 @@ export default {
   "ltb-st-module-ecommerce-collection": EcommerceCollectionSchema,
   "ltb-st-module-ecommerce-collection-translation": EcommerceCollectionTranslationSchema,
   "ltb-st-module-ecommerce-collection-product": EcommerceCollectionProductSchema,
-  "ltb-st-module-image-field-file": ImageFieldFileSchema
+  "ltb-st-module-image-field-file": ImageFieldFileSchema,
+  "ltb-st-module-duplicate-run": DuplicateRunSchema
 };

@@ -17,6 +17,7 @@ import { migrateCustomerAccounts, fillGuestHashes } from './services/modules/eco
 import { subscribeNotifications } from './services/modules/ecommerce/notifications';
 import { subscribeStripeSessionRetirement } from './services/modules/ecommerce/stripePayments';
 import { startRetentionSweep } from './services/modules/ecommerce/retentionSweep';
+import { bootDuplicate } from './services/modules/duplicate/boot';
 
 const bootstrap = async ({ strapi }: { strapi: Core.Strapi }) => {
   const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
@@ -128,6 +129,8 @@ const bootstrap = async ({ strapi }: { strapi: Core.Strapi }) => {
   }
 
   await registerEcommercePermissions(strapi);
+  // Duplicate content: its permission, and runs a stopped process left RUNNING become INTERRUPTED.
+  await bootDuplicate(strapi);
 
   try {
     await migrateOrderEditingData(strapi);

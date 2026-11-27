@@ -25,6 +25,7 @@ import EcommerceStorefrontAccountController from './modules/ecommerce/storefront
 import EcommerceOrganizationController from './modules/ecommerce/organization';
 import EcommerceCollectionController from './modules/ecommerce/collections';
 import ImageFieldModuleController from './modules/image-field';
+import DuplicateController from './modules/duplicate';
 
 export default {
   SettingAppController,
@@ -54,4 +55,5 @@ export default {
   EcommerceOrganizationController,
   EcommerceCollectionController,
   ImageFieldModuleController,
+  DuplicateController,
 };

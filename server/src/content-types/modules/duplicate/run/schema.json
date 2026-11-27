@@ -1,0 +1,76 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_duplicate_runs",
+  "info": {
+    "singularName": "ltb-st-module-duplicate-run",
+    "pluralName": "ltb-st-module-duplicate-runs",
+    "displayName": "Littlebox Strapi Suite - Duplicate Run",
+    "description": "Model for managing Littlebox Strapi Suite content duplication runs"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "status": {
+      "type": "enumeration",
+      "enum": [
+        "RUNNING",
+        "SUCCESS",
+        "FAILED",
+        "INTERRUPTED"
+      ],
+      "default": "RUNNING"
+    },
+    "sourceLocale": {
+      "type": "string"
+    },
+    "targetLocale": {
+      "type": "string"
+    },
+    "options": {
+      "type": "json"
+    },
+    "startedAt": {
+      "type": "datetime",
+      "required": true
+    },
+    "finishedAt": {
+      "type": "datetime"
+    },
+    "userId": {
+      "type": "string"
+    },
+    "userName": {
+      "type": "string"
+    },
+    "progress": {
+      "type": "json"
+    },
+    "counts": {
+      "type": "json"
+    },
+    "failures": {
+      "type": "json"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  },
+  "indexes": [
+    {
+      "name": "duplicate_run_started",
+      "columns": [
+        "started_at"
+      ]
+    }
+  ]
+}

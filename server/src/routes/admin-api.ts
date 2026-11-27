@@ -9,6 +9,7 @@ import ecommercePromotionRoutes from './ecommerce/admin-promotions';
 import ecommerceOrganizationRoutes from './ecommerce/admin-organization';
 import ecommerceCollectionRoutes from './ecommerce/admin-collections';
 import imageFieldRoutes from './image-field/admin-image-field';
+import duplicateRoutes from './duplicate/admin-duplicate';
 
 export default [
   {
@@ -238,4 +239,5 @@ export default [
   ...ecommerceOrganizationRoutes,
   ...ecommerceCollectionRoutes,
   ...imageFieldRoutes,
+  ...duplicateRoutes,
 ];

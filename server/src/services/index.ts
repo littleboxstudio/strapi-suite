@@ -43,6 +43,8 @@ import EcommerceCustomerEventService from './modules/ecommerce/customerEvents';
 import EcommerceAccountMailer from './modules/ecommerce/accountMailer';
 import EcommerceAccountService from './modules/ecommerce/accounts';
 import ImageFieldModuleService from './modules/image-field';
+import DuplicateRunService from './modules/duplicate/runs';
+import DuplicateService from './modules/duplicate/runner';
 
 export default {
   SettingAppService,
@@ -90,4 +92,6 @@ export default {
   EcommerceAccountMailer,
   EcommerceAccountService,
   ImageFieldModuleService,
+  DuplicateRunService,
+  DuplicateService,
 };

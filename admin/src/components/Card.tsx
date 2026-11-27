@@ -36,7 +36,8 @@ const BoxBadges = styled(Box)`
   }
 `;
 
-const Card = ({ title, subtitle, badge, active, children }: any) => {
+/** `showStatus={false}` hides the enabled / disabled badge (a card without an on / off state). */
+const Card = ({ title, subtitle, badge, active, showStatus = true, children }: any) => {
   const { formatMessage } = useIntl();
 
   return (
@@ -75,7 +76,7 @@ const Card = ({ title, subtitle, badge, active, children }: any) => {
               >
                 {badge}
               </CardBadge>
-              {active && (
+              {showStatus && active && (
                 <CardBadge
                   style={{
                     marginLeft: '8px',
@@ -85,7 +86,7 @@ const Card = ({ title, subtitle, badge, active, children }: any) => {
                   {formatMessage({ id: getTranslation('app.enabled') })}
                 </CardBadge>
               )}
-              {!active && (
+              {showStatus && !active && (
                 <CardBadge
                   style={{
                     marginLeft: '8px',

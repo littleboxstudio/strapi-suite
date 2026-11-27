@@ -8,11 +8,21 @@ import HeaderLayout from '../components/HeaderLayout';
 import Card from '../components/Card';
 import BoxGrid from '../components/BoxGrid';
 import { useSettings } from '../contexts/settings';
+import { useRBAC } from '@strapi/strapi/admin';
+import { DuplicateCard } from '../duplicate/DuplicateCard';
+import { DUPLICATE_RUN_ACTION } from '../duplicate/utils';
+import { rbacKey } from '../ecommerce/utils/rbac';
+
+// Stable reference: useRBAC re-checks whenever the permissions array changes.
+const DUPLICATE_PERMISSIONS = [{ action: DUPLICATE_RUN_ACTION, subject: null }];
+const DUPLICATE_KEY = rbacKey(DUPLICATE_RUN_ACTION);
 
 const HomePage = () => {
   const { formatMessage } = useIntl();
   const navigate = useNavigate();
   const settings = useSettings();
+  const { isLoading: permissionsLoading, allowedActions } = useRBAC(DUPLICATE_PERMISSIONS);
+  const canDuplicate = !permissionsLoading && !!allowedActions[DUPLICATE_KEY];
 
   return (
     <Main
@@ -187,6 +197,10 @@ const HomePage = () => {
             {formatMessage({ id: getTranslation('app.manage') })}
           </Button>
         </Card>
+
+        {canDuplicate && (
+          <DuplicateCard ecommerceActive={!!settings.provide(config.uuid.modules.ecommerce).active} />
+        )}
       </BoxGrid>
     </Main>
   );

@@ -76,6 +76,7 @@ export interface LtbConfigs {
       imageField: {
         file: UID.ContentType;
       },
+      duplicateRun: UID.ContentType;
     },
     customFields: {
       slug: string;
@@ -149,6 +150,7 @@ export default {
         imageField: {
           file: `plugin::${PLUGIN_ID}.ltb-st-module-image-field-file`,
         },
+        duplicateRun: `plugin::${PLUGIN_ID}.ltb-st-module-duplicate-run`,
       },
       customFields: {
         slug: `plugin::${PLUGIN_ID}.ltbslug`,
