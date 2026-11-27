@@ -195,11 +195,11 @@ const CustomerEventsSection = ({ customerId }: Props) => {
         )}
 
         {!loading && !error && items.length === 0 && (
-          <Flex justifyContent="center" padding={6}>
+          <Box padding={4} background="neutral100" hasRadius>
             <Typography variant="omega" textColor="neutral600">
               {noFilters ? t('ecommerce.customers.events.empty') : t('ecommerce.customers.noResults')}
             </Typography>
-          </Flex>
+          </Box>
         )}
 
         {items.length > 0 && (
