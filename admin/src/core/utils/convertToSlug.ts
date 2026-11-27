@@ -40,8 +40,12 @@ class SpecialCharsHandler extends AbstractSlugHandler {
 }
 
 class TrimHyphensHandler extends AbstractSlugHandler {
+  constructor(private keepTrailingHyphen = false) {
+    super();
+  }
+
   protected process(text: string): string {
-    return text.replace(/^-+|-+$/g, '');
+    return text.replace(this.keepTrailingHyphen ? /^-+/g : /^-+|-+$/g, '');
   }
 }
 
@@ -68,12 +72,21 @@ class LengthLimitHandler extends AbstractSlugHandler {
   }
 }
 
-const convertToSlug = (text: string, maxLength: number = 100): string => {
+/**
+ * Turns a text into a URL slug. `keepTrailingHyphen` is for a slug being typed: the hyphen of a
+ * space or "-" just typed stays at the end, so the next word can follow; clean it up with a call
+ * without the option once the editor is done (blur).
+ */
+const convertToSlug = (
+  text: string,
+  maxLength: number = 100,
+  { keepTrailingHyphen = false }: { keepTrailingHyphen?: boolean } = {}
+): string => {
   if (!text) return "";
   const chain = new LowercaseHandler();
   const accentHandler = new AccentRemovalHandler();
   const specialCharsHandler = new SpecialCharsHandler();
-  const trimHandler = new TrimHyphensHandler();
+  const trimHandler = new TrimHyphensHandler(keepTrailingHyphen);
   const multipleHyphensHandler = new MultipleHyphensHandler();
   const lengthHandler = new LengthLimitHandler(maxLength);
   chain

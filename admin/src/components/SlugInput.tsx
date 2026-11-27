@@ -93,8 +93,9 @@ const Input = React.forwardRef<HTMLButtonElement, Props>(
       setAppSettings(settings);
     }
 
-    function createChangeEvent(text: string) {
-      const convertedText = convertToSlug(text);
+    /** `typing`: keeps a trailing hyphen so a space or "-" can be typed between words. */
+    function createChangeEvent(text: string, typing = false) {
+      const convertedText = convertToSlug(text, undefined, { keepTrailingHyphen: typing });
       const mockChangeEvent = {
         target: {
           name: name,
@@ -232,7 +233,8 @@ const Input = React.forwardRef<HTMLButtonElement, Props>(
                       })}
                       value={value}
                       placeholder={placeholder}
-                      onChange={(e: any) => createChangeEvent(e.target.value)}
+                      onChange={(e: any) => createChangeEvent(e.target.value, true)}
+                      onBlur={(e: any) => createChangeEvent(e.target.value)}
                     />
                     <Field.Hint />
                     <Field.Error />
