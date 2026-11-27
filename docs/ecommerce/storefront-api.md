@@ -4,8 +4,8 @@ The e-commerce module exposes a storefront API for **one** consumer: the storefr
 backend-for-frontend (BFF), a server you run next to the shop's website. This document is the
 contract between that BFF and Strapi.
 
-Base path: `/api/littlebox-strapi-suite/ecommerce/storefront`. Every route answers `403` while
-the e-commerce module is inactive.
+Base path: `/api/littlebox-strapi-suite/ecommerce/storefront`. Every route answers `404 Not Found`
+while the e-commerce module is off (checked before the BFF token, see `ecommerceModuleGate`).
 
 ## 1. Server to server only
 
@@ -398,7 +398,8 @@ errors? } } }`. `errors` is a list of `{ path, code, detail? }`.
 | 400 | `PICKUP_POINT_REQUIRED`, `PICKUP_POINT_INVALID` | DPD Pickup order: see *Pickup at checkout* (section 5) |
 | 400 | `PROMOTION_CODE_INVALID` | an entered code cannot be used: `errors[i] = { path: 'promotionCodes.<i>', detail: <public status> }` |
 | 401 | `SESSION_INVALID` | missing, unknown or expired session |
-| 403 | — | wrong BFF token, or the module is inactive |
+| 403 | — | wrong BFF token |
+| 404 | — | the e-commerce module is off (every route) |
 | 404 | `ORDER_NOT_FOUND` | order of another session or unknown |
 | 404 | `NOT_FOUND` | unknown product; unknown or inactive category (or under an inactive ancestor) or collection, also as a `/products` filter |
 | 409 | `TOTAL_CHANGED` | the total changed: re-quote (`detail` = new total) |

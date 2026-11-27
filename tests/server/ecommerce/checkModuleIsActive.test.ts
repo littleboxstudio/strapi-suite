@@ -8,20 +8,22 @@ function setup(url: string, value: string | null) {
     db: { query: vi.fn(() => ({ findOne })) },
   };
   const [path] = url.split('?');
-  const ctx = { request: { url, path }, forbidden: vi.fn() };
+  const ctx: any = { request: { url, path }, forbidden: vi.fn() };
   const next = vi.fn();
   return { findOne, ctx, next, middleware: checkModuleIsActive({}, { strapi }) };
 }
 
 describe('checkModuleIsActive', () => {
-  it('looks up the ecommerce module and forbids when inactive', async () => {
+  it('looks up the ecommerce module and answers 404 when inactive', async () => {
     const { findOne, ctx, next, middleware } = setup(
       '/littlebox-strapi-suite/admin/ecommerce/products',
       'false'
     );
     await middleware(ctx, next);
     expect(findOne).toHaveBeenCalledWith({ where: { module: 'ecommerce', property: 'active' } });
-    expect(ctx.forbidden).toHaveBeenCalledWith('Module is not active');
+    expect(ctx.status).toBe(404);
+    expect(ctx.body.error).toMatchObject({ status: 404, name: 'NotFoundError' });
+    expect(ctx.forbidden).not.toHaveBeenCalled();
     expect(next).not.toHaveBeenCalled();
   });
 
@@ -66,8 +68,15 @@ describe('checkModuleIsActive', () => {
     expect(findOne).toHaveBeenCalledWith({ where: { module: 'slug', property: 'active' } });
   });
 
-  it('forbids ecommerce when its setting row is missing', async () => {
+  it('answers 404 for ecommerce when its setting row is missing', async () => {
     const { ctx, next, middleware } = setup('/littlebox-strapi-suite/admin/ecommerce/products', null);
+    await middleware(ctx, next);
+    expect(ctx.status).toBe(404);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('keeps answering 403 for the other modules when inactive', async () => {
+    const { ctx, next, middleware } = setup('/littlebox-strapi-suite/modules/menus', 'false');
     await middleware(ctx, next);
     expect(ctx.forbidden).toHaveBeenCalledWith('Module is not active');
     expect(next).not.toHaveBeenCalled();
