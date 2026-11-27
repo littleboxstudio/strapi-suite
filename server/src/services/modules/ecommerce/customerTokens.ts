@@ -11,6 +11,11 @@ export const TOKEN_TTL_MS: Record<TokenPurpose, number> = {
   CHANGE_EMAIL: 24 * HOUR_MS,
 };
 
+/** Hard cap of rows deleted by one purge. */
+export const TOKEN_PURGE_BATCH_MAX = 100;
+/** Expired tokens are kept this long after expiry before the purge deletes them. */
+export const TOKEN_PURGE_GRACE_MS = HOUR_MS;
+
 export const hashToken = (raw: string): string => createHash('sha256').update(raw).digest('hex');
 
 const count = (r: unknown): number =>
@@ -61,6 +66,31 @@ const EcommerceCustomerTokenService = ({ strapi }: { strapi: Core.Strapi }) => {
       const row = await query().findOne({ where: { tokenHash }, populate: { customer: true } });
       if (!row?.customer) return null;
       return { customerId: row.customer.id, email: String(row.email ?? '') };
+    },
+
+    /**
+     * Data retention: deletes up to `limit` (≤ 100) tokens expired for more than
+     * `TOKEN_PURGE_GRACE_MS`, used or not (they hold an e-mail address and serve no purpose
+     * once expired). Returns the rows deleted.
+     */
+    async purgeExpired(limit = TOKEN_PURGE_BATCH_MAX): Promise<number> {
+      const take = Number.isFinite(limit)
+        ? Math.max(0, Math.min(TOKEN_PURGE_BATCH_MAX, Math.floor(limit)))
+        : 0;
+      if (take === 0) return 0;
+      const cutoff = new Date(Date.now() - TOKEN_PURGE_GRACE_MS);
+      const rows: { id: number }[] = await query().findMany({
+        where: { expiresAt: { $lt: cutoff } },
+        select: ['id'],
+        orderBy: [{ expiresAt: 'asc' }, { id: 'asc' }],
+        limit: take,
+      });
+      if (rows.length === 0) return 0;
+      return count(
+        await query().deleteMany({
+          where: { id: { $in: rows.map((r) => r.id) }, expiresAt: { $lt: cutoff } },
+        })
+      );
     },
   };
 };

@@ -16,6 +16,7 @@ import { migratePromotionEligibility } from './services/modules/ecommerce/promot
 import { migrateCustomerAccounts, fillGuestHashes } from './services/modules/ecommerce/customerAccountsMigration';
 import { subscribeNotifications } from './services/modules/ecommerce/notifications';
 import { subscribeStripeSessionRetirement } from './services/modules/ecommerce/stripePayments';
+import { startRetentionSweep } from './services/modules/ecommerce/retentionSweep';
 
 const bootstrap = async ({ strapi }: { strapi: Core.Strapi }) => {
   const config: LtbConfigs = strapi.config.get(`plugin::${PLUGIN_ID}`);
@@ -152,6 +153,8 @@ const bootstrap = async ({ strapi }: { strapi: Core.Strapi }) => {
   subscribeNotifications(strapi);
   // Outdated Stripe payment links are retired whenever the amount due changes.
   subscribeStripeSessionRetirement(strapi);
+  // Expired sessions and link tokens are deleted daily, even without storefront traffic.
+  startRetentionSweep(strapi);
 
   try {
     await strapi.db.query(config.uuid.modules.template).createMany({

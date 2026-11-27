@@ -1,7 +1,8 @@
 import type { Core } from '@strapi/strapi';
+import { stopRetentionSweep } from './services/modules/ecommerce/retentionSweep';
 
 const destroy = ({ strapi }: { strapi: Core.Strapi }) => {
-  // destroy phase
+  stopRetentionSweep();
 };
 
 export default destroy;

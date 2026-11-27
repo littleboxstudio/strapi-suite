@@ -123,7 +123,7 @@ describe('EcommerceStorefrontSessionService', () => {
       expect(await svc(c).purgeExpired()).toBe(0);
     });
 
-    it('scrubs and marks EXPIRED a session with an order, leaving the order untouched', async () => {
+    it('deletes an expired session with an order, leaving the order row untouched', async () => {
       const c = setupCommerce();
       const s = await addExpired(c, 1);
       const orderId = await createOrder(c);
@@ -131,17 +131,22 @@ describe('EcommerceStorefrontSessionService', () => {
       order.checkoutSession = s.id;
       const before = JSON.stringify(c.tables[UIDS.order]);
       expect(await svc(c).purgeExpired()).toBe(1);
-      const row = sessions(c).find((x) => x.id === s.id);
-      expect(row).toMatchObject({
-        status: 'EXPIRED',
-        cart: emptyCart(),
-        emailVerification: {},
-        verifiedEmail: null,
-        verificationAttempts: 0,
-      });
+      expect(sessions(c).find((x) => x.id === s.id)).toBeUndefined();
+      // The fake DB has no join table: in a real one the link rows go by ON DELETE CASCADE.
       expect(JSON.stringify(c.tables[UIDS.order])).toBe(before);
-      // Already handled: not taken again.
       expect(await svc(c).purgeExpired()).toBe(0);
+    });
+
+    it('deletes EXPIRED sessions (handed over to a login) once the grace has passed', async () => {
+      const c = setupCommerce();
+      const { token } = await svc(c).open(null);
+      const id = sessions(c)[0].id;
+      await svc(c).expireAndScrub(id);
+      expect(await svc(c).resolve(token)).toBeNull();
+      expect(await svc(c).purgeExpired()).toBe(0);
+      vi.setSystemTime(new Date(NOW.getTime() + HOUR + 1));
+      expect(await svc(c).purgeExpired()).toBe(1);
+      expect(sessions(c)).toHaveLength(0);
     });
 
     it('leaves sessions expired less than an hour ago (grace period)', async () => {
@@ -247,12 +252,12 @@ describe('EcommerceStorefrontSessionService', () => {
       // Not taken by the purge inside the grace either.
       vi.setSystemTime(new Date(NOW.getTime() + 2 * HOUR - 1));
       expect(await svc(c).purgeExpired()).toBe(0);
-      // The order committed meanwhile: past the grace the purge keeps the row, EXPIRED.
+      // The order committed meanwhile: past the grace the purge deletes the row anyway.
       const orderId = await createOrder(c);
       c.tables[UIDS.order].find((o) => o.id === orderId).checkoutSession = id;
       vi.setSystemTime(new Date(NOW.getTime() + 2 * HOUR + 1));
       expect(await svc(c).purgeExpired()).toBe(1);
-      expect(sessions(c)[0]).toMatchObject({ id, status: 'EXPIRED' });
+      expect(sessions(c)).toHaveLength(0);
     });
 
     it('F4: without an order, the purge deletes it once the grace has passed', async () => {

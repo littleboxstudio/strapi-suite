@@ -160,17 +160,24 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
   const settings = () => strapi.plugin(PLUGIN_ID).service('EcommerceSettingsService');
 
   /**
-   * Retires expired ACTIVE sessions: those without orders are deleted; those with orders stay
-   * (the order keeps its relation) but are marked EXPIRED and scrubbed. Orders are only read
-   * through the relation, never changed (requirement 2.13). Writes are conditional on ACTIVE,
-   * so a concurrent purge or resolve is harmless. Returns the rows actually changed.
+   * Retires expired sessions. Past the grace (`deleteOrphans`, the default) every row is deleted,
+   * with or without orders: no order can still be committing for it, and the orders keep their
+   * own row (only the relation's link rows go, through the join table's ON DELETE CASCADE).
    *
-   * With `deleteOrphans: false` (resolve inside the purge grace) a session without orders is
-   * only scrubbed and left ACTIVE for the purge: an order being created in a transaction that
-   * has not committed yet is invisible here, and deleting the row would orphan it.
+   * With `deleteOrphans: false` (resolve inside the purge grace) nothing is deleted: an order
+   * being created in a transaction that has not committed yet is invisible here, and deleting
+   * the row would orphan it. A session without orders is only scrubbed and left ACTIVE; one with
+   * orders is scrubbed and marked EXPIRED. Orders are never changed (requirement 2.13). Writes
+   * are conditional, so a concurrent purge or resolve is harmless. Returns the rows changed.
    */
   const retire = async (ids: number[], { deleteOrphans = true } = {}): Promise<number> => {
     if (ids.length === 0) return 0;
+    if (deleteOrphans) {
+      const cutoff = new Date(Date.now() - PURGE_GRACE_MS);
+      return changed(
+        await sessionsQuery().deleteMany({ where: { id: { $in: ids }, expiresAt: { $lt: cutoff } } })
+      );
+    }
     const orders: { checkoutSession?: { id: number } | null }[] = await strapi.db
       .query(uids().order)
       .findMany({
@@ -184,16 +191,12 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
     const keep = ids.filter((id) => withOrders.has(id));
     const remove = ids.filter((id) => !withOrders.has(id));
     let count = 0;
-    if (remove.length > 0 && !deleteOrphans) {
+    if (remove.length > 0) {
       count += changed(
         await sessionsQuery().updateMany({
           where: { id: { $in: remove }, status: 'ACTIVE' },
           data: scrubbed(),
         })
-      );
-    } else if (remove.length > 0) {
-      count += changed(
-        await sessionsQuery().deleteMany({ where: { id: { $in: remove }, status: 'ACTIVE' } })
       );
     }
     if (keep.length > 0) {
@@ -241,8 +244,9 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
   };
 
   /**
-   * Data retention without a cron: retires up to `limit` (≤ 100) ACTIVE sessions expired for
-   * more than `PURGE_GRACE_MS`. Returns the rows actually changed.
+   * Data retention: deletes up to `limit` (≤ 100) sessions (ACTIVE or EXPIRED) expired for more
+   * than `PURGE_GRACE_MS`. Runs inline on `open` and from the periodic retention sweep.
+   * Returns the rows actually deleted.
    */
   const purgeExpired = async (limit = PURGE_BATCH_MAX): Promise<number> => {
     const take = Number.isFinite(limit)
@@ -251,7 +255,7 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
     if (take === 0) return 0;
     const cutoff = new Date(Date.now() - PURGE_GRACE_MS);
     const expired: { id: number }[] = await sessionsQuery().findMany({
-      where: { status: 'ACTIVE', expiresAt: { $lt: cutoff } },
+      where: { status: { $in: ['ACTIVE', 'EXPIRED'] }, expiresAt: { $lt: cutoff } },
       select: ['id'],
       orderBy: [{ expiresAt: 'asc' }, { id: 'asc' }],
       limit: take,
@@ -312,7 +316,7 @@ const EcommerceStorefrontSessionService = ({ strapi }: { strapi: Core.Strapi }) 
 
   /**
    * Ends a checkout session that was handed over to a login: marked EXPIRED, personal data
-   * scrubbed. The row stays, because orders may point at it.
+   * scrubbed. The purge deletes the row once the grace has passed.
    */
   const expireAndScrub = async (sessionId: number): Promise<void> => {
     await sessionsQuery().update({

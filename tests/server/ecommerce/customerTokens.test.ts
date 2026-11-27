@@ -92,4 +92,27 @@ describe('EcommerceCustomerTokenService', () => {
     expect(JSON.stringify(rows())).not.toContain(t.raw);
     expect(rows()[0].tokenHash).toBe(createHash('sha256').update(t.raw).digest('hex'));
   });
+
+  describe('purgeExpired', () => {
+    it('deletes tokens expired for more than an hour, used or not, and keeps the rest', async () => {
+      const { svc, rows } = setup();
+      const a = await svc.issue(7, 'RESET_PASSWORD', 'a@x.pt'); // expires in 1h
+      await svc.issue(8, 'VERIFY_EMAIL', 'b@x.pt'); // expires in 24h
+      expect(await svc.consume(a.raw, 'RESET_PASSWORD')).not.toBeNull();
+      vi.setSystemTime(new Date(NOW.getTime() + 2 * HOUR));
+      expect(await svc.purgeExpired()).toBe(0);
+      vi.setSystemTime(new Date(NOW.getTime() + 2 * HOUR + 1));
+      expect(await svc.purgeExpired()).toBe(1);
+      expect(rows().map((r: any) => r.purpose)).toEqual(['VERIFY_EMAIL']);
+    });
+
+    it('takes at most 100 rows per call', async () => {
+      const { svc, rows } = setup();
+      for (let i = 0; i < 120; i++) await svc.issue(i % 2 ? 7 : 8, 'RESET_PASSWORD', 'a@x.pt');
+      vi.setSystemTime(new Date(NOW.getTime() + 3 * HOUR));
+      expect(await svc.purgeExpired(500)).toBe(100);
+      expect(await svc.purgeExpired()).toBe(20);
+      expect(rows()).toHaveLength(0);
+    });
+  });
 });
