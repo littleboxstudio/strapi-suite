@@ -20,6 +20,7 @@ import { StoreLogoField } from '../../components/settings/StoreLogoField';
 import { MarketsTable } from '../../components/settings/MarketsTable';
 import { ModuleStatusSection } from '../../components/settings/ModuleStatusSection';
 import { HeaderActions } from '../../components/HeaderActions';
+import { NOTICE_BACKGROUND, NOTICE_TEXT } from '../../components/orders/NoticeBar';
 import { getTranslation } from '../../../core/utils/getTranslation';
 import FetchStoreSettings from '../../usecases/settings/fetchStoreSettings';
 import FetchIntegrations from '../../usecases/settings/fetchIntegrations';
@@ -343,11 +344,10 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
       <Section title={t('ecommerce.settings.accounts.title')}>
         <Flex direction="column" alignItems="stretch" gap={5}>
           <Field.Root name="customerAccountsMode" error={errorText('customerAccountsMode')}>
-            <Field.Label>{t('ecommerce.settings.accounts.mode')}</Field.Label>
             <Radio.Group
               value={form.customerAccountsMode}
               disabled={readOnly}
-              aria-label={t('ecommerce.settings.accounts.mode')}
+              aria-label={t('ecommerce.settings.accounts.title')}
               onValueChange={(value: string) =>
                 update('customerAccountsMode', value as CustomerAccountsMode)
               }
@@ -360,6 +360,11 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
                 ))}
               </Flex>
             </Radio.Group>
+            <Box padding={3} marginTop={3} hasRadius style={{ background: NOTICE_BACKGROUND }}>
+              <Typography variant="omega" style={{ color: NOTICE_TEXT }}>
+                {t(`ecommerce.settings.accounts.mode.${form.customerAccountsMode}.description`)}
+              </Typography>
+            </Box>
             <Field.Error />
           </Field.Root>
 
@@ -392,12 +397,6 @@ const GeneralSettings = ({ readOnly }: { readOnly: boolean }) => {
             </Box>
           )}
 
-          <Typography variant="pi" textColor="neutral600">
-            {t('ecommerce.settings.accounts.linksHint', {
-              url: <code key="url">{'{{store.url}}'}</code>,
-              token: <code key="token">{'{{token}}'}</code>,
-            })}
-          </Typography>
         </Flex>
       </Section>
 
