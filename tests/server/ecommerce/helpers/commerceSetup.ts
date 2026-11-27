@@ -23,6 +23,7 @@ import EcommerceStorefrontCatalogService from '../../../../server/src/services/m
 import EcommerceStorefrontCheckoutService from '../../../../server/src/services/modules/ecommerce/storefrontCheckout';
 import EcommerceCollectionService from '../../../../server/src/services/modules/ecommerce/collections';
 import { createEventBus } from '../../../../server/src/services/modules/ecommerce/events';
+import EcommerceCustomerEventService from '../../../../server/src/services/modules/ecommerce/customerEvents';
 import { createFakeDb, type FakeRelations } from './fakeDb';
 
 const P = 'plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-';
@@ -62,6 +63,7 @@ export const UIDS = {
   collection: `${P}collection`,
   collectionTranslation: `${P}collection-translation`,
   collectionProduct: `${P}collection-product`,
+  customerEvent: `${P}customer-event`,
 };
 
 const RELATIONS: FakeRelations = {
@@ -201,6 +203,7 @@ export function setupCommerce(
   services.EcommerceStockService = EcommerceStockService({ strapi });
   services.EcommerceCollectionService = EcommerceCollectionService({ strapi });
   services.EcommerceCustomerService = EcommerceCustomerService({ strapi });
+  services.EcommerceCustomerEventService = EcommerceCustomerEventService({ strapi });
   services.EcommerceOrderHistoryService = EcommerceOrderHistoryService({ strapi });
   services.EcommerceShippingService = {
     /** No registered adapter: carrier shipments keep the default capabilities. */
@@ -317,6 +320,11 @@ const address = {
   country: 'PT',
 };
 
+/** Lets the fire-and-forget customer event writes land (microtasks only: fake timers safe). */
+export const drainEvents = async () => {
+  for (let i = 0; i < 20; i++) await Promise.resolve();
+};
+
 /** Total 4500: 2 × 2000 + 500 shipping. Customer `ana@example.pt`. */
 export const createOrder = async (c: Commerce, email = 'Ana@Example.pt') => {
   const order = await c.orders.create(
@@ -330,6 +338,7 @@ export const createOrder = async (c: Commerce, email = 'Ana@Example.pt') => {
     },
     { actor: 'user:1', source: 'admin' }
   );
+  await drainEvents();
   return order.id ?? order.order?.id;
 };
 

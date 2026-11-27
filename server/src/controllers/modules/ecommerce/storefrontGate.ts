@@ -2,6 +2,7 @@ import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID } from '../../../config';
 import {
   CLIENT_IP_HEADER,
+  CLIENT_USER_AGENT_HEADER,
   clientIpFrom,
   rateKeys,
   type RateLimiter,
@@ -26,7 +27,7 @@ import {
 
 export const SESSION_HEADER = 'x-checkout-session';
 export const CUSTOMER_TOKEN_HEADER = 'x-customer-token';
-export const CLIENT_USER_AGENT_HEADER = 'x-storefront-client-user-agent';
+export { CLIENT_USER_AGENT_HEADER };
 
 const MODES: readonly CustomerAccountsMode[] = ['GUEST_ONLY', 'REGISTERED_ONLY', 'BOTH'];
 

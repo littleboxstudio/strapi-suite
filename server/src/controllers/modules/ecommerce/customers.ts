@@ -38,6 +38,15 @@ const EcommerceCustomerController = ({ strapi }: { strapi: Core.Strapi }) => {
       });
     },
     get: (ctx: any) => run(ctx, (id) => customers().get(id)),
+    /** The customer event log: 50 per page, newest first; `search` and `type` narrow it. */
+    listEvents: (ctx: any) =>
+      run(ctx, (id) => {
+        const { page, search, type } = ctx.query || {};
+        return strapi
+          .plugin(PLUGIN_ID)
+          .service('EcommerceCustomerEventService')
+          .list(id, { page, search: str(search), type: str(type) });
+      }),
     update: (ctx: any) =>
       run(ctx, (id) => customers().update(id, ctx.request?.body ?? {}, actorOf(ctx))),
     block: (ctx: any) =>

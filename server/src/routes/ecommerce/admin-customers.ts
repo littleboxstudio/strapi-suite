@@ -25,5 +25,6 @@ export default [
   route('POST', '/:id/unblock', 'unblock', customersBlock),
   route('PUT', '/:id/password', 'setPassword', customersPassword),
   route('GET', '/:id/orders', 'listOrders', customersRead),
+  route('GET', '/:id/events', 'listEvents', customersRead),
   route('GET', '/:id/last-addresses', 'lastAddresses', ordersManage),
 ];

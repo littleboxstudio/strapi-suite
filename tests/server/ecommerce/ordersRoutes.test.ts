@@ -14,6 +14,7 @@ const customers: [string, string, string, string][] = [
   ['POST', `${C}/:id/unblock`, 'unblock', P.customersBlock],
   ['PUT', `${C}/:id/password`, 'setPassword', P.customersPassword],
   ['GET', `${C}/:id/orders`, 'listOrders', P.customersRead],
+  ['GET', `${C}/:id/events`, 'listEvents', P.customersRead],
   ['GET', `${C}/:id/last-addresses`, 'lastAddresses', P.ordersManage],
 ];
 const orders: [string, string, string, string][] = [

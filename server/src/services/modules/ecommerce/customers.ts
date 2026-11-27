@@ -12,6 +12,12 @@ import type { AuditEntry } from './audit';
 import { normalizeEmail } from './domain/email';
 import { findLocale, resolveLocale } from './locales';
 import { checkPasswordPolicy } from './domain/accounts/passwordPolicy';
+import {
+  actorFromString,
+  diffFields,
+  type CustomerEventDetails,
+  type CustomerEventType,
+} from './customerEvents';
 
 const AREA = 'customers';
 const PAGE_SIZE = 50;
@@ -104,6 +110,26 @@ const EcommerceCustomerService = ({ strapi }: { strapi: Core.Strapi }) => {
       if (name) names.set(Number(u.id), name);
     }
     return names;
+  };
+
+  /** Customer event log entry by an admin (or the system); never breaks the action. */
+  const event = (
+    customerId: number,
+    type: CustomerEventType,
+    actor: string | { userId: number } | undefined,
+    details?: CustomerEventDetails
+  ): void => {
+    try {
+      svc('EcommerceCustomerEventService').record(customerId, type, {
+        actor:
+          typeof actor === 'object' && actor !== null
+            ? { type: 'ADMIN', userId: actor.userId }
+            : actorFromString(actor as string | undefined),
+        details,
+      });
+    } catch (err) {
+      strapi.log?.error?.(`[ecommerce:customers] EVENT_FAILED ${err instanceof Error ? err.name : typeof err}`);
+    }
   };
 
   const accountFields = (c: any, names: Map<number, string>) => ({
@@ -327,6 +353,8 @@ const EcommerceCustomerService = ({ strapi }: { strapi: Core.Strapi }) => {
         });
       }
       if (changedFields.length) {
+        const changes = diffFields(current, { ...values, ...(locale ? { locale } : {}) }, changedFields);
+        if (changes.length) event(id, 'PROFILE_UPDATED', actor, { changes });
         await audit({
           area: AREA,
           action: 'customer.update',
@@ -356,6 +384,7 @@ const EcommerceCustomerService = ({ strapi }: { strapi: Core.Strapi }) => {
         data: { blocked: true, blockedAt: new Date(), blockedNote: note || null, blockedById: actor.userId },
       });
       await svc('EcommerceCustomerSessionService').revokeAll(id, 'BLOCKED');
+      event(id, 'BLOCKED', actor, { note: note || null });
       await audit({ area: AREA, action: 'customer.block', targetId: String(id), userId: `user:${actor.userId}` });
       return this.get(id);
     },
@@ -369,6 +398,7 @@ const EcommerceCustomerService = ({ strapi }: { strapi: Core.Strapi }) => {
         where: { id },
         data: { blocked: false, blockedAt: null, blockedNote: null, blockedById: null },
       });
+      event(id, 'UNBLOCKED', actor);
       await audit({ area: AREA, action: 'customer.unblock', targetId: String(id), userId: `user:${actor.userId}` });
       return this.get(id);
     },
@@ -393,6 +423,7 @@ const EcommerceCustomerService = ({ strapi }: { strapi: Core.Strapi }) => {
         data: { passwordHash: hash, passwordPepperVersion: pepperVersion, passwordChangedAt: new Date() },
       });
       await svc('EcommerceCustomerSessionService').revokeAll(id, 'ADMIN_PASSWORD');
+      event(id, 'PASSWORD_CHANGED', actor);
       await audit({ area: AREA, action: 'customer.password_set', targetId: String(id), userId: `user:${actor.userId}` });
       fire(() =>
         svc('EcommerceAccountMailer').sendPasswordChanged(String(current.email), current.locale ?? null, {

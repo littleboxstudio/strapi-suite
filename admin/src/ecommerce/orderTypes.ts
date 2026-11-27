@@ -128,6 +128,46 @@ export type CustomerInput = {
 
 export type CustomerOrderListParams = { page?: number; search?: string };
 
+export const CUSTOMER_EVENT_TYPES = [
+  'ACCOUNT_REGISTERED',
+  'EMAIL_VERIFIED',
+  'LOGIN',
+  'LOGIN_FAILED',
+  'LOGOUT',
+  'SESSION_REVOKED',
+  'ORDER_PLACED',
+  'PASSWORD_RESET_REQUESTED',
+  'PASSWORD_RESET',
+  'PASSWORD_CHANGED',
+  'PROFILE_UPDATED',
+  'EMAIL_CHANGE_REQUESTED',
+  'EMAIL_CHANGED',
+  'BLOCKED',
+  'UNBLOCKED',
+] as const;
+export type CustomerEventType = (typeof CUSTOMER_EVENT_TYPES)[number];
+
+/** One entry of the customer event log (server: customerEvents.ts). */
+export type CustomerEvent = {
+  id: number;
+  type: CustomerEventType;
+  createdAt: string | null;
+  actor: { type: 'CUSTOMER' | 'ADMIN' | 'SYSTEM'; id: number | null; name: string | null };
+  ip: string | null;
+  userAgent: string | null;
+  details: {
+    reason?: 'INVALID_PASSWORD' | 'EMAIL_NOT_VERIFIED' | 'BLOCKED' | 'NOT_REGISTERED';
+    scope?: 'ONE' | 'OTHERS';
+    orderId?: number;
+    reference?: number;
+    newEmail?: string;
+    note?: string | null;
+    changes?: { field: string; from: string | null; to: string | null }[];
+  };
+};
+
+export type CustomerEventListParams = { page?: number; search?: string; type?: CustomerEventType };
+
 export type CustomerOrderListItem = {
   id: number;
   reference: number;

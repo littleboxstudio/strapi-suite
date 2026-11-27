@@ -3,6 +3,7 @@ import type { GiftChoices } from './domain/promotions/giftChoices';
 import type { Core } from '@strapi/strapi';
 import { randomUUID } from 'crypto';
 import { galleryCover } from './domain/galleryImages';
+import { actorFromString } from './customerEvents';
 import { PLUGIN_ID, LtbConfigs } from '../../../config';
 import { EcommerceNotFoundError, EcommerceValidationError, type ValidationIssue } from './errors';
 import { isTransientTxConflict, isUniqueViolation } from './dbErrors';
@@ -1109,6 +1110,8 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
 
     const guestPassword = v.customerId === undefined ? await guestPasswordFor(v.customer.email) : null;
 
+    /** The customer the committed order belongs to (customer event log). */
+    let placedFor: number | null = null;
     const attempt = async (): Promise<CreatedOrder> => {
       const collector = events().collector();
       const operationId = randomUUID();
@@ -1124,6 +1127,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
                 // A storefront guest without a proven e-mail never lands on a registered account.
                 emailVerified: ctx.source === 'storefront' ? v.emailVerified : undefined,
               });
+        placedFor = customer.id;
         const reference = await nextReference();
         const publicId = randomUUID();
 
@@ -1320,6 +1324,16 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         return { id: orderId, reference, publicId, total: totals.total };
       });
       await collector.flush();
+      if (placedFor !== null) {
+        try {
+          strapi.plugin(PLUGIN_ID).service('EcommerceCustomerEventService').record(placedFor, 'ORDER_PLACED', {
+            actor: actorFromString(ctx.actor),
+            details: { orderId: result.id, reference: result.reference },
+          });
+        } catch (err) {
+          strapi.log?.error?.(`[ecommerce:orders] EVENT_FAILED ${err instanceof Error ? err.name : typeof err}`);
+        }
+      }
       return result;
     };
 

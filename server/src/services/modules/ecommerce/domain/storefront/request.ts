@@ -8,6 +8,8 @@ import { isIP } from 'node:net';
  * trusted for the client IP; other proxy headers are never read (any client can forge them).
  */
 export const CLIENT_IP_HEADER = 'x-storefront-client-ip';
+/** Set by the BFF with the browser's user agent. */
+export const CLIENT_USER_AGENT_HEADER = 'x-storefront-client-user-agent';
 
 /** A single IPv4/IPv6 address, or null (lists, zone ids and anything else). */
 export const clientIpFrom = (raw: unknown): string | null => {

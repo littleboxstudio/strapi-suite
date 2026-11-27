@@ -14,6 +14,7 @@ import {
 import { findLocale, resolveLocale } from './locales';
 import { anyBlockedEmail } from './customers';
 import type { AccountCustomer } from './customerSessions';
+import { diffFields, type CustomerEventDetails, type CustomerEventType } from './customerEvents';
 import type { PublicOrderStatus } from './domain/storefront/publicViews';
 import {
   readStoredCart,
@@ -173,6 +174,15 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
     );
   const invalidCredentials = () => new EcommerceAccountError('INVALID_CREDENTIALS', 401);
 
+  /** Customer event log (the record shows it); never breaks the action. */
+  const event = (customerId: number, type: CustomerEventType, details?: CustomerEventDetails): void => {
+    try {
+      svc('EcommerceCustomerEventService').record(customerId, type, { actor: { type: 'CUSTOMER' }, details });
+    } catch (err) {
+      strapi.log.error(`${LOG_PREFIX} EVENT_FAILED ${err instanceof Error ? err.name : typeof err}`);
+    }
+  };
+
   const weakPassword = (password: unknown, email: string): void => {
     if (typeof password === 'string' && password.length > PASSWORD_INPUT_MAX) {
       throw new EcommerceAccountError('WEAK_PASSWORD', 400, { reason: 'TOO_LONG' });
@@ -194,6 +204,7 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
     await customers().update({ where: { id: customer.id }, data: { cart: merged } });
     await checkout().expireAndScrub(guest.id);
     const opened = await sessions().open(customer.id, client);
+    event(customer.id, 'LOGIN');
     return { token: opened.token, expiresAt: opened.expiresAt, customer: profile(customer) };
   };
 
@@ -255,6 +266,7 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
         })) as CustomerRow;
         const oldest = await oldestByEmail(emailNormalized);
         if (!oldest || oldest.id === created.id) {
+          event(created.id, 'ACCOUNT_REGISTERED');
           await sendVerification(created);
           return;
         }
@@ -293,6 +305,7 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
           ...credentials,
         },
       });
+      event(existing.id, 'ACCOUNT_REGISTERED');
       await sendVerification({ ...existing, firstName, lastName, ...(locale ? { locale } : {}) });
     },
 
@@ -313,6 +326,7 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
         where: { id: customer.id },
         data: { emailVerified: true, emailVerifiedAt: verifiedAt },
       });
+      event(customer.id, 'EMAIL_VERIFIED');
       return startSession({ ...customer, emailVerified: true, emailVerifiedAt: verifiedAt }, guest, client);
     },
 
@@ -351,20 +365,34 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
           : null,
         password
       );
-      if (!usable || !check.ok) throw invalidCredentials();
+      if (!usable || !check.ok) {
+        if (customer) {
+          const reason =
+            customer.accountType !== 'REGISTERED'
+              ? 'NOT_REGISTERED'
+              : customer.blocked === true
+                ? 'BLOCKED'
+                : 'INVALID_PASSWORD';
+          event(customer.id, 'LOGIN_FAILED', { reason });
+        }
+        throw invalidCredentials();
+      }
       if (check.rehash) {
         await customers().update({
           where: { id: customer.id },
           data: { passwordHash: check.rehash.hash, passwordPepperVersion: check.rehash.pepperVersion },
         });
       }
-      if (customer.emailVerified !== true) throw new EcommerceAccountError('EMAIL_NOT_VERIFIED', 403);
+      if (customer.emailVerified !== true) {
+        event(customer.id, 'LOGIN_FAILED', { reason: 'EMAIL_NOT_VERIFIED' });
+        throw new EcommerceAccountError('EMAIL_NOT_VERIFIED', 403);
+      }
       return startSession(customer, guest, client);
     },
 
     async logout(customerId: number, sessionId: number): Promise<void> {
       // Already revoked (false) is not an error: logging out twice is fine.
-      await sessions().revoke(customerId, sessionId, 'LOGOUT');
+      if (await sessions().revoke(customerId, sessionId, 'LOGOUT')) event(customerId, 'LOGOUT');
     },
 
     /** Silent for every input; sends only for a registered, unblocked account (verified or not). */
@@ -373,6 +401,7 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
       if (!valid) return;
       const customer = await oldestByEmail(normalizeEmail(valid));
       if (!customer || customer.blocked === true || customer.accountType !== 'REGISTERED') return;
+      event(customer.id, 'PASSWORD_RESET_REQUESTED');
       fire(async () => {
         const { raw } = await tokens().issue(customer.id, 'RESET_PASSWORD', String(customer.email));
         await mailer().sendPasswordReset(String(customer.email), customer.locale ?? null, {
@@ -413,6 +442,7 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
       });
       await sessions().revokeAll(customer.id, 'PASSWORD_RESET');
       audit('customer.password_reset', customer.id);
+      event(customer.id, 'PASSWORD_RESET');
       fire(() =>
         mailer().sendPasswordChanged(String(customer.email), customer.locale ?? null, {
           firstName: String(customer.firstName ?? ''),
@@ -448,7 +478,12 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
         else data.locale = locale;
       }
       if (errors.length) throw new EcommerceValidationError('Invalid profile', errors);
-      if (Object.keys(data).length) await customers().update({ where: { id: c.id }, data });
+      if (Object.keys(data).length) {
+        const before = await currentRow(c.id);
+        await customers().update({ where: { id: c.id }, data });
+        const changes = diffFields(before, data, ['firstName', 'lastName', 'phone', 'locale']);
+        if (changes.length) event(c.id, 'PROFILE_UPDATED', { changes });
+      }
       return profile(await currentRow(c.id));
     },
 
@@ -472,6 +507,7 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
       });
       await sessions().revokeAll(c.id, 'PASSWORD_CHANGED', sessionId);
       audit('customer.password_change', c.id);
+      event(c.id, 'PASSWORD_CHANGED');
       fire(() =>
         mailer().sendPasswordChanged(String(row.email), row.locale ?? null, {
           firstName: String(row.firstName ?? ''),
@@ -500,6 +536,7 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
         where: { id: row.id },
         data: { pendingEmail: email, pendingEmailNormalized: emailNormalized },
       });
+      event(row.id, 'EMAIL_CHANGE_REQUESTED', { newEmail: email });
       fire(async () => {
         const { raw } = await tokens().issue(row.id, 'CHANGE_EMAIL', email);
         await mailer().sendEmailChangeVerification(email, row.locale ?? null, {
@@ -557,6 +594,7 @@ const EcommerceAccountService = ({ strapi }: { strapi: Core.Strapi }) => {
       if (keep) await sessions().revokeAll(customer.id, 'EMAIL_CHANGED', exceptSessionId);
       else await sessions().revokeAll(customer.id, 'EMAIL_CHANGED');
       audit('customer.email_change', customer.id);
+      event(customer.id, 'EMAIL_CHANGED', { changes: [{ field: 'email', from: oldEmail || null, to: newEmail }] });
       fire(() =>
         mailer().sendEmailChanged(oldEmail, customer.locale ?? null, {
           firstName: String(customer.firstName ?? ''),

@@ -47,6 +47,7 @@ import { customerBadges, type CustomerBadge } from '../../utils/customerAccounts
 import CustomerStoreCredits from '../../components/customers/CustomerStoreCredits';
 import type { Customer, FieldError, OrderLocales } from '../../orderTypes';
 import CustomerOrdersSection from './CustomerOrdersSection';
+import CustomerEventsSection from './CustomerEventsSection';
 
 const FIELDS: { field: CustomerField; required: boolean; type: string }[] = [
   { field: 'firstName', required: true, type: 'text' },
@@ -415,6 +416,8 @@ const CustomerDetailPage = () => {
       <CustomerStoreCredits key={`credits-${customerId}`} customerId={customerId} email={email} canManage={canRefund} />
 
       <CustomerOrdersSection key={customerId} customerId={customerId} canCreateOrder={canManageOrders} />
+
+      <CustomerEventsSection key={`events-${customerId}`} customerId={customerId} />
     </Flex>
   );
 };

@@ -150,6 +150,7 @@ function setup(
   // Stock movements re-evaluate the product's automated collections (none here).
   services.EcommerceCollectionService = { syncProducts: vi.fn(async () => undefined) };
   services.EcommerceCustomerService = EcommerceCustomerService({ strapi });
+  services.EcommerceCustomerEventService = { record: vi.fn() };
   const realHistory = EcommerceOrderHistoryService({ strapi });
   // Simulates a database failure in the next transaction that records `type`.
   const failHistory = new Set<string>();

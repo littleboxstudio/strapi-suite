@@ -55,6 +55,17 @@ const EcommerceStorefrontAccountController = ({ strapi }: { strapi: Core.Strapi 
   const service = (name: string): any => strapi.plugin(PLUGIN_ID).service(name);
   const accounts = () => service('EcommerceAccountService');
   const sessions = () => service('EcommerceCustomerSessionService');
+  /** Customer event log; never breaks the answer. */
+  const sessionEvent = (customerId: number, scope: 'ONE' | 'OTHERS') => {
+    try {
+      service('EcommerceCustomerEventService').record(customerId, 'SESSION_REVOKED', {
+        actor: { type: 'CUSTOMER' },
+        details: { scope },
+      });
+    } catch (err) {
+      strapi.log?.error?.(`[ecommerce:storefront] EVENT_FAILED ${err instanceof Error ? err.name : typeof err}`);
+    }
+  };
   const body = (ctx: any) => {
     const raw = ctx.request?.body;
     if (raw !== undefined && raw !== null && asObject(raw) !== raw) return fail(INVALID, 'body', 'invalid');
@@ -268,13 +279,15 @@ const EcommerceStorefrontAccountController = ({ strapi }: { strapi: Core.Strapi 
         if (!Number.isSafeInteger(id)) return fail(INVALID, 'id', 'invalid');
         const revoked = await sessions().revoke(customer.id, id, 'REVOKED_BY_CUSTOMER');
         if (!revoked) throw new EcommerceNotFoundError('Session not found');
+        sessionEvent(customer.id, 'ONE');
         return NO_CONTENT;
       }),
 
     /** POST /account/sessions/revoke-others → 204; the current session stays. */
     revokeOtherSessions: (ctx: any) =>
       privateRoute(ctx, async ({ customer, sessionId }) => {
-        await sessions().revokeAll(customer.id, 'REVOKED_BY_CUSTOMER', sessionId);
+        const n = await sessions().revokeAll(customer.id, 'REVOKED_BY_CUSTOMER', sessionId);
+        if (n > 0) sessionEvent(customer.id, 'OTHERS');
         return NO_CONTENT;
       }),
   };

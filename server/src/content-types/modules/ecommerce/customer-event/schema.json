@@ -1,0 +1,71 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ltb_st_module_ecommerce_customer_events",
+  "info": {
+    "singularName": "ltb-st-module-ecommerce-customer-event",
+    "pluralName": "ltb-st-module-ecommerce-customer-events",
+    "displayName": "Littlebox Strapi Suite - E-commerce Customer Event",
+    "description": "Model for managing Littlebox Strapi Suite E-commerce Customer Event"
+  },
+  "options": {
+    "draftAndPublish": false,
+    "comment": ""
+  },
+  "attributes": {
+    "customerId": {
+      "type": "integer",
+      "required": true
+    },
+    "type": {
+      "type": "string",
+      "required": true
+    },
+    "actorType": {
+      "type": "enumeration",
+      "enum": [
+        "CUSTOMER",
+        "ADMIN",
+        "SYSTEM"
+      ],
+      "default": "CUSTOMER"
+    },
+    "actorId": {
+      "type": "integer"
+    },
+    "actorName": {
+      "type": "string"
+    },
+    "ip": {
+      "type": "string"
+    },
+    "userAgent": {
+      "type": "string"
+    },
+    "details": {
+      "type": "json"
+    },
+    "searchText": {
+      "type": "text"
+    }
+  },
+  "pluginOptions": {
+    "content-manager": {
+      "visible": false
+    },
+    "content-type-builder": {
+      "visible": false
+    },
+    "i18n": {
+      "localized": false
+    }
+  },
+  "indexes": [
+    {
+      "name": "ecommerce_customer_event_customer_created",
+      "columns": [
+        "customer_id",
+        "created_at"
+      ]
+    }
+  ]
+}

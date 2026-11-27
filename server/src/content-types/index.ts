@@ -41,6 +41,7 @@ import EcommerceCheckoutSessionSchema from './modules/ecommerce/checkout-session
 import EcommerceCustomerSessionSchema from './modules/ecommerce/customer-session';
 import EcommerceCustomerTokenSchema from './modules/ecommerce/customer-token';
 import EcommerceCronRunSchema from './modules/ecommerce/cron-run';
+import EcommerceCustomerEventSchema from './modules/ecommerce/customer-event';
 import EcommercePaymentMethodSuggestionSchema from './modules/ecommerce/payment-method-suggestion';
 import EcommerceProductCategorySchema from './modules/ecommerce/product-category';
 import EcommerceProductCategoryTranslationSchema from './modules/ecommerce/product-category-translation';
@@ -95,6 +96,7 @@ export default {
   "ltb-st-module-ecommerce-customer-session": EcommerceCustomerSessionSchema,
   "ltb-st-module-ecommerce-customer-token": EcommerceCustomerTokenSchema,
   "ltb-st-module-ecommerce-cron-run": EcommerceCronRunSchema,
+  "ltb-st-module-ecommerce-customer-event": EcommerceCustomerEventSchema,
   "ltb-st-module-ecommerce-payment-method-suggestion": EcommercePaymentMethodSuggestionSchema,
   "ltb-st-module-ecommerce-product-category": EcommerceProductCategorySchema,
   "ltb-st-module-ecommerce-product-category-translation": EcommerceProductCategoryTranslationSchema,

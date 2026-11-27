@@ -13,6 +13,8 @@ import type {
   Customer,
   CustomerInput,
   CustomerLastAddresses,
+  CustomerEvent,
+  CustomerEventListParams,
   CustomerListItem,
   CustomerListParams,
   CustomerOrderListItem,
@@ -83,6 +85,7 @@ export default interface EcommerceOrdersGateway {
     params: CustomerOrderListParams
   ): Promise<Paginated<CustomerOrderListItem>>;
   fetchCustomerLastAddresses(id: number): Promise<CustomerLastAddresses>;
+  fetchCustomerEvents(id: number, params: CustomerEventListParams): Promise<Paginated<CustomerEvent>>;
 
   // Orders
   fetchOrders(params: OrderListParams): Promise<Paginated<OrderListItem>>;
@@ -237,6 +240,13 @@ export class EcommerceOrdersGatewayHttp implements EcommerceOrdersGateway {
     params: CustomerOrderListParams
   ): Promise<Paginated<CustomerOrderListItem>> {
     return this.httpClient.get(`${this.customers}/${id}/orders${objectToQueryString(params)}`);
+  }
+
+  async fetchCustomerEvents(
+    id: number,
+    params: CustomerEventListParams
+  ): Promise<Paginated<CustomerEvent>> {
+    return this.httpClient.get(`${this.customers}/${id}/events${objectToQueryString(params)}`);
   }
 
   async fetchCustomerLastAddresses(id: number): Promise<CustomerLastAddresses> {
