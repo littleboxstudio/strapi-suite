@@ -8,7 +8,7 @@ import type { OrderCustomer } from '../../orderTypes';
 
 /**
  * The customer recorded on the order (snapshot), in the page header: the name, which opens the
- * customer record when there is one, with the account type badge on its right, and the e-mail below it.
+ * customer record when there is one, with the account type badge (and Blocked) on its right, and the e-mail below it.
  */
 const CustomerCard = ({ customer }: { customer: OrderCustomer }) => {
   const { formatMessage } = useIntl();
@@ -40,6 +40,11 @@ const CustomerCard = ({ customer }: { customer: OrderCustomer }) => {
                 `ecommerce.customers.badges.${registered ? 'registered' : 'guest'}`
               ),
             })}
+          </ToneBadge>
+        )}
+        {customer.blocked && (
+          <ToneBadge variant="danger">
+            {formatMessage({ id: getTranslation('ecommerce.customers.badges.blocked') })}
           </ToneBadge>
         )}
       </Flex>

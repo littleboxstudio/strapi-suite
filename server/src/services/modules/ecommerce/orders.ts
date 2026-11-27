@@ -890,7 +890,7 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
   const loadOrder = async (id: number) => {
     const order = await strapi.db.query(uids().order).findOne({
       where: { id },
-      populate: { lines: true, payments: true, history: true, customer: { select: ['id', 'accountType'] } },
+      populate: { lines: true, payments: true, history: true, customer: { select: ['id', 'accountType', 'blocked'] } },
     });
     if (!order) throw new EcommerceNotFoundError('Order not found');
     return order;
@@ -1844,6 +1844,8 @@ const EcommerceOrderService = ({ strapi }: { strapi: Core.Strapi }) => {
         ...(order.customerSnapshot ?? {}),
         // The record's type today (not a snapshot): a guest who registered later shows as registered.
         accountType: order.customer?.accountType === 'REGISTERED' ? 'REGISTERED' : 'GUEST',
+        // Today's state of the record, like the account type.
+        blocked: order.customer?.blocked === true,
       },
       shippingAddress: order.shippingAddress ?? null,
       billingAddress: order.billingAddress ?? null,

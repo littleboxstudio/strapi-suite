@@ -457,6 +457,8 @@ export type OrderCustomer = {
   phone?: string | null;
   /** The customer record's account type today; GUEST when the order has no record. */
   accountType?: 'GUEST' | 'REGISTERED';
+  /** The customer record is blocked today. */
+  blocked?: boolean;
 } & Record<string, unknown>;
 
 export type Order = {

@@ -138,6 +138,14 @@ describe('EcommerceOrderService.get: customer account type', () => {
     c.tables[UIDS.customer].find((r: any) => r.id === customerId).accountType = 'REGISTERED';
     expect((await c.orders.get(id)).customer.accountType).toBe('REGISTERED');
   });
+
+  it('shows whether the customer record is blocked today', async () => {
+    const c = setupCommerce();
+    const id = await createOrder(c);
+    expect((await c.orders.get(id)).customer.blocked).toBe(false);
+    c.tables[UIDS.customer].find((r: any) => r.id === customerIdOf(c, id)).blocked = true;
+    expect((await c.orders.get(id)).customer.blocked).toBe(true);
+  });
 });
 
 describe('EcommerceOrderService.get: editing fields', () => {
