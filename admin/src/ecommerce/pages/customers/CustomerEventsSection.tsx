@@ -27,11 +27,7 @@ import FetchCustomerEvents from '../../usecases/orders/fetchCustomerEvents';
 import SearchFieldHeight from '../../components/SearchFieldHeight';
 import { ToneBadge } from '../../components/orders/StatusBadges';
 import { describeUserAgent } from '../../utils/userAgent';
-import {
-  CUSTOMER_EVENT_TYPES,
-  type CustomerEvent,
-  type CustomerEventType,
-} from '../../orderTypes';
+import { CUSTOMER_EVENT_TYPES, type CustomerEvent, type CustomerEventType } from '../../orderTypes';
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -138,6 +134,8 @@ const CustomerEventsSection = ({ customerId }: Props) => {
   };
 
   const noFilters = search === '' && searchTerm === '' && type === '';
+  /** Search and filter only once there is something to search: hidden while the log is empty. */
+  const showControls = !noFilters || items.length > 0;
 
   return (
     <Box background="neutral0" shadow="tableShadow" hasRadius padding={6}>
@@ -146,47 +144,53 @@ const CustomerEventsSection = ({ customerId }: Props) => {
           {t('ecommerce.customers.events.title')}
         </Typography>
 
-        <Flex gap={3} alignItems="flex-start" wrap="wrap">
-          <Box style={{ flex: 1, minWidth: 260 }}>
-            <SearchFieldHeight>
-              <SearchForm onSubmit={(e: FormEvent) => e.preventDefault()}>
-                <Searchbar
-                  name="events-search"
-                  value={searchTerm}
-                  onClear={() => {
-                    setSearchTerm('');
-                    setSearch('');
-                    setPage(1);
-                  }}
-                  onChange={(e: any) => setSearchTerm(e.target.value)}
-                  clearLabel={t('ecommerce.customers.events.search.clear')}
-                  placeholder={t('ecommerce.customers.events.search.placeholder')}
-                >
-                  {t('ecommerce.customers.events.search.label')}
-                </Searchbar>
-              </SearchForm>
-            </SearchFieldHeight>
-          </Box>
-          <SelectHeight>
-            <SingleSelect
-              aria-label={t('ecommerce.customers.events.filter.label')}
-              value={type || 'all'}
-              onChange={(value: string | number) => {
-                setType(value === 'all' ? '' : (String(value) as CustomerEventType));
-                setPage(1);
-              }}
-            >
-              <SingleSelectOption value="all">{t('ecommerce.customers.events.filter.all')}</SingleSelectOption>
-              {CUSTOMER_EVENT_TYPES.map((key) => (
-                <SingleSelectOption key={key} value={key}>
-                  {t(`ecommerce.customers.events.type.${key}`)}
+        {showControls && (
+          <Flex gap={3} alignItems="flex-start" wrap="wrap">
+            <Box style={{ flex: 1, minWidth: 260 }}>
+              <SearchFieldHeight>
+                <SearchForm onSubmit={(e: FormEvent) => e.preventDefault()}>
+                  <Searchbar
+                    name="events-search"
+                    value={searchTerm}
+                    onClear={() => {
+                      setSearchTerm('');
+                      setSearch('');
+                      setPage(1);
+                    }}
+                    onChange={(e: any) => setSearchTerm(e.target.value)}
+                    clearLabel={t('ecommerce.customers.events.search.clear')}
+                    placeholder={t('ecommerce.customers.events.search.placeholder')}
+                  >
+                    {t('ecommerce.customers.events.search.label')}
+                  </Searchbar>
+                </SearchForm>
+              </SearchFieldHeight>
+            </Box>
+            <SelectHeight>
+              <SingleSelect
+                aria-label={t('ecommerce.customers.events.filter.label')}
+                value={type || 'all'}
+                onChange={(value: string | number) => {
+                  setType(value === 'all' ? '' : (String(value) as CustomerEventType));
+                  setPage(1);
+                }}
+              >
+                <SingleSelectOption value="all">
+                  {t('ecommerce.customers.events.filter.all')}
                 </SingleSelectOption>
-              ))}
-            </SingleSelect>
-          </SelectHeight>
-        </Flex>
+                {CUSTOMER_EVENT_TYPES.map((key) => (
+                  <SingleSelectOption key={key} value={key}>
+                    {t(`ecommerce.customers.events.type.${key}`)}
+                  </SingleSelectOption>
+                ))}
+              </SingleSelect>
+            </SelectHeight>
+          </Flex>
+        )}
 
-        {error && <Typography textColor="danger600">{t('ecommerce.customers.events.error')}</Typography>}
+        {error && (
+          <Typography textColor="danger600">{t('ecommerce.customers.events.error')}</Typography>
+        )}
 
         {loading && items.length === 0 && !error && (
           <Flex justifyContent="center" padding={6}>
@@ -197,7 +201,9 @@ const CustomerEventsSection = ({ customerId }: Props) => {
         {!loading && !error && items.length === 0 && (
           <Box padding={4} background="neutral100" hasRadius>
             <Typography variant="omega" textColor="neutral600">
-              {noFilters ? t('ecommerce.customers.events.empty') : t('ecommerce.customers.noResults')}
+              {noFilters
+                ? t('ecommerce.customers.events.empty')
+                : t('ecommerce.customers.noResults')}
             </Typography>
           </Box>
         )}
@@ -209,7 +215,9 @@ const CustomerEventsSection = ({ customerId }: Props) => {
                 <Tr>
                   {['date', 'event', 'details', 'actor', 'ip', 'device'].map((col) => (
                     <Th key={col}>
-                      <Typography variant="sigma">{t(`ecommerce.customers.events.table.${col}`)}</Typography>
+                      <Typography variant="sigma">
+                        {t(`ecommerce.customers.events.table.${col}`)}
+                      </Typography>
                     </Th>
                   ))}
                 </Tr>
@@ -219,7 +227,9 @@ const CustomerEventsSection = ({ customerId }: Props) => {
                   <Tr key={e.id} style={{ opacity: loading ? 0.5 : 1 }}>
                     <Td>
                       <Typography textColor="neutral800">
-                        {e.createdAt ? formatDate(e.createdAt, { dateStyle: 'medium', timeStyle: 'medium' }) : '—'}
+                        {e.createdAt
+                          ? formatDate(e.createdAt, { dateStyle: 'medium', timeStyle: 'medium' })
+                          : '—'}
                       </Typography>
                     </Td>
                     <Td>
@@ -243,8 +253,13 @@ const CustomerEventsSection = ({ customerId }: Props) => {
                       </Typography>
                     </Td>
                     <Td>
-                      <Typography variant="pi" textColor="neutral800" title={e.userAgent ?? undefined}>
-                        {describeUserAgent(e.userAgent) ?? (e.userAgent ? t('ecommerce.customers.events.unknownDevice') : '—')}
+                      <Typography
+                        variant="pi"
+                        textColor="neutral800"
+                        title={e.userAgent ?? undefined}
+                      >
+                        {describeUserAgent(e.userAgent) ??
+                          (e.userAgent ? t('ecommerce.customers.events.unknownDevice') : '—')}
                       </Typography>
                     </Td>
                   </Tr>
