@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import EcommerceOrderService from '../../../server/src/services/modules/ecommerce/orders';
 import { EcommerceValidationError } from '../../../server/src/services/modules/ecommerce/errors';
-import { setupCommerce, createOrder, UIDS } from './helpers/commerceSetup';
+import { setupCommerce, createOrder, customerIdOf, UIDS } from './helpers/commerceSetup';
 
 const P = 'plugin::littlebox-strapi-suite.ltb-st-module-ecommerce-';
 const product = {
@@ -126,6 +126,17 @@ describe('EcommerceOrderService.searchVariants', () => {
     findMany.mockClear();
     expect(await service.searchVariants('  ', 'en')).toEqual([]);
     expect(findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('EcommerceOrderService.get: customer account type', () => {
+  it("shows the customer record's account type today, GUEST until it registers", async () => {
+    const c = setupCommerce();
+    const id = await createOrder(c);
+    expect((await c.orders.get(id)).customer.accountType).toBe('GUEST');
+    const customerId = customerIdOf(c, id);
+    c.tables[UIDS.customer].find((r: any) => r.id === customerId).accountType = 'REGISTERED';
+    expect((await c.orders.get(id)).customer.accountType).toBe('REGISTERED');
   });
 });
 

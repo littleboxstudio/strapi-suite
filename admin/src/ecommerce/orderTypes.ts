@@ -415,6 +415,8 @@ export type OrderCustomer = {
   lastName?: string;
   email?: string;
   phone?: string | null;
+  /** The customer record's account type today; GUEST when the order has no record. */
+  accountType?: 'GUEST' | 'REGISTERED';
 } & Record<string, unknown>;
 
 export type Order = {
