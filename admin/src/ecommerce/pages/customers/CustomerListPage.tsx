@@ -212,22 +212,22 @@ const CustomerListPage = () => {
               {items.map((item) => (
                 <Tr key={item.id} style={{ opacity: loading ? 0.5 : 1 }}>
                   <Td>
-                    <Flex gap={2} alignItems="center">
-                      <Typography textColor="neutral800">{customerName(item)}</Typography>
-                      {item.blocked && (
-                        <ToneBadge variant="danger">{t('ecommerce.customers.badges.blocked')}</ToneBadge>
-                      )}
-                    </Flex>
+                    <Typography textColor="neutral800">{customerName(item)}</Typography>
                   </Td>
                   <Td>
                     <Typography textColor="neutral800">{item.email}</Typography>
                   </Td>
                   <Td>
-                    {item.accountType === 'REGISTERED' ? (
-                      <ToneBadge variant="primary">{t('ecommerce.customers.badges.registered')}</ToneBadge>
-                    ) : (
-                      <ToneBadge variant="neutral">{t('ecommerce.customers.badges.guest')}</ToneBadge>
-                    )}
+                    <Flex gap={2} alignItems="center">
+                      {item.accountType === 'REGISTERED' ? (
+                        <ToneBadge variant="primary">{t('ecommerce.customers.badges.registered')}</ToneBadge>
+                      ) : (
+                        <ToneBadge variant="neutral">{t('ecommerce.customers.badges.guest')}</ToneBadge>
+                      )}
+                      {item.blocked && (
+                        <ToneBadge variant="danger">{t('ecommerce.customers.badges.blocked')}</ToneBadge>
+                      )}
+                    </Flex>
                   </Td>
                   <Td>
                     <Box style={{ textAlign: 'right' }}>
