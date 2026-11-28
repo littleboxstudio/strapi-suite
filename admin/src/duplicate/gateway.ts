@@ -64,6 +64,8 @@ export type DuplicateRun = {
   progress: { total: number; done: number; current: DuplicateCurrent | null };
   counts: DuplicateCounts;
   failures: DuplicateFailure[];
+  /** The distinct errors the AI returned during the run (absent on runs from older versions). */
+  aiErrors?: string[];
 };
 
 export default interface DuplicateGateway {

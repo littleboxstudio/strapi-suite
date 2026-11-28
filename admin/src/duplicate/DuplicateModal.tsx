@@ -8,7 +8,6 @@ import {
   Flex,
   Loader,
   Modal,
-  ProgressBar,
   Radio,
   SingleSelect,
   SingleSelectOption,
@@ -395,7 +394,6 @@ const DuplicateModal = ({ ecommerceActive, onClose }: Props) => {
         </Flex>
       ) : (
         <>
-          <ProgressBar value={progressPercent(run.progress)} />
           <Typography variant="omega" textColor="neutral800">
             {t('duplicate.progress.done', {
               done: run.progress.done,
@@ -430,6 +428,20 @@ const DuplicateModal = ({ ecommerceActive, onClose }: Props) => {
       <Typography variant="pi" textColor="neutral600">
         {t('duplicate.report.when', { started: when(run.startedAt), finished: when(run.finishedAt) })}
       </Typography>
+      {(run.aiErrors?.length ?? 0) > 0 && (
+        <Box padding={3} hasRadius style={{ background: NOTICE_BACKGROUND }} role="alert">
+          <Flex direction="column" alignItems="flex-start" gap={1}>
+            <Typography variant="omega" fontWeight="bold" style={{ color: NOTICE_TEXT }}>
+              {t('duplicate.report.aiErrors')}
+            </Typography>
+            {run.aiErrors!.map((message) => (
+              <Typography key={message} variant="omega" style={{ color: NOTICE_TEXT }}>
+                {message}
+              </Typography>
+            ))}
+          </Flex>
+        </Box>
+      )}
       <Table colCount={2} rowCount={5}>
         <Tbody>
           {reportCounts(run.counts).map((row) => (

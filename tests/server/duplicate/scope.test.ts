@@ -22,6 +22,19 @@ describe('duplicate scope', () => {
     expect(isLocalizedApiType('api::missing.missing', undefined)).toBe(false);
   });
 
+  it('never includes the Users & Permissions "User" collection, even if it were localized', () => {
+    const user = {
+      kind: 'collectionType',
+      options: { draftAndPublish: false },
+      pluginOptions: { i18n: { localized: true } },
+      attributes: { username: { type: 'string' } },
+    };
+    expect(isLocalizedApiType('plugin::users-permissions.user', user)).toBe(false);
+    expect(
+      listScope({ ...contentTypes, 'plugin::users-permissions.user': user }).map((s) => s.uid)
+    ).not.toContain('plugin::users-permissions.user');
+  });
+
   it('lists the scope sorted by uid, with kind and draft & publish', () => {
     expect(listScope(contentTypes)).toEqual([
       { uid: 'api::author.author', kind: 'collectionType', draftAndPublish: false },

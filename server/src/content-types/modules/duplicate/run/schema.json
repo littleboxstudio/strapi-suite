@@ -52,6 +52,9 @@
     },
     "failures": {
       "type": "json"
+    },
+    "aiErrors": {
+      "type": "json"
     }
   },
   "pluginOptions": {

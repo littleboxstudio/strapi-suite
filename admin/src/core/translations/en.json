@@ -2966,5 +2966,6 @@
   "littlebox-strapi-suite.duplicate.errors.invalidRequest": "The target language or the options are not valid. Check them and try again.",
   "littlebox-strapi-suite.duplicate.errors.runInProgress": "A duplication is already running. Wait for it to finish.",
   "littlebox-strapi-suite.duplicate.errors.forbidden": "You do not have permission to duplicate content.",
-  "littlebox-strapi-suite.duplicate.errors.generic": "Something went wrong. Try again."
+  "littlebox-strapi-suite.duplicate.errors.generic": "Something went wrong. Try again.",
+  "littlebox-strapi-suite.duplicate.report.aiErrors": "The AI returned errors, so some texts were copied without translation:"
 }

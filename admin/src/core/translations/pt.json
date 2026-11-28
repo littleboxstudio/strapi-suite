@@ -2749,5 +2749,6 @@
   "littlebox-strapi-suite.duplicate.errors.invalidRequest": "O idioma de destino ou as opções não são válidos. Verifique-os e tente novamente.",
   "littlebox-strapi-suite.duplicate.errors.runInProgress": "Já está uma duplicação em curso. Aguarde que termine.",
   "littlebox-strapi-suite.duplicate.errors.forbidden": "Não tem permissão para duplicar conteúdos.",
-  "littlebox-strapi-suite.duplicate.errors.generic": "Ocorreu um erro. Tente novamente."
+  "littlebox-strapi-suite.duplicate.errors.generic": "Ocorreu um erro. Tente novamente.",
+  "littlebox-strapi-suite.duplicate.report.aiErrors": "A IA devolveu erros, por isso alguns textos foram copiados sem tradução:"
 }

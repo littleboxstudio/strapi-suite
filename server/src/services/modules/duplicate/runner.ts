@@ -14,6 +14,7 @@ import { mapData, slugFieldOf } from './domain/mapData';
 import { attributeAt, dropRelations, PARENT_PATH, topLevelKeys } from './domain/paths';
 import { countEcommerce, loadEcommerceItems, type EcommerceCounts, type EcommerceItem } from './ecommerce';
 import { DuplicateError } from './errors';
+import { aiFailureReason } from '../../../controllers/modules/ecommerce/products';
 import { emptyCounts, type DuplicateCounts, type DuplicateCurrent, type DuplicateFailure } from './runs';
 
 export type ExistingOption = 'skip' | 'replace';
@@ -125,10 +126,17 @@ const DuplicateService = ({ strapi }: { strapi: Core.Strapi }) => {
       reported.add(id);
       pendingFailures.push(failure);
     };
+    let pendingAiErrors: string[] = [];
+    const aiError = (raw: string) => {
+      const reason = aiFailureReason(raw);
+      if (reason && !pendingAiErrors.includes(reason)) pendingAiErrors.push(reason);
+    };
     const flush = async (patch: { current?: DuplicateCurrent | null; total?: number } = {}) => {
       const failures = pendingFailures;
+      const aiErrors = pendingAiErrors;
       pendingFailures = [];
-      await runs().progress(runId, { done, counts: { ...counts }, failures, ...patch });
+      pendingAiErrors = [];
+      await runs().progress(runId, { done, counts: { ...counts }, failures, aiErrors, ...patch });
     };
 
     let credentials: any = null;
@@ -143,9 +151,11 @@ const DuplicateService = ({ strapi }: { strapi: Core.Strapi }) => {
       if (!credentials || !Object.keys(strings).length) return {};
       try {
         const result = await ai().translateStrings(credentials, source, target, strings);
+        for (const err of result?.errors ?? []) if (typeof err === 'string') aiError(err);
         return result?.translations ?? {};
       } catch (e) {
         strapi.log?.warn?.(`[duplicate] AI translation failed: ${errorName(e)}`);
+        aiError(e instanceof Error ? e.message : String(e));
         return {};
       }
     };

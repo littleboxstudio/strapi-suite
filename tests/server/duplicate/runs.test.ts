@@ -43,7 +43,7 @@ describe('duplicate run content type', () => {
     expect(Object.keys(ct.schema.attributes).sort()).toEqual(
       [
         'status', 'sourceLocale', 'targetLocale', 'options', 'startedAt', 'finishedAt',
-        'userId', 'userName', 'progress', 'counts', 'failures',
+        'userId', 'userName', 'progress', 'counts', 'failures', 'aiErrors',
       ].sort()
     );
     expect(ct.schema.attributes.status.enum).toEqual(['RUNNING', 'SUCCESS', 'FAILED', 'INTERRUPTED']);
@@ -80,6 +80,7 @@ describe('DuplicateRunService', () => {
       progress: { total: 3, done: 0, current: null },
       counts: { duplicated: 0, replaced: 0, skipped: 0, untranslated: 0, failed: 0 },
       failures: [],
+      aiErrors: [],
     });
   });
 
@@ -97,6 +98,17 @@ describe('DuplicateRunService', () => {
     expect(run.progress).toEqual({ total: 3, done: 2, current });
     expect(run.counts).toEqual({ duplicated: 1, replaced: 0, skipped: 0, untranslated: 0, failed: 1 });
     expect(run.failures).toEqual([{ uid: 'api::page.page', documentId: 'p2', reason: 'Boom' }]);
+  });
+
+  it('merges the AI errors without duplicates, at most 10', async () => {
+    const { svc } = setup();
+    const id = await svc.start(INPUT);
+    expect((await svc.running())!.aiErrors).toEqual([]);
+    await svc.progress(id, { aiErrors: ['You have no credits remaining.'] });
+    await svc.progress(id, { aiErrors: ['You have no credits remaining.', 'timeout'] });
+    expect((await svc.running())!.aiErrors).toEqual(['You have no credits remaining.', 'timeout']);
+    await svc.progress(id, { aiErrors: Array.from({ length: 20 }, (_, i) => `e${i}`) });
+    expect((await svc.running())!.aiErrors).toHaveLength(10);
   });
 
   it(`keeps at most ${DUPLICATE_FAILURES_KEPT} failures`, async () => {

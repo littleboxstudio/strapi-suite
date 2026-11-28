@@ -31,7 +31,20 @@ export type DuplicateRunView = {
   progress: DuplicateProgress;
   counts: DuplicateCounts;
   failures: DuplicateFailure[];
+  /** The distinct errors the AI returned during the run (no secrets), newest last. */
+  aiErrors: string[];
 };
+
+/** At most this many distinct AI errors are kept per run. */
+export const DUPLICATE_AI_ERRORS_KEPT = 10;
+
+const toAiErrors = (v: unknown): string[] =>
+  Array.isArray(v)
+    ? [...new Set(v.filter((e): e is string => typeof e === 'string' && e.trim() !== '').map((e) => e.slice(0, 300)))].slice(
+        0,
+        DUPLICATE_AI_ERRORS_KEPT
+      )
+    : [];
 
 /** Only the newest runs are kept (and listed). */
 export const DUPLICATE_RUNS_KEPT = 20;
@@ -115,6 +128,7 @@ const toView = (row: any): DuplicateRunView => ({
   progress: toProgress(row.progress),
   counts: toCounts(row.counts),
   failures: toFailures(row.failures),
+  aiErrors: toAiErrors(row.aiErrors),
 });
 
 export type DuplicateRunStartInput = {
@@ -134,6 +148,8 @@ export type DuplicateProgressPatch = {
   counts?: Partial<DuplicateCounts>;
   failure?: DuplicateFailure;
   failures?: DuplicateFailure[];
+  /** Added to the stored AI errors (duplicates dropped). */
+  aiErrors?: string[];
 };
 
 /**
@@ -170,6 +186,7 @@ const DuplicateRunService = ({ strapi }: { strapi: Core.Strapi }) => {
           progress: { total: input.total ?? 0, done: 0, current: null },
           counts: emptyCounts(),
           failures: [],
+          aiErrors: [],
         },
       });
       // Pruning is best-effort: the run row exists, so failing here would leave it RUNNING with no job.
@@ -198,7 +215,12 @@ const DuplicateRunService = ({ strapi }: { strapi: Core.Strapi }) => {
       const failures = capFailures([...toFailures(row.failures), ...toFailures(added)]);
       await query().updateMany({
         where: { id, status: 'RUNNING' },
-        data: { progress, counts, failures },
+        data: {
+          progress,
+          counts,
+          failures,
+          ...(patch.aiErrors?.length ? { aiErrors: toAiErrors([...toAiErrors(row.aiErrors), ...patch.aiErrors]) } : {}),
+        },
       });
     },
 

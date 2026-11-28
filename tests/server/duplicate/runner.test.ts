@@ -394,6 +394,21 @@ describe('DuplicateService — AI', () => {
     expect(run.counts.untranslated).toBe(1);
   });
 
+  it('records the AI errors on the run, readable and without the API key', async () => {
+    t.ai.translateStrings.mockResolvedValue({
+      translations: {},
+      failed: 2,
+      errors: [
+        'pt: OpenAI request failed with status 429: {"error": {"message": "You have no credits remaining."}}',
+        'pt: Invalid key sk-abc123XYZ',
+      ],
+    } as any);
+    t.docs.seed(PAGE, 'p1', 'en', 'draft', page());
+    t.docs.seed(PAGE, 'p2', 'en', 'draft', page({ title: 'Team' }));
+    const run = await t.run({ status: 'draft' });
+    expect(run.aiErrors).toEqual(['You have no credits remaining.', 'Invalid key sk-…']);
+  });
+
   it('an AI call that throws copies the source text', async () => {
     t.ai.translateStrings.mockRejectedValue(new Error('timeout'));
     t.docs.seed(PAGE, 'p1', 'en', 'draft', page());
