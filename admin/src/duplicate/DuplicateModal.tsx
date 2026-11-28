@@ -47,6 +47,9 @@ import {
   validateOptions,
 } from './utils';
 
+/** The Contents column has the same width in every summary table, so the tables line up. */
+const COUNT_COLUMN_WIDTH = '160px';
+
 type Step = 'loading' | 'form' | 'review' | 'progress' | 'report' | 'loadError';
 
 type Props = {
@@ -313,7 +316,7 @@ const DuplicateModal = ({ ecommerceActive, onClose }: Props) => {
           <Th>
             <Typography variant="sigma">{heading}</Typography>
           </Th>
-          <Th>
+          <Th style={{ width: COUNT_COLUMN_WIDTH }}>
             <Typography variant="sigma">{t('duplicate.summary.count')}</Typography>
           </Th>
         </Tr>
@@ -324,7 +327,7 @@ const DuplicateModal = ({ ecommerceActive, onClose }: Props) => {
             <Td>
               <Typography textColor="neutral800">{row.label}</Typography>
             </Td>
-            <Td>
+            <Td style={{ width: COUNT_COLUMN_WIDTH }}>
               <Typography textColor="neutral800">{row.count}</Typography>
             </Td>
           </Tr>
