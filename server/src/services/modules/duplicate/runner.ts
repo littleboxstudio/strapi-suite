@@ -9,7 +9,7 @@ import { PLUGIN_ID, LtbConfigs } from '../../../config';
 import { isEcommerceActive } from '../../../middlewares/ecommerceModuleGate';
 import { listScope, collectLocalizedRelations, deepPopulate, type SchemaLookup } from './domain/scope';
 import { buildPlan, nodeKey, type NodeKey, type PlanEdge } from './domain/plan';
-import { applyStrings, collectStrings, toAiStrings, type StringField } from './domain/strings';
+import { applyStrings, collectStrings, toAiMaxLengths, toAiStrings, type StringField } from './domain/strings';
 import { mapData, slugFieldOf } from './domain/mapData';
 import { attributeAt, dropRelations, PARENT_PATH, topLevelKeys } from './domain/paths';
 import { countEcommerce, loadEcommerceItems, type EcommerceCounts, type EcommerceItem } from './ecommerce';
@@ -147,10 +147,13 @@ const DuplicateService = ({ strapi }: { strapi: Core.Strapi }) => {
     }
 
     /** Translates keyed strings; keys absent from the result were not translated. */
-    const translateStrings = async (strings: Record<string, string>): Promise<Record<string, string>> => {
+    const translateStrings = async (
+      strings: Record<string, string>,
+      maxLengths: Record<string, number> = {}
+    ): Promise<Record<string, string>> => {
       if (!credentials || !Object.keys(strings).length) return {};
       try {
-        const result = await ai().translateStrings(credentials, source, target, strings);
+        const result = await ai().translateStrings(credentials, source, target, strings, maxLengths);
         for (const err of result?.errors ?? []) if (typeof err === 'string') aiError(err);
         return result?.translations ?? {};
       } catch (e) {
@@ -254,7 +257,7 @@ const DuplicateService = ({ strapi }: { strapi: Core.Strapi }) => {
       let translated = cached;
       if (!translated) {
         const fields = collectStrings(doc.uid, src, lookup);
-        const translations = fields.length ? await translateStrings(toAiStrings(fields)) : {};
+        const translations = fields.length ? await translateStrings(toAiStrings(fields), toAiMaxLengths(fields)) : {};
         translated = { fields, translations, failed: false };
       }
       const mapped = mapData(doc.uid, src, lookup, { deferred: [...deferred], replace });

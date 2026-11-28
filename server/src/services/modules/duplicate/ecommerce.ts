@@ -13,6 +13,7 @@ import {
   slugify,
 } from '../ecommerce/domain/catalog';
 import { applyTranslation, decodeEntities, splitTemplate, translationStrings } from './domain/emailTemplateText';
+import { fieldMaxLength } from '../../../utils/fieldMaxLength';
 
 export type ItemOutcome = {
   outcome: 'duplicated' | 'replaced' | 'skipped';
@@ -30,8 +31,14 @@ export type EcommerceItem = {
   run(): Promise<ItemOutcome>;
 };
 
-/** Translates keyed strings; keys missing from the answer were not translated. */
-export type TranslateFn = (strings: Record<string, string>) => Promise<Record<string, string>>;
+/**
+ * Translates keyed strings, each within the most characters its field accepts (`maxLengths`, by
+ * key); keys missing from the answer were not translated.
+ */
+export type TranslateFn = (
+  strings: Record<string, string>,
+  maxLengths?: Record<string, number>
+) => Promise<Record<string, string>>;
 
 export type EcommerceContext = {
   source: string;
@@ -161,10 +168,15 @@ function translationItems(strapi: Core.Strapi, kind: Kind, owners: any[], ctx: E
         if (target && ctx.existing === 'skip') return { outcome: 'skipped', untranslated: false };
 
         const strings: Record<string, string> = {};
+        const maxLengths: Record<string, number> = {};
+        const attributes = (strapi.contentType?.(kind.translation as any) as any)?.attributes ?? {};
         for (const field of kind.fields) {
-          if (isFilledText(kind, field, source[field])) strings[field] = source[field];
+          if (!isFilledText(kind, field, source[field])) continue;
+          strings[field] = source[field];
+          const max = fieldMaxLength(attributes[field]);
+          if (max) maxLengths[field] = max;
         }
-        const translations = Object.keys(strings).length ? await ctx.translate(strings) : {};
+        const translations = Object.keys(strings).length ? await ctx.translate(strings, maxLengths) : {};
         let untranslated = false;
         const data: Record<string, any> = { locale: ctx.target, [kind.rel]: owner.id };
         for (const field of kind.fields) {

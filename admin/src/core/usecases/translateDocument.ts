@@ -57,10 +57,16 @@ export default class TranslateDocument {
       return acc;
     }, {});
 
+    const maxLengths = pending.reduce<Record<string, number>>((acc, field, index) => {
+      if (field.kind === 'text' && field.maxLength) acc[String(index)] = field.maxLength;
+      return acc;
+    }, {});
+
     const output = await this.aiGateway.translateStrings({
       sourceLocale: input.sourceLocale,
       targetLocale: input.targetLocale,
       strings,
+      ...(Object.keys(maxLengths).length ? { maxLengths } : {}),
     });
 
     const results: Result[] = [];

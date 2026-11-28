@@ -42,6 +42,16 @@ function groupByUid(items: any[]): TranslationEntry[] {
   return Object.values(groupedMap);
 }
 
+/** Only positive whole limits, from a request body that may hold anything. */
+export function toMaxLengths(value: unknown): Record<string, number> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const out: Record<string, number> = {};
+  for (const [key, max] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof max === 'number' && Number.isFinite(max) && max > 0) out[key] = Math.floor(max);
+  }
+  return out;
+}
+
 function chunk<T>(items: T[], size: number): T[][] {
   const batches: T[][] = [];
   for (let index = 0; index < items.length; index += size) {
@@ -71,6 +81,35 @@ export function buildSystemPrompt(source: Locale, target: Locale): string {
     ``,
     `You receive a JSON object that maps keys to source strings. Return a JSON object with exactly the same keys, where each value is the translation of the corresponding source string. Return nothing else.`,
   ].join('\n');
+}
+
+/**
+ * The extra rule for strings saved in fields with a maximum length: the field refuses anything
+ * longer, so the translation has to be rewritten shorter, never cut.
+ */
+export function buildLengthRule(maxLengths: Record<string, number>, retry: boolean = false): string {
+  return [
+    ``,
+    `Some values are saved in fields that accept a maximum number of characters. This JSON object maps those keys to their maximum: ${JSON.stringify(maxLengths)}.`,
+    `The translation of each of those keys must have at most that many characters, counting every letter, space and punctuation mark. When a natural translation would be longer, rewrite it shorter, keeping its meaning: use shorter words and drop what is least important. Never cut a word or a sentence in the middle.`,
+    ...(retry
+      ? [`Your previous translations of these strings were longer than allowed. Write them again, clearly shorter than the maximum.`]
+      : []),
+  ].join('\n');
+}
+
+/** The keys whose translation is longer than the field allows. */
+export function overLimit(translations: Record<string, string>, maxLengths: Record<string, number>): string[] {
+  return Object.keys(maxLengths).filter(
+    (key) => typeof translations[key] === 'string' && translations[key].length > maxLengths[key]
+  );
+}
+
+function pick<T>(source: Record<string, T>, keys: string[]): Record<string, T> {
+  return keys.reduce<Record<string, T>>((acc, key) => {
+    if (key in source) acc[key] = source[key];
+    return acc;
+  }, {});
 }
 
 async function requestOpenAi(
@@ -141,18 +180,19 @@ const AiTranslationModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
     credentials: Credentials,
     source: Locale,
     target: Locale,
-    strings: Record<string, string>
+    strings: Record<string, string>,
+    maxLengths: Record<string, number> = {}
   ): Promise<TranslateStringsResult> {
     const translations: Record<string, string> = {};
     const errors: string[] = [];
     let failed = 0;
-    const systemPrompt = buildSystemPrompt(source, target);
+    const basePrompt = buildSystemPrompt(source, target);
     const keys = Object.keys(strings).filter((key) => isFilled(strings[key]));
     for (const batch of chunk(keys, AI_TRANSLATION_BATCH_SIZE)) {
-      const payload = batch.reduce<Record<string, string>>((acc, key) => {
-        acc[key] = strings[key];
-        return acc;
-      }, {});
+      const payload = pick(strings, batch);
+      const limits = pick(maxLengths, batch);
+      const limited = Object.keys(limits).length > 0;
+      const systemPrompt = limited ? basePrompt + '\n' + buildLengthRule(limits) : basePrompt;
       let result: Record<string, string>;
       try {
         result = await requestOpenAi(credentials.apiKey, credentials.model, systemPrompt, payload);
@@ -161,6 +201,24 @@ const AiTranslationModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
         errors.push(`${target.code}: ${e.message}`);
         strapi.log.error(`[${PLUGIN_ID}] AI translation failed for ${target.code}: ${e.message}`);
         continue;
+      }
+      // A translation longer than its field allows is asked again once, shorter. Still too long, it
+      // is dropped: the caller keeps the source text, which the field already accepted.
+      const tooLong = limited ? overLimit(result, limits) : [];
+      if (tooLong.length) {
+        const retryLimits = pick(limits, tooLong);
+        try {
+          const retried = await requestOpenAi(
+            credentials.apiKey,
+            credentials.model,
+            basePrompt + '\n' + buildLengthRule(retryLimits, true),
+            pick(strings, tooLong)
+          );
+          for (const key of tooLong) result[key] = retried[key];
+        } catch (e: any) {
+          strapi.log.warn(`[${PLUGIN_ID}] AI shortening failed for ${target.code}: ${e.message}`);
+        }
+        for (const key of overLimit(result, retryLimits)) delete result[key];
       }
       for (const key of batch) {
         if (isFilled(result[key])) {
@@ -255,10 +313,11 @@ const AiTranslationModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
 
   async adminTranslateStrings() {
     const ctx = strapi.requestContext.get();
-    const { sourceLocale, targetLocale, strings } = ctx.request.body as {
+    const { sourceLocale, targetLocale, strings, maxLengths } = ctx.request.body as {
       sourceLocale?: string;
       targetLocale?: string;
       strings?: Record<string, string>;
+      maxLengths?: Record<string, number>;
     };
 
     const credentials = await this.getCredentials();
@@ -281,7 +340,7 @@ const AiTranslationModuleService = ({ strapi }: { strapi: Core.Strapi }) => ({
     if (!source) return ctx.badRequest(`The locale ${sourceLocale} is not configured in Strapi`);
     if (!target) return ctx.badRequest(`The locale ${targetLocale} is not configured in Strapi`);
 
-    return await this.translateStrings(credentials, source, target, strings);
+    return await this.translateStrings(credentials, source, target, strings, toMaxLengths(maxLengths));
   },
 });
 

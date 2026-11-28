@@ -394,6 +394,15 @@ describe('DuplicateService — AI', () => {
     expect(run.counts.untranslated).toBe(1);
   });
 
+  it('sends the AI the most characters each translated field accepts', async () => {
+    t.docs.seed(PAGE, 'p1', 'en', 'draft', page());
+    await t.run({ status: 'draft' });
+    const [, , , strings, maxLengths] = t.ai.translateStrings.mock.calls[0] as any[];
+    const titleKey = Object.keys(strings).find((k) => strings[k] === 'About');
+    expect(titleKey).toBeDefined();
+    expect(maxLengths).toEqual({ [titleKey as string]: 255 });
+  });
+
   it('records the AI errors on the run, readable and without the API key', async () => {
     t.ai.translateStrings.mockResolvedValue({
       translations: {},

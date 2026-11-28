@@ -22,6 +22,8 @@ export type TranslateStringsInput = {
   sourceLocale: string;
   targetLocale: string;
   strings: Record<string, string>;
+  /** The most characters each field accepts, by the key of its string. */
+  maxLengths?: Record<string, number>;
 }
 
 export type TranslateStringsOutput = {

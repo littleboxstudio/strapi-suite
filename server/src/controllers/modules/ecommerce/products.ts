@@ -1,6 +1,7 @@
 import fs from 'fs';
 import type { Core } from '@strapi/strapi';
 import { PLUGIN_ID } from '../../../config';
+import { fieldMaxLength } from '../../../utils/fieldMaxLength';
 import { handleDomainError as handleSharedDomainError } from './errors';
 import { removeTempUploads } from './uploads';
 import { MAX_UPLOAD_BYTES } from '../../../services/modules/ecommerce/domain/imageProcessing';
@@ -199,13 +200,28 @@ const EcommerceProductController = ({ strapi }: { strapi: Core.Strapi }) => {
       const source = locales.find((l) => l.code === sourceLocale);
       if (!source) return ctx.badRequest(`The locale ${sourceLocale} is not configured`);
 
+      // The most characters each field accepts: a product field by its name, a variant option as
+      // `variants.<i>.option`.
+      const config: any = strapi.config?.get?.(`plugin::${PLUGIN_ID}`);
+      const attributesOf = (uid: string | undefined): Record<string, any> =>
+        (uid ? (strapi.contentType?.(uid as any) as any)?.attributes : undefined) ?? {};
+      const productAttributes = attributesOf(config?.uuid?.modules?.ecommerce?.productTranslation);
+      const variantAttributes = attributesOf(config?.uuid?.modules?.ecommerce?.variantTranslation);
+      const maxLengths: Record<string, number> = {};
+      for (const key of Object.keys(strings)) {
+        const max = /^variants\.\d+\.option$/.test(key)
+          ? fieldMaxLength(variantAttributes.option)
+          : fieldMaxLength(productAttributes[key]);
+        if (max) maxLengths[key] = max;
+      }
+
       const translations: Record<string, Record<string, string>> = {};
       let failed = 0;
       const errors = new Set<string>();
       for (const code of targetLocales as string[]) {
         const target = locales.find((l) => l.code === code);
         if (!target) return ctx.badRequest(`The locale ${code} is not configured`);
-        const result = await ai().translateStrings(credentials, source, target, strings);
+        const result = await ai().translateStrings(credentials, source, target, strings, maxLengths);
         translations[code] = result.translations;
         failed += result.failed;
         for (const error of result.errors ?? []) errors.add(aiFailureReason(String(error)));

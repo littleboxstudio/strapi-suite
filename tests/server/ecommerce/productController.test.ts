@@ -39,6 +39,51 @@ describe('EcommerceProductController', () => {
     expect(ctx.body).toEqual({ translations: { pt: { a: 'x' }, fr: { a: 'y' } }, failed: 3, errors: [] });
   });
 
+  it('translate sends the most characters each field accepts, product fields and variant options', async () => {
+    const translateStrings = vi.fn().mockResolvedValue({ translations: {}, failed: 0, errors: [] });
+    const attributes: Record<string, any> = {
+      'plugin::x.product-translation': {
+        name: { type: 'string' },
+        shortDescription: { type: 'text' },
+        description: { type: 'text', maxLength: 2000 },
+      },
+      'plugin::x.variant-translation': { option: { type: 'string', maxLength: 80 } },
+    };
+    const strapi: any = {
+      plugin: () => ({
+        service: () => ({
+          getCredentials: vi.fn().mockResolvedValue({ apiKey: 'k' }),
+          getLocales: vi.fn().mockResolvedValue([{ code: 'en', name: 'English' }, { code: 'pt', name: 'PT' }]),
+          translateStrings,
+        }),
+      }),
+      config: {
+        get: () => ({
+          uuid: {
+            modules: {
+              ecommerce: {
+                productTranslation: 'plugin::x.product-translation',
+                variantTranslation: 'plugin::x.variant-translation',
+              },
+            },
+          },
+        }),
+      },
+      contentType: (uid: string) => ({ attributes: attributes[uid] }),
+    };
+    const ctx: any = {
+      request: {
+        body: {
+          sourceLocale: 'en',
+          targetLocales: ['pt'],
+          strings: { name: 'Shoe', shortDescription: 'Nice', description: 'Long', 'variants.0.option': 'Red' },
+        },
+      },
+    };
+    await createController({ strapi }).translate(ctx);
+    expect(translateStrings.mock.calls[0][4]).toEqual({ name: 255, description: 2000, 'variants.0.option': 80 });
+  });
+
   it('aiFailureReason keeps the provider message and masks keys', () => {
     const raw = 'pt: OpenAI request failed with status 429: {\n  "error": {\n    "message": "You have no credits remaining.",\n    "type": "insufficient_quota"\n  }\n}';
     expect(aiFailureReason(raw)).toBe('You have no credits remaining.');

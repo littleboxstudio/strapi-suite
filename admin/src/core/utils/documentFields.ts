@@ -9,6 +9,21 @@ export interface TranslatableField {
   value: string;
   current: string;
   kind: FieldKind;
+  /** The most characters the field accepts (text fields with a limit only). */
+  maxLength?: number;
+}
+
+/** Strapi stores a `string` attribute in a varchar(255) column when it sets no maxLength. */
+const STRING_COLUMN_LENGTH = 255;
+
+/**
+ * The most characters a text attribute accepts: its `maxLength`, else 255 for a `string`.
+ * Same rule as server/src/utils/fieldMaxLength.ts.
+ */
+export function fieldMaxLength(attribute: any): number | undefined {
+  const max = attribute?.maxLength;
+  if (typeof max === 'number' && Number.isFinite(max) && max > 0) return Math.floor(max);
+  return attribute?.type === 'string' ? STRING_COLUMN_LENGTH : undefined;
 }
 
 type Attributes = Record<string, any>;
@@ -83,7 +98,14 @@ export function collectTranslatableFields(
 
     if (TEXT_TYPES.includes(attribute.type)) {
       if (isTranslatableText(sourceValue) && typeof targetValue === 'string') {
-        fields.push({ path, value: sourceValue, current: targetValue, kind: 'text' });
+        const maxLength = fieldMaxLength(attribute);
+        fields.push({
+          path,
+          value: sourceValue,
+          current: targetValue,
+          kind: 'text',
+          ...(maxLength ? { maxLength } : {}),
+        });
       }
       continue;
     }

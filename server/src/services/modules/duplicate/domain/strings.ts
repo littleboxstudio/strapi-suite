@@ -5,12 +5,19 @@
  * Kept in step with the admin by hand (the admin file is not shared with the server build).
  */
 import { isLocalizedAttribute, SYSTEM_FIELDS, type SchemaLookup } from './scope';
+import { fieldMaxLength } from '../../../../utils/fieldMaxLength';
 
 const SLUG_CUSTOM_FIELD = 'plugin::littlebox-strapi-suite.ltbslug';
 const TEXT_TYPES = ['string', 'text', 'richtext'];
 const URL_PATTERN = /^(https?:\/\/|\/|mailto:|tel:)\S*$/i;
 
-export type StringField = { path: string; value: string; kind: 'text' | 'slug' };
+export type StringField = {
+  path: string;
+  value: string;
+  kind: 'text' | 'slug';
+  /** The most characters the field accepts (text fields with a limit only). */
+  maxLength?: number;
+};
 
 function isFilled(value: any): value is string {
   return typeof value === 'string' && value.trim().length > 0;
@@ -68,7 +75,10 @@ function collect(
     }
 
     if (TEXT_TYPES.includes(attribute.type)) {
-      if (isTranslatableText(value)) fields.push({ path, value, kind: 'text' });
+      if (isTranslatableText(value)) {
+        const maxLength = fieldMaxLength(attribute);
+        fields.push({ path, value, kind: 'text', ...(maxLength ? { maxLength } : {}) });
+      }
       continue;
     }
 
@@ -122,6 +132,15 @@ export function toAiStrings(fields: StringField[]): Record<string, string> {
     strings[String(index)] = field.kind === 'slug' ? field.value.replace(/-/g, ' ') : field.value;
   });
   return strings;
+}
+
+/** The field limits for `translateStrings`, under the same keys as `toAiStrings`. */
+export function toAiMaxLengths(fields: StringField[]): Record<string, number> {
+  const limits: Record<string, number> = {};
+  fields.forEach((field, index) => {
+    if (field.kind === 'text' && field.maxLength) limits[String(index)] = field.maxLength;
+  });
+  return limits;
 }
 
 function clone<T>(value: T): T {

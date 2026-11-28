@@ -3,10 +3,12 @@ import {
   applyStrings,
   collectStrings,
   convertToSlug,
+  toAiMaxLengths,
   toAiStrings,
 } from '../../../server/src/services/modules/duplicate/domain/strings';
 import { convertToSlug as adminConvertToSlug } from '../../../admin/src/core/utils/convertToSlug';
 import { lookup } from './fixtures';
+import { fieldMaxLength } from '../../../server/src/utils/fieldMaxLength';
 
 const source = {
   documentId: 'p1',
@@ -41,12 +43,12 @@ describe('collectStrings', () => {
 
   it('collects text, blocks, components and dynamic zones with their paths', () => {
     expect(fields).toEqual([
-      { path: 'title', value: 'About us', kind: 'text' },
+      { path: 'title', value: 'About us', kind: 'text', maxLength: 255 },
       { path: 'slug', value: 'about-us', kind: 'slug' },
       { path: 'body.0.children.0.text', value: 'Hello ', kind: 'text' },
       { path: 'body.0.children.1.text', value: 'world', kind: 'text' },
-      { path: 'seo.metaTitle', value: 'Meta', kind: 'text' },
-      { path: 'ctas.0.label', value: 'Read', kind: 'text' },
+      { path: 'seo.metaTitle', value: 'Meta', kind: 'text', maxLength: 255 },
+      { path: 'ctas.0.label', value: 'Read', kind: 'text', maxLength: 255 },
       { path: 'ctas.0.inner.note', value: '<p>Note</p>', kind: 'text' },
       { path: 'blocks.0.content', value: 'Rich', kind: 'text' },
       { path: 'blocks.0.handle', value: 'rich-text', kind: 'slug' },
@@ -67,7 +69,7 @@ describe('collectStrings', () => {
 
   it('a uid is a slug', () => {
     expect(collectStrings('api::author.author', { name: 'Ann', handle: 'ann-lee' }, lookup)).toEqual([
-      { path: 'name', value: 'Ann', kind: 'text' },
+      { path: 'name', value: 'Ann', kind: 'text', maxLength: 255 },
       { path: 'handle', value: 'ann-lee', kind: 'slug' },
     ]);
   });
@@ -130,5 +132,50 @@ describe('convertToSlug (server copy)', () => {
       expect(convertToSlug(text)).toBe(adminConvertToSlug(text));
     }
     expect(convertToSlug('Hello big world', 9)).toBe(adminConvertToSlug('Hello big world', 9));
+  });
+});
+
+describe('field limits', () => {
+  it('a field accepts its maxLength, else 255 for a string; text, rich text and blocks have no limit', () => {
+    expect(fieldMaxLength({ type: 'string', maxLength: 160 })).toBe(160);
+    expect(fieldMaxLength({ type: 'text', maxLength: 500 })).toBe(500);
+    expect(fieldMaxLength({ type: 'string' })).toBe(255);
+    expect(fieldMaxLength({ type: 'text' })).toBeUndefined();
+    expect(fieldMaxLength({ type: 'richtext' })).toBeUndefined();
+    expect(fieldMaxLength({ type: 'string', maxLength: 0 })).toBe(255);
+    expect(fieldMaxLength(undefined)).toBeUndefined();
+  });
+
+  it('collects the limit of each text field, in components too, and keys it like toAiStrings', () => {
+    const limited = {
+      contentType: (uid: string) =>
+        uid === 'api::post.post'
+          ? {
+              pluginOptions: { i18n: { localized: true } },
+              attributes: {
+                title: { type: 'string', pluginOptions: { i18n: { localized: true } } },
+                body: { type: 'text', pluginOptions: { i18n: { localized: true } } },
+                slug: { type: 'uid', maxLength: 20 },
+                seo: { type: 'component', component: 'shared.seo', pluginOptions: { i18n: { localized: true } } },
+              },
+            }
+          : undefined,
+      component: (uid: string) =>
+        uid === 'shared.seo'
+          ? { attributes: { metaDescription: { type: 'text', maxLength: 160 } } }
+          : undefined,
+    } as any;
+    const fields = collectStrings(
+      'api::post.post',
+      { title: 'Hello', body: 'Long text', slug: 'hello', seo: { metaDescription: 'A description' } },
+      limited
+    );
+    expect(fields).toEqual([
+      { path: 'title', value: 'Hello', kind: 'text', maxLength: 255 },
+      { path: 'body', value: 'Long text', kind: 'text' },
+      { path: 'slug', value: 'hello', kind: 'slug' },
+      { path: 'seo.metaDescription', value: 'A description', kind: 'text', maxLength: 160 },
+    ]);
+    expect(toAiMaxLengths(fields)).toEqual({ '0': 255, '3': 160 });
   });
 });
